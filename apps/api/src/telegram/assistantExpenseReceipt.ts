@@ -15,9 +15,14 @@ import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import { answerCallbackQuery, editMessageText, sendMessage, sendMessageWithButtons, TelegramApiError, type TelegramCallbackQuery, type TelegramIncomingMessage } from "./api.js";
 import { todayExpenseDay } from "../lib/expenseWorkspace.js";
+import {
+  intakeText, knownBatch, normalizeReceiptPhoto, rowsFromSpreadsheet, rowsFromTablePhoto, sourceHashOf, spreadsheetKind, stageExpenseBatch, type SpreadsheetKind,
+} from "./assistantExpenseBatchIntake.js";
+import { collectExpenseAlbumPhoto } from "./assistantExpenseAlbum.js";
 
 const EXPENSE_CALLBACK = /^ef:(yes|no):(ru|tg):([0-9a-f-]{36})$/u;
-const expenseIntent = /^(?:\/?чек|расход|харҷ|расид)(?=$|[\s:.,!?])/iu;
+// Подпись-намерение на четырёх языках (10.11.2026): «расходы за октябрь», «харҷҳо», «xarajatlar», «expenses».
+const expenseIntent = /^(?:\/?чек|расход\p{L}*|харҷ\p{L}*|расид|запиши|внеси|сабт\s+кун|xarajat\p{L}*|harajat\p{L}*|expenses?|receipts?)(?=$|[\s:.,!?])/iu;
 const dailyExpenseReceipts = 15;
 const fileSchema = z.object({ file_id: z.string().min(1).max(1024), file_size: z.number().int().positive().optional() });
 const receiptMessage = z.object({
@@ -142,27 +147,24 @@ function preview(evidence: ExpenseReceiptEvidence): string {
     evidence.purpose, evidence.vendor, phrases.category].filter(Boolean).join("\n");
 }
 
-async function normalizeReceiptPhoto(raw: Buffer): Promise<Buffer> {
-  const processor = sharp(raw, { limitInputPixels: 20_000_000, failOn: "warning" });
-  const metadata = await processor.metadata();
-  if (!["jpeg", "png", "webp"].includes(metadata.format ?? "") || (metadata.pages ?? 1) !== 1) {
-    throw new Error("expense_receipt_invalid_image");
-  }
-  const image = await processor.rotate().jpeg({ quality: 88 }).toBuffer();
-  if (image.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("expense_receipt_image_limit");
-  return image;
-}
-
 export async function handleTelegramExpenseReceipt(
   msg: TelegramIncomingMessage, agentId: string, wallet: AssistantMoneyWallet,
 ): Promise<boolean> {
-  // Never OCR albums, copied sources, or attachments for a different private chat owner.
-  if (msg.sender_chat || msg.forward_origin || msg.forward_from_message_id || msg.is_automatic_forward || msg.media_group_id) return false;
+  if (msg.sender_chat || msg.is_automatic_forward) return false;
   const parsed = receiptMessage.safeParse(msg);
   if (!parsed.success || parsed.data.chat.id !== parsed.data.from.id) return false;
   const { chat, message_id: messageId, photo, document } = parsed.data;
   const caption = parsed.data.caption?.trim() ?? "";
   const explicit = expenseIntent.test(caption);
+  // Таблица Excel/CSV разбирается кодом и только показывается карточкой — пересланная тоже.
+  const sheet = document ? spreadsheetKind(document) : null;
+  if (sheet && !msg.media_group_id) return handleExpenseSpreadsheet({ chatId: String(chat.id), messageId, document: document!, kind: sheet, caption, explicit, agentId });
+  // Альбом фото — одна пачка на весь альбом (assistantExpenseAlbum.ts).
+  if (msg.media_group_id && photo && !document && !msg.forward_origin && !msg.forward_from_message_id && (!caption || explicit)) {
+    return collectExpenseAlbumPhoto({ chatId: String(chat.id), agentId, messageId, groupId: msg.media_group_id, fileId: photo.at(-1)!.file_id, caption, wallet });
+  }
+  // Never OCR copied photo sources or albums outside the expense flow.
+  if (msg.forward_origin || msg.forward_from_message_id || msg.media_group_id) return false;
   if ((caption && !explicit) || (photo && document)) return false;
   const pdf = !!document && (document.mime_type === "application/pdf"
     || ((!document.mime_type || document.mime_type === "application/octet-stream") && /\.pdf$/iu.test(document.file_name ?? "")));
@@ -187,7 +189,14 @@ export async function handleTelegramExpenseReceipt(
       const raw = await downloadAssistantMedia(item.file_id, MAX_EXPENSE_RECEIPT_BYTES);
       if (!raw.length || raw.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("media_size_rejected");
       const source = pdf ? raw : await normalizeReceiptPhoto(raw);
-      result = await findExpensePhotoDraft(actor, messageId, expenseReceiptHash(source));
+      const sourceHash = expenseReceiptHash(source);
+      result = await findExpensePhotoDraft(actor, messageId, sourceHash);
+      // Та же таблица второй раз: ответ без платного разбора.
+      const known = result ? null : await knownBatch(agentId, sourceHash);
+      if (known) {
+        await send(intakeText(language)[known]);
+        return true;
+      }
       if (!result) {
         const image = pdf ? await renderExpenseReceiptPdf(source) : source;
         if (image.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("expense_receipt_image_limit");
@@ -198,6 +207,17 @@ export async function handleTelegramExpenseReceipt(
         }
         const { kind, language: imageLanguage, ...fields } = await extractExpenseReceipt(image, wallet);
         if (!explicit && imageLanguage === "tg") language = "tg";
+        if (kind === "expense_list") {
+          // Таблица, список или несколько чеков на одном фото — одна карточка «Проверьте N расходов».
+          const table = await rowsFromTablePhoto(image, wallet);
+          if (!explicit && table.language === "tg") language = "tg";
+          if (!table.rows.length) {
+            await send(intakeText(language).unreadablePhoto);
+            return true;
+          }
+          await stageExpenseBatch({ chatId: actor.chatId, agentId, rows: table.rows, lang: language, sourceHash, replyTo: messageId, unreadable: table.unreadable });
+          return true;
+        }
         if (kind !== "paid_receipt" || (pdf && !fields.amountMinor)) {
           if (explicit || kind === "unclear_receipt") {
             await send(pdf ? copy[language].noPaidPdf : copy[language].noPaidReceipt);
@@ -291,4 +311,48 @@ export async function handleTelegramExpenseReceiptCallback(query: TelegramCallba
     await ack(phrases.uncertain);
   }
   return true;
+}
+
+const MAX_SPREADSHEET_BYTES = 5_000_000;
+
+/**
+ * Excel или CSV в личке (10.11.2026): таблица разбирается кодом, без ИИ, в одну карточку. Файл без
+ * строк «название + сумма» без подписи-намерения — не расходы: отдаём обычному пути.
+ */
+async function handleExpenseSpreadsheet(params: {
+  chatId: string; messageId: number; document: { file_id: string; file_size?: number }; kind: SpreadsheetKind;
+  caption: string; explicit: boolean; agentId: string;
+}): Promise<boolean> {
+  const { chatId, messageId, document, kind, caption, explicit, agentId } = params;
+  const actor = await getExpenseDirector(chatId, agentId);
+  if (!actor) return false;
+  const captionLanguage = assistantLanguage([{ role: "user", content: caption }]);
+  const language: Language = captionLanguage === "tg" || captionLanguage === "mixed" || /^(?:харҷ|расид)/iu.test(caption) ? "tg" : "ru";
+  const send = (text: string) => sendMessage(chatId, text, messageId);
+  if (kind === "xls") {
+    if (explicit || !caption) await send(intakeText(language).xls);
+    return explicit || !caption;
+  }
+  if (document.file_size && document.file_size > MAX_SPREADSHEET_BYTES) {
+    await send(intakeText(language).broken);
+    return true;
+  }
+  try {
+    const bytes = await downloadAssistantMedia(document.file_id, MAX_SPREADSHEET_BYTES);
+    const sourceHash = sourceHashOf(bytes);
+    const known = await knownBatch(agentId, sourceHash);
+    if (known) { await send(intakeText(language)[known]); return true; }
+    const table = rowsFromSpreadsheet(kind, bytes);
+    if (!table) { await send(intakeText(language).broken); return true; }
+    if (!table.rows.length) {
+      if (explicit) await send(intakeText(language).empty);
+      return explicit;
+    }
+    await stageExpenseBatch({ chatId, agentId, rows: table.rows, lang: language, sourceHash, replyTo: messageId, unreadable: table.unreadable });
+    return true;
+  } catch (error) {
+    console.warn("[telegram:assistant] spreadsheet expenses unavailable", { kind, cause: error instanceof Error ? error.message : "unknown" });
+    await send(intakeText(language).failed).catch(() => {});
+    return true;
+  }
 }

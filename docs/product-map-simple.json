@@ -16,10 +16,10 @@
   "paths": 731,
   "cron": 124,
   "jobs": 32,
-  "conditions": 3996,
-  "untranslatedUnique": 457,
-  "untranslatedTotal": 587,
-  "partialUnique": 1097,
+  "conditions": 3923,
+  "untranslatedUnique": 445,
+  "untranslatedTotal": 577,
+  "partialUnique": 1074,
   "translatedShare": 85
  },
  "untranslated": [
@@ -48,10 +48,6 @@
   "!availabilityOf(agent).pausedUntil",
   "!await assignmentSourceEpochIsCurrent(prisma, { clientId: row.clientId, subjectAgentId: row.agentId, assignme…",
   "!await current(row, true)",
-  "!await validateExpenseCategory(parsed.data.categoryId,parsed.data.category)",
-  "!await validateExpenseCategory(patch.categoryId===undefined?existing.categoryId:patch.categoryId,patch.catego…",
-  "!await validateExpenseCategory(rest.categoryId,rest.category)",
-  "!await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??…",
   "!beginOrigination(req.agent!.id)",
   "!body.id && !body.token?.trim()",
   "!byId.get(pair.videoMontajerAgentId)?.telegramChatId",
@@ -64,6 +60,8 @@
   "!classifyFileName(file.area, path.basename(file.relPath))",
   "!client || client.customerIntakeActionId !== actionId || client.deletedAt",
   "!client.requirementsNotes?.trim()",
+  "!commandFailed(res, err)",
+  "!commandFailed(res, error)",
   "!confirmedClientIntents(client).buys",
   "!contact.success || !contact.data.name || !contact.data.phone || !intent || intent.status !== \"committed\" || …",
   "!contentType.startsWith(\"video/\")",
@@ -98,13 +96,10 @@
   "!message.referralOnly && admission.status === \"admitted\" && admission.fresh && pendingReferral && message.acc…",
   "!messages.some((m) => m.role === \"user\")",
   "!needsReadReceipt(source)",
-  "!occurrenceDates(t, day, day).includes(day)",
   "!options.allowLive || newOwnerProbeMode() !== 'LIVE'",
   "!outcome.agentId || client.assignedAgentId !== outcome.agentId",
   "!ownerId || ownerId === req.agent!.id",
   "!pageToken || items.length === 0 || !pageHasFreshThread(items, cutoffMs)",
-  "!parent || parent.rootCategory !== parsed.data.rootCategory",
-  "!parent || parent.rootCategory !== row.rootCategory",
   "!parsed.success || !toSmsPhone(parsed.data.phone)",
   "!parsed.success || !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success",
   "!permissions.has(\"clients.viewAll\") && (first.clientAssignedAgentId !== agent.id || !first.clientAcceptedAt)",
@@ -155,11 +150,8 @@
   "(err as { code?: string }).code === \"P2002\"",
   "(existing?.revision ?? 0) !== parsed.data.expectedRevision",
   "(expenseDay(p.data.to!).getTime() - expenseDay(p.data.from!).getTime()) / 86400000 > 366",
-  "(finalCategory === \"OFFICE\" || finalCategory === \"OTHER\") && !finalNote?.trim()",
   "(latest?.revision ?? 0) !== parsed.data.expectedRevision",
   "(property.publishedChannels ?? []).includes(\"TIKTOK\")",
-  "(rest.status??\"PAID\")===\"PAID\"&&rest.paymentDate&&rest.paymentDate>todayExpenseDay()",
-  "(rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
   "(settings?.leadDistributionStrategy ?? \"fair\") === \"manual\"",
   "Boolean(params.propertyId) === Boolean(params.freeVideoId)",
   "Date.now() - last < REFRESH_EVERY_MS",
@@ -285,6 +277,7 @@
   "err instanceof ClientMergeTrashedError",
   "err instanceof ConversationClientLinkError",
   "err instanceof DealAnnulError",
+  "err instanceof ExpenseLifecycleError",
   "err instanceof FirstContactError",
   "err instanceof MetaAdsTokenError",
   "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2003\"",
@@ -299,7 +292,6 @@
   "error instanceof CustomerAgentOwnerError",
   "error instanceof CustomerScopeDenied && error.reason === \"scope_unknown\"",
   "error instanceof DealConflictError",
-  "error instanceof ExpenseLifecycleError",
   "error instanceof InvalidShellAgents",
   "error instanceof InvestigationConflict",
   "error instanceof ManualCorrectionConflict",
@@ -339,7 +331,6 @@
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
   "items.some((i) => i.propertyId === req.params.id)",
-  "key&&!/^[A-Za-z0-9:_-]{8,120}$/.test(key)",
   "key.startsWith(\"client:\")",
   "key.startsWith(\"td_\")",
   "lastAlertDay === today",
@@ -384,7 +375,6 @@
   "parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…",
   "parsed.data.ownerContact?.trim()",
   "parsed.data.previewFingerprint && parsed.data.previewFingerprint !== previewFingerprint",
-  "parsed.data.rootCategory && parsed.data.rootCategory !== row.rootCategory",
   "parsed.data.status !== undefined && parsed.data.status !== existing.status",
   "parsed.data.status !== undefined && requiresPropertyModeration(existing.status, parsed.data.status) && !can(r…",
   "parsed.data.status && parsed.data.status !== existing.status && !can(req, \"clients.assign\")",
@@ -418,7 +408,6 @@
   "req.agent!.id !== result.deal.agentId",
   "req.params.id === req.agent!.id",
   "request?.kind !== \"PRICE_CHANGE\" || request.status !== \"PENDING\" || readPriceUndoGuard(request.payload)?.assi…",
-  "requestKey&&expense.autoFingerprint!==fingerprint",
   "requestedTail !== phoneTail(client.phone)",
   "requirementsNotes.length + text.length + 1 <= 4000",
   "rest.phone && rest.phone !== existing.phone",
@@ -474,7 +463,6 @@
   "uploadedParts.length !== session.totalParts",
   "value !== null && value !== \"\" && (typeof value !== \"object\" || Object.keys(value as object).length > 0)",
   "value.startsWith(\"••••\")",
-  "version !== undefined && version !== current.version",
   "voiceMuted || result.rendered + result.failed >= BATCH_LIMIT",
   "wall.getUTCDay() !== settings.digestWeekday",
   "wall.getUTCHours() !== settings.digestHourDushanbe",
@@ -27754,23 +27742,10 @@
    ],
    "tree": [
     {
-     "t": "отказ: данные неверные: «Неверная дата»",
+     "t": "всё хорошо, отвечает данными",
      "k": "do",
      "a": [],
      "c": [
-      {
-       "t": "если нет: success",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Неверная дата»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
       {
        "t": "пробует сделать",
        "k": "try",
@@ -27790,18 +27765,11 @@
        "a": [],
        "c": [
         {
-         "t": "если error instanceof ExpenseLifecycleError",
+         "t": "если !commandFailed(res, error)",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "ответ (код зависит от условия)",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "error instanceof ExpenseLifecycleError"
+         "c": [],
+         "raw": "!commandFailed(res, error)"
         }
        ]
       }
@@ -28119,12 +28087,6 @@
      "a": [],
      "c": [
       {
-       "t": "меняет: расход",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
        "t": "всё хорошо, отвечает данными",
        "k": "do",
        "a": [],
@@ -28138,18 +28100,11 @@
      "a": [],
      "c": [
       {
-       "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "если !commandFailed(res, err)",
        "k": "if",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Расход не найден»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\""
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
     }
@@ -28177,23 +28132,10 @@
    ],
    "tree": [
     {
-     "t": "отказ: данные неверные: «Неверная дата»",
+     "t": "всё хорошо, отвечает данными",
      "k": "do",
      "a": [],
      "c": [
-      {
-       "t": "если нет: success",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Неверная дата»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
       {
        "t": "пробует сделать",
        "k": "try",
@@ -28213,18 +28155,11 @@
        "a": [],
        "c": [
         {
-         "t": "если error instanceof ExpenseLifecycleError",
+         "t": "если !commandFailed(res, error)",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "ответ (код зависит от условия)",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "error instanceof ExpenseLifecycleError"
+         "c": [],
+         "raw": "!commandFailed(res, error)"
         }
        ]
       }
@@ -28272,12 +28207,6 @@
      "a": [],
      "c": [
       {
-       "t": "меняет: расход",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
        "t": "готово, отвечать нечем",
        "k": "do",
        "a": [],
@@ -28291,31 +28220,11 @@
      "a": [],
      "c": [
       {
-       "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "если !commandFailed(res, err)",
        "k": "if",
        "a": [],
-       "c": [
-        {
-         "t": "если version задан",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "отказ: такое уже есть: «Расход уже изменён. Обновите запись перед удалением»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "отказ: не нашли: «Расход не найден»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\""
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
     }
@@ -28343,150 +28252,10 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: current или есть удалён at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Расход не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если version не задан и изменённые fields количество больше 1",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Обновите страницу и снова откройте расход: старая форма не передаёт…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если version !== undefined && version !== current.version",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Расход изменён другим сотрудником. Обновите запись перед сохранением»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "version !== undefined && version !== current.version"
-    },
-    {
-     "t": "если сумма задан и сумма больше 99 999 999.99",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Сумма слишком большая»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если !await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??…",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Категория не соответствует разделу»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "!await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??…"
-    },
-    {
-     "t": "если (rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Будущий платёж запишите как план»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "(rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()"
-    },
-    {
-     "t": "если final category — «ADVERTISING» и нет: final source",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Укажите канал рекламы»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если final category — «SALARY» и нет: final сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Укажите сотрудника»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если (finalCategory === \"OFFICE\" || finalCategory === \"OTHER\") && !finalNote?.trim()",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Укажите комментарий — куда пошли деньги»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "(finalCategory === \"OFFICE\" || finalCategory === \"OTHER\") && !finalNote?.trim()"
-    },
-    {
      "t": "пробует сделать",
      "k": "try",
      "a": [],
      "c": [
-      {
-       "t": "меняет: расход",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
       {
        "t": "всё хорошо, отвечает данными",
        "k": "do",
@@ -28501,18 +28270,11 @@
      "a": [],
      "c": [
       {
-       "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "если !commandFailed(res, err)",
        "k": "if",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть: «Расход изменён другим сотрудником. Обновите запись перед сохранением»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\""
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
     }
@@ -28569,12 +28331,12 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
+     "t": "пробует сделать",
+     "k": "try",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Некорректная категория»",
+       "t": "всё хорошо, отвечает данными",
        "k": "do",
        "a": [],
        "c": []
@@ -28582,97 +28344,18 @@
      ]
     },
     {
-     "t": "если нет: строка",
-     "k": "if",
+     "t": "если не получилось",
+     "k": "catch",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Категория не найдена»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если parsed.data.rootCategory && parsed.data.rootCategory !== row.rootCategory",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Раздел существующей категории менять нельзя»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "parsed.data.rootCategory && parsed.data.rootCategory !== row.rootCategory"
-    },
-    {
-     "t": "если есть parent",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "и так по каждому",
-       "k": "loop",
-       "a": [],
-       "c": [
-        {
-         "t": "если visited содержит есть следующий",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "отказ: данные неверные: «Цикл категорий недопустим»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "если !parent || parent.rootCategory !== row.rootCategory",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "отказ: данные неверные: «Неверная родительская категория»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "!parent || parent.rootCategory !== row.rootCategory"
-        }
-       ]
-      },
-      {
-       "t": "если есть следующий",
+       "t": "если !commandFailed(res, err)",
        "k": "if",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Слишком глубокие категории»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
-    },
-    {
-     "t": "меняет: расход category definition",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [],
-     "c": []
     }
    ]
   },
@@ -28710,37 +28393,10 @@
      ]
     },
     {
-     "t": "если expenses количество больше 20000",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "поломка: «413,»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
      "t": "всё хорошо, отвечает данными",
      "k": "do",
      "a": [],
-     "c": [
-      {
-       "t": "и так по каждому",
-       "k": "loop",
-       "a": [],
-       "c": [
-        {
-         "t": "и так по каждому",
-         "k": "loop",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
+     "c": []
     }
    ]
   },
@@ -28764,12 +28420,12 @@
    "screens": [],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
+     "t": "пробует сделать",
+     "k": "try",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Некорректная категория»",
+       "t": "создано",
        "k": "do",
        "a": [],
        "c": []
@@ -28777,37 +28433,18 @@
      ]
     },
     {
-     "t": "если есть parent",
-     "k": "if",
+     "t": "если не получилось",
+     "k": "catch",
      "a": [],
      "c": [
       {
-       "t": "если !parent || parent.rootCategory !== parsed.data.rootCategory",
+       "t": "если !commandFailed(res, err)",
        "k": "if",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Родительская категория не соответствует разделу»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "!parent || parent.rootCategory !== parsed.data.rootCategory"
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
-    },
-    {
-     "t": "заводит: расход category definition",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "создано",
-     "k": "do",
-     "a": [],
-     "c": []
     }
    ]
   },
@@ -29140,25 +28777,6 @@
      ]
     },
     {
-     "t": "и так по каждому",
-     "k": "loop",
-     "a": [],
-     "c": [
-      {
-       "t": "если месяцы (ответ) не содержит есть month",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если нет: строка",
-       "k": "if",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
      "t": "всё хорошо, отвечает данными",
      "k": "do",
      "a": [],
@@ -29235,96 +28853,15 @@
    ],
    "tree": [
     {
-     "t": "отказ: данные неверные: «Неверная дата платежа»",
+     "t": "всё хорошо, отвечает данными",
      "k": "do",
-     "a": [
-      "поломка: «404,»",
-      "все изменения разом: либо всё, либо ничего",
-      "меняет: recurring расход"
-     ],
+     "a": [],
      "c": [
-      {
-       "t": "если нет: success",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Неверная дата платежа»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если нет: t или есть удалён at",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Подписка не найдена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если !occurrenceDates(t, day, day).includes(day)",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Дата не относится к подписке»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "!occurrenceDates(t, day, day).includes(day)"
-      },
       {
        "t": "пробует сделать",
        "k": "try",
        "a": [],
        "c": [
-        {
-         "t": "поломка: «404,»",
-         "k": "do",
-         "a": [
-          "все изменения разом: либо всё, либо ничего",
-          "меняет: recurring расход"
-         ],
-         "c": [
-          {
-           "t": "если нет: latest или есть удалён at",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть удалён at",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если действие — «skip»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "меняет: recurring расход",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
         {
          "t": "всё хорошо, отвечает данными",
          "k": "do",
@@ -29339,18 +28876,11 @@
        "a": [],
        "c": [
         {
-         "t": "если error instanceof ExpenseLifecycleError",
+         "t": "если !commandFailed(res, error)",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "ответ (код зависит от условия)",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "error instanceof ExpenseLifecycleError"
+         "c": [],
+         "raw": "!commandFailed(res, error)"
         }
        ]
       }
@@ -29380,12 +28910,12 @@
    ],
    "tree": [
     {
-     "t": "если нет: t",
-     "k": "if",
+     "t": "пробует сделать",
+     "k": "try",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Подписка не найдена»",
+       "t": "всё хорошо, отвечает данными",
        "k": "do",
        "a": [],
        "c": []
@@ -29393,12 +28923,18 @@
      ]
     },
     {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [
-      "меняет: recurring расход"
-     ],
-     "c": []
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "если !commandFailed(res, err)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "!commandFailed(res, err)"
+      }
+     ]
     }
    ]
   },
@@ -29424,96 +28960,15 @@
    ],
    "tree": [
     {
-     "t": "отказ: данные неверные: «Неверная дата платежа»",
+     "t": "всё хорошо, отвечает данными",
      "k": "do",
-     "a": [
-      "поломка: «404,»",
-      "все изменения разом: либо всё, либо ничего",
-      "меняет: recurring расход"
-     ],
+     "a": [],
      "c": [
-      {
-       "t": "если нет: success",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Неверная дата платежа»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если нет: t или есть удалён at",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Подписка не найдена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если !occurrenceDates(t, day, day).includes(day)",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Дата не относится к подписке»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "!occurrenceDates(t, day, day).includes(day)"
-      },
       {
        "t": "пробует сделать",
        "k": "try",
        "a": [],
        "c": [
-        {
-         "t": "поломка: «404,»",
-         "k": "do",
-         "a": [
-          "все изменения разом: либо всё, либо ничего",
-          "меняет: recurring расход"
-         ],
-         "c": [
-          {
-           "t": "если нет: latest или есть удалён at",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть удалён at",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если действие — «skip»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "меняет: recurring расход",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
         {
          "t": "всё хорошо, отвечает данными",
          "k": "do",
@@ -29528,18 +28983,11 @@
        "a": [],
        "c": [
         {
-         "t": "если error instanceof ExpenseLifecycleError",
+         "t": "если !commandFailed(res, error)",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "ответ (код зависит от условия)",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "error instanceof ExpenseLifecycleError"
+         "c": [],
+         "raw": "!commandFailed(res, error)"
         }
        ]
       }
@@ -29569,96 +29017,15 @@
    ],
    "tree": [
     {
-     "t": "отказ: данные неверные: «Неверная дата платежа»",
+     "t": "всё хорошо, отвечает данными",
      "k": "do",
-     "a": [
-      "поломка: «404,»",
-      "все изменения разом: либо всё, либо ничего",
-      "меняет: recurring расход"
-     ],
+     "a": [],
      "c": [
-      {
-       "t": "если нет: success",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Неверная дата платежа»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если нет: t или есть удалён at",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Подписка не найдена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если !occurrenceDates(t, day, day).includes(day)",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Дата не относится к подписке»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "!occurrenceDates(t, day, day).includes(day)"
-      },
       {
        "t": "пробует сделать",
        "k": "try",
        "a": [],
        "c": [
-        {
-         "t": "поломка: «404,»",
-         "k": "do",
-         "a": [
-          "все изменения разом: либо всё, либо ничего",
-          "меняет: recurring расход"
-         ],
-         "c": [
-          {
-           "t": "если нет: latest или есть удалён at",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть удалён at",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если действие — «skip»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "меняет: recurring расход",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
         {
          "t": "всё хорошо, отвечает данными",
          "k": "do",
@@ -29673,18 +29040,11 @@
        "a": [],
        "c": [
         {
-         "t": "если error instanceof ExpenseLifecycleError",
+         "t": "если !commandFailed(res, error)",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "ответ (код зависит от условия)",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "error instanceof ExpenseLifecycleError"
+         "c": [],
+         "raw": "!commandFailed(res, error)"
         }
        ]
       }
@@ -29712,96 +29072,15 @@
    "screens": [],
    "tree": [
     {
-     "t": "отказ: данные неверные: «Неверная дата платежа»",
+     "t": "всё хорошо, отвечает данными",
      "k": "do",
-     "a": [
-      "поломка: «404,»",
-      "все изменения разом: либо всё, либо ничего",
-      "меняет: recurring расход"
-     ],
+     "a": [],
      "c": [
-      {
-       "t": "если нет: success",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Неверная дата платежа»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если нет: t или есть удалён at",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Подписка не найдена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если !occurrenceDates(t, day, day).includes(day)",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Дата не относится к подписке»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "!occurrenceDates(t, day, day).includes(day)"
-      },
       {
        "t": "пробует сделать",
        "k": "try",
        "a": [],
        "c": [
-        {
-         "t": "поломка: «404,»",
-         "k": "do",
-         "a": [
-          "все изменения разом: либо всё, либо ничего",
-          "меняет: recurring расход"
-         ],
-         "c": [
-          {
-           "t": "если нет: latest или есть удалён at",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть удалён at",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если действие — «skip»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "меняет: recurring расход",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
         {
          "t": "всё хорошо, отвечает данными",
          "k": "do",
@@ -29816,18 +29095,11 @@
        "a": [],
        "c": [
         {
-         "t": "если error instanceof ExpenseLifecycleError",
+         "t": "если !commandFailed(res, error)",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "ответ (код зависит от условия)",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "error instanceof ExpenseLifecycleError"
+         "c": [],
+         "raw": "!commandFailed(res, error)"
         }
        ]
       }
@@ -29862,12 +29134,6 @@
      "a": [],
      "c": [
       {
-       "t": "меняет: recurring расход",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
        "t": "всё хорошо, отвечает данными",
        "k": "do",
        "a": [],
@@ -29881,18 +29147,11 @@
      "a": [],
      "c": [
       {
-       "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "если !commandFailed(res, err)",
        "k": "if",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Шаблон не найден»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\""
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
     }
@@ -29920,102 +29179,10 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: такая запись или есть удалён at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Шаблон не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть начало и есть end и end меньше начало",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Конец подписки раньше начала»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если !await validateExpenseCategory(patch.categoryId===undefined?existing.categoryId:patch.categoryId,patch.catego…",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверная категория подписки»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "!await validateExpenseCategory(patch.categoryId===undefined?existing.categoryId:patch.categoryId,patch.catego…"
-    },
-    {
-     "t": "если есть touches attribution",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: current",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Шаблон не найден»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если есть issue",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
      "t": "пробует сделать",
      "k": "try",
      "a": [],
      "c": [
-      {
-       "t": "меняет: recurring расход",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
       {
        "t": "всё хорошо, отвечает данными",
        "k": "do",
@@ -30030,18 +29197,11 @@
      "a": [],
      "c": [
       {
-       "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "если !commandFailed(res, err)",
        "k": "if",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Шаблон не найден»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\""
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
     }
@@ -30068,12 +29228,12 @@
    ],
    "tree": [
     {
-     "t": "если payments количество больше 20000",
-     "k": "if",
+     "t": "пробует сделать",
+     "k": "try",
      "a": [],
      "c": [
       {
-       "t": "отказ: слишком большой файл: «Слишком много платежей для списка подписок»",
+       "t": "всё хорошо, отвечает данными",
        "k": "do",
        "a": [],
        "c": []
@@ -30081,10 +29241,25 @@
      ]
     },
     {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
+     "t": "если не получилось",
+     "k": "catch",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "если err instanceof ExpenseLifecycleError",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "ответ (код зависит от условия)",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "err instanceof ExpenseLifecycleError"
+      }
+     ]
     }
    ]
   },
@@ -30110,12 +29285,12 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
+     "t": "пробует сделать",
+     "k": "try",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Неверные данные»",
+       "t": "создано",
        "k": "do",
        "a": [],
        "c": []
@@ -30123,43 +29298,18 @@
      ]
     },
     {
-     "t": "если есть starts on и есть ends on и ends on меньше starts on",
-     "k": "if",
+     "t": "если не получилось",
+     "k": "catch",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Конец подписки раньше начала»",
-       "k": "do",
+       "t": "если !commandFailed(res, err)",
+       "k": "if",
        "a": [],
-       "c": []
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
-    },
-    {
-     "t": "если !await validateExpenseCategory(parsed.data.categoryId,parsed.data.category)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверная категория подписки»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "!await validateExpenseCategory(parsed.data.categoryId,parsed.data.category)"
-    },
-    {
-     "t": "заводит: recurring расход",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "создано",
-     "k": "do",
-     "a": [],
-     "c": []
     }
    ]
   },
@@ -30184,12 +29334,12 @@
    ],
    "tree": [
     {
-     "t": "если нет: success",
-     "k": "if",
+     "t": "пробует сделать",
+     "k": "try",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Некорректный месяц»",
+       "t": "всё хорошо, отвечает данными",
        "k": "do",
        "a": [],
        "c": []
@@ -30197,94 +29347,18 @@
      ]
     },
     {
-     "t": "заводит или обновляет: настройки",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если есть truncated",
-     "k": "if",
+     "t": "если не получилось",
+     "k": "catch",
      "a": [],
      "c": [
       {
-       "t": "запись в журнал ошибок",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "внутри этого шага",
-     "k": "do",
-     "a": [],
-     "c": [
-      {
-       "t": "если комиссия company сумма задан",
+       "t": "если !commandFailed(res, err)",
        "k": "if",
        "a": [],
-       "c": []
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
-    },
-    {
-     "t": "и так по каждому",
-     "k": "loop",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "внутри этого шага",
-     "k": "do",
-     "a": [],
-     "c": [
-      {
-       "t": "и так по каждому",
-       "k": "loop",
-       "a": [],
-       "c": [
-        {
-         "t": "если это сделка salary расход",
-         "k": "if",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "и так по каждому",
-       "k": "loop",
-       "a": [],
-       "c": [
-        {
-         "t": "если realtor больше 0",
-         "k": "if",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "и так по каждому",
-       "k": "loop",
-       "a": [],
-       "c": [
-        {
-         "t": "если category — «ADVERTISING» и есть source",
-         "k": "if",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [],
-     "c": []
     }
    ]
   },
@@ -30364,12 +29438,12 @@
    ],
    "tree": [
     {
-     "t": "если нет: success",
-     "k": "if",
+     "t": "пробует сделать",
+     "k": "try",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Некорректные фильтры»",
+       "t": "всё хорошо, отвечает данными",
        "k": "do",
        "a": [],
        "c": []
@@ -30377,51 +29451,18 @@
      ]
     },
     {
-     "t": "если есть sort по",
-     "k": "if",
+     "t": "если не получилось",
+     "k": "catch",
      "a": [],
      "c": [
       {
-       "t": "пробует сделать",
-       "k": "try",
+       "t": "если !commandFailed(res, err)",
+       "k": "if",
        "a": [],
-       "c": [
-        {
-         "t": "всё хорошо, отвечает данными",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": [
-        {
-         "t": "если error instanceof ExpenseLifecycleError",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "ответ (код зависит от условия)",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "error instanceof ExpenseLifecycleError"
-        }
-       ]
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [],
-     "c": []
     }
    ]
   },
@@ -30447,12 +29488,12 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
+     "t": "пробует сделать",
+     "k": "try",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Неверные данные»",
+       "t": "создано",
        "k": "do",
        "a": [],
        "c": []
@@ -30460,87 +29501,18 @@
      ]
     },
     {
-     "t": "если сумма больше 99 999 999.99",
-     "k": "if",
+     "t": "если не получилось",
+     "k": "catch",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Сумма слишком большая»",
-       "k": "do",
+       "t": "если !commandFailed(res, err)",
+       "k": "if",
        "a": [],
-       "c": []
+       "c": [],
+       "raw": "!commandFailed(res, err)"
       }
      ]
-    },
-    {
-     "t": "если !await validateExpenseCategory(rest.categoryId,rest.category)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Выберите категорию соответствующего раздела»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "!await validateExpenseCategory(rest.categoryId,rest.category)"
-    },
-    {
-     "t": "если key&&!/^[A-Za-z0-9:_-]{8,120}$/.test(key)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверный ключ запроса»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "key&&!/^[A-Za-z0-9:_-]{8,120}$/.test(key)"
-    },
-    {
-     "t": "если (rest.status??\"PAID\")===\"PAID\"&&rest.paymentDate&&rest.paymentDate>todayExpenseDay()",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Будущий платёж запишите как план»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "(rest.status??\"PAID\")===\"PAID\"&&rest.paymentDate&&rest.paymentDate>todayExpenseDay()"
-    },
-    {
-     "t": "заводит или обновляет: расход",
-     "k": "do",
-     "a": [
-      "заводит: расход"
-     ],
-     "c": []
-    },
-    {
-     "t": "если requestKey&&expense.autoFingerprint!==fingerprint",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Этот ключ уже использован для другого расхода»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "requestKey&&expense.autoFingerprint!==fingerprint"
-    },
-    {
-     "t": "создано",
-     "k": "do",
-     "a": [],
-     "c": []
     }
    ]
   },
