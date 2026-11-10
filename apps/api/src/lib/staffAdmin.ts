@@ -248,9 +248,18 @@ const PEER_DIRECTORY_SELECT = {
  * админская зона (agents.manage). `telephony: false` — без опроса АТС (помощник:
  * Telegram живёт в процессе worker, и звонить станции ради списка незачем).
  */
-export async function listStaffDirectory(actor: StaffActor, opts: { telephony?: boolean } = {}) {
+export async function listStaffDirectory(
+  actor: StaffActor,
+  opts: { telephony?: boolean; includeFormer?: boolean } = {}
+) {
   const isAdmin = actor.can("agents.manage");
+  // Бывшие (isActive=false) в справочник не попадают (владелец 11.11.2026,
+  // packages/shared/src/formerStaff.ts): этот список кормит все выпадающие
+  // выборы на экранах и помощника в Telegram. Директору — по просьбе, чтобы
+  // вернуть ошибочно отключённого (Настройки → Команда → «Отключённые»).
+  const includeFormer = isAdmin && opts.includeFormer === true;
   const agents = await prisma.agent.findMany({
+    ...(includeFormer ? {} : { where: { isActive: true } }),
     select: isAdmin ? ADMIN_DIRECTORY_SELECT : PEER_DIRECTORY_SELECT,
     // Новые сотрудники — сверху, чтобы сразу видеть недавно добавленных.
     orderBy: { createdAt: "desc" },
