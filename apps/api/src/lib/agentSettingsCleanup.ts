@@ -22,13 +22,17 @@ import type { Tx } from "./changeClientAgent.js";
  * системный журнал, только если правда что-то снял — иначе запись
  * появлялась бы на каждое увольнение, даже когда сотрудник ни в одной из этих
  * настроек не стоял.
+ *
+ * Возвращает список снятых полей (11.11.2026): снятый монтажёр — повод для
+ * тревоги «монтажёр не назначен», её поднимает вызывающий ПОСЛЕ коммита
+ * (lib/staffAdmin.ts), иначе тревога прочитала бы ещё старую настройку.
  */
 export async function clearAgentFromSettingsReferences(
   tx: Tx,
   agentId: string,
   agentName: string,
   reason: "deactivate" | "freeze"
-): Promise<void> {
+): Promise<string[]> {
   const settings = await tx.settings.findUnique({
     where: { id: "singleton" },
     select: {
@@ -38,7 +42,7 @@ export async function clearAgentFromSettingsReferences(
       liveVoiceTransferAgentId: true,
     },
   });
-  if (!settings) return;
+  if (!settings) return [];
 
   const data: Record<string, unknown> = {};
   const cleared: string[] = [];
@@ -58,7 +62,7 @@ export async function clearAgentFromSettingsReferences(
     data.incomingDutyAgentIds = settings.incomingDutyAgentIds.filter((id) => id !== agentId);
     cleared.push("incomingDutyAgentIds");
   }
-  if (cleared.length === 0) return;
+  if (cleared.length === 0) return cleared;
 
   await tx.settings.update({ where: { id: "singleton" }, data });
   logSystemAudit(
@@ -67,4 +71,5 @@ export async function clearAgentFromSettingsReferences(
     "singleton",
     { agentId, agentName, fields: cleared }
   );
+  return cleared;
 }
