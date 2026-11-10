@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 
-function run(command: string, args: string[], maxBuffer = 65_536): Promise<string> {
+function run(command: string, args: string[], maxBuffer = 65_536, timeout = 5_000): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { timeout: 5_000, maxBuffer, windowsHide: true, encoding: "utf8" },
+    execFile(command, args, { timeout, maxBuffer, windowsHide: true, encoding: "utf8" },
       (error, stdout) => error ? reject(new Error("media_probe_unavailable")) : resolve(stdout));
   });
 }
@@ -61,7 +61,8 @@ export function renderExpensePdfPage(buffer: Buffer, page: number, maximumPages:
     const pages = await checkPdf(path, maximumPages);
     if (!Number.isSafeInteger(page) || page < 1 || page > pages) throw new Error("media_pdf_limit");
     const output = join(directory, "page");
-    await run("pdftoppm", ["-f", String(page), "-l", String(page), "-singlefile", "-cropbox", "-scale-to", "2400", "-jpeg", "-jpegopt", "quality=85", path, output]);
+    // Плотная страница-скан рендерится дольше чека: 20 секунд, а не 5.
+    await run("pdftoppm", ["-f", String(page), "-l", String(page), "-singlefile", "-cropbox", "-scale-to", "2400", "-jpeg", "-jpegopt", "quality=85", path, output], 65_536, 20_000);
     return readFile(`${output}.jpg`);
   });
 }

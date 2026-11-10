@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { loadAgentAccess } from "../auth/middleware.js";
 import {
@@ -36,7 +36,9 @@ import { answerCallbackQuery, editHtmlMessage, sendHtmlMessage, type TelegramCal
 const PAGE_CHARS = 3400;
 /** Кнопок «Править» на страницу — не больше 48 (у Telegram предел 100 кнопок на сообщение). */
 const PAGE_ROWS = 48;
-const CALLBACK = /^ax:(pg|fx|rw|rm|nop|sc|sa):([0-9a-f-]{36})?(?::(\d{1,4}))?(?::(\d{1,2}))?$/u;
+const CALLBACK = /^ax:(pg|fx|rw|rm|nop|sc|sa):([0-9a-f-]{36})?(?::(\d{1,4}))?(?::([0-9a-f]{1,10}))?$/u;
+/** Кнопка сотрудника — короткий хэш его id, а не номер в пересчитываемом списке. */
+const agentKey = (id: string) => createHash("sha256").update(id).digest("hex").slice(0, 10);
 /** Сотрудников для зарплаты кнопками — не больше 12 (однофамильцы или весь короткий список). */
 const MAX_AGENT_BUTTONS = 12;
 const FIX_TTL_MS = 10 * 60_000;
@@ -67,6 +69,7 @@ const TEXT = {
     flagDuplicate: (day: string) => `⚠️ похоже на уже записанное ${day}`,
     flagSalary: (n: number) => `👥 сотрудника не нашла — выберите: ✏️ Править → строка ${n}, иначе запишу в «Прочее»`,
     flagSalaryMany: (n: number, names: string) => `👥 похожих сотрудников несколько (${names}) — выберите: ✏️ Править → строка ${n}`,
+    flagSalaryOne: (n: number, name: string) => `👥 это ${name}? Подтвердите: ✏️ Править → строка ${n}, иначе запишу в «Прочее»`,
     flagAds: (n: number) => `📣 канал рекламы не узнала — выберите: ✏️ Править → строка ${n}, иначе запишу в «Прочее»`,
     chooseChannel: "Канал рекламы:", chooseAgent: "Чья зарплата:",
     skippedHead: "⚠️ Не записываю:",
@@ -99,6 +102,7 @@ const TEXT = {
     flagDuplicate: (day: string) => `⚠️ ба харҷи ${day} сабтшуда монанд аст`,
     flagSalary: (n: number) => `👥 кормандро наёфтам — интихоб кунед: ✏️ Ислоҳ → сатри ${n}, вагарна ба «Дигар харҷҳо» сабт мекунам`,
     flagSalaryMany: (n: number, names: string) => `👥 кормандони монанд чандто ҳастанд (${names}) — интихоб кунед: ✏️ Ислоҳ → сатри ${n}`,
+    flagSalaryOne: (n: number, name: string) => `👥 ин ${name} аст? Тасдиқ кунед: ✏️ Ислоҳ → сатри ${n}, вагарна ба «Дигар харҷҳо» сабт мекунам`,
     flagAds: (n: number) => `📣 канали рекламаро нафаҳмидам — интихоб кунед: ✏️ Ислоҳ → сатри ${n}, вагарна ба «Дигар харҷҳо» сабт мекунам`,
     chooseChannel: "Канали реклама:", chooseAgent: "Музди кадом корманд:",
     skippedHead: "⚠️ Сабт намекунам:",
@@ -180,7 +184,10 @@ export async function loadCardContext(args: BatchArgs): Promise<CardContext> {
     if (twin) out.push(t.flagDuplicate(dayWords(lang, twin.createdAt.toISOString().slice(0, 10))));
     const r = resolved[i]!;
     if (r.downgraded === "ads") out.push(t.flagAds(i + 1));
-    if (r.downgraded === "salary") out.push(r.candidates?.length ? t.flagSalaryMany(i + 1, r.candidates.map((c) => c.fullName).slice(0, 4).join(", ")) : t.flagSalary(i + 1));
+    if (r.downgraded === "salary") {
+      out.push(r.candidates?.length === 1 ? t.flagSalaryOne(i + 1, r.candidates[0]!.fullName)
+        : r.candidates?.length ? t.flagSalaryMany(i + 1, r.candidates.map((c) => c.fullName).slice(0, 4).join(", ")) : t.flagSalary(i + 1));
+    }
     return out;
   });
   return {
@@ -230,8 +237,11 @@ export function renderExpenseCard(args: BatchArgs, ctx: CardContext, notes: Card
     group.cents += rowCents(row, ctx.money);
     // Без дня — только месяц; он уже в заголовке, если месяц у пачки один.
     const when = row.date ? dayWords(lang, row.date) : months.length > 1 ? monthWords(lang, row.month, today.slice(0, 4)) : null;
+    // Что поняли о строке — видно до записи: чья зарплата и какой канал рекламы.
+    const who = ctx.resolved[i]?.agentName ? ` · 👥 ${esc(ctx.resolved[i]!.agentName!)}` : "";
+    const channel = ctx.resolved[i]?.source ? ` · 📣 ${esc(AD_CHANNELS.find((c) => c.source === ctx.resolved[i]!.source)?.label ?? ctx.resolved[i]!.source!)}` : "";
     const flags = (ctx.flags[i] ?? []).map((f) => `\n   ${esc(f)}`).join("");
-    group.rows.push({ i, line: `${i + 1}. ${esc(row.title)} — ${esc(amountLine(lang, row, ctx.money))}${when ? ` · <i>${esc(when)}</i>` : ""}${row.status === "PLANNED" ? ` · ⏳ ${t.planned}` : ""}${flags}` });
+    group.rows.push({ i, line: `${i + 1}. ${esc(row.title)} — ${esc(amountLine(lang, row, ctx.money))}${when ? ` · <i>${esc(when)}</i>` : ""}${who}${channel}${row.status === "PLANNED" ? ` · ⏳ ${t.planned}` : ""}${flags}` });
     groups.set(article.key, group);
   });
   const usd = args.items.some((row) => row.currency === "USD");
@@ -512,7 +522,7 @@ export async function handleExpenseCardCallback(query: TelegramCallbackQuery, ag
   if (!match || match[1] === "nop" || !match[2] || !chat || chat.type !== "private" || !messageId || !agentId) { await ack(); return true; }
   const [, verb, bundleId, rawIndex, rawChoice] = match;
   const index = Number(rawIndex ?? 0);
-  const choice = Number(rawChoice ?? -1);
+  const choice = verb === "sc" ? Number(rawChoice ?? -1) : -1;
   const chatId = String(chat.id);
   const loaded = await loadBatch(bundleId!, agentId);
   if (!loaded || loaded.row.status !== "PENDING" || loaded.row.expiresAt <= new Date()) {
@@ -547,7 +557,7 @@ export async function handleExpenseCardCallback(query: TelegramCallbackQuery, ag
     const choices: TelegramInlineButton[] = resolvedRow?.downgraded === "ads"
       ? AD_CHANNELS.map((c, k) => ({ text: c.label, callback_data: `ax:sc:${bundleId}:${index}:${k}` }))
       : resolvedRow?.downgraded === "salary"
-        ? (await salaryOptions(resolvedRow)).map((a, k) => ({ text: a.fullName.slice(0, 30), callback_data: `ax:sa:${bundleId}:${index}:${k}` }))
+        ? (await salaryOptions(resolvedRow)).map((a) => ({ text: a.fullName.slice(0, 30), callback_data: `ax:sa:${bundleId}:${index}:${agentKey(a.id)}` }))
         : [];
     const chooseRows: TelegramInlineButton[][] = [];
     for (let i = 0; i < choices.length; i += 3) chooseRows.push(choices.slice(i, i + 3));
@@ -561,7 +571,7 @@ export async function handleExpenseCardCallback(query: TelegramCallbackQuery, ag
   }
   if (verb === "sc" || verb === "sa") {
     const channel = verb === "sc" ? AD_CHANNELS[choice] : undefined;
-    const agent = verb === "sa" && resolvedRow ? (await salaryOptions(resolvedRow))[choice] : undefined;
+    const agent = verb === "sa" && resolvedRow && rawChoice ? (await salaryOptions(resolvedRow)).find((a) => agentKey(a.id) === rawChoice) : undefined;
     if (!channel && !agent) { await ack(t.stale); return true; }
     const result = await replaceBatch(bundleId!, agentId, (args) => ({ ...args, items: args.items.map((row, i) => i !== index ? row
       : channel ? { ...row, category: "ADVERTISING" as const, source: channel.source }

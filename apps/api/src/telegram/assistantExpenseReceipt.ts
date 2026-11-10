@@ -17,6 +17,7 @@ import { downloadAssistantMedia } from "./assistantMedia.js";
 import { answerCallbackQuery, editMessageText, sendMessage, sendMessageWithButtons, TelegramApiError, type TelegramCallbackQuery, type TelegramIncomingMessage } from "./api.js";
 import { prisma } from "../db.js";
 import { todayExpenseDay } from "../lib/expenseWorkspace.js";
+import { NO_USD_RATE_TEXT } from "../lib/money.js";
 import {
   intakeText, knownBatch, normalizeReceiptPhoto, PDF_MAX_BYTES, PDF_MAX_PAGES, pdfPageNotesText, rowsFromPdf, rowsFromSpreadsheet, rowsFromTablePhoto, sourceHashOf, spreadsheetKind, stageExpenseBatch, type SpreadsheetKind,
 } from "./assistantExpenseBatchIntake.js";
@@ -58,7 +59,7 @@ const copy = {
     expired: "Время на подтверждение вышло. Пришлите чек снова.",
     forbidden: "Записывать чек можно только из привязанной лички директора.",
     uncertain: "Не удалось показать результат. Нажмите кнопку ещё раз.",
-    noRate: "Курс доллара в Настройках CRM не задан — долларовый чек не записываю. Задайте курс в Настройках.",
+    noRate: NO_USD_RATE_TEXT,
   },
   tg: {
     unavailable: "Расидро хонда натавонистам. Боз фиристед.",
@@ -347,6 +348,7 @@ async function handleExpensePdfBatch(params: {
 }): Promise<boolean> {
   const { raw, agentId, messageId, wallet, send } = params;
   let language = params.language;
+  // Текстовый слой читается один раз — им же решается «один чек или пачка» и разбираются страницы.
   const texts = await readExpensePdfText(raw, PDF_MAX_PAGES);
   const textRows = texts.length === 1
     ? expenseRowsFromTable(texts[0]!.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean).map((line) => line.split(/\s{2,}|\t/u))).rows.length
@@ -355,12 +357,9 @@ async function handleExpensePdfBatch(params: {
   const sourceHash = sourceHashOf(raw);
   const known = await knownBatch(agentId, sourceHash);
   if (known) { await send(intakeText(language)[known]); return true; }
-  // Сканы читает ИИ — общий дневной предел разборов, как у фото.
-  if (texts.some((text) => !/\p{L}/u.test(text))) {
-    const cap = await claimAgentAiAction(agentId, "assistant-expense-receipt-ocr", dailyExpenseReceipts);
-    if (!cap.allowed) { await send(copy[language].limit); return true; }
-  }
-  const pdf = await rowsFromPdf(raw, sourceHash, wallet);
+  // Каждая страница, ушедшая в ИИ, списывает общий дневной предел разборов, как фото.
+  const pdf = await rowsFromPdf(raw, sourceHash, wallet, texts,
+    async () => (await claimAgentAiAction(agentId, "assistant-expense-receipt-ocr", dailyExpenseReceipts)).allowed);
   if (pdf.language === "tg") language = "tg";
   if (!pdf.rows.length) { await send([intakeText(language).unreadablePhoto, pdfPageNotesText(language, pdf.pageNotes)].filter(Boolean).join("\n")); return true; }
   await stageExpenseBatch({ chatId: params.actor.chatId, agentId, rows: pdf.rows, lang: language, kind: "pdf", replyTo: messageId, notes: { skipped: pdf.skipped } });
@@ -394,6 +393,7 @@ async function handleExpenseSpreadsheet(params: {
     if (known) { await send(intakeText(language)[known]); return true; }
     const table = rowsFromSpreadsheet(kind, bytes);
     if (!table) { await send(intakeText(language).broken); return true; }
+    if ("refused" in table && table.refused) { await send(intakeText(language)[table.refused]); return true; }
     if (!table.rows.length) {
       if (explicit) await send(intakeText(language).empty);
       return explicit;

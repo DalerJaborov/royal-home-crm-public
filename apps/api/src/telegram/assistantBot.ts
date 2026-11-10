@@ -197,6 +197,13 @@ const CARD_FRAME = {
     ok: "✅ Тасдиқ", okIrreversible: "✅ Тасдиқ (баргардонда намешавад)", okPlain: "Тасдиқ", cancel: "✖ Бекор", cancelPlain: "Бекор" },
 } as const;
 export type CardFrameLang = keyof typeof CARD_FRAME;
+/** Буквы, которых нет в русском, — по ним видно, что инструмент построил карточку по-таджикски. */
+const TAJIK_LETTERS = /[ӣӯқғҳҷҒҚҲҶӢӮ]/u;
+
+/** Язык рамки карточки: таджикский, только если все карточки построены по-таджикски и разговор таджикский. */
+export function bundleFrameLang(actions: readonly Pick<AssistantActionView, "preview">[], language: ReturnType<typeof assistantLanguage> | undefined): CardFrameLang {
+  return actions.length > 0 && actions.every((a) => TAJIK_LETTERS.test(a.preview.title)) && cardFrameLang(language) === "tg" ? "tg" : "ru";
+}
 export const cardFrameLang = (language: ReturnType<typeof assistantLanguage> | undefined): CardFrameLang =>
   language === "tg" || language === "mixed" ? "tg" : "ru";
 
@@ -598,7 +605,9 @@ async function sendTurnResult(
   }
   const priceOnlyInGroup = maskPhones && result.pending.every(action => action.tool === "change_property_price");
   const tajikPrice = priceOnlyInGroup && (ctx.requestLanguage === "tg" || ctx.requestLanguage === "mixed");
-  const frameLang = cardFrameLang(ctx.cardLanguage ?? ctx.requestLanguage);
+  // Язык рамки = язык содержимого инструментов (повторное ревью 10.11.2026): таджикская рамка только
+  // если все карточки построены по-таджикски и собеседник говорит по-таджикски; иначе русская целиком.
+  const frameLang = bundleFrameLang(result.pending, ctx.cardLanguage ?? ctx.requestLanguage);
   const frame = CARD_FRAME[frameLang];
   const preview = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source, tajikPrice, frameLang);
   const body = [priceOnlyInGroup ? "" : rendered, ...written].filter(Boolean).join("\n");
@@ -853,7 +862,8 @@ export async function handleAssistantPrivate(
         agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice,
         mode: preference?.mode ?? "auto", reactTo: msg.message_id, voiceLanguage: preference?.voiceLanguage,
         requestLanguage: preference?.mode === "voice" ? assistantLanguage([{ role: "user", content: text }]) : undefined,
-        cardLanguage: assistantLanguage([{ role: "user", content: text }]),
+        // Язык разговора, а не одного сообщения: «5000» или «ҳа» не сбивают на русский.
+        cardLanguage: assistantLanguage(history.slice(-6)),
       });
     }
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);

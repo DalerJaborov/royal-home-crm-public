@@ -10,7 +10,7 @@ import { AssistantActionError, type AssistantActionActor, type AssistantActionEx
 import { canonicalJson } from "../../../lib/canonicalJson.js";
 import { createExpense } from "../../../lib/expenseCommands.js";
 import { todayExpenseDay } from "../../../lib/expenseWorkspace.js";
-import { expenseCentsToTjs, fromCents, loadMoneyContext, loadUsdRateInfo, roundMoney, type MoneyContext } from "../../../lib/money.js";
+import { expenseCentsToTjs, fromCents, loadMoneyContext, loadUsdRateInfo, NO_USD_RATE_TEXT, roundMoney, type MoneyContext } from "../../../lib/money.js";
 import { plainField } from "./safeField.js";
 import {
   asActionError, asPluginExecutor, assertFinanceWriter, categoryLabel, EXPENSE_LANGS, expenseLabels,
@@ -18,7 +18,7 @@ import {
 } from "./expenseToolSupport.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 import { findActiveAgentByName } from "../../../lib/agentNameLookup.js";
-import { adChannelOf, salaryNameOf, specialArticleOf } from "../expenseArticles.js";
+import { AD_CHANNELS, adChannelOf, salaryNameOf, specialArticleOf } from "../expenseArticles.js";
 
 /**
  * add_expenses — ПАЧКА РАСХОДОВ ОДНОЙ КАРТОЧКОЙ (10.11.2026, жалоба владельца: фото таблицы
@@ -174,7 +174,8 @@ export async function recordedSource(sourceHash: string) {
   return prisma.expense.findFirst({ where: { OR: sourceRecordedWhere([sourceHash]) }, select: { createdAt: true, deletedAt: true } });
 }
 
-export const NO_RATE_MESSAGE = "Курс доллара в Настройках CRM не задан — долларовые расходы не записываю. Задайте курс в Настройках или пришлите суммы в сомони.";
+/** Один текст отказа без курса — у REST и помощницы (lib/money.ts). */
+export const NO_RATE_MESSAGE = NO_USD_RATE_TEXT;
 
 /**
  * Курс для пачки: долларовая строка пишется только при курсе, заданном в Настройках. Без него
@@ -184,7 +185,7 @@ export async function rateContextFor(args: Pick<BatchArgs, "items">, db?: TxClie
   if (!args.items.some((row) => row.currency === "USD")) return loadMoneyContext(db);
   const info = await loadUsdRateInfo(db);
   if (!info.rate) throw new AssistantActionError(409, "NO_RATE", NO_RATE_MESSAGE);
-  return { usdToTjs: info.rate };
+  return { usdToTjs: info.rate, verified: true };
 }
 
 export interface ResolvedRow {
@@ -197,6 +198,9 @@ export interface ResolvedRow {
   downgraded?: "salary" | "ads";
   /** Для зарплаты: похожих сотрудников несколько — кого предложить кнопками. */
   candidates?: { id: string; fullName: string }[];
+  /** Что поняли: сотрудник зарплаты и канал рекламы — показываются у строки в карточке. */
+  agentName?: string;
+  source?: string;
   categoryTitle?: string;
 }
 
@@ -251,6 +255,8 @@ export async function resolveRows(args: BatchArgs, db: TxClient = prisma): Promi
     out.push({
       body, ...(problem ? { problem } : {}), ...(downgraded ? { downgraded } : {}),
       ...(downgraded === "salary" && pick.candidates.length ? { candidates: pick.candidates } : {}),
+      ...(category === "SALARY" && pick.agent ? { agentName: pick.agent.fullName } : {}),
+      ...(category === "ADVERTISING" && source ? { source } : {}),
       ...(definition ? { categoryTitle: definition.title } : {}),
     });
   }
@@ -265,7 +271,11 @@ async function pickAgent(row: BatchRow, db: TxClient): Promise<AgentPick> {
   const name = row.agentName ?? salaryNameOf(row.title);
   if (!name) return { agent: null, candidates: [] };
   const match = await findActiveAgentByName(name);
-  return match.kind === "one" ? { agent: match.agent, candidates: [] } : { agent: null, candidates: match.kind === "many" ? match.candidates : [] };
+  // Сам выбираем только при полном совпадении имени: «Ахмад» не становится «Ахмадов Фарход» молча —
+  // единственное частичное совпадение идёт кнопкой, как однофамильцы (повторное ревью 10.11.2026).
+  const norm = (text: string) => text.toLocaleLowerCase("ru").replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+  if (match.kind === "one" && norm(match.agent.fullName) === norm(name)) return { agent: match.agent, candidates: [] };
+  return { agent: null, candidates: match.kind === "many" ? match.candidates : match.kind === "one" ? [match.agent] : [] };
 }
 
 async function existingBatch(args: BatchArgs, agentId: string, db: TxClient = prisma) {
@@ -331,6 +341,8 @@ const executor: AssistantActionExecutor<BatchArgs> = {
         `${plainField(row.title, 80) ?? ""} — ${moneyText(row.amount, row.currency, args.lang)}`,
         row.date ?? row.month,
         categoryLabel(args.lang, resolved.body.category as ExpenseCategory, resolved.categoryTitle ?? null),
+        ...(resolved.agentName ? [`👥 ${plainField(resolved.agentName, 60)}`] : []),
+        ...(resolved.source ? [`📣 ${AD_CHANNELS.find((c) => c.source === resolved.source)?.label ?? resolved.source}`] : []),
         row.status === "PAID" ? labels.paid : labels.planned,
       ].join(" · ");
     });

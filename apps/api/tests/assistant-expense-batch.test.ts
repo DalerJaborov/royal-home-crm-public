@@ -19,7 +19,7 @@ import type { TelegramIncomingMessage, TelegramInlineButton } from "../src/teleg
 import { xlsxFixture } from "./helpers/xlsxFixture.js";
 import { xlsFixture } from "./helpers/xlsFixture.js";
 import { textPdfFixture } from "./helpers/textPdfFixture.js";
-import { renderBundleCard } from "../src/telegram/assistantBot.js";
+import { bundleFrameLang, renderBundleCard } from "../src/telegram/assistantBot.js";
 
 /**
  * Шабнам и расходы пачкой (10.11.2026, жалоба владельца: фото таблицы «ОКТЯБРЬ 2026» из
@@ -341,7 +341,8 @@ describe("Шабнам: деньги и валюта видны целиком",
     try {
       io.download.mockResolvedValue(Buffer.from("Название;Сумма\nХостинг;$22\nСвет;180 сомони\n", "utf8"));
       await handleAssistantPrivate(docMsg("безкурса.csv", "расходы"), writer);
-      expect(io.text.mock.calls.map((c) => c[1]).join("\n")).toContain("Курс доллара в Настройках CRM не задан — 1 строку в долларах не записываю");
+      expect(io.text.mock.calls.map((c) => c[1]).join("\n")).toContain("Курс доллара в Настройках CRM не задан");
+      expect(io.text.mock.calls.map((c) => c[1]).join("\n")).toContain("В долларах 1 строка");
       expect(lastCard()[1]).toContain("1 расход");
       expect(lastCard()[1]).not.toContain("Хостинг");
       await click(button("as:no:"));
@@ -470,6 +471,29 @@ describe("Шабнам, пачка 2: PDF, .xls, реклама и зарпла�
     expect(io.text.mock.calls.at(-1)?.[1]).toContain("уже записаны");
   });
 
+  it("п.5: PDF — водяной знак не считается текстом, каждая страница в ИИ списывает предел, порций на файл не больше 60", async () => {
+    const pdf = textPdfFixture([[["Scanned with CamScanner"]], null, null]);
+    io.download.mockResolvedValue(pdf);
+    let n = 0;
+    // Модель на каждой порции отдаёт 40 новых строк и «есть ещё» — без потолка это 25 порций на страницу.
+    io.chunk.mockImplementation(async () => ({ language: "ru", month: null, hasMore: true,
+      rows: Array.from({ length: 40 }, () => ({ n: ++n, title: `Строка ${n}`, amountMinor: 1000, currency: null, date: null })) }));
+    const counter = () => prisma.agentAiActionCounter.findFirst({ where: { agentId: writer.id, action: "assistant-expense-receipt-ocr" }, select: { count: true } });
+    const before = (await counter())?.count ?? 0;
+    await handleAssistantPrivate({ ...docMsg("scan.pdf", "расходы"), document: { file_id: `scan-${++seq}`, file_name: "scan.pdf", mime_type: "application/pdf" } }, writer);
+    expect(io.chunk.mock.calls.length).toBeLessThanOrEqual(60);
+    // Три страницы ушли в ИИ (первая — с одним водяным знаком), предел списан трижды, а не ноль раз.
+    expect(((await counter())?.count ?? 0) - before).toBe(3);
+    const said = io.text.mock.calls.map((c) => String(c[1])).join("\n");
+    expect(said).toMatch(/дочитала до строки|не читала/u);
+    // Номера строк сканов не пересекаются и не выходят за предел схемы.
+    const row = await prisma.assistantAction.findFirstOrThrow({ where: { agentId: writer.id, tool: "add_expenses", status: "PENDING" }, orderBy: { createdAt: "desc" } });
+    const indices = (row.args as { items: { sourceIndex: number }[] }).items.map((i) => i.sourceIndex);
+    expect(new Set(indices).size).toBe(indices.length);
+    expect(Math.max(...indices)).toBeLessThan(100_000);
+    await click(button("as:no:"));
+  });
+
   it("старый .xls с подписью — карточка, как у .xlsx", async () => {
     io.download.mockResolvedValue(xlsFixture([["Название", "Сумма"], ["Свет", 180], ["Уборка", { rk: 250 }]]));
     await handleAssistantPrivate(docMsg("старый.xls", "расходы"), writer);
@@ -482,6 +506,7 @@ describe("Шабнам, пачка 2: PDF, .xls, реклама и зарпла�
     io.download.mockResolvedValue(Buffer.from("Название,Сумма\nРеклама Instagram,1000\nРеклама таргет,500\n", "utf8"));
     await handleAssistantPrivate(docMsg("реклама.csv", "расходы"), writer);
     const html = lastCard()[1];
+    expect(html).toContain("Реклама Instagram — 1 000 · 📣 Instagram");
     expect(html).toContain("📣 канал рекламы не узнала — выберите: ✏️ Править → строка 2");
     await click(button("ax:fx:"));
     await click(io.editHtml.mock.calls.at(-1)![3]!.flat().find((b) => b.text === "2")!.callback_data!);
@@ -499,13 +524,18 @@ describe("Шабнам, пачка 2: PDF, .xls, реклама и зарпла�
   });
 
   it("зарплата: сотрудник по имени; однофамильцы — кнопки, а не выбор за человека", async () => {
-    const a = await prisma.agent.create({ data: { fullName: `Ахмадбек Рахимов ${stamp}`, phone: `+992932${stamp}`, passwordHash: "x", role: "AGENT" } });
-    const b = await prisma.agent.create({ data: { fullName: `Ахмадбек Сафаров ${stamp}`, phone: `+992933${stamp}`, passwordHash: "x", role: "AGENT" } });
+    // Имена без цифр (как у людей): цифры из строки зарплаты отбрасываются при поиске имени.
+    const tag = stamp.replace(/\d/gu, (d) => "абвгдежзик"[Number(d)]!);
+    const a = await prisma.agent.create({ data: { fullName: `Ахмадбек Рахимов ${tag}`, phone: `+992932${stamp}`, passwordHash: "x", role: "AGENT" } });
+    const b = await prisma.agent.create({ data: { fullName: `Ахмадбек Сафаров ${tag}`, phone: `+992933${stamp}`, passwordHash: "x", role: "AGENT" } });
     try {
-      io.download.mockResolvedValue(Buffer.from(`Название,Сумма\nЗарплата Ахмадбек,3000\nЗарплата Рахимов ${stamp},4000\n`, "utf8"));
+      io.download.mockResolvedValue(Buffer.from(`Название,Сумма\nЗарплата Ахмадбек,3000\nЗарплата Ахмадбек Рахимов ${tag},4000\nЗарплата Сафаров,500\n`, "utf8"));
       await handleAssistantPrivate(docMsg("зарплата.csv", "расходы"), writer);
       const html = lastCard()[1];
       expect(html).toContain("👥 похожих сотрудников несколько");
+      // Полное имя — сотрудник выбран и виден у строки; единственное ЧАСТИЧНОЕ совпадение — только кнопкой.
+      expect(html).toContain(`👥 Ахмадбек Рахимов ${tag}`);
+      expect(html).toContain(`👥 это Ахмадбек Сафаров ${tag}? Подтвердите: ✏️ Править → строка 3`);
       await click(button("ax:fx:"));
       await click(io.editHtml.mock.calls.at(-1)![3]!.flat().find((x) => x.text === "1")!.callback_data!);
       const people = io.editHtml.mock.calls.at(-1)![3]!.flat();
@@ -513,6 +543,8 @@ describe("Шабнам, пачка 2: PDF, .xls, реклама и зарпла�
       await click(io.editHtml.mock.calls.at(-1)![3]!.flat().find((x) => x.text === "✅ Записать")!.callback_data!);
       const rows = await prisma.expense.findMany({ where: { createdById: writer.id, category: "SALARY" }, select: { agentId: true, amount: true } });
       expect(rows.map((r) => [r.agentId, Number(r.amount)])).toEqual(expect.arrayContaining([[b.id, 3000], [a.id, 4000]]));
+      // «Зарплата Сафаров» без подтверждения кнопкой — в «Прочее», а не Сафарову молча.
+      expect(rows.some((r) => Number(r.amount) === 500)).toBe(false);
     } finally {
       await prisma.expense.deleteMany({ where: { agentId: { in: [a.id, b.id] } } });
       await prisma.agent.deleteMany({ where: { id: { in: [a.id, b.id] } } });
@@ -533,6 +565,15 @@ describe("Шабнам, пачка 2: PDF, .xls, реклама и зарпла�
     expect(cardButtons().map((b) => b.text)).toContain("✅ Сабт кардан");
     await click(button("as:no:"));
     await prisma.telegramDialogState.deleteMany({ where: { chatId: String(chatId) } });
+  });
+
+  it("рамка: язык рамки = язык содержимого — русская карточка инструмента остаётся русской целиком", () => {
+    const russian = { preview: { title: "Завершить задачу", was: {}, becomes: {} } };
+    const tajik = { preview: { title: "Тағйири харҷ «Интернет»", was: {}, becomes: {} } };
+    expect(bundleFrameLang([russian], "tg")).toBe("ru");
+    expect(bundleFrameLang([tajik, russian], "tg")).toBe("ru");
+    expect(bundleFrameLang([tajik], "tg")).toBe("tg");
+    expect(bundleFrameLang([tajik], "ru")).toBe("ru");
   });
 
   it("рамка карточки подтверждения других инструментов — на языке собеседника, русская не изменилась", () => {

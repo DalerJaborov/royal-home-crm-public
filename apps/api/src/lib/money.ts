@@ -35,6 +35,8 @@ export { toCents, fromCents, roundMoney };
 
 export interface MoneyContext {
   usdToTjs: number;
+  /** Курс прочитан из Настроек (не FALLBACK_USD_TO_TJS) — им можно записывать доллар. */
+  verified?: true;
 }
 
 /** Keep the supplied/captured rate for new entries; never claim it is a recovered historical rate. */
@@ -68,7 +70,8 @@ export const NO_USD_RATE_TEXT = "Курс доллара в Настройках
  * писать нельзя (вызывающий отказывает 409). Кэшированный курс пачки (`known`) — тот же самый.
  */
 export async function usdRateForWrite(db: Pick<typeof prisma, "settings"> = prisma, known?: MoneyContext): Promise<number | null> {
-  if (known) return known.usdToTjs;
+  // Запасному курсу из loadMoneyContext не верим: только проверенный (`verified`) или из Настроек.
+  if (known?.verified) return known.usdToTjs;
   return (await loadUsdRateInfo(db)).rate;
 }
 

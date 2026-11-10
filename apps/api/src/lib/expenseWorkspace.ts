@@ -2,6 +2,7 @@ import type { Prisma, RecurringExpense, Expense } from "../generated/prisma/clie
 import { z } from "zod";
 import { expenseListQuerySchema, EXPENSE_CATEGORY_LABELS, EXPENSE_METHOD_LABELS, type ExpenseSortKey, type ExpenseUpcomingItem } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { logSystemError } from "./systemError.js";
 import { expenseCentsToTjs, fromCents, loadMoneyContext, NO_USD_RATE_TEXT, usdRateForWrite, type MoneyContext } from "./money.js";
 import { Prisma as PrismaRuntime } from "../generated/prisma/client.js";
 type ExpenseTransaction = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
@@ -138,7 +139,11 @@ export async function expenseDtos<T extends {
     return rows.map(row => ({ ...expenseDto(row), createdBy: authors.find(a => a.id === row.createdById) ?? null, amountTjs: fromCents(expenseCentsToTjs(row, money)) }));
 }
 export async function materializeOccurrence(template: RecurringExpense, dueDate: string, status: "PLANNED" | "PAID", actorId?: string, paymentDate?: string, transaction?: ExpenseTransaction) {
-    const money = await loadMoneyContext();
+    // Оплаченный доллар — только по курсу из Настроек, без запасного числа (10.11.2026).
+    const usdRate = status === "PAID" && template.currency === "USD" ? await usdRateForWrite(transaction) : null;
+    if (status === "PAID" && template.currency === "USD" && !usdRate)
+        throw new ExpenseLifecycleError(409, NO_USD_RATE_TEXT);
+    const money = { usdToTjs: usdRate ?? 1 };
     const autoKey = template.startsOn ? `rec:${template.id}:${dueDate}` : `rec:${template.id}:${dueDate.slice(0, 7)}`;
     const db = transaction ?? prisma;
     if (template.startsOn) {
@@ -184,22 +189,38 @@ export async function processWorkspaceRecurringExpenses(): Promise<number> {
     const today = todayExpenseDay();
     let count = 0;
     const templates = await prisma.recurringExpense.findMany({ where: { active: true, deletedAt: null, startsOn: { not: null } } });
+    // Каждый шаблон сам по себе (повторное ревью 10.11.2026): отказ одного (доллар без курса, порча
+    // данных) не обрывает остальные — аренда в сомони заводится и при сломанной подписке в долларах.
     for (const t of templates) {
         if (!t.startsOn)
             continue;
-        for (const day of occurrenceDates(t, t.startsOn, today)) {
-            if (t.skippedDates.includes(day))
-                continue;
-            await prisma.$transaction(async (tx) => {
-                await tx.$queryRaw `SELECT "id" FROM "RecurringExpense" WHERE "id"=${t.id} FOR UPDATE`;
-                const latest = await tx.recurringExpense.findUnique({ where: { id: t.id } });
-                if (!latest || latest.deletedAt || !latest.active || latest.skippedDates.includes(day))
-                    return;
-                const row = await materializeOccurrence(latest, day, "PLANNED", undefined, undefined, tx);
-                if (latest.autoPay && row.status === "PLANNED" && !row.deletedAt && !row.manualEditedAt)
-                    await changeExpensePayment(row.id, true, day, tx);
-            });
-            count++;
+        try {
+            for (const day of occurrenceDates(t, t.startsOn, today)) {
+                if (t.skippedDates.includes(day))
+                    continue;
+                await prisma.$transaction(async (tx) => {
+                    await tx.$queryRaw `SELECT "id" FROM "RecurringExpense" WHERE "id"=${t.id} FOR UPDATE`;
+                    const latest = await tx.recurringExpense.findUnique({ where: { id: t.id } });
+                    if (!latest || latest.deletedAt || !latest.active || latest.skippedDates.includes(day))
+                        return;
+                    const row = await materializeOccurrence(latest, day, "PLANNED", undefined, undefined, tx);
+                    if (latest.autoPay && row.status === "PLANNED" && !row.deletedAt && !row.manualEditedAt) {
+                        try {
+                            await changeExpensePayment(row.id, true, day, tx);
+                        }
+                        catch (error) {
+                            // Автооплата доллара без курса: строка остаётся планом, причина — в журнал ошибок.
+                            if (!(error instanceof ExpenseLifecycleError) || error.status !== 409)
+                                throw error;
+                            void logSystemError("cron", `Повторяющийся платёж «${latest.title}» (${latest.id}) за ${day}: автооплата пропущена — ${error.message}`);
+                        }
+                    }
+                });
+                count++;
+            }
+        }
+        catch (error) {
+            void logSystemError("cron", `Повторяющийся платёж «${t.title}» (${t.id}) не обработан ночью: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
     return count;

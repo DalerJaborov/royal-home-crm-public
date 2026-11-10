@@ -41,21 +41,28 @@ function workbookStream(buf: Buffer): Buffer {
     if (n >= totalSectors) fail("sector out of range");
     return buf.subarray(512 + n * sectorSize, 512 + (n + 1) * sectorSize);
   };
-  // DIFAT: первые 109 записей в заголовке, остальное — цепочкой секторов.
+  // FAT больше, чем секторов в файле, не бывает: заявленное число — враньё, отказ ДО выделений
+  // (повторное ревью 10.11.2026: 5 МБ с самоссылкой и fatSectors=0xFFFFFFFF раздували память до краха).
+  const neededFat = Math.ceil(totalSectors / (sectorSize / 4));
+  if (fatSectors > Math.max(1, neededFat) + 1) fail("fat count");
+  // DIFAT: первые 109 записей в заголовке, остальное — цепочкой секторов; каждый сектор один раз.
   const difat: number[] = [];
   for (let i = 0; i < 109; i++) difat.push(buf.readUInt32LE(0x4c + i * 4));
-  let next = firstDifat;
-  for (let guard = 0; next !== ENDOFCHAIN && next !== FREESECT; guard++) {
-    if (guard > totalSectors) fail("difat loop");
+  const seenDifat = new Set<number>();
+  for (let next = firstDifat; next !== ENDOFCHAIN && next !== FREESECT && difat.length < fatSectors;) {
+    if (seenDifat.has(next) || seenDifat.size > totalSectors) fail("difat loop");
+    seenDifat.add(next);
     const s = sector(next);
     for (let i = 0; i < sectorSize / 4 - 1; i++) difat.push(s.readUInt32LE(i * 4));
     next = s.readUInt32LE(sectorSize - 4);
   }
+  // Сектор FAT читается один раз: повтор id в DIFAT — порча, а не повод раздувать таблицу.
+  const fatIds = difat.slice(0, fatSectors).filter((id) => id !== FREESECT);
+  if (new Set(fatIds).size !== fatIds.length) fail("fat repeat");
   const fat: number[] = [];
-  for (const id of difat.slice(0, fatSectors)) {
-    if (id === FREESECT) continue;
+  for (const id of fatIds) {
     const s = sector(id);
-    for (let i = 0; i < sectorSize / 4; i++) fat.push(s.readUInt32LE(i * 4));
+    for (let i = 0; i < sectorSize / 4 && fat.length < totalSectors; i++) fat.push(s.readUInt32LE(i * 4));
   }
   const chain = (start: number, table: number[], limit: number) => {
     const out: number[] = [];
@@ -82,7 +89,10 @@ function workbookStream(buf: Buffer): Buffer {
     });
   }
   const root = entries[0];
-  const book = entries.find((e) => e.type === 2 && (e.name === "Workbook" || e.name === "Book"));
+  if (entries.some((e) => e.type === 2 && e.name === "Book") && !entries.some((e) => e.type === 2 && e.name === "Workbook")) {
+    throw new XlsReadError("old_format");
+  }
+  const book = entries.find((e) => e.type === 2 && e.name === "Workbook");
   if (!root || !book) fail("no workbook");
   if (book.size > MAX_FILE_BYTES * 4) fail("stream too large");
   if (book.size >= miniCutoff) return readChain(book.start, book.size);
@@ -144,11 +154,13 @@ function rkValue(rk: number): number {
   return rk & 0x01 ? v / 100 : v;
 }
 
-const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47]);
+/** Встроенные форматы даты; 18–21 и 45–47 — время (без дня), их числа не даты. */
+const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 22]);
 const isDateFormat = (id: number, code?: string) => {
   if (BUILTIN_DATE_FORMATS.has(id)) return true;
   const bare = (code ?? "").replace(/"[^"]*"/g, "").replace(/\[[^\]]*\]/g, "");
-  return !!bare && /[dmyдмг]/i.test(bare) && !/[#0?]/.test(bare);
+  // «м» в «ч:мм» — минуты: формат только из времени (h, s без d и y) — не дата.
+  return !!bare && /[dyдг]/i.test(bare) && !/[#0?]/.test(bare);
 };
 const currencyOf = (code?: string) => {
   if (!code) return undefined;
@@ -178,6 +190,7 @@ export function readXlsFirstSheet(buf: Buffer): string[][] {
   let sheetsSeen = 0;
   const rows = new Map<number, string[]>();
   let pendingFormula: { row: number; col: number } | null = null;
+  let date1904 = false;
   const put = (row: number, col: number, value: string) => {
     if (col >= MAX_COLS) return;
     if (!rows.has(row)) { if (rows.size >= MAX_ROWS) fail("too many rows"); rows.set(row, []); }
@@ -188,7 +201,7 @@ export function readXlsFirstSheet(buf: Buffer): string[][] {
   const numberCell = (row: number, col: number, xf: number, value: number) => {
     const fmt = xfFormat[xf] ?? 0;
     const code = formats.get(fmt);
-    if (isDateFormat(fmt, code) && value > 0 && value < 2_958_466) put(row, col, excelSerialDate(value));
+    if (isDateFormat(fmt, code) && value > 0 && value < 2_958_466) put(row, col, excelSerialDate(value, date1904));
     else { const cur = currencyOf(code); put(row, col, cur ? `${formatNumber(value)} ${cur}` : formatNumber(value)); }
   };
   for (const record of records) {
@@ -200,8 +213,14 @@ export function readXlsFirstSheet(buf: Buffer): string[][] {
     }
     if (type === 0x0a) { if (!globals && sheetsSeen >= 1) break; continue; } // EOF первого листа — конец
     if (globals) {
-      if (type === 0x41e) { const r = new Reader([data, ...record.continues]); const id = r.u16(); formats.set(id, r.unicode(2)); }
-      else if (type === 0xe0) xfFormat.push(data.readUInt16LE(2));
+      // Пароль на книге — содержимое зашифровано, читать нечего.
+      if (type === 0x2f) throw new XlsReadError("encrypted");
+      if (type === 0x22 && data.length >= 2) date1904 = data.readUInt16LE(0) === 1;
+      else if (type === 0x41e) { const r = new Reader([data, ...record.continues]); const id = r.u16(); formats.set(id, r.unicode(2)); }
+      else if (type === 0xe0) {
+        if (data.length < 4) fail("short xf");
+        xfFormat.push(data.readUInt16LE(2));
+      }
       else if (type === 0xfc) {
         const r = new Reader([data, ...record.continues]);
         r.u32();

@@ -12,7 +12,10 @@ const u32 = (v: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(v >>> 0)
 const f64 = (v: number) => { const b = Buffer.alloc(8); b.writeDoubleLE(v); return b; };
 const uniString = (s: string) => Buffer.concat([u16(s.length), Buffer.from([1]), Buffer.from(s, "utf16le")]);
 
-export function xlsFixture(rows: XlsCell[][], opts: { xfFormats?: number[]; formats?: Record<number, string>; splitSst?: boolean; declaredStreamSize?: number } = {}): Buffer {
+export function xlsFixture(rows: XlsCell[][], opts: {
+  xfFormats?: number[]; formats?: Record<number, string>; splitSst?: boolean; declaredStreamSize?: number;
+  filepass?: boolean; streamName?: string; date1904?: boolean; shortXf?: boolean;
+} = {}): Buffer {
   const strings: string[] = [];
   const sid = (s: string) => { const i = strings.indexOf(s); return i >= 0 ? i : strings.push(s) - 1; };
   const cells: Buffer[] = [];
@@ -40,9 +43,10 @@ export function xlsFixture(rows: XlsCell[][], opts: { xfFormats?: number[]; form
     sstRecords = Buffer.concat([rec(0xfc, Buffer.concat([sstHead, head])), rec(0x3c, tail)]);
   } else sstRecords = rec(0xfc, Buffer.concat([sstHead, sstBody]));
   const formats = Object.entries(opts.formats ?? {}).map(([id, code]) => rec(0x41e, Buffer.concat([u16(Number(id)), uniString(code)])));
-  const xfs = (opts.xfFormats ?? [0]).map((fmt) => rec(0xe0, Buffer.concat([u16(0), u16(fmt), Buffer.alloc(16)])));
+  const xfs = opts.shortXf ? [rec(0xe0, Buffer.alloc(2))] : (opts.xfFormats ?? [0]).map((fmt) => rec(0xe0, Buffer.concat([u16(0), u16(fmt), Buffer.alloc(16)])));
   let workbook = Buffer.concat([
-    rec(0x809, Buffer.concat([u16(0x600), u16(0x05), Buffer.alloc(12)])), ...formats, ...xfs,
+    rec(0x809, Buffer.concat([u16(0x600), u16(0x05), Buffer.alloc(12)])),
+    ...(opts.filepass ? [rec(0x2f, Buffer.alloc(54))] : []), ...(opts.date1904 ? [rec(0x22, u16(1))] : []), ...formats, ...xfs,
     rec(0x85, Buffer.concat([u32(0), u16(0), uniString("Лист1").subarray(0, 2), Buffer.from([1]), Buffer.from("Лист1", "utf16le")])),
     sstRecords, rec(0x0a, Buffer.alloc(0)),
     rec(0x809, Buffer.concat([u16(0x600), u16(0x10), Buffer.alloc(12)])), ...cells, rec(0x0a, Buffer.alloc(0)),
@@ -62,7 +66,7 @@ export function xlsFixture(rows: XlsCell[][], opts: { xfFormats?: number[]; form
     dir.writeUInt32LE(start, off + 0x74); dir.writeUInt32LE(size, off + 0x78);
   };
   entry(0, "Root Entry", 5, 0xfffffffe, 0);
-  entry(128, "Workbook", 2, 2, opts.declaredStreamSize ?? workbook.length);
+  entry(128, opts.streamName ?? "Workbook", 2, 2, opts.declaredStreamSize ?? workbook.length);
   const header = Buffer.alloc(512, 0);
   header.writeUInt32LE(0xe011cfd0, 0); header.writeUInt32LE(0xe11ab1a1, 4);
   header.writeUInt16LE(0x3e, 0x18); header.writeUInt16LE(3, 0x1a); header.writeUInt16LE(0xfffe, 0x1c);
