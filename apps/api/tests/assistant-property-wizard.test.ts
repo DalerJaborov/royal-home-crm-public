@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
+import sharp from "sharp";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -90,8 +91,8 @@ afterAll(async () => {
   await Promise.all(media.map(m => m.storageKey ? localVideoDelete(m.storageKey).catch(() => {}) : null));
   await prisma.telegramDialogState.deleteMany({ where: { agentId: { in: ids } } });
   await prisma.propertyDraft.deleteMany({ where: { agentId: { in: ids } } });
-  await prisma.property.deleteMany({ where: { title: { contains: runId } } });
-  await prisma.client.deleteMany({ where: { fullName: { contains: runId } } });
+  await prisma.property.deleteMany({ where: { OR: [{ title: { contains: runId } }, { createdById: { in: ids } }] } });
+  await prisma.client.deleteMany({ where: { OR: [{ fullName: { contains: runId } }, { assignedAgentId: { in: ids } }] } });
   await prisma.district.deleteMany({ where: { name: { contains: runId } } });
   await prisma.agent.deleteMany({ where: { id: { in: ids } } });
   await rm(tmp, { recursive: true, force: true });
@@ -160,6 +161,42 @@ describe("мастер объекта в Telegram", () => {
     expect(card).not.toContain("555 12 34");
     // Закрытому объекту хватает цены, площади и продавца — как в мастере CRM.
     expect(button("pdt:create:")).toBeDefined();
+    // После создания — в том же сообщении, кому объект подходит (без рассылок клиентам).
+    await click("author", button("pdt:create:")!);
+    const done = String(editMessageText.mock.calls.at(-1)?.[2] ?? "");
+    expect(done).toContain("Объект создан");
+    expect(done).toMatch(/Подходит клиентам: \d+|Подходящих клиентов в базе пока нет/u);
+    expect(await prisma.property.count({ where: { createdById: agents.author.id } })).toBe(1);
+  });
+
+  it("фото файлом без сжатия принимается, файл не-картинка — нет", async () => {
+    await send("author", { text: "добавь объект" });
+    const draft = await draftOf("author");
+    const file = path.join(tmp, "IMG_0001.png");
+    await writeFile(file, await sharp({ create: { width: 32, height: 32, channels: 3, background: "#123456" } }).png().toBuffer());
+    resolveFile.mockResolvedValue({ kind: "path", path: file });
+    await send("author", { document: { file_id: "photo-doc", mime_type: "image/png", file_name: "IMG_0001.png", file_size: 200 } });
+    expect((await draftOf("author")).media.filter(m => m.kind === "PHOTO" && m.status === "READY")).toHaveLength(1);
+    expect(lastText()).toContain("Фото добавлено");
+    resolveFile.mockClear();
+    await send("author", { document: { file_id: "zip-doc", mime_type: "application/zip", file_name: "plan.zip", file_size: 200 } });
+    expect(resolveFile).not.toHaveBeenCalled();
+    expect((await draftOf("author")).media).toHaveLength(1);
+    await click("author", `pdt:exit:${draft.id}`);
+  });
+
+  it("точка из ссылки Google/Yandex, координат текстом и места (venue) — как точка на карте", async () => {
+    await send("author", { text: "добавь объект" });
+    const draft = await draftOf("author");
+    await send("author", { text: "https://www.google.com/maps/place/Dushanbe/@38.5612,68.7712,17z" });
+    expect(await values("author")).toMatchObject({ lat: 38.5612, lng: 68.7712 });
+    await send("author", { text: "https://yandex.ru/maps/?ll=68.70,38.50&pt=68.7801,38.5702&z=16" });
+    expect(await values("author")).toMatchObject({ lat: 38.5702, lng: 68.7801 });
+    await send("author", { text: "38.5800, 68.7900" });
+    expect(await values("author")).toMatchObject({ lat: 38.58, lng: 68.79 });
+    await send("author", { venue: { location: { latitude: 38.59, longitude: 68.8 }, title: "ТЦ" } });
+    expect(await values("author")).toMatchObject({ lat: 38.59, lng: 68.8 });
+    expect(lastText()).toContain("Точка на карте сохранена");
     await click("author", `pdt:exit:${draft.id}`);
   });
 

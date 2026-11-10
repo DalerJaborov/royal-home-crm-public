@@ -10843,9 +10843,7 @@
 
 `apps/api/src/routes/properties/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.viewAll
 
-- const result = await findMatchingClients(req.params.id);
-  · зовёт findMatchingClients()
-- res.json( canSeePhone ? result : { ...result, items: result.items.map((c)
+- res.json(await matchingClientsForViewer(req, req.params.id));
   · ответ 200
 
 ### GET /api/v1/properties/:id/montajer-messages

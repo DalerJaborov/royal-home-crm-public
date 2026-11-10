@@ -982,6 +982,8 @@ export interface TelegramMedia {
   /** Геометка. Содержимое не используется — нужна, чтобы сообщение с одной
    *  геометкой не исчезало из переписки без следа (ночная проверка 24.09.2026). */
   location?: { latitude: number; longitude: number };
+  /** Место из поиска Telegram («Отправить место»): точка плюс название. */
+  venue?: { location: { latitude: number; longitude: number }; title?: string; address?: string };
 }
 
 /** Обычное сообщение клиентскому боту. */

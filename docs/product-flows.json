@@ -48797,15 +48797,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const result = await findMatchingClients(req.params.id);",
-     "a": [
-      "зовёт findMatchingClients()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json( canSeePhone ? result : { ...result, items: result.items.map((c)",
+     "t": "res.json(await matchingClientsForViewer(req, req.params.id));",
      "a": [
       "ответ 200"
      ],

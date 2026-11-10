@@ -19,6 +19,7 @@ export * from "./cardFill.js";
 export * from "./propertyDraft.js";
 export * from "./propertyWizardDraft.js";
 export * from "./propertyWizardRules.js";
+export * from "./mapPoint.js";
 export * from "./sellerObjectFacts.js";
 export * from "./activeCall.js";
 export * from "./incomingCall.js";

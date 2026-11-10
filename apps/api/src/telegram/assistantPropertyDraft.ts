@@ -41,6 +41,9 @@ import { lookupGeoPoint } from "../lib/geoLookup.js";
 import { suggestLandmarksForPoint } from "../lib/landmarkPick.js";
 import { districtFromMap } from "../lib/propertyDistrict.js";
 import { findPropertyDuplicates } from "../lib/propertyDuplicates.js";
+import { mapPointFromText } from "../lib/mapLinkResolve.js";
+import { matchingClientsForViewer } from "../lib/propertyMatchingClients.js";
+import { DRAFT_PHOTO_MAX_BYTES, isAcceptedDraftPhoto } from "../upload.js";
 import { completeDraftVideo, deleteDraftMedia, importClientIntoDraft, startDraftVideoSession, writeDraftVideoPart } from "../lib/propertyDraftMedia.js";
 import { logSystemError } from "../lib/systemError.js";
 import { findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
@@ -94,7 +97,7 @@ const copy = {
     busy: "Сначала завершите текущее действие в чате.",
     unavailable: "Мастер объектов сейчас недоступен.",
     photoAdded: "Фото добавлено.",
-    photoTooLarge: "Пришлите фото размером до 10 МБ.",
+    photoTooLarge: (mb: number) => `Пришлите фото размером до ${mb} МБ.`,
     videoAdded: "Видео добавлено.",
     videoTooLarge: (mb: number) => `Видео больше ${mb} МБ: Telegram не даёт боту скачать такой файл. Загрузите его в мастере CRM, черновик там тот же.`,
     videoFailed: "Видео не сохранилось. Пришлите его ещё раз или загрузите в мастере CRM.",
@@ -132,6 +135,8 @@ const copy = {
     createdPartly: (skipped: number) => `Файлов не перенеслось: ${skipped}. Добавьте их в карточке.`,
     createdPrefix: "✅ Объект создан.",
     open: "Открыть",
+    matches: (n: number) => `Подходит клиентам: ${n}.`,
+    noMatches: "Подходящих клиентов в базе пока нет.",
     duplicateHard: (code: string) => `В CRM уже есть такой объект: ${code}. Проверьте его перед созданием.`,
     rejected403: "CRM отклонила создание. Проверьте права и карточку продавца.",
     rejected: "CRM отклонила черновик. Проверьте поля и продавца в мастере.",
@@ -150,7 +155,7 @@ const copy = {
     busy: "Аввал амали ҷориро дар чат анҷом диҳед.",
     unavailable: "Иловаи объект ҳоло дастрас нест.",
     photoAdded: "Акс илова шуд.",
-    photoTooLarge: "Лутфан акси то 10 МБ фиристед.",
+    photoTooLarge: (mb: number) => `Лутфан акси то ${mb} МБ фиристед.`,
     videoAdded: "Видео илова шуд.",
     videoTooLarge: (mb: number) => `Видео аз ${mb} МБ калон аст: Telegram ба бот иҷозат намедиҳад, ки чунин файлро гирад. Онро дар CRM бор кунед, сиёҳнавис ҳамон аст.`,
     videoFailed: "Видео нигоҳ дошта нашуд. Лутфан боз фиристед ё дар CRM бор кунед.",
@@ -188,6 +193,8 @@ const copy = {
     createdPartly: (skipped: number) => `Файлҳо нагузаштанд: ${skipped}. Онҳоро дар корт илова кунед.`,
     createdPrefix: "✅ Объект сохта шуд.",
     open: "Кушодан",
+    matches: (n: number) => `Ба мизоҷон мувофиқ аст: ${n}.`,
+    noMatches: "Мизоҷони мувофиқ дар база ҳоло нест.",
     duplicateHard: (code: string) => `Дар CRM аллакай чунин объект ҳаст: ${code}. Пеш аз сохтан онро санҷед.`,
     rejected403: "CRM сохтанро рад кард. Ҳуқуқҳо ва корти фурӯшандаро санҷед.",
     rejected: "CRM сиёҳнависро рад кард. Майдонҳо ва фурӯшандаро дар CRM санҷед.",
@@ -631,6 +638,14 @@ async function updateDescription(ctx: Context, draft: DraftRecord, text: string,
 
 type IncomingVideo = { file_id: string; file_size?: number; mime_type?: string; file_name?: string };
 
+/** Фото файлом (без сжатия) — та же проверка типа, что у загрузки снимка в мастере CRM. */
+function incomingPhotoDocument(msg: TelegramIncomingMessage) {
+  const doc = msg.document;
+  return doc && !doc.mime_type?.startsWith("video/") && isAcceptedDraftPhoto(doc.mime_type, doc.file_name) ? doc : null;
+}
+/** Снимок из Telegram: предел мастера CRM, но не больше того, что Bot API отдаёт боту. */
+const TELEGRAM_DRAFT_PHOTO_LIMIT_BYTES = Math.min(DRAFT_PHOTO_MAX_BYTES, TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES);
+
 function incomingVideo(msg: TelegramIncomingMessage): IncomingVideo | null {
   if (msg.video) return msg.video;
   if (msg.video_note) return msg.video_note;
@@ -639,13 +654,19 @@ function incomingVideo(msg: TelegramIncomingMessage): IncomingVideo | null {
   return null;
 }
 
-/** Предел ролика из Telegram: меньшее из того, что Bot API отдаёт боту, и общего предела мастера. */
+/**
+ * Предел ролика из Telegram: меньшее из того, что Bot API отдаёт боту, и общего
+ * предела мастера CRM. На своём Bot API-сервере (`IS_LOCAL_BOT_API`, прод) это
+ * 2000 МБ; 20 МБ — только у облачного Bot API.
+ */
 export const TELEGRAM_DRAFT_VIDEO_LIMIT_BYTES = Math.min(TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES, UPLOAD_VIDEO_MAX_BYTES);
 const VIDEO_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 
 /** Файл Telegram кусками ровно по плану частей — в памяти не больше одной части. */
 async function* telegramFileParts(fileId: string, partSize: number): AsyncGenerator<Buffer> {
-  const ref = await resolveTelegramFile(fileId, TELEGRAM_DRAFT_VIDEO_LIMIT_BYTES, 10_000);
+  // Таймаут getFile — общий (180 с): свой Bot API-сервер отвечает, только когда
+  // сам докачал файл у Telegram, а это у ролика на сотни мегабайт не секунды.
+  const ref = await resolveTelegramFile(fileId, TELEGRAM_DRAFT_VIDEO_LIMIT_BYTES);
   if (!ref) throw new Error("video_download_failed");
   if (ref.kind === "path") {
     const handle = await open(ref.path, "r");
@@ -807,18 +828,23 @@ export async function handleTelegramPropertyDraft(
       await exitDraft(ctx, state.draftId);
     } else if (state) {
       const draft = await assertActiveDraft(prisma, agent.id, { draftId: state.draftId });
-      const picture = msg.photo?.at(-1);
-      const video = incomingVideo(msg);
+      const compressed = msg.photo?.at(-1);
+      const photoFile = compressed ? null : incomingPhotoDocument(msg);
+      const picture = compressed ?? photoFile;
+      const video = picture ? null : incomingVideo(msg);
+      const point = msg.location ?? msg.venue?.location
+        ?? (msg.text && !picture && !video ? await mapPointFromText(msg.text).then(found => found && { latitude: found.lat, longitude: found.lng }) : null);
       const editing = state.editing ? fieldById(state.editing) : undefined;
       // Поле выбрано кнопкой «Исправить поле» — ответ становится «Поле: значение».
       const asField = (value: string) => editing ? `${editing.label}: ${value.replace(/\s*\n\s*/gu, " ")}` : value;
       if (picture) {
-        const maxBytes = 10_000_000;
+        const maxBytes = TELEGRAM_DRAFT_PHOTO_LIMIT_BYTES;
         if (picture.file_size && picture.file_size > maxBytes) throw new Error("photo_too_large");
         const buffer = await downloadAssistantMedia(picture.file_id, maxBytes);
-        const saved = await savePropertyDraftPhotos(agent.id, draft.id, [
-          { buffer, mimetype: "image/jpeg", size: buffer.length, originalname: `telegram-${msg.message_id}.jpg` },
-        ], [`tg:${draft.id}:${msg.message_id}`]);
+        const saved = await savePropertyDraftPhotos(agent.id, draft.id, [{
+          buffer, mimetype: photoFile?.mime_type || "image/jpeg", size: buffer.length,
+          originalname: photoFile?.file_name?.slice(0, 255) || `telegram-${msg.message_id}.jpg`,
+        }], [`tg:${draft.id}:${msg.message_id}`]);
         if (saved.status !== 201 && saved.status !== 200) {
           await sendMessageWithButtons(chatId, "error" in saved.body ? saved.body.error : t(lang).genericError, controls(draft.id, lang));
         } else if (text) {
@@ -831,8 +857,8 @@ export async function handleTelegramPropertyDraft(
         const current = await assertActiveDraft(prisma, agent.id, { draftId: draft.id });
         if (text) await updateDescription(ctx, current, text, createAssistantMoneyWallet());
         else await sendReview(ctx, current, note);
-      } else if (msg.location) {
-        await updateLocation(ctx, draft, location.parse(msg.location));
+      } else if (point) {
+        await updateLocation(ctx, draft, location.parse(point));
       } else if (msg.voice || msg.audio) {
         const wallet = createAssistantMoneyWallet();
         const voice = await transcribe(msg, agent.id, wallet);
@@ -847,13 +873,34 @@ export async function handleTelegramPropertyDraft(
     }
   } catch (error) {
     const message = error instanceof DraftConflictError ? t(lang).stale
-      : error instanceof Error && error.message === "photo_too_large" ? t(lang).photoTooLarge
+      : error instanceof Error && error.message === "photo_too_large" ? t(lang).photoTooLarge(Math.floor(TELEGRAM_DRAFT_PHOTO_LIMIT_BYTES / (1024 * 1024)))
       : t(lang).genericError;
     if (!(error instanceof DraftConflictError)) console.warn("[telegram:property-draft] intake failed", { kind: error instanceof Error ? error.name : "unknown" });
     if (state) await sendMessageWithButtons(chatId, message, controls(state.draftId, lang));
     else await sendMessage(chatId, message);
   }
   return true;
+}
+
+/* ─────────────────────────── после создания ─────────────────────────── */
+
+/**
+ * Кому подходит новый объект — та же выборка, что панель «Подбор» в CRM
+ * (`matchingClientsForViewer`, GET /properties/:id/matching-clients), с теми же
+ * правами. Одна строка в сообщении «Объект создан»: клиентам ничего не уходит.
+ * Мастер работает только в личке автора, поэтому имена здесь видит сам агент.
+ */
+async function matchingSummary(ctx: Context, propertyId: string): Promise<string | null> {
+  const c = t(ctx.lang);
+  try {
+    const result = await matchingClientsForViewer({ agent: ctx.access }, propertyId, 5);
+    if (!result.items.length) return c.noMatches;
+    const lines = result.items.map(client => `• ${formatClientCode(client.shortId)} ${client.fullName} — ${client.reasons.slice(0, 2).join(", ")}`);
+    return [c.matches(result.total), ...lines].join("\n");
+  } catch (error) {
+    void logSystemError("telegram", `Мастер объекта в Telegram: подбор клиентов не прошёл: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
 
 /* ─────────────────────────── кнопки ─────────────────────────── */
@@ -987,9 +1034,11 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
     const buttons = [[{ text: `${t(lang).open} ${number}`, url: `${base}/properties/${created.id}` }]];
     const media = "media" in result.body ? result.body.media : undefined;
     const skipped = (media?.skipped.photos ?? 0) + (media?.skipped.videos ?? 0);
-    const message = media?.error || skipped
+    const createdText = media?.error || skipped
       ? `${t(lang).createdPrefix} ${media?.error ?? t(lang).createdPartly(skipped)}`
       : t(lang).created;
+    const matches = await matchingSummary(ctx, created.id);
+    const message = matches ? `${createdText}\n\n${matches}` : createdText;
     try { await editMessageText(chatId, messageId, message, buttons); }
     catch { await sendMessageWithButtons(chatId, message, buttons); }
   } catch (error) {
