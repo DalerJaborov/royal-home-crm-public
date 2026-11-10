@@ -216,7 +216,7 @@ export function scoreClientProperty(
       reasons.push("комнат столько же");
     } else {
       // Разница в одну комнату проходит фильтр, но это уже компромисс.
-      reasons.push(`искал ${client.desiredRooms}-комн`);
+      reasons.push(`${MATCH_REASON_ROOMS_PREFIX}${client.desiredRooms}-комн`);
     }
   }
   const max = client.budgetMax != null ? toTjs(client.budgetMax, client.currency, money) : null;
@@ -227,7 +227,7 @@ export function scoreClientProperty(
   } else if (max != null && price > max) {
     // Прошёл только за счёт десятипроцентной растяжки — агент должен это знать
     // ДО звонка, иначе разговор начнётся с неприятного сюрприза о цене.
-    reasons.push("чуть выше бюджета");
+    reasons.push(MATCH_REASON_OVER_BUDGET);
   }
   // Горячий клиент выше при прочих равных: ему уже звонили и он в работе.
   //
@@ -341,7 +341,22 @@ export type { MatchingClient, MatchingClientsResponse };
  * (computeDemandCounts), потому что оба фильтровали по-разному — теперь оба читают
  * waitingBuyerWhere(policy), и число должно совпасть на одном и том же наборе.
  */
-export async function findMatchingClients(propertyId: string, limit = 10): Promise<MatchingClientsResponse> {
+/** Сужение выборки без смены правил подбора: только клиенты агента или один клиент
+ *  (мастер объекта в Telegram, 10.11.2026). */
+/** Причины-компромиссы подбора: объект прошёл фильтр, но с уступкой. Тексты
+ *  причин живут здесь, поэтому и признак «это компромисс» — здесь же. */
+const MATCH_REASON_OVER_BUDGET = "чуть выше бюджета";
+const MATCH_REASON_ROOMS_PREFIX = "искал ";
+export function isMatchTradeoff(reason: string): boolean {
+  return reason === MATCH_REASON_OVER_BUDGET || reason.startsWith(MATCH_REASON_ROOMS_PREFIX);
+}
+
+export interface MatchingScope {
+  assignedAgentId?: string;
+  clientId?: string;
+}
+
+export async function findMatchingClients(propertyId: string, limit = 10, scope: MatchingScope = {}): Promise<MatchingClientsResponse> {
   const property = await prisma.property.findFirst({
     where: { id: propertyId, deletedAt: null },
     select: {
@@ -359,7 +374,7 @@ export async function findMatchingClients(propertyId: string, limit = 10): Promi
     },
   });
   if (!property) return { items: [], total: 0 };
-  return findMatchingClientsForProperty(property, limit);
+  return findMatchingClientsForProperty(property, limit, scope);
 }
 
 /**
@@ -370,7 +385,8 @@ export async function findMatchingClients(propertyId: string, limit = 10): Promi
  */
 export async function findMatchingClientsForProperty(
   property: MatchableProperty,
-  limit = 10
+  limit = 10,
+  scope: MatchingScope = {}
 ): Promise<MatchingClientsResponse> {
   const sellerClientId = (await matchingPropertySellers([property.id])).get(property.id);
   // Гео-предфильтр (блок D2): та же bbox-логика, что в notifyWaitingBuyersOfNewProperty
@@ -389,7 +405,9 @@ export async function findMatchingClientsForProperty(
     where: {
       ...waiting,
       ...(sellerClientId ? { id: { not: sellerClientId } } : {}),
+      ...(scope.assignedAgentId ? { assignedAgentId: scope.assignedAgentId } : {}),
       AND: [
+        ...(scope.clientId ? [{ id: scope.clientId }] : []),
         ...(Array.isArray(waiting.AND) ? waiting.AND : []),
         { OR: districtOrRadiusOr },
         // Требования клиента к объекту — в запросе, ДО среза take ниже (О4,

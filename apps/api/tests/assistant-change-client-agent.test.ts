@@ -8,7 +8,7 @@ import type { PermissionId } from "@royal-home/shared";
  *
  * Держим: права как у POST /clients/:id/assign (рядовой агент — нет, даже свой
  * клиент; руководитель/директор — да; после отказа — только директор/админ;
- * Telegram — нет); превью ничего не пишет; подтверждение пишет через ту же
+ * Telegram — только личка); превью ничего не пишет; подтверждение пишет через ту же
  * assignClientManually (Interaction `[lifecycle.assign]`, LEAD_ASSIGN, пуш);
  * повтор не дублирует; изменённая карточка → 409; имя агента неоднозначно или
  * не найдено — отказ со списком, без выбора за человека; откат возвращает
@@ -154,9 +154,12 @@ describe("права — как у POST /clients/:id/assign", () => {
     await expectError(pending(own.id, targetName, actorFor(rankId, ["clients.assign"])), 403, "FORBIDDEN");
   });
 
-  it("из Telegram — нельзя (в REST это кнопка CRM)", async () => {
+  it("Telegram: в группе — нельзя, в личке — та же карточка (решение владельца 10.11.2026)", async () => {
     const c = await client();
-    await expectError(pending(c.id, targetName, { ...managerActor(), channel: "telegram" }), 403, "CHANNEL_NOT_ALLOWED");
+    await expectError(pending(c.id, targetName, { ...managerActor(), channel: "telegram" }), 403, "PRIVATE_CHAT_REQUIRED");
+    await expectError(pending(c.id, targetName, { ...managerActor(), channel: "telegram", telegramPrivate: false }), 403, "PRIVATE_CHAT_REQUIRED");
+    const view = await pending(c.id, targetName, { ...managerActor(), channel: "telegram", telegramPrivate: true });
+    expect(view.status).toBe("PENDING");
   });
 
   it("после отказа: руководителю — 403, директору — можно, но без отката", async () => {

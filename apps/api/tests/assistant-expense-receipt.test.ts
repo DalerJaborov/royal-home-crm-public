@@ -100,14 +100,16 @@ describe("private Telegram expense from a receipt PDF", () => {
     expect(response.body).toEqual(pdf);
   });
 
-  it("rejects a PDF with multiple pages or spoofed PDF bytes before OCR", async () => {
+  // Многостраничный PDF с 10.11.2026 идёт путём пачки (assistant-expense-batch.test.ts), а не «один чек»:
+  // одиночный разбор чека его не трогает; подменённые байты по-прежнему — отказ до разбора.
+  it("keeps multi-page PDFs out of single-receipt OCR and rejects spoofed PDF bytes", async () => {
     io.download.mockResolvedValueOnce(assistantPdfFixture(2)).mockResolvedValueOnce(Buffer.from("not a PDF"));
     await handleAssistantPrivate(pdfMsg(), director);
     await handleAssistantPrivate(pdfMsg(), director);
     expect(io.extract).not.toHaveBeenCalled();
     expect(io.buttons).not.toHaveBeenCalled();
     expect(io.text).toHaveBeenCalledTimes(2);
-    expect(io.text.mock.calls.at(-1)?.[1]).toContain("на одной странице");
+    expect(io.text.mock.calls.at(-1)?.[1]).toContain("PDF без пароля");
   });
 
   it("keeps ordinary and unauthorized PDFs out of expenses and refuses a caption-only total", async () => {
@@ -132,7 +134,9 @@ beforeAll(async () => {
   director = await prisma.agent.create({ data: { fullName: "Receipt Director Fixture", phone: `+992920${stamp}`, passwordHash: "x",
     role: "DIRECTOR", telegramChatId: String(chatId), telegramUserId: String(chatId) } });
   administrator = await prisma.agent.create({ data: { fullName: "Receipt Admin Fixture", phone: `+992921${stamp}`, passwordHash: "x",
-    role: "ADMIN", telegramChatId: String(otherChatId), telegramUserId: String(otherChatId) } });
+    role: "ADMIN", telegramChatId: String(otherChatId), telegramUserId: String(otherChatId),
+    // Права как у REST POST /expenses (10.11.2026): не роль директора, а «Вести расходы». У этого админа его нет.
+    permissions: { granted: [], revoked: ["finance.manage"] } } });
   const current = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { aiAssistantEnabled: true } });
   oldEnabled = current.aiAssistantEnabled;
   await prisma.settings.update({ where: { id: "singleton" }, data: { aiAssistantEnabled: true } });
@@ -312,11 +316,12 @@ describe("private Telegram expense from a receipt photo", () => {
     if (staged.kind !== "pending") throw new Error("Missing test draft");
     const callback = `ef:yes:ru:${staged.id}`;
     await approve(callback, { message: { chat: { id: -100, type: "supergroup" }, message_id: 801 } });
-    await prisma.agent.update({ where: { id: director.id }, data: { role: "ADMIN" } });
+    // Живые права на нажатии: сняли «Вести расходы» после показа карточки — записи нет.
+    await prisma.agent.update({ where: { id: director.id }, data: { role: "ADMIN", permissions: { granted: [], revoked: ["finance.manage"] } } });
     try {
       expect(await decideExpensePhotoDraft(actor, staged.id, true)).toEqual({ kind: "forbidden" });
     } finally {
-      await prisma.agent.update({ where: { id: director.id }, data: { role: "DIRECTOR" } });
+      await prisma.agent.update({ where: { id: director.id }, data: { role: "DIRECTOR", permissions: { granted: [], revoked: [] } } });
     }
     const expiredAt = new Date(now.getTime() + 11 * 60_000);
     expect(await decideExpensePhotoDraft(actor, staged.id, true, expiredAt)).toEqual({ kind: "expired" });

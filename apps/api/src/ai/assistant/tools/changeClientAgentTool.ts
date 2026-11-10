@@ -139,7 +139,9 @@ const QUEUE_LABEL = "без агента (очередь руководител�
 export const changeClientAgentExecutor: AssistantActionExecutor<Args> = {
   tool: TOOL,
   requires: ["clients.assign"],
-  channels: ["crm"],
+  // Telegram — только личка (решение владельца 10.11.2026): та же карточка и те же права, что в CRM.
+  channels: ["crm", "telegram"],
+  privateTelegram: true,
   parseArgs: (raw) => argsSchema.parse(raw),
 
   snapshot: (args, actor) => readSnapshot(args, actor),
@@ -299,7 +301,7 @@ export const changeClientAgentTool: AssistantWriteToolPlugin = {
     "Передать клиента (сменить ответственного агента) конкретному сотруднику. Зови, когда руководитель просит " +
     "передать/назначить/переназначить клиента названному агенту или забрать клиента себе. clientId найди через " +
     "search_clients. Инструмент НИЧЕГО не меняет сам: готовит карточку «было → станет», исполняет человек кнопкой " +
-    "«Подтвердить». НЕ зови: для передачи объекта недвижимости, для передачи всех дел уволенного (это раздел «Команда»), " +
+    "«Подтвердить». НЕ зови: для передачи объекта недвижимости (это transfer_property), для передачи всех дел уволенного (это handover_staff_work), " +
     "если агент не назван — сначала спроси, кому передать. Если сотрудников с таким именем несколько — " +
     "покажи список и спроси, не выбирай сам.",
   parameters: {
@@ -310,6 +312,6 @@ export const changeClientAgentTool: AssistantWriteToolPlugin = {
     },
     required: ["clientId", "agentName"],
   },
-  allowed: (actor) => actor.canAssignClients,
+  allowed: (actor) => actor.surface !== "telegram-group" && actor.canAssignClients,
   executor: changeClientAgentExecutor as never,
 };

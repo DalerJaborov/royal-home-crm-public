@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import { CURRENCIES, expenseCreateSchema, expenseDateSchema, parsePermissionOverrides, resolvePermissions } from "@royal-home/shared";
+import { CURRENCIES, expenseDateSchema, isReadOnlyRole, parsePermissionOverrides, resolvePermissions } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { Prisma, type Agent, type TelegramExpenseDraft } from "../generated/prisma/client.js";
-import { expenseDay, todayExpenseDay } from "./expenseWorkspace.js";
-import { loadMoneyContext } from "./money.js";
+import { todayExpenseDay } from "./expenseWorkspace.js";
+import { createExpense, ExpenseCommandError } from "./expenseCommands.js";
+import { sourceKeyPrefix, sourceRecordedWhere } from "../ai/assistant/tools/expenseBatchTool.js";
+import { loadUsdRateInfo } from "./money.js";
 import { maskAssistantContacts } from "./assistantContacts.js";
 
 export const MAX_EXPENSE_RECEIPT_BYTES = 2_000_000;
@@ -25,7 +27,9 @@ type AgentIdentity = Pick<Agent, "id" | "role" | "isActive" | "telegramChatId" |
 type ExpenseReceiptDraftView = Pick<TelegramExpenseDraft, "id" | "agentId" | "chatId" | "expenseId" | "evidence" | "expiresAt" | "previewMessageId">;
 
 function directorMatches(agent: AgentIdentity | null, actor: ExpenseDirectorIdentity): agent is AgentIdentity {
-  if (!agent?.isActive || agent.role !== "DIRECTOR" || agent.id !== actor.agentId
+  // Права — как у REST POST /expenses (10.11.2026): finance.view + finance.manage и не «только чтение»,
+  // а не одна роль директора. Личка — та, что привязана к этому сотруднику.
+  if (!agent?.isActive || isReadOnlyRole(agent.role) || agent.id !== actor.agentId
     || agent.telegramChatId !== actor.chatId || (agent.telegramUserId !== null && agent.telegramUserId !== actor.chatId)) return false;
   const rights = resolvePermissions(agent.role, parsePermissionOverrides(agent.permissions));
   return rights.has("finance.view") && rights.has("finance.manage");
@@ -132,7 +136,7 @@ export async function markExpensePreviewDelivered(actor: ExpenseDirectorIdentity
 
 type DecisionResult =
   | { kind: "recorded"; expenseId: string }
-  | { kind: "cancelled" | "expired" | "forbidden" };
+  | { kind: "cancelled" | "expired" | "forbidden" | "noRate" | "alreadyRecorded" };
 
 /** Expense, receipt, private file, audit and replay marker commit together. */
 export async function decideExpensePhotoDraft(
@@ -159,29 +163,40 @@ export async function decideExpensePhotoDraft(
     }
     const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { aiAssistantEnabled: true } });
     if (settings?.aiAssistantEnabled !== true) return { kind: "forbidden" };
-    const rate = evidence.currency === "USD" ? (await loadMoneyContext(tx)).usdToTjs : 1;
-    const data = expenseCreateSchema.parse({
+    // Тот же чек мог уже уйти пачкой (альбом, таблица): та же блокировка по источнику, что у
+    // add_expenses, и отказ, если из этого фото уже что-то записано (повторное ревью 10.11.2026).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sourceKeyPrefix(draft.sourceHash)}))`;
+    if (await tx.expense.findFirst({ where: { OR: sourceRecordedWhere([draft.sourceHash]) }, select: { id: true } })) {
+      await tx.telegramExpenseDraft.delete({ where: { id } });
+      return { kind: "alreadyRecorded" };
+    }
+    // Доллар — только по курсу из Настроек: запасное число FALLBACK_USD_TO_TJS курсом не является.
+    const usdRate = evidence.currency === "USD" ? (await loadUsdRateInfo(tx)).rate : null;
+    if (evidence.currency === "USD" && !usdRate) return { kind: "noRate" };
+    const rate = evidence.currency === "USD" ? usdRate! : 1;
+    const pdf = evidence.sourceFormat === "pdf";
+    const extension = pdf ? "pdf" : "jpg";
+    // Запись — та же функция, что POST /expenses (одна дверь, 10.11.2026); чек — следом в той же транзакции.
+    const { expense } = await createExpense({
       category: "OTHER", note: evidence.purpose, counterparty: evidence.vendor,
       month: evidence.paymentDate.slice(0, 7), status: "PAID", paymentDate: evidence.paymentDate,
       amount: evidence.amountMinor / 100, currency: evidence.currency, exchangeRate: rate,
+    }, { agentId: actor.agentId, requestKey: `tg-receipt:${draft.sourceHash}`, db: tx }).catch((error: unknown) => {
+      if (error instanceof ExpenseCommandError) throw new Error(`expense_receipt_rejected: ${error.body.error}`);
+      throw error;
     });
-    const pdf = evidence.sourceFormat === "pdf";
-    const extension = pdf ? "pdf" : "jpg";
-    const expense = await tx.expense.create({
-      data: {
-        ...data, month: expenseDay(`${data.month}-01`), paymentDate: expenseDay(evidence.paymentDate),
-        createdById: actor.agentId, rateCapturedAt: now, requestKey: `tg-receipt:${draft.sourceHash}`,
-        receipts: { create: {
-          fileName: `${id}.${extension}`, originalName: `telegram-receipt.${extension}`,
-          mimeType: pdf ? "application/pdf" : "image/jpeg",
-          size: draft.image.length, uploadedById: actor.agentId, content: { create: { image: draft.image } },
-        } },
-      },
-      select: { id: true },
-    });
+    await tx.expenseReceipt.create({ data: {
+      expenseId: expense.id, fileName: `${id}.${extension}`, originalName: `telegram-receipt.${extension}`,
+      mimeType: pdf ? "application/pdf" : "image/jpeg",
+      size: draft.image.length, uploadedById: actor.agentId, content: { create: { image: draft.image } },
+    } });
     await tx.auditLog.create({
       data: { action: "EXPENSE_CREATE", entityType: "Expense", entityId: expense.id,
-        agentId: actor.agentId, agentName: agent.fullName, meta: { source: "telegram_receipt", draftId: id } },
+        agentId: actor.agentId, agentName: agent.fullName, meta: {
+          source: "telegram_receipt", draftId: id, sourceKind: pdf ? "pdf" : "photo", messageId: draft.messageId,
+          amount: evidence.amountMinor / 100, currency: evidence.currency, exchangeRate: rate,
+          sourceText: [evidence.purpose, evidence.vendor].filter(Boolean).join(" · ").slice(0, 500),
+        } },
     });
     await tx.telegramExpenseDraft.update({
       where: { id }, data: { expenseId: expense.id, evidence: Prisma.DbNull, image: null },

@@ -46,6 +46,13 @@ export function startTelegramBot() {
     await resetIncompleteProcessedMessages(["TELEGRAM"], "telegram").catch((err) =>
       console.error("[telegram] сброс незавершённых отметок при старте:", err instanceof Error ? err.message : err)
     );
+    // Ролики мастера объекта, которые прошлый процесс не докачал (очередь в памяти).
+    // Ленивый импорт: мастер объекта тянет за собой половину помощника, а поллеру
+    // он нужен только здесь, один раз при старте.
+    // Не ждём: опрос не должен стоять, пока грузится модуль и идёт уборка.
+    void import("./assistantPropertyDraft.js").then(({ recoverInterruptedTelegramDraftUploads }) => recoverInterruptedTelegramDraftUploads()).catch((err) =>
+      console.error("[telegram] снятие прерванных загрузок видео:", err instanceof Error ? err.message : err)
+    );
     await pollLoop();
   })().finally(() => { pollingTask = null; });
 }
