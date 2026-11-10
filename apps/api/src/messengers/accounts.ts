@@ -556,6 +556,14 @@ export interface SaveAccountInput {
    * строка или null — вернуть «Royal Home».
    */
   brandName?: string | null;
+  /**
+   * Ник и идентификатор личных сообщений из ответа Meta (instagramTokenIdentity),
+   * а не из формы. Без ника ядро клиентского бота держит ВСЕ входящие Instagram
+   * (lib/customerIngressClassification.ts, instagramComplete) — так 08–10.11.2026
+   * молчали 23 диалога после подключения Arvan Estate. `undefined` — не трогать.
+   */
+  username?: string;
+  messagingId?: string;
 }
 
 /**
@@ -611,6 +619,8 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
             ...(persona === undefined ? {} : { systemPrompt: persona }),
             ...(brand === undefined ? {} : { brandName: brand }),
             ...(extraIds === undefined ? {} : { extraExternalIds: extraIds }),
+            ...(input.username?.trim() ? { username: input.username.trim() } : {}),
+            ...(input.messagingId?.trim() ? { messagingId: input.messagingId.trim() } : {}),
           },
         })
       : await tx.messengerAccount.create({
@@ -625,6 +635,8 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
             systemPrompt: persona ?? null,
             brandName: brand ?? null,
             extraExternalIds: extraIds ?? [],
+            ...(input.username?.trim() ? { username: input.username.trim() } : {}),
+            ...(input.messagingId?.trim() ? { messagingId: input.messagingId.trim() } : {}),
           },
         });
 

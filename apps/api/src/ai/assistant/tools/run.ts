@@ -31,6 +31,8 @@ export interface RunPluginHooks {
   onConfirm?: (action: AssistantActionView) => void;
   /** Вопрос сотрудника этого хода: журнал обращений и слова человека для инструментов чтения. */
   question?: string;
+  /** Ключ хода (Telegram: чат + сообщение) — для ключа повтора записи (add_expenses). */
+  turnKey?: string;
 }
 
 /** Потолок одной строки превью в ответе модели (превью короткое: подписи, а не переписка). */
@@ -93,7 +95,8 @@ export async function runAssistantToolPlugin(
     if (plugin.level === "A") return await plugin.run(args, { actor, ...(hooks.question ? { question: hooks.question } : {}) });
 
     const actionActor = actionActorFrom(actor, hooks.channel);
-    const pending = await createPendingAssistantAction(actionActor, plugin.name, args);
+    const bound = plugin.bindContext ? plugin.bindContext(args, { question: hooks.question, turnKey: hooks.turnKey }) : args;
+    const pending = await createPendingAssistantAction(actionActor, plugin.name, bound);
     if (plugin.level === "C") {
       // Брокер по ключу повтора может вернуть уже подтверждённое (исполняется прямо
       // сейчас) действие — вторую карточку «Подтвердить» на него не показываем.

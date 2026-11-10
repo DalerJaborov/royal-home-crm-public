@@ -13,14 +13,12 @@
  * подключается ДО listRouter — как /delete-requests и /summary (см. index.ts).
  */
 import { Router } from "express";
-import { propertyTransferSchema } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission } from "../../auth/middleware.js";
 import { logAudit } from "../../lib/audit.js";
 import { acceptPropertyHandover } from "../../lib/propertyHandover.js";
-import { transferPropertyWithSeller } from "../../lib/propertyTransferWithSeller.js";
+import { transferPropertyByManager } from "../../lib/propertyManualTransfer.js";
 import { propertyOwnerAgentId } from "../../lib/propertyOwner.js";
-import { assignableAgentError, canReassignPropertyAgents } from "./shared.js";
 
 export const propertyTransferRouter = Router();
 
@@ -57,46 +55,9 @@ propertyTransferRouter.get("/handover/pending", requireAuth, async (req, res) =>
  * проверка A4) им закрыли только передачу вместе с продавцом.
  */
 propertyTransferRouter.post("/:id/transfer", requireAuth, requirePermission("properties.editForeign"), async (req, res) => {
-  if (!canReassignPropertyAgents(req)) {
-    return res.status(403).json({ error: "Передать объект другому агенту может руководитель" });
-  }
-  const parsed = propertyTransferSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-  }
-  const property = await prisma.property.findUnique({
-    where: { id: req.params.id },
-    select: { id: true, deletedAt: true, status: true, intakeAgentId: true, assignedAgentId: true, createdById: true },
-  });
-  if (!property || property.deletedAt) return res.status(404).json({ error: "Объект не найден" });
-  if (property.status === "SOLD" || property.status === "WITHDRAWN") {
-    return res.status(409).json({ error: "Объект уже продан или снят с продажи — передавать нечего" });
-  }
-  const { toAgentId, reason } = parsed.data;
-  if (propertyOwnerAgentId(property) === toAgentId) {
-    return res.status(409).json({ error: "Объект уже у этого агента" });
-  }
-  // Уволенному, замороженному или не-агенту объект не передаётся — та же
-  // проверка, что у PATCH intakeAgentId/assignedAgentId.
-  const agentError = await assignableAgentError(toAgentId);
-  if (agentError) return res.status(400).json({ error: agentError });
-
-  // Продавец едет вместе с объектом (глубокая проверка A4) — право на это,
-  // clients.assign, уже проверено в начале маршрута для любой передачи.
-
-  const result = await transferPropertyWithSeller({
-    propertyId: property.id,
-    toAgentId,
-    reason,
-    actorId: req.agent!.id,
-    source: "manual",
-  });
-  logAudit(req, "PROPERTY_TRANSFER", "Property", property.id, {
-    fromAgentId: result.fromAgentId,
-    toAgentId,
-    reason,
-  });
-  res.json({ ok: true, fromAgentId: result.fromAgentId, toAgentId, sellerMoved: result.sellerMoved });
+  // Тело — lib/propertyManualTransfer.ts: тот же путь зовёт помощница (10.11.2026).
+  const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);
+  res.status(outcome.status).json(outcome.body);
 });
 
 /** Новый хозяин принял объект: прочитал причину, отметка «передан вам» снимается. */

@@ -1001,7 +1001,7 @@
       "mount": "/api/v1/deals",
       "router": "dealPayoutRouter",
       "file": "apps/api/src/routes/dealPayout.ts",
-      "endpoints": 2,
+      "endpoints": 3,
       "label": "Сделки, документы, выплаты",
       "usedBy": 4
     },
@@ -1777,6 +1777,11 @@
       "id": "instagram-comments",
       "expr": "* * * * *",
       "label": "Отвечает, скрывает и эскалирует комментарии под публикациями"
+    },
+    {
+      "id": "instagram-identity-guard",
+      "expr": "*/10 * * * *",
+      "label": null
     },
     {
       "id": "instagram-online-followers",

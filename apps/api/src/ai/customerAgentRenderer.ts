@@ -420,8 +420,10 @@ function renderDecisionCore(input: {
   const contact = publicContactQuestion && requestedContact ? input.evidence.filter(e => e.value.kind === "agency_contact") : [];
   const company = customerCompanyInformationRequested(input.inputText ?? "") ? input.evidence.filter(e => e.value.kind === "company_information") : [];
   // The office address and hours are printed only for a customer who asked about the agency (30.10.2026: "Лайк камент паделится"
-  // got the full address). A model-chosen read nobody asked for is dropped here, silently; a job candidate keeps it.
-  const companyUnsolicited = input.verifiedContext?.publicState.topic !== "job" && !companyInformationAsked(input.inputText ?? "");
+  // got the full address). A model-chosen read nobody asked for is dropped here, silently. A job candidate
+  // no longer keeps it either (owner 10.11.2026): a vacancy answer is the role, two or three lines of its
+  // published conditions and the phone — no office address or hours unless the candidate asks for them.
+  const companyUnsolicited = !companyInformationAsked(input.inputText ?? "");
   const recruitment = customerRecruitmentFactsRequested(input.inputText ?? "") || !input.inputText?.trim() && !!input.verifiedContext?.publicState.jobPositionKey
     ? input.evidence.filter(e => e.value.kind === "open_vacancies") : [];
   const refs = [...new Set([...mandatory.map(e => e.ref), ...selected, ...contact.map(e => e.ref), ...company.map(e => e.ref), ...recruitment.map(e => e.ref)])];
