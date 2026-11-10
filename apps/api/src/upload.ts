@@ -174,6 +174,15 @@ export const upload = multer({
   },
 });
 
+/** Снимок черновика объекта: предел и проверка типа — одни для мастера CRM и
+ *  мастера в Telegram (фото файлом без сжатия, 10.11.2026). */
+export const DRAFT_PHOTO_MAX_BYTES = 30 * 1024 * 1024;
+export function isAcceptedDraftPhoto(mimetype: string | undefined, filename: string | undefined): boolean {
+  // HEIC из Chrome на Windows приходит с пустым типом или octet-stream —
+  // пускаем по расширению, содержимое проверит sharpFromUpload (lib/heicInput.ts).
+  return Boolean(mimetype?.startsWith("image/")) || looksLikeHeicName(filename ?? "");
+}
+
 /**
  * ФОТО ЧЕРНОВИКА — СВОЙ, МЕНЬШИЙ ЛИМИТ ФАЙЛОВ ЗА ЗАПРОС (21.09.2026, аудит памяти).
  *
@@ -188,11 +197,9 @@ export const upload = multer({
  */
 export const draftPhotoUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 30 * 1024 * 1024, files: 5 },
+  limits: { fileSize: DRAFT_PHOTO_MAX_BYTES, files: 5 },
   fileFilter: (_req, file, cb) => {
-    // HEIC из Chrome на Windows приходит с пустым типом или octet-stream —
-    // пускаем по расширению, содержимое проверит sharpFromUpload (lib/heicInput.ts).
-    if (!file.mimetype.startsWith("image/") && !looksLikeHeicName(file.originalname)) {
+    if (!isAcceptedDraftPhoto(file.mimetype, file.originalname)) {
       return cb(new UploadRejectedError("Допустимы только изображения"));
     }
     cb(null, true);

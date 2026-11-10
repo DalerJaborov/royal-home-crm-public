@@ -1,9 +1,8 @@
 /** Подбор клиентов под объект: GET /:id/matching-clients (Г3, §1.3).
  * Перенос verbatim. Сам движок подбора живёт в routes/matching.ts. */
 import { Router } from "express";
-import { can, requireAuth, requirePermission } from "../../auth/middleware.js";
-import { findMatchingClients } from "../matching.js";
-import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
+import { requireAuth, requirePermission } from "../../auth/middleware.js";
+import { matchingClientsForViewer } from "../../lib/propertyMatchingClients.js";
 
 export const matchingRouter = Router();
 
@@ -19,16 +18,8 @@ export const matchingRouter = Router();
  * чужие клиенты закрыты, показывать их нельзя даже в виде подсказки.
  */
 matchingRouter.get("/:id/matching-clients", requireAuth, requirePermission("clients.viewAll"), async (req, res) => {
-  // 17.09.2026: findMatchingClients теперь сама возвращает { items, total } —
-  // контракт для веба не меняется по форме, total раньше отсутствовал вовсе.
-  const result = await findMatchingClients(req.params.id);
-  // Гейт — clients.viewAll (менеджер, СБ), а имя карточки закрывается отдельным
-  // правом clients.viewPhone (22.09.2026): у заведённых до 20.08.2026 номер лежит
-  // в имени. См. lib/clientPhone.ts.
-  const canSeePhone = can(req, "clients.viewPhone");
-  res.json(
-    canSeePhone
-      ? result
-      : { ...result, items: result.items.map((c) => ({ ...c, fullName: clientNamePhoneSafe(c.fullName, false) })) }
-  );
+  // Тело — lib/propertyMatchingClients.ts (его же зовёт мастер в Telegram).
+  // Гейт — clients.viewAll (менеджер, СБ), имя карточки закрывается правом
+  // clients.viewPhone (22.09.2026).
+  res.json(await matchingClientsForViewer(req, req.params.id));
 });

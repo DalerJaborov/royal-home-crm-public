@@ -1,5 +1,6 @@
 import fsp from "node:fs/promises";
 import { openAsBlob } from "node:fs";
+import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
@@ -385,6 +386,20 @@ export function sendPhoto(chatId: string, photoUrl: string, caption?: string, op
  */
 export async function deleteChannelMessage(chatId: string, messageId: number): Promise<void> {
   await call("deleteMessage", { chat_id: chatId, message_id: messageId });
+}
+
+/**
+ * Удалить сообщение в ЛИЧНОМ чате с ботом (10.11.2026, код Google Authenticator,
+ * telegram/assistantStepUp.ts): в личке бот вправе удалять и входящие. Best-effort:
+ * false — Telegram отказал (сообщению больше 48 часов, сеть), вызывающий решает сам.
+ */
+export async function deletePrivateMessage(chatId: string, messageId: number): Promise<boolean> {
+  try {
+    await call("deleteMessage", { chat_id: chatId, message_id: messageId });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Comments need the actual deletion confirmation; other channel consumers keep their contract. */
@@ -996,6 +1011,8 @@ export interface TelegramMedia {
   /** Геометка. Содержимое не используется — нужна, чтобы сообщение с одной
    *  геометкой не исчезало из переписки без следа (ночная проверка 24.09.2026). */
   location?: { latitude: number; longitude: number };
+  /** Место из поиска Telegram («Отправить место»): точка плюс название. */
+  venue?: { location: { latitude: number; longitude: number }; title?: string; address?: string };
 }
 
 /** Обычное сообщение клиентскому боту. */
@@ -1189,7 +1206,15 @@ export async function resolveTelegramFile(
       console.warn(`[telegram] файл ${fileId} слишком большой (${file.file_size} байт) — пропускаем`);
       return null;
     }
-    if (isAbsoluteFilePath(file.file_path)) return { kind: "path", path: file.file_path };
+    if (isAbsoluteFilePath(file.file_path)) {
+      // Запас: путь от своего Bot API-сервера читаем, только если он внутри его
+      // тома — та же проверка, что у вложений клиентов (пустой том — отказ).
+      if (!isInsideTelegramFilesDir(file.file_path)) {
+        void logSystemError("telegram", `getFile ${fileId}: путь вне тома Bot API — не читаем`);
+        return null;
+      }
+      return { kind: "path", path: file.file_path };
+    }
     return { kind: "url", url: `${API_ROOT}/file/bot${TOKEN}/${file.file_path}` };
   } catch (err) {
     console.error("[telegram] getFile:", err instanceof Error ? err.message : err);

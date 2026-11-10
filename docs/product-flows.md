@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **732**. Развилок в самих путях: **2448**; вместе с задачами по расписанию и фоновыми заданиями — **3947**. Модулей: **81**.
+Путей: **733**. Развилок в самих путях: **2410**; вместе с задачами по расписанию и фоновыми заданиями — **3909**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -519,27 +519,27 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.reset2fa, requireElevation
 
-- если await forbiddenDirectorTarget(req, req.params.id)
-  - return res.status(403).json({ error: "Управлять учёткой директора может только директор" });
-    · ответ 403 — «Управлять учёткой директора может только директор»
-- если await forbiddenPrivilegedTarget(req, req.params.id)
-  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
-    · ответ 403
-- const target = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tr…
-  · читает в базе: agent
-- если !target
-  - return res.status(404).json({ error: "Сотрудник не найден" });
-    · ответ 404 — «Сотрудник не найден»
-- await prisma.agent.update({ where: { id: target.id }, data: { totpEnabled: false, totpSecret: null } });
-  · меняет в базе: agent
-- await revokeOtherSessions(target.id);
-  · зовёт revokeOtherSessions()
-- revokeElevation(target.id);
-  · зовёт revokeElevation()
-- logAudit(req, "TOTP_RESET_BY_DIRECTOR", "Agent", target.id, { targetName: target.fullName });
-  · зовёт logAudit()
-- res.json({ totpEnabled: false });
-  · ответ 200
+- const outcome = await resetStaffTwoFactor(req.agent!, req.params.id);
+  · зовёт resetStaffTwoFactor()
+  - если await forbiddenDirectorTarget(actor, targetId)
+    - return fail(403, "Управлять учёткой директора может только директор");
+      · дословно из кода
+  - если await forbiddenPrivilegedTarget(actor, targetId)
+    - return fail(403, PRIVILEGED_TARGET_ERROR);
+      · дословно из кода
+  - const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true } …
+    · читает в базе: agent
+  - если !target
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - await prisma.agent.update({ where: { id: target.id }, data: { totpEnabled: false, totpSecret: null } });
+    · меняет в базе: agent
+  - await revokeOtherSessions(target.id);
+    · зовёт revokeOtherSessions()
+  - revokeElevation(target.id);
+    · зовёт revokeElevation()
+  - logAgentAudit(actor.id, "TOTP_RESET_BY_DIRECTOR", "Agent", target.id, { targetName: target.fullName, ...(opts…
+    · зовёт logAgentAudit()
 
 ### POST /api/v1/agents/:id/avatar
 
@@ -548,7 +548,7 @@
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
     · ответ 400 — «Файл не передан»
-- если await forbiddenDirectorTarget(req, req.params.id)
+- если await forbiddenDirectorTarget(req.agent!, req.params.id)
   - return res.status(403).json({ error: "Управлять учёткой директора может только директор" });
     · ответ 403 — «Управлять учёткой директора может только директор»
 - const before = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { avatarUrl: true } });
@@ -614,128 +614,120 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- const parsed = agentFreezeSchema.safeParse(req.body);
-  · проверяет данные схемой agentFreezeSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
-  · читает в базе: agent
-- если !agent
-  - return res.status(404).json({ error: "Сотрудник не найден" });
-    · ответ 404 — «Сотрудник не найден»
-- если await forbiddenDirectorTarget(req, agent.id)
-  - return res.status(403).json({ error: "Учётку директора может менять только директор" });
-    · ответ 403 — «Учётку директора может менять только директор»
-- если await forbiddenPrivilegedTarget(req, agent.id)
-  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
-    · ответ 403
-- если agent.frozenAt
-  - return res.status(409).json({ error: "Сотрудник уже заморожен" });
-    · ответ 409 — «Сотрудник уже заморожен»
-- если agent.id === req.agent!.id
-  - return res.status(400).json({ error: "Нельзя заморозить самого себя" });
-    · ответ 400 — «Нельзя заморозить самого себя»
-- если parsed.data.until && parsed.data.until.getTime() < Date.now()
-  - return res.status(400).json({ error: "Дата выхода уже прошла" });
-    · ответ 400 — «Дата выхода уже прошла»
-- const toRelease = await findUnacceptedLeadsOfAgent(agent.id, "Заморозка", { keepOwnProperty: true });
-  · зовёт findUnacceptedLeadsOfAgent()
-- const actor = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
-  · читает в базе: agent
-- await prisma.$transaction(async (tx)
-  · всё внутри — одной транзакцией
-  · меняет в базе: agent
-  - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: new Date(), frozenById: req.agent!.id, fro…
-    · меняет в базе: agent
-  - await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, "freeze");
-    · зовёт clearAgentFromSettingsReferences()
-  - releasedLeads = await releaseLeadsToQueue(tx, toRelease, { agentId: agent.id, actorId: req.agent!.id, actorNa…
-    · зовёт releaseLeadsToQueue()
-- closeStreamsForAgent(agent.id);
-  · зовёт closeStreamsForAgent()
-- logAudit(req, "AGENT_FREEZE", "Agent", agent.id, { reason: parsed.data.reason, released: released.count });
-  · зовёт logAudit()
-- если releasedLeads.length > 0
-  - const directors = await prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true …
+- const outcome = await freezeStaffMember(req.agent!, req.params.id, req.body);
+  · зовёт freezeStaffMember()
+  - const parsed = agentFreezeSchema.safeParse(raw);
+    · проверяет данные схемой agentFreezeSchema
+  - если !parsed.success
+    - return fail(400, "Неверные данные", { details: parsed.error.flatten() });
+      · дословно из кода
+  - const agent = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true, fr…
     · читает в базе: agent
-  - await sendPushToAgents( directors.map((d)
-    · push-уведомление
-- await releaseReactivationOffersOfAgent(agent.id, req.agent!.id).catch((err)
-  · зовёт releaseReactivationOffersOfAgent()
-- void syncAgentQueuePresence(agent.id).catch(()
-  · зовёт syncAgentQueuePresence()
-- res.json({ ok: true, released: released.count });
-  · ответ 200
+  - если !agent
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - если await forbiddenDirectorTarget(actor, agent.id)
+    - return fail(403, "Учётку директора может менять только директор");
+      · дословно из кода
+  - если await forbiddenPrivilegedTarget(actor, agent.id)
+    - return fail(403, PRIVILEGED_TARGET_ERROR);
+      · дословно из кода
+  - если agent.frozenAt
+    - return fail(409, "Сотрудник уже заморожен");
+      · дословно из кода
+  - если agent.id === actor.id
+    - return fail(400, "Нельзя заморозить самого себя");
+      · дословно из кода
+  - если parsed.data.until && parsed.data.until.getTime() < Date.now()
+    - return fail(400, "Дата выхода уже прошла");
+      · дословно из кода
+  - const toRelease = await findUnacceptedLeadsOfAgent(agent.id, "Заморозка", { keepOwnProperty: true });
+    · зовёт findUnacceptedLeadsOfAgent()
+  - const actorRow = await prisma.agent.findUnique({ where: { id: actor.id }, select: { fullName: true } });
+    · читает в базе: agent
+  - await prisma.$transaction(async (tx)
+    · всё внутри — одной транзакцией
+    · меняет в базе: agent
+    - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: new Date(), frozenById: actor.id, frozenRe…
+      · меняет в базе: agent
+    - await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, "freeze");
+      · зовёт clearAgentFromSettingsReferences()
+    - releasedLeads = await releaseLeadsToQueue(tx, toRelease, { agentId: agent.id, actorId: actor.id, actorName: a…
+      · зовёт releaseLeadsToQueue()
+  - closeStreamsForAgent(agent.id);
+    · зовёт closeStreamsForAgent()
+  - если releasedLeads.length > 0
+    - const directors = await prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true …
+      · читает в базе: agent
+    - await sendPushToAgents( directors.map((d)
+      · push-уведомление
+  - await releaseReactivationOffersOfAgent(agent.id, actor.id).catch((err)
+    · зовёт releaseReactivationOffersOfAgent()
+  - void syncAgentQueuePresence(agent.id).catch(()
+    · зовёт syncAgentQueuePresence()
 
 ### POST /api/v1/agents/:id/handover
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- const parsed = agentHandoverSchema.safeParse(req.body);
-  · проверяет данные схемой agentHandoverSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- если await forbiddenDirectorTarget(req, req.params.id)
-  - return res.status(403).json({ error: "Учётку директора может менять только директор" });
-    · ответ 403 — «Учётку директора может менять только директор»
-- если await forbiddenPrivilegedTarget(req, req.params.id)
-  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
-    · ответ 403
-- const from = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: true…
-  · читает в базе: agent
-- если !from
-  - return res.status(404).json({ error: "Сотрудник не найден" });
-    · ответ 404 — «Сотрудник не найден»
-- если toAgentId === from.id
-  - return res.status(400).json({ error: "Нельзя передать дела тому же сотруднику" });
-    · ответ 400 — «Нельзя передать дела тому же сотруднику»
-- если toAgentId
-  - const to = await prisma.agent.findUnique({ where: { id: toAgentId }, select: { isActive: true, frozenAt: true…
+- const outcome = await handoverStaffWork(req.agent!, req.params.id, req.body);
+  · зовёт handoverStaffWork()
+  - const parsed = agentHandoverSchema.safeParse(raw);
+    · проверяет данные схемой agentHandoverSchema
+  - если !parsed.success
+    - return fail(400, "Неверные данные", { details: parsed.error.flatten() });
+      · дословно из кода
+  - если await forbiddenDirectorTarget(actor, fromId)
+    - return fail(403, "Учётку директора может менять только директор");
+      · дословно из кода
+  - если await forbiddenPrivilegedTarget(actor, fromId)
+    - return fail(403, PRIVILEGED_TARGET_ERROR);
+      · дословно из кода
+  - const from = await prisma.agent.findUnique({ where: { id: fromId }, select: { id: true, fullName: true } });
     · читает в базе: agent
-  - если !to
-    - return res.status(404).json({ error: "Получатель не найден" });
-      · ответ 404 — «Получатель не найден»
-  - если !to.isActive
-    - return res.status(409).json({ error: "Получатель отключён — выберите активного сотрудника" });
-      · ответ 409 — «Получатель отключён — выберите активного сотрудника»
-  - если to.frozenAt
-    - return res.status(409).json({ error: `${to.fullName} сейчас заморожен(а) (отпуск, больничный) — передать дела…
-      · ответ 409 — «${to.fullName} сейчас заморожен(а) (отпуск, больничный) — передать…»
-- если deactivate
-  - если from.id === req.agent!.id
-    - return res.status(400).json({ error: "Свою учётку отключить нельзя — попросите другого руководителя" });
-      · ответ 400 — «Свою учётку отключить нельзя — попросите другого руководителя»
-  - если await wouldLoseLastDirector(from.id, { isActive: false })
-    - return res.status(409).json({ error: "В системе должен остаться хотя бы один активный директор" });
-      · ответ 409 — «В системе должен остаться хотя бы один активный директор»
-- const result = await handoverAgentWork(from.id, toAgentId, req.agent!.id);
-  · зовёт handoverAgentWork()
-- logAudit(req, "AGENT_HANDOVER", "Agent", from.id, { toAgentId: toAgentId ?? null, clients: result.clients, ta…
-  · зовёт logAudit()
-- если deactivate
-  - const before = await prisma.agent.findUnique({ where: { id: from.id }, select: { isActive: true } });
-    · читает в базе: agent
-  - const agent = await prisma.agent.update({ where: { id: from.id }, data: { isActive: false } });
-    · меняет в базе: agent
-  - void syncAgentQueuePresence(agent.id).catch(()
-    · зовёт syncAgentQueuePresence()
-  - logAudit(req, "AGENT_UPDATE", "Agent", agent.id, { fields: ["isActive"], afterHandover: true });
-    · зовёт logAudit()
-  - если result.batchId
-    - await prisma.agentHandoverBatch.update({ where: { id: result.batchId }, data: { deactivated: true } });
-      · меняет в базе: agentHandoverBatch
-- res.json({ ...result, deactivated });
-  · ответ 200
+  - если !from
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - если toAgentId === from.id
+    - return fail(400, "Нельзя передать дела тому же сотруднику");
+      · дословно из кода
+  - если toAgentId
+    - const to = await prisma.agent.findUnique({ where: { id: toAgentId }, select: { isActive: true, frozenAt: true…
+      · читает в базе: agent
+    - если !to
+      - return fail(404, "Получатель не найден");
+        · дословно из кода
+    - если !to.isActive
+      - return fail(409, "Получатель отключён — выберите активного сотрудника");
+        · дословно из кода
+    - если to.frozenAt
+      - return fail( 409, `${to.fullName} сейчас заморожен(а) (отпуск, больничный) — передать дела можно, когда замор…
+        · дословно из кода
+  - если deactivate
+    - если from.id === actor.id
+      - return fail(400, "Свою учётку отключить нельзя — попросите другого руководителя");
+        · дословно из кода
+    - если await wouldLoseLastDirector(from.id, { isActive: false })
+      - return fail(409, "В системе должен остаться хотя бы один активный директор");
+        · дословно из кода
+  - const result = await handoverAgentWork(from.id, toAgentId, actor.id);
+    · зовёт handoverAgentWork()
+  - если deactivate
+    - const before = await prisma.agent.findUnique({ where: { id: from.id }, select: { isActive: true } });
+      · читает в базе: agent
+    - const agent = await prisma.agent.update({ where: { id: from.id }, data: { isActive: false } });
+      · меняет в базе: agent
+    - void syncAgentQueuePresence(agent.id).catch(()
+      · зовёт syncAgentQueuePresence()
+    - если result.batchId
+      - await prisma.agentHandoverBatch.update({ where: { id: result.batchId }, data: { deactivated: true } });
+        · меняет в базе: agentHandoverBatch
 
 ### GET /api/v1/agents/:id/handovers
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- const rows = await prisma.agentHandoverBatch.findMany({ where: { fromAgentId: req.params.id }, orderBy: { cre…
-  · читает в базе: agentHandoverBatch
-- res.json(rows);
+- res.json(await listStaffHandovers(req.params.id));
   · ответ 200
 
 ### GET /api/v1/agents/:id/kpi
@@ -756,87 +748,68 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
-  · читает в базе: agent
-- если !agent
-  - return res.status(404).json({ error: "Сотрудник не найден" });
-    · ответ 404 — «Сотрудник не найден»
-- если !availabilityOf(agent).pausedUntil
-  - return res.status(409).json({ error: "Пауза не включена" });
-    · ответ 409 — «Пауза не включена»
-- await endLeadPause(agent);
-  · зовёт endLeadPause()
-- logAudit(req, "AGENT_LEAD_RESUME_BY_SUPERVISOR", "Agent", agent.id, { targetAgentName: agent.fullName });
-  · зовёт logAudit()
-- const actor = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
-  · читает в базе: agent
-- notifyAgentAboutSupervisorPause(agent.id, actor?.fullName ?? "Руководитель", null);
-  · зовёт notifyAgentAboutSupervisorPause()
-- res.json({ ok: true });
-  · ответ 200
+- const outcome = await resumeStaffLeads(req.agent!, req.params.id);
+  · зовёт resumeStaffLeads()
+  - const agent = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true, le…
+    · читает в базе: agent
+  - если !agent
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - если !availabilityOf(agent).pausedUntil
+    - return fail(409, "Пауза не включена");
+      · дословно из кода
+  - await endLeadPause(agent);
+    · зовёт endLeadPause()
+  - const actorRow = await prisma.agent.findUnique({ where: { id: actor.id }, select: { fullName: true } });
+    · читает в базе: agent
+  - notifyAgentAboutSupervisorPause(agent.id, actorRow?.fullName ?? "Руководитель", null);
+    · зовёт notifyAgentAboutSupervisorPause()
 
 ### POST /api/v1/agents/:id/lead-pause
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- const parsed = supervisorLeadPauseSchema.safeParse(req.body);
-  · проверяет данные схемой supervisorLeadPauseSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
-  · читает в базе: agent
-- если !agent
-  - return res.status(404).json({ error: "Сотрудник не найден" });
-    · ответ 404 — «Сотрудник не найден»
-- если agent.id === req.agent!.id
-  - return res.status(400).json({ error: "Свою паузу включают в профиле" });
-    · ответ 400 — «Свою паузу включают в профиле»
-- если !(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)
-  - return res.status(400).json({ error: "Лиды получают только агенты и руководитель продаж" });
-    · ответ 400 — «Лиды получают только агенты и руководитель продаж»
-- если !agent.isActive
-  - return res.status(409).json({ error: "Сотрудник отключён" });
-    · ответ 409 — «Сотрудник отключён»
-- если agent.frozenAt
-  - return res.status(409).json({ error: "Сотрудник уже заморожен — лиды ему и так не идут" });
-    · ответ 409 — «Сотрудник уже заморожен — лиды ему и так не идут»
-- const actor = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
-  · читает в базе: agent
-- const { released } = await startLeadPause({ agentId: agent.id, until, actor: { id: req.agent!.id, fullName: a…
-  · зовёт startLeadPause()
-- logAudit(req, "AGENT_LEAD_PAUSE_BY_SUPERVISOR", "Agent", agent.id, { targetAgentName: agent.fullName, until: …
-  · зовёт logAudit()
-- notifyAgentAboutSupervisorPause(agent.id, actorName, { until, reason });
-  · зовёт notifyAgentAboutSupervisorPause()
-- res.json({ ok: true, pausedUntil: until, released });
-  · ответ 200
+- const outcome = await pauseStaffLeads(req.agent!, req.params.id, req.body);
+  · зовёт pauseStaffLeads()
+  - const parsed = supervisorLeadPauseSchema.safeParse(raw);
+    · проверяет данные схемой supervisorLeadPauseSchema
+  - если !parsed.success
+    - return fail(400, "Неверные данные", { details: parsed.error.flatten() });
+      · дословно из кода
+  - const agent = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true, ro…
+    · читает в базе: agent
+  - если !agent
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - если agent.id === actor.id
+    - return fail(400, "Свою паузу включают в профиле");
+      · дословно из кода
+  - если !(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)
+    - return fail(400, "Лиды получают только агенты и руководитель продаж");
+      · дословно из кода
+  - если !agent.isActive
+    - return fail(409, "Сотрудник отключён");
+      · дословно из кода
+  - если agent.frozenAt
+    - return fail(409, "Сотрудник уже заморожен — лиды ему и так не идут");
+      · дословно из кода
+  - const actorRow = await prisma.agent.findUnique({ where: { id: actor.id }, select: { fullName: true } });
+    · читает в базе: agent
+  - const { released } = await startLeadPause({ agentId: agent.id, until, actor: { id: actor.id, fullName: actorN…
+    · зовёт startLeadPause()
+  - notifyAgentAboutSupervisorPause(agent.id, actorName, { until, reason });
+    · зовёт notifyAgentAboutSupervisorPause()
 
 ### GET /api/v1/agents/:id/live
 
 `apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
-- const agent = await prisma.agent.findUnique({ where: { id }, select: { id: true, fullName: true, sipExtension…
-  · читает в базе: agent
-- если !agent
+- const live = await loadStaffLive(req.params.id, req.agent!);
+  · зовёт loadStaffLive()
+- если !live
   - return res.status(404).json({ error: "Сотрудник не найден" });
     · ответ 404 — «Сотрудник не найден»
-- const [session, nextTask, botChats, tgChats, callBuckets, missedIncoming, lastCalls, statusRows, loadCounts, …
-  · обращается к базе своим SQL
-  · читает в базе: session
-  · читает в базе: interaction
-  · считает в базе: interaction
-  · считает в базе: incomingCall
-  · считает в базе: client
-- пробует
-  - live = activeCallFor(id);
-    · зовёт activeCallFor()
-  - incoming = agent.sipExtension ? liveIncomingCalls().find((c)
-    · зовёт liveIncomingCalls()
-- если сорвалось
-  - await logSystemError("telephony", `Карточка сотрудника: не удалось прочитать живой звонок агента ${id}: ${err…
-    · запись в журнал ошибок
-- res.json({ now: { online: !!agent.lastSeenAt && Date.now() - agent.lastSeenAt.getTime() < ONLINE_WINDOW_MS, l…
+- res.json(live);
   · ответ 200
 
 ### GET /api/v1/agents/:id/overview
@@ -884,44 +857,36 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: permissions.manage
 
-- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
-  · читает в базе: agent
-- если !agent
-  - return res.status(404).json({ error: "Агент не найден" });
-    · ответ 404 — «Агент не найден»
-- res.json({ agentId: agent.id, fullName: agent.fullName, role, roleSummary: ROLE_PRESET_SUMMARY[role], editabl…
-  · ответ 200
+- тело без развилок и известных действий
 
 ### PUT /api/v1/agents/:id/permissions
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: permissions.manage, requireElevation
 
-- const parsed = permissionOverridesSchema.safeParse(req.body);
-  · проверяет данные схемой permissionOverridesSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
-  · читает в базе: agent
-- если !agent
-  - return res.status(404).json({ error: "Агент не найден" });
-    · ответ 404 — «Агент не найден»
-- если agent.role === "DIRECTOR"
-  - return res.status(400).json({ error: "У директора всегда полный доступ — права не настраиваются" });
-    · ответ 400 — «У директора всегда полный доступ — права не настраиваются»
-- если agent.role === "SHAREHOLDER" && parsed.data.granted.length > 0
-  - return res.status(400).json({ error: "Акционеру права не добавляются" });
-    · ответ 400 — «Акционеру права не добавляются»
-- await prisma.agent.update({ where: { id: agent.id }, data: { permissions: isEmpty ? Prisma.DbNull : (override…
-  · меняет в базе: agent
-- invalidateAgentAccess(agent.id);
-  · зовёт invalidateAgentAccess()
-- closeStreamsForAgent(agent.id);
-  · зовёт closeStreamsForAgent()
-- logAudit(req, "AGENT_PERMISSIONS_UPDATE", "Agent", agent.id, { targetAgentName: agent.fullName, role: agent.r…
-  · зовёт logAudit()
-- res.json({ agentId: agent.id, role: agent.role as Role, overrides, items: describePermissions(agent.role as R…
-  · ответ 200
+- const outcome = await setStaffPermissions(req.agent!, req.params.id, req.body);
+  · зовёт setStaffPermissions()
+  - const parsed = permissionOverridesSchema.safeParse(raw);
+    · проверяет данные схемой permissionOverridesSchema
+  - если !parsed.success
+    - return fail(400, "Неверные данные", { details: parsed.error.flatten() });
+      · дословно из кода
+  - const agent = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true, ro…
+    · читает в базе: agent
+  - если !agent
+    - return fail(404, "Агент не найден");
+      · дословно из кода
+  - если agent.role === "DIRECTOR"
+    - return fail(400, "У директора всегда полный доступ — права не настраиваются");
+      · дословно из кода
+  - если agent.role === "SHAREHOLDER" && parsed.data.granted.length > 0
+    - return fail(400, "Акционеру права не добавляются");
+      · дословно из кода
+  - await prisma.agent.update({ where: { id: agent.id }, data: { permissions: isEmpty ? Prisma.DbNull : (override…
+    · меняет в базе: agent
+  - invalidateAgentAccess(agent.id);
+    · зовёт invalidateAgentAccess()
+  - closeStreamsForAgent(agent.id);
+    · зовёт closeStreamsForAgent()
 
 ### GET /api/v1/agents/:id/points
 
@@ -936,152 +901,157 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, frozenAt: tru…
-  · читает в базе: agent
-- если !agent
-  - return res.status(404).json({ error: "Сотрудник не найден" });
-    · ответ 404 — «Сотрудник не найден»
-- если await forbiddenDirectorTarget(req, agent.id)
-  - return res.status(403).json({ error: "Учётку директора может менять только директор" });
-    · ответ 403 — «Учётку директора может менять только директор»
-- если await forbiddenPrivilegedTarget(req, agent.id)
-  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
-    · ответ 403
-- если !agent.frozenAt
-  - return res.status(409).json({ error: "Сотрудник не заморожен" });
-    · ответ 409 — «Сотрудник не заморожен»
-- await prisma.$transaction(async (tx)
-  · всё внутри — одной транзакцией
-  · меняет в базе: agent
-  - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…
+- const outcome = await unfreezeStaffMember(req.agent!, req.params.id);
+  · зовёт unfreezeStaffMember()
+  - const agent = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, frozenAt: true } }…
+    · читает в базе: agent
+  - если !agent
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - если await forbiddenDirectorTarget(actor, agent.id)
+    - return fail(403, "Учётку директора может менять только директор");
+      · дословно из кода
+  - если await forbiddenPrivilegedTarget(actor, agent.id)
+    - return fail(403, PRIVILEGED_TARGET_ERROR);
+      · дословно из кода
+  - если !agent.frozenAt
+    - return fail(409, "Сотрудник не заморожен");
+      · дословно из кода
+  - await prisma.$transaction(async (tx)
+    · всё внутри — одной транзакцией
     · меняет в базе: agent
-  - await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);
-    · зовёт shiftInactiveClockAfterAbsence()
-- logAudit(req, "AGENT_UNFREEZE", "Agent", agent.id, {});
-  · зовёт logAudit()
-- void syncAgentQueuePresence(agent.id).catch(()
-  · зовёт syncAgentQueuePresence()
-- res.json({ ok: true });
-  · ответ 200
+    - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…
+      · меняет в базе: agent
+    - await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);
+      · зовёт shiftInactiveClockAfterAbsence()
+  - void syncAgentQueuePresence(agent.id).catch(()
+    · зовёт syncAgentQueuePresence()
 
 ### DELETE /api/v1/agents/:id
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- если req.params.id === req.agent!.id
-  - return res.status(400).json({ error: "Нельзя удалить собственную учётную запись" });
-    · ответ 400 — «Нельзя удалить собственную учётную запись»
-- если await forbiddenDirectorTarget(req, req.params.id)
-  - return res.status(403).json({ error: "Управлять учёткой директора может только директор" });
-    · ответ 403 — «Управлять учёткой директора может только директор»
-- если await forbiddenPrivilegedTarget(req, req.params.id)
-  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
-    · ответ 403
-- const handover = await handoverAgentWork(req.params.id, undefined, req.agent!.id);
-  · зовёт handoverAgentWork()
-- await releaseReactivationOffersOfAgent(req.params.id, req.agent!.id).catch((err)
-  · зовёт releaseReactivationOffersOfAgent()
-- если await agentHasCascadeHistory(req.params.id)
-  - return disableInsteadOfDelete(req, res, req.params.id, handover, "has history");
-    · дословно из кода
-- пробует
-  - const deleted = await prisma.agent.delete({ where: { id: req.params.id } });
-    · удаляет в базе: agent
-  - invalidateAgentAccess(deleted.id);
-    · зовёт invalidateAgentAccess()
-  - closeStreamsForAgent(deleted.id);
-    · зовёт closeStreamsForAgent()
-  - await clearAgentFromSettingsReferences(prisma, deleted.id, deleted.fullName, "deactivate").catch((err)
-    · зовёт clearAgentFromSettingsReferences()
-  - logAudit(req, "DELETE", "Agent", deleted.id, { fullName: deleted.fullName, role: deleted.role, handoverClient…
-    · зовёт logAudit()
-  - res.json({ ok: true, handover });
-    · ответ 200
-- если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Агент не найден" });
-      · ответ 404 — «Агент не найден»
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003"
-    - return disableInsteadOfDelete(req, res, req.params.id, handover, "has deals/properties/history");
+- const outcome = await deleteStaffMember(req.agent!, req.params.id);
+  · зовёт deleteStaffMember()
+  - если targetId === actor.id
+    - return fail(400, "Нельзя удалить собственную учётную запись");
       · дословно из кода
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если await forbiddenDirectorTarget(actor, targetId)
+    - return fail(403, "Управлять учёткой директора может только директор");
+      · дословно из кода
+  - если await forbiddenPrivilegedTarget(actor, targetId)
+    - return fail(403, PRIVILEGED_TARGET_ERROR);
+      · дословно из кода
+  - const handover = await handoverAgentWork(targetId, undefined, actor.id);
+    · зовёт handoverAgentWork()
+  - await releaseReactivationOffersOfAgent(targetId, actor.id).catch((err)
+    · зовёт releaseReactivationOffersOfAgent()
+  - если await agentHasCascadeHistory(targetId)
+    - return disableInsteadOfDelete(actor, targetId, handover, "has history", opts);
+      · дословно из кода
+  - пробует
+    - const deleted = await prisma.agent.delete({ where: { id: targetId } });
+      · удаляет в базе: agent
+    - invalidateAgentAccess(deleted.id);
+      · зовёт invalidateAgentAccess()
+    - closeStreamsForAgent(deleted.id);
+      · зовёт closeStreamsForAgent()
+    - await clearAgentFromSettingsReferences(prisma, deleted.id, deleted.fullName, "deactivate").catch((err)
+      · зовёт clearAgentFromSettingsReferences()
+  - если сорвалось
+    - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
+      - return fail(404, "Агент не найден");
+        · дословно из кода
+    - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003"
+      - return disableInsteadOfDelete(actor, targetId, handover, "has deals/properties/history", opts);
+        · дословно из кода
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### PATCH /api/v1/agents/:id
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- const parsed = agentUpdateSchema.safeParse(req.body);
-  · проверяет данные схемой agentUpdateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const target = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });
-  · читает в базе: agent
-- если !target
-  - return res.status(404).json({ error: "Сотрудник не найден" });
-    · ответ 404 — «Сотрудник не найден»
-- если await forbiddenDirectorTarget(req, req.params.id, rest.role)
-  - return res.status(403).json({ error: "Управлять учёткой директора может только директор" });
-    · ответ 403 — «Управлять учёткой директора может только директор»
-- если await forbiddenPrivilegedTarget(req, req.params.id)
-  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
-    · ответ 403
-- если roleDenied
-  - return res.status(403).json({ error: roleDenied });
-    · ответ 403
-- если await wouldLoseLastDirector(req.params.id, rest)
-  - return res.status(409).json({ error: "В системе должен остаться хотя бы один активный директор" });
-    · ответ 409 — «В системе должен остаться хотя бы один активный директор»
-- если typeof rest.sipExtension === "string"
-  - const check = await checkManualExtension(rest.sipExtension, req.params.id);
-    · зовёт checkManualExtension()
-  - если !check.ok
-    - return res.status(409).json({ error: check.error });
-      · ответ 409
-- если rest.phone
-  - const holder = await prisma.agent.findFirst({ where: { phone: rest.phone, id: { not: req.params.id } }, selec…
+- const outcome = await updateStaffMember(req.agent!, req.params.id, req.body);
+  · зовёт updateStaffMember()
+  - const parsed = agentUpdateSchema.safeParse(raw);
+    · проверяет данные схемой agentUpdateSchema
+  - если !parsed.success
+    - return fail(400, "Неверные данные", { details: parsed.error.flatten() });
+      · дословно из кода
+  - const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, phone: true, role…
     · читает в базе: agent
-  - если holder
-    - return res.status(409).json({ error: `Этот телефон уже записан за сотрудником «${holder.fullName}»` });
-      · ответ 409 — «Этот телефон уже записан за сотрудником «${holder.fullName}»»
-- const wasActive = rest.isActive === false ? (await prisma.agent.findUnique({ where: { id: req.params.id }, se…
-  · читает в базе: agent
-- если rest.role !== undefined
-  - const before = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { role: true, permission…
-    · читает в базе: agent
-  - если before && before.role !== rest.role && before.permissions !== null
-    - если old.granted.length > 0 || old.revoked.length > 0
-      - resetOverrides = old;
+  - если !target
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - если await forbiddenDirectorTarget(actor, targetId, rest.role)
+    - return fail(403, "Управлять учёткой директора может только директор");
+      · дословно из кода
+  - если await forbiddenPrivilegedTarget(actor, targetId)
+    - return fail(403, PRIVILEGED_TARGET_ERROR);
+      · дословно из кода
+  - const roleDenied = forbiddenRoleGrant(actor, targetId, rest.role);
+    · зовёт forbiddenRoleGrant()
+  - если roleDenied
+    - return fail(403, roleDenied);
+      · дословно из кода
+  - если await wouldLoseLastDirector(targetId, rest)
+    - return fail(409, "В системе должен остаться хотя бы один активный директор");
+      · дословно из кода
+  - если typeof rest.sipExtension === "string"
+    - const check = await checkManualExtension(rest.sipExtension, targetId);
+      · зовёт checkManualExtension()
+    - если !check.ok
+      - return fail(409, check.error);
         · дословно из кода
-- const agent = await prisma.agent.update({ where: { id: req.params.id }, data });
-  · меняет в базе: agent
-- если resetOverrides
-  - logAudit(req, "AGENT_PERMISSIONS_RESET_ON_ROLE_CHANGE", "Agent", agent.id, { targetAgentName: agent.fullName,…
-    · зовёт logAudit()
-- invalidateAgentAccess(agent.id);
-  · зовёт invalidateAgentAccess()
-- если rest.role !== undefined || rest.isActive === false
-  - closeStreamsForAgent(agent.id);
-    · зовёт closeStreamsForAgent()
-- если rest.isActive !== undefined || rest.sipExtension !== undefined
-  - void syncAgentQueuePresence(agent.id).catch(()
-    · зовёт syncAgentQueuePresence()
-- если rest.sipExtension !== undefined || rest.phone !== undefined
-  - void syncAgentMobileFallback(agent.id).catch(()
-    · зовёт syncAgentMobileFallback()
-- если typeof rest.sipExtension === "string"
-  - void ensureExtensionRecording(rest.sipExtension).catch(()
-    · зовёт ensureExtensionRecording()
-- если rest.takesUnknownCalls !== undefined
-  - void ensureAgentsInIncomingQueue().catch(()
-    · зовёт ensureAgentsInIncomingQueue()
-  - void syncAgentMobileFallback(req.params.id).catch(()
-    · зовёт syncAgentMobileFallback()
-- logAudit(req, "AGENT_UPDATE", "Agent", agent.id, { fields: Object.keys(rest), ...(rest.weeklyDaysOff !== unde…
-  · зовёт logAudit()
-- res.json({ id: agent.id, fullName: agent.fullName, phone: agent.phone, role: agent.role, isActive: agent.isAc…
-  · ответ 200
+  - если rest.phone
+    - const holder = await prisma.agent.findFirst({ where: { phone: rest.phone, id: { not: targetId } }, select: { …
+      · читает в базе: agent
+    - если holder
+      - return fail(409, `Этот телефон уже записан за сотрудником «${holder.fullName}»`);
+        · дословно из кода
+  - const wasActive = rest.isActive === false ? (await prisma.agent.findUnique({ where: { id: targetId }, select:…
+    · читает в базе: agent
+  - если rest.role !== undefined
+    - const before = await prisma.agent.findUnique({ where: { id: targetId }, select: { role: true, permissions: tr…
+      · читает в базе: agent
+    - если before && before.role !== rest.role && before.permissions !== null
+      - если old.granted.length > 0 || old.revoked.length > 0
+        - resetOverrides = old;
+          · дословно из кода
+  - const agent = await prisma.agent.update({ where: { id: targetId }, data });
+    · меняет в базе: agent
+  - если resetOverrides
+    - audit(actor, opts, "AGENT_PERMISSIONS_RESET_ON_ROLE_CHANGE", agent.id, { targetAgentName: agent.fullName, rol…
+      · дословно из кода
+  - invalidateAgentAccess(agent.id);
+    · зовёт invalidateAgentAccess()
+  - если rest.role !== undefined || rest.isActive === false
+    - closeStreamsForAgent(agent.id);
+      · зовёт closeStreamsForAgent()
+  - если rest.isActive !== undefined || rest.sipExtension !== undefined
+    - void syncAgentQueuePresence(agent.id).catch(()
+      · зовёт syncAgentQueuePresence()
+  - если rest.sipExtension !== undefined || rest.phone !== undefined
+    - void syncAgentMobileFallback(agent.id).catch(()
+      · зовёт syncAgentMobileFallback()
+  - если typeof rest.sipExtension === "string"
+    - void ensureExtensionRecording(rest.sipExtension).catch(()
+      · зовёт ensureExtensionRecording()
+  - если rest.takesUnknownCalls !== undefined
+    - void ensureAgentsInIncomingQueue().catch(()
+      · зовёт ensureAgentsInIncomingQueue()
+    - void syncAgentMobileFallback(targetId).catch(()
+      · зовёт syncAgentMobileFallback()
+  - если rest.role !== undefined && rest.role !== target.role
+    - notice(actor, opts, "role", agent, `${roleName(target.role)} → ${roleName(agent.role)}${resetOverrides ? ", л…
+      · дословно из кода
+  - если rest.phone !== undefined && rest.phone !== target.phone
+    - notice(actor, opts, "phone", agent, "Телефон — логин входа");
+      · дословно из кода
+  - если rest.isActive === false && wasActive
+    - notice(actor, opts, "deactivated", agent, deactivation?.clientsLeft ? `Клиентов в работе за ним: ${deactivati…
+      · дословно из кода
 
 ### GET /api/v1/agents/extensions/free
 
@@ -1096,100 +1066,98 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- const batch = await prisma.agentHandoverBatch.findUnique({ where: { id: req.params.batchId }, select: { id: t…
-  · читает в базе: agentHandoverBatch
-- если !batch
-  - return res.status(404).json({ error: "Передача дел не найдена" });
-    · ответ 404 — «Передача дел не найдена»
-- если batch.revertedAt
-  - return res.status(409).json({ error: "Эта передача дел уже возвращена" });
-    · ответ 409 — «Эта передача дел уже возвращена»
-- если await forbiddenDirectorTarget(req, batch.fromAgentId)
-  - return res.status(403).json({ error: "Учётку директора может менять только директор" });
-    · ответ 403 — «Учётку директора может менять только директор»
-- если await forbiddenPrivilegedTarget(req, batch.fromAgentId)
-  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
-    · ответ 403
-- const outcome = await revertAgentHandover(batch.id, req.agent!.id);
-  · зовёт revertAgentHandover()
-- если !outcome.ok
-  - return res .status(outcome.reason === "not_found" ? 404 : 409) .json({ error: outcome.reason === "not_found" …
-    · ответ (код зависит от условия)
-- если outcome.result.reactivated
-  - invalidateAgentAccess(batch.fromAgentId);
-    · зовёт invalidateAgentAccess()
-  - void syncAgentQueuePresence(batch.fromAgentId).catch(()
-    · зовёт syncAgentQueuePresence()
-- logAudit(req, "AGENT_HANDOVER_REVERT", "Agent", batch.fromAgentId, { batchId: batch.id, ...outcome.result });
-  · зовёт logAudit()
-- res.json(outcome.result);
-  · ответ 200
+- const outcome = await revertStaffHandover(req.agent!, req.params.batchId);
+  · зовёт revertStaffHandover()
+  - const batch = await prisma.agentHandoverBatch.findUnique({ where: { id: batchId }, select: { id: true, fromAg…
+    · читает в базе: agentHandoverBatch
+  - если !batch
+    - return fail(404, "Передача дел не найдена");
+      · дословно из кода
+  - если batch.revertedAt
+    - return fail(409, "Эта передача дел уже возвращена");
+      · дословно из кода
+  - если await forbiddenDirectorTarget(actor, batch.fromAgentId)
+    - return fail(403, "Учётку директора может менять только директор");
+      · дословно из кода
+  - если await forbiddenPrivilegedTarget(actor, batch.fromAgentId)
+    - return fail(403, PRIVILEGED_TARGET_ERROR);
+      · дословно из кода
+  - const outcome = await revertAgentHandover(batch.id, actor.id);
+    · зовёт revertAgentHandover()
+  - если !outcome.ok
+    - return outcome.reason === "not_found" ? fail(404, "Передача дел не найдена") : fail(409, "Эта передача дел уж…
+      · дословно из кода
+  - если outcome.result.reactivated
+    - invalidateAgentAccess(batch.fromAgentId);
+      · зовёт invalidateAgentAccess()
+    - void syncAgentQueuePresence(batch.fromAgentId).catch(()
+      · зовёт syncAgentQueuePresence()
 
 ### GET /api/v1/agents
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- const agents = await prisma.agent.findMany({ select: isAdmin ? { id: true, fullName: true, phone: true, email…
-  · читает в базе: agent
-- если !isAdmin
-  - return res.json(agents);
-    · ответ 200
-- const { statuses, problem: stationProblem } = await getExtensionStatuses();
-  · зовёт getExtensionStatuses()
-- const readiness = (await checkIncomingReadiness().catch(()
-  · зовёт checkIncomingReadiness()
-- res.json( agents.map((a)
+- res.json(await listStaffDirectory(req.agent!));
   · ответ 200
+  - const agents = await prisma.agent.findMany({ select: isAdmin ? ADMIN_DIRECTORY_SELECT : PEER_DIRECTORY_SELECT…
+    · читает в базе: agent
+  - если !isAdmin || opts.telephony === false
+    - return agents;
+      · дословно из кода
+  - const { statuses, problem: stationProblem } = await getExtensionStatuses();
+    · зовёт getExtensionStatuses()
+  - const readiness = (await checkIncomingReadiness().catch(()
+    · зовёт checkIncomingReadiness()
 
 ### POST /api/v1/agents
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- const parsed = agentCreateSchema.safeParse(req.body);
-  · проверяет данные схемой agentCreateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- если await forbiddenDirectorTarget(req, undefined, rest.role)
-  - return res.status(403).json({ error: "Создавать директора может только директор" });
-    · ответ 403 — «Создавать директора может только директор»
-- если roleDenied
-  - return res.status(403).json({ error: roleDenied });
-    · ответ 403
-- const existing = await prisma.agent.findUnique({ where: { phone: rest.phone } });
-  · читает в базе: agent
-- если existing
-  - return res.status(409).json({ error: "Агент с таким телефоном уже существует" });
-    · ответ 409 — «Агент с таким телефоном уже существует»
-- если !sipExtension
-  - const picked = await pickFreeExtension();
-    · зовёт pickFreeExtension()
-- иначе
-  - const check = await checkManualExtension(sipExtension);
-    · зовёт checkManualExtension()
-  - если !check.ok
-    - return res.status(409).json({ error: check.error });
-      · ответ 409
-- const agent = await prisma.agent.create({ data: { ...rest, sipExtension }, });
-  · создаёт в базе: agent
-- logAudit(req, "AGENT_CREATE", "Agent", agent.id, { fullName: agent.fullName, role: agent.role, sipExtension: …
-  · зовёт logAudit()
-- если agent.sipExtension
-  - void syncAgentMobileFallback(agent.id).catch(()
-    · зовёт syncAgentMobileFallback()
-- если agent.sipExtension
-  - void ensureExtensionRecording(agent.sipExtension).catch(()
-    · зовёт ensureExtensionRecording()
-- если agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)
-  - const fix = await ensureAgentsInIncomingQueue().catch(()
-    · зовёт ensureAgentsInIncomingQueue()
-  - const note = describeNewAgentQueueOutcome( { sipExtension: agent.sipExtension, takesUnknownCalls: agent.takes…
-    · зовёт describeNewAgentQueueOutcome()
-  - если note
-    - extensionNote = extensionNote ? `${extensionNote}. ${note}` : note;
+- const outcome = await createStaffMember(req.agent!, req.body);
+  · зовёт createStaffMember()
+  - const parsed = agentCreateSchema.safeParse(raw);
+    · проверяет данные схемой agentCreateSchema
+  - если !parsed.success
+    - return fail(400, "Неверные данные", { details: parsed.error.flatten() });
       · дословно из кода
-- res.status(201).json({ id: agent.id, fullName: agent.fullName, phone: agent.phone, role: agent.role, sipExten…
-  · ответ 201
+  - если await forbiddenDirectorTarget(actor, undefined, rest.role)
+    - return fail(403, "Создавать директора может только директор");
+      · дословно из кода
+  - const roleDenied = forbiddenRoleGrant(actor, undefined, rest.role);
+    · зовёт forbiddenRoleGrant()
+  - если roleDenied
+    - return fail(403, roleDenied);
+      · дословно из кода
+  - const existing = await prisma.agent.findUnique({ where: { phone: rest.phone } });
+    · читает в базе: agent
+  - если existing
+    - return fail(409, "Агент с таким телефоном уже существует");
+      · дословно из кода
+  - если !sipExtension
+    - const picked = await pickFreeExtension();
+      · зовёт pickFreeExtension()
+  - иначе
+    - const check = await checkManualExtension(sipExtension);
+      · зовёт checkManualExtension()
+    - если !check.ok
+      - return fail(409, check.error);
+        · дословно из кода
+  - const agent = await prisma.agent.create({ data: { ...rest, sipExtension } });
+    · создаёт в базе: agent
+  - если agent.sipExtension
+    - void syncAgentMobileFallback(agent.id).catch(()
+      · зовёт syncAgentMobileFallback()
+  - если agent.sipExtension
+    - void ensureExtensionRecording(agent.sipExtension).catch(()
+      · зовёт ensureExtensionRecording()
+  - если agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)
+    - const fix = await ensureAgentsInIncomingQueue().catch(()
+      · зовёт ensureAgentsInIncomingQueue()
+    - const note = describeNewAgentQueueOutcome( { sipExtension: agent.sipExtension, takesUnknownCalls: agent.takes…
+      · зовёт describeNewAgentQueueOutcome()
+    - если note
+      - extensionNote = extensionNote ? `${extensionNote}. ${note}` : note;
+        · дословно из кода
 
 ## /api/v1/ai
 
@@ -7222,11 +7190,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Нужны координаты lat и lng", details: parsed.error.flatten() });
     · ответ 400 — «Нужны координаты lat и lng»
-- если !isInsideDushanbe(lat, lng)
-  - return res.json({ text: "", landmarks: [] });
-    · ответ 200
 - пробует
-  - return res.json(await suggestLandmarks(lat, lng));
+  - return res.json(await suggestLandmarksForPoint(lat, lng));
     · ответ 200
 - если сорвалось
   - await logSystemError("api", `geo.landmarks(${lat},${lng}): ${message}`, { stack: err instanceof Error ? err.s…
@@ -9894,7 +9859,9 @@
   · считает в базе: notification
 - const shown = <T extends { title: string; body: string }>(rows: T[]): T[]
   · зовёт maskPhonesInText()
-- res.json({ items: shown(items), unreadCount, pinned: shown(pinned), approvalCount, criticalCount, hasMore: pa…
+- const [itemsWithOffers, pinnedWithOffers] = await Promise.all([ attachOfferStates(req.agent!.id, shown(items)…
+  · зовёт attachOfferStates()
+- res.json({ items: itemsWithOffers, unreadCount, pinned: pinnedWithOffers, approvalCount, criticalCount, hasMo…
   · ответ 200
 
 ## /api/v1/media
@@ -10697,9 +10664,7 @@
 
 `apps/api/src/routes/properties/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.viewAll
 
-- const result = await findMatchingClients(req.params.id);
-  · зовёт findMatchingClients()
-- res.json( canSeePhone ? result : { ...result, items: result.items.map((c)
+- res.json(await matchingClientsForViewer(req, req.params.id));
   · ответ 200
 
 ### GET /api/v1/properties/:id/montajer-messages
@@ -12274,36 +12239,38 @@
 
 `apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.editForeign
 
-- если !canReassignPropertyAgents(req)
-  - return res.status(403).json({ error: "Передать объект другому агенту может руководитель" });
-    · ответ 403 — «Передать объект другому агенту может руководитель»
-- const parsed = propertyTransferSchema.safeParse(req.body);
-  · проверяет данные схемой propertyTransferSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { id: true, deleted…
-  · читает в базе: property
-- если !property || property.deletedAt
-  - return res.status(404).json({ error: "Объект не найден" });
-    · ответ 404 — «Объект не найден»
-- если property.status === "SOLD" || property.status === "WITHDRAWN"
-  - return res.status(409).json({ error: "Объект уже продан или снят с продажи — передавать нечего" });
-    · ответ 409 — «Объект уже продан или снят с продажи — передавать нечего»
-- если propertyOwnerAgentId(property) === toAgentId
-  - return res.status(409).json({ error: "Объект уже у этого агента" });
-    · ответ 409 — «Объект уже у этого агента»
-- const agentError = await assignableAgentError(toAgentId);
-  · зовёт assignableAgentError()
-- если agentError
-  - return res.status(400).json({ error: agentError });
-    · ответ 400
-- const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: req.ag…
-  · зовёт transferPropertyWithSeller()
-- logAudit(req, "PROPERTY_TRANSFER", "Property", property.id, { fromAgentId: result.fromAgentId, toAgentId, rea…
-  · зовёт logAudit()
-- res.json({ ok: true, fromAgentId: result.fromAgentId, toAgentId, sellerMoved: result.sellerMoved });
-  · ответ 200
+- const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);
+  · зовёт transferPropertyByManager()
+  - если !canTransferProperty(actor)
+    - return fail(403, "Передать объект другому агенту может руководитель");
+      · дословно из кода
+  - const parsed = propertyTransferSchema.safeParse(raw);
+    · проверяет данные схемой propertyTransferSchema
+  - если !parsed.success
+    - return fail(400, "Неверные данные", parsed.error.flatten());
+      · дословно из кода
+  - const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { id: true, deletedAt:…
+    · читает в базе: property
+  - если !property || property.deletedAt
+    - return fail(404, "Объект не найден");
+      · дословно из кода
+  - если property.status === "SOLD" || property.status === "WITHDRAWN"
+    - return fail(409, "Объект уже продан или снят с продажи — передавать нечего");
+      · дословно из кода
+  - если propertyOwnerAgentId(property) === toAgentId
+    - return fail(409, "Объект уже у этого агента");
+      · дословно из кода
+  - const agentError = await assignableAgentError(toAgentId);
+    · зовёт assignableAgentError()
+  - если agentError
+    - return fail(400, agentError);
+      · дословно из кода
+  - const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: actor.…
+    · зовёт transferPropertyWithSeller()
+  - logAgentAudit(actor.id, "PROPERTY_TRANSFER", "Property", property.id, { fromAgentId: result.fromAgentId, toAg…
+    · зовёт logAgentAudit()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
 
 ### POST /api/v1/properties/:id/video-handoff/requeue
 
@@ -13425,44 +13392,20 @@
 - если !parsedId.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- const result = await withDraftLock(req.agent!.id, async (tx)
-  · читает в базе: propertyDraftMedia
-  · удаляет в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  - const media = await tx.propertyDraftMedia.findUnique({ where: { id: parsedId.data }, include: { draft: { sele…
-    · читает в базе: propertyDraftMedia
-  - если !media
-    - return null;
-      · дословно из кода
-  - если media.draft.agentId !== req.agent!.id
-    - return "forbidden" as const;
-      · дословно из кода
-  - await tx.propertyDraftMedia.delete({ where: { id: media.id } });
-    · удаляет в базе: propertyDraftMedia
-  - await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });
-    · меняет в базе: propertyDraft
-- если result === "forbidden"
-  - return res.status(403).json({ error: "Недостаточно прав" });
-    · ответ 403 — «Недостаточно прав»
-- если !result
+- const deleted = await deleteDraftMedia(req.agent!.id, req.get("X-Property-Draft-Id"), parsedId.data);
+  · зовёт deleteDraftMedia()
+- если deleted.status === 204
   - return res.status(204).end();
     · ответ 204
-- если media.kind === "PHOTO"
-  - await removePhotoFiles(media.url, media.thumbUrl);
-    · зовёт removePhotoFiles()
-- иначе
-  - await abortLocalUploadSession(media.id).catch(()
-    · зовёт abortLocalUploadSession()
-  - если media.storageKey && media.status === "READY"
-    - await localVideoDelete(media.storageKey);
-      · зовёт localVideoDelete()
-- res.status(204).end();
-  · ответ 204
+- res.status(deleted.status).json(deleted.body);
+  · ответ (код зависит от условия)
 
 ### POST /api/v1/properties/drafts/current/photos
 
 `apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен, memoryUploadBudget, draftPhotoUpload.array("photos", 5)
 
+- const draft = await ensureDraft(req.agent!.id, req.get("X-Property-Draft-Id"));
+  · зовёт ensureDraft()
 - если files.length === 0
   - return res.status(400).json({ error: "Не пришло ни одного файла" });
     · ответ 400 — «Не пришло ни одного файла»
@@ -13511,43 +13454,10 @@
 - если !parsedId.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- await withDraftLock(req.agent!.id, async (tx)
-  · ответ 404 — «Загрузка не найдена»
-  · читает в базе: propertyDraftMedia
-  · меняет в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  · запись в журнал ошибок
-  - const media = await tx.propertyDraftMedia.findUnique({ where: { id: parsedId.data }, include: { draft: { sele…
-    · читает в базе: propertyDraftMedia
-  - если !media || media.kind !== "VIDEO"
-    - return res.status(404).json({ error: "Загрузка не найдена" });
-      · ответ 404 — «Загрузка не найдена»
-  - если media.draft.agentId !== req.agent!.id
-    - return res.status(403).json({ error: "Недостаточно прав" });
-      · ответ 403 — «Недостаточно прав»
-  - если media.status === "READY"
-    - return res.json({ media: presentDraftMedia(media) });
-      · ответ 200
-  - если !media.storageKey || !media.totalParts
-    - return res.status(409).json({ error: "Загрузка повреждена" });
-      · ответ 409 — «Загрузка повреждена»
-  - если have.length !== media.totalParts
-    - return res.status(409).json({ error: "Пришли не все части", uploadedPartNumbers: have, totalParts: media.tota…
-      · ответ 409 — «Пришли не все части»
-  - пробует
-    - await completeLocalUploadSession(media.id, media.storageKey, media.totalParts);
-      · зовёт completeLocalUploadSession()
-  - если сорвалось
-    - void logSystemError( "storage", `Не удалось собрать видео черновика: ${err instanceof Error ? err.message : S…
-      · запись в журнал ошибок
-    - return res.status(502).json({ error: "Не удалось собрать видео — попробуйте ещё раз" });
-      · ответ 502 — «Не удалось собрать видео — попробуйте ещё раз»
-  - const ready = await tx.propertyDraftMedia.update({ where: { id: media.id }, data: { status: "READY" }, });
-    · меняет в базе: propertyDraftMedia
-  - await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });
-    · меняет в базе: propertyDraft
-  - res.json({ media: presentDraftMedia(ready) });
-    · ответ 200
+- const completed = await completeDraftVideo(req.agent!.id, req.get("X-Property-Draft-Id"), parsedId.data);
+  · зовёт completeDraftVideo()
+- res.status(completed.status).json(completed.body);
+  · ответ (код зависит от условия)
 
 ### PUT /api/v1/properties/drafts/current/videos/:mediaId/parts/:partNumber
 
@@ -13558,46 +13468,10 @@
 - если !parsedParams.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- await withDraftLock(req.agent!.id, async (tx)
-  · ответ 404 — «Загрузка не найдена»
-  · читает в базе: propertyDraftMedia
-  · меняет в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  · запись в журнал ошибок
-  - const media = await tx.propertyDraftMedia.findUnique({ where: { id: mediaId }, include: { draft: { select: { …
-    · читает в базе: propertyDraftMedia
-  - если !media || media.kind !== "VIDEO"
-    - return res.status(404).json({ error: "Загрузка не найдена" });
-      · ответ 404 — «Загрузка не найдена»
-  - если media.draft.agentId !== req.agent!.id
-    - return res.status(403).json({ error: "Недостаточно прав" });
-      · ответ 403 — «Недостаточно прав»
-  - если media.status === "READY"
-    - return res.status(409).json({ error: "Файл уже собран" });
-      · ответ 409 — «Файл уже собран»
-  - если !media.totalParts || partNumber > media.totalParts
-    - return res.status(400).json({ error: "Номер части вне плана загрузки" });
-      · ответ 400 — «Номер части вне плана загрузки»
-  - если !Buffer.isBuffer(body) || body.length === 0
-    - return res.status(400).json({ error: "Пустая часть" });
-      · ответ 400 — «Пустая часть»
-  - если body.length !== expectedSize
-    - return res.status(400).json({ error: "Размер части не совпадает с планом загрузки" });
-      · ответ 400 — «Размер части не совпадает с планом загрузки»
-  - пробует
-    - await writeLocalUploadPart(mediaId, partNumber, body);
-      · зовёт writeLocalUploadPart()
-  - если сорвалось
-    - void logSystemError( "storage", `Не удалось записать часть видео черновика: ${err instanceof Error ? err.mess…
-      · запись в журнал ошибок
-    - return res.status(502).json({ error: "Часть не записалась — попробуйте ещё раз" });
-      · ответ 502 — «Часть не записалась — попробуйте ещё раз»
-  - await tx.propertyDraftMedia.update({ where: { id: mediaId }, data: { parts: next } });
-    · меняет в базе: propertyDraftMedia
-  - await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });
-    · меняет в базе: propertyDraft
-  - res.json({ uploadedPartNumbers: [...known].sort((a, b)
-    · ответ 200
+- const written = await writeDraftVideoPart(req.agent!.id, req.get("X-Property-Draft-Id"), mediaId, partNumber,…
+  · зовёт writeDraftVideoPart()
+- res.status(written.status).json(written.body);
+  · ответ (код зависит от условия)
 
 ### POST /api/v1/properties/drafts/current/videos/sessions
 
@@ -13608,64 +13482,10 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- если !contentType.startsWith("video/")
-  - return res.status(400).json({ error: "Допустимо только видео" });
-    · ответ 400 — «Допустимо только видео»
-- const ext = videoExtensionOf(filename);
-  · зовёт videoExtensionOf()
-- если !ext
-  - return res.status(400).json({ error: `Файл «${filename}»: ${UNSUPPORTED_VIDEO_MESSAGE}` });
-    · ответ 400 — «Файл «${filename}»: ${UNSUPPORTED_VIDEO_MESSAGE}»
-- если sizeBytes > UPLOAD_VIDEO_MAX_BYTES
-  - return res.status(400).json({ error: videoTooLargeMessage(filename), code: VIDEO_TOO_LARGE_CODE, limitBytes: …
-    · ответ 400
-- await withDraftLock(req.agent!.id, async (tx)
-  · ответ 409 — «Ключ загрузки уже использован»
-  · читает в базе: propertyDraftMedia
-  · считает в базе: propertyDraftMedia
-  · создаёт в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  · запись в журнал ошибок
-  - await assertActiveDraft(tx, req.agent!.id, { draftId: draft.id });
-    · зовёт assertActiveDraft()
-  - const existing = await tx.propertyDraftMedia.findUnique({ where: { uploadKey } });
-    · читает в базе: propertyDraftMedia
-  - если existing
-    - если existing.draftId !== draft.id || existing.kind !== "VIDEO"
-      - return res.status(409).json({ error: "Ключ загрузки уже использован" });
-        · ответ 409 — «Ключ загрузки уже использован»
-    - если existing.status === "READY"
-      - return res.json({ status: "done", media: presentDraftMedia(existing) });
-        · ответ 200
-    - return res.json({ status: "in-progress", mediaId: existing.id, partSize: existing.partSize, totalParts: exist…
-      · ответ 200
-  - const sameFile = await tx.propertyDraftMedia.findFirst({ where: { draftId: draft.id, kind: "VIDEO", filename:…
-    · читает в базе: propertyDraftMedia
-  - если sameFile
-    - если sameFile.status === "READY"
-      - return res.json({ status: "done", media: presentDraftMedia(sameFile) });
-        · ответ 200
-    - return res.json({ status: "in-progress", mediaId: sameFile.id, partSize: sameFile.partSize, totalParts: sameF…
-      · ответ 200
-  - const videoCount = await tx.propertyDraftMedia.count({ where: { draftId: draft.id, kind: "VIDEO" } });
-    · считает в базе: propertyDraftMedia
-  - если videoCount >= MAX_DRAFT_VIDEOS
-    - return res.status(400).json({ error: `В черновик помещается ${MAX_DRAFT_VIDEOS} роликов` });
-      · ответ 400 — «В черновик помещается ${MAX_DRAFT_VIDEOS} роликов»
-  - пробует
-    - await createLocalUploadSession(mediaId);
-      · зовёт createLocalUploadSession()
-  - если сорвалось
-    - void logSystemError( "storage", `Не удалось открыть загрузку видео черновика: ${err instanceof Error ? err.me…
-      · запись в журнал ошибок
-    - return res.status(502).json({ error: "Не удалось начать загрузку видео — попробуйте ещё раз" });
-      · ответ 502 — «Не удалось начать загрузку видео — попробуйте ещё раз»
-  - const media = await tx.propertyDraftMedia.create({ data: { id: mediaId, draftId: draft.id, kind: "VIDEO", sta…
-    · создаёт в базе: propertyDraftMedia
-  - await tx.propertyDraft.update({ where: { id: draft.id }, data: { expiresAt: expiryFromNow() } });
-    · меняет в базе: propertyDraft
-  - res.status(201).json({ status: "started", mediaId: media.id, partSize, totalParts, uploadedPartNumbers: [] });
-    · ответ 201
+- const started = await startDraftVideoSession(req.agent!.id, req.get("X-Property-Draft-Id"), parsed.data);
+  · зовёт startDraftVideoSession()
+- res.status(started.status).json(started.body);
+  · ответ (код зависит от условия)
 
 ### DELETE /api/v1/properties/drafts/current
 
@@ -13691,6 +13511,8 @@
         · создаёт в базе: propertyDraft
   - checkDraftReference(draft, parsed.data, draft.revision === 0);
     · зовёт checkDraftReference()
+- await wipeDraftMediaFiles(removedMedia);
+  · зовёт wipeDraftMediaFiles()
 - если !parsed.data.draftId && parsed.data.revision === undefined
   - return res.status(204).end();
     · ответ 204
@@ -13738,64 +13560,15 @@
 - если !parsedId.success
   - return res.status(400).json({ error: "Неверный идентификатор клиента" });
     · ответ 400 — «Неверный идентификатор клиента»
-- const parsedBody = fromClientBodySchema.safeParse(req.body ?? {});
-  · проверяет данные схемой fromClientBodySchema
+- const parsedBody = draftFromClientBodySchema.safeParse(req.body ?? {});
+  · проверяет данные схемой draftFromClientBodySchema
 - если !parsedBody.success
   - return res.status(400).json({ error: "Неверные данные", details: parsedBody.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const client = await prisma.client.findUnique({ where: { id: parsedId.data }, select: { id: true, kind: true,…
-  · читает в базе: client
-- если !client || client.deletedAt
-  - return res.status(404).json({ error: "Клиент не найден" });
-    · ответ 404 — «Клиент не найден»
-- если client.kind !== "SELLER" && !client.dualIntent
-  - return res.status(400).json({ error: "Черновик из переписки доступен только для продавца" });
-    · ответ 400 — «Черновик из переписки доступен только для продавца»
-- если !canAccessAssignedAgent(req, client.assignedAgentId)
-  - return res.status(403).json({ error: "Недостаточно прав" });
-    · ответ 403 — «Недостаточно прав»
-- если scopeToOwnAgent(req) && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
-- const [facts, attachments] = await Promise.all([ getSellerObjectFacts(client.id).catch(()
-  · запись в журнал ошибок
-- const imported = await withDraftLock(agentId, async (tx)
-  · ошибка DraftImportConflictError — «{
-      error:»
-  · удаляет в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  - const current = await assertActiveDraft(tx, agentId, { draftId: parsedBody.data.draftId, revision: parsedBody…
-    · зовёт assertActiveDraft()
-  - checkDraftReference(current, { draftId: parsedBody.data.draftId, revision: parsedBody.data.revision }, curren…
-    · зовёт checkDraftReference()
-  - если !parsedBody.data.mode && otherSeller && meaningful
-    - throw new DraftImportConflictError({ error: "У вас уже есть заполненный черновик. Сохраните его или подтверди…
-      · ошибка DraftImportConflictError — «{
-      error:»
-  - если foreignMedia && attachments.length > 0 && !mediaDecision
-    - throw new DraftImportConflictError({ error: "В черновике уже есть ваши фото — заменить их фото из переписки?"…
-      · ошибка DraftImportConflictError — «{ error:»
-  - если foreignMedia && (mediaDecision === "replace" || (parsedBody.data.mode === "replace" && attachments.length ===…
-    - await tx.propertyDraftMedia.deleteMany({ where: { draftId: current.id } });
-      · удаляет в базе: propertyDraftMedia
-  - const values = { ...sellerCardToDraftValues(client), ...(sellerFactsToDraftValues(facts, client.id) as Record…
-    · зовёт sellerCardToDraftValues()
-  - если parsedBody.data.mode !== "replace"
-    - для каждого: const [key, value] of Object.entries(oldValues)
-      - если value !== null && value !== "" && (typeof value !== "object" || Object.keys(value as object).length > 0)
-        - values[key] = value;
-          · дословно из кода
-  - const updated = await tx.propertyDraft.update({ where: { id: current.id }, data: { values: values as Prisma.I…
-    · меняет в базе: propertyDraft
-- если imported.copyChatMedia
-  - await copySellerAttachmentsToDraft(draft.id, attachments, { maxPhotos: MAX_DRAFT_PHOTOS, maxVideos: MAX_DRAFT…
-    · зовёт copySellerAttachmentsToDraft()
-- const updated = await prisma.propertyDraft.findUnique({ where: { agentId }, include: DRAFT_INCLUDE });
-  · читает в базе: propertyDraft
-- checkDraftReference(updated, { draftId: draft.id });
-  · зовёт checkDraftReference()
-- res.json({ draft: presentDraft(updated), revision: updated.revision });
-  · ответ 200
+- const imported = await importClientIntoDraft(req, parsedId.data, parsedBody.data, req.get("X-Property-Draft-I…
+  · зовёт importClientIntoDraft()
+- res.status(imported.status).json(imported.body);
+  · ответ (код зависит от условия)
 
 ### GET /api/v1/properties/duplicate-check
 
@@ -13806,38 +13579,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const addressKeys = propertyAddressKeys(address);
-  · зовёт propertyAddressKeys()
-- const byAddressPromise = addressKeys.length === 0 ? Promise.resolve([]) : prisma.property.findMany({ where: {…
-  · читает в базе: property
-- если point
-  - byPointPromise = prisma.property.findMany({ where: { ...ACTIVE_FILTER, lat: { gte: point.lat - dLat, lte: poi…
-    · читает в базе: property
-- для каждого: const row of byAddress
-  - found.set(row.id, { row, viaAddress: true, viaPoint: false, distanceM: distanceOf(row) });
-    · дословно из кода
-- для каждого: const row of byPoint
-  - если d === null || d > DUPLICATE_POINT_RADIUS_M
-    - continue;
-      · переходит к следующему
-  - если prev
-    - prev.viaPoint = true;
-      · дословно из кода
-  - иначе
-    - found.set(row.id, { row, viaAddress: false, viaPoint: true, distanceM: d });
-      · дословно из кода
-- для каждого: const { row: p, viaAddress, viaPoint, distanceM } of found.values()
-  - const add = (field: PropertyDuplicateMatch["checks"][number]["field"], ours: number | string | undefined, the…
-    - если ours === undefined || theirs === null
-      - return;
-        · дальше не идёт, ничего не меняя
-  - если landAreaSotka !== undefined && p.landAreaSotka !== null
-    - checks.push({ field: "landAreaSotka", ours: landAreaSotka, theirs: Number(p.landAreaSotka), equal: Math.abs(N…
-      · дословно из кода
-  - если !checks.every((c) => c.equal)
-    - continue;
-      · переходит к следующему
-- res.json({ matches: matches.slice(0, PROPERTY_DUPLICATE_MATCH_LIMIT) });
+- res.json({ matches: await findPropertyDuplicates(parsed.data) });
   · ответ 200
 
 ### GET /api/v1/properties/export
@@ -14212,6 +13954,27 @@
   · зовёт createProperty()
 - return res.status(result.status).json(result.body);
   · ответ (код зависит от условия)
+
+## /api/v1/property-offers
+
+### POST /api/v1/property-offers/:id/answer
+
+`apps/api/src/routes/propertyOffers.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const body = answerSchema.safeParse(req.body);
+  · проверяет данные схемой answerSchema
+- если !id.success || !body.success
+  - return res.status(400).json({ error: "Неверные данные" });
+    · ответ 400 — «Неверные данные»
+- const ok = await answerPropertyClientOffer(req.agent!.id, id.data, body.data.answer);
+  · зовёт answerPropertyClientOffer()
+- если !ok
+  - const current = await prisma.propertyClientOffer.findFirst({ where: { id: id.data, toAgentId: req.agent!.id }…
+    · читает в базе: propertyClientOffer
+  - return res.status(409).json({ error: "На это предложение уже ответили или оно больше не ваше", code: "OFFER_C…
+    · ответ 409 — «На это предложение уже ответили или оно больше не ваше»
+- res.json({ ok: true, status: body.data.answer });
+  · ответ 200
 
 ## /api/v1/public
 
@@ -19313,6 +19076,8 @@
         · запись в журнал ошибок
     - const deleted = await prisma.assistantAction.deleteMany({ where: { status: "EXPIRED", expiresAt: { lt: new Da…
       · удаляет в базе: assistantAction
+    - const stepUpChallengesDeleted = await sweepStepUpChallenges(now);
+      · зовёт sweepStepUpChallenges()
   - если expired > 0 || stuckFailed > 0 || deleted > 0
     - console.log(`[cron] Действия помощника: истекло ${expired}, прервано ${stuckFailed}, удалено ${deleted}`);
       · пишет строку в журнал сервера
