@@ -11,6 +11,7 @@ import { Prisma, type AssistantAction } from "../generated/prisma/client.js";
 import { canonicalJson, toPlainJson } from "./canonicalJson.js";
 import { logAgentAudit } from "./audit.js";
 import { logSystemError } from "./systemError.js";
+import { isElevated } from "./stepUp.js";
 
 /**
  * ConfirmationBroker ИИ-помощника — действия уровня C (П2, задача 2.3,
@@ -62,6 +63,13 @@ export interface AssistantActionActor {
   channel: AssistantActionChannel;
   /** Verified from the Telegram update, never inferred from the actor's role. */
   telegramPrivate?: boolean;
+  /**
+   * Код Google Authenticator проверен ПРЯМО В ЭТОМ нажатии (telegram/assistantStepUp.ts).
+   * Ставит только обработчик кода, на одно исполнение одной карточки; из роли, канала
+   * или прошлых нажатий не выводится никогда. Для канала crm не используется: там
+   * действует окно подтверждения личности CRM (lib/stepUp.ts, isElevated).
+   */
+  stepUpVerified?: boolean;
   can: (permission: PermissionId) => boolean;
 }
 
@@ -103,6 +111,14 @@ export interface AssistantActionExecutor<A = unknown> {
   channels?: readonly AssistantActionChannel[];
   /** This action may use Telegram only in a private chat. */
   privateTelegram?: boolean;
+  /**
+   * В REST действие стоит за requireElevation (сотрудники, права, сброс 2FA,
+   * 10.11.2026). Исполнение и откат — только при свежем подтверждении личности:
+   * в CRM — окно lib/stepUp.ts, в Telegram — код Google Authenticator этого нажатия
+   * (actor.stepUpVerified). Без включённого Authenticator карточка в Telegram не
+   * создаётся вовсе: паролем и СМС здесь подтверждать нельзя.
+   */
+  stepUp?: true;
   /** DB-only execution with the claim, score/domain writes, audit and result in one transaction. */
   transactional?: true;
   /** Longer than Prisma's 5 s default for large batches (add_expenses from a spreadsheet). */
@@ -224,6 +240,29 @@ function assertActorAllowed(executor: AssistantActionExecutor, actor: AssistantA
   }
 }
 
+export const STEP_UP_TELEGRAM_MESSAGE = "Нужен код из Google Authenticator — нажмите «Подтвердить» и введите шесть цифр";
+export const TOTP_REQUIRED_MESSAGE =
+  "Сначала включите Google Authenticator в CRM (Профиль → Безопасность). Без кода из приложения такие изменения из Telegram не делаю.";
+
+/** Свежее подтверждение личности для действий со stepUp — на исполнении и откате. */
+function assertStepUp(executor: AssistantActionExecutor, actor: AssistantActionActor): void {
+  if (!executor.stepUp) return;
+  if (actor.channel === "telegram") {
+    if (actor.stepUpVerified !== true) throw new AssistantActionError(428, "STEP_UP_REQUIRED", STEP_UP_TELEGRAM_MESSAGE);
+    return;
+  }
+  if (!isElevated(actor.agentId)) {
+    throw new AssistantActionError(428, "STEP_UP_REQUIRED", "Подтвердите личность в CRM и нажмите ещё раз", { stepUpRequired: true });
+  }
+}
+
+/** Telegram: подтверждать нечем, если у сотрудника не включён Authenticator — честный отказ сразу. */
+async function assertStepUpPossible(executor: AssistantActionExecutor, actor: AssistantActionActor): Promise<void> {
+  if (!executor.stepUp || actor.channel !== "telegram") return;
+  const agent = await prisma.agent.findUnique({ where: { id: actor.agentId }, select: { totpEnabled: true, totpSecret: true } });
+  if (!agent?.totpEnabled || !agent.totpSecret) throw new AssistantActionError(412, "TOTP_REQUIRED", TOTP_REQUIRED_MESSAGE);
+}
+
 function assertPrivateTelegram(executor: AssistantActionExecutor | null, actor: AssistantActionActor) {
   if (executor?.privateTelegram && actor.channel === "telegram" && actor.telegramPrivate !== true) {
     throw new AssistantActionError(403, "PRIVATE_CHAT_REQUIRED", "Это действие доступно в личке с Шабнам");
@@ -298,6 +337,7 @@ export async function createPendingAssistantAction(
   const now = opts.now ?? new Date();
   const executor = requireExecutor(tool);
   assertActorAllowed(executor, actor);
+  await assertStepUpPossible(executor, actor);
   const args = parseArgs(executor, rawArgs);
   const snapshot = await readSnapshot(executor, args, actor);
   const preview = assistantActionPreviewSchema.parse(await executor.buildPreview(args, snapshot, actor));
@@ -461,6 +501,8 @@ export async function confirmAssistantAction(
     await expireIfDue(row, now);
     throw expiredError();
   }
+  // До захвата: без подтверждения строка остаётся PENDING и ждёт кода.
+  assertStepUp(executor, actor);
   if (executor.transactional) return confirmTransactionalAction(row, executor, actor, now);
 
   const claimed = await claimPendingAction(prisma, row, actor, now);
@@ -650,6 +692,7 @@ export async function undoAssistantAction(
   if (!canUndo(executor, row.result) || preview.irreversible) {
     throw new AssistantActionError(409, "NOT_UNDOABLE", "Это действие не откатывается");
   }
+  assertStepUp(executor, actor);
   const windowMs = executor.undoWindowMs ?? ASSISTANT_ACTION_UNDO_WINDOW_MS;
   const undoUntil = new Date(row.executedAt.getTime() + windowMs);
   if (executor.recoverableUndo?.matches(row.result)) {

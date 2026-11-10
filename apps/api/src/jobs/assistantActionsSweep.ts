@@ -1,5 +1,6 @@
 import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
+import { sweepStepUpChallenges } from "../telegram/assistantStepUp.js";
 
 /**
  * ЧИСТКА ДЕЙСТВИЙ ИИ-ПОМОЩНИКА (П2, задача 2.6; брокер — lib/assistantActions.ts).
@@ -17,6 +18,8 @@ import { logSystemError } from "../lib/systemError.js";
  *    поэтому это не тихая чистка, а строка в журнал ошибок.
  * 3. EXPIRED старше 7 дней удаляются. EXECUTED/UNDONE/FAILED/CANCELLED НЕ
  *    удаляются никогда — это след того, что помощник менял в CRM.
+ * 4. Ожидания кода Google Authenticator (AssistantStepUpChallenge) старше суток
+ *    удаляются: блокировке нужны 15 минут, след проверок — в AuditLog (10.11.2026).
  */
 export const STUCK_CONFIRMED_MS = 15 * 60_000;
 export const EXPIRED_RETENTION_MS = 7 * 24 * 60 * 60_000;
@@ -25,6 +28,7 @@ export interface AssistantActionsSweepResult {
   expired: number;
   stuckFailed: number;
   deleted: number;
+  stepUpChallengesDeleted: number;
 }
 
 export async function runAssistantActionsSweep(now: Date = new Date()): Promise<AssistantActionsSweepResult> {
@@ -52,5 +56,6 @@ export async function runAssistantActionsSweep(now: Date = new Date()): Promise<
     where: { status: "EXPIRED", expiresAt: { lt: new Date(now.getTime() - EXPIRED_RETENTION_MS) } },
   });
 
-  return { expired: expired.count, stuckFailed: stuck.count, deleted: deleted.count };
+  const stepUpChallengesDeleted = await sweepStepUpChallenges(now);
+  return { expired: expired.count, stuckFailed: stuck.count, deleted: deleted.count, stepUpChallengesDeleted };
 }

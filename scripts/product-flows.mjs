@@ -950,7 +950,12 @@ function expandCalls(nodes, budget) {
 function expandRouteDoors(nodes) {
   for (const node of nodes) {
     if (node.c.length) continue;
-    const call = node.t.match(/^(?:const|let)\s+[\w$]+\s*=\s*await\s+([\w$]{2,}For)\s*\(\s*req\s*[,)]/);
+    // Второй вид той же двери (раздел «Команда», 10.11.2026): роут отдаёт в lib/
+    // нажавшего (`req.agent!`), а ответ — результат функции целиком:
+    // `const outcome = await createStaffMember(req.agent!, …); send(res, outcome)`, `res.json(await listStaffDirectory(req.agent!))`.
+    const call = node.t.match(/^(?:const|let)\s+[\w$]+\s*=\s*await\s+([\w$]{2,}For)\s*\(\s*req\s*[,)]/)
+      ?? node.t.match(/^(?:const|let)\s+outcome\s*=\s*await\s+([\w$]{2,})\s*\(\s*req\.agent!?\s*[,)]/)
+      ?? node.t.match(/^res\.json\(\s*await\s+([\w$]{2,})\s*\(\s*req\.agent!?\s*[,)]/);
     if (!call) continue;
     const fn = fnIndex.get(call[1]);
     if (!fn) continue;
