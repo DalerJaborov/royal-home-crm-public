@@ -10,13 +10,15 @@ import { AssistantActionError, type AssistantActionActor, type AssistantActionEx
 import { canonicalJson } from "../../../lib/canonicalJson.js";
 import { createExpense } from "../../../lib/expenseCommands.js";
 import { todayExpenseDay } from "../../../lib/expenseWorkspace.js";
-import { expenseCentsToTjs, fromCents, loadMoneyContext, loadUsdRateInfo, roundMoney, type MoneyContext } from "../../../lib/money.js";
+import { expenseCentsToTjs, fromCents, loadMoneyContext, loadUsdRateInfo, NO_USD_RATE_TEXT, roundMoney, type MoneyContext } from "../../../lib/money.js";
 import { plainField } from "./safeField.js";
 import {
-  asActionError, asPluginExecutor, assertFinanceWriter, categoryLabel, EXPENSE_LANGS, expenseLabels, findAgentByName,
+  asActionError, asPluginExecutor, assertFinanceWriter, categoryLabel, EXPENSE_LANGS, expenseLabels,
   findCategoryByTitle, financeWriteAllowed, moneyText, type ExpenseLang,
 } from "./expenseToolSupport.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
+import { findActiveAgentByName } from "../../../lib/agentNameLookup.js";
+import { AD_CHANNELS, adChannelOf, salaryNameOf, specialArticleOf } from "../expenseArticles.js";
 
 /**
  * add_expenses — ПАЧКА РАСХОДОВ ОДНОЙ КАРТОЧКОЙ (10.11.2026, жалоба владельца: фото таблицы
@@ -60,6 +62,8 @@ const rowSchema = z.object({
   status: opt(z.enum(["PAID", "PLANNED"])),
   source: opt(z.enum(CLIENT_SOURCES)),
   agentName: opt(z.string().trim().max(120)),
+  /** Сотрудник, выбранный кнопкой в карточке (не модель): id из списка кандидатов. */
+  agentId: opt(z.uuid()),
   /** Строка как её прочитали (ячейки таблицы, строка фото) — для истории расхода. */
   sourceText: opt(z.string().max(500)),
   /** Валюты в источнике не было — поставлена валюта пачки, карточка просит проверить. */
@@ -69,7 +73,7 @@ const rowSchema = z.object({
   sourceIndex: opt(z.number().int().min(0).max(100_000)),
 });
 
-export const BATCH_SOURCE_KINDS = ["photo", "album", "xlsx", "csv", "pdf", "chat"] as const;
+export const BATCH_SOURCE_KINDS = ["photo", "album", "xlsx", "xls", "csv", "pdf", "chat"] as const;
 
 const argsSchema = z.object({
   items: z.array(rowSchema).min(1).max(MAX_BATCH_ROWS),
@@ -89,6 +93,7 @@ export interface BatchRow {
   date?: string; category: ExpenseCategory; categoryTitle?: string; counterparty?: string;
   paymentMethod?: (typeof EXPENSE_PAYMENT_METHODS)[number]; source?: (typeof CLIENT_SOURCES)[number]; agentName?: string;
   sourceText?: string; currencyUnstated?: true; otherCurrency?: string; sourceHash?: string; sourceIndex?: number;
+  agentId?: string;
 }
 export interface BatchArgs {
   items: BatchRow[]; lang: ExpenseLang;
@@ -132,6 +137,7 @@ export function parseBatchArgs(raw: unknown, now = new Date()): BatchArgs {
       ...(row.paymentMethod ? { paymentMethod: row.paymentMethod } : {}),
       ...(row.source ? { source: row.source } : {}),
       ...(row.agentName ? { agentName: row.agentName } : {}),
+      ...(row.agentId ? { agentId: row.agentId } : {}),
       ...(row.sourceText ? { sourceText: row.sourceText } : {}),
       ...(sourceHash ? { sourceHash, sourceIndex: row.sourceIndex ?? i } : {}),
     };
@@ -168,7 +174,8 @@ export async function recordedSource(sourceHash: string) {
   return prisma.expense.findFirst({ where: { OR: sourceRecordedWhere([sourceHash]) }, select: { createdAt: true, deletedAt: true } });
 }
 
-export const NO_RATE_MESSAGE = "Курс доллара в Настройках CRM не задан — долларовые расходы не записываю. Задайте курс в Настройках или пришлите суммы в сомони.";
+/** Один текст отказа без курса — у REST и помощницы (lib/money.ts). */
+export const NO_RATE_MESSAGE = NO_USD_RATE_TEXT;
 
 /**
  * Курс для пачки: долларовая строка пишется только при курсе, заданном в Настройках. Без него
@@ -178,37 +185,56 @@ export async function rateContextFor(args: Pick<BatchArgs, "items">, db?: TxClie
   if (!args.items.some((row) => row.currency === "USD")) return loadMoneyContext(db);
   const info = await loadUsdRateInfo(db);
   if (!info.rate) throw new AssistantActionError(409, "NO_RATE", NO_RATE_MESSAGE);
-  return { usdToTjs: info.rate };
+  return { usdToTjs: info.rate, verified: true };
 }
 
 export interface ResolvedRow {
   body: Record<string, unknown>;
   problem?: string;
-  /** Зарплата без сотрудника / реклама без канала: строка пишется в «Прочее», карточка говорит это вслух. */
+  /**
+   * Реклама без канала / зарплата без сотрудника: REST такую строку не примет. Карточка называет
+   * это и даёт выбрать канал или сотрудника кнопкой («Править → строка N»); не выбрали — «Прочее».
+   */
   downgraded?: "salary" | "ads";
+  /** Для зарплаты: похожих сотрудников несколько — кого предложить кнопками. */
+  candidates?: { id: string; fullName: string }[];
+  /** Что поняли: сотрудник зарплаты и канал рекламы — показываются у строки в карточке. */
+  agentName?: string;
+  source?: string;
   categoryTitle?: string;
 }
 
+type AgentPick = { agent: { id: string; fullName: string } | null; candidates: { id: string; fullName: string }[] };
+
 /**
- * Строки → тела POST /expenses. Зарплату без сотрудника и рекламу без канала REST не примет;
- * до кнопок выбора (следующая пачка) такая строка честно идёт в «Прочее» с пометкой, а не валит
- * весь файл. Чужая валюта — проблема строки: её не пишем.
+ * Строки → тела POST /expenses. Реклама и зарплата узнаются по словам строки (словарь статей):
+ * канал — по названию площадки, сотрудник — по имени через общую дверь `lib/agentNameLookup.ts`
+ * (однофамильцев не выбираем за человека). Не узнали — строка пометится и пойдёт в «Прочее»,
+ * если человек не выберет кнопкой; одна такая строка не валит файл. Чужая валюта — проблема строки.
  */
 export async function resolveRows(args: BatchArgs, db: TxClient = prisma): Promise<ResolvedRow[]> {
   const out: ResolvedRow[] = [];
   // Тысяча строк таблицы — не тысяча запросов: подраздел и сотрудник ищутся раз на имя.
   const definitions = new Map<string, Awaited<ReturnType<typeof findCategoryByTitle>>>();
-  const agents = new Map<string, Awaited<ReturnType<typeof findAgentByName>>>();
+  const picks = new Map<string, AgentPick>();
   for (const row of args.items) {
     const titleKey = row.categoryTitle?.toLowerCase() ?? "";
     if (!definitions.has(titleKey)) definitions.set(titleKey, await findCategoryByTitle(row.categoryTitle, db));
     let definition = definitions.get(titleKey) ?? null;
     let category: ExpenseCategory = definition?.rootCategory ?? row.category;
-    const agentKey = row.agentName?.toLowerCase() ?? "";
-    if (category === "SALARY" && !agents.has(agentKey)) agents.set(agentKey, await findAgentByName(row.agentName, db));
-    const agent = category === "SALARY" ? agents.get(agentKey) ?? null : null;
+    const words = `${row.categoryTitle ?? ""} ${row.title}`;
+    const special = specialArticleOf(words);
+    if (category === "OTHER" && !definition && special === "ads") category = "ADVERTISING";
+    if (category === "OTHER" && !definition && special === "salary") category = "SALARY";
+    const source = category === "ADVERTISING" ? row.source ?? adChannelOf(`${words} ${row.counterparty ?? ""}`) ?? undefined : undefined;
+    let pick: AgentPick = { agent: null, candidates: [] };
+    if (category === "SALARY") {
+      const key = row.agentId ? `id:${row.agentId}` : `name:${(row.agentName ?? salaryNameOf(row.title)).toLowerCase()}`;
+      if (!picks.has(key)) picks.set(key, await pickAgent(row, db));
+      pick = picks.get(key)!;
+    }
     let downgraded: ResolvedRow["downgraded"];
-    if ((category === "SALARY" && !agent) || (category === "ADVERTISING" && !row.source)) {
+    if ((category === "SALARY" && !pick.agent) || (category === "ADVERTISING" && !source)) {
       downgraded = category === "SALARY" ? "salary" : "ads";
       category = "OTHER";
       definition = null;
@@ -219,16 +245,37 @@ export async function resolveRows(args: BatchArgs, db: TxClient = prisma): Promi
       ...(definition ? { categoryId: definition.id } : {}),
       ...(row.counterparty ? { counterparty: row.counterparty } : {}),
       ...(row.paymentMethod ? { paymentMethod: row.paymentMethod } : {}),
-      ...(category === "ADVERTISING" && row.source ? { source: row.source } : {}),
-      ...(agent ? { agentId: agent.id } : {}),
+      ...(category === "ADVERTISING" && source ? { source } : {}),
+      ...(category === "SALARY" && pick.agent ? { agentId: pick.agent.id } : {}),
     };
     const check = expenseCreateSchema.safeParse(body);
     const problem = row.otherCurrency
       ? `«${row.title}»: валюта ${row.otherCurrency} пока не поддерживается — укажите в сомони или $`
       : check.success ? undefined : `«${row.title}»: ${check.error.issues[0]?.message ?? "проверьте строку"}`;
-    out.push({ body, ...(problem ? { problem } : {}), ...(downgraded ? { downgraded } : {}), ...(definition ? { categoryTitle: definition.title } : {}) });
+    out.push({
+      body, ...(problem ? { problem } : {}), ...(downgraded ? { downgraded } : {}),
+      ...(downgraded === "salary" && pick.candidates.length ? { candidates: pick.candidates } : {}),
+      ...(category === "SALARY" && pick.agent ? { agentName: pick.agent.fullName } : {}),
+      ...(category === "ADVERTISING" && source ? { source } : {}),
+      ...(definition ? { categoryTitle: definition.title } : {}),
+    });
   }
   return out;
+}
+
+async function pickAgent(row: BatchRow, db: TxClient): Promise<AgentPick> {
+  if (row.agentId) {
+    const agent = await db.agent.findFirst({ where: { id: row.agentId, isActive: true }, select: { id: true, fullName: true } });
+    return { agent, candidates: [] };
+  }
+  const name = row.agentName ?? salaryNameOf(row.title);
+  if (!name) return { agent: null, candidates: [] };
+  const match = await findActiveAgentByName(name);
+  // Сам выбираем только при полном совпадении имени: «Ахмад» не становится «Ахмадов Фарход» молча —
+  // единственное частичное совпадение идёт кнопкой, как однофамильцы (повторное ревью 10.11.2026).
+  const norm = (text: string) => text.toLocaleLowerCase("ru").replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+  if (match.kind === "one" && norm(match.agent.fullName) === norm(name)) return { agent: match.agent, candidates: [] };
+  return { agent: null, candidates: match.kind === "many" ? match.candidates : match.kind === "one" ? [match.agent] : [] };
 }
 
 async function existingBatch(args: BatchArgs, agentId: string, db: TxClient = prisma) {
@@ -294,6 +341,8 @@ const executor: AssistantActionExecutor<BatchArgs> = {
         `${plainField(row.title, 80) ?? ""} — ${moneyText(row.amount, row.currency, args.lang)}`,
         row.date ?? row.month,
         categoryLabel(args.lang, resolved.body.category as ExpenseCategory, resolved.categoryTitle ?? null),
+        ...(resolved.agentName ? [`👥 ${plainField(resolved.agentName, 60)}`] : []),
+        ...(resolved.source ? [`📣 ${AD_CHANNELS.find((c) => c.source === resolved.source)?.label ?? resolved.source}`] : []),
         row.status === "PAID" ? labels.paid : labels.planned,
       ].join(" · ");
     });
@@ -417,7 +466,7 @@ export const addExpensesPlugin: AssistantWriteToolPlugin = {
     items: Array.isArray(items)
       ? items.map((row) => {
         if (!row || typeof row !== "object") return row;
-        const { sourceHash: _rh, sourceIndex: _ri, sourceText: _rt, currencyUnstated: _ru, ...rest } = row as Record<string, unknown>;
+        const { sourceHash: _rh, sourceIndex: _ri, sourceText: _rt, currencyUnstated: _ru, agentId: _ra, ...rest } = row as Record<string, unknown>;
         return rest;
       })
       : items,

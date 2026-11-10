@@ -117,14 +117,31 @@ function expenseView(row: ExpenseRow) {
     category: row.category, categoryId: row.categoryId, counterparty: row.counterparty, deleted: row.deletedAt !== null,
   };
 }
+/**
+ * Подписи карточки одного расхода на языке собеседника (ru/tg). Рамка карточки в Telegram берёт язык
+ * содержимого (renderBundleCard): таджикская подпись — таджикская рамка, без двух языков в одном сообщении.
+ */
+const PREVIEW = {
+  ru: { expense: "Расход", amount: "Сумма", when: "Когда", root: "Раздел", status: "Статус", today: "сегодня",
+    update: (t: string) => `Изменить расход «${t}»`, remove: (t: string) => `Удалить расход «${t}»`, restore: (t: string) => `Вернуть расход «${t}»`,
+    pay: (t: string) => `Оплатить «${t}»`, unpay: (t: string) => `Отменить оплату «${t}»`,
+    inTrash: "в корзине расходов", trash: "в корзине", removeRisk: "Пропадёт из сумм и отчётов; вернуть можно из корзины." },
+  tg: { expense: "Харҷ", amount: "Маблағ", when: "Кай", root: "Модда", status: "Ҳолат", today: "имрӯз",
+    update: (t: string) => `Тағйири харҷ «${t}»`, remove: (t: string) => `Харҷи «${t}»-ро нест кардан`, restore: (t: string) => `Харҷи «${t}»-ро баргардондан`,
+    pay: (t: string) => `Пардохти харҷи «${t}»`, unpay: (t: string) => `Пардохти харҷи «${t}»-ро бекор кардан`,
+    inTrash: "дар сабади харҷҳо", trash: "дар сабад", removeRisk: "Аз ҳисобу ҳисоботҳо мебарояд; аз сабад баргардондан мумкин аст." },
+} as const;
+const preview = (l: ExpenseLang | undefined) => PREVIEW[l === "tg" ? "tg" : "ru"];
+
 function describe(view: Snapshot, l: ExpenseLang): Record<string, string> {
   const labels = expenseLabels(l);
+  const p = preview(l);
   return {
-    Расход: plainField(String(view.title ?? ""), 100) ?? "—",
-    Сумма: moneyText(Number(view.amount), view.currency as "TJS" | "USD", l),
-    Когда: String(view.date ?? view.month),
-    Раздел: categoryLabel(l, view.category as ExpenseCategory),
-    Статус: view.status === "PAID" ? labels.paid : labels.planned,
+    [p.expense]: plainField(String(view.title ?? ""), 100) ?? "—",
+    [p.amount]: moneyText(Number(view.amount), view.currency as "TJS" | "USD", l),
+    [p.when]: String(view.date ?? view.month),
+    [p.root]: categoryLabel(l, view.category as ExpenseCategory),
+    [p.status]: view.status === "PAID" ? labels.paid : labels.planned,
   };
 }
 
@@ -194,7 +211,7 @@ const updateExpenseTool = makeTool({
       ...(body.month !== undefined ? { month: body.month } : {}),
       ...(body.category !== undefined ? { category: body.category } : {}),
     };
-    return { title: `Изменить расход «${plainField(String(snapshot.title ?? ""), 60) ?? ""}»`, was: describe(snapshot, l), becomes: describe(after, l) };
+    return { title: preview(l).update(plainField(String(snapshot.title ?? ""), 60) ?? ""), was: describe(snapshot, l), becomes: describe(after, l) };
   },
   async execute(args, snapshot) {
     const { expense } = await updateExpense(args.expenseId, { ...(await updateBody(args)), version: Number(snapshot.version) });
@@ -210,10 +227,10 @@ const deleteExpenseTool = makeTool({
   schema: idArgs,
   snapshot: async (args) => expenseView(await loadExpense(args.expenseId)),
   preview: (args, snapshot) => ({
-    title: `Удалить расход «${plainField(String(snapshot.title ?? ""), 60) ?? ""}»`,
+    title: preview(args.lang).remove(plainField(String(snapshot.title ?? ""), 60) ?? ""),
     was: describe(snapshot, args.lang ?? "ru"),
-    becomes: { Расход: "в корзине расходов" },
-    risk: "Пропадёт из сумм и отчётов; вернуть можно из корзины.",
+    becomes: { [preview(args.lang).expense]: preview(args.lang).inTrash },
+    risk: preview(args.lang).removeRisk,
   }),
   async execute(args, snapshot) {
     const row = await deleteExpense(args.expenseId, Number(snapshot.version));
@@ -230,8 +247,8 @@ const restoreExpenseTool = makeTool({
   schema: idArgs,
   snapshot: async (args) => expenseView(await loadExpense(args.expenseId, { deleted: true })),
   preview: (args, snapshot) => ({
-    title: `Вернуть расход «${plainField(String(snapshot.title ?? ""), 60) ?? ""}»`,
-    was: { Расход: "в корзине" },
+    title: preview(args.lang).restore(plainField(String(snapshot.title ?? ""), 60) ?? ""),
+    was: { [preview(args.lang).expense]: preview(args.lang).trash },
     becomes: describe(snapshot, args.lang ?? "ru"),
   }),
   async execute(args) {
@@ -252,8 +269,8 @@ const payExpenseTool = makeTool({
   preview(args, snapshot) {
     if (snapshot.status === "PAID") throw new AssistantActionError(409, "ALREADY_PAID", "Этот расход уже оплачен");
     const l = args.lang ?? "ru";
-    return { title: `Оплатить «${plainField(String(snapshot.title ?? ""), 60) ?? ""}»`, was: describe(snapshot, l),
-      becomes: { Статус: expenseLabels(l).paid, Когда: args.paymentDate ?? "сегодня" } };
+    return { title: preview(l).pay(plainField(String(snapshot.title ?? ""), 60) ?? ""), was: describe(snapshot, l),
+      becomes: { [preview(l).status]: expenseLabels(l).paid, [preview(l).when]: args.paymentDate ?? preview(l).today } };
   },
   async execute(args) {
     const row = await setExpensePayment(args.expenseId, true, args.paymentDate ? { paymentDate: args.paymentDate } : {});
@@ -272,8 +289,8 @@ const undoPaymentTool = makeTool({
   preview(args, snapshot) {
     if (snapshot.status !== "PAID") throw new AssistantActionError(409, "NOT_PAID", "Этот расход и так не оплачен");
     const l = args.lang ?? "ru";
-    return { title: `Отменить оплату «${plainField(String(snapshot.title ?? ""), 60) ?? ""}»`, was: describe(snapshot, l),
-      becomes: { Статус: expenseLabels(l).planned } };
+    return { title: preview(l).unpay(plainField(String(snapshot.title ?? ""), 60) ?? ""), was: describe(snapshot, l),
+      becomes: { [preview(l).status]: expenseLabels(l).planned } };
   },
   async execute(args) {
     const row = await setExpensePayment(args.expenseId, false, {});
