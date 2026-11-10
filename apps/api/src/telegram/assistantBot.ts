@@ -149,6 +149,11 @@ const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = [
  */
 const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "search_deals",
+  // «Сделки» Шабнам (10.11.2026): деньги и доли — только в личке. Сами инструменты
+  // тоже не объявляются вне лички (dealToolsAllowed), это вторая стена.
+  "get_deal_card",
+  "get_my_commission",
+  "get_payouts_due",
   "get_company_stats",
   "get_finance_summary",
   "get_lead_sources",

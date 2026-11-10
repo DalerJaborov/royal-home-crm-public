@@ -993,7 +993,7 @@
       "mount": "/api/v1/deals",
       "router": "dealPayoutRouter",
       "file": "apps/api/src/routes/dealPayout.ts",
-      "endpoints": 2,
+      "endpoints": 3,
       "label": "Сделки, документы, выплаты",
       "usedBy": 4
     },

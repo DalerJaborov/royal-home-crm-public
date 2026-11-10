@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 731,
-  "forks": 3841,
+  "endpoints": 732,
+  "forks": 3947,
   "mounts": 81,
   "cron": 125,
   "jobs": 32,
@@ -1987,7 +1987,101 @@
     "requireElevation"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "if",
+     "t": "await forbiddenDirectorTarget(req, req.params.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Управлять учёткой директора может только директор\" });",
+       "a": [
+        "ответ 403 — «Управлять учёткой директора может только директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenPrivilegedTarget(req, req.params.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });",
+       "a": [
+        "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const target = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tr…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!target",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Сотрудник не найден\" });",
+       "a": [
+        "ответ 404 — «Сотрудник не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await prisma.agent.update({ where: { id: target.id }, data: { totpEnabled: false, totpSecret: null } });",
+     "a": [
+      "меняет в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "await revokeOtherSessions(target.id);",
+     "a": [
+      "зовёт revokeOtherSessions()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "revokeElevation(target.id);",
+     "a": [
+      "зовёт revokeElevation()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"TOTP_RESET_BY_DIRECTOR\", \"Agent\", target.id, { targetName: target.fullName });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ totpEnabled: false });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "POST",
@@ -2025,7 +2119,7 @@
     },
     {
      "k": "if",
-     "t": "await forbiddenDirectorTarget(req.agent!, req.params.id)",
+     "t": "await forbiddenDirectorTarget(req, req.params.id)",
      "a": [],
      "c": [
       {
@@ -2320,7 +2414,242 @@
     "requireElevation"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = agentFreezeSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой agentFreezeSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!agent",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Сотрудник не найден\" });",
+       "a": [
+        "ответ 404 — «Сотрудник не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenDirectorTarget(req, agent.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Учётку директора может менять только директор\" });",
+       "a": [
+        "ответ 403 — «Учётку директора может менять только директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenPrivilegedTarget(req, agent.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });",
+       "a": [
+        "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "agent.frozenAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сотрудник уже заморожен\" });",
+       "a": [
+        "ответ 409 — «Сотрудник уже заморожен»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "agent.id === req.agent!.id",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Нельзя заморозить самого себя\" });",
+       "a": [
+        "ответ 400 — «Нельзя заморозить самого себя»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "parsed.data.until && parsed.data.until.getTime() < Date.now()",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Дата выхода уже прошла\" });",
+       "a": [
+        "ответ 400 — «Дата выхода уже прошла»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const toRelease = await findUnacceptedLeadsOfAgent(agent.id, \"Заморозка\", { keepOwnProperty: true });",
+     "a": [
+      "зовёт findUnacceptedLeadsOfAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const actor = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "await prisma.$transaction(async (tx)",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "меняет в базе: agent"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: new Date(), frozenById: req.agent!.id, fro…",
+       "a": [
+        "меняет в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, \"freeze\");",
+       "a": [
+        "зовёт clearAgentFromSettingsReferences()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "releasedLeads = await releaseLeadsToQueue(tx, toRelease, { agentId: agent.id, actorId: req.agent!.id, actorNa…",
+       "a": [
+        "зовёт releaseLeadsToQueue()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "closeStreamsForAgent(agent.id);",
+     "a": [
+      "зовёт closeStreamsForAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"AGENT_FREEZE\", \"Agent\", agent.id, { reason: parsed.data.reason, released: released.count });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "releasedLeads.length > 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const directors = await prisma.agent.findMany({ where: { role: { in: [\"DIRECTOR\", \"ADMIN\"] }, isActive: true …",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await sendPushToAgents( directors.map((d)",
+       "a": [
+        "push-уведомление"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await releaseReactivationOffersOfAgent(agent.id, req.agent!.id).catch((err)",
+     "a": [
+      "зовёт releaseReactivationOffersOfAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "void syncAgentQueuePresence(agent.id).catch(()",
+     "a": [
+      "зовёт syncAgentQueuePresence()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, released: released.count });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "POST",
@@ -2339,7 +2668,274 @@
     "requireElevation"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = agentHandoverSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой agentHandoverSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenDirectorTarget(req, req.params.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Учётку директора может менять только директор\" });",
+       "a": [
+        "ответ 403 — «Учётку директора может менять только директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenPrivilegedTarget(req, req.params.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });",
+       "a": [
+        "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const from = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: true…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!from",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Сотрудник не найден\" });",
+       "a": [
+        "ответ 404 — «Сотрудник не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "toAgentId === from.id",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Нельзя передать дела тому же сотруднику\" });",
+       "a": [
+        "ответ 400 — «Нельзя передать дела тому же сотруднику»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "toAgentId",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const to = await prisma.agent.findUnique({ where: { id: toAgentId }, select: { isActive: true, frozenAt: true…",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!to",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Получатель не найден\" });",
+         "a": [
+          "ответ 404 — «Получатель не найден»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!to.isActive",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Получатель отключён — выберите активного сотрудника\" });",
+         "a": [
+          "ответ 409 — «Получатель отключён — выберите активного сотрудника»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "to.frozenAt",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: `${to.fullName} сейчас заморожен(а) (отпуск, больничный) — передать дела…",
+         "a": [
+          "ответ 409 — «${to.fullName} сейчас заморожен(а) (отпуск, больничный) — передать…»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "deactivate",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "from.id === req.agent!.id",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Свою учётку отключить нельзя — попросите другого руководителя\" });",
+         "a": [
+          "ответ 400 — «Свою учётку отключить нельзя — попросите другого руководителя»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "await wouldLoseLastDirector(from.id, { isActive: false })",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"В системе должен остаться хотя бы один активный директор\" });",
+         "a": [
+          "ответ 409 — «В системе должен остаться хотя бы один активный директор»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await handoverAgentWork(from.id, toAgentId, req.agent!.id);",
+     "a": [
+      "зовёт handoverAgentWork()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"AGENT_HANDOVER\", \"Agent\", from.id, { toAgentId: toAgentId ?? null, clients: result.clients, ta…",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "deactivate",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const before = await prisma.agent.findUnique({ where: { id: from.id }, select: { isActive: true } });",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const agent = await prisma.agent.update({ where: { id: from.id }, data: { isActive: false } });",
+       "a": [
+        "меняет в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "void syncAgentQueuePresence(agent.id).catch(()",
+       "a": [
+        "зовёт syncAgentQueuePresence()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"AGENT_UPDATE\", \"Agent\", agent.id, { fields: [\"isActive\"], afterHandover: true });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "result.batchId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.agentHandoverBatch.update({ where: { id: result.batchId }, data: { deactivated: true } });",
+         "a": [
+          "меняет в базе: agentHandoverBatch"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...result, deactivated });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "GET",
@@ -2360,7 +2956,15 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json(await listStaffHandovers(req.params.id));",
+     "t": "const rows = await prisma.agentHandoverBatch.findMany({ where: { fromAgentId: req.params.id }, orderBy: { cre…",
+     "a": [
+      "читает в базе: agentHandoverBatch"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(rows);",
      "a": [
       "ответ 200"
      ],
@@ -2442,7 +3046,86 @@
     "есть право: agents.manage"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!agent",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Сотрудник не найден\" });",
+       "a": [
+        "ответ 404 — «Сотрудник не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!availabilityOf(agent).pausedUntil",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Пауза не включена\" });",
+       "a": [
+        "ответ 409 — «Пауза не включена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await endLeadPause(agent);",
+     "a": [
+      "зовёт endLeadPause()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"AGENT_LEAD_RESUME_BY_SUPERVISOR\", \"Agent\", agent.id, { targetAgentName: agent.fullName });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const actor = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "notifyAgentAboutSupervisorPause(agent.id, actor?.fullName ?? \"Руководитель\", null);",
+     "a": [
+      "зовёт notifyAgentAboutSupervisorPause()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "POST",
@@ -2460,7 +3143,154 @@
     "есть право: agents.manage"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = supervisorLeadPauseSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой supervisorLeadPauseSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!agent",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Сотрудник не найден\" });",
+       "a": [
+        "ответ 404 — «Сотрудник не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "agent.id === req.agent!.id",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Свою паузу включают в профиле\" });",
+       "a": [
+        "ответ 400 — «Свою паузу включают в профиле»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Лиды получают только агенты и руководитель продаж\" });",
+       "a": [
+        "ответ 400 — «Лиды получают только агенты и руководитель продаж»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!agent.isActive",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сотрудник отключён\" });",
+       "a": [
+        "ответ 409 — «Сотрудник отключён»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "agent.frozenAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сотрудник уже заморожен — лиды ему и так не идут\" });",
+       "a": [
+        "ответ 409 — «Сотрудник уже заморожен — лиды ему и так не идут»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const actor = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const { released } = await startLeadPause({ agentId: agent.id, until, actor: { id: req.agent!.id, fullName: a…",
+     "a": [
+      "зовёт startLeadPause()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"AGENT_LEAD_PAUSE_BY_SUPERVISOR\", \"Agent\", agent.id, { targetAgentName: agent.fullName, until: …",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "notifyAgentAboutSupervisorPause(agent.id, actorName, { until, reason });",
+     "a": [
+      "зовёт notifyAgentAboutSupervisorPause()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, pausedUntil: until, released });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "GET",
@@ -2481,15 +3311,15 @@
    "tree": [
     {
      "k": "do",
-     "t": "const live = await loadStaffLive(req.params.id, req.agent!);",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id }, select: { id: true, fullName: true, sipExtension…",
      "a": [
-      "зовёт loadStaffLive()"
+      "читает в базе: agent"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!live",
+     "t": "!agent",
      "a": [],
      "c": [
       {
@@ -2504,7 +3334,58 @@
     },
     {
      "k": "do",
-     "t": "res.json(live);",
+     "t": "const [session, nextTask, botChats, tgChats, callBuckets, missedIncoming, lastCalls, statusRows, loadCounts, …",
+     "a": [
+      "обращается к базе своим SQL",
+      "читает в базе: session",
+      "читает в базе: interaction",
+      "считает в базе: interaction",
+      "считает в базе: incomingCall",
+      "считает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "live = activeCallFor(id);",
+       "a": [
+        "зовёт activeCallFor()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "incoming = agent.sipExtension ? liveIncomingCalls().find((c)",
+       "a": [
+        "зовёт liveIncomingCalls()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await logSystemError(\"telephony\", `Карточка сотрудника: не удалось прочитать живой звонок агента ${id}: ${err…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ now: { online: !!agent.lastSeenAt && Date.now() - agent.lastSeenAt.getTime() < ONLINE_WINDOW_MS, l…",
      "a": [
       "ответ 200"
      ],
@@ -2667,7 +3548,39 @@
     "есть право: permissions.manage"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!agent",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Агент не найден\" });",
+       "a": [
+        "ответ 404 — «Агент не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ agentId: agent.id, fullName: agent.fullName, role, roleSummary: ROLE_PRESET_SUMMARY[role], editabl…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "PUT",
@@ -2686,7 +3599,124 @@
     "requireElevation"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = permissionOverridesSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой permissionOverridesSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!agent",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Агент не найден\" });",
+       "a": [
+        "ответ 404 — «Агент не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "agent.role === \"DIRECTOR\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"У директора всегда полный доступ — права не настраиваются\" });",
+       "a": [
+        "ответ 400 — «У директора всегда полный доступ — права не настраиваются»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "agent.role === \"SHAREHOLDER\" && parsed.data.granted.length > 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Акционеру права не добавляются\" });",
+       "a": [
+        "ответ 400 — «Акционеру права не добавляются»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await prisma.agent.update({ where: { id: agent.id }, data: { permissions: isEmpty ? Prisma.DbNull : (override…",
+     "a": [
+      "меняет в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "invalidateAgentAccess(agent.id);",
+     "a": [
+      "зовёт invalidateAgentAccess()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "closeStreamsForAgent(agent.id);",
+     "a": [
+      "зовёт closeStreamsForAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"AGENT_PERMISSIONS_UPDATE\", \"Agent\", agent.id, { targetAgentName: agent.fullName, role: agent.r…",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ agentId: agent.id, role: agent.role as Role, overrides, items: describePermissions(agent.role as R…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "GET",
@@ -2740,7 +3770,126 @@
     "requireElevation"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, frozenAt: tru…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!agent",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Сотрудник не найден\" });",
+       "a": [
+        "ответ 404 — «Сотрудник не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenDirectorTarget(req, agent.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Учётку директора может менять только директор\" });",
+       "a": [
+        "ответ 403 — «Учётку директора может менять только директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenPrivilegedTarget(req, agent.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });",
+       "a": [
+        "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!agent.frozenAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сотрудник не заморожен\" });",
+       "a": [
+        "ответ 409 — «Сотрудник не заморожен»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await prisma.$transaction(async (tx)",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "меняет в базе: agent"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…",
+       "a": [
+        "меняет в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);",
+       "a": [
+        "зовёт shiftInactiveClockAfterAbsence()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"AGENT_UNFREEZE\", \"Agent\", agent.id, {});",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "void syncAgentQueuePresence(agent.id).catch(()",
+     "a": [
+      "зовёт syncAgentQueuePresence()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "DELETE",
@@ -2759,7 +3908,184 @@
     "requireElevation"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "if",
+     "t": "req.params.id === req.agent!.id",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Нельзя удалить собственную учётную запись\" });",
+       "a": [
+        "ответ 400 — «Нельзя удалить собственную учётную запись»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenDirectorTarget(req, req.params.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Управлять учёткой директора может только директор\" });",
+       "a": [
+        "ответ 403 — «Управлять учёткой директора может только директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenPrivilegedTarget(req, req.params.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });",
+       "a": [
+        "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const handover = await handoverAgentWork(req.params.id, undefined, req.agent!.id);",
+     "a": [
+      "зовёт handoverAgentWork()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "await releaseReactivationOffersOfAgent(req.params.id, req.agent!.id).catch((err)",
+     "a": [
+      "зовёт releaseReactivationOffersOfAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "await agentHasCascadeHistory(req.params.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return disableInsteadOfDelete(req, res, req.params.id, handover, \"has history\");",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const deleted = await prisma.agent.delete({ where: { id: req.params.id } });",
+       "a": [
+        "удаляет в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "invalidateAgentAccess(deleted.id);",
+       "a": [
+        "зовёт invalidateAgentAccess()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "closeStreamsForAgent(deleted.id);",
+       "a": [
+        "зовёт closeStreamsForAgent()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await clearAgentFromSettingsReferences(prisma, deleted.id, deleted.fullName, \"deactivate\").catch((err)",
+       "a": [
+        "зовёт clearAgentFromSettingsReferences()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"DELETE\", \"Agent\", deleted.id, { fullName: deleted.fullName, role: deleted.role, handoverClient…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ ok: true, handover });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Агент не найден\" });",
+         "a": [
+          "ответ 404 — «Агент не найден»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2003\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return disableInsteadOfDelete(req, res, req.params.id, handover, \"has deals/properties/history\");",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "throw err;",
+       "a": [
+        "пробрасывает ошибку дальше"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
   },
   {
    "method": "PATCH",
@@ -2778,7 +4104,349 @@
     "requireElevation"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = agentUpdateSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой agentUpdateSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const target = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!target",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Сотрудник не найден\" });",
+       "a": [
+        "ответ 404 — «Сотрудник не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenDirectorTarget(req, req.params.id, rest.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Управлять учёткой директора может только директор\" });",
+       "a": [
+        "ответ 403 — «Управлять учёткой директора может только директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenPrivilegedTarget(req, req.params.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });",
+       "a": [
+        "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "roleDenied",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: roleDenied });",
+       "a": [
+        "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await wouldLoseLastDirector(req.params.id, rest)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"В системе должен остаться хотя бы один активный директор\" });",
+       "a": [
+        "ответ 409 — «В системе должен остаться хотя бы один активный директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "typeof rest.sipExtension === \"string\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const check = await checkManualExtension(rest.sipExtension, req.params.id);",
+       "a": [
+        "зовёт checkManualExtension()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!check.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: check.error });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "rest.phone",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const holder = await prisma.agent.findFirst({ where: { phone: rest.phone, id: { not: req.params.id } }, selec…",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "holder",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: `Этот телефон уже записан за сотрудником «${holder.fullName}»` });",
+         "a": [
+          "ответ 409 — «Этот телефон уже записан за сотрудником «${holder.fullName}»»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const wasActive = rest.isActive === false ? (await prisma.agent.findUnique({ where: { id: req.params.id }, se…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "rest.role !== undefined",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const before = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { role: true, permission…",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "before && before.role !== rest.role && before.permissions !== null",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "old.granted.length > 0 || old.revoked.length > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "resetOverrides = old;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.update({ where: { id: req.params.id }, data });",
+     "a": [
+      "меняет в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "resetOverrides",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "logAudit(req, \"AGENT_PERMISSIONS_RESET_ON_ROLE_CHANGE\", \"Agent\", agent.id, { targetAgentName: agent.fullName,…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "invalidateAgentAccess(agent.id);",
+     "a": [
+      "зовёт invalidateAgentAccess()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "rest.role !== undefined || rest.isActive === false",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "closeStreamsForAgent(agent.id);",
+       "a": [
+        "зовёт closeStreamsForAgent()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "rest.isActive !== undefined || rest.sipExtension !== undefined",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void syncAgentQueuePresence(agent.id).catch(()",
+       "a": [
+        "зовёт syncAgentQueuePresence()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "rest.sipExtension !== undefined || rest.phone !== undefined",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void syncAgentMobileFallback(agent.id).catch(()",
+       "a": [
+        "зовёт syncAgentMobileFallback()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "typeof rest.sipExtension === \"string\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void ensureExtensionRecording(rest.sipExtension).catch(()",
+       "a": [
+        "зовёт ensureExtensionRecording()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "rest.takesUnknownCalls !== undefined",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void ensureAgentsInIncomingQueue().catch(()",
+       "a": [
+        "зовёт ensureAgentsInIncomingQueue()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "void syncAgentMobileFallback(req.params.id).catch(()",
+       "a": [
+        "зовёт syncAgentMobileFallback()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"AGENT_UPDATE\", \"Agent\", agent.id, { fields: Object.keys(rest), ...(rest.weeklyDaysOff !== unde…",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ id: agent.id, fullName: agent.fullName, phone: agent.phone, role: agent.role, isActive: agent.isAc…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "GET",
@@ -2832,7 +4500,138 @@
     "requireElevation"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const batch = await prisma.agentHandoverBatch.findUnique({ where: { id: req.params.batchId }, select: { id: t…",
+     "a": [
+      "читает в базе: agentHandoverBatch"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!batch",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Передача дел не найдена\" });",
+       "a": [
+        "ответ 404 — «Передача дел не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "batch.revertedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Эта передача дел уже возвращена\" });",
+       "a": [
+        "ответ 409 — «Эта передача дел уже возвращена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenDirectorTarget(req, batch.fromAgentId)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Учётку директора может менять только директор\" });",
+       "a": [
+        "ответ 403 — «Учётку директора может менять только директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenPrivilegedTarget(req, batch.fromAgentId)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });",
+       "a": [
+        "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const outcome = await revertAgentHandover(batch.id, req.agent!.id);",
+     "a": [
+      "зовёт revertAgentHandover()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!outcome.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res .status(outcome.reason === \"not_found\" ? 404 : 409) .json({ error: outcome.reason === \"not_found\" …",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "outcome.result.reactivated",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "invalidateAgentAccess(batch.fromAgentId);",
+       "a": [
+        "зовёт invalidateAgentAccess()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "void syncAgentQueuePresence(batch.fromAgentId).catch(()",
+       "a": [
+        "зовёт syncAgentQueuePresence()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"AGENT_HANDOVER_REVERT\", \"Agent\", batch.fromAgentId, { batchId: batch.id, ...outcome.result });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(outcome.result);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "GET",
@@ -2853,7 +4652,46 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json(await listStaffDirectory(req.agent!));",
+     "t": "const agents = await prisma.agent.findMany({ select: isAdmin ? { id: true, fullName: true, phone: true, email…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!isAdmin",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(agents);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const { statuses, problem: stationProblem } = await getExtensionStatuses();",
+     "a": [
+      "зовёт getExtensionStatuses()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const readiness = (await checkIncomingReadiness().catch(()",
+     "a": [
+      "зовёт checkIncomingReadiness()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json( agents.map((a)",
      "a": [
       "ответ 200"
      ],
@@ -2878,7 +4716,221 @@
     "requireElevation"
    ],
    "handlerRef": null,
-   "tree": []
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = agentCreateSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой agentCreateSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "await forbiddenDirectorTarget(req, undefined, rest.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Создавать директора может только директор\" });",
+       "a": [
+        "ответ 403 — «Создавать директора может только директор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "roleDenied",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: roleDenied });",
+       "a": [
+        "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const existing = await prisma.agent.findUnique({ where: { phone: rest.phone } });",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "existing",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Агент с таким телефоном уже существует\" });",
+       "a": [
+        "ответ 409 — «Агент с таким телефоном уже существует»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!sipExtension",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const picked = await pickFreeExtension();",
+       "a": [
+        "зовёт pickFreeExtension()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "else",
+     "t": "иначе",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const check = await checkManualExtension(sipExtension);",
+       "a": [
+        "зовёт checkManualExtension()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!check.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: check.error });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.create({ data: { ...rest, sipExtension }, });",
+     "a": [
+      "создаёт в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"AGENT_CREATE\", \"Agent\", agent.id, { fullName: agent.fullName, role: agent.role, sipExtension: …",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "agent.sipExtension",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void syncAgentMobileFallback(agent.id).catch(()",
+       "a": [
+        "зовёт syncAgentMobileFallback()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "agent.sipExtension",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void ensureExtensionRecording(agent.sipExtension).catch(()",
+       "a": [
+        "зовёт ensureExtensionRecording()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const fix = await ensureAgentsInIncomingQueue().catch(()",
+       "a": [
+        "зовёт ensureAgentsInIncomingQueue()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const note = describeNewAgentQueueOutcome( { sipExtension: agent.sipExtension, takesUnknownCalls: agent.takes…",
+       "a": [
+        "зовёт describeNewAgentQueueOutcome()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "note",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "extensionNote = extensionNote ? `${extensionNote}. ${note}` : note;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.status(201).json({ id: agent.id, fullName: agent.fullName, phone: agent.phone, role: agent.role, sipExten…",
+     "a": [
+      "ответ 201"
+     ],
+     "c": []
+    }
+   ]
   },
   {
    "method": "GET",
@@ -22792,15 +24844,154 @@
    "handlerRef": null,
    "tree": [
     {
+     "k": "do",
+     "t": "const outcome = await annulDealFor(req, req.params.id, req.body);",
+     "a": [
+      "зовёт annulDealFor()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!can(req, \"deals.complete\")",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Аннулировать сделку может только руководитель\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const parsed = dealAnnulSchema.safeParse(body);",
+       "a": [
+        "проверяет данные схемой dealAnnulSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!parsed.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(400, { error: \"Укажите причину аннулирования\", details: parsed.error.flatten() });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const result = await annulDeal({ dealId, actorId: req.agent!.id, reason: parsed.data.reason, ownAgentId: scop…",
+         "a": [
+          "зовёт annulDeal()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "opts.dryRun",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ok: true, status: 200, result: { id: result.deal.id, stage: result.deal.stage, propertyReturnedToSal…",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "logAudit(req, \"DEAL_ANNUL\", \"Deal\", result.deal.id, { reason: parsed.data.reason, clientId: result.deal.clien…",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "publishDealUpdated({ dealId: result.deal.id, clientId: result.deal.clientId, agentId: result.deal.agentId, st…",
+         "a": [
+          "зовёт publishDealUpdated()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "req.agent!.id !== result.deal.agentId",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "sendPushToAgent(result.deal.agentId, { title: \"Сделка аннулирована\", body: `${result.clientName} — причина: $…",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "err instanceof DealAnnulError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return fail(err.status, { error: err.message });",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "annulDealFor() — apps/api/src/lib/dealWrites.ts"
+    },
+    {
      "k": "if",
-     "t": "!can(req, \"deals.complete\")",
+     "t": "!outcome.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Аннулировать сделку может только руководитель\" });",
+       "t": "return res.status(outcome.status).json(outcome.body);",
        "a": [
-        "ответ 403 — «Аннулировать сделку может только руководитель»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -22808,110 +24999,11 @@
     },
     {
      "k": "do",
-     "t": "const parsed = annulSchema.safeParse(req.body);",
+     "t": "res.json(outcome.result);",
      "a": [
-      "проверяет данные схемой annulSchema"
+      "ответ 200"
      ],
      "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Укажите причину аннулирования\", details: parsed.error.flatten() });",
-       "a": [
-        "ответ 400 — «Укажите причину аннулирования»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const result = await annulDeal({ dealId: req.params.id, actorId: req.agent!.id, reason: parsed.data.reason, o…",
-       "a": [
-        "зовёт annulDeal()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "logAudit(req, \"DEAL_ANNUL\", \"Deal\", result.deal.id, { reason: parsed.data.reason, clientId: result.deal.clien…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "publishDealUpdated({ dealId: result.deal.id, clientId: result.deal.clientId, agentId: result.deal.agentId, st…",
-       "a": [
-        "зовёт publishDealUpdated()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "req.agent!.id !== result.deal.agentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "sendPushToAgent(result.deal.agentId, { title: \"Сделка аннулирована\", body: `${result.clientName} — причина: $…",
-         "a": [
-          "push-уведомление"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "res.json({ id: result.deal.id, stage: result.deal.stage, propertyReturnedToSale: result.propertyReturnedToSal…",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "err instanceof DealAnnulError",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(err.status).json({ error: err.message });",
-         "a": [
-          "ответ (код зависит от условия)"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "throw err;",
-       "a": [
-        "пробрасывает ошибку дальше"
-       ],
-       "c": []
-      }
-     ]
     }
    ]
   },
@@ -23558,38 +25650,185 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "if",
-     "t": "!can(req, \"finance.manage\") && !can(req, \"deals.setCommission\")",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-       "a": [
-        "ответ 403 — «Недостаточно прав»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
-     "t": "const parsed = dealPayoutSchema.safeParse(req.body);",
+     "t": "const outcome = await markDealPayoutFor(req, req.params.id, req.body);",
      "a": [
-      "проверяет данные схемой dealPayoutSchema"
+      "зовёт markDealPayoutFor()"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "if",
+       "t": "!can(req, \"finance.manage\") && !can(req, \"deals.setCommission\")",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Недостаточно прав\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const parsed = dealPayoutSchema.safeParse(body);",
+       "a": [
+        "проверяет данные схемой dealPayoutSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!parsed.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(400, { error: \"Неверные данные\", details: parsed.error.flatten() });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const deal = await prisma.deal.findUnique({ where: { id: dealId }, select: { id: true, agentId: true, stage: …",
+       "a": [
+        "читает в базе: deal"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!deal",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(404, { error: \"Сделка не найдена\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "deal.stage !== \"COMPLETED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(409, { error: \"Выплата фиксируется только по закрытой сделке\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const payout = await getDealPayout(deal.id);",
+       "a": [
+        "зовёт getDealPayout()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "payout?.realtorPayoutAt",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(409, { error: \"Комиссия по этой сделке уже отмечена выплаченной\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "opts.dryRun",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { ok: true, status: 200, payout: { id: deal.id, realtorPayoutAt: new Date(0), realtorPayoutById: req.a…",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const realtorPayoutAt = await setDealPayout(deal.id, req.agent!.id, parsed.data.note ?? null);",
+       "a": [
+        "зовёт setDealPayout()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!realtorPayoutAt",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(409, { error: \"Выплата не записана: комиссия уже отмечена выплаченной или сделка больше не закрыт…",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"DEAL_PAYOUT\", \"Deal\", deal.id, { note: parsed.data.note ?? null });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "req.agent!.id !== deal.agentId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "sendPushToAgent(deal.agentId, { title: \"Комиссия выплачена\", body: `${deal.client.fullName} — комиссия по сде…",
+         "a": [
+          "push-уведомление"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "markDealPayoutFor() — apps/api/src/lib/dealWrites.ts"
     },
     {
      "k": "if",
-     "t": "!parsed.success",
+     "t": "!outcome.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "t": "return res.status(outcome.status).json(outcome.body);",
        "a": [
-        "ответ 400 — «Неверные данные»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -23597,114 +25836,7 @@
     },
     {
      "k": "do",
-     "t": "const deal = await prisma.deal.findUnique({ where: { id: req.params.id }, select: { id: true, agentId: true, …",
-     "a": [
-      "читает в базе: deal"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!deal",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Сделка не найдена\" });",
-       "a": [
-        "ответ 404 — «Сделка не найдена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "deal.stage !== \"COMPLETED\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Выплата фиксируется только по закрытой сделке\" });",
-       "a": [
-        "ответ 409 — «Выплата фиксируется только по закрытой сделке»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const payout = await getDealPayout(deal.id);",
-     "a": [
-      "зовёт getDealPayout()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "payout?.realtorPayoutAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Комиссия по этой сделке уже отмечена выплаченной\" });",
-       "a": [
-        "ответ 409 — «Комиссия по этой сделке уже отмечена выплаченной»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const realtorPayoutAt = await setDealPayout(deal.id, req.agent!.id, parsed.data.note ?? null);",
-     "a": [
-      "зовёт setDealPayout()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!realtorPayoutAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Выплата не записана: комиссия уже отмечена выплаченной или сделка больш…",
-       "a": [
-        "ответ 409 — «Выплата не записана: комиссия уже отмечена выплаченной или сделка…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"DEAL_PAYOUT\", \"Deal\", deal.id, { note: parsed.data.note ?? null });",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "req.agent!.id !== deal.agentId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "sendPushToAgent(deal.agentId, { title: \"Комиссия выплачена\", body: `${deal.client.fullName} — комиссия по сде…",
-       "a": [
-        "push-уведомление"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json({ id: deal.id, realtorPayoutAt, realtorPayoutById: req.agent!.id, realtorPayoutNote: parsed.data.not…",
+     "t": "res.json(outcome.payout);",
      "a": [
       "ответ 200"
      ],
@@ -23730,581 +25862,202 @@
    "tree": [
     {
      "k": "do",
-     "t": "const parsed = dealUpdateSchema.safeParse(req.body);",
+     "t": "const outcome = await updateDealFor(req, req.params.id, req.body);",
      "a": [
-      "проверяет данные схемой dealUpdateSchema"
+      "зовёт updateDealFor()"
      ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "t": "const parsed = dealUpdateSchema.safeParse(body);",
        "a": [
-        "ответ 400 — «Неверные данные»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const ownAgentId = scopeDealsToOwnAgent(req);",
-     "a": [
-      "зовёт scopeDealsToOwnAgent()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const existing = await prisma.deal.findUnique({ where: { id: req.params.id }, include: { client: { select: { …",
-     "a": [
-      "читает в базе: deal"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!existing",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Сделка не найдена\" });",
-       "a": [
-        "ответ 404 — «Сделка не найдена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "ownAgentId && existing.agentId !== ownAgentId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-       "a": [
-        "ответ 403 — «Недостаточно прав»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const denied = foreignDealWriteDenied(req, existing, ownAgentId);",
-     "a": [
-      "зовёт foreignDealWriteDenied()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "denied",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: denied });",
-       "a": [
-        "ответ 403"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "existing.stage === \"COMPLETED\" && data.stage && data.stage !== \"COMPLETED\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Завершённую сделку нельзя вернуть на предыдущий этап\" });",
-       "a": [
-        "ответ 409 — «Завершённую сделку нельзя вернуть на предыдущий этап»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isRevivingCancelled && existing.annulledAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Сделка аннулирована — вернуть её нельзя, заведите новую\" });",
-       "a": [
-        "ответ 409 — «Сделка аннулирована — вернуть её нельзя, заведите новую»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isRevivingCancelled && !canCompleteDeal(req)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Вернуть отменённую сделку в работу может только руководитель\" });",
-       "a": [
-        "ответ 403 — «Вернуть отменённую сделку в работу может только руководитель»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "existing.client?.deletedAt && data.stage && data.stage !== existing.stage",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Клиент этой сделки в Корзине — сначала восстановите карточку\" });",
-       "a": [
-        "ответ 409 — «Клиент этой сделки в Корзине — сначала восстановите карточку»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && !canCompleteDeal(req)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Закрыть сделку может только руководитель\" });",
-       "a": [
-        "ответ 403 — «Закрыть сделку может только руководитель»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const commissionExceedsPrice = finalSoldPrice !== null && finalSoldPrice !== undefined && finalRealtorAmount …",
-     "a": [
-      "зовёт sumCents()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "isDirectComplete && !hasFullClosingData",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Укажите фактическую цену продажи и комиссию (риелтор, компания), прежде…",
-       "a": [
-        "ответ 400 — «Укажите фактическую цену продажи и комиссию (риелтор, компания),…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isDirectComplete && commissionExceedsPrice",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Комиссия (риелтор + компания) не может превышать фактическую цену прода…",
-       "a": [
-        "ответ 400 — «Комиссия (риелтор + компания) не может превышать фактическую цену…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && existing.stage !== \"PENDING_APPROVAL\" && !isD…",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Сделку можно завершить только после отправки на закрытие\" });",
-       "a": [
-        "ответ 409 — «Сделку можно завершить только после отправки на закрытие»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isRejecting && !canCompleteDeal(req)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Вернуть сделку на доработку может только руководитель\" });",
-       "a": [
-        "ответ 403 — «Вернуть сделку на доработку может только руководитель»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isRejecting && !data.rejectReason",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Укажите причину возврата на доработку\" });",
-       "a": [
-        "ответ 400 — «Укажите причину возврата на доработку»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isSubmittingForApproval || isDirectComplete",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const hadShowing = await prisma.interaction.findFirst({ where: { ...conductedShowingWhere(existing.clientId),…",
-       "a": [
-        "читает в базе: interaction"
+        "проверяет данные схемой dealUpdateSchema"
        ],
        "c": []
       },
       {
        "k": "if",
-       "t": "!hadShowing",
+       "t": "!parsed.success",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(409).json({ error: isDirectComplete ? \"Нельзя закрыть сделку без проведённого показа этого …",
-         "a": [
-          "ответ 409"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isSubmittingForApproval || isDirectComplete || isApprovingSubmitted",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const required = await getDealRequiredDocuments();",
-       "a": [
-        "зовёт getDealRequiredDocuments()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "required.length > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const uploadedSet = new Set<string>(await distinctUploadedKinds(existing.id));",
-         "a": [
-          "зовёт distinctUploadedKinds()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "missing.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "skipDocuments && canCompleteDeal(req)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "logAudit(req, \"DEAL_SKIP_DOCUMENTS\", \"Deal\", existing.id, { missingKinds: missing });",
-             "a": [
-              "зовёт logAudit()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "else",
-           "t": "иначе",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return res.status(400).json({ error: `Не хватает документов сделки: ${missing .map((kind)",
-             "a": [
-              "ответ 400 — «Не хватает документов сделки: ${missing\n              .map((kind) =>…»"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isSubmittingForApproval && !hasFullClosingData",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Укажите фактическую цену продажи и комиссию (риелтор, компания), прежде…",
-       "a": [
-        "ответ 400 — «Укажите фактическую цену продажи и комиссию (риелтор, компания),…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isSubmittingForApproval && commissionExceedsPrice",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Комиссия (риелтор + компания) не может превышать фактическую цену прода…",
-       "a": [
-        "ответ 400 — «Комиссия (риелтор + компания) не может превышать фактическую цену…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Нас…",
-       "a": [
-        "ответ 403 — «Сумму комиссии задаёт руководитель — она считается автоматически по…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "settingCommissionSums && !isSubmittingForApproval && !canSetCommission(req)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Комиссию по уже отправленной сделке может поправить только руководитель…",
-       "a": [
-        "ответ 403 — «Комиссию по уже отправленной сделке может поправить только…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "data.soldPrice !== undefined",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "!allowedNow",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Цена продажи задаётся при отправке на закрытие; поправить её потом може…",
-         "a": [
-          "ответ 403 — «Цена продажи задаётся при отправке на закрытие; поправить её потом…»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "existing.stage === \"COMPLETED\"",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "!canSetCommission(req)",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return res.status(403).json({ error: \"Цену продажи закрытой сделки меняет только руководитель\" });",
-           "a": [
-            "ответ 403 — «Цену продажи закрытой сделки меняет только руководитель»"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "logAudit(req, \"DEAL_SOLD_PRICE_CHANGE\", \"Deal\", existing.id, { was: existing.soldPrice ? Number(existing.sold…",
-         "a": [
-          "зовёт logAudit()"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Комиссия (риелтор + компания) не может превышать фактическую цену прода…",
-       "a": [
-        "ответ 400 — «Комиссия (риелтор + компания) не может превышать фактическую цену…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isRepricingClosed && data.commissionAmount === undefined && data.commissionPercent !== undefined",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…",
-       "a": [
-        "читает в базе: property"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "priceBase > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "data.commissionAmount = commissionOf(priceBase, data.commissionPercent);",
+         "t": "return fail(400, { error: \"Неверные данные\", details: parsed.error.flatten() });",
          "a": [
           "дословно из кода"
          ],
          "c": []
         }
        ]
-      }
-     ]
-    },
-    {
-     "k": "elseif",
-     "t": "isRepricingClosed && data.commissionAmount !== undefined && data.commissionPercent === undefined",
-     "a": [],
-     "c": [
+      },
       {
        "k": "do",
-       "t": "const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…",
+       "t": "const ownAgentId = scopeDealsToOwnAgent(req);",
        "a": [
-        "читает в базе: property"
+        "зовёт scopeDealsToOwnAgent()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const existing = await prisma.deal.findUnique({ where: { id: dealId }, include: { client: { select: { fullNam…",
+       "a": [
+        "читает в базе: deal"
        ],
        "c": []
       },
       {
        "k": "if",
-       "t": "priceBase > 0",
+       "t": "!existing",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "data.commissionPercent = Math.round((data.commissionAmount / priceBase) * 100 * 10000) / 10000;",
+         "t": "return fail(404, { error: \"Сделка не найдена\" });",
          "a": [
           "дословно из кода"
          ],
          "c": []
         }
        ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isRepricingClosed && settingCommissionSums && hasExplicitSums",
-     "a": [],
-     "c": [
+      },
+      {
+       "k": "if",
+       "t": "ownAgentId && existing.agentId !== ownAgentId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Недостаточно прав\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "do",
-       "t": "const sharesCents = sumCents([effRealtor, effCompany]);",
+       "t": "const denied = foreignDealWriteDenied(req, existing, ownAgentId);",
+       "a": [
+        "зовёт foreignDealWriteDenied()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "denied",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: denied });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "existing.stage === \"COMPLETED\" && data.stage && data.stage !== \"COMPLETED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(409, { error: \"Завершённую сделку нельзя вернуть на предыдущий этап\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRevivingCancelled && existing.annulledAt",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(409, { error: \"Сделка аннулирована — вернуть её нельзя, заведите новую\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRevivingCancelled && !canCompleteDeal(req)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Вернуть отменённую сделку в работу может только руководитель\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "existing.client?.deletedAt && data.stage && data.stage !== existing.stage",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(409, { error: \"Клиент этой сделки в Корзине — сначала восстановите карточку\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && !canCompleteDeal(req)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Закрыть сделку может только руководитель\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const commissionExceedsPrice = finalSoldPrice !== null && finalSoldPrice !== undefined && finalRealtorAmount …",
        "a": [
         "зовёт sumCents()"
        ],
        "c": []
       },
       {
-       "k": "if",
-       "t": "soldPriceCents > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "data.commissionPercent = Math.round((sharesCents / soldPriceCents) * 100 * 10000) / 10000;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isRepricingClosed",
-     "a": [],
-     "c": [
+       "k": "do",
+       "t": "const isDirectComplete = data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && existing.stage !== \"…",
+       "a": [
+        "зовёт canCompleteDeal()"
+       ],
+       "c": []
+      },
       {
        "k": "if",
-       "t": "data.commissionAmount !== undefined",
+       "t": "isDirectComplete && !hasFullClosingData",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "dealFields.commissionAmount = data.commissionAmount;",
+         "t": "return fail(400, { error: \"Укажите фактическую цену продажи и комиссию (риелтор, компания), прежде чем закрыв…",
          "a": [
           "дословно из кода"
          ],
@@ -24314,192 +26067,495 @@
       },
       {
        "k": "if",
-       "t": "data.commissionPercent !== undefined",
+       "t": "isDirectComplete && commissionExceedsPrice",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "dealFields.commissionPercent = data.commissionPercent;",
+         "t": "return fail(400, { error: \"Комиссия (риелтор + компания) не может превышать фактическую цену продажи\", });",
          "a": [
           "дословно из кода"
          ],
          "c": []
         }
        ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "isRepricingClosed",
-     "a": [],
-     "c": [
+      },
       {
-       "k": "do",
-       "t": "logAudit(req, \"DEAL_REPRICE_CLOSED\", \"Deal\", existing.id, { wasAmount: existing.commissionAmount ? Number(exi…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const updated = await prisma.$transaction(async (tx)",
-       "a": [
-        "ошибка DealConflictError — «Объект не найден»",
-        "всё внутри — одной транзакцией",
-        "читает в базе: property",
-        "меняет в базе: property",
-        "меняет в базе: client",
-        "считает в базе: deal",
-        "создаёт или меняет в базе: settings",
-        "читает в базе: deal",
-        "меняет в базе: deal"
-       ],
+       "k": "if",
+       "t": "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && existing.stage !== \"PENDING_APPROVAL\" && !isD…",
+       "a": [],
        "c": [
         {
-         "k": "if",
-         "t": "isCompleting",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const property = await tx.property.findUnique({ where: { id: existing.propertyId } });",
-           "a": [
-            "читает в базе: property"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!property",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new DealConflictError(\"Объект не найден\");",
-             "a": [
-              "ошибка DealConflictError — «Объект не найден»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const propertyUpdate = await tx.property.updateMany({ where: { id: property.id, status: { in: [\"AVAILABLE\", \"…",
-           "a": [
-            "меняет в базе: property"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "propertyUpdate.count !== 1",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new DealConflictError(\"Объект уже продан или снят с продажи\");",
-             "a": [
-              "ошибка DealConflictError — «Объект уже продан или снят с продажи»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "await tx.client.update({ where: { id: existing.clientId }, data: { status: \"DEAL_CLOSED\" } });",
-           "a": [
-            "меняет в базе: client"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "property.sellerClientId",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "sellerClientIdToRecompute = property.sellerClientId;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "completedPropertyIdForInteraction = property.id;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
+         "k": "do",
+         "t": "return fail(409, { error: \"Сделку можно завершить только после отправки на закрытие\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRejecting && !canCompleteDeal(req)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Вернуть сделку на доработку может только руководитель\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRejecting && !data.rejectReason",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(400, { error: \"Укажите причину возврата на доработку\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isSubmittingForApproval || isDirectComplete",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const hadShowing = await prisma.interaction.findFirst({ where: { ...conductedShowingWhere(existing.clientId),…",
+         "a": [
+          "читает в базе: interaction"
+         ],
+         "c": []
         },
         {
          "k": "if",
-         "t": "isCancelling",
+         "t": "!hadShowing",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "const [otherPropertyDeals, otherClosedClientDeals] = await Promise.all([ tx.deal.count({ where: { propertyId:…",
+           "t": "return fail(409, { error: isDirectComplete ? \"Нельзя закрыть сделку без проведённого показа этого объекта\" : …",
            "a": [
-            "считает в базе: deal"
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isSubmittingForApproval || isDirectComplete || isApprovingSubmitted",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const required = await getDealRequiredDocuments();",
+         "a": [
+          "зовёт getDealRequiredDocuments()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "required.length > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const uploadedSet = new Set<string>(await distinctUploadedKinds(existing.id));",
+           "a": [
+            "зовёт distinctUploadedKinds()"
            ],
            "c": []
           },
           {
            "k": "if",
-           "t": "otherPropertyDeals === 0",
+           "t": "missing.length > 0",
            "a": [],
            "c": [
             {
-             "k": "do",
-             "t": "const releasedReservation = await tx.property.updateMany({ where: { id: existing.propertyId, status: \"RESERVE…",
-             "a": [
-              "меняет в базе: property"
-             ],
-             "c": []
+             "k": "if",
+             "t": "skipDocuments && canCompleteDeal(req)",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "!opts.dryRun",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "logAudit(req, \"DEAL_SKIP_DOCUMENTS\", \"Deal\", existing.id, { missingKinds: missing });",
+                 "a": [
+                  "зовёт logAudit()"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
             },
             {
-             "k": "if",
-             "t": "releasedReservation.count === 1",
+             "k": "else",
+             "t": "иначе",
              "a": [],
              "c": [
               {
                "k": "do",
-               "t": "propertyReleasedToAvailable = true;",
+               "t": "return fail(400, { error: `Не хватает документов сделки: ${missing .map((kind) => DEAL_DOCUMENT_KIND_LABELS[k…",
                "a": [
                 "дословно из кода"
                ],
                "c": []
               }
              ]
-            },
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isSubmittingForApproval && !hasFullClosingData",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(400, { error: \"Укажите фактическую цену продажи и комиссию (риелтор, компания), прежде чем отправ…",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isSubmittingForApproval && commissionExceedsPrice",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(400, { error: \"Комиссия (риелтор + компания) не может превышать фактическую цену продажи\", });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "settingCommissionSums && !isSubmittingForApproval && !canSetCommission(req)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Комиссию по уже отправленной сделке может поправить только руководитель\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "data.soldPrice !== undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const allowedNow = isSubmittingForApproval || isDirectComplete || canSetCommission(req);",
+         "a": [
+          "зовёт canSetCommission()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!allowedNow",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return fail(403, { error: \"Цена продажи задаётся при отправке на закрытие; поправить её потом может только ру…",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "existing.stage === \"COMPLETED\"",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!canSetCommission(req)",
+           "a": [],
+           "c": [
             {
              "k": "do",
-             "t": "await tx.property.updateMany({ where: { id: existing.propertyId, status: \"AVAILABLE\", assignedAgentId: existi…",
+             "t": "return fail(403, { error: \"Цену продажи закрытой сделки меняет только руководитель\" });",
              "a": [
-              "меняет в базе: property"
+              "дословно из кода"
              ],
              "c": []
-            },
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!opts.dryRun",
+           "a": [],
+           "c": [
             {
              "k": "do",
-             "t": "const cancelledProperty = await tx.property.findUnique({ where: { id: existing.propertyId }, select: { seller…",
+             "t": "logAudit(req, \"DEAL_SOLD_PRICE_CHANGE\", \"Deal\", existing.id, { was: existing.soldPrice ? Number(existing.sold…",
+             "a": [
+              "зовёт logAudit()"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(400, { error: \"Комиссия (риелтор + компания) не может превышать фактическую цену продажи\", });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRepricingClosed && data.commissionAmount === undefined && data.commissionPercent !== undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…",
+         "a": [
+          "читает в базе: property"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "priceBase > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "data.commissionAmount = commissionOf(priceBase, data.commissionPercent);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "elseif",
+       "t": "isRepricingClosed && data.commissionAmount !== undefined && data.commissionPercent === undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…",
+         "a": [
+          "читает в базе: property"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "priceBase > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "data.commissionPercent = Math.round((data.commissionAmount / priceBase) * 100 * 10000) / 10000;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRepricingClosed && settingCommissionSums && hasExplicitSums",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const sharesCents = sumCents([effRealtor, effCompany]);",
+         "a": [
+          "зовёт sumCents()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "soldPriceCents > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "data.commissionPercent = Math.round((sharesCents / soldPriceCents) * 100 * 10000) / 10000;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRepricingClosed",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "data.commissionAmount !== undefined",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "dealFields.commissionAmount = data.commissionAmount;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "data.commissionPercent !== undefined",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "dealFields.commissionPercent = data.commissionPercent;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRepricingClosed && !opts.dryRun",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"DEAL_REPRICE_CLOSED\", \"Deal\", existing.id, { wasAmount: existing.commissionAmount ? Number(exi…",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "opts.dryRun",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { ok: true, status: 200, plan: { from: existing.stage, to: data.stage ?? existing.stage, isCompleting,…",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const updated = await prisma.$transaction(async (tx)",
+         "a": [
+          "ошибка DealConflictError — «Объект не найден»",
+          "всё внутри — одной транзакцией",
+          "читает в базе: property",
+          "меняет в базе: property",
+          "меняет в базе: client",
+          "считает в базе: deal",
+          "создаёт или меняет в базе: settings",
+          "читает в базе: deal",
+          "меняет в базе: deal"
+         ],
+         "c": [
+          {
+           "k": "if",
+           "t": "isCompleting",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const property = await tx.property.findUnique({ where: { id: existing.propertyId } });",
              "a": [
               "читает в базе: property"
              ],
@@ -24507,12 +26563,157 @@
             },
             {
              "k": "if",
-             "t": "cancelledProperty?.sellerClientId",
+             "t": "!property",
              "a": [],
              "c": [
               {
                "k": "do",
-               "t": "await tx.client.updateMany({ where: { id: cancelledProperty.sellerClientId, status: \"DEAL_CLOSED\" }, data: { …",
+               "t": "throw new DealConflictError(\"Объект не найден\");",
+               "a": [
+                "ошибка DealConflictError — «Объект не найден»"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const propertyUpdate = await tx.property.updateMany({ where: { id: property.id, status: { in: [\"AVAILABLE\", \"…",
+             "a": [
+              "меняет в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "propertyUpdate.count !== 1",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw new DealConflictError(\"Объект уже продан или снят с продажи\");",
+               "a": [
+                "ошибка DealConflictError — «Объект уже продан или снят с продажи»"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await tx.client.update({ where: { id: existing.clientId }, data: { status: \"DEAL_CLOSED\" } });",
+             "a": [
+              "меняет в базе: client"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "property.sellerClientId",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "sellerClientIdToRecompute = property.sellerClientId;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "completedPropertyIdForInteraction = property.id;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "isCancelling",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const [otherPropertyDeals, otherClosedClientDeals] = await Promise.all([ tx.deal.count({ where: { propertyId:…",
+             "a": [
+              "считает в базе: deal"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "otherPropertyDeals === 0",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const releasedReservation = await tx.property.updateMany({ where: { id: existing.propertyId, status: \"RESERVE…",
+               "a": [
+                "меняет в базе: property"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "releasedReservation.count === 1",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "propertyReleasedToAvailable = true;",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "await tx.property.updateMany({ where: { id: existing.propertyId, status: \"AVAILABLE\", assignedAgentId: existi…",
+               "a": [
+                "меняет в базе: property"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "const cancelledProperty = await tx.property.findUnique({ where: { id: existing.propertyId }, select: { seller…",
+               "a": [
+                "читает в базе: property"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "cancelledProperty?.sellerClientId",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await tx.client.updateMany({ where: { id: cancelledProperty.sellerClientId, status: \"DEAL_CLOSED\" }, data: { …",
+                 "a": [
+                  "меняет в базе: client"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "otherClosedClientDeals === 0",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await tx.client.updateMany({ where: { id: existing.clientId, status: \"DEAL_CLOSED\" }, data: { status: \"HOT\" }…",
                "a": [
                 "меняет в базе: client"
                ],
@@ -24524,14 +26725,247 @@
           },
           {
            "k": "if",
-           "t": "otherClosedClientDeals === 0",
+           "t": "isCompleting && hasExplicitSums",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "await tx.client.updateMany({ where: { id: existing.clientId, status: \"DEAL_CLOSED\" }, data: { status: \"HOT\" }…",
+             "t": "split = { commissionAmount: fromCents(sumCents([effRealtor, effCompany])), commissionIntakeAmount: 0, commiss…",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "elseif",
+           "t": "existing.stage !== \"COMPLETED\" && settingCommissionSums && hasExplicitSums",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const amountCents = sumCents([effRealtor, effCompany]);",
+             "a": [
+              "зовёт sumCents()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "elseif",
+           "t": "isRepricingClosed && settingCommissionSums",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "elseif",
+           "t": "existing.stage === \"COMPLETED\" && !isCompleting && settingCommissionSums && hasExplicitSums",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const amountCents = sumCents([effRealtor, effCompany]);",
+             "a": [
+              "зовёт sumCents()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "elseif",
+           "t": "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const scaled = scaleClosedCommissionShares(data.commissionAmount ?? existing.commissionAmount, existing);",
+             "a": [
+              "зовёт scaleClosedCommissionShares()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "elseif",
+           "t": "isCompleting || isRepricingClosed",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const settings = await tx.settings.upsert({ where: { id: \"singleton\" }, update: {}, create: { id: \"singleton\"…",
+             "a": [
+              "создаёт или меняет в базе: settings"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "baseCents > 0 && totalP > 0",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const [realtorCents, companyCents] = splitCents(baseCents, [realtorP, companyP]);",
+               "a": [
+                "зовёт splitCents()"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "isCompleting",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await tx.client.updateMany({ where: { id: existing.clientId, refusalCount: { gt: 0 } }, data: { refusalCount:…",
              "a": [
               "меняет в базе: client"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "isRevivingCancelled",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const revivedProperty = await tx.property.findUnique({ where: { id: existing.propertyId }, select: { status: …",
+             "a": [
+              "читает в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!revivedProperty || [\"SOLD\", \"WITHDRAWN\"].includes(revivedProperty.status)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw new DealConflictError(\"Объект уже продан или снят с продажи — отменённую сделку не вернуть\");",
+               "a": [
+                "ошибка DealConflictError — «Объект уже продан или снят с продажи — отменённую сделку не вернуть»"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const reservedAgain = await tx.property.updateMany({ where: { id: existing.propertyId, deletedAt: null, OR: […",
+             "a": [
+              "меняет в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "reservedAgain.count !== 1",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw new DealConflictError(\"По объекту уже идёт сделка — объект зарезервирован\");",
+               "a": [
+                "ошибка DealConflictError — «По объекту уже идёт сделка — объект зарезервирован»"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const liveDeal = await tx.deal.findFirst({ where: { propertyId: existing.propertyId, stage: { notIn: [\"COMPLE…",
+             "a": [
+              "читает в базе: deal"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "liveDeal",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw new DealConflictError(\"По этому объекту уже есть незакрытая сделка\");",
+               "a": [
+                "ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const updateResult = await tx.deal.updateMany({ where: clientVersion !== undefined ? { id: existing.id, stage…",
+           "a": [
+            "меняет в базе: deal"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "updateResult.count === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw new DealConflictError(\"Сделка изменена другим пользователем, обновите страницу\");",
+             "a": [
+              "ошибка DealConflictError — «Сделка изменена другим пользователем, обновите страницу»"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "isRejecting",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await tx.property.updateMany({ where: { id: existing.propertyId, status: \"RESERVED\" }, data: { reservedAt: ne…",
+             "a": [
+              "меняет в базе: property"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const deal = await tx.deal.findUniqueOrThrow({ where: { id: existing.id } });",
+           "a": [
+            "читает в базе: deal"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "data.stage && data.stage !== existing.stage",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await logTimeline({ clientId: existing.clientId, actor: { kind: \"agent\", agentId: req.agent!.id }, propertyId…",
+             "a": [
+              "зовёт logTimeline()"
              ],
              "c": []
             }
@@ -24541,97 +26975,199 @@
         },
         {
          "k": "if",
-         "t": "isCompleting && hasExplicitSums",
+         "t": "revivedReservedProperty",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "split = { commissionAmount: fromCents(sumCents([effRealtor, effCompany])), commissionIntakeAmount: 0, commiss…",
+           "t": "closeWorkAfterLeavingSale(existing.propertyId, \"reserved\");",
            "a": [
-            "дословно из кода"
+            "зовёт closeWorkAfterLeavingSale()"
            ],
            "c": []
           }
          ]
         },
         {
-         "k": "elseif",
-         "t": "existing.stage !== \"COMPLETED\" && settingCommissionSums && hasExplicitSums",
+         "k": "if",
+         "t": "sellerClientIdToRecompute",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "const amountCents = sumCents([effRealtor, effCompany]);",
+           "t": "const sellerBefore = await prisma.client.findUnique({ where: { id: sellerClientIdToRecompute }, select: { sta…",
            "a": [
-            "зовёт sumCents()"
+            "читает в базе: client"
            ],
            "c": []
-          }
-         ]
-        },
-        {
-         "k": "elseif",
-         "t": "isRepricingClosed && settingCommissionSums",
-         "a": [],
-         "c": []
-        },
-        {
-         "k": "elseif",
-         "t": "existing.stage === \"COMPLETED\" && !isCompleting && settingCommissionSums && hasExplicitSums",
-         "a": [],
-         "c": [
+          },
           {
            "k": "do",
-           "t": "const amountCents = sumCents([effRealtor, effCompany]);",
+           "t": "const sellerVerdict = await recomputeSellerCardState({ sellerClientId: sellerClientIdToRecompute });",
            "a": [
-            "зовёт sumCents()"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "elseif",
-         "t": "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const [intakeCents, realtorCents, companyCents] = splitCents(newBaseCents, [ toCents(existing.commissionIntak…",
-           "a": [
-            "зовёт splitCents()"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "elseif",
-         "t": "isCompleting || isRepricingClosed",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const settings = await tx.settings.upsert({ where: { id: \"singleton\" }, update: {}, create: { id: \"singleton\"…",
-           "a": [
-            "создаёт или меняет в базе: settings"
+            "зовёт recomputeSellerCardState()"
            ],
            "c": []
           },
           {
            "k": "if",
-           "t": "baseCents > 0 && totalP > 0",
+           "t": "sellerVerdict?.next === \"DEAL_CLOSED\" && sellerBefore?.status !== \"DEAL_CLOSED\"",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "const [realtorCents, companyCents] = splitCents(baseCents, [realtorP, companyP]);",
+             "t": "await logTimeline({ clientId: sellerClientIdToRecompute, actor: { kind: \"agent\", agentId: req.agent!.id }, pr…",
              "a": [
-              "зовёт splitCents()"
+              "зовёт logTimeline()"
              ],
              "c": []
             }
            ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "data.commissionAmount !== undefined || data.commissionPercent !== undefined",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "logAudit(req, \"DEAL_COMMISSION_CHANGE\", \"Deal\", existing.id, { fromAmount: existing.commissionAmount?.toStrin…",
+           "a": [
+            "зовёт logAudit()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const scorePoints = (isCompleting || isVoidingClosedDeal) && existing.agentId ? await loadEventPoints() : nul…",
+         "a": [
+          "зовёт loadEventPoints()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "isCompleting && existing.agentId && scorePoints",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await recordScoreEvent({ agentId: existing.agentId, kind: \"deal_closed\", delta: scorePoints.deal_closed, reas…",
+           "a": [
+            "зовёт recordScoreEvent()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await recordScoreEvent({ agentId: existing.agentId, kind: \"client_recovered_bonus\", delta: scorePoints.client…",
+             "a": [
+              "зовёт recordScoreEvent()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const closer = await prisma.agent.findUnique({ where: { id: existing.agentId }, select: { fullName: true } });",
+           "a": [
+            "читает в базе: agent"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…",
+           "a": [
+            "читает в базе: agent",
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const closedMonthKey = existing.closedAt ? (()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const w = dushanbeWallClock(existing.closedAt);",
+           "a": [
+            "зовёт dushanbeWallClock()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const nowWall = dushanbeWallClock();",
+         "a": [
+          "зовёт dushanbeWallClock()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "closedMonthKey && (isVoidingClosedDeal || (changedClosedShares && closedMonthKey < currentMonthKey))",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await upsertSalaryExpenses(closedMonthKey);",
+             "a": [
+              "зовёт upsertSalaryExpenses()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"api\", `Зарплатная строка после правки долей сделки ${existing.id} не обновлена: ${descri…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isVoidingClosedDeal && existing.agentId && scorePoints",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await reverseDealClosedScore({ dealId: existing.id, agentId: existing.agentId, client: existing.client, initi…",
+           "a": [
+            "зовёт reverseDealClosedScore()"
+           ],
+           "c": []
           }
          ]
         },
@@ -24642,9 +27178,25 @@
          "c": [
           {
            "k": "do",
-           "t": "await tx.client.updateMany({ where: { id: existing.clientId, refusalCount: { gt: 0 } }, data: { refusalCount:…",
+           "t": "closeWorkAfterLeavingSale(existing.propertyId, \"sold\");",
            "a": [
-            "меняет в базе: client"
+            "зовёт closeWorkAfterLeavingSale()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await enqueueBackgroundJob({ type: \"deal-close-followup\", payload: { dealId: existing.id, propertyId: existin…",
+           "a": [
+            "зовёт enqueueBackgroundJob()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void enqueueBackgroundJob({ type: \"deal-review-ask\", payload: { dealId: existing.id }, maxAttempts: 5, dedupe…",
+           "a": [
+            "зовёт enqueueBackgroundJob()"
            ],
            "c": []
           }
@@ -24652,125 +27204,18 @@
         },
         {
          "k": "if",
-         "t": "isRevivingCancelled",
+         "t": "propertyReleasedToAvailable",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "const revivedProperty = await tx.property.findUnique({ where: { id: existing.propertyId }, select: { status: …",
+           "t": "void prisma.property .findUnique({ where: { id: existing.propertyId }, select: { id: true, shortId: true, tit…",
            "a": [
             "читает в базе: property"
            ],
            "c": []
-          },
-          {
-           "k": "if",
-           "t": "!revivedProperty || [\"SOLD\", \"WITHDRAWN\"].includes(revivedProperty.status)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new DealConflictError(\"Объект уже продан или снят с продажи — отменённую сделку не вернуть\");",
-             "a": [
-              "ошибка DealConflictError — «Объект уже продан или снят с продажи — отменённую сделку не вернуть»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const reservedAgain = await tx.property.updateMany({ where: { id: existing.propertyId, deletedAt: null, OR: […",
-           "a": [
-            "меняет в базе: property"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "reservedAgain.count !== 1",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new DealConflictError(\"По объекту уже идёт сделка — объект зарезервирован\");",
-             "a": [
-              "ошибка DealConflictError — «По объекту уже идёт сделка — объект зарезервирован»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const liveDeal = await tx.deal.findFirst({ where: { propertyId: existing.propertyId, stage: { notIn: [\"COMPLE…",
-           "a": [
-            "читает в базе: deal"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "liveDeal",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new DealConflictError(\"По этому объекту уже есть незакрытая сделка\");",
-             "a": [
-              "ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»"
-             ],
-             "c": []
-            }
-           ]
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "const updateResult = await tx.deal.updateMany({ where: clientVersion !== undefined ? { id: existing.id, stage…",
-         "a": [
-          "меняет в базе: deal"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "updateResult.count === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw new DealConflictError(\"Сделка изменена другим пользователем, обновите страницу\");",
-           "a": [
-            "ошибка DealConflictError — «Сделка изменена другим пользователем, обновите страницу»"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "isRejecting",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await tx.property.updateMany({ where: { id: existing.propertyId, status: \"RESERVED\" }, data: { reservedAt: ne…",
-           "a": [
-            "меняет в базе: property"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const deal = await tx.deal.findUniqueOrThrow({ where: { id: existing.id } });",
-         "a": [
-          "читает в базе: deal"
-         ],
-         "c": []
         },
         {
          "k": "if",
@@ -24779,115 +27224,106 @@
          "c": [
           {
            "k": "do",
-           "t": "await logTimeline({ clientId: existing.clientId, actor: { kind: \"agent\", agentId: req.agent!.id }, propertyId…",
+           "t": "logAudit( req, isCompleting ? \"DEAL_COMPLETE\" : isCancelling ? \"DEAL_CANCEL\" : isRejecting ? \"DEAL_REJECT\" : …",
            "a": [
-            "зовёт logTimeline()"
+            "зовёт logAudit()"
            ],
            "c": []
           }
          ]
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "revivedReservedProperty",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "closeWorkAfterLeavingSale(existing.propertyId, \"reserved\");",
-         "a": [
-          "зовёт closeWorkAfterLeavingSale()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "sellerClientIdToRecompute",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const sellerBefore = await prisma.client.findUnique({ where: { id: sellerClientIdToRecompute }, select: { sta…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const sellerVerdict = await recomputeSellerCardState({ sellerClientId: sellerClientIdToRecompute });",
-         "a": [
-          "зовёт recomputeSellerCardState()"
-         ],
-         "c": []
         },
         {
          "k": "if",
-         "t": "sellerVerdict?.next === \"DEAL_CLOSED\" && sellerBefore?.status !== \"DEAL_CLOSED\"",
+         "t": "isCompleting || isCancelling",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "await logTimeline({ clientId: sellerClientIdToRecompute, actor: { kind: \"agent\", agentId: req.agent!.id }, pr…",
+           "t": "runClientAutopilotInBackground(existing.clientId, \"deal_closed\");",
            "a": [
-            "зовёт logTimeline()"
+            "зовёт runClientAutopilotInBackground()"
            ],
            "c": []
           }
          ]
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "data.commissionAmount !== undefined || data.commissionPercent !== undefined",
-       "a": [],
-       "c": [
+        },
         {
-         "k": "do",
-         "t": "logAudit(req, \"DEAL_COMMISSION_CHANGE\", \"Deal\", existing.id, { fromAmount: existing.commissionAmount?.toStrin…",
-         "a": [
-          "зовёт logAudit()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const scorePoints = (isCompleting || isVoidingClosedDeal) && existing.agentId ? await loadEventPoints() : nul…",
-       "a": [
-        "зовёт loadEventPoints()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "isCompleting && existing.agentId && scorePoints",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "await recordScoreEvent({ agentId: existing.agentId, kind: \"deal_closed\", delta: scorePoints.deal_closed, reas…",
-         "a": [
-          "зовёт recordScoreEvent()"
-         ],
-         "c": []
+         "k": "elseif",
+         "t": "data.stage && data.stage !== existing.stage",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "runClientAutopilotInBackground(existing.clientId, \"deal_changed\");",
+           "a": [
+            "зовёт runClientAutopilotInBackground()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
-         "t": "existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
+         "t": "data.stage && data.stage !== existing.stage",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "await recordScoreEvent({ agentId: existing.agentId, kind: \"client_recovered_bonus\", delta: scorePoints.client…",
+           "t": "void closeAutoTasks(existing.clientId, [\"deal_stale_buyer_close_deal\"]).catch((err)",
            "a": [
-            "зовёт recordScoreEvent()"
+            "зовёт closeAutoTasks()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "data.stage && data.stage !== existing.stage",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "publishDealUpdated({ dealId: existing.id, clientId: existing.clientId, agentId: existing.agentId, stage: data…",
+           "a": [
+            "зовёт publishDealUpdated()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "sendPushToAgent(existing.agentId, { title: isRejecting ? \"🔄 Сделка возвращена на доработку\" : isCompleting ?…",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "error instanceof DealConflictError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return fail(409, { error: error.message });",
+           "a": [
+            "дословно из кода"
            ],
            "c": []
           }
@@ -24895,273 +27331,111 @@
         },
         {
          "k": "do",
-         "t": "const closer = await prisma.agent.findUnique({ where: { id: existing.agentId }, select: { fullName: true } });",
+         "t": "throw error;",
          "a": [
-          "читает в базе: agent"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…",
-         "a": [
-          "читает в базе: agent",
-          "push-уведомление"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
        ]
-      },
+      }
+     ],
+     "from": "updateDealFor() — apps/api/src/lib/dealWrites.ts"
+    },
+    {
+     "k": "if",
+     "t": "!outcome.ok",
+     "a": [],
+     "c": [
       {
        "k": "do",
-       "t": "const closedMonthKey = existing.closedAt ? (()",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const w = dushanbeWallClock(existing.closedAt);",
-         "a": [
-          "зовёт dushanbeWallClock()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const nowWall = dushanbeWallClock();",
+       "t": "return res.status(outcome.status).json(outcome.body);",
        "a": [
-        "зовёт dushanbeWallClock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "closedMonthKey && (isVoidingClosedDeal || (changedClosedShares && closedMonthKey < currentMonthKey))",
-       "a": [],
-       "c": [
-        {
-         "k": "try",
-         "t": "пробует",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await upsertSalaryExpenses(closedMonthKey);",
-           "a": [
-            "зовёт upsertSalaryExpenses()"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "catch",
-         "t": "если сорвалось",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError(\"api\", `Зарплатная строка после правки долей сделки ${existing.id} не обновлена: ${descri…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "isVoidingClosedDeal && existing.agentId && scorePoints",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "await reverseDealClosedScore({ dealId: existing.id, agentId: existing.agentId, client: existing.client, initi…",
-         "a": [
-          "зовёт reverseDealClosedScore()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "isCompleting",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "closeWorkAfterLeavingSale(existing.propertyId, \"sold\");",
-         "a": [
-          "зовёт closeWorkAfterLeavingSale()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "await enqueueBackgroundJob({ type: \"deal-close-followup\", payload: { dealId: existing.id, propertyId: existin…",
-         "a": [
-          "зовёт enqueueBackgroundJob()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void enqueueBackgroundJob({ type: \"deal-review-ask\", payload: { dealId: existing.id }, maxAttempts: 5, dedupe…",
-         "a": [
-          "зовёт enqueueBackgroundJob()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "propertyReleasedToAvailable",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void prisma.property .findUnique({ where: { id: existing.propertyId }, select: { id: true, shortId: true, tit…",
-         "a": [
-          "читает в базе: property"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "data.stage && data.stage !== existing.stage",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "logAudit( req, isCompleting ? \"DEAL_COMPLETE\" : isCancelling ? \"DEAL_CANCEL\" : isRejecting ? \"DEAL_REJECT\" : …",
-         "a": [
-          "зовёт logAudit()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "isCompleting || isCancelling",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "runClientAutopilotInBackground(existing.clientId, \"deal_closed\");",
-         "a": [
-          "зовёт runClientAutopilotInBackground()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "elseif",
-       "t": "data.stage && data.stage !== existing.stage",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "runClientAutopilotInBackground(existing.clientId, \"deal_changed\");",
-         "a": [
-          "зовёт runClientAutopilotInBackground()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "data.stage && data.stage !== existing.stage",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void closeAutoTasks(existing.clientId, [\"deal_stale_buyer_close_deal\"]).catch((err)",
-         "a": [
-          "зовёт closeAutoTasks()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "data.stage && data.stage !== existing.stage",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "publishDealUpdated({ dealId: existing.id, clientId: existing.clientId, agentId: existing.agentId, stage: data…",
-         "a": [
-          "зовёт publishDealUpdated()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "sendPushToAgent(existing.agentId, { title: isRejecting ? \"🔄 Сделка возвращена на доработку\" : isCompleting ?…",
-         "a": [
-          "push-уведомление"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "res.json(serializeDealMoney(updated, seesDealMoney(req, updated)));",
-       "a": [
-        "ответ 200"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "catch",
-     "t": "если сорвалось",
+     "k": "if",
+     "t": "!(\"deal\" in outcome)",
      "a": [],
      "c": [
       {
-       "k": "if",
-       "t": "error instanceof DealConflictError",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: error.message });",
-         "a": [
-          "ответ 409"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
        "k": "do",
-       "t": "throw error;",
+       "t": "throw new Error(\"updateDealFor вернул план без dryRun\");",
        "a": [
-        "пробрасывает ошибку дальше"
+        "ошибка Error — «updateDealFor вернул план без dryRun»"
        ],
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/payouts",
+   "mount": "/api/v1/deals",
+   "full": "/api/v1/deals/payouts",
+   "file": "apps/api/src/routes/dealPayout.ts",
+   "router": "dealPayoutRouter",
+   "top": "apps/api/src/routes/dealPayout.ts::dealPayoutRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = payoutsQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой payoutsQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры запроса\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры запроса»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const report = await agentPayoutsReport(scope, can(req, \"finance.view\") ? {} : { agentId: req.agent!.id });",
+     "a": [
+      "зовёт agentPayoutsReport()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ scope: parsed.data.month ?? \"open\", ...payoutsReportAmounts(report) });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
     }
    ]
   },
@@ -25316,276 +27590,277 @@
    "tree": [
     {
      "k": "do",
-     "t": "const parsed = dealCreateSchema.safeParse(req.body);",
+     "t": "const outcome = await createDealFor(req, req.body);",
      "a": [
-      "проверяет данные схемой dealCreateSchema"
+      "зовёт createDealFor()"
      ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "t": "const parsed = dealCreateSchema.safeParse(body);",
        "a": [
-        "ответ 400 — «Неверные данные»"
+        "проверяет данные схемой dealCreateSchema"
        ],
        "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "data.stage === \"COMPLETED\" || data.stage === \"CANCELLED\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Сделка не может быть создана сразу закрытой или отменённой — создайте е…",
-       "a": [
-        "ответ 400 — «Сделка не может быть создана сразу закрытой или отменённой — создайте…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Нас…",
-       "a": [
-        "ответ 403 — «Сумму комиссии задаёт руководитель — она считается автоматически по…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const [client, property] = await Promise.all([ prisma.client.findFirst({ where: { id: data.clientId, deletedA…",
-     "a": [
-      "читает в базе: client",
-      "читает в базе: property"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!client",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
-       "a": [
-        "ответ 404 — «Клиент не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!property",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
-       "a": [
-        "ответ 404 — «Объект не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true } });",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!agent",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Указанный агент не найден\" });",
-       "a": [
-        "ответ 400 — «Указанный агент не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "client.kind !== \"BUYER\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Для закрытия сделки необходим покупатель\" });",
-       "a": [
-        "ответ 409 — «Для закрытия сделки необходим покупатель»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!canBindClient(req, client)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Агент не может создавать сделку для чужого клиента\" });",
-       "a": [
-        "ответ 403 — «Агент не может создавать сделку для чужого клиента»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "[\"SOLD\", \"WITHDRAWN\"].includes(property.status)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Нельзя создать сделку по проданному или снятому с продажи объекту\" });",
-       "a": [
-        "ответ 409 — «Нельзя создать сделку по проданному или снятому с продажи объекту»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "property.status === \"RESERVED\" && (!sameAgentReservation || reservationClientMismatch)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По объекту уже идёт сделка — объект зарезервирован\" });",
-       "a": [
-        "ответ 409 — «По объекту уже идёт сделка — объект зарезервирован»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "commissionPercent === undefined && commissionAmount === undefined",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const settings = await prisma.settings.upsert({ where: { id: \"singleton\" }, update: {}, create: { id: \"single…",
-       "a": [
-        "создаёт или меняет в базе: settings"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "elseif",
-     "t": "commissionAmount === undefined && commissionPercent !== undefined",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "elseif",
-     "t": "commissionPercent === undefined && commissionAmount !== undefined",
-     "a": [],
-     "c": [
+      },
       {
        "k": "if",
-       "t": "price > 0",
+       "t": "!parsed.success",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "commissionPercent = (commissionAmount / price) * 100;",
+         "t": "return fail(400, { error: \"Неверные данные\", details: parsed.error.flatten() });",
          "a": [
           "дословно из кода"
          ],
          "c": []
         }
        ]
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
+      },
       {
-       "k": "do",
-       "t": "deal = await prisma.$transaction(async (tx)",
-       "a": [
-        "ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»",
-        "всё внутри — одной транзакцией",
-        "обращается к базе своим SQL",
-        "читает в базе: client",
-        "меняет в базе: property",
-        "читает в базе: deal",
-        "меняет в базе: client",
-        "создаёт в базе: deal"
-       ],
+       "k": "if",
+       "t": "data.stage === \"COMPLETED\" || data.stage === \"CANCELLED\"",
+       "a": [],
        "c": [
         {
          "k": "do",
-         "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${data.clientId} FOR UPDATE`;",
+         "t": "return fail(400, { error: \"Сделка не может быть создана сразу закрытой или отменённой — создайте её и закройт…",
          "a": [
-          "обращается к базе своим SQL"
+          "дословно из кода"
          ],
          "c": []
-        },
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)",
+       "a": [],
+       "c": [
         {
          "k": "do",
-         "t": "const currentClient = await tx.client.findUnique({ where: { id: data.clientId }, select: { assignmentComplete…",
+         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам\" });",
          "a": [
-          "читает в базе: client"
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const [client, property] = await Promise.all([ prisma.client.findFirst({ where: { id: data.clientId, deletedA…",
+       "a": [
+        "читает в базе: client",
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!client",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(404, { error: \"Клиент не найден\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!property",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(404, { error: \"Объект не найден\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true } });",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!agent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(400, { error: \"Указанный агент не найден\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "client.kind !== \"BUYER\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(409, { error: \"Для закрытия сделки необходим покупатель\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!canBindClient(req, client)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Агент не может создавать сделку для чужого клиента\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "[\"SOLD\", \"WITHDRAWN\"].includes(property.status)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(409, { error: \"Нельзя создать сделку по проданному или снятому с продажи объекту\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "property.status === \"RESERVED\" && (!sameAgentReservation || reservationClientMismatch)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(409, { error: \"По объекту уже идёт сделка — объект зарезервирован\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "commissionPercent === undefined && commissionAmount === undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: \"singleton\" } }) : await prism…",
+         "a": [
+          "читает в базе: settings",
+          "создаёт или меняет в базе: settings"
          ],
          "c": []
         },
         {
          "k": "if",
-         "t": "!currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…",
+         "t": "settings",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "throw new DealConflictError(\"Работа по назначению завершена или клиент передан — обновите карточку\");",
+           "t": "commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…",
            "a": [
-            "ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»"
+            "дословно из кода"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "elseif",
+       "t": "commissionAmount === undefined && commissionPercent !== undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "elseif",
+       "t": "commissionPercent === undefined && commissionAmount !== undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "price > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "commissionPercent = (commissionAmount / price) * 100;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "opts.dryRun",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" && (client.assignmentCompletedAt || client.dele…",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return fail(409, { error: \"Работа по назначению завершена или клиент передан — обновите карточку\" });",
+           "a": [
+            "дословно из кода"
            ],
            "c": []
           }
@@ -25593,30 +27868,7 @@
         },
         {
          "k": "do",
-         "t": "const reserved = await tx.property.updateMany({ where: { id: property.id, deletedAt: null, OR: [ { status: \"A…",
-         "a": [
-          "меняет в базе: property"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "reserved.count !== 1",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw new DealConflictError(\"По объекту уже идёт сделка — объект зарезервирован\");",
-           "a": [
-            "ошибка DealConflictError — «По объекту уже идёт сделка — объект зарезервирован»"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const liveDeal = await tx.deal.findFirst({ where: { propertyId: data.propertyId, stage: { notIn: [\"COMPLETED\"…",
+         "t": "const liveDeal = await prisma.deal.findFirst({ where: { propertyId: data.propertyId, stage: { notIn: [\"COMPLE…",
          "a": [
           "читает в базе: deal"
          ],
@@ -25629,9 +27881,147 @@
          "c": [
           {
            "k": "do",
-           "t": "throw new DealConflictError(\"По этому объекту уже есть незакрытая сделка\");",
+           "t": "return fail(409, { error: \"По этому объекту уже есть незакрытая сделка\" });",
            "a": [
-            "ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»"
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "deal = await prisma.$transaction(async (tx)",
+         "a": [
+          "ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»",
+          "всё внутри — одной транзакцией",
+          "обращается к базе своим SQL",
+          "читает в базе: client",
+          "меняет в базе: property",
+          "читает в базе: deal",
+          "меняет в базе: client",
+          "создаёт в базе: deal"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${data.clientId} FOR UPDATE`;",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const currentClient = await tx.client.findUnique({ where: { id: data.clientId }, select: { assignmentComplete…",
+           "a": [
+            "читает в базе: client"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw new DealConflictError(\"Работа по назначению завершена или клиент передан — обновите карточку\");",
+             "a": [
+              "ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const reserved = await tx.property.updateMany({ where: { id: property.id, deletedAt: null, OR: [ { status: \"A…",
+           "a": [
+            "меняет в базе: property"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "reserved.count !== 1",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw new DealConflictError(\"По объекту уже идёт сделка — объект зарезервирован\");",
+             "a": [
+              "ошибка DealConflictError — «По объекту уже идёт сделка — объект зарезервирован»"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const liveDeal = await tx.deal.findFirst({ where: { propertyId: data.propertyId, stage: { notIn: [\"COMPLETED\"…",
+           "a": [
+            "читает в базе: deal"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "liveDeal",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw new DealConflictError(\"По этому объекту уже есть незакрытая сделка\");",
+             "a": [
+              "ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: nul…",
+           "a": [
+            "меняет в базе: client"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return tx.deal.create({ data: { ...data, commissionPercent, commissionAmount, currency: property.currency, ag…",
+           "a": [
+            "создаёт в базе: deal"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "error instanceof DealConflictError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return fail(409, { error: error.message });",
+           "a": [
+            "дословно из кода"
            ],
            "c": []
           }
@@ -25639,39 +28029,9 @@
         },
         {
          "k": "do",
-         "t": "await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: nul…",
+         "t": "throw error;",
          "a": [
-          "меняет в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "return tx.deal.create({ data: { ...data, commissionPercent, commissionAmount, currency: property.currency, ag…",
-         "a": [
-          "создаёт в базе: deal"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "error instanceof DealConflictError",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: error.message });",
-         "a": [
-          "ответ 409"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
@@ -25679,9 +28039,72 @@
       },
       {
        "k": "do",
-       "t": "throw error;",
+       "t": "closeWorkAfterLeavingSale(data.propertyId, \"reserved\");",
        "a": [
-        "пробрасывает ошибку дальше"
+        "зовёт closeWorkAfterLeavingSale()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"DEAL_CREATE\", \"Deal\", deal.id, { clientId: data.clientId, propertyId: data.propertyId, agentId…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "publishDealUpdated({ dealId: deal.id, clientId: deal.clientId, agentId: deal.agentId, stage: deal.stage, acto…",
+       "a": [
+        "зовёт publishDealUpdated()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "void closeAutoTasks(data.clientId, [\"deal_stale_buyer_close_deal\"]).catch((err)",
+       "a": [
+        "зовёт closeAutoTasks()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "runClientAutopilotInBackground(data.clientId, \"deal_changed\");",
+       "a": [
+        "зовёт runClientAutopilotInBackground()"
+       ],
+       "c": []
+      }
+     ],
+     "from": "createDealFor() — apps/api/src/lib/dealWrites.ts"
+    },
+    {
+     "k": "if",
+     "t": "!outcome.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(outcome.status).json(outcome.body);",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!(\"deal\" in outcome)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(\"createDealFor вернул план без dryRun\");",
+       "a": [
+        "ошибка Error — «createDealFor вернул план без dryRun»"
        ],
        "c": []
       }
@@ -25689,47 +28112,7 @@
     },
     {
      "k": "do",
-     "t": "closeWorkAfterLeavingSale(data.propertyId, \"reserved\");",
-     "a": [
-      "зовёт closeWorkAfterLeavingSale()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"DEAL_CREATE\", \"Deal\", deal.id, { clientId: data.clientId, propertyId: data.propertyId, agentId…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishDealUpdated({ dealId: deal.id, clientId: deal.clientId, agentId: deal.agentId, stage: deal.stage, acto…",
-     "a": [
-      "зовёт publishDealUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void closeAutoTasks(data.clientId, [\"deal_stale_buyer_close_deal\"]).catch((err)",
-     "a": [
-      "зовёт closeAutoTasks()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "runClientAutopilotInBackground(data.clientId, \"deal_changed\");",
-     "a": [
-      "зовёт runClientAutopilotInBackground()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(201).json(serializeDealMoney(deal, seesDealMoney(req, deal)));",
+     "t": "res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));",
      "a": [
       "ответ 201"
      ],
@@ -51820,18 +54203,140 @@
    "handlerRef": null,
    "tree": [
     {
+     "k": "if",
+     "t": "!canReassignPropertyAgents(req)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Передать объект другому агенту может руководитель\" });",
+       "a": [
+        "ответ 403 — «Передать объект другому агенту может руководитель»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);",
+     "t": "const parsed = propertyTransferSchema.safeParse(req.body);",
      "a": [
-      "зовёт transferPropertyByManager()"
+      "проверяет данные схемой propertyTransferSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { id: true, deleted…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!property || property.deletedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "property.status === \"SOLD\" || property.status === \"WITHDRAWN\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Объект уже продан или снят с продажи — передавать нечего\" });",
+       "a": [
+        "ответ 409 — «Объект уже продан или снят с продажи — передавать нечего»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "propertyOwnerAgentId(property) === toAgentId",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Объект уже у этого агента\" });",
+       "a": [
+        "ответ 409 — «Объект уже у этого агента»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const agentError = await assignableAgentError(toAgentId);",
+     "a": [
+      "зовёт assignableAgentError()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "agentError",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: agentError });",
+       "a": [
+        "ответ 400"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: req.ag…",
+     "a": [
+      "зовёт transferPropertyWithSeller()"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "res.status(outcome.status).json(outcome.body);",
+     "t": "logAudit(req, \"PROPERTY_TRANSFER\", \"Property\", property.id, { fromAgentId: result.fromAgentId, toAgentId, rea…",
      "a": [
-      "ответ (код зависит от условия)"
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, fromAgentId: result.fromAgentId, toAgentId, sellerMoved: result.sellerMoved });",
+     "a": [
+      "ответ 200"
      ],
      "c": []
     }
@@ -82895,14 +85400,6 @@
          "t": "const deleted = await prisma.assistantAction.deleteMany({ where: { status: \"EXPIRED\", expiresAt: { lt: new Da…",
          "a": [
           "удаляет в базе: assistantAction"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const stepUpChallengesDeleted = await sweepStepUpChallenges(now);",
-         "a": [
-          "зовёт sweepStepUpChallenges()"
          ],
          "c": []
         }
