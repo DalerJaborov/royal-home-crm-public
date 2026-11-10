@@ -7,7 +7,7 @@
 import { Router, type Request, type Response } from "express";
 import { createHash } from "node:crypto";
 import { recordPropertyDispatchAccepted } from "../../lib/clientWorkflowObservations.js";
-import { confirmedClientIntents, clientPropertyMatchQuerySchema, maskPhones, sendPropertiesSchema, type SendPropertiesFallback, type SendTargetInfo } from "@royal-home/shared";
+import { confirmedClientIntents, clientPropertyMatchQuerySchema, marketBuyerListingsQuerySchema, type MarketBuyerListingsResponse, maskPhones, sendPropertiesSchema, type SendPropertiesFallback, type SendTargetInfo } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../db.js";
 import { foreignWriteDenied } from "./shared.js";
@@ -35,6 +35,7 @@ import { sendPushToAgent } from "../../push.js";
 import { clientPropertyMatchingCatalog } from "../../lib/clientPropertyMatchingCatalog.js";
 import { currentBuyerMatchingCriteria } from "../../lib/clientPropertyMatching.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
+import { buyerWantsFromCriteria, describeBuyerCriteria, findBuyerListings, hasBuyerCriteria } from "../../lib/market/buyerMatch.js";
 
 export const matchingRouter = Router();
 
@@ -387,4 +388,38 @@ matchingRouter.get("/:id/match", requireAuth, async (req, res) => {
     title: phoneSafeText(property.title, seesPhone),
     district: property.district ? { ...property.district, name: phoneSafeText(property.district.name, seesPhone) } : null,
   })) });
+});
+
+/**
+ * GET /api/v1/clients/:id/market-listings — секция «С площадок (Somon/Paydo)» в подборе покупателя
+ * (10.11.2026). Права и условия показа ровно те же, что у GET /:id/match: назначенный агент (или
+ * «видит всех»), удалённая карточка — 404, непринятый лид — пусто, не покупатель — пусто. Это
+ * чужие объявления: телефонов продавцов не отдаём вовсе, только ссылку на объявление.
+ */
+matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
+  const id = z.guid().safeParse(req.params.id);
+  const parsed = marketBuyerListingsQuerySchema.safeParse(req.query);
+  if (!id.success || !parsed.success) return res.status(400).json({ error: "Неверные параметры подбора с площадок" });
+  const client = await prisma.client.findUnique({ where: { id: id.data }, include: { desiredPlaces: true } });
+  if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
+  if (!canAccessAssignedAgent(req, client.assignedAgentId)) return res.status(403).json({ error: "Недостаточно прав" });
+  const empty = (status: MarketBuyerListingsResponse["status"], criteria: string[] = [], budgetMaxTjs: number | null = null): MarketBuyerListingsResponse =>
+    ({ status, criteria, total: 0, budgetMaxTjs, listings: [] });
+  const ownAgentId = scopeToOwnAgent(req);
+  if (ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt) return res.json(empty("pending_acceptance"));
+  if (!confirmedClientIntents(client).buys) return res.json(empty("not_buyer"));
+
+  const wants = await buyerWantsFromCriteria(currentBuyerMatchingCriteria(client));
+  const criteria = describeBuyerCriteria(wants);
+  if (!hasBuyerCriteria(wants)) return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
+  const { total, listings } = await findBuyerListings(wants, parsed.data.limit);
+  const seesPhone = can(req, "clients.viewPhone");
+  const body: MarketBuyerListingsResponse = {
+    status: "ok",
+    criteria,
+    total,
+    budgetMaxTjs: wants.budgetMaxTjs,
+    listings: listings.map(l => ({ ...l, title: phoneSafeText(l.title, seesPhone) })),
+  };
+  return res.json(body);
 });

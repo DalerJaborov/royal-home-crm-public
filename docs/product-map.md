@@ -10,10 +10,10 @@
 
 | Что | Сколько |
 |---|---|
-| Экранов (адресов в интерфейсе) | 68 |
-| Из них видно в меню | 35 |
+| Экранов (адресов в интерфейсе) | 69 |
+| Из них видно в меню | 36 |
 | Модулей сервера | 82 |
-| Адресов сервера всего | 725 |
+| Адресов сервера всего | 727 |
 | Задач по расписанию | 120 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -63,6 +63,7 @@
 | `/lead-funnel` | LeadFunnel | **Воронка лидов** | `apps/web/src/pages/LeadFunnel.tsx` |
 | `/login` | — | только по ссылке | — |
 | `/lost-clients` | LostClients | **Потерянные** | `apps/web/src/pages/LostClients.tsx` |
+| `/market` | MarketSegments | **Рынок: цены** | `apps/web/src/pages/MarketSegments.tsx` |
 | `/marketing` | MarketingCenter | только по ссылке | `apps/web/src/pages/MarketingCenter.tsx` |
 | `/messages` | Messages | **Чаты** | `apps/web/src/pages/Messages.tsx` |
 | `/mission-control` | MissionControl | только по ссылке | `apps/web/src/pages/MissionControl.tsx` |
@@ -111,6 +112,7 @@
 | people | Сделки | `/deals` | всем |
 | objects | Объекты | `/properties` | всем |
 | objects | Карта объектов | `/properties/map` | всем |
+| objects | Рынок: цены | `/market` | всем |
 | objects | Изменения на сайте | `/site-changes` | всем |
 | team | Команда | `/team` | всем |
 | team | Активность команды | `/activity` | право `clients.viewAll` |
@@ -154,7 +156,7 @@
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
 | `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 125 | да (31 мест) | `apps/api/src/routes/properties.ts` |
-| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 60 | да (13 мест) | `apps/api/src/routes/clients.ts` |
+| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 61 | да (14 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 2 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
@@ -222,7 +224,7 @@
 | `/api/v1/insights` | Инсайты от ИИ по звонкам | 4 | да (1 мест) | `apps/api/src/routes/insights.ts` |
 | `/api/v1/market/matches` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/marketMatches.ts` |
 | `/api/v1/market` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/marketContact.ts` |
-| `/api/v1/market` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/market.ts` |
+| `/api/v1/market` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/market.ts` |
 | `/api/v1/l` | Публичная ссылка на объект для клиента | 2 | да (1 мест) | `apps/api/src/routes/propertyShare.ts` |
 | `/api/v1/public/owner-report` | **без подписи** | 1 | нет | `apps/api/src/routes/ownerReportPublic.ts` |
 

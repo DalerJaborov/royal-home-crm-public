@@ -27,6 +27,7 @@ import {
   Radar,
   Settings,
   Share2,
+  TrendingUp,
   ShieldAlert,
   DatabaseBackup,
   Plug,
@@ -258,6 +259,8 @@ function buildNavigation(inputs: NavInputs): Navigation {
   const objectsItems = compact<NavItem>([
     { to: "/properties", icon: Home, label: "Объекты", group: "objects" },
     { to: "/properties/map", icon: MapIcon, label: "Карта объектов", group: "objects" },
+    // «Рынок — цены по сегментам» (10.11.2026): доступ как у блока «Рынок» в карточке объекта — любой вошедший.
+    { to: "/market", icon: TrendingUp, label: "Рынок: цены", group: "objects" },
     can("siteChanges.view") && {
       to: "/site-changes",
       icon: Globe,

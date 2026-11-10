@@ -76,6 +76,7 @@ import { MobileClientCard } from "../components/mobile/MobileClientCard";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
 import { ClientBuyerRequirementsEditor } from "../components/ClientBuyerRequirementsEditor";
+import { MarketBuyerListings } from "../components/MarketBuyerListings";
 import { ClientNextStep, clientPropertyCountVisible } from "../components/ClientCardContext";
 import "../theme-client-workspace.css";
 
@@ -920,7 +921,7 @@ function ClientDetailCard() {
   // A role confirmation slot shared by desktop, Clean phones and the agent phone card.
   const clientIntentConfirmation = <ClientIntentConfirmation key={`${client.id}:${client.kind}:${client.dualIntent}`} client={client} locked={locked} />;
   const overviewProperties = !(pending && locked) && (sells || buys) ? <div className="client-overview-properties" ref={overviewPropertiesRef}>
-    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /></>}
+    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></>}
     {sells && <ClientPropertyWorkspace key={`seller:${client.id}:${client.kind}:${client.dualIntent}`} variant="portfolio" client={client} locked={locked}
       canCreate={canCreatePropertyFromLead} onCreate={createSellerProperty} onSchedule={scheduleShowing} />}
   </div> : null;
