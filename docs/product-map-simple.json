@@ -16,10 +16,10 @@
   "paths": 731,
   "cron": 124,
   "jobs": 32,
-  "conditions": 3996,
-  "untranslatedUnique": 457,
-  "untranslatedTotal": 587,
-  "partialUnique": 1097,
+  "conditions": 3954,
+  "untranslatedUnique": 450,
+  "untranslatedTotal": 576,
+  "partialUnique": 1082,
   "translatedShare": 85
  },
  "untranslated": [
@@ -60,7 +60,6 @@
   "!canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId",
   "!canReadInvestigations(req) && await prisma.interaction.findFirst({ where: { investigationOnly: true, voiceNo…",
   "!channel.name.startsWith(\"UnicastRTP/\") || ours.has(channel.id)",
-  "!checks.every((c) => c.equal)",
   "!classifyFileName(file.area, path.basename(file.relPath))",
   "!client || client.customerIntakeActionId !== actionId || client.deletedAt",
   "!client.requirementsNotes?.trim()",
@@ -216,7 +215,6 @@
   "await wouldLoseLastDirector(from.id, { isActive: false })",
   "await wouldLoseLastDirector(req.params.id, rest)",
   "before && before.role !== rest.role && before.permissions !== null",
-  "body.length !== expectedSize",
   "body.phone && body.phone.trim() !== \"\"",
   "body.phone === null || body.phone.trim() === \"\"",
   "body.status !== undefined || body.interviewAt !== undefined || body.phone !== undefined || body.positionKey !…",
@@ -311,7 +309,6 @@
   "event.kind === parsed.data.override",
   "existing.client?.deletedAt && data.stage && data.stage !== existing.stage",
   "existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
-  "existing.draftId !== draft.id || existing.kind !== \"VIDEO\"",
   "existing.status === \"EDITING\" && data.status !== undefined && data.status !== \"EDITING\" && isPipelineStatus(d…",
   "existing.status === \"RESERVED\" && changedFields.some((f) => f === \"price\" || f === \"currency\") && !can(req, \"…",
   "existing.status === \"SOLD\" && changedFields.some((f) => f === \"soldPrice\" || f === \"currency\" || f === \"price…",
@@ -324,13 +321,11 @@
   "fieldChanges.length > 0 && (data.status === undefined || data.status === existing.status)",
   "finalStatus !== \"INTERVIEW\" || !finalAt || finalAt.getTime() <= Date.now()",
   "firstCallDueAt(client.acceptedAt!, minutes, pauses.get(client.id)) > now",
-  "foreignMedia && (mediaDecision === \"replace\" || (parsedBody.data.mode === \"replace\" && attachments.length ===…",
   "found !== interaction.recordingUrl",
   "found !== wanted.length",
   "found.length !== propertyIds.length",
   "from.id === req.agent!.id",
   "hasLiveCall(req.agent!.id) || !beginOrigination(req.agent!.id)",
-  "have.length !== media.totalParts",
   "history[history.length - 1]?.role === \"user\"",
   "id === BUILTIN_COVER_TEMPLATE_ID",
   "id === otherId",
@@ -351,7 +346,6 @@
   "lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))",
   "loggingOutAgentId && loggingOutAgentId !== payload.sub",
   "mapDistrictPatch && mapDistrictPatch.id !== (data.districtId ?? existing.districtId)",
-  "media.draft.agentId !== req.agent!.id",
   "mediaExecutionMode(\"NARRATION\") !== \"LIVE\"",
   "mediaExecutionMode(\"OWNER_REPORT\") !== \"LIVE\"",
   "messageKey.startsWith(\"idx:\")",
@@ -472,7 +466,6 @@
   "typeof rest.sipExtension === \"string\"",
   "typeof update?.update_id !== \"number\"",
   "uploadedParts.length !== session.totalParts",
-  "value !== null && value !== \"\" && (typeof value !== \"object\" || Object.keys(value as object).length > 0)",
   "value.startsWith(\"••••\")",
   "version !== undefined && version !== current.version",
   "voiceMuted || result.rendered + result.failed >= BATCH_LIMIT",
@@ -30643,19 +30636,6 @@
      ]
     },
     {
-     "t": "если это не inside dushanbe",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "всё хорошо, отвечает данными",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
      "t": "пробует сделать",
      "k": "try",
      "a": [],
@@ -48794,54 +48774,7 @@
      ]
     },
     {
-     "t": "удаляет: объект черновик файл",
-     "k": "do",
-     "a": [
-      "меняет: объект черновик"
-     ],
-     "c": [
-      {
-       "t": "если нет: файл",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если media.draft.agentId !== req.agent!.id",
-       "k": "if",
-       "a": [],
-       "c": [],
-       "raw": "media.draft.agentId !== req.agent!.id"
-      },
-      {
-       "t": "удаляет: объект черновик файл",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "меняет: объект черновик",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если ответ — «forbidden»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Недостаточно прав»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: ответ",
+     "t": "если статус (удалён) — «204»",
      "k": "if",
      "a": [],
      "c": [
@@ -48854,26 +48787,7 @@
      ]
     },
     {
-     "t": "если вид (файл) — «PHOTO»",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "иначе",
-     "k": "else",
-     "a": [],
-     "c": [
-      {
-       "t": "если есть storage ключ и статус (файл) — «READY»",
-       "k": "if",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "готово, отвечать нечем",
+     "t": "ответ (код зависит от условия)",
      "k": "do",
      "a": [],
      "c": []
@@ -49045,119 +48959,10 @@
      ]
     },
     {
-     "t": "отказ: не нашли: «Загрузка не найдена»",
+     "t": "ответ (код зависит от условия)",
      "k": "do",
-     "a": [
-      "меняет: объект черновик файл",
-      "меняет: объект черновик",
-      "запись в журнал ошибок"
-     ],
-     "c": [
-      {
-       "t": "если нет: файл или вид (файл) не «VIDEO»",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Загрузка не найдена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если media.draft.agentId !== req.agent!.id",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не хватает прав: «Недостаточно прав»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "media.draft.agentId !== req.agent!.id"
-      },
-      {
-       "t": "если статус (файл) — «READY»",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "всё хорошо, отвечает данными",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если нет: storage ключ или нет: всего части (файл)",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть: «Загрузка повреждена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если have.length !== media.totalParts",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть: «Пришли не все части»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "have.length !== media.totalParts"
-      },
-      {
-       "t": "пробует сделать",
-       "k": "try",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": [
-        {
-         "t": "запись в журнал ошибок",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "меняет: объект черновик файл",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "меняет: объект черновик",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "всё хорошо, отвечает данными",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
+     "a": [],
+     "c": []
     }
    ]
   },
@@ -49194,132 +48999,10 @@
      ]
     },
     {
-     "t": "отказ: не нашли: «Загрузка не найдена»",
+     "t": "ответ (код зависит от условия)",
      "k": "do",
-     "a": [
-      "меняет: объект черновик файл",
-      "меняет: объект черновик",
-      "запись в журнал ошибок"
-     ],
-     "c": [
-      {
-       "t": "если нет: файл или вид (файл) не «VIDEO»",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Загрузка не найдена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если media.draft.agentId !== req.agent!.id",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не хватает прав: «Недостаточно прав»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "media.draft.agentId !== req.agent!.id"
-      },
-      {
-       "t": "если статус (файл) — «READY»",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть: «Файл уже собран»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если нет: всего части (файл) или часть номер больше всего части (файл)",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Номер части вне плана загрузки»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если это не buffer или присланные данные количество — «0»",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Пустая часть»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если body.length !== expectedSize",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Размер части не совпадает с планом загрузки»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "body.length !== expectedSize"
-      },
-      {
-       "t": "пробует сделать",
-       "k": "try",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": [
-        {
-         "t": "запись в журнал ошибок",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "меняет: объект черновик файл",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "меняет: объект черновик",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "всё хорошо, отвечает данными",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
+     "a": [],
+     "c": []
     }
    ]
   },
@@ -49356,171 +49039,10 @@
      ]
     },
     {
-     "t": "если !contentType.startsWith(\"video/\")",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Допустимо только видео»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "!contentType.startsWith(\"video/\")"
-    },
-    {
-     "t": "если нет: ext",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Файл «…»: …»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если size bytes больше загрузка видео предел bytes",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "отказ: такое уже есть: «Ключ загрузки уже использован»",
+     "t": "ответ (код зависит от условия)",
      "k": "do",
-     "a": [
-      "заводит: объект черновик файл",
-      "меняет: объект черновик",
-      "запись в журнал ошибок"
-     ],
-     "c": [
-      {
-       "t": "если есть такая запись",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если existing.draftId !== draft.id || existing.kind !== \"VIDEO\"",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "отказ: такое уже есть: «Ключ загрузки уже использован»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "existing.draftId !== draft.id || existing.kind !== \"VIDEO\""
-        },
-        {
-         "t": "если статус (такая запись) — «READY»",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "всё хорошо, отвечает данными",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "всё хорошо, отвечает данными",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если есть same файл",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если статус — «READY»",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "всё хорошо, отвечает данными",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "всё хорошо, отвечает данными",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если видео количество не меньше предел черновик videos",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «В черновик помещается … роликов»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "пробует сделать",
-       "k": "try",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": [
-        {
-         "t": "запись в журнал ошибок",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "заводит: объект черновик файл",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "меняет: объект черновик",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "создано",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
+     "a": [],
+     "c": []
     }
    ]
   },
@@ -49761,142 +49283,7 @@
      ]
     },
     {
-     "t": "если нет: клиент или есть удалён at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Клиент не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если вид (клиент) не «SELLER» и нет: dual intent",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Черновик из переписки доступен только для продавца»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нельзя смотреть клиента этого сотрудника",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Недостаточно прав»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если scopeToOwnAgent(req) && !client.acceptedAt",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Сначала примите лид — до принятия карточка закрыта»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "scopeToOwnAgent(req) && !client.acceptedAt"
-    },
-    {
-     "t": "запись в журнал ошибок",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "удаляет: объект черновик файл",
-     "k": "do",
-     "a": [
-      "меняет: объект черновик"
-     ],
-     "c": [
-      {
-       "t": "если нет: mode и есть прочие продавец и есть meaningful",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если есть чужой файл и вложения количество больше 0 и нет: файл decision",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "поломка: «{ error:»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если foreignMedia && (mediaDecision === \"replace\" || (parsedBody.data.mode === \"replace\" && attachments.length ===…",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "удаляет: объект черновик файл",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "foreignMedia && (mediaDecision === \"replace\" || (parsedBody.data.mode === \"replace\" && attachments.length ===…"
-      },
-      {
-       "t": "если mode не «replace»",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "и так по каждому",
-         "k": "loop",
-         "a": [],
-         "c": [
-          {
-           "t": "если value !== null && value !== \"\" && (typeof value !== \"object\" || Object.keys(value as object).length > 0)",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "value !== null && value !== \"\" && (typeof value !== \"object\" || Object.keys(value as object).length > 0)",
-           "more": true
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "t": "меняет: объект черновик",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть copy чат файл",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
+     "t": "ответ (код зависит от условия)",
      "k": "do",
      "a": [],
      "c": []
@@ -49937,76 +49324,6 @@
        "k": "do",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть point",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "и так по каждому",
-     "k": "loop",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "и так по каждому",
-     "k": "loop",
-     "a": [],
-     "c": [
-      {
-       "t": "если d не задан или d больше дубль point radius m",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если есть prev",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "иначе",
-       "k": "else",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "и так по каждому",
-     "k": "loop",
-     "a": [],
-     "c": [
-      {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "если ours не задан или theirs не задан",
-         "k": "if",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если land площадь sotka задан и land площадь sotka задан",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если !checks.every((c) => c.equal)",
-       "k": "if",
-       "a": [],
-       "c": [],
-       "raw": "!checks.every((c) => c.equal)"
       }
      ]
     },

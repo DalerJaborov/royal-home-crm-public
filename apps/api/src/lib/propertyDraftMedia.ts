@@ -16,6 +16,8 @@ import type { Request } from "express";
 import { z } from "zod";
 import type { Prisma, PropertyDraftMedia } from "../generated/prisma/client.js";
 import {
+  MAX_DRAFT_PHOTOS,
+  MAX_DRAFT_VIDEOS,
   UPLOAD_VIDEO_MAX_BYTES,
   VIDEO_TOO_LARGE_CODE,
   videoTooLargeMessage,
@@ -45,10 +47,8 @@ const result = <T>(status: number, body: T): DraftResult<T> => ({ status, body }
  *  компромисс между числом запросов и ценой повтора одной части при обрыве. */
 export const VIDEO_PART_SIZE = 8 * 1024 * 1024;
 export const MAX_UPLOAD_PARTS = 10_000;
-/** Потолок на файлы одного черновика — чтобы брошенный черновик не мог съесть диск.
- *  Числа те же, что действуют у карточки объекта (30 фото за запрос, до 30 видео). */
-export const MAX_DRAFT_PHOTOS = 60;
-export const MAX_DRAFT_VIDEOS = 10;
+/** Потолок файлов черновика — общий с экраном мастера (packages/shared). */
+export { MAX_DRAFT_PHOTOS, MAX_DRAFT_VIDEOS };
 
 function computePartPlan(sizeBytes: number): { partSize: number; totalParts: number } {
   let partSize = VIDEO_PART_SIZE;

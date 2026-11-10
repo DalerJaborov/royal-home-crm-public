@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **731**. Развилок в самих путях: **2504**; вместе с задачами по расписанию и фоновыми заданиями — **4002**. Модулей: **81**.
+Путей: **731**. Развилок в самих путях: **2462**; вместе с задачами по расписанию и фоновыми заданиями — **3960**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -7371,11 +7371,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Нужны координаты lat и lng", details: parsed.error.flatten() });
     · ответ 400 — «Нужны координаты lat и lng»
-- если !isInsideDushanbe(lat, lng)
-  - return res.json({ text: "", landmarks: [] });
-    · ответ 200
 - пробует
-  - return res.json(await suggestLandmarks(lat, lng));
+  - return res.json(await suggestLandmarksForPoint(lat, lng));
     · ответ 200
 - если сорвалось
   - await logSystemError("api", `geo.landmarks(${lat},${lng}): ${message}`, { stack: err instanceof Error ? err.s…
@@ -13574,44 +13571,20 @@
 - если !parsedId.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- const result = await withDraftLock(req.agent!.id, async (tx)
-  · читает в базе: propertyDraftMedia
-  · удаляет в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  - const media = await tx.propertyDraftMedia.findUnique({ where: { id: parsedId.data }, include: { draft: { sele…
-    · читает в базе: propertyDraftMedia
-  - если !media
-    - return null;
-      · дословно из кода
-  - если media.draft.agentId !== req.agent!.id
-    - return "forbidden" as const;
-      · дословно из кода
-  - await tx.propertyDraftMedia.delete({ where: { id: media.id } });
-    · удаляет в базе: propertyDraftMedia
-  - await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });
-    · меняет в базе: propertyDraft
-- если result === "forbidden"
-  - return res.status(403).json({ error: "Недостаточно прав" });
-    · ответ 403 — «Недостаточно прав»
-- если !result
+- const deleted = await deleteDraftMedia(req.agent!.id, req.get("X-Property-Draft-Id"), parsedId.data);
+  · зовёт deleteDraftMedia()
+- если deleted.status === 204
   - return res.status(204).end();
     · ответ 204
-- если media.kind === "PHOTO"
-  - await removePhotoFiles(media.url, media.thumbUrl);
-    · зовёт removePhotoFiles()
-- иначе
-  - await abortLocalUploadSession(media.id).catch(()
-    · зовёт abortLocalUploadSession()
-  - если media.storageKey && media.status === "READY"
-    - await localVideoDelete(media.storageKey);
-      · зовёт localVideoDelete()
-- res.status(204).end();
-  · ответ 204
+- res.status(deleted.status).json(deleted.body);
+  · ответ (код зависит от условия)
 
 ### POST /api/v1/properties/drafts/current/photos
 
 `apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен, memoryUploadBudget, draftPhotoUpload.array("photos", 5)
 
+- const draft = await ensureDraft(req.agent!.id, req.get("X-Property-Draft-Id"));
+  · зовёт ensureDraft()
 - если files.length === 0
   - return res.status(400).json({ error: "Не пришло ни одного файла" });
     · ответ 400 — «Не пришло ни одного файла»
@@ -13660,43 +13633,10 @@
 - если !parsedId.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- await withDraftLock(req.agent!.id, async (tx)
-  · ответ 404 — «Загрузка не найдена»
-  · читает в базе: propertyDraftMedia
-  · меняет в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  · запись в журнал ошибок
-  - const media = await tx.propertyDraftMedia.findUnique({ where: { id: parsedId.data }, include: { draft: { sele…
-    · читает в базе: propertyDraftMedia
-  - если !media || media.kind !== "VIDEO"
-    - return res.status(404).json({ error: "Загрузка не найдена" });
-      · ответ 404 — «Загрузка не найдена»
-  - если media.draft.agentId !== req.agent!.id
-    - return res.status(403).json({ error: "Недостаточно прав" });
-      · ответ 403 — «Недостаточно прав»
-  - если media.status === "READY"
-    - return res.json({ media: presentDraftMedia(media) });
-      · ответ 200
-  - если !media.storageKey || !media.totalParts
-    - return res.status(409).json({ error: "Загрузка повреждена" });
-      · ответ 409 — «Загрузка повреждена»
-  - если have.length !== media.totalParts
-    - return res.status(409).json({ error: "Пришли не все части", uploadedPartNumbers: have, totalParts: media.tota…
-      · ответ 409 — «Пришли не все части»
-  - пробует
-    - await completeLocalUploadSession(media.id, media.storageKey, media.totalParts);
-      · зовёт completeLocalUploadSession()
-  - если сорвалось
-    - void logSystemError( "storage", `Не удалось собрать видео черновика: ${err instanceof Error ? err.message : S…
-      · запись в журнал ошибок
-    - return res.status(502).json({ error: "Не удалось собрать видео — попробуйте ещё раз" });
-      · ответ 502 — «Не удалось собрать видео — попробуйте ещё раз»
-  - const ready = await tx.propertyDraftMedia.update({ where: { id: media.id }, data: { status: "READY" }, });
-    · меняет в базе: propertyDraftMedia
-  - await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });
-    · меняет в базе: propertyDraft
-  - res.json({ media: presentDraftMedia(ready) });
-    · ответ 200
+- const completed = await completeDraftVideo(req.agent!.id, req.get("X-Property-Draft-Id"), parsedId.data);
+  · зовёт completeDraftVideo()
+- res.status(completed.status).json(completed.body);
+  · ответ (код зависит от условия)
 
 ### PUT /api/v1/properties/drafts/current/videos/:mediaId/parts/:partNumber
 
@@ -13707,46 +13647,10 @@
 - если !parsedParams.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- await withDraftLock(req.agent!.id, async (tx)
-  · ответ 404 — «Загрузка не найдена»
-  · читает в базе: propertyDraftMedia
-  · меняет в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  · запись в журнал ошибок
-  - const media = await tx.propertyDraftMedia.findUnique({ where: { id: mediaId }, include: { draft: { select: { …
-    · читает в базе: propertyDraftMedia
-  - если !media || media.kind !== "VIDEO"
-    - return res.status(404).json({ error: "Загрузка не найдена" });
-      · ответ 404 — «Загрузка не найдена»
-  - если media.draft.agentId !== req.agent!.id
-    - return res.status(403).json({ error: "Недостаточно прав" });
-      · ответ 403 — «Недостаточно прав»
-  - если media.status === "READY"
-    - return res.status(409).json({ error: "Файл уже собран" });
-      · ответ 409 — «Файл уже собран»
-  - если !media.totalParts || partNumber > media.totalParts
-    - return res.status(400).json({ error: "Номер части вне плана загрузки" });
-      · ответ 400 — «Номер части вне плана загрузки»
-  - если !Buffer.isBuffer(body) || body.length === 0
-    - return res.status(400).json({ error: "Пустая часть" });
-      · ответ 400 — «Пустая часть»
-  - если body.length !== expectedSize
-    - return res.status(400).json({ error: "Размер части не совпадает с планом загрузки" });
-      · ответ 400 — «Размер части не совпадает с планом загрузки»
-  - пробует
-    - await writeLocalUploadPart(mediaId, partNumber, body);
-      · зовёт writeLocalUploadPart()
-  - если сорвалось
-    - void logSystemError( "storage", `Не удалось записать часть видео черновика: ${err instanceof Error ? err.mess…
-      · запись в журнал ошибок
-    - return res.status(502).json({ error: "Часть не записалась — попробуйте ещё раз" });
-      · ответ 502 — «Часть не записалась — попробуйте ещё раз»
-  - await tx.propertyDraftMedia.update({ where: { id: mediaId }, data: { parts: next } });
-    · меняет в базе: propertyDraftMedia
-  - await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });
-    · меняет в базе: propertyDraft
-  - res.json({ uploadedPartNumbers: [...known].sort((a, b)
-    · ответ 200
+- const written = await writeDraftVideoPart(req.agent!.id, req.get("X-Property-Draft-Id"), mediaId, partNumber,…
+  · зовёт writeDraftVideoPart()
+- res.status(written.status).json(written.body);
+  · ответ (код зависит от условия)
 
 ### POST /api/v1/properties/drafts/current/videos/sessions
 
@@ -13757,64 +13661,10 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- если !contentType.startsWith("video/")
-  - return res.status(400).json({ error: "Допустимо только видео" });
-    · ответ 400 — «Допустимо только видео»
-- const ext = videoExtensionOf(filename);
-  · зовёт videoExtensionOf()
-- если !ext
-  - return res.status(400).json({ error: `Файл «${filename}»: ${UNSUPPORTED_VIDEO_MESSAGE}` });
-    · ответ 400 — «Файл «${filename}»: ${UNSUPPORTED_VIDEO_MESSAGE}»
-- если sizeBytes > UPLOAD_VIDEO_MAX_BYTES
-  - return res.status(400).json({ error: videoTooLargeMessage(filename), code: VIDEO_TOO_LARGE_CODE, limitBytes: …
-    · ответ 400
-- await withDraftLock(req.agent!.id, async (tx)
-  · ответ 409 — «Ключ загрузки уже использован»
-  · читает в базе: propertyDraftMedia
-  · считает в базе: propertyDraftMedia
-  · создаёт в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  · запись в журнал ошибок
-  - await assertActiveDraft(tx, req.agent!.id, { draftId: draft.id });
-    · зовёт assertActiveDraft()
-  - const existing = await tx.propertyDraftMedia.findUnique({ where: { uploadKey } });
-    · читает в базе: propertyDraftMedia
-  - если existing
-    - если existing.draftId !== draft.id || existing.kind !== "VIDEO"
-      - return res.status(409).json({ error: "Ключ загрузки уже использован" });
-        · ответ 409 — «Ключ загрузки уже использован»
-    - если existing.status === "READY"
-      - return res.json({ status: "done", media: presentDraftMedia(existing) });
-        · ответ 200
-    - return res.json({ status: "in-progress", mediaId: existing.id, partSize: existing.partSize, totalParts: exist…
-      · ответ 200
-  - const sameFile = await tx.propertyDraftMedia.findFirst({ where: { draftId: draft.id, kind: "VIDEO", filename:…
-    · читает в базе: propertyDraftMedia
-  - если sameFile
-    - если sameFile.status === "READY"
-      - return res.json({ status: "done", media: presentDraftMedia(sameFile) });
-        · ответ 200
-    - return res.json({ status: "in-progress", mediaId: sameFile.id, partSize: sameFile.partSize, totalParts: sameF…
-      · ответ 200
-  - const videoCount = await tx.propertyDraftMedia.count({ where: { draftId: draft.id, kind: "VIDEO" } });
-    · считает в базе: propertyDraftMedia
-  - если videoCount >= MAX_DRAFT_VIDEOS
-    - return res.status(400).json({ error: `В черновик помещается ${MAX_DRAFT_VIDEOS} роликов` });
-      · ответ 400 — «В черновик помещается ${MAX_DRAFT_VIDEOS} роликов»
-  - пробует
-    - await createLocalUploadSession(mediaId);
-      · зовёт createLocalUploadSession()
-  - если сорвалось
-    - void logSystemError( "storage", `Не удалось открыть загрузку видео черновика: ${err instanceof Error ? err.me…
-      · запись в журнал ошибок
-    - return res.status(502).json({ error: "Не удалось начать загрузку видео — попробуйте ещё раз" });
-      · ответ 502 — «Не удалось начать загрузку видео — попробуйте ещё раз»
-  - const media = await tx.propertyDraftMedia.create({ data: { id: mediaId, draftId: draft.id, kind: "VIDEO", sta…
-    · создаёт в базе: propertyDraftMedia
-  - await tx.propertyDraft.update({ where: { id: draft.id }, data: { expiresAt: expiryFromNow() } });
-    · меняет в базе: propertyDraft
-  - res.status(201).json({ status: "started", mediaId: media.id, partSize, totalParts, uploadedPartNumbers: [] });
-    · ответ 201
+- const started = await startDraftVideoSession(req.agent!.id, req.get("X-Property-Draft-Id"), parsed.data);
+  · зовёт startDraftVideoSession()
+- res.status(started.status).json(started.body);
+  · ответ (код зависит от условия)
 
 ### DELETE /api/v1/properties/drafts/current
 
@@ -13840,6 +13690,8 @@
         · создаёт в базе: propertyDraft
   - checkDraftReference(draft, parsed.data, draft.revision === 0);
     · зовёт checkDraftReference()
+- await wipeDraftMediaFiles(removedMedia);
+  · зовёт wipeDraftMediaFiles()
 - если !parsed.data.draftId && parsed.data.revision === undefined
   - return res.status(204).end();
     · ответ 204
@@ -13887,64 +13739,15 @@
 - если !parsedId.success
   - return res.status(400).json({ error: "Неверный идентификатор клиента" });
     · ответ 400 — «Неверный идентификатор клиента»
-- const parsedBody = fromClientBodySchema.safeParse(req.body ?? {});
-  · проверяет данные схемой fromClientBodySchema
+- const parsedBody = draftFromClientBodySchema.safeParse(req.body ?? {});
+  · проверяет данные схемой draftFromClientBodySchema
 - если !parsedBody.success
   - return res.status(400).json({ error: "Неверные данные", details: parsedBody.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const client = await prisma.client.findUnique({ where: { id: parsedId.data }, select: { id: true, kind: true,…
-  · читает в базе: client
-- если !client || client.deletedAt
-  - return res.status(404).json({ error: "Клиент не найден" });
-    · ответ 404 — «Клиент не найден»
-- если client.kind !== "SELLER" && !client.dualIntent
-  - return res.status(400).json({ error: "Черновик из переписки доступен только для продавца" });
-    · ответ 400 — «Черновик из переписки доступен только для продавца»
-- если !canAccessAssignedAgent(req, client.assignedAgentId)
-  - return res.status(403).json({ error: "Недостаточно прав" });
-    · ответ 403 — «Недостаточно прав»
-- если scopeToOwnAgent(req) && !client.acceptedAt
-  - return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
-    · ответ 403 — «Сначала примите лид — до принятия карточка закрыта»
-- const [facts, attachments] = await Promise.all([ getSellerObjectFacts(client.id).catch(()
-  · запись в журнал ошибок
-- const imported = await withDraftLock(agentId, async (tx)
-  · ошибка DraftImportConflictError — «{
-      error:»
-  · удаляет в базе: propertyDraftMedia
-  · меняет в базе: propertyDraft
-  - const current = await assertActiveDraft(tx, agentId, { draftId: parsedBody.data.draftId, revision: parsedBody…
-    · зовёт assertActiveDraft()
-  - checkDraftReference(current, { draftId: parsedBody.data.draftId, revision: parsedBody.data.revision }, curren…
-    · зовёт checkDraftReference()
-  - если !parsedBody.data.mode && otherSeller && meaningful
-    - throw new DraftImportConflictError({ error: "У вас уже есть заполненный черновик. Сохраните его или подтверди…
-      · ошибка DraftImportConflictError — «{
-      error:»
-  - если foreignMedia && attachments.length > 0 && !mediaDecision
-    - throw new DraftImportConflictError({ error: "В черновике уже есть ваши фото — заменить их фото из переписки?"…
-      · ошибка DraftImportConflictError — «{ error:»
-  - если foreignMedia && (mediaDecision === "replace" || (parsedBody.data.mode === "replace" && attachments.length ===…
-    - await tx.propertyDraftMedia.deleteMany({ where: { draftId: current.id } });
-      · удаляет в базе: propertyDraftMedia
-  - const values = { ...sellerCardToDraftValues(client), ...(sellerFactsToDraftValues(facts, client.id) as Record…
-    · зовёт sellerCardToDraftValues()
-  - если parsedBody.data.mode !== "replace"
-    - для каждого: const [key, value] of Object.entries(oldValues)
-      - если value !== null && value !== "" && (typeof value !== "object" || Object.keys(value as object).length > 0)
-        - values[key] = value;
-          · дословно из кода
-  - const updated = await tx.propertyDraft.update({ where: { id: current.id }, data: { values: values as Prisma.I…
-    · меняет в базе: propertyDraft
-- если imported.copyChatMedia
-  - await copySellerAttachmentsToDraft(draft.id, attachments, { maxPhotos: MAX_DRAFT_PHOTOS, maxVideos: MAX_DRAFT…
-    · зовёт copySellerAttachmentsToDraft()
-- const updated = await prisma.propertyDraft.findUnique({ where: { agentId }, include: DRAFT_INCLUDE });
-  · читает в базе: propertyDraft
-- checkDraftReference(updated, { draftId: draft.id });
-  · зовёт checkDraftReference()
-- res.json({ draft: presentDraft(updated), revision: updated.revision });
-  · ответ 200
+- const imported = await importClientIntoDraft(req, parsedId.data, parsedBody.data, req.get("X-Property-Draft-I…
+  · зовёт importClientIntoDraft()
+- res.status(imported.status).json(imported.body);
+  · ответ (код зависит от условия)
 
 ### GET /api/v1/properties/duplicate-check
 
@@ -13955,38 +13758,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const addressKeys = propertyAddressKeys(address);
-  · зовёт propertyAddressKeys()
-- const byAddressPromise = addressKeys.length === 0 ? Promise.resolve([]) : prisma.property.findMany({ where: {…
-  · читает в базе: property
-- если point
-  - byPointPromise = prisma.property.findMany({ where: { ...ACTIVE_FILTER, lat: { gte: point.lat - dLat, lte: poi…
-    · читает в базе: property
-- для каждого: const row of byAddress
-  - found.set(row.id, { row, viaAddress: true, viaPoint: false, distanceM: distanceOf(row) });
-    · дословно из кода
-- для каждого: const row of byPoint
-  - если d === null || d > DUPLICATE_POINT_RADIUS_M
-    - continue;
-      · переходит к следующему
-  - если prev
-    - prev.viaPoint = true;
-      · дословно из кода
-  - иначе
-    - found.set(row.id, { row, viaAddress: false, viaPoint: true, distanceM: d });
-      · дословно из кода
-- для каждого: const { row: p, viaAddress, viaPoint, distanceM } of found.values()
-  - const add = (field: PropertyDuplicateMatch["checks"][number]["field"], ours: number | string | undefined, the…
-    - если ours === undefined || theirs === null
-      - return;
-        · дальше не идёт, ничего не меняя
-  - если landAreaSotka !== undefined && p.landAreaSotka !== null
-    - checks.push({ field: "landAreaSotka", ours: landAreaSotka, theirs: Number(p.landAreaSotka), equal: Math.abs(N…
-      · дословно из кода
-  - если !checks.every((c) => c.equal)
-    - continue;
-      · переходит к следующему
-- res.json({ matches: matches.slice(0, PROPERTY_DUPLICATE_MATCH_LIMIT) });
+- res.json({ matches: await findPropertyDuplicates(parsed.data) });
   · ответ 200
 
 ### GET /api/v1/properties/export
