@@ -1649,6 +1649,11 @@
       "label": "Ночная оценка ИИ всех активных клиентов"
     },
     {
+      "id": "clip-owner-autopublish",
+      "expr": "*/5 * * * *",
+      "label": null
+    },
+    {
       "id": "clip-review-resend",
       "expr": "*/5 * * * *",
       "label": null

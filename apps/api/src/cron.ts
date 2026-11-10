@@ -19,6 +19,7 @@ import { runSellerNoPropertyAlarmTick } from "./lib/sellerNoPropertyAlarm.js";
 import { runSellerWorkStalledAlarmTick } from "./lib/sellerWorkStalledAlarm.js";
 import { runVideoHandoffStaleAlarmTick } from "./lib/videoHandoffStaleAlarm.js";
 import { runClipReviewStaleAlarmTick, runClipReviewResendTick } from "./telegram/clipReviewBot.js";
+import { runClipOwnerAutoPublishTick } from "./lib/clipReview.js";
 import { cleanupAssistantTelegramContext } from "./telegram/assistantGroupContext.js";
 import { runVideoHandoffRedeliveryTick } from "./lib/videoHandoffRedelivery.js";
 import { runVideoHandoffUnfinishedPublishWatchdogTick } from "./lib/videoHandoffUnfinishedPublishWatchdog.js";
@@ -2376,6 +2377,20 @@ export function startCronJobs() {
       if (resent > 0) console.log(`[cron] Досылка проверки ролика модератору: ${resent}`);
     } catch (err) {
       reportCronTickError("Ошибка досылки проверки ролика", err);
+    }
+  });
+
+  /**
+   * ХОЗЯИН НЕ ОТВЕТИЛ ПО РОЛИКУ (11.11.2026, lib/clipReview.ts) — через
+   * Settings.clipOwnerAutoPublishHours ролик уходит в публикацию сам; ночью
+   * 00:00–07:00 по Душанбе тик ничего не делает, срок наступает в 07:00.
+   */
+  scheduleTracked("clip-owner-autopublish", "*/5 * * * *", async () => {
+    try {
+      const { published } = await runClipOwnerAutoPublishTick();
+      if (published > 0) console.log(`[cron] Автопубликация роликов без ответа хозяина: ${published}`);
+    } catch (err) {
+      reportCronTickError("Ошибка автопубликации ролика без ответа хозяина", err);
     }
   });
 

@@ -14,12 +14,12 @@
  "totals": {
   "screens": 52,
   "paths": 733,
-  "cron": 125,
+  "cron": 126,
   "jobs": 32,
-  "conditions": 3903,
-  "untranslatedUnique": 446,
-  "untranslatedTotal": 572,
-  "partialUnique": 1061,
+  "conditions": 3907,
+  "untranslatedUnique": 447,
+  "untranslatedTotal": 573,
+  "partialUnique": 1062,
   "translatedShare": 85
  },
  "untranslated": [
@@ -100,6 +100,7 @@
   "!options.allowLive || newOwnerProbeMode() !== 'LIVE'",
   "!outcome.agentId || client.assignedAgentId !== outcome.agentId",
   "!ownerId || ownerId === req.agent!.id",
+  "!p.clipReviewRequestedAt || clipOwnerAutoPublishAt(p.clipReviewRequestedAt, hours) > now",
   "!pageToken || items.length === 0 || !pageHasFreshThread(items, cutoffMs)",
   "!parsed.success || !toSmsPhone(parsed.data.phone)",
   "!parsed.success || !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success",
@@ -64350,6 +64351,81 @@
          ]
         }
        ]
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "clip-owner-autopublish",
+   "when": "*/5 * * * *",
+   "label": "clip-owner-autopublish",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: включено или это ролик владелец night",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если !p.clipReviewRequestedAt || clipOwnerAutoPublishAt(p.clipReviewRequestedAt, hours) > now",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!p.clipReviewRequestedAt || clipOwnerAutoPublishAt(p.clipReviewRequestedAt, hours) > now",
+           "more": true
+          },
+          {
+           "t": "если есть получилось (ответ)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если опубликованные больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
       }
      ]
     },

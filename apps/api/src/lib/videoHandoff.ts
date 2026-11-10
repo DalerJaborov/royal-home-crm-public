@@ -2104,11 +2104,16 @@ async function finishReceivingVideo(
   // монтажёра пусть проходят модерацию в Telegram»). Включена — ролик принят,
   // но слот публикации не считается и задание не ставится, пока модератор не
   // нажмёт «Одобрить» (lib/clipReview.ts::approveClip → schedulePublishAfterAccept).
-  const clipReviewSettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { clipReviewEnabled: true } });
+  // С 11.11.2026 решения ждёт и ролик, который подтверждает хозяин объекта
+  // (Settings.clipOwnerApproveEnabled, lib/clipReview.ts) — тот же PENDING.
+  const clipReviewSettings = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { clipReviewEnabled: true, clipOwnerApproveEnabled: true },
+  });
   // Ролик загрузил из CRM сам модератор (26.10.2026, владелец: «я загружаю ролик сам
   // из CRM, а мне в Telegram приходит модерация — зачем, если я сам добавил») —
   // загрузка и есть его решение: APPROVED на его имя, без рассылки на проверку.
-  const reviewOn = clipReviewSettings?.clipReviewEnabled ?? false;
+  const reviewOn = (clipReviewSettings?.clipReviewEnabled ?? false) || (clipReviewSettings?.clipOwnerApproveEnabled ?? false);
   const selfApprovedById = reviewOn ? (opts.approvedById ?? null) : null;
   const clipReview = reviewOn && !selfApprovedById;
 
