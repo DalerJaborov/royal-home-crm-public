@@ -248,3 +248,58 @@ describe("удалённый объект на монтаж не встаёт (�
     expect(sendDocumentFile).not.toHaveBeenCalled();
   });
 });
+
+describe("озвучка держателя тоже уходит текущему монтажёру", () => {
+  async function readyNarration(): Promise<string> {
+    const { narrationFacts, narrationHash } = await import("../src/lib/propertyNarration.js");
+    await prisma.propertyNarrationDelivery.deleteMany({ where: { propertyId } });
+    await prisma.propertyNarrationVersion.deleteMany({ where: { propertyId } });
+    const p = await prisma.property.findUniqueOrThrow({ where: { id: propertyId }, include: { district: true } });
+    const facts = narrationFacts(p);
+    return (
+      await prisma.propertyNarrationVersion.create({
+        data: {
+          propertyId, revision: 1, script: "Проверочный текст озвучки.", factsSnapshot: facts as object, factsHash: narrationHash(facts),
+          status: "READY", storageKey: `${propertyId}/voice.mp3`, approvedAt: new Date(), createdById: oldId, requestKey: randomUUID(),
+        },
+      })
+    ).id;
+  }
+
+  it.each(["SENT", "QUEUED"])("озвучка была %s прежнему — текущему ставится своя посылка, повтор не дублирует", async (oldStatus) => {
+    vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "LIVE");
+    try {
+      await holderDeliveredToOld();
+      const versionId = await readyNarration();
+      const old = await prisma.propertyNarrationDelivery.create({
+        data: { propertyId, versionId, editorId: oldId, mode: "WITH_SOURCES", requestKey: randomUUID(), createdById: oldId, status: oldStatus, executionMode: "LIVE", plan: {} },
+      });
+
+      await runVideoHandoffRedeliveryTick();
+      await runVideoHandoffRedeliveryTick();
+
+      const rows = await prisma.propertyNarrationDelivery.findMany({ where: { propertyId }, orderBy: { createdAt: "asc" } });
+      const mine = rows.filter((r) => r.editorId === newId);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]).toMatchObject({ status: "QUEUED", mode: "AUDIO_ONLY", executionMode: "LIVE", versionId });
+      const oldNow = rows.find((r) => r.id === old.id)!;
+      expect(oldNow.status).toBe(oldStatus === "QUEUED" ? "CANCELLED" : "SENT");
+    } finally {
+      vi.unstubAllEnvs();
+      await prisma.propertyNarrationDelivery.deleteMany({ where: { propertyId } });
+      await prisma.propertyNarrationVersion.deleteMany({ where: { propertyId } });
+    }
+  });
+
+  it("отправка озвучки выключена (PREVIEW) — ничего не заводим", async () => {
+    await holderDeliveredToOld();
+    const versionId = await readyNarration();
+    await prisma.propertyNarrationDelivery.create({
+      data: { propertyId, versionId, editorId: oldId, mode: "AUDIO_ONLY", requestKey: randomUUID(), createdById: oldId, status: "SENT", executionMode: "LIVE", plan: {} },
+    });
+    await runVideoHandoffRedeliveryTick();
+    expect(await prisma.propertyNarrationDelivery.count({ where: { propertyId, editorId: newId } })).toBe(0);
+    await prisma.propertyNarrationDelivery.deleteMany({ where: { propertyId } });
+    await prisma.propertyNarrationVersion.deleteMany({ where: { propertyId } });
+  });
+});

@@ -11,6 +11,7 @@ import {
 } from "./videoHandoff.js";
 import { alertMontageStuck } from "./videoHandoffStaleAlarm.js";
 import { describeError } from "./describeError.js";
+import { handOverNarrationToCurrentMontajer } from "./narrationDelivery.js";
 import { alertNoMontajerIfWorkWaits, currentMontajerIsUsable, handOverHolderToCurrentMontajer } from "./montajerHandover.js";
 
 /**
@@ -110,6 +111,10 @@ export async function runVideoHandoffRedeliveryTick(
   // места доставлен прежнему — досылаем текущему (решение владельца 11.11.2026).
   let handedOver = 0;
   if (await handOverHolderToCurrentMontajer(montajerAgentId, now)) handedOver++;
+  // Озвучка держателя — своя посылка, тоже к текущему (её отправляет крон narration-version-delivery).
+  await handOverNarrationToCurrentMontajer(montajerAgentId).catch((err) =>
+    logSystemError("video-handoff", `Озвучка не передана новому монтажёру: ${describeError(err)}`)
+  );
 
   const holders = await prisma.property.findMany({
     where: EDITOR_HOLDER_WHERE,

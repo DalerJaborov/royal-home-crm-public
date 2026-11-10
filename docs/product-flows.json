@@ -110185,6 +110185,14 @@
         },
         {
          "k": "do",
+         "t": "await handOverNarrationToCurrentMontajer(montajerAgentId).catch((err)",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const holders = await prisma.property.findMany({ where: EDITOR_HOLDER_WHERE, select: { id: true, shortId: tru…",
          "a": [
           "читает в базе: property"
