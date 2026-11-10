@@ -74,11 +74,13 @@ agentsRouter.get("/extensions/free", requirePermission("agents.manage"), async (
 });
 
 agentsRouter.post("/", requirePermission("agents.manage"), requireElevation, async (req, res) => {
-  send(res, await createStaffMember(req.agent!, req.body));
+  const outcome = await createStaffMember(req.agent!, req.body);
+  send(res, outcome);
 });
 
 agentsRouter.patch("/:id", requirePermission("agents.manage"), requireElevation, async (req, res) => {
-  send(res, await updateStaffMember(req.agent!, req.params.id, req.body));
+  const outcome = await updateStaffMember(req.agent!, req.params.id, req.body);
+  send(res, outcome);
 });
 
 /**
@@ -91,7 +93,8 @@ agentsRouter.patch("/:id", requirePermission("agents.manage"), requireElevation,
  * действие массовое и необратимое одним кликом.
  */
 agentsRouter.post("/:id/handover", requirePermission("agents.manage"), requireElevation, async (req, res) => {
-  send(res, await handoverStaffWork(req.agent!, req.params.id, req.body));
+  const outcome = await handoverStaffWork(req.agent!, req.params.id, req.body);
+  send(res, outcome);
 });
 
 /**
@@ -112,7 +115,8 @@ agentsRouter.get("/:id/handovers", requirePermission("agents.manage"), async (re
  * же нажатием, включается. Массовое действие — с подтверждением личности.
  */
 agentsRouter.post("/handovers/:batchId/revert", requirePermission("agents.manage"), requireElevation, async (req, res) => {
-  send(res, await revertStaffHandover(req.agent!, req.params.batchId));
+  const outcome = await revertStaffHandover(req.agent!, req.params.batchId);
+  send(res, outcome);
 });
 
 /** Разбор KPI агента: из чего сложился итоговый процент. Последние 14 дневных
@@ -234,7 +238,8 @@ agentsRouter.post("/:id/call", async (req, res) => {
 });
 
 agentsRouter.post("/:id/2fa/reset", requirePermission("agents.reset2fa"), requireElevation, async (req, res) => {
-  send(res, await resetStaffTwoFactor(req.agent!, req.params.id));
+  const outcome = await resetStaffTwoFactor(req.agent!, req.params.id);
+  send(res, outcome);
 });
 
 agentsRouter.post("/:id/avatar", requirePermission("agents.manage"), requireElevation, anyParams(upload.single("avatar")), async (req, res) => {
@@ -280,7 +285,8 @@ agentsRouter.get("/:id/points", requirePermission("team.viewFull"), async (req, 
 });
 
 agentsRouter.delete("/:id", requirePermission("agents.manage"), requireElevation, async (req, res) => {
-  send(res, await deleteStaffMember(req.agent!, req.params.id));
+  const outcome = await deleteStaffMember(req.agent!, req.params.id);
+  send(res, outcome);
 });
 
 /**
@@ -299,7 +305,8 @@ agentsRouter.get("/:id/permissions", requirePermission("permissions.manage"), as
 });
 
 agentsRouter.put("/:id/permissions", requirePermission("permissions.manage"), requireElevation, async (req, res) => {
-  send(res, await setStaffPermissions(req.agent!, req.params.id, req.body));
+  const outcome = await setStaffPermissions(req.agent!, req.params.id, req.body);
+  send(res, outcome);
 });
 
 /**
@@ -318,7 +325,8 @@ agentsRouter.put("/:id/permissions", requirePermission("permissions.manage"), re
  * который сегодня к ним не подойдёт, — это потерянные клиенты, а не порядок.
  */
 agentsRouter.post("/:id/freeze", requirePermission("agents.manage"), requireElevation, async (req, res) => {
-  send(res, await freezeStaffMember(req.agent!, req.params.id, req.body));
+  const outcome = await freezeStaffMember(req.agent!, req.params.id, req.body);
+  send(res, outcome);
 });
 
 /**
@@ -336,16 +344,19 @@ agentsRouter.post("/:id/freeze", requirePermission("agents.manage"), requireElev
  * каждое «дай человеку выходной» сделало бы кнопку тяжелее, чем она стоит.
  */
 agentsRouter.post("/:id/lead-pause", requirePermission("agents.manage"), async (req, res) => {
-  send(res, await pauseStaffLeads(req.agent!, req.params.id, req.body));
+  const outcome = await pauseStaffLeads(req.agent!, req.params.id, req.body);
+  send(res, outcome);
 });
 
 /** Руководитель снимает паузу — любую: и свою, и поставленную самим агентом. */
 agentsRouter.delete("/:id/lead-pause", requirePermission("agents.manage"), async (req, res) => {
-  send(res, await resumeStaffLeads(req.agent!, req.params.id));
+  const outcome = await resumeStaffLeads(req.agent!, req.params.id);
+  send(res, outcome);
 });
 
 /** Разморозка. Отдельным маршрутом, а не флагом в PATCH: это управленческое решение,
  *  и в журнале оно должно быть отдельной строкой, а не «изменены поля сотрудника». */
 agentsRouter.post("/:id/unfreeze", requirePermission("agents.manage"), requireElevation, async (req, res) => {
-  send(res, await unfreezeStaffMember(req.agent!, req.params.id));
+  const outcome = await unfreezeStaffMember(req.agent!, req.params.id);
+  send(res, outcome);
 });

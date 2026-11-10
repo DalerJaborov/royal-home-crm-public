@@ -16,10 +16,10 @@
   "paths": 732,
   "cron": 125,
   "jobs": 32,
-  "conditions": 3941,
-  "untranslatedUnique": 448,
-  "untranslatedTotal": 581,
-  "partialUnique": 1075,
+  "conditions": 3943,
+  "untranslatedUnique": 453,
+  "untranslatedTotal": 583,
+  "partialUnique": 1076,
   "translatedShare": 85
  },
  "untranslated": [
@@ -165,7 +165,7 @@
   "a.urgent !== b.urgent",
   "accountsCache && Date.now() - accountsCache.fetchedAt < 30 * 60 * 1000",
   "action === 'facts' && properties.some(p => p.offSite || p.deletedAt || !p.publishedOnSite || !isSiteListedSta…",
-  "agent.id === req.agent!.id",
+  "agent.id === actor.id",
   "agent.leadsPausedById && agent.leadsPausedById !== req.agent!.id",
   "agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "agentId.startsWith(\"none:\")",
@@ -178,21 +178,24 @@
   "alreadyThere && typeof alreadyThere !== \"string\"",
   "appData && !appData.startsWith(LIVE_VOICE_ARI_APP)",
   "await abortLocalUploadSession(session.id)",
-  "await agentHasCascadeHistory(req.params.id)",
+  "await agentHasCascadeHistory(targetId)",
   "await alertExpenseOverrun()",
   "await blockDuplicateFinalBeforePublish(property.id, property.shortId, diskPath)",
   "await claimForPublishing(row, [\"SCHEDULED\"], parseDestinations(row.destinations, row.channels), [])",
   "await currentTurnHasCustomerOutbox(payload.conversationId)",
   "await defaultInstagramAccountHasToken()",
   "await editorIsBusy(tx)",
-  "await forbiddenDirectorTarget(req, agent.id)",
-  "await forbiddenDirectorTarget(req, batch.fromAgentId)",
-  "await forbiddenDirectorTarget(req, req.params.id)",
-  "await forbiddenDirectorTarget(req, req.params.id, rest.role)",
-  "await forbiddenDirectorTarget(req, undefined, rest.role)",
-  "await forbiddenPrivilegedTarget(req, agent.id)",
-  "await forbiddenPrivilegedTarget(req, batch.fromAgentId)",
-  "await forbiddenPrivilegedTarget(req, req.params.id)",
+  "await forbiddenDirectorTarget(actor, agent.id)",
+  "await forbiddenDirectorTarget(actor, batch.fromAgentId)",
+  "await forbiddenDirectorTarget(actor, fromId)",
+  "await forbiddenDirectorTarget(actor, targetId)",
+  "await forbiddenDirectorTarget(actor, targetId, rest.role)",
+  "await forbiddenDirectorTarget(actor, undefined, rest.role)",
+  "await forbiddenDirectorTarget(req.agent!, req.params.id)",
+  "await forbiddenPrivilegedTarget(actor, agent.id)",
+  "await forbiddenPrivilegedTarget(actor, batch.fromAgentId)",
+  "await forbiddenPrivilegedTarget(actor, fromId)",
+  "await forbiddenPrivilegedTarget(actor, targetId)",
   "await handledByQuietHours([agentId], payload)",
   "await manualRobotCallLimitReached(req.agent!.id)",
   "await phoneBelongsToHiddenOwner(req, phone)",
@@ -208,7 +211,7 @@
   "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, versionId: row.versionId, editorId: row…",
   "await tx.propertyNarrationVersion.count({ where: { propertyId: p.id, status: { in: [\"GENERATING\", \"UNKNOWN\"] …",
   "await wouldLoseLastDirector(from.id, { isActive: false })",
-  "await wouldLoseLastDirector(req.params.id, rest)",
+  "await wouldLoseLastDirector(targetId, rest)",
   "before && before.role !== rest.role && before.permissions !== null",
   "body.length !== expectedSize",
   "body.phone && body.phone.trim() !== \"\"",
@@ -322,7 +325,7 @@
   "found !== interaction.recordingUrl",
   "found !== wanted.length",
   "found.length !== propertyIds.length",
-  "from.id === req.agent!.id",
+  "from.id === actor.id",
   "hasLiveCall(req.agent!.id) || !beginOrigination(req.agent!.id)",
   "have.length !== media.totalParts",
   "history[history.length - 1]?.role === \"user\"",
@@ -409,11 +412,12 @@
   "req.agent!.id !== deal.agentId",
   "req.agent!.id !== result.deal.agentId",
   "req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" && (client.assignmentCompletedAt || client.dele…",
-  "req.params.id === req.agent!.id",
   "request?.kind !== \"PRICE_CHANGE\" || request.status !== \"PENDING\" || readPriceUndoGuard(request.payload)?.assi…",
   "requestedTail !== phoneTail(client.phone)",
   "requirementsNotes.length + text.length + 1 <= 4000",
+  "rest.phone !== undefined && rest.phone !== target.phone",
   "rest.phone && rest.phone !== existing.phone",
+  "rest.role !== undefined && rest.role !== target.role",
   "result.from !== result.to",
   "result.reason !== NEWER_INPUT_PENDING",
   "result.skipped && result.skipped.startsWith(\"Не удалось определить очередь\")",
@@ -445,6 +449,7 @@
   "state?.contactKeyFingerprint && state.contactKeyFingerprint !== fingerprint",
   "stillTalking(c, shootingDate)",
   "stopping || customerBusy[lane]",
+  "targetId === actor.id",
   "ticket?.agentRevisionId === row.agentRevisionId && ticket.providerOperationId && ticket.originalConversationI…",
   "tiktokRefreshToken && !skip.has(\"TIKTOK\") && params.localVideoPath.startsWith(\"/uploads/\")",
   "toAgentId === from.id",
@@ -10573,57 +10578,37 @@
    ],
    "tree": [
     {
-     "t": "если await forbiddenDirectorTarget(req, req.params.id)",
-     "k": "if",
+     "t": "внутри этого шага",
+     "k": "do",
      "a": [],
      "c": [
       {
-       "t": "отказ: не хватает прав: «Управлять учёткой директора может только директор»",
-       "k": "do",
+       "t": "если await forbiddenDirectorTarget(actor, targetId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenDirectorTarget(actor, targetId)"
+      },
+      {
+       "t": "если await forbiddenPrivilegedTarget(actor, targetId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenPrivilegedTarget(actor, targetId)"
+      },
+      {
+       "t": "если нет: получатель",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ],
-     "raw": "await forbiddenDirectorTarget(req, req.params.id)"
-    },
-    {
-     "t": "если await forbiddenPrivilegedTarget(req, req.params.id)",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenPrivilegedTarget(req, req.params.id)"
-    },
-    {
-     "t": "если нет: получатель",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Сотрудник не найден»",
+       "t": "меняет: сотрудник",
        "k": "do",
        "a": [],
        "c": []
       }
      ]
-    },
-    {
-     "t": "меняет: сотрудник",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [],
-     "c": []
     }
    ]
   },
@@ -10667,7 +10652,7 @@
      ]
     },
     {
-     "t": "если await forbiddenDirectorTarget(req, req.params.id)",
+     "t": "если await forbiddenDirectorTarget(req.agent!, req.params.id)",
      "k": "if",
      "a": [],
      "c": [
@@ -10678,7 +10663,7 @@
        "c": []
       }
      ],
-     "raw": "await forbiddenDirectorTarget(req, req.params.id)"
+     "raw": "await forbiddenDirectorTarget(req.agent!, req.params.id)"
     },
     {
      "t": "если нет: before",
@@ -10872,133 +10857,85 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Сотрудник не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если await forbiddenDirectorTarget(req, agent.id)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Учётку директора может менять только директор»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenDirectorTarget(req, agent.id)"
-    },
-    {
-     "t": "если await forbiddenPrivilegedTarget(req, agent.id)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenPrivilegedTarget(req, agent.id)"
-    },
-    {
-     "t": "если есть frozen at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Сотрудник уже заморожен»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если agent.id === req.agent!.id",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Нельзя заморозить самого себя»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "agent.id === req.agent!.id"
-    },
-    {
-     "t": "если parsed.data.until && parsed.data.until.getTime() < Date.now()",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Дата выхода уже прошла»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "parsed.data.until && parsed.data.until.getTime() < Date.now()"
-    },
-    {
-     "t": "все изменения разом: либо всё, либо ничего",
-     "k": "do",
-     "a": [
-      "меняет: сотрудник"
-     ],
-     "c": [
-      {
-       "t": "меняет: сотрудник",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если released заявки количество больше 0",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "push-уведомление",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
+     "t": "внутри этого шага",
      "k": "do",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "если данные заполнены неправильно",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: сотрудник",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если await forbiddenDirectorTarget(actor, agent.id)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenDirectorTarget(actor, agent.id)"
+      },
+      {
+       "t": "если await forbiddenPrivilegedTarget(actor, agent.id)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenPrivilegedTarget(actor, agent.id)"
+      },
+      {
+       "t": "если есть frozen at",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если agent.id === actor.id",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "agent.id === actor.id"
+      },
+      {
+       "t": "если parsed.data.until && parsed.data.until.getTime() < Date.now()",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "parsed.data.until && parsed.data.until.getTime() < Date.now()"
+      },
+      {
+       "t": "все изменения разом: либо всё, либо ничего",
+       "k": "do",
+       "a": [
+        "меняет: сотрудник"
+       ],
+       "c": [
+        {
+         "t": "меняет: сотрудник",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если released заявки количество больше 0",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "push-уведомление",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ]
   },
@@ -11025,185 +10962,116 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если await forbiddenDirectorTarget(req, req.params.id)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Учётку директора может менять только директор»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenDirectorTarget(req, req.params.id)"
-    },
-    {
-     "t": "если await forbiddenPrivilegedTarget(req, req.params.id)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenPrivilegedTarget(req, req.params.id)"
-    },
-    {
-     "t": "если нет: from",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Сотрудник не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если toAgentId === from.id",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Нельзя передать дела тому же сотруднику»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "toAgentId === from.id"
-    },
-    {
-     "t": "если есть в сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: в",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не нашли: «Получатель не найден»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если нет: is активен",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть: «Получатель отключён — выберите активного сотрудника»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если есть frozen at",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть: «… сейчас заморожен(а) (отпуск, больничный) — передать…»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если есть deactivate",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если from.id === req.agent!.id",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Свою учётку отключить нельзя — попросите другого руководителя»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "from.id === req.agent!.id"
-      },
-      {
-       "t": "если await wouldLoseLastDirector(from.id, { isActive: false })",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть: «В системе должен остаться хотя бы один активный директор»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "await wouldLoseLastDirector(from.id, { isActive: false })"
-      }
-     ]
-    },
-    {
-     "t": "если есть deactivate",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "меняет: сотрудник",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если есть batch",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "меняет: сотрудник передача batch",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
+     "t": "внутри этого шага",
      "k": "do",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "если данные заполнены неправильно",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если await forbiddenDirectorTarget(actor, fromId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenDirectorTarget(actor, fromId)"
+      },
+      {
+       "t": "если await forbiddenPrivilegedTarget(actor, fromId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenPrivilegedTarget(actor, fromId)"
+      },
+      {
+       "t": "если нет: from",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если toAgentId === from.id",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "toAgentId === from.id"
+      },
+      {
+       "t": "если есть в сотрудник",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: в",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: is активен",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть frozen at",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть deactivate",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если from.id === actor.id",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "from.id === actor.id"
+        },
+        {
+         "t": "если await wouldLoseLastDirector(from.id, { isActive: false })",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "await wouldLoseLastDirector(from.id, { isActive: false })"
+        }
+       ]
+      },
+      {
+       "t": "если есть deactivate",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "меняет: сотрудник",
+         "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть batch",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: сотрудник передача batch",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
     }
    ]
   },
@@ -11297,37 +11165,24 @@
    ],
    "tree": [
     {
-     "t": "если нет: сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Сотрудник не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если !availabilityOf(agent).pausedUntil",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Пауза не включена»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "!availabilityOf(agent).pausedUntil"
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
+     "t": "внутри этого шага",
      "k": "do",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "если нет: сотрудник",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если !availabilityOf(agent).pausedUntil",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "!availabilityOf(agent).pausedUntil"
+      }
+     ]
     }
    ]
   },
@@ -11351,90 +11206,49 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Сотрудник не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если agent.id === req.agent!.id",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Свою паузу включают в профиле»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "agent.id === req.agent!.id"
-    },
-    {
-     "t": "если !(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Лиды получают только агенты и руководитель продаж»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)"
-    },
-    {
-     "t": "если нет: is активен",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Сотрудник отключён»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть frozen at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Сотрудник уже заморожен — лиды ему и так не идут»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
+     "t": "внутри этого шага",
      "k": "do",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "если данные заполнены неправильно",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: сотрудник",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если agent.id === actor.id",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "agent.id === actor.id"
+      },
+      {
+       "t": "если !(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)"
+      },
+      {
+       "t": "если нет: is активен",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть frozen at",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
     }
    ]
   },
@@ -11458,31 +11272,12 @@
    ],
    "tree": [
     {
-     "t": "если нет: сотрудник",
+     "t": "если нет: вживую",
      "k": "if",
      "a": [],
      "c": [
       {
        "t": "отказ: не нашли: «Сотрудник не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "пробует сделать",
-     "k": "try",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если не получилось",
-     "k": "catch",
-     "a": [],
-     "c": [
-      {
-       "t": "запись в журнал ошибок",
        "k": "do",
        "a": [],
        "c": []
@@ -11553,27 +11348,7 @@
     "есть право: permissions.manage"
    ],
    "screens": [],
-   "tree": [
-    {
-     "t": "если нет: сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Агент не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [],
-     "c": []
-    }
-   ]
+   "tree": []
   },
   {
    "i": 33,
@@ -11594,68 +11369,41 @@
    "screens": [],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Агент не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если роль (сотрудник) — «DIRECTOR»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «У директора всегда полный доступ — права не настраиваются»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если роль (сотрудник) — «SHAREHOLDER» и granted количество больше 0",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Акционеру права не добавляются»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: сотрудник",
+     "t": "внутри этого шага",
      "k": "do",
      "a": [],
-     "c": []
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "если данные заполнены неправильно",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: сотрудник",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если роль (сотрудник) — «DIRECTOR»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если роль (сотрудник) — «SHAREHOLDER» и granted количество больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "меняет: сотрудник",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
     }
    ]
   },
@@ -11710,79 +11458,52 @@
    ],
    "tree": [
     {
-     "t": "если нет: сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Сотрудник не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если await forbiddenDirectorTarget(req, agent.id)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Учётку директора может менять только директор»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenDirectorTarget(req, agent.id)"
-    },
-    {
-     "t": "если await forbiddenPrivilegedTarget(req, agent.id)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenPrivilegedTarget(req, agent.id)"
-    },
-    {
-     "t": "если нет: frozen at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Сотрудник не заморожен»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "все изменения разом: либо всё, либо ничего",
-     "k": "do",
-     "a": [
-      "меняет: сотрудник"
-     ],
-     "c": [
-      {
-       "t": "меняет: сотрудник",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
+     "t": "внутри этого шага",
      "k": "do",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "если нет: сотрудник",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если await forbiddenDirectorTarget(actor, agent.id)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenDirectorTarget(actor, agent.id)"
+      },
+      {
+       "t": "если await forbiddenPrivilegedTarget(actor, agent.id)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenPrivilegedTarget(actor, agent.id)"
+      },
+      {
+       "t": "если нет: frozen at",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "все изменения разом: либо всё, либо ничего",
+       "k": "do",
+       "a": [
+        "меняет: сотрудник"
+       ],
+       "c": [
+        {
+         "t": "меняет: сотрудник",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ]
   },
@@ -11812,98 +11533,71 @@
    ],
    "tree": [
     {
-     "t": "если req.params.id === req.agent!.id",
-     "k": "if",
+     "t": "внутри этого шага",
+     "k": "do",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Нельзя удалить собственную учётную запись»",
-       "k": "do",
+       "t": "если targetId === actor.id",
+       "k": "if",
        "a": [],
-       "c": []
-      }
-     ],
-     "raw": "req.params.id === req.agent!.id"
-    },
-    {
-     "t": "если await forbiddenDirectorTarget(req, req.params.id)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Управлять учёткой директора может только директор»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenDirectorTarget(req, req.params.id)"
-    },
-    {
-     "t": "если await forbiddenPrivilegedTarget(req, req.params.id)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenPrivilegedTarget(req, req.params.id)"
-    },
-    {
-     "t": "если await agentHasCascadeHistory(req.params.id)",
-     "k": "if",
-     "a": [],
-     "c": [],
-     "raw": "await agentHasCascadeHistory(req.params.id)"
-    },
-    {
-     "t": "пробует сделать",
-     "k": "try",
-     "a": [],
-     "c": [
-      {
-       "t": "удаляет: сотрудник",
-       "k": "do",
-       "a": [],
-       "c": []
+       "c": [],
+       "raw": "targetId === actor.id"
       },
       {
-       "t": "всё хорошо, отвечает данными",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если не получилось",
-     "k": "catch",
-     "a": [],
-     "c": [
-      {
-       "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "если await forbiddenDirectorTarget(actor, targetId)",
        "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenDirectorTarget(actor, targetId)"
+      },
+      {
+       "t": "если await forbiddenPrivilegedTarget(actor, targetId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenPrivilegedTarget(actor, targetId)"
+      },
+      {
+       "t": "если await agentHasCascadeHistory(targetId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await agentHasCascadeHistory(targetId)"
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
        "a": [],
        "c": [
         {
-         "t": "отказ: не нашли: «Агент не найден»",
+         "t": "удаляет: сотрудник",
          "k": "do",
          "a": [],
          "c": []
         }
-       ],
-       "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\""
+       ]
       },
       {
-       "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2003\"",
-       "k": "if",
+       "t": "если не получилось",
+       "k": "catch",
        "a": [],
-       "c": [],
-       "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2003\""
+       "c": [
+        {
+         "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\""
+        },
+        {
+         "t": "если err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2003\"",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2003\""
+        }
+       ]
       }
      ]
     }
@@ -11935,196 +11629,162 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
+     "t": "внутри этого шага",
+     "k": "do",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
+       "t": "если данные заполнены неправильно",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: получатель",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: не нашли: «Сотрудник не найден»",
-       "k": "do",
+       "t": "если нет: получатель",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если await forbiddenDirectorTarget(req, req.params.id, rest.role)",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: не хватает прав: «Управлять учёткой директора может только директор»",
-       "k": "do",
+       "t": "если await forbiddenDirectorTarget(actor, targetId, rest.role)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenDirectorTarget(actor, targetId, rest.role)"
+      },
+      {
+       "t": "если await forbiddenPrivilegedTarget(actor, targetId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenPrivilegedTarget(actor, targetId)"
+      },
+      {
+       "t": "если есть роль denied",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ],
-     "raw": "await forbiddenDirectorTarget(req, req.params.id, rest.role)"
-    },
-    {
-     "t": "если await forbiddenPrivilegedTarget(req, req.params.id)",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: не хватает прав",
-       "k": "do",
+       "t": "если await wouldLoseLastDirector(targetId, rest)",
+       "k": "if",
        "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenPrivilegedTarget(req, req.params.id)"
-    },
-    {
-     "t": "если есть роль denied",
-     "k": "if",
-     "a": [],
-     "c": [
+       "c": [],
+       "raw": "await wouldLoseLastDirector(targetId, rest)"
+      },
       {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если await wouldLoseLastDirector(req.params.id, rest)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «В системе должен остаться хотя бы один активный директор»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await wouldLoseLastDirector(req.params.id, rest)"
-    },
-    {
-     "t": "если typeof rest.sipExtension === \"string\"",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: получилось (проверка)",
+       "t": "если typeof rest.sipExtension === \"string\"",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "отказ: такое уже есть",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ],
-     "raw": "typeof rest.sipExtension === \"string\""
-    },
-    {
-     "t": "если есть телефон",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если есть holder",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть: «Этот телефон уже записан за сотрудником «…»»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если роль задан",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если before && before.role !== rest.role && before.permissions !== null",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если granted количество больше 0 или revoked количество больше 0",
+         "t": "если нет: получилось (проверка)",
          "k": "if",
          "a": [],
          "c": []
         }
        ],
-       "raw": "before && before.role !== rest.role && before.permissions !== null"
+       "raw": "typeof rest.sipExtension === \"string\""
+      },
+      {
+       "t": "если есть телефон",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть holder",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если роль задан",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если before && before.role !== rest.role && before.permissions !== null",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если granted количество больше 0 или revoked количество больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ],
+         "raw": "before && before.role !== rest.role && before.permissions !== null"
+        }
+       ]
+      },
+      {
+       "t": "меняет: сотрудник",
+       "k": "do",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть сброс overrides",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если роль задан или нет: is активен",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если is активен задан или sip extension задан",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если sip extension задан или телефон задан",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если typeof rest.sipExtension === \"string\"",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "typeof rest.sipExtension === \"string\""
+      },
+      {
+       "t": "если takes unknown звонки задан",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если rest.role !== undefined && rest.role !== target.role",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "rest.role !== undefined && rest.role !== target.role"
+      },
+      {
+       "t": "если rest.phone !== undefined && rest.phone !== target.phone",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "rest.phone !== undefined && rest.phone !== target.phone"
+      },
+      {
+       "t": "если нет: is активен и есть was активен",
+       "k": "if",
+       "a": [],
+       "c": []
       }
      ]
-    },
-    {
-     "t": "меняет: сотрудник",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если есть сброс overrides",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если роль задан или нет: is активен",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если is активен задан или sip extension задан",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если sip extension задан или телефон задан",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если typeof rest.sipExtension === \"string\"",
-     "k": "if",
-     "a": [],
-     "c": [],
-     "raw": "typeof rest.sipExtension === \"string\""
-    },
-    {
-     "t": "если takes unknown звонки задан",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [],
-     "c": []
     }
    ]
   },
@@ -12186,83 +11846,49 @@
    ],
    "tree": [
     {
-     "t": "если нет: batch",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Передача дел не найдена»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть reverted at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Эта передача дел уже возвращена»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если await forbiddenDirectorTarget(req, batch.fromAgentId)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Учётку директора может менять только директор»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenDirectorTarget(req, batch.fromAgentId)"
-    },
-    {
-     "t": "если await forbiddenPrivilegedTarget(req, batch.fromAgentId)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenPrivilegedTarget(req, batch.fromAgentId)"
-    },
-    {
-     "t": "если не получилось",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "ответ (код зависит от условия)",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть reactivated",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
+     "t": "внутри этого шага",
      "k": "do",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "если нет: batch",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть reverted at",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если await forbiddenDirectorTarget(actor, batch.fromAgentId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenDirectorTarget(actor, batch.fromAgentId)"
+      },
+      {
+       "t": "если await forbiddenPrivilegedTarget(actor, batch.fromAgentId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenPrivilegedTarget(actor, batch.fromAgentId)"
+      },
+      {
+       "t": "если не получилось",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть reactivated",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
     }
    ]
   },
@@ -12291,23 +11917,17 @@
    ],
    "tree": [
     {
-     "t": "если нет: is начальник",
-     "k": "if",
+     "t": "всё хорошо, отвечает данными",
+     "k": "do",
      "a": [],
      "c": [
       {
-       "t": "всё хорошо, отвечает данными",
-       "k": "do",
+       "t": "если нет: is начальник или нет: телефония",
+       "k": "if",
        "a": [],
        "c": []
       }
      ]
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [],
-     "c": []
     }
    ]
   },
@@ -12337,121 +11957,87 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
+     "t": "внутри этого шага",
+     "k": "do",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если await forbiddenDirectorTarget(req, undefined, rest.role)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Создавать директора может только директор»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "await forbiddenDirectorTarget(req, undefined, rest.role)"
-    },
-    {
-     "t": "если есть роль denied",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть такая запись",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Агент с таким телефоном уже существует»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: sip extension",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "иначе",
-     "k": "else",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: получилось (проверка)",
+       "t": "если данные заполнены неправильно",
        "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если await forbiddenDirectorTarget(actor, undefined, rest.role)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await forbiddenDirectorTarget(actor, undefined, rest.role)"
+      },
+      {
+       "t": "если есть роль denied",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть такая запись",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: sip extension",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "иначе",
+       "k": "else",
        "a": [],
        "c": [
         {
-         "t": "отказ: такое уже есть",
-         "k": "do",
+         "t": "если нет: получилось (проверка)",
+         "k": "if",
          "a": [],
          "c": []
         }
        ]
-      }
-     ]
-    },
-    {
-     "t": "заводит: сотрудник",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если есть sip extension",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если есть sip extension",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "если есть заметка",
+       "t": "заводит: сотрудник",
+       "k": "do",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть sip extension",
        "k": "if",
        "a": [],
        "c": []
+      },
+      {
+       "t": "если есть sip extension",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть заметка",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)"
       }
-     ],
-     "raw": "agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)"
-    },
-    {
-     "t": "создано",
-     "k": "do",
-     "a": [],
-     "c": []
+     ]
     }
    ]
   },
@@ -44223,86 +43809,51 @@
    ],
    "tree": [
     {
-     "t": "если нельзя reassign объект сотрудники",
-     "k": "if",
+     "t": "внутри этого шага",
+     "k": "do",
      "a": [],
      "c": [
       {
-       "t": "отказ: не хватает прав: «Передать объект другому агенту может руководитель»",
-       "k": "do",
+       "t": "если нельзя передать объект",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если данные заполнены неправильно",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: объект или есть удалён at",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если статус (объект) — «SOLD» или статус (объект) — «WITHDRAWN»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если propertyOwnerAgentId(property) === toAgentId",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "propertyOwnerAgentId(property) === toAgentId"
+      },
+      {
+       "t": "если есть сотрудник ошибка",
+       "k": "if",
        "a": [],
        "c": []
       }
      ]
     },
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: объект или есть удалён at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Объект не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если статус (объект) — «SOLD» или статус (объект) — «WITHDRAWN»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Объект уже продан или снят с продажи — передавать нечего»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если propertyOwnerAgentId(property) === toAgentId",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Объект уже у этого агента»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "propertyOwnerAgentId(property) === toAgentId"
-    },
-    {
-     "t": "если есть сотрудник ошибка",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "всё хорошо, отвечает данными",
+     "t": "ответ (код зависит от условия)",
      "k": "do",
      "a": [],
      "c": []
