@@ -63,7 +63,6 @@ import { STAFF_TOOL_NAMES } from "../ai/assistant/tools/staffToolNames.js";
 import {
   answerCallbackQuery as answerCallbackQueryRaw,
   deletePrivateMessage,
-  editMessageText,
   getBotUsername,
   editMessageText, sendChatAction, sendHtmlMessage,
   sendMessage,
