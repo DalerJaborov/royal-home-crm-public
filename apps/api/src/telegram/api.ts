@@ -1177,7 +1177,20 @@ export async function resolveTelegramFile(
       console.warn(`[telegram] файл ${fileId} слишком большой (${file.file_size} байт) — пропускаем`);
       return null;
     }
-    if (isAbsoluteFilePath(file.file_path)) return { kind: "path", path: file.file_path };
+    if (isAbsoluteFilePath(file.file_path)) {
+      // Запас: путь от своего Bot API-сервера читаем, только если он внутри его
+      // тома (TELEGRAM_LOCAL_FILES_DIR). Том не задан — прежнее поведение.
+      const root = process.env.TELEGRAM_LOCAL_FILES_DIR;
+      if (root && path.isAbsolute(root)) {
+        const resolved = path.resolve(file.file_path);
+        const base = path.resolve(root);
+        if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+          void logSystemError("telegram", `getFile ${fileId}: путь вне тома Bot API — не читаем`);
+          return null;
+        }
+      }
+      return { kind: "path", path: file.file_path };
+    }
     return { kind: "url", url: `${API_ROOT}/file/bot${TOKEN}/${file.file_path}` };
   } catch (err) {
     console.error("[telegram] getFile:", err instanceof Error ? err.message : err);

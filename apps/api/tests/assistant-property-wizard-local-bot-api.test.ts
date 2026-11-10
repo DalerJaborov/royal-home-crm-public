@@ -28,7 +28,7 @@ vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { handleTelegramPropertyDraft, TELEGRAM_DRAFT_VIDEO_LIMIT_BYTES } = await import("../src/telegram/assistantPropertyDraft.js");
+const { handleTelegramPropertyDraft, TELEGRAM_DRAFT_VIDEO_LIMIT_BYTES, waitForTelegramDraftUploadsForTests } = await import("../src/telegram/assistantPropertyDraft.js");
 const { localVideoDelete } = await import("../src/lib/localVideoStorage.js");
 
 const runId = String(Date.now()).slice(-7);
@@ -71,6 +71,7 @@ describe("мастер объекта на своём Bot API-сервере", (
     resolveFile.mockResolvedValue({ kind: "path", path: file });
     await send(1, { text: "добавь объект" });
     await send(2, { video: { file_id: "big", file_size: size, mime_type: "video/mp4" } });
+    await waitForTelegramDraftUploadsForTests();
     const video = (await prisma.propertyDraftMedia.findMany({ where: { draft: { agentId }, kind: "VIDEO" } }))[0];
     expect(video).toMatchObject({ status: "READY", sizeBytes: size, totalParts: 4 });
     // Таймаут getFile — общий (свой сервер сначала сам докачивает файл у Telegram).

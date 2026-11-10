@@ -34,7 +34,7 @@ vi.mock("../src/lib/landmarkPick.js", async (importOriginal) => ({
 
 const { prisma } = await import("../src/db.js");
 const draftModule = await import("../src/telegram/assistantPropertyDraft.js");
-const { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback, telegramVideoFilename, setAlbumQuietMsForTests } = draftModule;
+const { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback, telegramVideoFilename, setAlbumQuietMsForTests, waitForTelegramDraftUploadsForTests } = draftModule;
 const { labeledPropertyFields } = await import("../src/telegram/assistantPropertyFields.js");
 const { startDraftVideoSession } = await import("../src/lib/propertyDraftMedia.js");
 const { localVideoDelete } = await import("../src/lib/localVideoStorage.js");
@@ -104,7 +104,15 @@ describe("числа и имена файлов", () => {
     expect(labeledPropertyFields("Цена: 1.5 млн долларов")).toEqual({ price: "1500000", currency: "USD" });
     expect(labeledPropertyFields("Цена: 950 000 сомони")).toEqual({ price: "950000", currency: "TJS" });
     expect(labeledPropertyFields("Сотки: 6 соток")).toEqual({ landAreaSotka: "6" });
-    expect(labeledPropertyFields("Цена: 1,200")).toBeNull();
+    // Класс разделителей цены (повторное ревью 10.11): одна и та же сумма разными способами.
+    for (const raw of ["750 000", "750.000", "750,000", "750000"]) expect(labeledPropertyFields(`Цена: ${raw}`)).toEqual({ price: "750000" });
+    expect(labeledPropertyFields("Цена: 1,5 млн")).toEqual({ price: "1500000" });
+    expect(labeledPropertyFields("Цена: $120k")).toEqual({ price: "120000", currency: "USD" });
+    expect(labeledPropertyFields("Цена: 120к")).toEqual({ price: "120000" });
+    expect(labeledPropertyFields("Цена: 2 млрд")).toBeNull();
+    expect(labeledPropertyFields("Цена: 750.00.0")).toBeNull();
+    expect(labeledPropertyFields("Площадь: 1,200")).toBeNull();
+    expect(labeledPropertyFields("Площадь: 68.500")).toBeNull();
     expect(labeledPropertyFields("Этаж: пятый")).toBeNull();
     expect(labeledPropertyFields("Площадь: 68 метров 2 балкона")).toBeNull();
   });
@@ -136,10 +144,12 @@ describe("видео: обрыв, повтор и чужая загрузка", 
     resolveFile.mockRejectedValueOnce(new Error("обрыв"));
     const video = { file_id: "v", file_size: 2_000, mime_type: "video/mp4", file_name: "Видео от 10.11" };
     await send("author", { message_id: 5001, document: video });
+    await waitForTelegramDraftUploadsForTests();
     expect(lastText()).toContain("Видео не сохранилось");
     expect(await videos("author")).toHaveLength(0);
     resolveFile.mockResolvedValue({ kind: "path", path: file });
     await send("author", { message_id: 5001, document: video });
+    await waitForTelegramDraftUploadsForTests();
     expect(await videos("author")).toMatchObject([{ status: "READY", filename: "Видео от 10.11.mp4" }]);
   });
 
@@ -150,6 +160,7 @@ describe("видео: обрыв, повтор и чужая загрузка", 
     const mediaId = (crm.body as { mediaId: string }).mediaId;
     resolveFile.mockRejectedValueOnce(new Error("обрыв"));
     await send("author", { video: { file_id: "v2", file_size: 4_000, mime_type: "video/mp4", file_name: "tour.mp4" } });
+    await waitForTelegramDraftUploadsForTests();
     expect(await prisma.propertyDraftMedia.findUnique({ where: { id: mediaId } })).not.toBeNull();
 
     // Загрузка не двигается два часа (выкат, обрыв) — «Создать» не держится вечно.
@@ -209,5 +220,57 @@ describe("кнопки, альбом и дубль", () => {
     expect(lastText()).toContain(formatPropertyCode(twin.shortId));
     await click("author", button("pdt:create:")!);
     expect(await prisma.property.count({ where: { createdById: agents.author.id } })).toBe(1);
+  });
+});
+
+describe("повторное ревью: файлы, ссылка с полями, старые кнопки, альбом с ошибкой", () => {
+  it("«Убрать файл» из старого меню не удаляет другой файл", async () => {
+    await send("author", { text: "добавь объект" });
+    const draft = await draftOf("author");
+    const file = path.join(tmp, "b.jpg");
+    await writeFile(file, await sharp({ create: { width: 16, height: 16, channels: 3, background: "#102030" } }).jpeg().toBuffer());
+    resolveFile.mockResolvedValue({ kind: "path", path: file });
+    await send("author", { photo: [{ file_id: "x1" }] });
+    await send("author", { photo: [{ file_id: "x2" }] });
+    await click("author", `pdt:f:files:${draft.id}`);
+    const before = (await draftOf("author")).media;
+    const oldButtons = lastButtons().filter(b => b.callback_data?.startsWith("pdt:rm:"));
+    expect(oldButtons.length).toBe(before.length);
+    // Файл, на который указывает первая кнопка, уже убран другим путём; на его месте теперь другой.
+    const target = before.find(m => oldButtons[0].callback_data!.startsWith(`pdt:rm:${m.id.slice(0, 8)}`))!;
+    await prisma.propertyDraftMedia.delete({ where: { id: target.id } });
+    await click("author", oldButtons[0].callback_data!);
+    expect(lastText()).toContain("Список файлов изменился");
+    expect((await draftOf("author")).media).toHaveLength(before.length - 1);
+  });
+
+  it("ссылка на карту вместе с описанием: и точка, и поля", async () => {
+    await send("author", { text: "https://yandex.ru/maps/?pt=68.7811,38.5711&z=17\nЦена: 480 000\nКомнаты: 3" });
+    expect((await draftOf("author")).values).toMatchObject({ lat: 38.5711, lng: 68.7811, price: "480000", rooms: "3" });
+    expect(lastText()).toContain("Точка на карте сохранена");
+  });
+
+  it("кнопка прежнего вида без ревизии — «устарела» и свежая карточка", async () => {
+    const draft = await draftOf("author");
+    await click("author", `pdt:v:type:0:${draft.id}`);
+    expect(String(answerCallbackQuery.mock.calls.at(-1)?.[1])).toContain("устарела");
+    expect(lastText()).toContain("Карточка изменилась");
+  });
+
+  it("альбом: упавшее фото не съедает подтверждение, подпись первого фото — без лишней карточки", async () => {
+    setAlbumQuietMsForTests(80);
+    const file = path.join(tmp, "c.jpg");
+    await writeFile(file, await sharp({ create: { width: 16, height: 16, channels: 3, background: "#203040" } }).jpeg().toBuffer());
+    resolveFile.mockResolvedValue({ kind: "path", path: file });
+    const group = `album2-${runId}`;
+    await send("author", { photo: [{ file_id: "q1" }], media_group_id: group, caption: "Окна: 4" });
+    resolveFile.mockRejectedValueOnce(new Error("обрыв"));
+    await send("author", { photo: [{ file_id: "q2" }], media_group_id: group });
+    await send("author", { photo: [{ file_id: "q3" }], media_group_id: group });
+    await wait(500);
+    const cards = sendMessageWithButtons.mock.calls.filter(call => String(call[1]).includes("Проверьте объект"));
+    expect(cards).toHaveLength(1);
+    expect(String(cards[0][1])).toContain("Принято фото: 2");
+    expect((await draftOf("author")).values).toMatchObject({ windowCount: "4" });
   });
 });

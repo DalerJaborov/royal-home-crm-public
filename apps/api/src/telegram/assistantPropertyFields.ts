@@ -104,10 +104,10 @@ function cleanDetails(raw: unknown): Partial<Record<PropertyDetailKey, string>> 
   return Object.keys(out).length ? out : undefined;
 }
 
-const SCALES: ReadonlyArray<[RegExp, number]> = [
-  [/\s*(?:тысяч[аи]?|тыс\.?|ҳазор)$/u, 1_000],
-  [/\s*(?:млн\.?|миллион(?:а|ов)?|миллиард|млрд)$/u, 1_000_000],
-];
+const THOUSAND = /\s*(?:тысяч[аи]?|тыс\.?|ҳазор|k|к)$/u;
+const MILLION = /\s*(?:млн\.?|миллион(?:а|ов)?)$/u;
+/** Множитель, который не разбираем сами (миллиард — для недвижимости здесь это почти всегда ошибка ввода). */
+const UNKNOWN_SCALE = /(?:млрд|миллиард|billion|mln|bn)\.?$/u;
 const UNIT = /\s*(?:м2|м²|кв\.?\s*м\.?|квм|кв\.?\s*метр(?:а|ов)?|метр(?:а|ов)?|сот(?:ок|ки|ка|их)?|комнат(?:а|ы)?|комн\.?|ҳуҷра|окон|окна|окно|тиреза|шт\.?)$/u;
 const CURRENCY_WORDS: ReadonlyArray<[RegExp, "TJS" | "USD"]> = [
   [/\s*(?:сомони|сомонӣ|смн\.?|tjs)$/u, "TJS"],
@@ -115,13 +115,29 @@ const CURRENCY_WORDS: ReadonlyArray<[RegExp, "TJS" | "USD"]> = [
 ];
 
 /**
- * Число из подписи «Поле: значение» — только честный разбор: единицы («68 м2»,
- * «6 соток»), разряды пробелами («950 000»), «тысяч/млн», «5/9» и «5 из 9» у
- * этажа, валюта словом у цены. Всё прочее — null (разберёт ИИ): раньше из
- * «Этаж: 5/9» выходило 59, из «Площадь: 68м2» — 682, из «120 тысяч» — 120.
+ * Целое с разрядами: «750 000», «750.000», «750,000» — один и тот же
+ * разделитель между всеми группами по три цифры. null — это не разряды.
+ */
+function groupedInteger(text: string): string | null {
+  const match = /^\d{1,3}(?:([ .,])\d{3})+$/u.exec(text);
+  if (!match) return null;
+  const separator = match[1];
+  return text.split(separator).every((group, index) => index === 0 || group.length === 3) ? text.split(separator).join("") : null;
+}
+
+/**
+ * Число из подписи «Поле: значение» — только честный разбор. Всё прочее — null,
+ * и тогда текст разбирает ИИ: раньше из «Этаж: 5/9» выходило 59, из
+ * «Площадь: 68м2» — 682, из «120 тысяч» — 120, из «750.000» — 750.
+ *
+ * Цена: разряды пробелом, точкой или запятой («750 000», «750.000», «750,000»);
+ * «1.5 млн», «1,5 млн», «120 тысяч», «120к», «$120k»; валюта словом или $.
+ * Прочие поля: «68», «68.5», «68,5», единицы («68 м2», «6 соток»); у этажа —
+ * «5/9» и «5 из 9». «1,200» у площади — тысяча двести или одна целая двести? Не
+ * угадываем.
  */
 export function labeledNumber(key: string, raw: string): Record<string, string> | null {
-  let text = raw.trim().toLowerCase().replace(/ /gu, " ");
+  let text = raw.trim().toLowerCase().replace(/\s+/gu, " ");
   const out: Record<string, string> = {};
   if (key === "floor") {
     const pair = /^(-?\d{1,3})\s*(?:\/|из|аз)\s*(\d{1,3})(?:\s*(?:этаж(?:а|ей)?|ошёна))?$/u.exec(text);
@@ -130,24 +146,29 @@ export function labeledNumber(key: string, raw: string): Record<string, string> 
   }
   if (key === "totalFloors") text = text.replace(/\s*(?:этаж(?:а|ей|ный|ное)?|ошёна)$/u, "");
   if (key === "price") {
+    if (text.startsWith("$")) { out.currency = "USD"; text = text.slice(1).trim(); }
     for (const [pattern, code] of CURRENCY_WORDS) {
-      if (pattern.test(text)) { out.currency = code; text = text.replace(pattern, ""); break; }
+      if (pattern.test(text)) { out.currency = code; text = text.replace(pattern, "").trim(); break; }
     }
-  }
-  let multiplier = 1;
-  if (key === "price") {
-    for (const [pattern, scale] of SCALES) {
-      if (pattern.test(text)) { multiplier = scale; text = text.replace(pattern, ""); break; }
+    if (UNKNOWN_SCALE.test(text)) return null;
+    const multiplier = THOUSAND.test(text) ? 1_000 : MILLION.test(text) ? 1_000_000 : 1;
+    if (multiplier > 1) {
+      text = text.replace(THOUSAND, "").replace(MILLION, "").trim();
+      if (!/^\d{1,6}(?:[.,]\d{1,3})?$/u.test(text)) return null;
+      return { ...out, price: String(Math.round(Number(text.replace(",", ".")) * multiplier)) };
     }
+    const grouped = groupedInteger(text);
+    if (grouped) return { ...out, price: grouped };
+    if (!/^\d{1,12}$/u.test(text)) return null;
+    return { ...out, price: text };
   }
   text = text.replace(UNIT, "").trim();
-  if (/^-?\d{1,3}(?: \d{3})+(?:[.,]\d+)?$/u.test(text)) text = text.replace(/ /gu, "");
-  // «1,200» — тысяча двести или одна целая две десятых? Не угадываем.
-  if (/^-?\d{1,3},\d{3}$/u.test(text)) return null;
-  text = text.replace(",", ".");
-  if (!/^-?\d{1,12}(?:\.\d{1,3})?$/u.test(text)) return null;
-  const value = multiplier === 1 ? text : String(Math.round(Number(text) * multiplier));
-  return { ...out, [key]: value };
+  const spaced = /^\d{1,3}(?: \d{3})+$/u.test(text) ? text.replace(/ /gu, "") : text;
+  // Запятая или точка перед ровно тремя цифрами — разряд или дробь? Не угадываем.
+  if (/^-?\d{1,3}[.,]\d{3}$/u.test(spaced)) return null;
+  const normalized = spaced.replace(",", ".");
+  if (!/^-?\d{1,12}(?:\.\d{1,2})?$/u.test(normalized)) return null;
+  return { ...out, [key]: normalized };
 }
 
 /**

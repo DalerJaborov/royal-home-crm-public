@@ -13,7 +13,8 @@ import path from "node:path";
  * озвучки, «Исправить поле» кнопками. Telegram и ИИ подменены; база настоящая.
  */
 
-const { sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageText, resolveFile, landmarks } = vi.hoisted(() => ({
+const { sendMessage, sendMessageWithButtons, sendHtmlMessage, answerCallbackQuery, editMessageText, resolveFile, landmarks } = vi.hoisted(() => ({
+  sendHtmlMessage: vi.fn(async (_c: string, _h: string, _r?: number, _b?: unknown) => ({})),
   sendMessage: vi.fn(async (_chatId: string, _text: string) => ({})),
   sendMessageWithButtons: vi.fn(async (_c: string, _t: string, _b: unknown) => ({ message_id: 501 })),
   answerCallbackQuery: vi.fn(async (_id: string, _text?: string) => ({})),
@@ -24,7 +25,7 @@ const { sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageTex
 
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
-  sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageText, resolveTelegramFile: resolveFile,
+  sendMessage, sendMessageWithButtons, sendHtmlMessage, answerCallbackQuery, editMessageText, resolveTelegramFile: resolveFile,
 }));
 vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/assistant.js")>()),
@@ -36,7 +37,7 @@ vi.mock("../src/lib/landmarkPick.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } = await import("../src/telegram/assistantPropertyDraft.js");
+const { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback, waitForTelegramDraftUploadsForTests } = await import("../src/telegram/assistantPropertyDraft.js");
 const { labeledPropertyFields } = await import("../src/telegram/assistantPropertyFields.js");
 const { localVideoDelete } = await import("../src/lib/localVideoStorage.js");
 const { formatPropertyCode } = await import("@royal-home/shared");
@@ -166,7 +167,8 @@ describe("мастер объекта в Telegram", () => {
     await click("author", button("pdt:create:")!);
     const done = String(editMessageText.mock.calls.at(-1)?.[2] ?? "");
     expect(done).toContain("Объект создан");
-    expect(done).toMatch(/Подходит клиентам: \d+|Подходящих клиентов в базе пока нет/u);
+    // Кому подходит — отдельным сообщением сразу следом (без процента совпадения).
+    expect(String(sendHtmlMessage.mock.calls.at(-1)?.[1])).toMatch(/🎯 (?:Подходит \d+|Подходящих клиентов в базе пока нет)/u);
     expect(await prisma.property.count({ where: { createdById: agents.author.id } })).toBe(1);
   });
 
@@ -209,6 +211,8 @@ describe("мастер объекта в Telegram", () => {
     await writeFile(file, bytes);
     resolveFile.mockResolvedValue({ kind: "path", path: file });
     await send("author", { video: { file_id: "video-1", file_size: bytes.length, mime_type: "video/mp4" } });
+    expect(lastText()).toContain("Видео загружается");
+    await waitForTelegramDraftUploadsForTests();
     const media = (await draftOf("author")).media.filter(m => m.kind === "VIDEO");
     expect(media).toHaveLength(1);
     expect(media[0]).toMatchObject({ status: "READY", sizeBytes: bytes.length, draftId: draft.id });
