@@ -4,6 +4,8 @@ import { knowledgeTools } from "./knowledgeTools.js";
 import { registerAssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { clientOwnershipTools } from "./clientOwnershipTools.js";
 import { completeTaskTool } from "./completeTaskTool.js";
+import { dealReadTools } from "./dealReadTools.js";
+import { dealWriteTools } from "./dealWriteTools.js";
 import { propertyTools } from "./propertyTools.js";
 import { readTools } from "./readTools.js";
 import { showingNoteTools } from "./showingNoteTools.js";
@@ -33,7 +35,7 @@ function add(plugin: AssistantToolPlugin): () => void {
   };
 }
 
-for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool]) add(plugin);
+for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...dealReadTools, ...dealWriteTools]) add(plugin);
 
 /** Для тестов: добавить плагин на время теста; возвращает функцию снятия. */
 export function registerAssistantToolPlugin(plugin: AssistantToolPlugin): () => void {

@@ -34,6 +34,7 @@ import {
   dushanbeInputToDate,
   dushanbeStartOfMonth,
   dushanbeWallClock,
+  dushanbeMonthRange as dushanbeMonthRangeShared,
 } from "../lib/dushanbeTime.js";
 import type { ChatMessage } from "./client.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
@@ -468,10 +469,7 @@ function resolveMonthKey(monthStr: unknown): string {
  * dushanbeStartOfMonth от него всегда попадает в нужный месяц.
  */
 function dushanbeMonthRange(monthKey: string): { from: Date; to: Date } {
-  const [y, m] = monthKey.split("-").map(Number);
-  const from = dushanbeStartOfMonth(new Date(Date.UTC(y, m - 1, 15)));
-  const to = dushanbeStartOfMonth(new Date(Date.UTC(y, m, 15)));
-  return { from, to };
+  return dushanbeMonthRangeShared(monthKey);
 }
 
 /**

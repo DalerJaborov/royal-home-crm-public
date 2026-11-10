@@ -16,13 +16,14 @@
   "paths": 731,
   "cron": 125,
   "jobs": 32,
-  "conditions": 3998,
-  "untranslatedUnique": 458,
-  "untranslatedTotal": 588,
+  "conditions": 4010,
+  "untranslatedUnique": 459,
+  "untranslatedTotal": 590,
   "partialUnique": 1098,
   "translatedShare": 85
  },
  "untranslated": [
+  "!(\"deal\" in outcome)",
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
   "!(await discardDraft(d.id, { expiredAt: now }))",
@@ -25338,78 +25339,83 @@
    ],
    "tree": [
     {
-     "t": "если нет: право «deals.complete»",
-     "k": "if",
+     "t": "внутри этого шага",
+     "k": "do",
      "a": [],
      "c": [
       {
-       "t": "отказ: не хватает прав: «Аннулировать сделку может только руководитель»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Укажите причину аннулирования»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "пробует сделать",
-     "k": "try",
-     "a": [],
-     "c": [
-      {
-       "t": "если req.agent!.id !== result.deal.agentId",
+       "t": "если нет: право «deals.complete»",
        "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если данные заполнены неправильно",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
        "a": [],
        "c": [
         {
-         "t": "push-уведомление",
-         "k": "do",
+         "t": "если есть dry запустить",
+         "k": "if",
          "a": [],
          "c": []
+        },
+        {
+         "t": "если req.agent!.id !== result.deal.agentId",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "push-уведомление",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ],
+         "raw": "req.agent!.id !== result.deal.agentId"
         }
-       ],
-       "raw": "req.agent!.id !== result.deal.agentId"
+       ]
       },
       {
-       "t": "всё хорошо, отвечает данными",
-       "k": "do",
+       "t": "если не получилось",
+       "k": "catch",
        "a": [],
-       "c": []
+       "c": [
+        {
+         "t": "если err instanceof DealAnnulError",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "err instanceof DealAnnulError"
+        }
+       ]
       }
      ]
     },
     {
      "t": "если не получилось",
-     "k": "catch",
+     "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если err instanceof DealAnnulError",
-       "k": "if",
+       "t": "ответ (код зависит от условия)",
+       "k": "do",
        "a": [],
-       "c": [
-        {
-         "t": "ответ (код зависит от условия)",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof DealAnnulError"
+       "c": []
       }
      ]
+    },
+    {
+     "t": "всё хорошо, отвечает данными",
+     "k": "do",
+     "a": [],
+     "c": []
     }
    ]
   },
@@ -25838,96 +25844,80 @@
    "screens": [],
    "tree": [
     {
-     "t": "если нет: право «finance.manage» и нет: право «deals.setCommission»",
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: право «finance.manage» и нет: право «deals.setCommission»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если данные заполнены неправильно",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: сделка",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если этап (сделка) не «COMPLETED»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть realtor выплата at",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть dry запустить",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: realtor выплата at",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если req.agent!.id !== deal.agentId",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "push-уведомление",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "req.agent!.id !== deal.agentId"
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не хватает прав: «Недостаточно прав»",
+       "t": "ответ (код зависит от условия)",
        "k": "do",
        "a": [],
        "c": []
       }
      ]
-    },
-    {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: сделка",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Сделка не найдена»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если этап (сделка) не «COMPLETED»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Выплата фиксируется только по закрытой сделке»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть realtor выплата at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Комиссия по этой сделке уже отмечена выплаченной»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: realtor выплата at",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Выплата не записана: комиссия уже отмечена выплаченной или сделка…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если req.agent!.id !== deal.agentId",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "push-уведомление",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "req.agent!.id !== deal.agentId"
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -25963,603 +25953,423 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
+     "t": "внутри этого шага",
+     "k": "do",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
+       "t": "если данные заполнены неправильно",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: такая запись",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: не нашли: «Сделка не найдена»",
-       "k": "do",
+       "t": "если нет: такая запись",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если ownAgentId && existing.agentId !== ownAgentId",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: не хватает прав: «Недостаточно прав»",
-       "k": "do",
+       "t": "если ownAgentId && existing.agentId !== ownAgentId",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "ownAgentId && existing.agentId !== ownAgentId"
+      },
+      {
+       "t": "если есть denied",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ],
-     "raw": "ownAgentId && existing.agentId !== ownAgentId"
-    },
-    {
-     "t": "если есть denied",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: не хватает прав",
-       "k": "do",
+       "t": "если этап (такая запись) — «COMPLETED» и есть этап и этап не «COMPLETED»",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если этап (такая запись) — «COMPLETED» и есть этап и этап не «COMPLETED»",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: такое уже есть: «Завершённую сделку нельзя вернуть на предыдущий этап»",
-       "k": "do",
+       "t": "если есть is reviving cancelled и есть annulled at",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is reviving cancelled и есть annulled at",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: такое уже есть: «Сделка аннулирована — вернуть её нельзя, заведите новую»",
-       "k": "do",
+       "t": "если есть is reviving cancelled и нельзя завершить сделка",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is reviving cancelled и нельзя завершить сделка",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: не хватает прав: «Вернуть отменённую сделку в работу может только руководитель»",
-       "k": "do",
+       "t": "если existing.client?.deletedAt && data.stage && data.stage !== existing.stage",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "existing.client?.deletedAt && data.stage && data.stage !== existing.stage"
+      },
+      {
+       "t": "если этап — «COMPLETED» и этап (такая запись) не «COMPLETED» и нельзя завершить сделка",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если existing.client?.deletedAt && data.stage && data.stage !== existing.stage",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: такое уже есть: «Клиент этой сделки в Корзине — сначала восстановите карточку»",
-       "k": "do",
+       "t": "если есть is direct завершить и нет: есть full closing данные",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ],
-     "raw": "existing.client?.deletedAt && data.stage && data.stage !== existing.stage"
-    },
-    {
-     "t": "если этап — «COMPLETED» и этап (такая запись) не «COMPLETED» и нельзя завершить сделка",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: не хватает прав: «Закрыть сделку может только руководитель»",
-       "k": "do",
+       "t": "если есть is direct завершить и есть комиссия exceeds цена",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is direct завершить и нет: есть full closing данные",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: данные неверные: «Укажите фактическую цену продажи и комиссию (риелтор, компания),…»",
-       "k": "do",
+       "t": "если data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && existing.stage !== \"PENDING_APPROVAL\" && !isD…",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && existing.stage !== \"PENDING_APPROVAL\" && !isD…"
+      },
+      {
+       "t": "если есть is rejecting и нельзя завершить сделка",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is direct завершить и есть комиссия exceeds цена",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: данные неверные: «Комиссия (риелтор + компания) не может превышать фактическую цену…»",
-       "k": "do",
+       "t": "если есть is rejecting и нет: reject причина",
+       "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && existing.stage !== \"PENDING_APPROVAL\" && !isD…",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: такое уже есть: «Сделку можно завершить только после отправки на закрытие»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && existing.stage !== \"PENDING_APPROVAL\" && !isD…"
-    },
-    {
-     "t": "если есть is rejecting и нельзя завершить сделка",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Вернуть сделку на доработку может только руководитель»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is rejecting и нет: reject причина",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Укажите причину возврата на доработку»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is submitting for approval или есть is direct завершить",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: had показ",
+       "t": "если есть is submitting for approval или есть is direct завершить",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "отказ: такое уже есть",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если есть is submitting for approval или есть is direct завершить или есть is approving submitted",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если required количество больше 0",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если отсутствует количество больше 0",
+         "t": "если нет: had показ",
          "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "если есть skip documents и можно завершить сделка",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "иначе",
-           "k": "else",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если есть is submitting for approval и нет: есть full closing данные",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Укажите фактическую цену продажи и комиссию (риелтор, компания),…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is submitting for approval и есть комиссия exceeds цена",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Комиссия (риелтор + компания) не может превышать фактическую цену…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нельзя set комиссия и (комиссия сумма задан или комиссия percent задан)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Сумму комиссии задаёт руководитель — она считается автоматически по…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть setting комиссия sums и нет: is submitting for approval и нельзя set комиссия",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Комиссию по уже отправленной сделке может поправить только…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если sold цена задан",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: allowed сейчас",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не хватает прав: «Цена продажи задаётся при отправке на закрытие; поправить её потом…»",
-         "k": "do",
          "a": [],
          "c": []
         }
        ]
       },
       {
-       "t": "если этап (такая запись) — «COMPLETED»",
+       "t": "если есть is submitting for approval или есть is direct завершить или есть is approving submitted",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "если нельзя set комиссия",
+         "t": "если required количество больше 0",
          "k": "if",
          "a": [],
          "c": [
           {
-           "t": "отказ: не хватает прав: «Цену продажи закрытой сделки меняет только руководитель»",
-           "k": "do",
+           "t": "если отсутствует количество больше 0",
+           "k": "if",
            "a": [],
-           "c": []
+           "c": [],
+           "more": true
           }
          ]
         }
        ]
-      }
-     ]
-    },
-    {
-     "t": "если commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…",
-     "k": "if",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "отказ: данные неверные: «Комиссия (риелтор + компания) не может превышать фактическую цену…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…"
-    },
-    {
-     "t": "если есть is repricing закрыт и комиссия сумма не задан и комиссия percent задан",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если цена base больше 0",
-       "k": "if",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "иначе если есть is repricing закрыт и комиссия сумма задан и комиссия percent не задан",
-     "k": "elseif",
-     "a": [],
-     "c": [
-      {
-       "t": "если цена base больше 0",
-       "k": "if",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is repricing закрыт и есть setting комиссия sums и есть есть explicit sums",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если sold цена cents больше 0",
-       "k": "if",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is repricing закрыт",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если комиссия сумма задан",
+       "t": "если есть is submitting for approval и нет: есть full closing данные",
        "k": "if",
        "a": [],
        "c": []
       },
       {
-       "t": "если комиссия percent задан",
+       "t": "если есть is submitting for approval и есть комиссия exceeds цена",
        "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть is repricing закрыт",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "пробует сделать",
-     "k": "try",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "поломка: «Объект не найден»",
-       "k": "do",
-       "a": [
-        "все изменения разом: либо всё, либо ничего",
-        "меняет: объект",
-        "меняет: клиент",
-        "заводит или обновляет: настройки",
-        "меняет: сделка"
-       ],
+       "t": "если нельзя set комиссия и (комиссия сумма задан или комиссия percent задан)",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть setting комиссия sums и нет: is submitting for approval и нельзя set комиссия",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если sold цена задан",
+       "k": "if",
+       "a": [],
        "c": [
         {
-         "t": "если есть is completing",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "если нет: объект",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "меняет: объект",
-           "k": "do",
-           "a": [],
-           "c": []
-          },
-          {
-           "t": "если количество не «1»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "меняет: клиент",
-           "k": "do",
-           "a": [],
-           "c": []
-          },
-          {
-           "t": "если есть продавец клиент (объект)",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        },
-        {
-         "t": "если есть is cancelling",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "если прочие объект сделки — «0»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если прочие закрыт клиент сделки — «0»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        },
-        {
-         "t": "если есть is completing и есть есть explicit sums",
+         "t": "если нет: allowed сейчас",
          "k": "if",
          "a": [],
          "c": []
         },
         {
-         "t": "иначе если этап (такая запись) не «COMPLETED» и есть setting комиссия sums и есть есть explicit sums",
-         "k": "elseif",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "иначе если есть is repricing закрыт и есть setting комиссия sums",
-         "k": "elseif",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "иначе если этап (такая запись) — «COMPLETED» и нет: is completing и есть setting комиссия sums и есть есть explicit sums",
-         "k": "elseif",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "иначе если isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
-         "k": "elseif",
-         "a": [],
-         "c": [],
-         "raw": "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…"
-        },
-        {
-         "t": "иначе если есть is completing или есть is repricing закрыт",
-         "k": "elseif",
-         "a": [],
-         "c": [
-          {
-           "t": "заводит или обновляет: настройки",
-           "k": "do",
-           "a": [],
-           "c": []
-          },
-          {
-           "t": "если base cents больше 0 и всего p больше 0",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        },
-        {
-         "t": "если есть is completing",
+         "t": "если этап (такая запись) — «COMPLETED»",
          "k": "if",
          "a": [],
          "c": [
           {
-           "t": "меняет: клиент",
-           "k": "do",
+           "t": "если нельзя set комиссия",
+           "k": "if",
            "a": [],
-           "c": []
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: dry запустить",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
           }
          ]
-        },
+        }
+       ]
+      },
+      {
+       "t": "если commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…"
+      },
+      {
+       "t": "если есть is repricing закрыт и комиссия сумма не задан и комиссия percent задан",
+       "k": "if",
+       "a": [],
+       "c": [
         {
-         "t": "если есть is reviving cancelled",
+         "t": "если цена base больше 0",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "если нет: revived объект или статус из списка: «SOLD», «WITHDRAWN»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "меняет: объект",
-           "k": "do",
-           "a": [],
-           "c": []
-          },
-          {
-           "t": "если количество не «1»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть вживую сделка",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "иначе если есть is repricing закрыт и комиссия сумма задан и комиссия percent не задан",
+       "k": "elseif",
+       "a": [],
+       "c": [
+        {
+         "t": "если цена base больше 0",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть is repricing закрыт и есть setting комиссия sums и есть есть explicit sums",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если sold цена cents больше 0",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть is repricing закрыт",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если комиссия сумма задан",
+         "k": "if",
+         "a": [],
+         "c": []
         },
         {
-         "t": "меняет: сделка",
+         "t": "если комиссия percent задан",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть is repricing закрыт и нет: dry запустить",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть dry запустить",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "поломка: «Объект не найден»",
          "k": "do",
+         "a": [
+          "все изменения разом: либо всё, либо ничего",
+          "меняет: объект",
+          "меняет: клиент",
+          "заводит или обновляет: настройки",
+          "меняет: сделка"
+         ],
+         "c": [
+          {
+           "t": "если есть is completing",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть is cancelling",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть is completing и есть есть explicit sums",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "иначе если этап (такая запись) не «COMPLETED» и есть setting комиссия sums и есть есть explicit sums",
+           "k": "elseif",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "иначе если есть is repricing закрыт и есть setting комиссия sums",
+           "k": "elseif",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "иначе если этап (такая запись) — «COMPLETED» и нет: is completing и есть setting комиссия sums и есть есть explicit sums",
+           "k": "elseif",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "иначе если isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
+           "k": "elseif",
+           "a": [],
+           "c": [],
+           "raw": "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
+           "more": true
+          },
+          {
+           "t": "иначе если есть is completing или есть is repricing закрыт",
+           "k": "elseif",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть is completing",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть is reviving cancelled",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "меняет: сделка",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если количество — «0»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть is rejecting",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если data.stage && data.stage !== existing.stage",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "data.stage && data.stage !== existing.stage",
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если есть revived reserved объект",
+         "k": "if",
          "a": [],
          "c": []
         },
         {
-         "t": "если количество — «0»",
+         "t": "если есть продавец клиент в recompute",
          "k": "if",
          "a": [],
          "c": [
           {
-           "t": "поломка: «Сделка изменена другим пользователем, обновите страницу»",
+           "t": "если следующий (продавец решение) — «DEAL_CLOSED» и статус не «DEAL_CLOSED»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если комиссия сумма задан или комиссия percent задан",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть is completing и есть сотрудник (такая запись) и есть баллы точки",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
+           "more": true
+          },
+          {
+           "t": "push-уведомление",
            "k": "do",
            "a": [],
            "c": []
@@ -26567,17 +26377,43 @@
          ]
         },
         {
-         "t": "если есть is rejecting",
+         "t": "если есть закрыт month ключ и (есть is voiding закрыт сделка или (есть изменённые закрыт shares и закрыт month ключ меньше current month ключ))",
          "k": "if",
          "a": [],
          "c": [
           {
-           "t": "меняет: объект",
-           "k": "do",
+           "t": "пробует сделать",
+           "k": "try",
            "a": [],
-           "c": []
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
           }
          ]
+        },
+        {
+         "t": "если есть is voiding закрыт сделка и есть сотрудник (такая запись) и есть баллы точки",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть is completing",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть объект released в available",
+         "k": "if",
+         "a": [],
+         "c": []
         },
         {
          "t": "если data.stage && data.stage !== existing.stage",
@@ -26585,148 +26421,73 @@
          "a": [],
          "c": [],
          "raw": "data.stage && data.stage !== existing.stage"
-        }
-       ]
-      },
-      {
-       "t": "если есть revived reserved объект",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если есть продавец клиент в recompute",
-       "k": "if",
-       "a": [],
-       "c": [
+        },
         {
-         "t": "если следующий (продавец решение) — «DEAL_CLOSED» и статус не «DEAL_CLOSED»",
+         "t": "если есть is completing или есть is cancelling",
          "k": "if",
          "a": [],
          "c": []
-        }
-       ]
-      },
-      {
-       "t": "если комиссия сумма задан или комиссия percent задан",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если есть is completing и есть сотрудник (такая запись) и есть баллы точки",
-       "k": "if",
-       "a": [],
-       "c": [
+        },
         {
-         "t": "если existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
+         "t": "иначе если data.stage && data.stage !== existing.stage",
+         "k": "elseif",
+         "a": [],
+         "c": [],
+         "raw": "data.stage && data.stage !== existing.stage"
+        },
+        {
+         "t": "если data.stage && data.stage !== existing.stage",
          "k": "if",
          "a": [],
          "c": [],
-         "raw": "existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId"
+         "raw": "data.stage && data.stage !== existing.stage"
         },
         {
-         "t": "push-уведомление",
-         "k": "do",
+         "t": "если data.stage && data.stage !== existing.stage",
+         "k": "if",
          "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если есть закрыт month ключ и (есть is voiding закрыт сделка или (есть изменённые закрыт shares и закрыт month ключ меньше current month ключ))",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "пробует сделать",
-         "k": "try",
-         "a": [],
-         "c": []
+         "c": [],
+         "raw": "data.stage && data.stage !== existing.stage"
         },
         {
-         "t": "если не получилось",
-         "k": "catch",
+         "t": "если data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId",
+         "k": "if",
          "a": [],
          "c": [
           {
-           "t": "запись в журнал ошибок",
+           "t": "push-уведомление",
            "k": "do",
            "a": [],
            "c": []
           }
-         ]
+         ],
+         "raw": "data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId"
         }
        ]
       },
       {
-       "t": "если есть is voiding закрыт сделка и есть сотрудник (такая запись) и есть баллы точки",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если есть is completing",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если есть объект released в available",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если data.stage && data.stage !== existing.stage",
-       "k": "if",
-       "a": [],
-       "c": [],
-       "raw": "data.stage && data.stage !== existing.stage"
-      },
-      {
-       "t": "если есть is completing или есть is cancelling",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "иначе если data.stage && data.stage !== existing.stage",
-       "k": "elseif",
-       "a": [],
-       "c": [],
-       "raw": "data.stage && data.stage !== existing.stage"
-      },
-      {
-       "t": "если data.stage && data.stage !== existing.stage",
-       "k": "if",
-       "a": [],
-       "c": [],
-       "raw": "data.stage && data.stage !== existing.stage"
-      },
-      {
-       "t": "если data.stage && data.stage !== existing.stage",
-       "k": "if",
-       "a": [],
-       "c": [],
-       "raw": "data.stage && data.stage !== existing.stage"
-      },
-      {
-       "t": "если data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId",
-       "k": "if",
+       "t": "если не получилось",
+       "k": "catch",
        "a": [],
        "c": [
         {
-         "t": "push-уведомление",
-         "k": "do",
+         "t": "если error instanceof DealConflictError",
+         "k": "if",
          "a": [],
-         "c": []
+         "c": [],
+         "raw": "error instanceof DealConflictError"
         }
-       ],
-       "raw": "data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId"
-      },
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "if",
+     "a": [],
+     "c": [
       {
-       "t": "всё хорошо, отвечает данными",
+       "t": "ответ (код зависит от условия)",
        "k": "do",
        "a": [],
        "c": []
@@ -26734,25 +26495,24 @@
      ]
     },
     {
-     "t": "если не получилось",
-     "k": "catch",
+     "t": "если !(\"deal\" in outcome)",
+     "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если error instanceof DealConflictError",
-       "k": "if",
+       "t": "поломка: «updateDealFor вернул план без dryRun»",
+       "k": "do",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "error instanceof DealConflictError"
+       "c": []
       }
-     ]
+     ],
+     "raw": "!(\"deal\" in outcome)"
+    },
+    {
+     "t": "всё хорошо, отвечает данными",
+     "k": "do",
+     "a": [],
+     "c": []
     }
    ]
   },
@@ -26846,239 +26606,178 @@
    ],
    "tree": [
     {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
+     "t": "внутри этого шага",
+     "k": "do",
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если этап — «COMPLETED» или этап — «CANCELLED»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Сделка не может быть создана сразу закрытой или отменённой — создайте…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нельзя set комиссия и (комиссия сумма задан или комиссия percent задан)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Сумму комиссии задаёт руководитель — она считается автоматически по…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: клиент",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Клиент не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: объект",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не нашли: «Объект не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Указанный агент не найден»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если вид (клиент) не «BUYER»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Для закрытия сделки необходим покупатель»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нельзя bind клиент",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Агент не может создавать сделку для чужого клиента»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если статус (объект) из списка: «SOLD», «WITHDRAWN»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Нельзя создать сделку по проданному или снятому с продажи объекту»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если статус (объект) — «RESERVED» и (нет: same сотрудник reservation или есть reservation клиент mismatch)",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «По объекту уже идёт сделка — объект зарезервирован»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если комиссия percent не задан и комиссия сумма не задан",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "заводит или обновляет: настройки",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "иначе если комиссия сумма не задан и комиссия percent задан",
-     "k": "elseif",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "иначе если комиссия percent не задан и комиссия сумма задан",
-     "k": "elseif",
-     "a": [],
-     "c": [
-      {
-       "t": "если цена больше 0",
+       "t": "если данные заполнены неправильно",
        "k": "if",
        "a": [],
        "c": []
-      }
-     ]
-    },
-    {
-     "t": "пробует сделать",
-     "k": "try",
-     "a": [],
-     "c": [
+      },
       {
-       "t": "поломка: «Работа по назначению завершена или клиент передан — обновите карточку»",
-       "k": "do",
-       "a": [
-        "все изменения разом: либо всё, либо ничего",
-        "меняет: объект",
-        "меняет: клиент",
-        "заводит: сделка"
-       ],
+       "t": "если этап — «COMPLETED» или этап — «CANCELLED»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нельзя set комиссия и (комиссия сумма задан или комиссия percent задан)",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: клиент",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: объект",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: сотрудник",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если вид (клиент) не «BUYER»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нельзя bind клиент",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если статус (объект) из списка: «SOLD», «WITHDRAWN»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если статус (объект) — «RESERVED» и (нет: same сотрудник reservation или есть reservation клиент mismatch)",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если комиссия percent не задан и комиссия сумма не задан",
+       "k": "if",
+       "a": [],
        "c": [
         {
-         "t": "если !currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…",
+         "t": "заводит или обновляет: настройки",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "иначе если комиссия сумма не задан и комиссия percent задан",
+       "k": "elseif",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "иначе если комиссия percent не задан и комиссия сумма задан",
+       "k": "elseif",
+       "a": [],
+       "c": [
+        {
+         "t": "если цена больше 0",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "поломка: «Работа по назначению завершена или клиент передан — обновите карточку»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть dry запустить",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "поломка: «Работа по назначению завершена или клиент передан — обновите карточку»",
+         "k": "do",
+         "a": [
+          "все изменения разом: либо всё, либо ничего",
+          "меняет: объект",
+          "меняет: клиент",
+          "заводит: сделка"
          ],
-         "raw": "!currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…"
-        },
-        {
-         "t": "меняет: объект",
-         "k": "do",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если количество не «1»",
-         "k": "if",
-         "a": [],
          "c": [
           {
-           "t": "поломка: «По объекту уже идёт сделка — объект зарезервирован»",
+           "t": "если !currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…",
+           "more": true
+          },
+          {
+           "t": "меняет: объект",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если количество не «1»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть вживую сделка",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "меняет: клиент",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "заводит: сделка",
            "k": "do",
            "a": [],
            "c": []
           }
          ]
-        },
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
         {
-         "t": "если есть вживую сделка",
+         "t": "если error instanceof DealConflictError",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "поломка: «По этому объекту уже есть незакрытая сделка»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "меняет: клиент",
-         "k": "do",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "заводит: сделка",
-         "k": "do",
-         "a": [],
-         "c": []
+         "c": [],
+         "raw": "error instanceof DealConflictError"
         }
        ]
       }
@@ -27086,24 +26785,30 @@
     },
     {
      "t": "если не получилось",
-     "k": "catch",
+     "k": "if",
      "a": [],
      "c": [
       {
-       "t": "если error instanceof DealConflictError",
-       "k": "if",
+       "t": "ответ (код зависит от условия)",
+       "k": "do",
        "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "error instanceof DealConflictError"
+       "c": []
       }
      ]
+    },
+    {
+     "t": "если !(\"deal\" in outcome)",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "поломка: «createDealFor вернул план без dryRun»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "!(\"deal\" in outcome)"
     },
     {
      "t": "создано",
