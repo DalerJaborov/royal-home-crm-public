@@ -1,10 +1,12 @@
 import {
   DETAIL_NOT_SET,
   PROPERTY_DETAIL_KEYS,
-  floorRuleError,
+  PROPERTY_DOCUMENT_PRESETS,
   propertyDetailShown,
-  propertyFieldRequired,
   propertyFieldShown,
+  propertyWizardErrors,
+  propertyWizardTypeChange,
+  propertyWizardStepErrors,
   propertyHasMarket,
   type Currency,
   type MarketType,
@@ -17,7 +19,7 @@ import {
 /** Готовые варианты «Документов» — те же, что в PropertyFormModal.tsx
  *  (DOCUMENT_PRESETS): менять список в одном месте и не расходиться со старой
  *  формой, пока обе существуют. */
-export const DOCUMENT_PRESETS = ["Договор", "Техпаспорт", "Договор + техпаспорт", "Нет документов"] as const;
+export const DOCUMENT_PRESETS = PROPERTY_DOCUMENT_PRESETS;
 export { buildCreateBody, DETAIL_NOT_SET } from "@royal-home/shared";
 
 /**
@@ -175,25 +177,7 @@ export function needsLandArea(type: PropertyType): boolean {
  * молча уезжал бы на сервер, а «Новостройка» оставалась у участка.
  */
 export function valuesForTypeChange(v: WizardValues, type: PropertyType): Partial<WizardValues> {
-  const patch: Partial<WizardValues> = { type };
-  for (const f of ["rooms", "areaSqm", "landAreaSotka", "floor", "totalFloors", "windowCount"] as const) {
-    if (!propertyFieldShown(type, f)) patch[f] = "";
-  }
-  if (!propertyHasMarket(type)) {
-    patch.marketType = "";
-    patch.stage = "";
-    if (v.condition === "NEW_BUILDING") patch.condition = "GOOD";
-  }
-  const details = { ...v.details };
-  let detailsChanged = false;
-  for (const k of PROPERTY_DETAIL_KEYS) {
-    if (!propertyDetailShown(type, k) && details[k] !== DETAIL_NOT_SET) {
-      details[k] = DETAIL_NOT_SET;
-      detailsChanged = true;
-    }
-  }
-  if (detailsChanged) patch.details = details;
-  return patch;
+  return propertyWizardTypeChange(v, type);
 }
 
 export function isWizardEmpty(v: WizardValues): boolean {
@@ -260,99 +244,18 @@ export function incompleteFieldMessages(v: WizardValues, options: { requireIntak
 }
 
 /**
- * Планка неправдоподобности цены — последняя страховка от бага с потерянным
- * разделителем тысяч (StepMain.tsx, sanitizeNumericInput): `positive()` ниже
- * пропускает любое число больше нуля, а «1,200» → 1.2 такое число и есть.
- *
- * Значение общее для сомони и долларов: недвижимости дешевле сотни единиц
- * валюты не бывает ни в одной из них (курс ~11 сомони/$, то есть даже самый
- * дешёвый объект в долларах на два-три порядка выше). Порог нарочно низкий,
- * чтобы не отсекать реальные дешёвые объекты (доля в участке, гараж) — он
- * ловит только явную порчу ввода, а не подозрительно низкую, но настоящую
- * цену.
- */
-const MIN_PLAUSIBLE_PRICE = 100;
-
-/**
  * Ошибки шага. Пустой объект — шаг пройден.
  *
- * Проверки повторяют серверные (propertyCreateSchema), а не выдумывают свои:
- * расхождение здесь означало бы 400 в конце мастера, когда агент уже ушёл из
- * квартиры. Обязательные поля объекта: тип, площадь, цена, валюта, район,
- * адрес, состояние; комнаты, этаж, этажность и окна — по типу
- * (propertyTypeFields.ts); плюс продавец (карточка либо имя с телефоном).
+ * Правила живут в packages/shared (propertyWizardRules.ts, 10.11.2026): тот же
+ * список обязательного видит мастер в Telegram. Проверки повторяют серверные
+ * (propertyCreateSchema): расхождение означало бы 400 в конце мастера.
  */
 export function validateStep(
   step: WizardStepKey,
   v: WizardValues,
   options: { requireIntakeAgent?: boolean } = {}
 ): Record<string, string> {
-  const errors: Record<string, string> = {};
-  const positive = (raw: string) => {
-    const n = Number(raw);
-    return raw.trim() !== "" && Number.isFinite(n) && n > 0;
-  };
-
-  if (step === "main") {
-    // У ЗАКРЫТОГО объекта обязательна одна цена (владелец 15.09.2026: «закрытый
-    // объект не имеет обязательных пунктов, кроме как цена и продавец»).
-    // Площадь, комнаты, этаж, этажность и окна агент дописывает потом из
-    // карточки: он заводит такой объект стоя в нём, и восемь обязательных чисел
-    // означают, что объект не заведут вовсе. Те же правила на сервере —
-    // packages/shared/src/schemas.ts, propertyCreateSchema.
-    if (!positive(v.price)) errors.price = "Укажите цену";
-    else if (Number(v.price) < MIN_PLAUSIBLE_PRICE) errors.price = "Проверьте цену — сумма выглядит слишком маленькой";
-    // Площадь сервер требует у ЛЮБОГО объекта (колонка в базе обязательная), и
-    // закрытый без неё получал «Неверные данные» без слова, какое поле не так.
-    // У участка площадь — сотки.
-    if (v.type === "LAND") {
-      if (!positive(v.landAreaSotka)) errors.landAreaSotka = "Укажите площадь участка в сотках";
-    } else if (!positive(v.areaSqm)) {
-      errors.areaSqm = "Укажите площадь";
-    }
-    const floorError = floorRuleError(
-      v.floor.trim() === "" ? null : Number(v.floor),
-      v.totalFloors.trim() === "" ? null : Number(v.totalFloors)
-    );
-    if (floorError && propertyFieldShown(v.type, "floor")) errors.floor = floorError;
-    for (const field of ["rooms", "floor", "totalFloors", "windowCount"] as const) {
-      const raw = v[field].trim();
-      if (!propertyFieldShown(v.type, field) || !raw) continue;
-      const number = Number(raw);
-      if (!Number.isInteger(number)) errors[field] = "Введите целое число";
-      else if ((field === "rooms" || field === "totalFloors") && number <= 0) errors[field] = "Введите число больше нуля";
-      else if (field === "windowCount" && (number < 0 || number > 100)) errors[field] = "Введите число от 0 до 100";
-    }
-    if (v.offSite) return errors;
-    // Что обязательно у типа — та же таблица, что на сервере (propertyTypeFields.ts):
-    // у дома нет «этажа», у коммерции комнаты необязательны, у участка ничего из этого.
-    if (propertyFieldRequired(v.type, "rooms") && !errors.rooms && !positive(v.rooms)) errors.rooms = "Укажите комнаты";
-    if (propertyFieldRequired(v.type, "floor") && !errors.floor && (v.floor.trim() === "" || !Number.isFinite(Number(v.floor)))) {
-      errors.floor = "Укажите этаж";
-    }
-    if (propertyFieldRequired(v.type, "totalFloors") && !errors.totalFloors && !positive(v.totalFloors)) errors.totalFloors = "Укажите этажность";
-    if (propertyFieldRequired(v.type, "windowCount") && !errors.windowCount) {
-      const windows = Number(v.windowCount);
-      if (v.windowCount.trim() === "" || !Number.isInteger(windows) || windows < 0 || windows > 100) {
-        errors.windowCount = "Укажите количество окон";
-      }
-    }
-  }
-
-  if (step === "place" && !v.offSite) {
-    if (!v.districtId) errors.districtId = "Выберите район";
-    if (v.address.trim().length < 2) errors.address = "Укажите адрес";
-  }
-
-  if (step === "seller") {
-    if (options.requireIntakeAgent && !v.intakeAgentId) errors.intakeAgentId = "Укажите, кто принял объект";
-    if (!v.sellerClientId) {
-      if (!v.sellerName.trim()) errors.sellerName = "Укажите имя продавца";
-      if (phoneDigits(v.sellerPhone).length < 9) errors.sellerPhone = "Укажите телефон продавца";
-    }
-  }
-
-  return errors;
+  return propertyWizardStepErrors(step, v, options);
 }
 
 /** Все шаги разом — для кнопки «Сохранить» на последнем шаге. */
@@ -360,11 +263,7 @@ export function validateAll(
   v: WizardValues,
   options: { requireIntakeAgent?: boolean } = {}
 ): Record<string, string> {
-  return {
-    ...validateStep("main", v, options),
-    ...validateStep("place", v, options),
-    ...validateStep("seller", v, options),
-  };
+  return propertyWizardErrors(v, options);
 }
 
 /**
