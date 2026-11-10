@@ -133,12 +133,16 @@ describe("сторож исходников: рейтинговые списки
       }
     };
     walk(root);
+    // Исключения — с причиной. royalScore: «место в компании» — только число в
+    // кабинете агента (без имён), тест royal-score-cabinet держит его смысл.
+    const allowed = new Set(["lib/royalScore.ts"]);
     const offenders: string[] = [];
     for (const file of files) {
       const text = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
       for (const m of text.matchAll(/\.agent\.findMany\(\{([\s\S]{0,500}?)\bselect\s*:/g)) {
         const head = m[1];
-        if (/RATED_ROLES/.test(head) && !/isActive/.test(head)) {
+        const rel = path.relative(root, file).split(path.sep).join("/");
+        if (/RATED_ROLES/.test(head) && !/isActive/.test(head) && !allowed.has(rel)) {
           offenders.push(`${path.relative(root, file)}:${text.slice(0, m.index).split("\n").length}`);
         }
       }

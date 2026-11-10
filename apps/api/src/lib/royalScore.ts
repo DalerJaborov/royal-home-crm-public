@@ -70,8 +70,10 @@ export async function buildRoyalScoreView(agentId: string): Promise<RoyalScoreVi
     // «Место в компании» — второй срез: ВСЕ агенты, включая приостановленных
     // (agentPause) и замороженных (frozenAt). Тот, кто временно не берёт лиды,
     // из компании не исчезает — его счёт по-прежнему считается.
-    // Бывшие (isActive=false) в «месте в компании» не участвуют (владелец 11.11.2026).
-    prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true, kpi: true } }),
+    // Только ЧИСЛО «место N из M в компании» в кабинете агента, имён здесь нет —
+    // поэтому бывшие (isActive=false) не скрываются (сторож former-staff-hidden
+    // держит это место в списке исключений с той же причиной).
+    prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true, kpi: true } }),
     /**
      * СЧИТАЕМ ТЕМ ЖЕ ПРАВИЛОМ, ЧТО И САМА РАЗДАЧА (владелец 20.08.2026, разбор
      * «почему агенту не приходят лиды»).
