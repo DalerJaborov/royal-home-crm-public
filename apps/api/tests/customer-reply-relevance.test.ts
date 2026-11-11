@@ -7,6 +7,9 @@ const positions = recruitmentPositionTemplates().map(row => ({ ...row, isOpen: t
 const catalog = { kind: "open_vacancies" as const, collecting: true, positions,
   sourceHash: recruitmentCatalogHash({ collecting: true, positions }) };
 const video = positions.find(row => row.key === "smm-videographer")!;
+const phoneLine = (language: "ru" | "tg") => language === "ru"
+  ? "Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста."
+  : "Маълумоти пурраро дар бораи кор мутахассиси мо Ноза бо телефон медиҳад: 777 070 100. Лутфан занг занед.";
 const renderJob = (inputText: string, language: "ru" | "tg" = "ru", question = "none", extra = {}) => renderCustomerAgentDecision({
   decision: { kind: "reply", refs: ["e0"], social: "none", question }, evidence: [{ ref: "e0", value: catalog }],
   requestedFacts: [], knownPhoneSource: "none", surface: "dm", language, inputText, maxOutputChars: 4000,
@@ -15,86 +18,94 @@ const renderJob = (inputText: string, language: "ru" | "tg" = "ru", question = "
 } as Parameters<typeof renderCustomerAgentDecision>[0]);
 
 describe("relevant verified answers instead of complete cards", () => {
-  it.each(["ru", "tg"] as const)("introduces the selected role briefly in %s with one application invitation", language => {
+  it.each(["ru", "tg"] as const)("introduces the selected role briefly in %s with the phone line and no application invitation", language => {
     const result = renderJob(language === "ru" ? "Видеограф" : "Ба шумо видеограф лозим?", language, "job_experience")!;
     const paragraphs = (language === "ru" ? video.detailsRu : video.detailsTg).split("\n");
-    expect(result).toContain(paragraphs[0]); expect(result).toContain(paragraphs[1]);
-    expect(result).not.toContain(paragraphs[2]); expect(result).not.toContain(paragraphs[3]);
-    expect(result.match(/резюме/giu)).toHaveLength(1);
-    expect(result).not.toMatch(/зарплат|Маош/u);
+    expect(result).toContain(language === "ru" ? video.titleRu : video.titleTg);
+    expect(result).toContain(phoneLine(language));
+    for (const paragraph of paragraphs) expect(result).not.toContain(paragraph);
+    expect(result).not.toMatch(/резюме|зарплат|Маош/iu);
   });
   it.each([["ru", "Можно работать удалённо?"], ["tg", "Аз хона кор кардан мешавад?"]] as const)(
-    "answers the %s work-format question without the office tour or application form", (language, input) => {
+    "answers the %s work-format question with the phone line only, without the office tour or application form", (language, input) => {
       const result = renderJob(input, language)!;
       const paragraphs = (language === "ru" ? video.detailsRu : video.detailsTg).split("\n");
-      expect(result).toContain(paragraphs[1]);
-      expect(result).not.toContain(paragraphs[0]); expect(result).not.toContain(paragraphs[3]);
+      expect(result).toContain(phoneLine(language));
+      for (const paragraph of paragraphs) expect(result).not.toContain(paragraph);
       expect(result).not.toMatch(/резюме|кофе|қаҳва/iu);
     });
-  it("answers pay from the selected role without inventing the other role's commission", () => {
+  it("answers pay with the phone line only and never invents the other role's commission", () => {
     const result = renderJob("Какая зарплата?")!;
-    expect(result).toContain(video.detailsRu.split("\n").at(-1));
+    expect(result).toContain(phoneLine("ru"));
+    expect(result).not.toContain(video.detailsRu.split("\n").at(-1));
     expect(result).not.toContain(video.detailsRu.split("\n")[0]);
-    expect(result).not.toMatch(/\d+%|Бухоро|кофе/iu);
+    expect(result).not.toMatch(/\d+%|Бухоро|кофе|зарплат/iu);
   });
-  it("keeps all published conditions when the person explicitly asks for them, without repeating the CV invitation", () => {
+  it("does not publish any condition even when the person explicitly asks for all of them", () => {
     const result = renderJob("Расскажите все условия подробнее", "ru", "job_experience")!;
-    for (const paragraph of video.detailsRu.split("\n")) expect(result).toContain(paragraph);
-    expect(result.match(/резюме/giu)).toHaveLength(1);
+    expect(result).toContain(phoneLine("ru"));
+    for (const paragraph of video.detailsRu.split("\n")) expect(result).not.toContain(paragraph);
+    expect(result).not.toMatch(/резюме/iu);
   });
-  it("does not trim a condition into a promise when salary and a restriction share a paragraph", () => {
+  it("keeps staff-authored conditions out of the reply even when salary and a restriction share a paragraph", () => {
     const detailsRu = "Если работа очная, оплата обсуждается. Удалённая работа не предусмотрена.\nТолько после обсуждения возможен другой график.";
     const changed = [{ ...video, detailsRu }];
     const value = { ...catalog, positions: changed, sourceHash: recruitmentCatalogHash({ collecting: true, positions: changed }) };
     const result = renderJob("Можно удалённо?", "ru", "none", { evidence: [{ ref: "e0", value }] })!;
-    for (const paragraph of detailsRu.split("\n")) expect(result).toContain(paragraph);
+    expect(result).toContain(phoneLine("ru"));
+    for (const paragraph of detailsRu.split("\n")) expect(result).not.toContain(paragraph);
+    expect(result).not.toContain("Удалённая работа не предусмотрена");
   });
-  it("keeps an unfamiliar staff paragraph intact instead of guessing the answer from keywords", () => {
+  it("keeps an unfamiliar staff paragraph out of the reply and gives the phone line instead of guessing from keywords", () => {
     const detailsRu = "Особый порядок выплат описывается индивидуально при встрече.";
     const changed = [{ ...video, detailsRu }];
     const value = { ...catalog, positions: changed, sourceHash: recruitmentCatalogHash({ collecting: true, positions: changed }) };
-    expect(renderJob("Какая зарплата?", "ru", "none", { evidence: [{ ref: "e0", value }] })).toContain(detailsRu);
+    const result = renderJob("Какая зарплата?", "ru", "none", { evidence: [{ ref: "e0", value }] })!;
+    expect(result).toContain(phoneLine("ru"));
+    expect(result).not.toContain(detailsRu);
   });
-  it("acknowledges a saved portfolio and asks the next professional question without repeating the vacancy", () => {
+  it("acknowledges a saved portfolio and asks no further professional question (phone-only recruitment)", () => {
     const result = renderJob("Вот примеры моих работ", "ru", "job_tools", {
       decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "job_tools" },
       evidence: [{ ref: "e0", value: catalog }, { ref: "e1", value: { kind: "receipt", outcome: "job_application_saved" } }],
     })!;
     expect(result).toContain("Сведения добавлены к отклику");
-    expect(result).toContain("Какими программами");
+    expect(result).toContain(phoneLine("ru"));
+    expect(result).not.toContain("Какими программами");
     expect(result).not.toMatch(/Бухоро|резюме|Снимать недвижимость|Открыта вакансия/u);
   });
-  it("does not conceal an explicit salary question just because an application was saved in the same turn", () => {
+  it("answers an explicit salary question with the phone line, not a salary, when an application was saved in the same turn", () => {
     const result = renderJob("Я прислал работы. Какая зарплата?", "ru", "none", {
       decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "none" },
       evidence: [{ ref: "e0", value: catalog }, { ref: "e1", value: { kind: "receipt", outcome: "job_application_saved" } }],
     })!;
-    expect(result).toContain("Размер зарплаты"); expect(result).toContain("Сведения добавлены к отклику");
-    expect(result).not.toContain("Бухоро");
+    expect(result).toContain(phoneLine("ru")); expect(result).toContain("Сведения добавлены к отклику");
+    expect(result).not.toContain("Размер зарплаты"); expect(result).not.toContain("Бухоро");
   });
-  it.each(["Вот работы. Сколько платите?", "Сколько платите"])("preserves the conditions question alongside a saved application: %s", input => {
+  it.each(["Вот работы. Сколько платите?", "Сколько платите"])("answers the conditions question alongside a saved application with the phone line: %s", input => {
     const result = renderJob(input, "ru", "none", {
       decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "none" },
       evidence: [{ ref: "e0", value: catalog }, { ref: "e1", value: { kind: "receipt", outcome: "job_application_saved" } }],
     })!;
-    expect(result).toContain("Размер зарплаты");
+    expect(result).toContain(phoneLine("ru"));
+    expect(result).not.toContain("Размер зарплаты");
     expect(result).toContain("Сведения добавлены к отклику");
   });
-  it.each(["ru", "tg"] as const)("invites a public candidate to private messages in %s without requesting their CV publicly or claiming a DM was sent", language => {
+  it.each(["ru", "tg"] as const)("gives a public candidate the phone line in %s without requesting their CV publicly or claiming a DM was sent", language => {
     const result = renderJob(language === "ru" ? "Есть вакансии?" : "Ҷойи кор ҳаст?", language, "job_experience", { surface: "public_comment" })!;
-    expect(result).toContain(language === "ru" ? "в личные сообщения" : "Дар паёми шахсӣ");
-    expect(result).not.toMatch(/телефон|написали вам|фиристодем|сообщение отправлено/iu);
+    expect(result).toContain(phoneLine(language));
+    expect(result).not.toMatch(/написали вам|фиристодем|сообщение отправлено|резюме/iu);
   });
-  it("keeps the private-channel invitation when full public conditions already contain a CV prompt", () => {
+  it("gives only the phone line, without conditions or a CV prompt, when full public conditions are requested", () => {
     const result = renderJob("Все условия вакансии", "ru", "job_experience", { surface: "public_comment" })!;
-    expect(result).toContain("Обсудить отклик можно в личных сообщениях.");
-    expect(result.match(/резюме/giu)).toHaveLength(1);
-  });
-  it.each(["ru", "tg"] as const)("preserves an optional professional portfolio question instead of substituting CV in %s public follow-up", language => {
-    const result = renderJob(language === "ru" ? "Видеограф" : "Видеограф", language, "job_portfolio", { surface: "public_comment" })!;
-    expect(result).toContain(language === "ru" ? "в личные сообщения" : "Дар паёми шахсӣ");
-    expect(result).toContain(language === "ru" ? "портфолио. Это необязательно." : "Ин ҳатмӣ нест.");
+    expect(result).toContain(phoneLine("ru"));
+    for (const paragraph of video.detailsRu.split("\n")) expect(result).not.toContain(paragraph);
     expect(result).not.toMatch(/резюме/iu);
+  });
+  it.each(["ru", "tg"] as const)("asks no portfolio question in a %s public follow-up and gives the phone line instead", language => {
+    const result = renderJob("Видеограф", language, "job_portfolio", { surface: "public_comment" })!;
+    expect(result).toContain(phoneLine(language));
+    expect(result).not.toMatch(/портфолио|Ин ҳатмӣ нест|резюме/iu);
   });
 });
 

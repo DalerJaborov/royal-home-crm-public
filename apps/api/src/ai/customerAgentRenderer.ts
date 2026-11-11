@@ -11,7 +11,7 @@ import { customerAgentIntake, customerSellerIntakeQuestion, customerSellerIntake
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
   recruitmentMissingForTurn, recruitmentRequiredQuestion, recruitmentFactQuestionLines } from "./customerAgentRecruitmentProtocol.js";
 import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines, customerDmForeignShareNoise } from "./customerAgentAbuse.js";
-import { customerRecruitmentReplyDetails, containsRecruitmentExperienceInvitation } from "./customerRecruitmentReply.js";
+import { recruitmentPhoneLine } from "@royal-home/shared";
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
@@ -71,6 +71,8 @@ function recruitmentPositionPreviouslyPresented(input: { verifiedContext?: Custo
     if (turn.role !== "assistant") return false;
     const languageWasPresented = (title: string, currentDetails: string[], unavailableLine: string) => {
       if (!turn.text.includes(title)) return false;
+      // Phone-only presentation (owner 10–11.11.2026): the role plus the specialist's number.
+      if (turn.text.includes(recruitmentPhoneLine("ru")) || turn.text.includes(recruitmentPhoneLine("tg"))) return true;
       if (!currentDetails.length) return turn.text.includes(unavailableLine);
       // The normal initial vacancy answer contains its first two authored
       // paragraphs; an explicit full-details answer contains all of them.
@@ -125,10 +127,10 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
     // An empty/closed catalog leaves no job question to ask, but the customer's other next
     // step (a name, a contact, what they are looking for) is not suppressed with it.
     if (!openings.length && NO_OPENING_SUPPRESSED.includes(d.question)) return "none";
-    if (openings.length && ["property", "budget", "location", "rooms", "role", "topic", "seller_details", "preferences", "job_position", "job_required", "job_experience", "name", "phone"].includes(d.question)) {
-      if (!recruitmentPositionForTurn(openings, { inputText: input.inputText,
-        knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns })) return "job_position";
-      return recruitmentNextFact(input) ? "job_required" : "none";
+    if (openings.length && ["property", "budget", "location", "rooms", "role", "topic", "seller_details", "preferences", ...JOB_ONLY_QUESTIONS, "name", "phone"].includes(d.question)) {
+      // Phone-only recruitment (owner 10–11.11.2026): the bot names the role and gives the
+      // specialist's number; it asks no questionnaire questions and discusses no conditions.
+      return "none";
     }
   }
   // Resolution failures are facts about the current property, not a reason to
@@ -560,7 +562,10 @@ function renderDecisionCore(input: {
         : null;
       const alreadyPresented = input.surface === "dm" && d.kind !== "propose" && !!currentPosition &&
         recruitmentPositionPreviouslyPresented({ verifiedContext: input.verifiedContext, position: currentPosition });
-      if ((applicationSaved || alreadyPresented) && !customerRecruitmentFactsRequested(ownQuestion) && !explicitQuestion) continue;
+      if ((applicationSaved || alreadyPresented) && !customerRecruitmentFactsRequested(ownQuestion) && !explicitQuestion) {
+        if (item.value.collecting && item.value.positions.length) lines.push(recruitmentPhoneLine(lang));
+        continue;
+      }
       if (!item.value.collecting) {
         // The switch is off: a different fact from an empty catalog, and it says so.
         lines.push(lang === "tg" ? "Қабули дархостҳои кор тавассути ин чат ҳоло ба роҳ монда нашудааст." : "Приём откликов через этот чат сейчас не ведётся.");
@@ -580,17 +585,10 @@ function renderDecisionCore(input: {
           knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns });
         lines.push(lang === "tg" ? matched ? "Ҷойи кори кушода:" : "Ҷойҳои кори кушода:" : matched ? "Открыта вакансия:" : "Сейчас открыты вакансии:");
         for (const position of matched ? [matched] : item.value.positions.slice(0, 12)) lines.push(lang === "tg" ? position.titleTg : position.titleRu);
-        if (!matched && item.value.positions.length > 12) lines.push(lang === "tg" ? `Ва боз ${item.value.positions.length - 12} вазифа. Соҳаи дилхоҳатонро нависед.`
-          : `И ещё ${item.value.positions.length - 12} позиций. Напишите, какая работа вас интересует.`);
-        if (matched) {
-          const details = lang === "tg" ? matched.detailsTg : matched.detailsRu;
-          if (details) {
-            const paragraphs = customerRecruitmentReplyDetails(details, input.inputText ?? "");
-            lines.push(paragraphs.join("\n\n"));
-            experienceInvitationIncluded ||= containsRecruitmentExperienceInvitation(paragraphs);
-          }
-          else lines.push(lang === "tg" ? "Шартҳои муфассали ин вазифа ҳоло нашр нашудаанд." : "Подробные условия этой должности пока не опубликованы.");
-        }
+        if (!matched && item.value.positions.length > 12) lines.push(lang === "tg" ? `Ва боз ${item.value.positions.length - 12} вазифа.`
+          : `И ещё ${item.value.positions.length - 12} позиций.`);
+        // Conditions are not discussed in the chat: only the specialist's phone (owner 10–11.11.2026).
+        lines.push(recruitmentPhoneLine(lang));
       }
     }
     if (item.value.kind === "property_search") {
