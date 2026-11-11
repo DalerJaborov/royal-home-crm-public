@@ -16,10 +16,10 @@
   "paths": 735,
   "cron": 125,
   "jobs": 32,
-  "conditions": 3910,
-  "untranslatedUnique": 447,
-  "untranslatedTotal": 575,
-  "partialUnique": 1061,
+  "conditions": 3913,
+  "untranslatedUnique": 449,
+  "untranslatedTotal": 577,
+  "partialUnique": 1062,
   "translatedShare": 85
  },
  "untranslated": [
@@ -120,6 +120,7 @@
   "!sendPrivateFile(res, application.cvFile, \"vacancy-cv\")",
   "!serviceTokenValid(req)",
   "!session || session.propertyId !== property.id",
+  "!settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))",
   "!settings?.asteriskAriUrl?.trim()",
   "!source || source.kind !== \"contact\" || source.status !== \"COMMITTED\" || source.supersededAt || !source.commi…",
   "!state.contactKeyFingerprint || state.contactKeyFingerprint !== somonKeyFingerprint()",
@@ -196,6 +197,7 @@
   "await forbiddenPrivilegedTarget(actor, batch.fromAgentId)",
   "await forbiddenPrivilegedTarget(actor, fromId)",
   "await forbiddenPrivilegedTarget(actor, targetId)",
+  "await handOverHolderToCurrentMontajer(montajerAgentId, now)",
   "await handledByQuietHours([agentId], payload)",
   "await manualRobotCallLimitReached(req.agent!.id)",
   "await phoneBelongsToHiddenOwner(req, phone)",
@@ -1057,11 +1059,6 @@
     },
     {
      "i": 39,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 40,
      "direct": false,
      "conf": "через часть экрана"
     },
@@ -2327,11 +2324,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 40,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 41,
      "direct": false,
      "conf": "через часть экрана"
@@ -2775,11 +2767,6 @@
     },
     {
      "i": 39,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 40,
      "direct": false,
      "conf": "через часть экрана"
     },
@@ -3482,11 +3469,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 40,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 41,
      "direct": false,
      "conf": "через часть экрана"
@@ -4172,11 +4154,6 @@
     },
     {
      "i": 681,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 682,
      "direct": false,
      "conf": "через часть экрана"
     },
@@ -6944,11 +6921,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 40,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 41,
      "direct": false,
      "conf": "через часть экрана"
@@ -8996,11 +8968,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 682,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 697,
      "direct": false,
      "conf": "через часть экрана"
@@ -9092,11 +9059,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 40,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 41,
      "direct": false,
      "conf": "через часть экрана"
@@ -9133,11 +9095,6 @@
     },
     {
      "i": 681,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 682,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -11997,14 +11954,7 @@
     "вход выполнен",
     "есть право: agents.manage"
    ],
-   "screens": [
-    "/activity",
-    "/calls",
-    "/clients/:id",
-    "/deals",
-    "/properties/:id",
-    "/team/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "всё хорошо, отвечает данными",
@@ -56508,6 +56458,19 @@
          ]
         }
        ]
+      },
+      {
+       "t": "если нет: видео montajer сотрудник",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ],
      "raw": "previousMontajerAgentId !== undefined && pair.videoMontajerAgentId !== previousMontajerAgentId"
@@ -58114,11 +58077,7 @@
     "вход выполнен",
     "есть право: team.viewFull"
    ],
-   "screens": [
-    "/hall-of-fame",
-    "/team",
-    "/team/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
@@ -73848,8 +73807,36 @@
        "a": [],
        "c": [
         {
-         "t": "если нет: видео handoff включено или нет: видео montajer сотрудник",
+         "t": "если нет: видео handoff включено",
          "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если !settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ],
+         "raw": "!settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))"
+        },
+        {
+         "t": "если await handOverHolderToCurrentMontajer(montajerAgentId, now)",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "await handOverHolderToCurrentMontajer(montajerAgentId, now)"
+        },
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
          "a": [],
          "c": []
         },

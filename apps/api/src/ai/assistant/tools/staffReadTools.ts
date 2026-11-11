@@ -77,7 +77,13 @@ export const listStaffTool: AssistantReadToolPlugin = {
     if (!(has(actor, "agents.manage") || has(actor, "clients.assign") || has(actor, "team.viewFull"))) return { error: "Недостаточно прав" };
     const args = listArgs.parse(raw ?? {});
     const staffActor = { id: actor.id, role: actor.role, can: (p: PermissionId) => has(actor, p) };
-    const rows = (await listStaffDirectory(staffActor, { telephony: false })) as Array<{
+    const status = args.status ?? "active";
+    // Бывших справочник не отдаёт (владелец 11.11.2026); директору — только когда
+    // он прямо просит отключённых (status inactive/all), как вкладка на экране.
+    const rows = (await listStaffDirectory(staffActor, {
+      telephony: false,
+      includeFormer: status === "inactive" || status === "all",
+    })) as Array<{
       id: string; fullName: string; role: string; isActive: boolean; frozenAt: Date | null; absenceKind: string | null; absenceUntil: Date | null;
       phone?: string; sipExtension?: string | null;
     }>;
@@ -86,7 +92,6 @@ export const listStaffTool: AssistantReadToolPlugin = {
       const match = await findStaffByName(args.query, { includeInactive: true });
       ids = new Set(match.kind === "one" ? [match.agent.id] : match.kind === "many" ? match.candidates.map((c) => c.id) : []);
     }
-    const status = args.status ?? "active";
     const filtered = rows
       .filter((r) => !r.phone?.includes("-deleted:"))
       .filter((r) => (ids ? ids.has(r.id) : true))

@@ -6,7 +6,7 @@ import {
 } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { Prisma, type Expense, type RecurringExpense } from "../generated/prisma/client.js";
-import { loadMoneyContext, roundMoney, type MoneyContext } from "./money.js";
+import { NO_USD_RATE_TEXT, roundMoney, usdRateForWrite, type MoneyContext } from "./money.js";
 import {
   changeExpensePayment, expenseDay, ExpenseLifecycleError, materializeOccurrence, occurrenceDates, todayExpenseDay,
   validateExpenseCategory,
@@ -64,9 +64,13 @@ export async function createExpense(raw: unknown, opts: CreateExpenseOptions): P
   if (key && !IDEMPOTENCY_HEADER_KEY.test(key)) fail(400, "Неверный ключ запроса");
   const requestKey = opts.requestKey ?? (key ? `${opts.agentId}:${key}` : undefined);
   const db = opts.db ?? prisma;
-  const money = opts.money ?? await loadMoneyContext(db);
   const fingerprint = createHash("sha256").update(JSON.stringify(parsed.data)).digest("hex");
-  const rate = rest.currency === "USD" ? (rest.exchangeRate ?? (rest.status === "PLANNED" ? null : money.usdToTjs)) : 1;
+  // Доллар без своего курса пишется только по курсу из Настроек: запасное число FALLBACK_USD_TO_TJS
+  // курсом не является (решение владельца 10.11.2026; та же дверь у помощницы) — без курса 409.
+  const needsRate = rest.currency === "USD" && rest.exchangeRate == null && rest.status !== "PLANNED";
+  const settingsRate = needsRate ? await usdRateForWrite(db, opts.money) : null;
+  if (needsRate && !settingsRate) fail(409, NO_USD_RATE_TEXT, { code: "NO_USD_RATE" });
+  const rate = rest.currency === "USD" ? (rest.exchangeRate ?? (rest.status === "PLANNED" ? null : settingsRate)) : 1;
   const data = {
     ...rest,
     paymentDate: rest.paymentDate ? expenseDay(rest.paymentDate) : null,
@@ -114,7 +118,11 @@ export async function updateExpense(id: string, raw: unknown): Promise<{ expense
   if (!await validateExpenseCategory(rest.categoryId === undefined ? row.categoryId : rest.categoryId, rest.category ?? row.category, row)) {
     fail(400, "Категория не соответствует разделу");
   }
-  const money = await loadMoneyContext();
+  // Смена валюты на доллар без курса — тот же отказ, что у создания (без FALLBACK_USD_TO_TJS).
+  const switchesToUsd = rest.exchangeRate === undefined && rest.currency === "USD" && rest.currency !== row.currency;
+  const switchRate = switchesToUsd ? await usdRateForWrite() : null;
+  if (switchesToUsd && !switchRate) fail(409, NO_USD_RATE_TEXT, { code: "NO_USD_RATE" });
+  const money = { usdToTjs: switchRate ?? 1 };
   const finalPaymentDate = rest.paymentDate === undefined ? row.paymentDate?.toISOString().slice(0, 10) : rest.paymentDate;
   if ((rest.status ?? row.status) === "PAID" && finalPaymentDate && finalPaymentDate > todayExpenseDay()) {
     fail(400, "Будущий платёж запишите как план");
