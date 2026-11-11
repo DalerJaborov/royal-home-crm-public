@@ -52,6 +52,18 @@ const AGENT = {
   platform_settings: {},
 };
 
+// Подделка помнит, что ей записали, как настоящий кабинет: заведённые функции и
+// прикреплённые PATCH-ем tool_ids отдаются следующим GET. Иначе сверка tool_ids (#153)
+// видела бы «агент без наших функций» на каждом звонке и честно правила его заново.
+let createdTools: { id: string; tool_config: { name: string } }[] = [];
+let agentToolIds: string[] = [];
+
+function agentSnapshot(): typeof AGENT {
+  const copy = structuredClone(AGENT);
+  copy.conversation_config.agent.prompt.tool_ids = [...agentToolIds] as never[];
+  return copy;
+}
+
 function stubNetwork(): void {
   vi.stubGlobal(
     "fetch",
@@ -60,11 +72,21 @@ function stubNetwork(): void {
       const path = new URL(String(url)).pathname;
       calls.push({ method, path });
       let json: unknown = {};
-      if (method === "GET" && path === "/v1/convai/tools") json = { tools: [] };
+      if (method === "GET" && path === "/v1/convai/tools") json = { tools: createdTools };
       else if (method === "POST" && path === "/v1/convai/tools") {
         const body = JSON.parse(String(init.body)) as { tool_config?: { name?: string } };
-        json = { id: `tool_${body.tool_config?.name ?? "x"}` };
-      } else if (method === "GET" && path.startsWith("/v1/convai/agents/")) json = AGENT;
+        const name = body.tool_config?.name ?? "x";
+        const id = `tool_${name}`;
+        if (!createdTools.some((t) => t.id === id)) createdTools.push({ id, tool_config: { name } });
+        json = { id };
+      } else if (method === "PATCH" && path.startsWith("/v1/convai/agents/")) {
+        const body = JSON.parse(String(init.body ?? "{}")) as {
+          conversation_config?: { agent?: { prompt?: { tool_ids?: unknown } } };
+        };
+        const ids = body.conversation_config?.agent?.prompt?.tool_ids;
+        if (Array.isArray(ids)) agentToolIds = ids.filter((x): x is string => typeof x === "string");
+        json = agentSnapshot();
+      } else if (method === "GET" && path.startsWith("/v1/convai/agents/")) json = agentSnapshot();
       return new Response(JSON.stringify(json), { status: 200, headers: { "content-type": "application/json" } });
     })
   );
@@ -121,6 +143,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   calls = [];
+  createdTools = [];
+  agentToolIds = [];
   resetElevenLabsSyncCacheForTests();
   stubNetwork();
 });

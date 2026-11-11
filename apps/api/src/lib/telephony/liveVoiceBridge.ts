@@ -463,11 +463,19 @@ export function resetLiveVoiceProviderHolds(): void {
 }
 
 /**
- * Мгновенная проверка П1 БЕЗ чтения базы и сети (свод П1+П3, 11.11.2026): выбранный
- * поставщик на паузе или у ElevenLabs отметка «минуты кончились». Стоит ПЕРЕД дверью П3
- * (robotCallRefusal): та читает базу и пишет причину отказа, а пауза поставщика — не
- * решение «звонить ли этому человеку», звонок просто переносится, попытка не тратится.
+ * Проверка П1 (свод П1+П3, 11.11.2026): выбранный поставщик на паузе или у ElevenLabs
+ * отметка «минуты кончились» — звонок переносится («занято»), попытка не тратится.
+ * Стоит СРАЗУ ПОСЛЕ двери П3 (robotCallRefusal первой строкой — правило
+ * robot-call-policy-architecture.test.ts; разрешение двери ничего не пишет).
+ * Выбор поставщика перечитывается из базы: Настройки сохраняет процесс API, а набирать
+ * может worker — закешированный выбор держал бы паузу прежнего поставщика после
+ * переключения голоса. База не ответила за DB_READ_TIMEOUT_MS — судим по последнему выбору.
  */
+async function liveVoiceProviderHoldFresh(): Promise<LiveVoiceTestCallResult | null> {
+  await refreshLiveVoiceSelectedProvider().catch(() => {});
+  return liveVoiceProviderHoldNow();
+}
+
 function liveVoiceProviderHoldNow(now: number = Date.now()): LiveVoiceTestCallResult | null {
   if (selectedProvider === "elevenlabs" && elevenLabsQuotaExhausted(now)) {
     return { ok: false, busy: true, error: "У ElevenLabs закончились минуты — робозвонок остановлен, звонок перенесён" };
@@ -2213,10 +2221,10 @@ export async function originateLiveVoiceCallToClient(
   client: { id: string; phone: string; fullName: string },
   propertyDescription?: string | null
 ): Promise<LiveVoiceClientCallResult> {
-  // П1 мгновенно — до двери П3 (свод 11.11.2026, см. liveVoiceProviderHoldNow).
-  { const hold = liveVoiceProviderHoldNow(); if (hold) return hold; }
   // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts).
   { const refusal = await robotCallRefusal({ phone: client.phone, clientId: client.id, kind: "client_card" }); if (refusal) return refusal; }
+  // П1 сразу после двери (свод 11.11.2026, см. liveVoiceProviderHoldFresh).
+  { const hold = await liveVoiceProviderHoldFresh(); if (hold) return hold; }
   if (!isDialableTajikNumber(client.phone)) {
     return { ok: false, error: "Номер клиента не похож на таджикский — станция не сможет его набрать" };
   }
@@ -2314,10 +2322,10 @@ export async function originateLiveVoiceScenarioCall(
   },
   options?: { callerId?: string; channelId?: string; beforeOriginate?: () => Promise<void> }
 ): Promise<LiveVoiceClientCallResult> {
-  // П1 мгновенно — до двери П3 (свод 11.11.2026, см. liveVoiceProviderHoldNow).
-  { const hold = liveVoiceProviderHoldNow(); if (hold) return { ...hold, notDialed: true }; }
   // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts).
   { const refusal = await robotCallRefusal({ phone: phoneNumber, clientId: task.clientId, conversationId: task.conversationId, contactProfileId: task.contactProfileId, purpose: task.purpose, kind: "scenario" }); if (refusal) return refusal; }
+  // П1 сразу после двери (свод 11.11.2026, см. liveVoiceProviderHoldFresh).
+  { const hold = await liveVoiceProviderHoldFresh(); if (hold) return { ...hold, notDialed: true }; }
   if (!isDialableTajikNumber(phoneNumber)) {
     return { ok: false, notDialed: true, error: "Номер не похож на таджикский — станция не сможет его набрать" };
   }
