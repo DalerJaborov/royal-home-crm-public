@@ -21,7 +21,7 @@ import { loadCompanyDaysOff } from "./daysOffCalendar.js";
 import { vacancyOfficeMapUrl } from "../ai/vacancyFacts.js";
 import { RecruitmentCommunicationError, held, assertSmsLength, smsSegments, bridgeRefusalStatus, isUnresolvedDelivery,
   hasCallWindowBefore, UNKNOWN_SOFT_MINUTES, UNKNOWN_HARD_HOURS } from "./recruitmentCommunicationRules.js";
-import { buildRecruitmentCommunicationContent, recruitmentCommunicationDigest as digest } from "./recruitmentCommunicationContent.js";
+import { buildRecruitmentCommunicationContent, RECRUITMENT_CALL_GREETING_TRIGGER, recruitmentCommunicationDigest as digest } from "./recruitmentCommunicationContent.js";
 
 export { RecruitmentCommunicationError };
 /** SQL-двойник isUnresolvedDelivery (recruitmentCommunicationRules.ts): держать в паре. */
@@ -355,7 +355,7 @@ export async function dispatchRecruitmentCommunication(id: string, now = new Dat
       const voice = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { liveVoiceVoiceName: true, liveVoiceVoiceNameTajik: true } });
       await assertPhysicalSourceCurrent(initial, snapshot);
       const result = await (testTransport?.call ?? originateLiveVoiceScenarioCall)(snapshot.phone, { systemInstruction: snapshot.callPrompt,
-        greetingTrigger: "(Кандидат снял трубку. Представься голосовым помощником Royal Home и спроси, удобно ли говорить.)",
+        greetingTrigger: RECRUITMENT_CALL_GREETING_TRIGGER,
         tools: INTERVIEW_INVITE_CALL_TOOLS, language: snapshot.request.language, forceRussianOnly: false,
         voiceName: (snapshot.request.language === "tg" ? voice?.liveVoiceVoiceNameTajik || voice?.liveVoiceVoiceName : voice?.liveVoiceVoiceName) || undefined,
         onFinished: result => finishRecruitmentAssistantCall(id, result) }, { callerId: "Royal Home", channelId: id,

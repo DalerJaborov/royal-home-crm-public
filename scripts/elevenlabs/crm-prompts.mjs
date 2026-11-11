@@ -34,8 +34,10 @@ export async function loadCrmCallKinds() {
     import(src("ai/sellerProbeCallPersona.ts")),
     import(src("ai/liveVoicePersona.ts")),
   ]);
-  const { CLIENT_TOOLS } = await import(src("lib/telephony/liveVoiceClientTools.ts"));
-  const { PROPERTY_TOOLS } = await import(src("lib/telephony/liveVoicePropertyTools.ts"));
+  const consultant = await import(src("ai/liveVoiceConsultantPersona.ts"));
+  const { consultantToolsFor } = await import(src("lib/telephony/liveVoiceConsultant.ts"));
+  const { LIVE_VOICE_TOOLS } = await import(src("lib/telephony/liveVoiceBridge.ts"));
+  const { VOICE_KNOWLEDGE_PREAMBLE } = await import(src("ai/liveVoiceKnowledge.ts"));
 
   const inviteCtx = (language) => ({
     candidateName: "Мехрона",
@@ -94,16 +96,37 @@ export async function loadCrmCallKinds() {
       expectsTool: "end_call",
     },
     {
+      // ВХОДЯЩИЙ консультант (то, что берёт трубку, когда звонят нам): здесь живут save_client_request,
+      // request_callback и (при включённом тумблере) функции показа. Показы боту выключены — набор без showing_*.
+      // Справочник — только неизменяемая преамбула: настоящий собирается из базы (loadLiveVoiceKnowledge).
+      kind: "consultant",
+      label: "Входящий консультант (показы выключены)",
+      language: "ru",
+      prompt: consultant.buildConsultantSystemPrompt({
+        knowledge: VOICE_KNOWLEDGE_PREAMBLE,
+        caller: { numberKnown: true, selfName: "Зарина", agentName: "Мадина", dossier: "", weCalled: false },
+        withinWorkingHours: true,
+        forceRussianOnly: true,
+        language: "ru",
+        transferAvailable: false,
+        showingsEnabled: false,
+      }),
+      greeting: "(Звонящий сказал «алло».)",
+      tools: consultantToolsFor({ transferAvailable: false, showingsEnabled: false }),
+      expectsTool: "save_client_request",
+    },
+    {
+      // ИСХОДЯЩИЙ звонок клиенту (кнопка в карточке): продающая роль, функции — save_contact, escalate_to_human, end_call.
       kind: "client",
-      label: "Звонок клиенту",
+      label: "Исходящий звонок клиенту",
       language: "ru",
       prompt: persona.buildLiveVoiceSystemPrompt(
         { clientName: "Зарина", propertyDescription: "2-комнатная квартира, Сино, 62 кв. м" },
         { forceRussianOnly: true }
       ),
       greeting: "(Собеседник снял трубку. Поздоровайся и представься.)",
-      tools: [...CLIENT_TOOLS, ...PROPERTY_TOOLS],
-      expectsTool: "save_client_request",
+      tools: LIVE_VOICE_TOOLS,
+      expectsTool: null,
     },
   ];
 }

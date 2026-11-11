@@ -639,7 +639,7 @@ const ESCALATE_TO_HUMAN_TOOL: LiveVoiceFunctionDeclaration = {
   },
 };
 
-const LIVE_VOICE_TOOLS: LiveVoiceFunctionDeclaration[] = [
+export const LIVE_VOICE_TOOLS: LiveVoiceFunctionDeclaration[] = [
   {
     name: "save_contact",
     description:

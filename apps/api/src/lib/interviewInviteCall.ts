@@ -6,6 +6,7 @@ import {
   interviewTimeRu,
 } from "../ai/interviewInviteCallPersona.js";
 import { parseInterviewInviteCall } from "../ai/interviewInviteCallParse.js";
+import { reportThirdPartyDisclosure } from "../ai/thirdPartyDisclosure.js";
 import { isDialableTajikNumber } from "@royal-home/shared";
 import { logSystemAudit } from "./audit.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
@@ -667,6 +668,7 @@ export async function finishInterviewInviteCall(result: LiveVoiceScenarioResult,
           ? "no_answer"
           : null;
   if (giveUp) {
+    if (giveUp === "wrong_person") reportThirdPartyDisclosure("interview_invite", call.id, result.transcript);
     // «Наберите после шести», «он на работе до пяти» — HR должен это прочитать,
     // а не узнать из «просил перезвонить» (проверка робота 02.10.2026). Исход
     // разбора здесь не нужен — только слова человека.
