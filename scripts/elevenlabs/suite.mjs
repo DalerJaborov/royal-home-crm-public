@@ -12,9 +12,12 @@
 // Проверки: судья ElevenLabs по условиям сценария + код по расшифровке (вызвал ли агент нужную
 // функцию с нужными полями, нет ли слова «лутфан», не вызвал ли запрещённую функцию).
 // ВНИМАНИЕ: каждая симуляция тратит кредиты ElevenLabs (модель собеседника и судья). --dry — план без сети.
+// ЗАМОК (11.11.2026, paid-guard.mjs): без --budget-credits=N и ELEVENLABS_PAID_TESTS_APPROVED=1 скрипт
+// выходит до первого платного запроса; между видами звонка — стоп, когда потрачено ≥ бюджета.
 import { pathToFileURL } from "node:url";
 import { ensureTools } from "./patch-check.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
+import { openPaidBudget } from "./paid-guard.mjs";
 import { baseUrl, describeFailure, formatRationale, looksGeoBlocked, makeClient, makePrinter, parseArgv, reportDir, stampNow, writeReport } from "./lib.mjs";
 
 const MAX_TURNS = 24;
@@ -176,6 +179,12 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
   }
 
   const request = makeClient({ apiKey, base: baseUrl(env), fetchImpl, timeoutMs: 60_000 });
+  // Замок платных проверок: решение без сети, затем бесплатное чтение остатка подписки.
+  const paid = await openPaidBudget({ env, values, request, say: out });
+  if (paid.refused) {
+    out(`FAIL ${paid.refused}`);
+    return { failed: 1, results: [], refused: paid.refused };
+  }
   const agentPath = `/v1/convai/agents/${encodeURIComponent(testId)}`;
   const agent = await request("GET", agentPath);
   if (looksGeoBlocked(agent) || !agent.ok) {
@@ -194,9 +203,15 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
 
   const results = [];
   const created = [];
+  let budgetStop = false;
   for (const kind of kinds) {
     const list = planned.filter((s) => s.kind === kind.kind);
     if (!list.length) continue;
+    if (budgetStop || (await paid.exhausted())) {
+      budgetStop = true;
+      for (const s of list) results.push({ id: s.id, name: s.name, pass: false, failures: ["не запущен: бюджет кредитов исчерпан"], transcript: [] });
+      continue;
+    }
     out(`\n${kind.label}: ${list.length} симуляций`);
     // Промпт и функции этого вида звонка — в тестового агента (как сервер подменяет их на звонок).
     const fresh = await request("GET", agentPath);
@@ -249,6 +264,8 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
   out(`\nИТОГ [${usedLlm}]: ${passed}/${results.length}${unclear ? ` (из провалов неопределённых: ${unclear})` : ""}`);
 
   if (!flags.has("keep")) for (const id of created) await request("DELETE", `/v1/convai/agent-testing/${encodeURIComponent(id)}`);
+  if (budgetStop) out("СТОП: бюджет кредитов исчерпан — остальные виды звонка не запускались.");
+  const spentCredits = await paid.finish();
   if (writeFiles) {
     const stamp = stampNow();
     const dir = reportDir(env, `sim-${stamp}`);
@@ -256,7 +273,7 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
     writeReport(dir, "report.md", markdownReport(results, { stamp, llm: usedLlm }), apiKey);
     out(`Отчёт (вне git): ${dir}`);
   }
-  return { failed: passed === results.length ? 0 : 1, results };
+  return { failed: passed === results.length ? 0 : 1, results, spentCredits };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
