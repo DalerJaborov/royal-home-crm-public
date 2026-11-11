@@ -12,6 +12,7 @@
 // Проверки: судья ElevenLabs по условиям сценария + код по расшифровке (вызвал ли агент нужную
 // функцию с нужными полями, нет ли слова «лутфан», не вызвал ли запрещённую функцию).
 // ВНИМАНИЕ: каждая симуляция тратит кредиты ElevenLabs (модель собеседника и судья). --dry — план без сети.
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { ensureTools } from "./patch-check.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
@@ -67,6 +68,11 @@ export function evaluateTranscript(scenario, transcript) {
   for (const bad of scenario.forbidTools ?? []) {
     if (calls.some((c) => c.name === bad)) failures.push(`агент вызвал запрещённую функцию ${bad}`);
   }
+  // Запрещённые слова в речи агента (сценарий: forbidText: [{ re, why }]) — детерминированно, без судьи.
+  for (const f of scenario.forbidText ?? []) if (agentText.some((m) => f.re.test(m))) failures.push(`в речи агента: ${f.why}`);
+  // Годится любая из перечисленных функций (сценарий: expectAnyTool: ["end_call", "escalate_to_human"]).
+  const anyOf = scenario.expectAnyTool;
+  if (anyOf && !calls.some((c) => anyOf.includes(c.name))) failures.push(`разговор не дошёл ни до одной из функций ${anyOf.join("/")} (вызваны: ${calls.map((c) => c.name).join(", ") || "никакие"})`);
   const exp = scenario.expectTool;
   if (exp) {
     const named = calls.filter((c) => c.name === exp.name);
@@ -80,7 +86,8 @@ export function evaluateTranscript(scenario, transcript) {
   }
   // «Не дошёл до функции» при разговоре, оборванном на вопросе агента, — ограничение симуляции, а не ошибка агента.
   const lastAgent = [...(transcript ?? [])].reverse().find((t) => t.role === "agent" && t.message?.trim());
-  const inconclusive = !!exp && calls.every((c) => c.name !== exp.name) && !!lastAgent && !GOODBYE.test(lastAgent.message);
+  const missingTool = exp ? calls.every((c) => c.name !== exp.name) : anyOf ? !calls.some((c) => anyOf.includes(c.name)) : false;
+  const inconclusive = (!!exp || !!anyOf) && missingTool && !!lastAgent && !GOODBYE.test(lastAgent.message);
   return { ok: failures.length === 0, failures, inconclusive };
 }
 
@@ -104,6 +111,20 @@ export function buildSimulationTest(scenario, idByName, toolNames) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** `--scenarios=<файл.mjs>`: свой набор вместо scenarios.mjs; файл вывозит SCENARIOS (массив той же формы). */
+export async function loadScenariosFile(file) {
+  const mod = await import(pathToFileURL(path.resolve(file)).href);
+  const list = mod.SCENARIOS;
+  if (!Array.isArray(list) || list.length === 0) throw new Error(`${file}: нет непустого массива SCENARIOS`);
+  const ids = new Set();
+  for (const s of list) {
+    for (const f of ["id", "kind", "persona", "seed", "conditions"]) if (!s?.[f]) throw new Error(`${file}: у сценария ${s?.id ?? "?"} нет поля ${f}`);
+    if (ids.has(s.id)) throw new Error(`${file}: повтор id ${s.id}`);
+    ids.add(s.id);
+  }
+  return list;
+}
 
 /** Ждёт, пока в запуске не останется pending. Возвращает объект запуска. */
 export async function waitInvocation(request, id, { pollMs = POLL_MS, limitMs = POLL_LIMIT_MS, sleepFn = sleep } = {}) {
@@ -135,7 +156,7 @@ function markdownReport(results, meta) {
  * deps: { env, flags, values, fetchImpl, kinds, say, sleepFn, writeFiles }.
  * kinds — результат loadCrmCallKinds() (подменяется в тестах).
  */
-export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl, kinds, sync: syncDep, say, sleepFn = sleep, writeFiles = true }) {
+export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl, kinds, scenarios = SCENARIOS, sync: syncDep, say, sleepFn = sleep, writeFiles = true }) {
   const apiKey = env.ELEVENLABS_API_KEY?.trim() || "";
   const out = say || makePrinter(apiKey);
   const testId = env.ELEVENLABS_TEST_AGENT_ID?.trim();
@@ -143,7 +164,7 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
   const only = values.only ? values.only.split(",") : null;
   // Модель разговора для ЭТОГО прогона (пишется в тестового агента). Пусто — как у агента.
   const llm = values.llm?.trim() || env.ELEVENLABS_SIM_LLM?.trim() || null;
-  const planned = SCENARIOS.filter((s) => !only || only.includes(s.kind) || only.includes(s.id));
+  const planned = scenarios.filter((s) => !only || only.includes(s.kind) || only.includes(s.id));
 
   if (flags.has("dry")) {
     out(`План (без сети, --dry): ${planned.length} симуляций, до ${MAX_TURNS} реплик каждая; тесты создаются у ТЕСТОВОГО агента и удаляются после прогона.`);
@@ -152,7 +173,7 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
       if (!list.length) continue;
       out(`\n${k.label} [${k.kind}] — промпт ${k.prompt.length} знаков, функции: ${k.tools.map((t) => t.name).join(", ")}`);
       for (const s of list) {
-        const e = s.expectTool ? `${s.expectTool.name}(${Object.keys(s.expectTool.args).join(", ")})` : "без обязательной функции";
+        const e = s.expectTool ? `${s.expectTool.name}(${Object.keys(s.expectTool.args).join(", ")})` : s.expectAnyTool ? s.expectAnyTool.join("/") : "без обязательной функции";
         out(`  - ${s.id}: ${s.name}; условий судьи ${s.conditions.length}; ожидание: ${e}${s.forbidTools ? `; запрет: ${s.forbidTools.join(",")}` : ""}`);
       }
     }
@@ -238,7 +259,7 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
       const failures = [...code.failures];
       if (tr.status !== "passed") failures.push(`судья: ${judge?.result ?? tr.status}${judge?.rationale ? " — " + formatRationale(judge.rationale).slice(0, 400) : ""}`);
       const producing = (tr.agent_responses ?? []).map((t) => t.producing_llm).find(Boolean) ?? null;
-      results.push({ id: s.id, name: s.name, pass: failures.length === 0, failures, judge, llm: producing, inconclusive: !!code.inconclusive && failures.some((f) => /не дошёл до функции/.test(f)), transcript: tr.agent_responses ?? [] });
+      results.push({ id: s.id, name: s.name, pass: failures.length === 0, failures, judge, llm: producing, inconclusive: !!code.inconclusive && failures.some((f) => /не дошёл (до функции|ни до одной)/.test(f)), transcript: tr.agent_responses ?? [] });
     }
   }
 
@@ -268,6 +289,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const { flags, values } = parseArgv(process.argv.slice(2));
   const { loadCrmCallKinds } = await import("./crm-prompts.mjs");
   const kinds = await loadCrmCallKinds();
-  const { failed } = await runSuite({ env: process.env, flags, values, kinds });
+  let scenarios;
+  if (values.scenarios) scenarios = await loadScenariosFile(values.scenarios);
+  const { failed } = await runSuite({ env: process.env, flags, values, kinds, scenarios });
   process.exit(failed ? 1 : 0);
 }

@@ -4,6 +4,7 @@
 import { register } from "tsx/esm/api";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { CLIENT_CARD_CALL_TOOLS } from "./client-call-tools.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const src = (rel) => pathToFileURL(path.join(ROOT, "apps", "api", "src", rel)).href;
@@ -56,7 +57,29 @@ export async function loadCrmCallKinds() {
     propertyLabel: "трёхкомнатную на Фирдавси",
     voiceGender: "female",
   };
+  // Настоящий исходящий звонок клиенту по кнопке в карточке: замок «только русский» в базе по умолчанию выключен
+  // (Settings.liveVoiceForceRussianOnly = false), функции — только LIVE_VOICE_TOOLS моста (client-call-tools.mjs).
+  const cardPrompt = (propertyDescription) =>
+    persona.buildLiveVoiceSystemPrompt({ clientName: "Зарина", propertyDescription }, { forceRussianOnly: false });
   return [
+    {
+      kind: "client-card",
+      label: "Звонок клиенту из карточки (по объекту)",
+      language: "ru",
+      prompt: cardPrompt("2-комнатная квартира, Сино, 62 кв. м"),
+      greeting: "(Собеседник снял трубку. Поздоровайся и представься.)",
+      tools: CLIENT_CARD_CALL_TOOLS,
+      expectsTool: "end_call",
+    },
+    {
+      kind: "client-card-open",
+      label: "Звонок клиенту из карточки (без объекта)",
+      language: "ru",
+      prompt: cardPrompt(null),
+      greeting: "(Собеседник снял трубку. Поздоровайся и представься.)",
+      tools: CLIENT_CARD_CALL_TOOLS,
+      expectsTool: "end_call",
+    },
     {
       kind: "invite-ru",
       label: "Приглашение кандидата (ru)",

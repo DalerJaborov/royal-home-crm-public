@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { collateralLoss, compareSent, makeClient, makePrinter, redact } from "./lib.mjs";
 import { runPreflight } from "./preflight.mjs";
 import { runPatchCheck } from "./patch-check.mjs";
-import { evaluateTranscript, matchExpect, runSuite, toolCallsOf, waitInvocation } from "./suite.mjs";
+import { evaluateTranscript, loadScenariosFile, matchExpect, runSuite, toolCallsOf, waitInvocation } from "./suite.mjs";
 import { loadAgentSync, loadCrmCallKinds } from "./crm-prompts.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
 
@@ -498,4 +498,71 @@ test("load-env: значение из .env перекрывает устарев
   assert.ok(!JSON.stringify(replaced).includes(KEY));
   assert.deepEqual(loadElevenLabsEnv({}, path.join(dir, "нет.env")), []);
   rmSync(dir, { recursive: true, force: true });
+});
+
+// ── звонки клиентам из карточки: свой набор сценариев (--scenarios), expectAnyTool, forbidText ──
+import { CLIENT_CARD_CALL_TOOLS } from "./client-call-tools.mjs";
+
+test("client-call-tools: описания функций совпадают с LIVE_VOICE_TOOLS моста (копия не разъехалась)", () => {
+  const bridge = readFileSync(path.join(HERE, "..", "..", "apps", "api", "src", "lib", "telephony", "liveVoiceBridge.ts"), "utf8");
+  assert.deepEqual(CLIENT_CARD_CALL_TOOLS.map((t) => t.name), ["save_contact", "escalate_to_human", "end_call"]);
+  for (const t of CLIENT_CARD_CALL_TOOLS) {
+    assert.ok(bridge.includes(t.description), `описание ${t.name} не найдено в liveVoiceBridge.ts`);
+    for (const p of Object.values(t.parameters.properties)) assert.ok(bridge.includes(p.description), `описание поля ${t.name} не найдено в мосте`);
+  }
+});
+
+test("scenarios-clients-extra: файл грузится через --scenarios, виды звонка существуют, id уникальны, не меньше 20 сценариев", async () => {
+  const list = await loadScenariosFile(path.join(HERE, "scenarios-clients-extra.mjs"));
+  assert.ok(list.length >= 20);
+  const kinds = await loadCrmCallKinds();
+  const known = new Set(kinds.map((k) => k.kind));
+  for (const s of list) assert.ok(known.has(s.kind), `${s.id}: нет вида звонка ${s.kind}`);
+  assert.ok(list.some((s) => /^cx-tg-/.test(s.id)) && list.some((s) => /^cx-ru-/.test(s.id)));
+});
+
+test("loadScenariosFile: пустой файл, повтор id и сценарий без поля — отказ с понятным текстом", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "el-scn-"));
+  try {
+    const w = (n, body) => { const f = path.join(dir, n); writeFileSync(f, body); return f; };
+    await assert.rejects(loadScenariosFile(w("a.mjs", "export const SCENARIOS = [];")), /нет непустого массива/);
+    const one = '{ id: "x", kind: "k", persona: "p", seed: "s", conditions: ["c"] }';
+    await assert.rejects(loadScenariosFile(w("b.mjs", `export const SCENARIOS = [${one}, ${one}];`)), /повтор id x/);
+    await assert.rejects(loadScenariosFile(w("c.mjs", 'export const SCENARIOS = [{ id: "y", kind: "k" }];')), /нет поля persona/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("evaluateTranscript: expectAnyTool — годится любая из функций; ни одной — красный; forbidText ловит запрещённую речь", () => {
+  const sc = { id: "t", expectAnyTool: ["end_call", "escalate_to_human"], forbidText: [{ re: /скидк[а-яё]* будет/i, why: "обещал скидку" }] };
+  assert.deepEqual(evaluateTranscript(sc, [agentTurn("Всего доброго", [["end_call", { reason: "x" }]])]).failures, []);
+  assert.deepEqual(evaluateTranscript(sc, [agentTurn("Попрошу коллегу. До свидания", [["escalate_to_human", { reason: "x" }]])]).failures, []);
+  const none = evaluateTranscript(sc, [agentTurn("Хорошего дня")]);
+  assert.ok(none.failures.some((f) => /ни до одной из функций end_call\/escalate_to_human/.test(f)));
+  assert.equal(none.inconclusive, false, "с прощанием — настоящий провал");
+  const cut = evaluateTranscript(sc, [agentTurn("Вам удобно?")]);
+  assert.equal(cut.inconclusive, true, "оборвано на вопросе — неопределённо");
+  const bad = evaluateTranscript(sc, [agentTurn("Скидка будет, не переживайте", [["end_call", {}]])]);
+  assert.ok(bad.failures.some((f) => /обещал скидку/.test(f)));
+});
+
+test("suite --dry с --scenarios: план берёт сценарии из файла, а не из scenarios.mjs", async () => {
+  const kinds = await loadCrmCallKinds();
+  const scenarios = await loadScenariosFile(path.join(HERE, "scenarios-clients-extra.mjs"));
+  const c = collect();
+  const r = await runSuite({ env: { ELEVENLABS_API_KEY: KEY }, flags: new Set(["dry"]), values: { only: "client-card" }, fetchImpl: async () => { throw new Error("сеть запрещена"); }, kinds, scenarios, say: c.say });
+  assert.equal(r.failed, 0);
+  assert.match(c.text(), /cx-ru-rude/);
+  assert.ok(!/client-buy-full/.test(c.text()));
+});
+
+test("scenarios-clients-extra: в регулярках forbidText нет \w и \b — по кириллице они молчат", async () => {
+  const list = await loadScenariosFile(path.join(HERE, "scenarios-clients-extra.mjs"));
+  for (const s of list) for (const f of s.forbidText ?? []) {
+    if (!/[а-яёa-z]/i.test(f.re.source)) continue;
+    if (/[а-яё]/i.test(f.re.source)) assert.ok(!/\\[wb]/.test(f.re.source), `${s.id}: в регулярке по русскому есть класс \\w или \\b`);
+  }
+  // Нарочная поломка: сам сторож должен краснеть на плохой регулярке.
+  assert.ok(/\\[wb]/.test(/скидк\w+/.source));
 });
