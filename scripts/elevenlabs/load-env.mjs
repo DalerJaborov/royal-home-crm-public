@@ -19,7 +19,8 @@ export function loadElevenLabsEnv(env = process.env, file = path.join(ROOT, "app
   const overridden = [];
   for (const [name, value] of Object.entries(parsed)) {
     if (!name.startsWith("ELEVENLABS_") || !value) continue;
-    if (name === APPROVAL_ENV) continue;
+    // Без учёта регистра (ревью 12.11): на Windows ELEVENLABS_Paid_Tests_Approved — та же переменная.
+    if (name.toUpperCase() === APPROVAL_ENV) continue;
     if (env[name] !== undefined && env[name] !== value) overridden.push(name);
     env[name] = value;
   }

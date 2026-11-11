@@ -56,6 +56,7 @@ import {
   type CallerLanguageTracker,
 } from "./liveVoiceCallerLanguage.js";
 import { BargeInHold, bargeInHoldFrames } from "./liveVoiceBargeInHold.js";
+import { liveVoiceSpendCapHeld } from "../liveVoiceSpendHold.js";
 import { PoorLineTracker, poorLineBreakNote, poorLineTranscriptLine } from "./liveVoicePoorLine.js";
 import { loadMoneyContext } from "../money.js";
 import { robotCallRefusal } from "../robotCallPolicy.js";
@@ -479,7 +480,11 @@ async function liveVoiceProviderHoldFresh(): Promise<LiveVoiceTestCallResult | n
 
 function liveVoiceProviderHoldNow(now: number = Date.now()): LiveVoiceTestCallResult | null {
   if (selectedProvider === "elevenlabs" && elevenLabsQuotaExhausted(now)) {
-    return { ok: false, busy: true, error: "У ElevenLabs закончились минуты — робозвонок остановлен, звонок перенесён" };
+    // Потолок минут из Настроек (П5) и пустой счёт ElevenLabs — разные причины, владелец
+    // должен видеть настоящую (ревью 12.11.2026).
+    return liveVoiceSpendCapHeld(now)
+      ? { ok: false, busy: true, error: "Достигнут потолок минут робота из Настроек — робозвонок остановлен до конца периода, звонок перенесён" }
+      : { ok: false, busy: true, error: "У ElevenLabs закончились минуты — робозвонок остановлен, звонок перенесён" };
   }
   if (liveVoiceSelectedProviderPaused(now)) {
     return { ok: false, busy: true, error: "Голос робота не подключается — робот на паузе" };
@@ -4638,7 +4643,7 @@ function wireRtpSocket(session: LiveVoiceSession): void {
         // подъём частоты не нужен вовсе) — клиент сам называет её. Короткий звук поверх
         // речи робота придерживается и уходит тишиной (liveVoiceBargeInHold.ts).
         const inputRate = session.gemini.inputSampleRateHz;
-        for (const frame of session.bargeInHold.push(toModel, session.metrics.botOnLine, gate.bargeIn)) {
+        for (const frame of session.bargeInHold.push(toModel, session.metrics.botOnLine, gate.speech)) {
           session.gemini.sendAudioChunk(int16ToBufferLE(resamplePcm16(frame, CHANNEL_SAMPLE_RATE, inputRate)), inputRate);
         }
       }
@@ -5354,10 +5359,13 @@ async function processLiveVoiceAriEvent(event: AriEvent): Promise<void> {
     // Gemini отказывал подключаться несколько раз подряд — робот на паузе (выключатель,
     // п.7 аудита 09.10): звонок сразу станции, без 25 с ожидания подключения.
     if (arrival && channelId && liveVoiceInboundPaused()) {
+      const capHeld = liveVoiceSpendCapHeld();
       void logSystemError(
         "telephony",
-        `Живой голос: робот на паузе (голос робота отказывает) — входящий ${channelId} отдан станции (автоответчик), трубку робот не брал.`,
-        { dedupKey: "live-voice-gemini-paused-skip" }
+        capHeld
+          ? `Живой голос: достигнут потолок минут робота из Настроек — входящий ${channelId} отдан станции (автоответчик), трубку робот не брал.`
+          : `Живой голос: робот на паузе (голос робота отказывает) — входящий ${channelId} отдан станции (автоответчик), трубку робот не брал.`,
+        { dedupKey: capHeld ? "live-voice-spend-cap-skip" : "live-voice-gemini-paused-skip" }
       );
       const creds = await loadCredsSafe();
       if (creds) await handBackOrHangup(creds, channelId, "робот на паузе: Gemini отказывает");

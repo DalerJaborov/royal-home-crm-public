@@ -112,6 +112,7 @@ describe("звонок владельца 11.11: сокет закрываетс
 describe("звонок владельца 11.11: короткий звук поверх робота его не перебивает", () => {
   const frame = (v: number) => new Int16Array(160).fill(v);
   const isSilence = (f: Int16Array) => f.every((x) => x === 0);
+  const isQuarter = (f: Int16Array, v: number) => f.every((x) => x === Math.round(v / 4));
 
   it("по умолчанию 240 мс = 12 кадров; 0 — выключено; потолок 600 мс", () => {
     expect(BARGE_IN_HOLD_DEFAULT_MS).toBe(240);
@@ -127,23 +128,24 @@ describe("звонок владельца 11.11: короткий звук по�
     expect(hold.push(f, false, true)).toEqual([f]);
   });
 
-  it("вздох 100 мс поверх робота уходит тишиной той же длины, поток не рвётся", () => {
+  it("вздох 100 мс поверх робота уходит приглушённым (−12 дБ) той же длины, поток не рвётся", () => {
     const hold = new BargeInHold(12);
     const out: Int16Array[] = [];
     for (let i = 0; i < 5; i++) out.push(...hold.push(frame(900), true, true));
     expect(out).toHaveLength(0); // придержано
-    for (let i = 0; i < 3; i++) out.push(...hold.push(frame(5), true, false));
-    expect(out).toHaveLength(8); // 5 громких + 3 тихих — ни один кадр не потерян
-    expect(out.slice(0, 5).every(isSilence)).toBe(true);
+    for (let i = 0; i < 5; i++) out.push(...hold.push(frame(8), true, false));
+    expect(out).toHaveLength(10); // 5 громких + 5 тихих — ни один кадр не потерян
+    expect(out.slice(0, 5).every((f) => isQuarter(f, 900))).toBe(true);
+    expect(out.some(isSilence)).toBe(false);
     expect(hold.suppressed).toBe(1);
   });
 
-  it("речь поверх робота (12 громких кадров, паузы между слогами) уходит целиком, начало фразы не теряется", () => {
+  it("речь поверх робота (12 кадров речи, смычки между слогами) уходит целиком, начало фразы не теряется", () => {
     const hold = new BargeInHold(12);
     const out: Int16Array[] = [];
     const sent: Int16Array[] = [];
-    for (let i = 0; i < 14; i++) {
-      const loud = i % 7 !== 3; // пауза 20 мс между слогами
+    for (let i = 0; i < 16; i++) {
+      const loud = !(i >= 3 && i < 7) || i === 5; // смычка 60 мс между слогами
       const f = frame(loud ? 900 + i : 5);
       sent.push(f);
       out.push(...hold.push(f, true, loud));

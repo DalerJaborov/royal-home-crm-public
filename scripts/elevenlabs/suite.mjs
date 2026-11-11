@@ -12,7 +12,7 @@
 // Проверки: судья ElevenLabs по условиям сценария + код по расшифровке (вызвал ли агент нужную
 // функцию с нужными полями, нет ли слова «лутфан», не вызвал ли запрещённую функцию).
 // ВНИМАНИЕ: каждая симуляция тратит кредиты ElevenLabs (модель собеседника и судья). --dry — план без сети.
-// ЗАМОК (11.11.2026, paid-guard.mjs): без --budget-credits=N и ELEVENLABS_PAID_TESTS_APPROVED=1 скрипт
+// ЗАМОК (11.11.2026, paid-guard.mjs): без --budget-credits=N и ELEVENLABS_PAID_TESTS_APPROVED=<сегодняшняя дата> скрипт
 // выходит до первого платного запроса; между видами звонка — стоп, когда потрачено ≥ бюджета.
 import { pathToFileURL } from "node:url";
 import { ensureTools } from "./patch-check.mjs";

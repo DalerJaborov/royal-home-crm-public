@@ -5,7 +5,7 @@
 // Правило: скрипт, который тратит кредиты, НЕ делает ни одного платного запроса, пока не
 // заданы ОБА ключа:
 //   --budget-credits=N                  — сколько кредитов можно потратить на этот запуск;
-//   ELEVENLABS_PAID_TESTS_APPROVED=1    — окружение, ставит только владелец.
+//   ELEVENLABS_PAID_TESTS_APPROVED=<сегодняшняя дата ГГГГ-ММ-ДД по Душанбе> — окружение, ставит только владелец, на один день.
 // Перед стартом — остаток подписки (GET /v1/user/subscription, бесплатно) и отказ, если
 // бюджет больше остатка; во время — стоп, как только потрачено ≥ бюджета; после — итог.
 // Сторож (unguardedPaidScripts ниже, тест в elevenlabs-scripts.test.mjs) не пропустит
@@ -35,19 +35,31 @@ export const PAID_ENDPOINT_PATTERNS = [
 
 export const APPROVAL_ENV = "ELEVENLABS_PAID_TESTS_APPROVED";
 
+/** Сегодняшняя дата по Душанбе (UTC+5), «ГГГГ-ММ-ДД». */
+export function dushanbeDate(now = Date.now()) {
+  return new Date(now + 5 * 3600_000).toISOString().slice(0, 10);
+}
+
 /**
  * Решение «можно ли платить». Без сети. Возвращает { allowed, budget, reason }.
  * values — разобранные флаги (`--budget-credits=N` → values["budget-credits"]).
+ *
+ * Разрешение — на ОДИН день (ревью 12.11.2026): значение — сегодняшняя дата по Душанбе,
+ * `ELEVENLABS_PAID_TESTS_APPROVED=2026-11-12`. «1» больше не открывает: на Windows переменная,
+ * однажды заданная навсегда (setx) или строкой в .env с другим регистром букв, держала бы
+ * замок открытым для каждого следующего запуска. Имя ищется без учёта регистра.
  */
-export function paidRunGate({ env = {}, values = {} } = {}) {
+export function paidRunGate({ env = {}, values = {}, now = Date.now() } = {}) {
   const raw = values["budget-credits"];
   const budget = raw === undefined || raw === true || raw === "" ? NaN : Number(raw);
-  const approved = String(env[APPROVAL_ENV] ?? "").trim() === "1";
+  const today = dushanbeDate(now);
+  const approvals = Object.entries(env).filter(([k]) => k.toUpperCase() === APPROVAL_ENV).map(([, v]) => String(v ?? "").trim());
+  const approved = approvals.length > 0 && approvals.every((v) => v === today);
   if (!Number.isInteger(budget) || budget <= 0) {
     return { allowed: false, budget: null, reason: "платный запуск закрыт: нужен --budget-credits=N (целое число больше нуля)" };
   }
   if (!approved) {
-    return { allowed: false, budget, reason: `платный запуск закрыт: ${APPROVAL_ENV}=1 ставит только владелец` };
+    return { allowed: false, budget, reason: `платный запуск закрыт: ${APPROVAL_ENV}=${today} (сегодняшняя дата) ставит только владелец` };
   }
   return { allowed: true, budget, reason: null };
 }

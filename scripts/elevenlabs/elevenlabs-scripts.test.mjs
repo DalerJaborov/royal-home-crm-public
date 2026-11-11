@@ -22,7 +22,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const KEY = "sk_" + "test" + "0123456789abcdef0123456789abcdef";
 const json = (status, body) => ({ status, text: async () => (typeof body === "string" ? body : JSON.stringify(body)) });
 // Платный прогон в тестах — только через замок (paid-guard.mjs): разрешение владельца в окружении.
-const PAID_ENV = { ELEVENLABS_API_KEY: KEY, ELEVENLABS_PAID_TESTS_APPROVED: "1" };
+const PAID_ENV = { ELEVENLABS_API_KEY: KEY, ELEVENLABS_PAID_TESTS_APPROVED: dushanbeDate() };
 const collect = () => {
   const lines = [];
   return { lines, say: (...p) => lines.push(redact(p.join(" "), KEY)), text: () => lines.join("\n") };
@@ -634,7 +634,7 @@ test("patch-check: сервис слил PATCH №1 глубоко — «чуж�
 
 // ── ЗАМОК ПЛАТНЫХ ПРОВЕРОК (11.11.2026, paid-guard.mjs) ─────────────────────────────────────
 // Владелец: «сделай так чтобы автотестов не было … надо полностью контролировать это».
-import { APPROVAL_ENV, PAID_ENDPOINT_PATTERNS, openPaidBudget, paidRunGate, unguardedPaidScripts } from "./paid-guard.mjs";
+import { APPROVAL_ENV, dushanbeDate, PAID_ENDPOINT_PATTERNS, openPaidBudget, paidRunGate, unguardedPaidScripts } from "./paid-guard.mjs";
 import { mkdirSync } from "node:fs";
 
 const isPaidUrl = (url) => PAID_ENDPOINT_PATTERNS.some((re) => re.test(String(url)));
@@ -691,13 +691,15 @@ const suiteRun = async (srv, { env = PAID_ENV, values = {}, kinds = TWO_SIM_KIND
 };
 
 test("замок: paidRunGate — без бюджета или без разрешения владельца закрыто; кривой бюджет не проходит", () => {
-  const ok = { [APPROVAL_ENV]: "1" };
+  const ok = { [APPROVAL_ENV]: dushanbeDate() };
   assert.equal(paidRunGate({ env: ok, values: { "budget-credits": "500" } }).allowed, true);
   assert.equal(paidRunGate({ env: ok, values: { "budget-credits": "500" } }).budget, 500);
   for (const bad of [undefined, true, "", "0", "-5", "1.5", "abc", "1e3x"]) {
     assert.equal(paidRunGate({ env: ok, values: { "budget-credits": bad } }).allowed, false, `бюджет ${bad}`);
   }
-  for (const env of [{}, { [APPROVAL_ENV]: "0" }, { [APPROVAL_ENV]: "yes" }, { [APPROVAL_ENV]: "true" }]) {
+  // «1» и вчерашняя дата больше не открывают (разрешение на один день); чужой регистр имени — тоже имя.
+  const yesterday = dushanbeDate(Date.now() - 86_400_000);
+  for (const env of [{}, { [APPROVAL_ENV]: "0" }, { [APPROVAL_ENV]: "1" }, { [APPROVAL_ENV]: "yes" }, { [APPROVAL_ENV]: "true" }, { [APPROVAL_ENV]: yesterday }, { ...ok, ELEVENLABS_Paid_Tests_Approved: "1" }]) {
     assert.equal(paidRunGate({ env, values: { "budget-credits": "500" } }).allowed, false, JSON.stringify(env));
   }
 });

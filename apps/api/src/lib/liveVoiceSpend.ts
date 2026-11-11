@@ -142,7 +142,7 @@ async function alertOnce(tag: string, text: { title: string; body: string }, thr
     // Между процессами и после перезапуска повтор гасит сама очередь: тег уже есть в
     // PendingDirectorAlert/Notification — второй раз не ставим.
     if (!(await shouldAlert(tag, ALERT_DEDUP_WINDOW_MS))) return;
-    await enqueueDirectorAlert({
+    const queued = await enqueueDirectorAlert({
       title: text.title,
       body: text.body,
       url: "/settings?tab=bot",
@@ -152,6 +152,11 @@ async function alertOnce(tag: string, text: { title: string; body: string }, thr
       tag,
       recipientRoles: ["DIRECTOR", "ADMIN"],
     });
+    // Не встала в очередь (сбой базы) — метку снимаем: следующий тик поставит снова (ревью 12.11).
+    if (!queued) {
+      alerted.delete(tag);
+      return;
+    }
     // В журнал — для утреннего отчёта и «Здоровья системы», без второго пуша.
     void logSystemError("telephony", `${text.title}. ${text.body}`, { dedupKey: tag, silent: true });
   } catch (err) {
