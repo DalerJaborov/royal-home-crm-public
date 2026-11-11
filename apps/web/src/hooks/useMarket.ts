@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { MarketBuyerListingsResponse, MarketSegmentsQuery, MarketSegmentsResponse } from "@royal-home/shared";
 import { api } from "../lib/api";
 import type { MarketDynamicsData, MarketPropertyEstimate, OwnMarketMatchesData } from "../types";
 
@@ -51,5 +52,32 @@ export function useSetMatchStatus(propertyId: string) {
     mutationFn: ({ matchId, status }) =>
       api(`/market/matches/${matchId}/status`, { method: "POST", body: { status } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["market-matches", propertyId] }),
+  });
+}
+
+/**
+ * Объявления с площадок под запрос покупателя (GET /clients/:id/market-listings): отдельная секция
+ * рядом с нашими объектами. Подбор и исключение «наших» считает сервер.
+ */
+export function useMarketBuyerListings(clientId: string | null | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["client-match", clientId, "market"],
+    queryFn: () => api<MarketBuyerListingsResponse>(`/clients/${clientId}/market-listings`),
+    enabled: !!clientId && enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+/** Цены по сегментам рынка (GET /market/segments): район × комнаты × ремонт; фильтры — на сервере. */
+export function useMarketSegments(filters: Partial<Omit<MarketSegmentsQuery, "city">>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) if (value != null && value !== "") params.set(key, String(value));
+  const query = params.toString();
+  return useQuery({
+    queryKey: ["market-segments", query],
+    queryFn: () => api<MarketSegmentsResponse>(`/market/segments${query ? `?${query}` : ""}`),
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 }

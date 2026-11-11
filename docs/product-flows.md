@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **736**. Развилок в самих путях: **2424**; вместе с задачами по расписанию и фоновыми заданиями — **3928**. Модулей: **82**.
+Путей: **738**. Развилок в самих путях: **2432**; вместе с задачами по расписанию и фоновыми заданиями — **3938**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -650,7 +650,7 @@
     · меняет в базе: agent
     - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: new Date(), frozenById: actor.id, frozenRe…
       · меняет в базе: agent
-    - await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, "freeze");
+    - frozenClearedFields = await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, "freeze");
       · зовёт clearAgentFromSettingsReferences()
     - releasedLeads = await releaseLeadsToQueue(tx, toRelease, { agentId: agent.id, actorId: actor.id, actorName: a…
       · зовёт releaseLeadsToQueue()
@@ -956,8 +956,6 @@
       · зовёт invalidateAgentAccess()
     - closeStreamsForAgent(deleted.id);
       · зовёт closeStreamsForAgent()
-    - await clearAgentFromSettingsReferences(prisma, deleted.id, deleted.fullName, "deactivate").catch((err)
-      · зовёт clearAgentFromSettingsReferences()
   - если сорвалось
     - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
       - return fail(404, "Агент не найден");
@@ -1097,9 +1095,9 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- res.json(await listStaffDirectory(req.agent!));
+- res.json( await listStaffDirectory(req.agent!, { includeFormer: wantsFormerStaff(req.query[INCLUDE_FORMER_STA…
   · ответ 200
-  - const agents = await prisma.agent.findMany({ select: isAdmin ? ADMIN_DIRECTORY_SELECT : PEER_DIRECTORY_SELECT…
+  - const agents = await prisma.agent.findMany({ ...(includeFormer ? {} : { where: { isActive: true } }), select:…
     · читает в базе: agent
   - если !isAdmin || opts.telephony === false
     - return agents;
@@ -3373,6 +3371,45 @@
   - void logSystemError( "telephony", `Звонок роботом по карточке ${client.shortId}: запись в хронологию не легла…
     · запись в журнал ошибок
 - res.json({ ok: true, channelId: result.channelId });
+  · ответ 200
+
+### GET /api/v1/clients/:id/market-listings
+
+`apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = marketBuyerListingsQuerySchema.safeParse(req.query);
+  · проверяет данные схемой marketBuyerListingsQuerySchema
+- если !id.success || !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры подбора с площадок" });
+    · ответ 400 — «Неверные параметры подбора с площадок»
+- const client = await prisma.client.findUnique({ where: { id: id.data }, include: { desiredPlaces: true } });
+  · читает в базе: client
+- если !client || client.deletedAt
+  - return res.status(404).json({ error: "Клиент не найден" });
+    · ответ 404 — «Клиент не найден»
+- если !canAccessAssignedAgent(req, client.assignedAgentId)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- const ownAgentId = scopeToOwnAgent(req);
+  · зовёт scopeToOwnAgent()
+- если ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt
+  - return res.json(empty("pending_acceptance"));
+    · ответ 200
+- если !confirmedClientIntents(client).buys
+  - return res.json(empty("not_buyer"));
+    · ответ 200
+- const wants = await buyerWantsFromCriteria(currentBuyerMatchingCriteria(client));
+  · зовёт buyerWantsFromCriteria()
+- const criteria = describeBuyerCriteria(wants);
+  · зовёт describeBuyerCriteria()
+- если !hasBuyerCriteria(wants)
+  - return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
+    · ответ 200
+- const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);
+  · зовёт findBuyerListings()
+- const body: MarketBuyerListingsResponse = { status: "ok", criteria, total, totalIsLowerBound, budgetMaxTjs: w…
+  · зовёт phoneSafeText()
+- return res.json(body);
   · ответ 200
 
 ### GET /api/v1/clients/:id/match
@@ -8632,6 +8669,18 @@
 - const result = await findSimilar({ ...subjectBase, propertyType: p.type }, { propertyId: p.id });
   · зовёт findSimilar()
 - res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === "ok" ?…
+  · ответ 200
+
+### GET /api/v1/market/segments
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = marketSegmentsQuerySchema.safeParse(req.query);
+  · проверяет данные схемой marketSegmentsQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- res.json(await findSegments(parsed.data));
   · ответ 200
 
 ## /api/v1/market/matches
@@ -15788,7 +15837,7 @@
     - если newMontajerId
       - если previousMontajerAgentId
         - пробует
-          - const oldMontajer = await prisma.agent.findUnique({ where: { id: previousMontajerAgentId }, select: { telegra…
+          - const oldMontajer = await prisma.agent.findFirst({ where: { id: previousMontajerAgentId, isActive: true }, se…
             · читает в базе: agent
           - если oldMontajer?.telegramChatId
             - await sendToMontajer(oldMontajer.telegramChatId, `Объект №${holder.shortId} передан другому монтажёру.`, { co…
@@ -15799,6 +15848,9 @@
     - иначе
       - void logSystemError("video-handoff", `Монтажёра сняли в Настройках — объект №${holder.shortId} ждёт назначени…
         · запись в журнал ошибок
+  - если !pair.videoMontajerAgentId
+    - void alertNoMontajerIfWorkWaits().catch((err)
+      · запись в журнал ошибок
 - если metaIgToken !== undefined && metaIgToken.trim()
   - пробует
     - const defaultAccount = await prisma.messengerAccount.findFirst({ where: { channel: "INSTAGRAM", isDefault: tr…
@@ -16961,7 +17013,7 @@
 
 `apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
-- const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true },…
+- const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, selec…
   · читает в базе: agent
 - если agentIds.length === 0
   - return res.json({ statuses: STAGE_STATUSES, agents: [] });
@@ -16987,7 +17039,7 @@
 
 - const startOfMonth = dushanbeStartOfMonth();
   · зовёт dushanbeStartOfMonth()
-- const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true, f…
+- const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, ...(can(req, "agents.ma…
   · читает в базе: agent
 - const [interactions, deals, clients, pointsTotals, money, loadCounts, limits] = await Promise.all([ prisma.in…
   · читает в базе: interaction
@@ -24613,9 +24665,19 @@
     · зовёт runVideoHandoffRedeliveryTick()
     - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoHandoffEnabled…
       · читает в базе: settings
-    - если !settings?.videoHandoffEnabled || !settings.videoMontajerAgentId
+    - если !settings?.videoHandoffEnabled
       - return { redelivered: 0, gaveUp: 0, released: false, alerted: 0, manualExpired: 0 };
         · дословно из кода
+    - если !settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))
+      - const alarmed = await alertNoMontajerIfWorkWaits(now).catch((err)
+        · запись в журнал ошибок
+        - void logSystemError("video-handoff", `Тревога «монтажёр не назначен» не ушла: ${describeError(err)}`);
+          · запись в журнал ошибок
+    - если await handOverHolderToCurrentMontajer(montajerAgentId, now)
+      - handedOver++;
+        · дословно из кода
+    - await handOverNarrationToCurrentMontajer(montajerAgentId).catch((err)
+      · запись в журнал ошибок
     - const holders = await prisma.property.findMany({ where: EDITOR_HOLDER_WHERE, select: { id: true, shortId: tru…
       · читает в базе: property
     - const queuedCount = undelivered.length > 0 ? await prisma.property.count({ where: { videoHandoffStatus: "QUEU…
@@ -24637,7 +24699,7 @@
         - если await shouldAlert(`video-handoff-undelivered-log-${p.id}`, 24 * 60 * 60 * 1000, now)
           - void logSystemError( "video-handoff", `Объект №${p.shortId}: исходники так и не дошли до монтажёра после ${p.…
             · запись в журнал ошибок
-          - await sendGiveUpFallbackLinks(p.id, p.shortId, settings.videoMontajerAgentId).catch((err)
+          - await sendGiveUpFallbackLinks(p.id, p.shortId, montajerAgentId).catch((err)
             · запись в журнал ошибок
         - continue;
           · переходит к следующему
@@ -24649,7 +24711,7 @@
       - void logSystemError( "video-handoff", `Объект №${p.shortId}: исходники не дошли до монтажёра (попытка ${p.vid…
         · запись в журнал ошибок
       - пробует
-        - если await dispatchToEditor(p.id, settings.videoMontajerAgentId)
+        - если await dispatchToEditor(p.id, montajerAgentId)
           - redelivered++;
             · дословно из кода
       - если сорвалось
