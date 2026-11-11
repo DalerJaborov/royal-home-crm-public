@@ -51,6 +51,8 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "./assistantPropertyOffers.js": { handlePropertyOfferCallback: async () => false },
     // «🔕 Не присылать такое» (11.11.2026) — свои кнопки и фразы, к кнопкам связок не относятся.
     "./staffNotice.js": { handleStaffNoticeCallback: async () => false, handleNoticePreferenceText: async () => false },
+    // Кнопки напоминаний об оплатах (11.11.2026) — свой обработчик.
+    "../lib/paymentReminders.js": { handlePaymentReminderCallback: async () => false },
     "../ai/assistant/tools/expenseBatchTool.js": { ADD_EXPENSES_TOOL: "add_expenses" },
     "../lib/telegramModeration.js": { claimCallback: async () => true },
     "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, discardPendingAssistantAction: cancel },
