@@ -5,9 +5,9 @@
  */
 import { liveVoiceErrorForPerson } from "../../lib/telephony/liveVoiceUserError.js";
 import { markAgentAttempt } from "../../lib/clientWorkStalled.js";
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
-import { clientMessageSchema } from "@royal-home/shared";
+import { clientMessageSchema, robotCallStopUpdateSchema, type RobotCallStopState } from "@royal-home/shared";
 import { maskClientPhone } from "../../lib/clientPhone.js";
 import { resolveClientPhoneSelection } from "../../lib/clientPhoneSelection.js";
 import { prisma } from "../../db.js";
@@ -42,6 +42,7 @@ import { describeProperty } from "../../messengers/sharedMedia.js";
 import { logTimeline } from "../../lib/timeline.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { describeError } from "../../lib/describeError.js";
+import { activeRobotCallStops, clearRobotCallStop, hasOptedOutOfContact, robotCallPhoneKey, setRobotCallStop } from "../../lib/robotCallPolicy.js";
 
 export const communicationsRouter = Router();
 
@@ -582,6 +583,95 @@ communicationsRouter.post("/:id/live-voice-call", requireAuth, async (req, res) 
     );
   }
   res.json({ ok: true, channelId: result.channelId });
+});
+
+/**
+ * «НЕ ЗВОНИТЬ РОБОТОМ» В КАРТОЧКЕ КЛИЕНТА (П3, 11.11.2026).
+ *
+ * Отметка живёт в RobotCallStop и читается одной дверью lib/robotCallPolicy.ts — её
+ * спрашивает мост живого голоса перед каждым набором (опрос, проверка продавца,
+ * приглашение, кнопка «Звонок роботом»). Здесь только поставить, снять и показать.
+ *
+ * Права — как у прочих действий карточки: свой клиент (canAccessAssignedAgent), правка
+ * чужой карточки запрещена (foreignWriteDenied), Корзина и непринятый лид — нет.
+ * Поставить может любой, кто пишет в карточку: запрет защищает клиента. Снять просьбу
+ * самого клиента (из переписки, голосом, со станции) — только руководство; отметку,
+ * поставленную сотрудником, снимает тот же круг, что и ставит.
+ */
+async function robotCallStopState(
+  req: Request,
+  client: { id: string; phone: string }
+): Promise<RobotCallStopState> {
+  const [stops, optedOutInChat] = await Promise.all([
+    activeRobotCallStops(robotCallPhoneKey(client.phone), client.id),
+    hasOptedOutOfContact({ clientId: client.id }),
+  ]);
+  const supervisor = LIVE_VOICE_ROLES.includes(req.agent!.role);
+  // Источник для подписи — просьба клиента важнее отметки сотрудника.
+  const stop = stops.find((s) => s.source !== "STAFF") ?? stops[0];
+  return {
+    stopped: stops.length > 0,
+    source: stop?.source ?? null,
+    since: stop?.createdAt.toISOString() ?? null,
+    optedOutInChat,
+    // Снятие гасит ВСЕ отметки номера и карточки: просьбу клиента среди них снимает только руководство.
+    canClear: stops.length > 0 && (supervisor || stops.every((s) => s.source === "STAFF")),
+  };
+}
+
+async function loadClientForRobotStop(req: Request, id: string, write: boolean) {
+  const client = await prisma.client.findUnique({
+    where: { id },
+    select: { id: true, shortId: true, phone: true, assignedAgentId: true, assignmentCompletedAt: true, deletedAt: true, acceptedAt: true },
+  });
+  if (!client) return { ok: false as const, status: 404, error: "Клиент не найден" };
+  if (!canAccessAssignedAgent(req, client.assignedAgentId)) return { ok: false as const, status: 403, error: "Недостаточно прав" };
+  if (write) {
+    const ownAgentId = scopeToOwnAgent(req);
+    const denied = foreignWriteDenied(req, client, ownAgentId);
+    if (denied) return { ok: false as const, status: 403, error: denied };
+    if (client.deletedAt) return { ok: false as const, status: 409, error: "Карточка в Корзине — сначала восстановите её" };
+    if (ownAgentId && !client.acceptedAt) return { ok: false as const, status: 403, error: "Сначала примите лид — до принятия карточка закрыта" };
+  }
+  return { ok: true as const, client };
+}
+
+communicationsRouter.get("/:id/robot-call-stop", requireAuth, async (req, res) => {
+  const found = await loadClientForRobotStop(req, req.params.id, false);
+  if (!found.ok) return res.status(found.status).json({ error: found.error });
+  res.json(await robotCallStopState(req, found.client));
+});
+
+communicationsRouter.put("/:id/robot-call-stop", requireAuth, async (req, res) => {
+  const parsed = robotCallStopUpdateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Неверный запрос", details: parsed.error.flatten() });
+  const found = await loadClientForRobotStop(req, req.params.id, true);
+  if (!found.ok) return res.status(found.status).json({ error: found.error });
+  const { client } = found;
+  if (!isDialableTajikNumber(client.phone)) {
+    return res.status(409).json({ error: "У клиента нет номера, на который робот мог бы позвонить" });
+  }
+
+  if (parsed.data.stopped) {
+    const result = await setRobotCallStop({
+      phone: client.phone,
+      clientId: client.id,
+      source: "STAFF",
+      setByAgentId: req.agent!.id,
+      note: parsed.data.note ?? null,
+    });
+    if (result.created) {
+      logAudit(req, "ROBOT_CALL_STOP_SET", "Client", client.id, { shortId: client.shortId, stopId: result.id });
+    }
+  } else {
+    const current = await robotCallStopState(req, client);
+    if (current.stopped && !current.canClear) {
+      return res.status(403).json({ error: "Клиент сам просил не звонить — снять отметку может только руководитель" });
+    }
+    const cleared = await clearRobotCallStop({ phone: client.phone, clientId: client.id, clearedByAgentId: req.agent!.id });
+    if (cleared > 0) logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared });
+  }
+  res.json(await robotCallStopState(req, client));
 });
 
 const dialSchema = z.object({

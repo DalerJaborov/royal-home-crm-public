@@ -7,13 +7,13 @@ import { usableRouteId } from "../lib/routeId";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { ApiError } from "../lib/apiError";
 import { assignLeadErrorText } from "../lib/assignLeadError";
-import { ArrowLeft, ArrowRightLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, RefreshCw, RotateCcw, Search, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, PhoneOff, RefreshCw, RotateCcw, Search, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
 import { ClientMoreMenu, countMoreItems, type MoreGroup, type MoreItem } from "../components/ClientMoreMenu";
 import { useProperties, useProperty } from "../hooks/useProperties";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { ClientFormModal } from "../components/ClientFormModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { isRequiresRelease, useAcceptLead, useAssignLead, useClient, useClientToCandidate, useDeclineLead, useDeleteClient, useLiveVoiceCall, usePropertyPickerOptions, useUpdateClient, type ReleaseCandidate } from "../hooks/useClients";
+import { isRequiresRelease, useAcceptLead, useAssignLead, useClient, useClientToCandidate, useDeclineLead, useDeleteClient, useLiveVoiceCall, usePropertyPickerOptions, useRobotCallStop, useSetRobotCallStop, useUpdateClient, type ReleaseCandidate } from "../hooks/useClients";
 import { CallPhoneChooser, type CallPhoneOption } from "../components/CallPhoneChooser";
 import { MatchPanel } from "../components/match/MatchPanel";
 import { CloseDealChoiceModal } from "../components/CloseDealChoiceModal";
@@ -412,6 +412,10 @@ function ClientDetailCard() {
    * видимости кнопки, не защита: окончательное решение всегда за сервером.
    */
   const { data: settings } = useSettings();
+  // «Не звонить роботом» (П3, 11.11.2026): читаем, только когда робот вообще включён.
+  const robotStop = useRobotCallStop(client?.id, !!settings?.liveVoiceEnabled);
+  const setRobotStop = useSetRobotCallStop(client?.id ?? "");
+  const robotStopError = setRobotStop.error instanceof Error ? setRobotStop.error.message : null;
   const leadCallMinSeconds = settings?.leadCallMinSeconds ?? 30;
   // Факты считает сервер по ПОЛНОЙ истории: карточка режет хронологию на 200 записей,
   // и вывод из неё прятал «Завершить сделку»/«Передать» после 200 новых записей (WEB-PAGES21).
@@ -1079,6 +1083,29 @@ function ClientDetailCard() {
   }
 
   /**
+   * «НЕ ЗВОНИТЬ РОБОТОМ» (П3, 11.11.2026): тумблер на ПК и телефоне — одно меню «Ещё».
+   * Робот не наберёт этот номер ни по какому поводу (опрос, проверка продавца, кнопка
+   * выше). Просьбу самого клиента снимает только руководитель — тогда строка погашена.
+   */
+  if (!locked && settings?.liveVoiceEnabled && robotStop.data) {
+    const stop = robotStop.data;
+    const clientAsked = stop.stopped && !stop.canClear;
+    extraItems.push({
+      key: "robot-stop",
+      label: "Не звонить роботом",
+      icon: PhoneOff,
+      checked: stop.stopped,
+      hint: clientAsked
+        ? "Клиент сам просил не звонить — снять может руководитель"
+        : !stop.stopped && stop.optedOutInChat
+          ? "Клиент просил в переписке не беспокоить — робот не звонит и так"
+          : undefined,
+      disabled: clientAsked,
+      onSelect: () => setRobotStop.mutate(!stop.stopped),
+    });
+  }
+
+  /**
    * «В КАНДИДАТЫ» (17.09.2026). Реклама вакансии идёт вместе с рекламой квартир,
    * откликнувшиеся на работу попадали сюда покупателем с агентом (302, 315, 319).
    * Виден тому же кругу, что и разбор очереди лидов (clients.assign): решение о
@@ -1208,7 +1235,7 @@ function ClientDetailCard() {
               Свернуть
             </button>
           </div>
-          <ClientMoreMenu groups={moreGroups} error={toCandidateError} />
+          <ClientMoreMenu groups={moreGroups} error={toCandidateError ?? robotStopError} />
         </div>
       )}
 
@@ -1273,7 +1300,7 @@ function ClientDetailCard() {
               setShowMerge(candidate);
             }} />
           )}
-          <ClientMoreMenu groups={moreGroups} error={toCandidateError} onPick={() => setShowMoreSheet(false)} />
+          <ClientMoreMenu groups={moreGroups} error={toCandidateError ?? robotStopError} onPick={() => setShowMoreSheet(false)} />
         </Rh2Sheet>
       )}
       {showInteraction && !locked && client.id && (
@@ -1524,7 +1551,7 @@ function ClientDetailCard() {
             onShowInteraction={() => scheduleShowing()}
             onMerge={(c) => setShowMerge(c)}
             moreGroups={moreGroups}
-            moreError={toCandidateError}
+            moreError={toCandidateError ?? robotStopError}
             showMoreSheet={showMoreSheet}
             onShowMoreSheet={setShowMoreSheet}
             commonMiddle={commonMiddle}

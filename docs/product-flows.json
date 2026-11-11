@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 733,
-  "forks": 3910,
+  "endpoints": 735,
+  "forks": 3918,
   "mounts": 82,
   "cron": 125,
   "jobs": 32,
@@ -16568,6 +16568,201 @@
      "t": "res.status(204).send();",
      "a": [
       "ответ 204"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/robot-call-stop",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/robot-call-stop",
+   "file": "apps/api/src/routes/clients/communications.ts",
+   "router": "communicationsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!found.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(found.status).json({ error: found.error });",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await robotCallStopState(req, found.client));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/:id/robot-call-stop",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/robot-call-stop",
+   "file": "apps/api/src/routes/clients/communications.ts",
+   "router": "communicationsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = robotCallStopUpdateSchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой robotCallStopUpdateSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный запрос\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверный запрос»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!found.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(found.status).json({ error: found.error });",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!isDialableTajikNumber(client.phone)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"У клиента нет номера, на который робот мог бы позвонить\" });",
+       "a": [
+        "ответ 409 — «У клиента нет номера, на который робот мог бы позвонить»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "parsed.data.stopped",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await setRobotCallStop({ phone: client.phone, clientId: client.id, source: \"STAFF\", setByAgent…",
+       "a": [
+        "зовёт setRobotCallStop()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "result.created",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_STOP_SET\", \"Client\", client.id, { shortId: client.shortId, stopId: result.id });",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "else",
+     "t": "иначе",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "current.stopped && !current.canClear",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"Клиент сам просил не звонить — снять отметку может только руководитель\"…",
+         "a": [
+          "ответ 403 — «Клиент сам просил не звонить — снять отметку может только руководитель»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const cleared = await clearRobotCallStop({ phone: client.phone, clientId: client.id, clearedByAgentId: req.ag…",
+       "a": [
+        "зовёт clearRobotCallStop()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "cleared > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_STOP_CLEARED\", \"Client\", client.id, { shortId: client.shortId, cleared });",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await robotCallStopState(req, client));",
+     "a": [
+      "ответ 200"
      ],
      "c": []
     }

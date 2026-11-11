@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **733**. Развилок в самих путях: **2411**; вместе с задачами по расписанию и фоновыми заданиями — **3910**. Модулей: **82**.
+Путей: **735**. Развилок в самих путях: **2419**; вместе с задачами по расписанию и фоновыми заданиями — **3918**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3804,6 +3804,49 @@
   · зовёт publishClientUpdated()
 - res.status(204).send();
   · ответ 204
+
+### GET /api/v1/clients/:id/robot-call-stop
+
+`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !found.ok
+  - return res.status(found.status).json({ error: found.error });
+    · ответ (код зависит от условия)
+- res.json(await robotCallStopState(req, found.client));
+  · ответ 200
+
+### PUT /api/v1/clients/:id/robot-call-stop
+
+`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = robotCallStopUpdateSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой robotCallStopUpdateSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный запрос", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный запрос»
+- если !found.ok
+  - return res.status(found.status).json({ error: found.error });
+    · ответ (код зависит от условия)
+- если !isDialableTajikNumber(client.phone)
+  - return res.status(409).json({ error: "У клиента нет номера, на который робот мог бы позвонить" });
+    · ответ 409 — «У клиента нет номера, на который робот мог бы позвонить»
+- если parsed.data.stopped
+  - const result = await setRobotCallStop({ phone: client.phone, clientId: client.id, source: "STAFF", setByAgent…
+    · зовёт setRobotCallStop()
+  - если result.created
+    - logAudit(req, "ROBOT_CALL_STOP_SET", "Client", client.id, { shortId: client.shortId, stopId: result.id });
+      · зовёт logAudit()
+- иначе
+  - если current.stopped && !current.canClear
+    - return res.status(403).json({ error: "Клиент сам просил не звонить — снять отметку может только руководитель"…
+      · ответ 403 — «Клиент сам просил не звонить — снять отметку может только руководитель»
+  - const cleared = await clearRobotCallStop({ phone: client.phone, clientId: client.id, clearedByAgentId: req.ag…
+    · зовёт clearRobotCallStop()
+  - если cleared > 0
+    - logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared });
+      · зовёт logAudit()
+- res.json(await robotCallStopState(req, client));
+  · ответ 200
 
 ### POST /api/v1/clients/:id/security-review
 

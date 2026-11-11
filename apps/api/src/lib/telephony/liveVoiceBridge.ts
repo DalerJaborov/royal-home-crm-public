@@ -57,6 +57,7 @@ import {
 } from "./liveVoiceCallerLanguage.js";
 import { PoorLineTracker, poorLineBreakNote, poorLineTranscriptLine } from "./liveVoicePoorLine.js";
 import { loadMoneyContext } from "../money.js";
+import { robotCallRefusal } from "../robotCallPolicy.js";
 import {
   buildLiveVoiceSystemPrompt,
   LIVE_VOICE_SYSTEM_PROMPT,
@@ -2000,6 +2001,8 @@ async function originateGuarded(
  * попадает плечо ;1: не агенту, а сразу в Stasis-приложение живого голоса.
  */
 export async function originateLiveVoiceTestCall(phoneNumber: string): Promise<LiveVoiceTestCallResult> {
+  // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts); проверочному — мимо часов и частоты.
+  { const refusal = await robotCallRefusal({ phone: phoneNumber, kind: "test" }); if (refusal) return refusal; }
   if (!isDialableTajikNumber(phoneNumber)) {
     return { ok: false, error: "Не похоже на таджикский номер" };
   }
@@ -2079,6 +2082,8 @@ export async function originateLiveVoiceCallToClient(
   client: { id: string; phone: string; fullName: string },
   propertyDescription?: string | null
 ): Promise<LiveVoiceClientCallResult> {
+  // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts).
+  { const refusal = await robotCallRefusal({ phone: client.phone, clientId: client.id, kind: "client_card" }); if (refusal) return refusal; }
   if (!isDialableTajikNumber(client.phone)) {
     return { ok: false, error: "Номер клиента не похож на таджикский — станция не сможет его набрать" };
   }
@@ -2171,6 +2176,8 @@ export async function originateLiveVoiceScenarioCall(
   },
   options?: { callerId?: string; channelId?: string; beforeOriginate?: () => Promise<void> }
 ): Promise<LiveVoiceClientCallResult> {
+  // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts).
+  { const refusal = await robotCallRefusal({ phone: phoneNumber, clientId: task.clientId, kind: "scenario" }); if (refusal) return refusal; }
   if (!isDialableTajikNumber(phoneNumber)) {
     return { ok: false, notDialed: true, error: "Номер не похож на таджикский — станция не сможет его набрать" };
   }

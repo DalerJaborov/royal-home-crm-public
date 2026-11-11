@@ -2,6 +2,12 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// П3 (11.11.2026): часы, «не звонить» и частоту звонков робота проверяет одна дверь
+// (robot-call-policy.test.ts); здесь — механика моста, и она должна быть зелёной в любой час.
+vi.mock("../src/lib/robotCallPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/robotCallPolicy.js")>()),
+  robotCallRefusal: vi.fn(async () => null),
+}));
 
 /**
  * ИСХОДЯЩИЙ РОБОЗВОНОК ИДЁТ ЧЕРЕЗ ВЫБРАННОГО ПОСТАВЩИКА ГОЛОСА (10.11.2026).

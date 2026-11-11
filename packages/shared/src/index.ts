@@ -120,3 +120,4 @@ export * from "./assistantCard.js";
 export * from "./assistantAction.js";
 
 export * from "./assistantKnowledge.js";
+export * from "./robotCallPolicy.js";

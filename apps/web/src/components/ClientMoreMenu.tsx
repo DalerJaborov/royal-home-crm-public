@@ -26,6 +26,11 @@ export type MoreItem = {
   done?: string;
   tone?: "primary" | "danger";
   disabled?: boolean;
+  /**
+   * Строка-тумблер («Не звонить роботом»): объявляется программе чтения с экрана как
+   * переключатель, справа — слово текущего положения вместо стрелки.
+   */
+  checked?: boolean;
 };
 
 export type MoreGroup = {
@@ -68,6 +73,7 @@ export function ClientMoreMenu({
                 key={it.key}
                 type="button"
                 className={`cd-mi${it.tone ? ` ${it.tone}` : ""}`}
+                {...(it.checked !== undefined ? { role: "switch", "aria-checked": it.checked } : {})}
                 disabled={it.disabled || !!it.done}
                 onClick={() => {
                   onPick?.();
@@ -83,6 +89,8 @@ export function ClientMoreMenu({
                 </span>
                 {it.done ? (
                   <span className="cd-mi-v">{it.done}</span>
+                ) : it.checked !== undefined ? (
+                  <span className="cd-mi-v">{it.checked ? "Включено" : "Выключено"}</span>
                 ) : (
                   <>
                     {it.value && <span className="cd-mi-v">{it.value}</span>}

@@ -6994,6 +6994,17 @@ model Settings {
   /// выходных нет. До 11.10 воскресенье было зашито выходным в коде.
   /// Правило — packages/shared/src/daysOff.ts.
   companyDaysOff                    Int[]     @default([])
+  /// ПРАЗДНИКИ КОМПАНИИ (П3, 11.11.2026): даты «ГГГГ-ММ-ДД» по Душанбе, в которые
+  /// робот не звонит (решение владельца по умолчанию — в праздники не звонить).
+  /// Пусто (по умолчанию) — праздников нет. Правило — packages/shared/src/robotCallPolicy.ts,
+  /// дверь — lib/robotCallPolicy.ts. Экрана в Настройках пока нет.
+  companyHolidays                   String[]  @default([])
+  /// ЧАСТОТА ЗВОНКОВ РОБОТА НА ОДИН НОМЕР (П3, 11.11.2026): сколько разговоров робота
+  /// за сутки по Душанбе и за семь суток — по всем видам звонков вместе (опрос,
+  /// проверка продавца, приглашение, звонок из карточки). Умолчания — решение
+  /// владельца по умолчанию из плана 11.11 (1 и 3).
+  robotCallDailyMaxPerNumber        Int       @default(1)
+  robotCallWeeklyMaxPerNumber       Int       @default(3)
   /// ЧАСЫ АЛАРМОВ РУКОВОДИТЕЛЮ (владелец 07.09.2026) — НАМЕРЕННО ОТДЕЛЬНОЕ ПОЛЕ
   /// от workHoursStart/End выше: то поле решает, когда лид уходит агенту, это —
   /// когда директору можно слать пуши/алармы (антифрод, «заявлено/сделано»,
@@ -8419,6 +8430,8 @@ model LiveVoiceSession {
 
   @@index([clientId])
   @@index([channelId])
+  /// Частота звонков робота на номер (lib/robotCallPolicy.ts) — счёт исходящих за окно.
+  @@index([callerNumber, startedAt])
 }
 
 /// ЗВОНОК-ОПРОС ПОСЛЕ ПОКАЗА (антифрод, владелец 13.09.2026) — см. докстринг
@@ -11137,4 +11150,38 @@ model PropertyClientOffer {
   @@unique([propertyId, clientId])
   @@index([toAgentId, createdAt])
   @@index([clientId])
+}
+
+
+/// ОТМЕТКА «НЕ ЗВОНИТЬ РОБОТОМ» (П3, 11.11.2026) — единое хранилище запрета.
+/// Читает её одна дверь, lib/robotCallPolicy.ts (robotCallAllowed), которую зовёт
+/// каждый набор робота в мосте живого голоса. Номер — девять местных цифр
+/// (normalizeDialNumber), поэтому «+992 90…», «090…» и «90…» — один и тот же человек.
+/// Активная отметка — одна на номер (частичный уникальный индекс в миграции):
+/// повторная постановка не плодит записей. Снятие не удаляет строку, а ставит
+/// clearedAt: кто и когда разрешил звонить снова, видно потом.
+model RobotCallStop {
+  id               String              @id @default(uuid())
+  /// Девять местных цифр номера.
+  phone            String
+  /// Карточка клиента, если известна. Без @relation, как у LiveVoiceSession.clientId:
+  /// удаление карточки не должно снимать запрет с номера.
+  clientId         String?
+  source           RobotCallStopSource
+  /// Кто поставил (сотрудник); пусто — поставила система (переписка, голос, станция).
+  setByAgentId     String?
+  note             String?
+  createdAt        DateTime            @default(now())
+  clearedAt        DateTime?
+  clearedByAgentId String?
+
+  @@index([phone, clearedAt])
+  @@index([clientId, clearedAt])
+}
+
+enum RobotCallStopSource {
+  CONVERSATION
+  VOICE
+  STAFF
+  STATION
 }
