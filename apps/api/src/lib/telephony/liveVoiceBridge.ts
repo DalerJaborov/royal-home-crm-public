@@ -1496,9 +1496,14 @@ interface LiveVoiceSession {
 
 /** Длительность кадра в миллисекундах — тот же шаг, что у станции. */
 const FRAME_MS = 20;
-/** Потолок очереди: 10 секунд звука. Больше копить незачем — если модель
- *  наговорила столько вперёд, разговор всё равно уже рассинхронизирован. */
-const MAX_QUEUED_FRAMES = 500;
+/** Потолок очереди: 90 секунд звука (11.11.2026, аудит голосового робота, сбой 5).
+ *  ElevenLabs отдаёт аудио быстрее реального времени, и при потолке в 10 с хвост
+ *  длинной реплики (трёшка с адресом и ценой) выбрасывался: человек слышал обрыв
+ *  посреди фразы. Тормозить сокет поставщика нельзя — вместе со звуком встали бы
+ *  события перебивания и вызовы функций. Поэтому очередь растёт (90 с ≈ 1 МБ на звонок),
+ *  а при перебивании сбрасывается целиком (resetBotSpeech). Потолок остался только
+ *  предохранителем от неограниченного роста памяти. */
+export const MAX_QUEUED_FRAMES = 4500;
 
 /** Вдох перед репликой (см. generateBreathSound) — 400 мс на 8 кГц = 3200
  *  сэмплов. Пик громче фонового амбиента, но тише самой речи — не должен
@@ -3222,7 +3227,7 @@ async function startLiveVoiceSessionInner(event: AriEvent, ctx: StartContext): P
     // docs/robot-upgrade-speed-understanding-2026-10-09.md). Раньше служебная реплика
     // уходила только после снятия трубки и моста, и человек 1,5–2 с молчал в трубку
     // (замер 2,1 с), пока модель генерировала первое слово. Теперь генерация идёт, пока
-    // снимается трубка: звук ложится в очередь пейсера (потолок MAX_QUEUED_FRAMES — 10 с) и
+    // снимается трубка: звук ложится в очередь пейсера (потолок MAX_QUEUED_FRAMES — 90 с) и
     // начинает звучать с первым его тиком, уже в снятую трубку, — в неотвеченный канал
     // не уходит ни кадра (пейсер стартует после моста). ПЕРВЫМ ГОВОРИТ БОТ (12.09.2026):
     // Live API по умолчанию ждёт реплику собеседника, обход Google — текстовая реплика
@@ -3426,7 +3431,7 @@ function startRtpPacer(session: LiveVoiceSession): void {
 
 /** Кладёт кадр в очередь пейсера. Очередь полна — кадр выбрасывается, и это
  *  записывается в журнал один раз за звонок (аудит моста В-4: раньше молча). */
-function enqueueOutFrame(session: LiveVoiceSession, samples: Int16Array): boolean {
+export function enqueueOutFrame(session: LiveVoiceSession, samples: Int16Array): boolean {
   if (session.outQueue.length >= MAX_QUEUED_FRAMES) {
     session.queueOverflowDropped += 1;
     if (!session.queueOverflowLogged) {
@@ -4621,7 +4626,7 @@ function wireRtpSocket(session: LiveVoiceSession): void {
         // Конец речи — последний громкий кадр: VAD видит его через VAD_SILENCE_HANGOVER_FRAMES тихих.
         session.metrics.onClientSpeechEnd(now - VAD_SILENCE_HANGOVER_FRAMES * FRAME_MS);
       }
-      const toModel = gate.echo ? new Int16Array(pcm8k.length) : pcm8k;
+      const toModel = gate.echo || callerAudioMutedByTransfer(session.runningToolCalls) ? new Int16Array(pcm8k.length) : pcm8k;
       session.metrics.onEchoDecision(gate);
       // Громкий кадр, и это не эхо бота, — человек на линии (сторож тишины).
       const callerLoud = gate.speech;
@@ -4671,6 +4676,21 @@ const TRANSFER_END_WAIT_MS = 3_000;
 /** Имя функции перевода (liveVoiceTransfer.ts::TRANSFER_TOOL) — здесь строкой: мост
  *  не импортирует прикладной модуль, а тот импортирует мост. */
 const TRANSFER_TOOL_NAME = "transfer_to_agent";
+
+/**
+ * ПОКА ИДЁТ ПЕРЕВОД, ПОЛЬЗОВАТЕЛЬСКИЙ ЗВУК В МОДЕЛЬ НЕ УХОДИТ (11.11.2026, аудит голосового
+ * робота, сбой 10). Вызов transfer_to_agent долгий: мост ждёт, пока модель договорит «соединяю»
+ * (до TRANSFER_QUIET_MAX_MS), затем станция звонит агенту (до 30 с). Любая реплика человека за
+ * это время («алло?», «да-да») перебивала агента ElevenLabs, и тот помечал вызов «Tool execution
+ * was abandoned», а модель говорила «соединяю» второй раз. Время ответа тут не при чём:
+ * response_timeout_secs функции — 30 с, а оба срыва случились через 3 с. Человек уже согласился
+ * на перевод — его слова до результата модели не нужны, поэтому вместо них уходит тишина (как
+ * при эхе: поток кадров не прерывается). Предел — жизнь самого вызова (потолок 35 с).
+ */
+export function callerAudioMutedByTransfer(runningToolCalls: ReadonlyMap<string, string>): boolean {
+  for (const name of runningToolCalls.values()) if (name === TRANSFER_TOOL_NAME) return true;
+  return false;
+}
 
 /** Модель отменила идущий вызов перевода (собеседник перебил) — уводить канал не нужно. */
 function transferCancelled(session: LiveVoiceSession): boolean {
