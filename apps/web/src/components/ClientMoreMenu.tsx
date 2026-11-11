@@ -40,6 +40,11 @@ export type MoreGroup = {
   items: MoreItem[];
 };
 
+/** Закрывать ли шторку «Ещё» по нажатию: тумблер — нет, на нём видно новое положение. */
+export function closesSheetOnSelect(item: Pick<MoreItem, "checked">): boolean {
+  return item.checked === undefined;
+}
+
 export function countMoreItems(groups: MoreGroup[]): number {
   return groups.reduce((n, g) => n + g.items.length, 0);
 }
@@ -76,7 +81,8 @@ export function ClientMoreMenu({
                 {...(it.checked !== undefined ? { role: "switch", "aria-checked": it.checked } : {})}
                 disabled={it.disabled || !!it.done}
                 onClick={() => {
-                  onPick?.();
+                  // Тумблер шторку не закрывает: видно новое положение и ошибку, если была.
+                  if (closesSheetOnSelect(it)) onPick?.();
                   it.onSelect();
                 }}
               >

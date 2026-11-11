@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 735,
-  "forks": 3918,
+  "forks": 3921,
   "mounts": 82,
   "cron": 125,
   "jobs": 32,
@@ -16710,6 +16710,29 @@
          "c": []
         }
        ]
+      },
+      {
+       "k": "do",
+       "t": "const revoked = await revokeRobotCallAllow(client.id, req.agent!.id);",
+       "a": [
+        "зовёт revokeRobotCallAllow()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "revoked > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_OPT_OUT_ALLOW_REVOKED\", \"Client\", client.id, { shortId: client.shortId });",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -16725,9 +16748,9 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.status(403).json({ error: \"Клиент сам просил не звонить — снять отметку может только руководитель\"…",
+         "t": "return res.status(403).json({ error: \"Клиент сам просил не беспокоить — снять запрет может только руководител…",
          "a": [
-          "ответ 403 — «Клиент сам просил не звонить — снять отметку может только руководитель»"
+          "ответ 403 — «Клиент сам просил не беспокоить — снять запрет может только…»"
          ],
          "c": []
         }
@@ -16753,6 +16776,36 @@
           "зовёт logAudit()"
          ],
          "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "current.optedOutInChat && !current.allowedBySupervisor",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const allowed = await allowRobotCallDespiteOptOut(client.id, req.agent!.id);",
+         "a": [
+          "зовёт allowRobotCallDespiteOptOut()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "allowed.created",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "logAudit(req, \"ROBOT_CALL_OPT_OUT_ALLOWED\", \"Client\", client.id, { shortId: client.shortId });",
+           "a": [
+            "зовёт logAudit()"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       }

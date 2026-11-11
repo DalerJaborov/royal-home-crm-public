@@ -126,9 +126,33 @@ export const ROBOT_CALL_REFUSAL_TEXT: Record<RobotCallRefusalCode, string> = {
   opted_out: "Клиент просил его не беспокоить — робот не звонит",
   blacklisted: "Номер в чёрном списке станции — робот не звонит",
   daily_limit: "Робот уже разговаривал с этим номером сегодня — следующий звонок завтра",
-  weekly_limit: "Робот уже звонил на этот номер три раза за неделю — пауза",
+  weekly_limit: "Робот уже разговаривал с этим номером несколько раз за неделю — пауза",
   policy_unavailable: "Не удалось проверить, можно ли звонить, — попробуйте позже",
 };
+
+function timesRu(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${n} раз`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} раза`;
+  return `${n} раз`;
+}
+
+/** Текст отказа с числами из Настроек (частота на номер). */
+export function robotCallRefusalText(code: RobotCallRefusalCode, limits: { weeklyMax?: number } = {}): string {
+  if (code === "weekly_limit" && limits.weeklyMax && limits.weeklyMax > 0) {
+    return `Робот уже разговаривал с этим номером ${timesRu(limits.weeklyMax)} за неделю — пауза`;
+  }
+  return ROBOT_CALL_REFUSAL_TEXT[code];
+}
+
+/**
+ * Предел частоты из Настроек: целое ≥ 1. Ноль и отрицательное НЕ значат «без предела»
+ * (это сняло бы защиту одной опечаткой) — берётся значение по умолчанию.
+ */
+export function robotCallLimitOrDefault(value: number | null | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : fallback;
+}
 
 /** Отказ «перенести, а не тратить попытку»: время или частота, а не запрет человека. */
 export const ROBOT_CALL_DEFER_CODES: ReadonlySet<RobotCallRefusalCode> = new Set([
@@ -151,13 +175,19 @@ export type RobotCallStopUpdate = z.infer<typeof robotCallStopUpdateSchema>;
 
 /** Ответ ручки: что сейчас запрещает роботу звонить этому клиенту. */
 export const robotCallStopStateSchema = z.object({
-  /** Стоит ли отметка «Не звонить роботом» (по номеру клиента или по карточке). */
+  /**
+   * Не звонит ли робот этому клиенту: стоит отметка «Не звонить роботом» ИЛИ клиент
+   * просил в переписке не беспокоить и руководство это для робота не снимало.
+   */
   stopped: z.boolean(),
+  /** Почему: источник отметки; «просьба в переписке» — CONVERSATION. */
   source: z.enum(ROBOT_CALL_STOP_SOURCES).nullable(),
   since: z.string().nullable(),
-  /** Клиент сам просил не беспокоить в переписке — робот не звонит и без отметки. */
+  /** Клиент просил в переписке не беспокоить (сама отметка переписки, для рассылок не трогается). */
   optedOutInChat: z.boolean(),
-  /** Может ли этот сотрудник снять отметку (просьбу клиента снимает только руководство). */
+  /** Руководство разрешило роботу звонить вопреки просьбе в переписке (кто — в журнале действий). */
+  allowedBySupervisor: z.boolean(),
+  /** Может ли этот сотрудник снять запрет (просьбу клиента снимает только руководство). */
   canClear: z.boolean(),
 });
 export type RobotCallStopState = z.infer<typeof robotCallStopStateSchema>;

@@ -1096,10 +1096,12 @@ function ClientDetailCard() {
       icon: PhoneOff,
       checked: stop.stopped,
       hint: clientAsked
-        ? "Клиент сам просил не звонить — снять может руководитель"
-        : !stop.stopped && stop.optedOutInChat
-          ? "Клиент просил в переписке не беспокоить — робот не звонит и так"
-          : undefined,
+        ? "Клиент сам просил не беспокоить — снять может руководитель"
+        : stop.stopped && stop.source === "CONVERSATION"
+          ? "Клиент просил в переписке не беспокоить. Выключите, чтобы робот всё же звонил"
+          : !stop.stopped && stop.allowedBySupervisor
+            ? "Руководитель разрешил звонить, хотя клиент просил в переписке не беспокоить"
+            : undefined,
       disabled: clientAsked,
       onSelect: () => setRobotStop.mutate(!stop.stopped),
     });

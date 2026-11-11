@@ -479,9 +479,10 @@ export function useRobotCallStop(clientId: string | undefined, enabled = true) {
 
 /** Положение тумблера до ответа сервера: своя отметка — снимаемая, снятие гасит источник. */
 export function robotStopOptimistic(prev: RobotCallStopState, stopped: boolean, now: Date = new Date()): RobotCallStopState {
-  if (!stopped) return { ...prev, stopped: false, source: null, since: null, canClear: false };
+  // Снятие при просьбе в переписке — разрешение руководства (только для робота).
+  if (!stopped) return { ...prev, stopped: false, source: null, since: null, canClear: false, allowedBySupervisor: prev.optedOutInChat || prev.allowedBySupervisor };
   if (prev.stopped) return prev;
-  return { ...prev, stopped: true, source: "STAFF", since: now.toISOString(), canClear: true };
+  return { ...prev, stopped: true, source: "STAFF", since: now.toISOString(), canClear: true, allowedBySupervisor: false };
 }
 
 /**

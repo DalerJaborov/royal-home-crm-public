@@ -42,7 +42,7 @@ import { describeProperty } from "../../messengers/sharedMedia.js";
 import { logTimeline } from "../../lib/timeline.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { describeError } from "../../lib/describeError.js";
-import { activeRobotCallStops, clearRobotCallStop, hasOptedOutOfContact, robotCallPhoneKey, setRobotCallStop } from "../../lib/robotCallPolicy.js";
+import { activeRobotCallStops, allowRobotCallDespiteOptOut, clearRobotCallStop, clientsAllowedDespiteOptOut, hasOptedOutOfContact, revokeRobotCallAllow, robotCallPhoneKey, setRobotCallStop } from "../../lib/robotCallPolicy.js";
 
 export const communicationsRouter = Router();
 
@@ -602,20 +602,27 @@ async function robotCallStopState(
   req: Request,
   client: { id: string; phone: string }
 ): Promise<RobotCallStopState> {
-  const [stops, optedOutInChat] = await Promise.all([
+  const [stops, optedOutInChat, allowedIds] = await Promise.all([
     activeRobotCallStops(robotCallPhoneKey(client.phone), client.id),
     hasOptedOutOfContact({ clientId: client.id }),
+    clientsAllowedDespiteOptOut([client.id]),
   ]);
   const supervisor = LIVE_VOICE_ROLES.includes(req.agent!.role);
+  const allowedBySupervisor = allowedIds.length > 0;
+  // «Не беспокойте» из переписки закрывает робозвонок, пока руководство не разрешило.
+  const chatBlocks = optedOutInChat && !allowedBySupervisor;
   // Источник для подписи — просьба клиента важнее отметки сотрудника.
   const stop = stops.find((s) => s.source !== "STAFF") ?? stops[0];
+  const stopped = stops.length > 0 || chatBlocks;
   return {
-    stopped: stops.length > 0,
-    source: stop?.source ?? null,
+    stopped,
+    source: stop?.source ?? (chatBlocks ? "CONVERSATION" : null),
     since: stop?.createdAt.toISOString() ?? null,
     optedOutInChat,
-    // Снятие гасит ВСЕ отметки номера и карточки: просьбу клиента среди них снимает только руководство.
-    canClear: stops.length > 0 && (supervisor || stops.every((s) => s.source === "STAFF")),
+    allowedBySupervisor,
+    // Снятие гасит ВСЕ отметки номера и карточки: просьбу клиента среди них (и в переписке)
+    // снимает только руководство.
+    canClear: stopped && (supervisor || (!chatBlocks && stops.every((s) => s.source === "STAFF"))),
   };
 }
 
@@ -663,13 +670,22 @@ communicationsRouter.put("/:id/robot-call-stop", requireAuth, async (req, res) =
     if (result.created) {
       logAudit(req, "ROBOT_CALL_STOP_SET", "Client", client.id, { shortId: client.shortId, stopId: result.id });
     }
+    // Включили запрет — прежнее разрешение руководства вопреки переписке больше не действует.
+    const revoked = await revokeRobotCallAllow(client.id, req.agent!.id);
+    if (revoked > 0) logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOW_REVOKED", "Client", client.id, { shortId: client.shortId });
   } else {
     const current = await robotCallStopState(req, client);
     if (current.stopped && !current.canClear) {
-      return res.status(403).json({ error: "Клиент сам просил не звонить — снять отметку может только руководитель" });
+      return res.status(403).json({ error: "Клиент сам просил не беспокоить — снять запрет может только руководитель" });
     }
     const cleared = await clearRobotCallStop({ phone: client.phone, clientId: client.id, clearedByAgentId: req.agent!.id });
     if (cleared > 0) logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared });
+    // Просьба в переписке: руководитель разрешает ТОЛЬКО робота; сама отметка переписки
+    // (рассылки) не трогается. Решение по умолчанию ревью П3, владелец решит позже.
+    if (current.optedOutInChat && !current.allowedBySupervisor) {
+      const allowed = await allowRobotCallDespiteOptOut(client.id, req.agent!.id);
+      if (allowed.created) logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOWED", "Client", client.id, { shortId: client.shortId });
+    }
   }
   res.json(await robotCallStopState(req, client));
 });

@@ -1,4 +1,4 @@
-import { robotCallStopReason } from "./robotCallPolicy.js";
+import { robotCallStoredStopReason } from "./robotCallPolicy.js";
 
 /**
  * КОМУ СЦЕНАРНЫЙ ЗВОНОК РОБОТА НАБИРАТЬ НЕЛЬЗЯ — ОБЁРТКА НАД ОДНОЙ ДВЕРЬЮ.
@@ -29,9 +29,19 @@ export interface ScenarioCallTarget {
   contactProfileId?: string | null;
 }
 
-/** Причина, по которой звонить нельзя, или `null`, если можно. */
+/**
+ * Причина, по которой звонить нельзя, или `null`, если можно. Только записанные в базе
+ * запреты: чёрный список станции спрашивает дверь перед набором (ревью П3 — без второго
+ * похода в AMI), её окончательный отказ сценарий закрывает причиной по `policyCode`.
+ */
 export async function scenarioCallBlockReason(target: ScenarioCallTarget): Promise<ScenarioCallBlock | null> {
-  const reason = await robotCallStopReason(target);
-  if (reason === "blacklisted") return "blacklisted";
-  return reason ? "do_not_contact" : null;
+  return (await robotCallStoredStopReason(target)) ? "do_not_contact" : null;
+}
+
+/** Окончательный отказ двери → причина записи сценария; `null` — отказ не окончательный. */
+export function scenarioBlockFromPolicy(result: { busy?: boolean; policyCode?: string }): ScenarioCallBlock | null {
+  if (result.busy || !result.policyCode) return null;
+  if (result.policyCode === "blacklisted") return "blacklisted";
+  if (result.policyCode === "stopped" || result.policyCode === "opted_out") return "do_not_contact";
+  return null;
 }

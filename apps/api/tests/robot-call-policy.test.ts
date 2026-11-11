@@ -22,7 +22,7 @@ vi.mock("../src/lib/telephony/ariClient.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { robotCallAllowed, setRobotCallStop, clearRobotCallStop } = await import("../src/lib/robotCallPolicy.js");
+const { robotCallAllowed, setRobotCallStop, clearRobotCallStop, allowRobotCallDespiteOptOut, revokeRobotCallAllow } = await import("../src/lib/robotCallPolicy.js");
 const { originateLiveVoiceCallToClient, originateLiveVoiceTestCall } = await import("../src/lib/telephony/liveVoiceBridge.js");
 const { ROBOT_CALL_DAY_START_HOUR, ROBOT_CALL_DAY_END_HOUR, robotCallWindowRefusal, nextRobotCallWindowStart } = await import("@royal-home/shared");
 const { POST_SHOWING_CALL_DAY_START_HOUR, POST_SHOWING_CALL_DAY_END_HOUR } = await import("../src/lib/postShowingCall.js");
@@ -84,8 +84,24 @@ afterAll(async () => {
   await prisma.client.deleteMany({ where: { id: clientId } });
 });
 
-async function outboundSession(phone: string, startedAt: Date, direction = "outbound") {
-  await prisma.liveVoiceSession.create({ data: { channelId: `policy-${phone}-${startedAt.getTime()}`, startedAt, direction, callerNumber: phone } });
+/** Состоявшийся разговор: собеседник говорил, звонок закончился обычным образом. */
+async function outboundSession(
+  phone: string,
+  startedAt: Date,
+  direction = "outbound",
+  end: { reason?: string; transcript?: string; open?: boolean } = {}
+) {
+  await prisma.liveVoiceSession.create({
+    data: {
+      channelId: `policy-${phone}-${startedAt.getTime()}-${randomInt(0, 1e6)}`,
+      startedAt,
+      endedAt: end.open ? null : new Date(startedAt.getTime() + 120_000),
+      endedReason: end.open ? null : end.reason ?? "channel_ended",
+      transcript: end.transcript ?? "Робот: Здравствуйте!\nКлиент: Да, слушаю.\nКлиент: Хорошо, спасибо.",
+      direction,
+      callerNumber: phone,
+    },
+  });
 }
 
 describe("часы, выходные и праздники по Душанбе", () => {
@@ -258,6 +274,100 @@ describe("частота на номер — по всем видам вмест
       expect(await robotCallAllowed({ phone, kind: "scenario", now: dushanbe(DAY, 12) })).toEqual({ allowed: true });
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: { robotCallDailyMaxPerNumber: 1 } });
+    }
+  });
+});
+
+describe("что тратит частоту — только состоявшийся разговор (ревью П3)", () => {
+  const now = dushanbe(DAY, 15);
+  const cases: Array<[string, { reason?: string; transcript?: string }]> = [
+    ["автоответчик по слову причины", { reason: "model_ended_call: voicemail" }],
+    ["автоответчик по словам собеседника", { transcript: "Клиент: Абонент временно недоступен, оставьте сообщение после сигнала" }],
+    ["взял не тот", { reason: "model_ended_call: wrong_person" }],
+    ["немая линия (наш сбой)", { reason: "no_station_audio", transcript: "Робот: Алло?" }],
+    ["голос не поднялся (наш сбой)", { reason: "start_failed: elevenlabs connect", transcript: "" }],
+    ["собеседник не сказал ни слова", { transcript: "Робот: Здравствуйте! Вам удобно говорить?" }],
+  ];
+  for (const [name, end] of cases) {
+    it(`${name} — не в счёт`, async () => {
+      const phone = freshPhone();
+      await outboundSession(phone, dushanbe(DAY, 10), "outbound", end);
+      expect(await robotCallAllowed({ phone, kind: "scenario", now })).toEqual({ allowed: true });
+    });
+  }
+
+  it("наш сбой посреди настоящего разговора — в счёт (собеседник успел сказать ≥ 3 реплик)", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, dushanbe(DAY, 10), "outbound", { reason: "gemini_error", transcript: "Клиент: Да\nКлиент: Слушаю\nКлиент: Квартира ещё продаётся" });
+    expect(await robotCallAllowed({ phone, kind: "scenario", now })).toMatchObject({ code: "daily_limit" });
+  });
+
+  it("разговор, который идёт прямо сейчас, — в счёт", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, new Date(now.getTime() - 5 * 60_000), "outbound", { open: true });
+    expect(await robotCallAllowed({ phone, kind: "scenario", now })).toMatchObject({ code: "daily_limit" });
+  });
+
+  it("приглашение на собеседование суточный предел не держит, недельный — держит", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, dushanbe(DAY, 10));
+    expect(await robotCallAllowed({ phone, kind: "scenario", now })).toMatchObject({ code: "daily_limit" });
+    expect(await robotCallAllowed({ phone, kind: "scenario", purpose: "interview_invite", now })).toEqual({ allowed: true });
+    for (const d of ["2026-11-07", "2026-11-09"]) await outboundSession(phone, dushanbe(d, 12));
+    expect(await robotCallAllowed({ phone, kind: "scenario", purpose: "interview_invite", now })).toMatchObject({ code: "weekly_limit" });
+  });
+
+  it("текст недельного отказа — с числом из Настроек; ноль в Настройках — не «без предела», а умолчание", async () => {
+    const phone = freshPhone();
+    for (const d of ["2026-11-07", "2026-11-09"]) await outboundSession(phone, dushanbe(d, 12));
+    await prisma.settings.update({ where: { id: "singleton" }, data: { robotCallWeeklyMaxPerNumber: 2, robotCallDailyMaxPerNumber: 0 } });
+    try {
+      const d = await robotCallAllowed({ phone, kind: "scenario", now });
+      expect(d).toMatchObject({ code: "weekly_limit" });
+      expect(d.allowed === false && d.message).toContain("2 раза");
+      const other = freshPhone();
+      await outboundSession(other, dushanbe(DAY, 10));
+      expect(await robotCallAllowed({ phone: other, kind: "scenario", now })).toMatchObject({ code: "daily_limit" });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { robotCallWeeklyMaxPerNumber: 3, robotCallDailyMaxPerNumber: 1 } });
+    }
+  });
+});
+
+describe("«не беспокойте» без карточки и разрешение руководства (ревью П3)", () => {
+  it("кандидат без карточки клиента, написавший боту «не беспокойте», — отказ по его диалогу", async () => {
+    const phone = freshPhone();
+    const conv = await prisma.botConversation.create({ data: { channel: "telegram", subscriberId: `policy-cand-${phone}`, optedOutAt: new Date() } });
+    try {
+      expect(await robotCallAllowed({ phone, conversationId: conv.id, kind: "scenario", now: dushanbe(DAY, 12) })).toMatchObject({ code: "opted_out" });
+      expect(await robotCallAllowed({ phone, kind: "scenario", now: dushanbe(DAY, 12) })).toEqual({ allowed: true });
+    } finally {
+      await prisma.botConversation.delete({ where: { id: conv.id } });
+    }
+  });
+
+  it("руководитель разрешил робота вопреки переписке — можно; отозвал — снова нельзя; стоп сильнее разрешения", async () => {
+    const phone = freshPhone();
+    const c = await prisma.client.create({ data: { fullName: `Разрешение ${phone}`, phone: `+992${phone}`, source: "PHONE_CALL" } });
+    const conv = await prisma.botConversation.create({ data: { channel: "whatsapp", subscriberId: `policy-allow-${phone}`, clientId: c.id, optedOutAt: new Date() } });
+    const now = dushanbe(DAY, 12);
+    try {
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "opted_out" });
+      await allowRobotCallDespiteOptOut(c.id, "test-director");
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toEqual({ allowed: true });
+      expect(await robotCallAllowed({ phone, kind: "scenario", now })).toEqual({ allowed: true }); // по номеру — та же карточка
+      expect(await robotCallAllowed({ phone, conversationId: conv.id, kind: "scenario", now })).toEqual({ allowed: true });
+      await setRobotCallStop({ phone, clientId: c.id, source: "STAFF" });
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "stopped" });
+      await clearRobotCallStop({ phone, clientId: c.id, clearedByAgentId: null });
+      await revokeRobotCallAllow(c.id, null);
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "opted_out" });
+      // Сама отметка переписки (рассылки) не тронута.
+      expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: conv.id } })).optedOutAt).not.toBeNull();
+    } finally {
+      await prisma.robotCallAllow.deleteMany({ where: { clientId: c.id } });
+      await prisma.botConversation.delete({ where: { id: conv.id } });
+      await prisma.client.delete({ where: { id: c.id } });
     }
   });
 });

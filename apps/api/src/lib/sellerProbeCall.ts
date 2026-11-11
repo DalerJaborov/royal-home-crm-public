@@ -7,7 +7,7 @@ import { buildSellerProbeCallPrompt, SELLER_PROBE_CALL_GREETING_TRIGGER, SELLER_
 import { parseSellerProbeCall } from "../ai/sellerProbeCallParse.js";
 import { logSystemAudit } from "./audit.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
-import { scenarioCallBlockReason } from "./scenarioCallEligibility.js";
+import { scenarioBlockFromPolicy, scenarioCallBlockReason } from "./scenarioCallEligibility.js";
 import {
   alignToCallHours,
   hasSubstantialClientSpeech,
@@ -393,9 +393,17 @@ async function dialSellerProbeCall(id: string, now: Date, allowNewSource = false
   if (result.busy) {
     // Линия живого голоса занята другим разговором (25.09.2026) — это не
     // «номер не отвечает» и не повод поднимать тревогу о вписанном руками
-    // номере. Пробуем на следующем часовом проходе, попытку не тратим.
-    await releaseClaim();
+    // номере. Пробуем на следующем часовом проходе, попытку не тратим. Отказ двери
+    // звонков робота (П3) по часам/частоте приносит время, когда снова можно.
+    await releaseClaim(result.retryAt);
     return "busy";
+  }
+  // Окончательный отказ двери (П3): «не звонить», «не беспокойте», чёрный список — не
+  // сбой станции и не «мёртвый номер»: проверка закрывается причиной, без журнала ошибок.
+  const policyBlock = scenarioBlockFromPolicy(result);
+  if (policyBlock) {
+    await prisma.sellerProbeCall.updateMany({ where: { id, status: "CALLING", lastAttemptAt: now }, data: { status: "SKIPPED", skipReason: policyBlock } });
+    return "skipped";
   }
   if (!result.ok || !result.channelId) {
     if (newSource) {

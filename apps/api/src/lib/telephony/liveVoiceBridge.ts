@@ -58,6 +58,7 @@ import {
 import { PoorLineTracker, poorLineBreakNote, poorLineTranscriptLine } from "./liveVoicePoorLine.js";
 import { loadMoneyContext } from "../money.js";
 import { robotCallRefusal } from "../robotCallPolicy.js";
+import type { RobotCallRefusalCode } from "@royal-home/shared";
 import {
   buildLiveVoiceSystemPrompt,
   LIVE_VOICE_SYSTEM_PROMPT,
@@ -1963,6 +1964,9 @@ export interface LiveVoiceTestCallResult {
   busy?: boolean;
   /** Мост подтверждает: отказ случился ДО набора, звонка точно нет (можно повторять). */
   notDialed?: boolean;
+  /** П3: отказ двери lib/robotCallPolicy.ts — код причины и когда пробовать снова. */
+  policyCode?: RobotCallRefusalCode;
+  retryAt?: Date;
 }
 
 /**
@@ -2164,6 +2168,11 @@ export async function originateLiveVoiceScenarioCall(
     greetingTrigger?: string;
     tools?: LiveVoiceFunctionDeclaration[];
     clientId?: string;
+    /** П3: диалог бота и досье собеседника — «не беспокойте» без карточки клиента (кандидат). */
+    conversationId?: string | null;
+    contactProfileId?: string | null;
+    /** П3: зачем звонок (приглашение с назначенным временем суточный предел не держит). */
+    purpose?: "interview_invite";
     onFinished?: (result: LiveVoiceScenarioResult) => Promise<void>;
     /** Голос на весь звонок. Пусто — как у остальных сценариев
      *  (resolveLiveVoiceVoiceName). Сценарий, знающий язык собеседника, выбирает
@@ -2177,7 +2186,7 @@ export async function originateLiveVoiceScenarioCall(
   options?: { callerId?: string; channelId?: string; beforeOriginate?: () => Promise<void> }
 ): Promise<LiveVoiceClientCallResult> {
   // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts).
-  { const refusal = await robotCallRefusal({ phone: phoneNumber, clientId: task.clientId, kind: "scenario" }); if (refusal) return refusal; }
+  { const refusal = await robotCallRefusal({ phone: phoneNumber, clientId: task.clientId, conversationId: task.conversationId, contactProfileId: task.contactProfileId, purpose: task.purpose, kind: "scenario" }); if (refusal) return refusal; }
   if (!isDialableTajikNumber(phoneNumber)) {
     return { ok: false, notDialed: true, error: "Номер не похож на таджикский — станция не сможет его набрать" };
   }

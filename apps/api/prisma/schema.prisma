@@ -10571,6 +10571,9 @@ model RecruitmentCommunication {
   resultJson Json?
   attemptStartedAt DateTime?
   completedAt DateTime?
+  /// Звонок роботом отложен дверью lib/robotCallPolicy.ts (часы, праздник, частота на
+  /// номер): до этого момента очередь его не берёт и не загораживает им остальных (П3).
+  retryAfter DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
@@ -11177,6 +11180,23 @@ model RobotCallStop {
 
   @@index([phone, clearedAt])
   @@index([clientId, clearedAt])
+}
+
+/// РУКОВОДСТВО РАЗРЕШИЛО ЗВОНИТЬ РОБОТОМ ВОПРЕКИ ПРОСЬБЕ В ПЕРЕПИСКЕ (П3, 11.11.2026,
+/// решение по умолчанию до решения владельца). BotConversation.optedOutAt («не пишите»)
+/// закрывает и робозвонок; руководитель может снять это ТОЛЬКО для робота тумблером в
+/// карточке. Сама отметка переписки не меняется: рассылки по-прежнему молчат. Снятие —
+/// revokedAt, строка остаётся (кто и когда разрешал, видно и в журнале действий).
+/// Отметку «Не звонить роботом» (RobotCallStop) и чёрный список станции это не снимает.
+model RobotCallAllow {
+  id               String    @id @default(uuid())
+  clientId         String
+  allowedByAgentId String
+  createdAt        DateTime  @default(now())
+  revokedAt        DateTime?
+  revokedByAgentId String?
+
+  @@index([clientId, revokedAt])
 }
 
 enum RobotCallStopSource {

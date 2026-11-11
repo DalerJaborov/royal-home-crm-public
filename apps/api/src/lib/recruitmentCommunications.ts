@@ -353,16 +353,23 @@ export async function dispatchRecruitmentCommunication(id: string, now = new Dat
     } else {
       if (process.env.VITEST && !testTransport || process.env.RECRUITMENT_CONTACT_DRY_RUN === "1") { await settle(id, "DRY_RUN", "Проверка без звонка"); return; }
       const voice = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { liveVoiceVoiceName: true, liveVoiceVoiceNameTajik: true } });
+      // П3: «не беспокойте» кандидата живёт в его диалоге с ботом — двери нужны его ключи.
+      const who = await prisma.jobApplication.findUnique({ where: { id: initial.jobApplicationId },
+        select: { conversationId: true, contactProfileId: true, customerInquiry: { select: { conversationId: true } } } });
       await assertPhysicalSourceCurrent(initial, snapshot);
       const result = await (testTransport?.call ?? originateLiveVoiceScenarioCall)(snapshot.phone, { systemInstruction: snapshot.callPrompt,
         greetingTrigger: "(Кандидат снял трубку. Представься голосовым помощником Royal Home и спроси, удобно ли говорить.)",
         tools: INTERVIEW_INVITE_CALL_TOOLS, language: snapshot.request.language, forceRussianOnly: false,
+        conversationId: who?.conversationId ?? who?.customerInquiry?.conversationId ?? null, contactProfileId: who?.contactProfileId ?? null,
+        ...(snapshot.request.purpose === "INVITE" && snapshot.request.interviewAt ? { purpose: "interview_invite" as const } : {}),
         voiceName: (snapshot.request.language === "tg" ? voice?.liveVoiceVoiceNameTajik || voice?.liveVoiceVoiceName : voice?.liveVoiceVoiceName) || undefined,
         onFinished: result => finishRecruitmentAssistantCall(id, result) }, { callerId: "Royal Home", channelId: id,
           beforeOriginate: () => assertPhysicalSourceCurrent(initial, snapshot) });
       if (result.busy) {
         // The bridge explicitly proves this branch occurs before any originate.
-        await settle(id, "QUEUED", "Линия ассистента занята; ожидаем свободную линию");
+        await settle(id, "QUEUED", result.policyCode ? result.error ?? "Звонок отложен" : "Линия ассистента занята; ожидаем свободную линию");
+        // Отказ двери по часам/частоте (П3) знает время: до него строка очередь не загораживает.
+        if (result.retryAt) await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "retryAfter"=${result.retryAt} WHERE "id"=${id} AND "status"='QUEUED'`;
       } else if (result.ok && result.channelId) await settle(id, "ACCEPTED", null, result.channelId);
       else await settle(id, bridgeRefusalStatus(result), result.error ?? "Начало звонка не подтверждено — повтор запрещён");
     }
@@ -389,7 +396,9 @@ export async function runRecruitmentCommunicationTick(now = new Date()): Promise
   // СМС уходят всегда; звонки, ждущие окна, выбираются только в окне — иначе они заслоняют СМС.
   await loadCompanyDaysOff();
   const callsNow = isWithinPostShowingCallHours(now);
+  // Отложенные дверью звонков робота (П3, retryAfter) не загораживают новых кандидатов.
   const due = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "RecruitmentCommunication" WHERE "status"='QUEUED'
+    AND ("retryAfter" IS NULL OR "retryAfter"<=${now})
     ${callsNow ? Prisma.empty : Prisma.sql`AND "channel"<>'ASSISTANT_CALL'`} ORDER BY ("channel"='SMS') DESC,"createdAt" LIMIT 10`);
   for (const row of due) await dispatchRecruitmentCommunication(row.id, now);
 }

@@ -31,14 +31,15 @@ function walk(dir: string): string[] {
  * Верхнеуровневые функции файла: имя, экспортирована ли, тело — от заголовка до
  * следующего верхнеуровневого объявления (функции, const, type, export…).
  */
-function topLevelFunctions(source: string): Array<{ name: string; exported: boolean; body: string }> {
-  const out: Array<{ name: string; exported: boolean; body: string }> = [];
+function topLevelFunctions(source: string): Array<{ name: string; exported: boolean; body: string; start: number; end: number }> {
+  const out: Array<{ name: string; exported: boolean; body: string; start: number; end: number }> = [];
   const head = /^(export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/gm;
   const boundary = /^(?:export\s|async\s+function\s|function\s|const\s|let\s|var\s|interface\s|type\s|class\s|enum\s)/gm;
   for (const m of source.matchAll(head)) {
     boundary.lastIndex = m.index! + m[0].length;
     const next = boundary.exec(source);
-    out.push({ name: m[2], exported: !!m[1], body: source.slice(m.index!, next ? next.index : source.length) });
+    const end = next ? next.index : source.length;
+    out.push({ name: m[2], exported: !!m[1], body: source.slice(m.index!, end), start: m.index!, end });
   }
   return out;
 }
@@ -81,27 +82,37 @@ describe("звонок робота — только через одну две�
     expect(missing).toEqual([]);
   });
 
-  it("в мосте набор идёт только из функций, которые спрашивают дверь", () => {
-    // Каждый вызов originateGuarded/originateToStasisApp лежит внутри одной из
-    // проверенных выше экспортируемых функций набора — и после вызова двери.
-    const fns = exportedFunctionBodies(bridge, /^originate/);
-    const allExports = exportedFunctionBodies(bridge, /./);
-    for (const f of allExports) {
-      const dials = [...f.body.matchAll(/\boriginate(?:Guarded|ToStasisApp)\s*\(/g)].map((m) => m.index!);
-      // Определения самих обёрток не экспортируются; вызов в любой другой экспортируемой функции — обход.
-      if (dials.length === 0) continue;
-      expect(fns.map((x) => x.name), `${f.name} набирает номер, не будучи функцией набора с дверью`).toContain(f.name);
-      const door = f.body.indexOf("robotCallRefusal(");
-      expect(door, f.name).toBeGreaterThan(-1);
-      for (const at of dials) expect(door, f.name).toBeLessThan(at);
+  it("в мосте КАЖДЫЙ набор лежит внутри функции набора с дверью, и после неё", () => {
+    // Ловит и `export const originateX = async () => …`, и набор из неэкспортируемого
+    // помощника, и набор из кода вне функций: всё это вне проверенных функций.
+    const fns = topLevelFunctions(bridge);
+    const guarded = fns.filter((f) => f.exported && /^originate/.test(f.name));
+    const wrapper = fns.find((f) => f.name === "originateGuarded");
+    const offenders: string[] = [];
+    for (const m of bridge.matchAll(/\boriginate(?:Guarded|ToStasisApp)\s*\(/g)) {
+      const at = m.index!;
+      if (wrapper && at >= wrapper.start && at < wrapper.end) continue; // сама обёртка
+      if (/^import|^\s*\.\.\.args: Parameters<typeof/.test(bridge.slice(bridge.lastIndexOf("\n", at) + 1, at + 40))) continue;
+      const owner = guarded.find((f) => at >= f.start && at < f.end);
+      const line = bridge.slice(0, at).split("\n").length;
+      if (!owner) offenders.push(`строка ${line}: набор вне функции набора с дверью`);
+      else if (owner.body.indexOf("robotCallRefusal(") < 0 || owner.start + owner.body.indexOf("robotCallRefusal(") > at) {
+        offenders.push(`строка ${line}: набор в ${owner.name} раньше двери`);
+      }
     }
+    expect(offenders).toEqual([]);
   });
 
-  it("неэкспортируемые функции моста не набирают номер сами (кроме обёртки originateGuarded)", () => {
-    const offenders = topLevelFunctions(bridge)
-      .filter((f) => !f.exported && f.name !== "originateGuarded")
-      .filter((f) => /\boriginate(?:Guarded|ToStasisApp)\s*\(/.test(f.body))
-      .map((f) => f.name);
+  it("функций набора стрелками (export const originate… = async) в мосте нет", () => {
+    expect(bridge.match(/^export\s+(?:const|let|var)\s+originate\w*\s*=/gm) ?? []).toEqual([]);
+  });
+
+  it("запросы к каналам ARI (`/ari/channels`) — только в ariClient.ts (там же и звонок агента originateCall)", () => {
+    const offenders = walk(SRC)
+      .filter((f) => f !== ARI)
+      // Запрос, а не упоминание в комментарии: fetch( или адрес в переменной с /ari/channels.
+      .filter((f) => /fetch\(\s*[`'"][^`'"]*\/ari\/channels|=\s*[`'"][^`'"\n]*\/ari\/channels/.test(readFileSync(f, "utf8")))
+      .map((f) => relative(SRC, f));
     expect(offenders).toEqual([]);
   });
 

@@ -222,6 +222,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   LIVE_VOICE_CALL_CLIENT: "Звонок роботом клиенту",
   ROBOT_CALL_STOP_SET: "Поставлено «Не звонить роботом»",
   ROBOT_CALL_STOP_CLEARED: "Снято «Не звонить роботом»",
+  ROBOT_CALL_OPT_OUT_ALLOWED: "Руководитель разрешил робота вопреки «не беспокойте» в переписке",
+  ROBOT_CALL_OPT_OUT_ALLOW_REVOKED: "Отозвано разрешение робота вопреки «не беспокойте»",
   LIVE_VOICE_RECORDING_LISTEN: "Прослушана запись разговора робота",
   LIVE_VOICE_LISTEN: "Слушал живой разговор робота",
   COVER_TEMPLATE_CREATE: "Добавлен шаблон обложки",

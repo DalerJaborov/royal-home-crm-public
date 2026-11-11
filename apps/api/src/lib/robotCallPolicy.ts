@@ -1,8 +1,9 @@
 import {
   ROBOT_CALL_DAILY_MAX_DEFAULT,
   ROBOT_CALL_DEFER_CODES,
-  ROBOT_CALL_REFUSAL_TEXT,
   ROBOT_CALL_WEEKLY_MAX_DEFAULT,
+  robotCallLimitOrDefault,
+  robotCallRefusalText,
   isDialableTajikNumber,
   nextRobotCallWindowStart,
   normalizeCompanyHolidays,
@@ -13,9 +14,11 @@ import {
   type RobotCallStopSource,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { clientLinesOf, looksLikeVoicemail } from "../ai/scenarioTranscript.js";
 import { dushanbeDayRange } from "./dushanbeTime.js";
 import { logSystemError } from "./systemError.js";
 import { normalizeDialNumber } from "./telephony/ariClient.js";
+import { NO_STATION_AUDIO_REASON } from "./telephony/liveVoiceAudioPath.js";
 import { isNumberBlocked } from "./telephony/stationBlacklist.js";
 
 /**
@@ -64,6 +67,12 @@ export interface RobotCallTarget {
   conversationId?: string | null;
   /** Досье собеседника. */
   contactProfileId?: string | null;
+  /**
+   * Зачем звонок. `interview_invite` — приглашение на собеседование с назначенным
+   * временем: суточный предел его не держит (недельный — держит), иначе утренний звонок
+   * рекрутинга убивал бы приглашение днём (решение по умолчанию, ревью П3 11.11).
+   */
+  purpose?: "interview_invite";
   now?: Date;
 }
 
@@ -80,8 +89,8 @@ export type RobotCallDecision =
       retryAt?: Date;
     };
 
-function refuse(code: RobotCallRefusalCode, retryAt?: Date): Extract<RobotCallDecision, { allowed: false }> {
-  return { allowed: false, code, message: ROBOT_CALL_REFUSAL_TEXT[code], defer: ROBOT_CALL_DEFER_CODES.has(code), ...(retryAt ? { retryAt } : {}) };
+function refuse(code: RobotCallRefusalCode, retryAt?: Date, limits?: { weeklyMax?: number }): Extract<RobotCallDecision, { allowed: false }> {
+  return { allowed: false, code, message: robotCallRefusalText(code, limits), defer: ROBOT_CALL_DEFER_CODES.has(code), ...(retryAt ? { retryAt } : {}) };
 }
 
 /** Девять местных цифр номера — ключ отметки «не звонить» и счёта частоты. */
@@ -106,8 +115,8 @@ async function loadPolicySettings(): Promise<PolicySettings> {
   });
   return {
     calendar: { companyDaysOff: normalizeDaysOff(row?.companyDaysOff), companyHolidays: normalizeCompanyHolidays(row?.companyHolidays) },
-    dailyMax: row?.robotCallDailyMaxPerNumber ?? ROBOT_CALL_DAILY_MAX_DEFAULT,
-    weeklyMax: row?.robotCallWeeklyMaxPerNumber ?? ROBOT_CALL_WEEKLY_MAX_DEFAULT,
+    dailyMax: robotCallLimitOrDefault(row?.robotCallDailyMaxPerNumber, ROBOT_CALL_DAILY_MAX_DEFAULT),
+    weeklyMax: robotCallLimitOrDefault(row?.robotCallWeeklyMaxPerNumber, ROBOT_CALL_WEEKLY_MAX_DEFAULT),
   };
 }
 
@@ -205,45 +214,160 @@ export async function robotCallStopReason(target: Omit<RobotCallTarget, "kind" |
   return (await storedStopReason(target)) ?? ((await isOnStationBlacklist(target.phone)) ? "blacklisted" : null);
 }
 
+/**
+ * Только записанные в базе запреты (без станции) — для предварительной проверки
+ * сценариев: чёрный список станции дверь спросит сама перед набором, второй раз ждать
+ * AMI до трёх секунд незачем.
+ */
+export async function robotCallStoredStopReason(target: Omit<RobotCallTarget, "kind" | "now">): Promise<"stopped" | "opted_out" | null> {
+  return storedStopReason(target);
+}
+
 /** Запреты, записанные в базе: отметка «не звонить» и «не беспокойте» в переписке. */
 async function storedStopReason(target: Omit<RobotCallTarget, "kind" | "now">): Promise<"stopped" | "opted_out" | null> {
   const key = robotCallPhoneKey(target.phone);
   if (await activeRobotCallStop(key, target.clientId)) return "stopped";
-  if (await hasOptedOutOfContact(target)) return "opted_out";
-  const clientIds = target.clientId ? [] : await clientIdsByPhone(key);
+  const clientIds = target.clientId ? [target.clientId] : await clientIdsByPhone(key);
+  // Разрешение руководства снимает «не беспокойте» переписки ТОЛЬКО для робота и только
+  // по той карточке, где его дали.
+  const allowed = new Set(clientIds.length ? await clientsAllowedDespiteOptOut(clientIds) : []);
+  const own = { conversationId: target.conversationId, contactProfileId: target.contactProfileId };
+  if ((own.conversationId || own.contactProfileId) && (await hasOptedOutOfContact(own))) {
+    // Диалог или досье без карточки: снять просьбу можно только через карточку.
+    const ownClient = await clientOfConversation(own);
+    if (!ownClient || !(await clientsAllowedDespiteOptOut([ownClient])).length) return "opted_out";
+  }
   for (const clientId of clientIds) {
-    if (await hasOptedOutOfContact({ clientId })) return "opted_out";
+    if (!allowed.has(clientId) && (await hasOptedOutOfContact({ clientId }))) return "opted_out";
   }
   return null;
 }
 
-/** Разговоры робота на этот номер (исходящие, с ответом) с момента `since`. */
-async function outboundSessionsSince(phoneKey: string, since: Date): Promise<Date[]> {
-  const rows = await prisma.liveVoiceSession.findMany({
-    where: { direction: "outbound", callerNumber: phoneKey, startedAt: { gte: since } },
-    select: { startedAt: true },
-    orderBy: { startedAt: "asc" },
-    take: 50,
-  });
-  return rows.map((r) => r.startedAt);
+/** Карточка, к которой привязан диалог или досье (если есть). */
+async function clientOfConversation(target: { conversationId?: string | null; contactProfileId?: string | null }): Promise<string | null> {
+  if (target.conversationId) {
+    const conv = await prisma.botConversation.findUnique({ where: { id: target.conversationId }, select: { clientId: true } });
+    if (conv?.clientId) return conv.clientId;
+  }
+  if (target.contactProfileId) {
+    const profile = await prisma.contactProfile.findUnique({ where: { id: target.contactProfileId }, select: { clientId: true } });
+    if (profile?.clientId) return profile.clientId;
+  }
+  return null;
+}
+
+/** Карточки, по которым руководство разрешило робота вопреки «не беспокойте» в переписке. */
+export async function clientsAllowedDespiteOptOut(clientIds: string[]): Promise<string[]> {
+  const rows = await prisma.robotCallAllow.findMany({ where: { clientId: { in: clientIds }, revokedAt: null }, select: { clientId: true } });
+  return rows.map((r) => r.clientId);
+}
+
+/** Разрешить роботу звонить вопреки «не беспокойте» в переписке (одно действующее на карточку). */
+export async function allowRobotCallDespiteOptOut(clientId: string, agentId: string): Promise<{ created: boolean }> {
+  const active = () => prisma.robotCallAllow.findFirst({ where: { clientId, revokedAt: null }, select: { id: true } });
+  if (await active()) return { created: false };
+  try {
+    await prisma.robotCallAllow.create({ data: { clientId, allowedByAgentId: agentId } });
+    return { created: true };
+  } catch (err) {
+    if (await active()) return { created: false };
+    throw err;
+  }
+}
+
+/** Отозвать разрешение: просьба в переписке снова закрывает робозвонок. */
+export async function revokeRobotCallAllow(clientId: string, agentId: string | null, now: Date = new Date()): Promise<number> {
+  const r = await prisma.robotCallAllow.updateMany({ where: { clientId, revokedAt: null }, data: { revokedAt: now, revokedByAgentId: agentId } });
+  return r.count;
 }
 
 /**
- * Частота на номер. Считаются сессии живого голоса — то есть звонки, на которые
- * ответили (сессия заводится по ответу). Недозвон частоту не тратит.
+ * Причины конца сессии «сбой на нашей стороне» — одно место (его же зовёт приглашение
+ * кандидата, interviewInviteCall.ts::isOurCallFailure): связь, голос не поднялся, немая
+ * линия, процесс перезапустился.
  */
-async function frequencyRefusal(phoneKey: string, settings: PolicySettings, now: Date): Promise<Extract<RobotCallDecision, { allowed: false }> | null> {
+export function isRobotCallOurFailure(reason: string | null | undefined): boolean {
+  if (!reason) return false;
+  return (
+    reason.startsWith("start_failed") ||
+    reason.startsWith("gemini_") ||
+    reason.startsWith("elevenlabs_") ||
+    reason.startsWith("orphan_") ||
+    reason === "ended_while_offline" ||
+    reason === "rtp_socket_error" ||
+    reason === "listener_stopped" ||
+    reason === "ari_error" ||
+    reason === NO_STATION_AUDIO_REASON ||
+    reason === "no_caller_speech"
+  );
+}
+
+/** Модель закончила звонок как «автоответчик» или «взял не тот» (слова причины end_call). */
+function endedAsNotReached(reason: string | null | undefined): boolean {
+  if (!reason) return false;
+  const tokens = reason.toLowerCase().split(/[^\p{L}\p{N}_]+/u).filter(Boolean);
+  return tokens.includes("voicemail") || tokens.includes("wrong_person") || tokens.some((t) => t.startsWith("автоответчик"));
+}
+
+/** Сессия без итога (ещё идёт или оборвалась) считается разговором столько времени. */
+const LIVE_SESSION_COUNTS_MS = 30 * 60_000;
+/** При нашем сбое разговор всё же был, если собеседник сказал хотя бы столько реплик (ОЦЕНКА). */
+const SUBSTANTIAL_CLIENT_LINES = 3;
+
+/**
+ * БЫЛ ЛИ РАЗГОВОР, который тратит частоту на номер (ревью П3, 11.11). Строка сессии
+ * заводится по ответу, поэтому одна строка — ещё не разговор: автоответчик, «взял не
+ * тот», немая линия и голос, который не поднялся, частоту не тратят — иначе повтор после
+ * нашего сбоя получал бы «уже разговаривали сегодня» и приглашение умирало.
+ *
+ * Признак — реплики собеседника в расшифровке («Клиент: …»). ОЦЕНКА: расшифровку пишет
+ * поставщик голоса, и у молчаливого собеседника она может быть пустой — такой звонок
+ * частоту не тратит (лучше лишний звонок завтра, чем потерянное приглашение).
+ */
+export function robotSessionCountsAsConversation(
+  session: { startedAt: Date; endedAt: Date | null; endedReason: string | null; transcript: string | null },
+  now: Date
+): boolean {
+  if (!session.endedAt) return now.getTime() - session.startedAt.getTime() < LIVE_SESSION_COUNTS_MS;
+  if (endedAsNotReached(session.endedReason)) return false;
+  const lines = clientLinesOf((session.transcript ?? "").split("\n"));
+  if (lines.length === 0 || looksLikeVoicemail(lines)) return false;
+  if (isRobotCallOurFailure(session.endedReason)) return lines.length >= SUBSTANTIAL_CLIENT_LINES;
+  return true;
+}
+
+/** Состоявшиеся разговоры робота на этот номер (исходящие) с момента `since`. */
+async function outboundConversationsSince(phoneKey: string, since: Date, now: Date): Promise<Date[]> {
+  const rows = await prisma.liveVoiceSession.findMany({
+    where: { direction: "outbound", callerNumber: phoneKey, startedAt: { gte: since } },
+    select: { startedAt: true, endedAt: true, endedReason: true, transcript: true },
+    orderBy: { startedAt: "asc" },
+    take: 50,
+  });
+  return rows.filter((r) => robotSessionCountsAsConversation(r, now)).map((r) => r.startedAt);
+}
+
+/**
+ * Частота на номер: считаются только состоявшиеся разговоры
+ * (robotSessionCountsAsConversation). Недозвон частоту не тратит.
+ */
+async function frequencyRefusal(
+  phoneKey: string,
+  settings: PolicySettings,
+  now: Date,
+  purpose: RobotCallTarget["purpose"]
+): Promise<Extract<RobotCallDecision, { allowed: false }> | null> {
   const today = dushanbeDayRange(now);
   const weekStart = new Date(today.start.getTime() - (WEEK_DAYS - 1) * DAY_MS);
-  const sessions = await outboundSessionsSince(phoneKey, weekStart);
+  const sessions = await outboundConversationsSince(phoneKey, weekStart, now);
   const todayCount = sessions.filter((at) => at.getTime() >= today.start.getTime()).length;
-  if (todayCount >= Math.max(0, settings.dailyMax)) {
+  if (purpose !== "interview_invite" && todayCount >= settings.dailyMax) {
     return refuse("daily_limit", nextRobotCallWindowStart(today.end, settings.calendar));
   }
-  if (sessions.length >= Math.max(0, settings.weeklyMax)) {
+  if (sessions.length >= settings.weeklyMax) {
     // Окно освободится, когда самый старый разговор выпадет из семи суток.
     const oldest = dushanbeDayRange(sessions[0]).start;
-    return refuse("weekly_limit", nextRobotCallWindowStart(new Date(oldest.getTime() + WEEK_DAYS * DAY_MS), settings.calendar));
+    return refuse("weekly_limit", nextRobotCallWindowStart(new Date(oldest.getTime() + WEEK_DAYS * DAY_MS), settings.calendar), settings);
   }
   return null;
 }
@@ -267,7 +391,7 @@ export async function robotCallAllowed(target: RobotCallTarget): Promise<RobotCa
     // Частота — до станции: отказ «перенести» повторяется сценарием раз в несколько
     // минут, и каждый повтор не должен ждать AMI до трёх секунд.
     if (target.kind !== "test") {
-      const frequency = await frequencyRefusal(key, settings, now);
+      const frequency = await frequencyRefusal(key, settings, now, target.purpose);
       if (frequency) return frequency;
     }
     if (await isOnStationBlacklist(target.phone)) return refuse("blacklisted");

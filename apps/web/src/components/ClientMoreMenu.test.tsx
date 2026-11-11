@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PhoneOff } from "lucide-react";
 import type { RobotCallStopState } from "@royal-home/shared";
-import { ClientMoreMenu } from "./ClientMoreMenu";
+import { ClientMoreMenu, closesSheetOnSelect } from "./ClientMoreMenu";
 import { robotStopOptimistic } from "../hooks/useClients";
 
 /** «Не звонить роботом» (П3, 11.11.2026): строка-тумблер меню «Ещё» — одна на ПК и телефон. */
@@ -32,6 +32,12 @@ describe("строка-тумблер «Не звонить роботом»", (
     expect(html).toContain("снять может руководитель");
   });
 
+  it("тумблер шторку на телефоне не закрывает, обычная строка — закрывает", () => {
+    expect(closesSheetOnSelect({ checked: true })).toBe(false);
+    expect(closesSheetOnSelect({ checked: false })).toBe(false);
+    expect(closesSheetOnSelect({})).toBe(true);
+  });
+
   it("обычные строки меню переключателями не становятся", () => {
     const html = renderToStaticMarkup(
       <ClientMoreMenu groups={[{ key: "main", items: [{ key: "x", label: "Тип карточки", icon: PhoneOff, onSelect: vi.fn() }] }]} />
@@ -41,7 +47,7 @@ describe("строка-тумблер «Не звонить роботом»", (
 });
 
 describe("тумблер переключается сразу", () => {
-  const base: RobotCallStopState = { stopped: false, source: null, since: null, optedOutInChat: false, canClear: false };
+  const base: RobotCallStopState = { stopped: false, source: null, since: null, optedOutInChat: false, allowedBySupervisor: false, canClear: false };
   it("включение — своя отметка, её можно снять", () => {
     const next = robotStopOptimistic(base, true, new Date("2026-11-11T07:00:00Z"));
     expect(next).toMatchObject({ stopped: true, source: "STAFF", canClear: true, since: "2026-11-11T07:00:00.000Z" });
@@ -50,5 +56,11 @@ describe("тумблер переключается сразу", () => {
     const voice: RobotCallStopState = { ...base, stopped: true, source: "VOICE", since: "x", canClear: false };
     expect(robotStopOptimistic(voice, true)).toBe(voice);
     expect(robotStopOptimistic(voice, false)).toMatchObject({ stopped: false, source: null });
+  });
+  it("снятие просьбы из переписки — разрешение руководства; включение его отзывает", () => {
+    const chat: RobotCallStopState = { ...base, stopped: true, source: "CONVERSATION", optedOutInChat: true, canClear: true };
+    const off = robotStopOptimistic(chat, false);
+    expect(off).toMatchObject({ stopped: false, allowedBySupervisor: true });
+    expect(robotStopOptimistic(off, true)).toMatchObject({ stopped: true, allowedBySupervisor: false });
   });
 });

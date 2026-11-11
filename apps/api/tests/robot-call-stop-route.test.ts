@@ -125,6 +125,31 @@ describe("PUT/GET /clients/:id/robot-call-stop", () => {
     expect(await prisma.robotCallStop.count({ where: { clientId, clearedAt: null } })).toBe(0);
   });
 
+  it("«не беспокойте» в переписке: агент снять не может; руководитель разрешает только робота; включение отзывает", async () => {
+    const conv = await prisma.botConversation.create({ data: { channel: "whatsapp", subscriberId: `stop-route-${tag}`, clientId, optedOutAt: new Date() } });
+    try {
+      const state = await request(app).get(`/api/v1/clients/${clientId}/robot-call-stop`).set("Authorization", `Bearer ${ownToken}`);
+      expect(state.body).toMatchObject({ stopped: true, source: "CONVERSATION", optedOutInChat: true, allowedBySupervisor: false, canClear: false });
+      expect((await put(ownToken, { stopped: false })).status).toBe(403);
+      const off = await put(directorToken, { stopped: false });
+      expect(off.status).toBe(200);
+      expect(off.body).toMatchObject({ stopped: false, allowedBySupervisor: true, optedOutInChat: true });
+      expect(await prisma.robotCallAllow.count({ where: { clientId, revokedAt: null } })).toBe(1);
+      // Отметка переписки для рассылок не тронута.
+      expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: conv.id } })).optedOutAt).not.toBeNull();
+      const on = await put(ownToken, { stopped: true });
+      expect(on.body).toMatchObject({ stopped: true, allowedBySupervisor: false });
+      expect(await prisma.robotCallAllow.count({ where: { clientId, revokedAt: null } })).toBe(0);
+      expect((await put(directorToken, { stopped: false })).status).toBe(200);
+      await put(directorToken, { stopped: true });
+      await put(ownToken, { stopped: true });
+    } finally {
+      await prisma.robotCallStop.updateMany({ where: { clientId, clearedAt: null }, data: { clearedAt: new Date() } });
+      await prisma.robotCallAllow.deleteMany({ where: { clientId } });
+      await prisma.botConversation.delete({ where: { id: conv.id } });
+    }
+  });
+
   it("кнопка «Звонок роботом» по номеру с отметкой — 409 с причиной и без набора", async () => {
     await put(ownToken, { stopped: true });
     // Полдень по Душанбе: отказ должен быть именно из-за отметки, а не из-за часов.
