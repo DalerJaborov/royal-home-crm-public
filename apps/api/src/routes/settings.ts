@@ -59,7 +59,7 @@ import { liveVoiceRtpProblem, configuredRtpHost } from "../lib/telephony/liveVoi
 import { liveVoiceErrorForPerson } from "../lib/telephony/liveVoiceUserError.js";
 import { previewLiveVoiceGreeting } from "../ai/liveVoiceClient.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
-import { elevenLabsRequest, syncElevenLabsAgent } from "../ai/elevenLabsAgentSync.js";
+import { elevenLabsRequest, syncElevenLabsAgentDetailed } from "../ai/elevenLabsAgentSync.js";
 import { CONSULTANT_TOOLS } from "../lib/telephony/liveVoiceConsultant.js";
 import { r2PresignDownloadUrl } from "../lib/r2Client.js";
 import { phoneSafeText } from "../lib/clientPhone.js";
@@ -2022,14 +2022,15 @@ settingsRouter.post("/gemini-test", requireAuth, requirePermission("settings.man
  * ПРОВЕРКА И ПОДГОТОВКА АГЕНТА ELEVENLABS (02.10.2026, живой голос через
  * ElevenLabs). Тем же путём, что и звонок: ключ из Настроек, тот же REST API.
  * Заводит у агента функции консультанта (поиск квартир, СМС, перевод агенту,
- * итог) и включает разрешения на подмену промта, первой фразы, языка и голоса —
+ * итог), включает разрешения на подмену промта, первой фразы, языка и голоса и
+ * выставляет настройки телефонного разговора (ELEVENLABS_PHONE_AGENT_TUNING) —
  * чтобы первый настоящий звонок не тратил на это секунды. Ответ — имя агента и
  * сколько функций заведено; ключа в ответе нет.
  */
 settingsRouter.post("/live-voice/elevenlabs-check", requireAuth, requirePermission("settings.manage"), requireElevation, async (_req, res) => {
   const row = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { elevenLabsApiKey: true, elevenLabsAgentId: true },
+    select: { elevenLabsApiKey: true, elevenLabsAgentId: true, elevenLabsVoiceIdTg: true },
   });
   const apiKey = resolveElevenLabsKey(row?.elevenLabsApiKey);
   const agentId = row?.elevenLabsAgentId?.trim();
@@ -2037,8 +2038,18 @@ settingsRouter.post("/live-voice/elevenlabs-check", requireAuth, requirePermissi
   if (!agentId) return res.status(400).json({ ok: false, error: "Не указан id агента ElevenLabs" });
   try {
     const agent = await elevenLabsRequest<{ name?: string }>(apiKey, "GET", `/v1/convai/agents/${encodeURIComponent(agentId)}`);
-    const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS);
-    res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: tools.size });
+    const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.elevenLabsVoiceIdTg });
+    // Функции заведены, а настройки звучания агент не принял — не «готов»: экран
+    // показывает error, и владелец видит причину, а не зелёную строку.
+    if (!outcome.tuned) {
+      return res.json({
+        ok: false,
+        agentName: agent.name ?? null,
+        toolsSynced: outcome.ids.size,
+        error: `Функции заведены (${outcome.ids.size}), но агент не принял настройки звучания: ${outcome.tuningError}`,
+      });
+    }
+    res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: outcome.ids.size });
   } catch (err) {
     const detail = describeError(err);
     void logSystemError("telephony", `Проверка агента ElevenLabs не прошла: ${detail}`);

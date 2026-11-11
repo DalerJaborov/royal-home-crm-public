@@ -226,7 +226,8 @@ describe("ElevenLabs: разговор на поддельном сокете", 
     ws.server(METADATA);
     await connecting;
     expect(ready).toHaveBeenCalledTimes(1);
-    expect(prepareAgent).toHaveBeenCalledWith("sk_test", "agent_1", [SEARCH_TOOL]);
+    // Таджикский голос уходит в подготовку агента (пресет языка tg, 10.11.2026).
+    expect(prepareAgent).toHaveBeenCalledWith("sk_test", "agent_1", [SEARCH_TOOL], { voiceIdTg: "voice_tg" });
     expect(client.inputSampleRateHz).toBe(8000);
     expect(client.outputSampleRateHz).toBe(16000);
 

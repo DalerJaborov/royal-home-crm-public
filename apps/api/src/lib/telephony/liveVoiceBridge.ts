@@ -412,14 +412,16 @@ function noteGeminiStartOk(): void {
   geminiPausedUntil = 0;
 }
 
-function noteGeminiStartFailed(reason: string): void {
+function noteGeminiStartFailed(reason: string, providerLabel = "Gemini"): void {
   geminiStartFailStreak += 1;
   if (geminiStartFailStreak < GEMINI_START_FAILS_TO_PAUSE) return;
   geminiPausedUntil = Date.now() + GEMINI_PAUSE_MS;
+  // Пауза общая для обоих поставщиков (10.11.2026): при ElevenLabs текст «проверьте
+  // ключ Gemini» уводил бы поиск поломки не туда.
   void logSystemError(
     "ai",
-    `КРИТИЧНО: робот на паузе ${GEMINI_PAUSE_MS / 60_000} мин — Gemini не подключился ${geminiStartFailStreak} раза подряд ` +
-      `(последний отказ: ${reason}). Входящие идут сразу на автоответчик станции. Проверьте баланс и ключ Gemini.`,
+    `КРИТИЧНО: робот на паузе ${GEMINI_PAUSE_MS / 60_000} мин — ${providerLabel} не подключился ${geminiStartFailStreak} раза подряд ` +
+      `(последний отказ: ${reason}). Входящие идут сразу на автоответчик станции. Проверьте баланс и ключ ${providerLabel}.`,
     { dedupKey: "live-voice-gemini-paused" }
   );
 }
@@ -2103,7 +2105,7 @@ export async function originateLiveVoiceCallToClient(
   }
   // Gemini отказывал подряд (выключатель, п.7 аудита 09.10) — человек снял бы трубку в тишину.
   if (liveVoiceGeminiPaused()) {
-    return { ok: false, busy: true, error: "Gemini не подключается — робот на паузе" };
+    return { ok: false, busy: true, error: "Голос робота не подключается — робот на паузе" };
   }
   // Промпт собирается ДО резерва номера: исключение между резервом и таймером
   // оставило бы номер «занятым» до рестарта (аудит С7).
@@ -2199,7 +2201,7 @@ export async function originateLiveVoiceScenarioCall(
   }
   // Gemini отказывал подряд (выключатель, п.7 аудита 09.10) — человек снял бы трубку в тишину.
   if (liveVoiceGeminiPaused()) {
-    return { ok: false, busy: true, error: "Gemini не подключается — робот на паузе" };
+    return { ok: false, busy: true, error: "Голос робота не подключается — робот на паузе" };
   }
   await options?.beforeOriginate?.();
   // The source guard may wait on DB locks. Recheck the in-process physical
@@ -2428,7 +2430,9 @@ async function failStart(ctx: StartContext, reason: string): Promise<void> {
     void logSystemError("telephony", `Живой голос: сессия для канала ${ctx.channelId} не поднялась: ${reason}`, {
       dedupKey: "live-voice-start-failed",
     });
-    if (ctx.modelFailed) noteGeminiStartFailed(reason);
+    if (ctx.modelFailed) {
+      noteGeminiStartFailed(reason, ctx.gemini?.activeModel?.startsWith("elevenlabs") ? "ElevenLabs" : "Gemini");
+    }
   }
   try {
     if (ctx.session) {
