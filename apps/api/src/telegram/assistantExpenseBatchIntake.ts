@@ -5,11 +5,13 @@ import { loadAgentAccess } from "../auth/middleware.js";
 import { AssistantActionError, createPendingAssistantAction, type AssistantActionActor } from "../lib/assistantActions.js";
 import { expenseRowsFromTable, type SkippedLine } from "../lib/expenseTableRows.js";
 import { parseCsv } from "../lib/csv.js";
-import { loadUsdRateInfo } from "../lib/money.js";
+import { loadUsdRateInfo, NO_USD_RATE_TEXT } from "../lib/money.js";
 import { MAX_EXPENSE_RECEIPT_BYTES } from "../lib/telegramExpenseReceipts.js";
 import { readXlsxFirstSheet, XlsxReadError } from "../lib/xlsxRead.js";
+import { readXlsFirstSheet, XlsReadError } from "../lib/xlsRead.js";
+import { renderExpensePdfPage } from "../ai/assistant/mediaProbe.js";
 import { defaultRootCategory } from "../ai/assistant/expenseArticles.js";
-import { extractExpenseTableChunk } from "../ai/assistant/expenseReceiptExtraction.js";
+import { EXPENSE_TABLE_CHUNK_ROWS, extractExpenseTableChunk } from "../ai/assistant/expenseReceiptExtraction.js";
 import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { ADD_EXPENSES_TOOL, MAX_BATCH_ROWS, recordedSource, type BATCH_SOURCE_KINDS } from "../ai/assistant/tools/expenseBatchTool.js";
 import { sendExpenseBatchCard, type CardNotes } from "./assistantExpenseCard.js";
@@ -30,21 +32,23 @@ const TEXT = {
     deleted: "Эти расходы уже записывали и потом удалили — их можно вернуть из корзины расходов.",
     pending: "Эта таблица уже ждёт подтверждения — карточка выше.",
     empty: "Не нашла в файле строк с названием и суммой. Пришлите таблицу со столбцами «Название» и «Сумма».",
-    xls: "Старый формат .xls не читаю. Сохраните файл как .xlsx или .csv и пришлите снова.",
     broken: "Файл не открылся. Сохраните его как .xlsx или .csv и пришлите снова.",
+    encrypted: "Файл защищён паролем — снимите пароль в Excel и пришлите снова.",
+    old_format: "Это файл Excel 95 — такой старый формат не читаю. Сохраните его как .xlsx и пришлите снова.",
     unreadablePhoto: "Не разобрала строки на фото. Пришлите фото ровнее и крупнее или файл Excel.",
     failed: "Не получилось подготовить карточку. Пришлите ещё раз.",
     forbidden: "Записывать расходы может только тот, у кого открыто «Вести расходы».",
-    noRate: (n: number) => `Курс доллара в Настройках CRM не задан — ${n} ${n === 1 ? "строку" : "строки"} в долларах не записываю. Задайте курс в Настройках или пришлите суммы в сомони.`,
-    onlyUsd: "Курс доллара в Настройках CRM не задан, а все суммы в долларах — ничего не записываю. Задайте курс в Настройках или пришлите суммы в сомони.",
+    noRate: (n: number) => `${NO_USD_RATE_TEXT} В долларах ${n === 1 ? "1 строка" : `${n} строки`} — её не записываю, остальное покажу карточкой.`,
+    onlyUsd: `${NO_USD_RATE_TEXT} Все суммы в долларах — ничего не записываю.`,
   },
   tg: {
     recorded: "Ин харҷҳо аллакай сабт шудаанд — дубора сабт намекунам.",
     deleted: "Ин харҷҳо пештар сабт ва баъд нест карда шуда буданд — онҳоро аз сабади харҷҳо баргардонед.",
     pending: "Ин ҷадвал аллакай интизори тасдиқ аст — корт дар боло.",
     empty: "Дар файл сатр бо ном ва маблағ наёфтам. Ҷадвалро бо сутунҳои «Ном» ва «Маблағ» фиристед.",
-    xls: "Формати кӯҳнаи .xls-ро намехонам. Файлро ҳамчун .xlsx ё .csv сабт карда, боз фиристед.",
     broken: "Файл кушода нашуд. Онро ҳамчун .xlsx ё .csv сабт карда, боз фиристед.",
+    encrypted: "Файл бо рамз ҳифз шудааст — рамзро дар Excel гиред ва боз фиристед.",
+    old_format: "Ин файли Excel 95 аст — ин формати кӯҳнаро намехонам. Онро ҳамчун .xlsx сабт карда, боз фиристед.",
     unreadablePhoto: "Сатрҳои аксро хонда натавонистам. Аксро ростар ва калонтар гиред ё файли Excel фиристед.",
     failed: "Кортро омода карда натавонистам. Боз фиристед.",
     forbidden: "Харҷро танҳо касе сабт карда метавонад, ки ба ӯ «Пешбурди харҷҳо» кушода аст.",
@@ -88,14 +92,16 @@ export function decodeCsvBytes(bytes: Buffer): string {
 }
 
 /** Таблица файла → строки с ключом источника. null — файл не прочитался. */
-export function rowsFromSpreadsheet(kind: Exclude<SpreadsheetKind, "xls">, bytes: Buffer) {
+export function rowsFromSpreadsheet(kind: SpreadsheetKind, bytes: Buffer) {
   try {
-    const table = kind === "xlsx" ? readXlsxFirstSheet(bytes) : parseCsv(decodeCsvBytes(bytes));
+    const table = kind === "xlsx" ? readXlsxFirstSheet(bytes) : kind === "xls" ? readXlsFirstSheet(bytes) : parseCsv(decodeCsvBytes(bytes));
     const parsed = expenseRowsFromTable(table);
     const sourceHash = sourceHashOf(bytes);
     return { ...parsed, rows: parsed.rows.map((row, i): IntakeRow => ({ ...row, sourceHash, sourceIndex: i })) };
   } catch (error) {
-    if (error instanceof XlsxReadError) return null;
+    // Пароль и Excel 95 — честный отказ своими словами, остальное — «файл не открылся».
+    if (error instanceof XlsReadError && (error.message === "encrypted" || error.message === "old_format")) return { refused: error.message as "encrypted" | "old_format" };
+    if (error instanceof XlsxReadError || error instanceof XlsReadError) return null;
     throw error;
   }
 }
@@ -108,13 +114,14 @@ export const PHOTO_TABLE_MAX_CALLS = 25;
  * порция без новых строк (нумерация пошла заново) — стоп с пометкой «дочитала до N»; предел
  * порций — тоже вслух.
  */
-export async function rowsFromTablePhoto(image: Buffer, sourceHash: string, wallet: AssistantMoneyWallet, maxCalls = PHOTO_TABLE_MAX_CALLS) {
+export async function rowsFromTablePhoto(image: Buffer, sourceHash: string, wallet: AssistantMoneyWallet, maxCalls = PHOTO_TABLE_MAX_CALLS, indexOffset = 0) {
   const byNumber = new Map<number, IntakeRow | SkippedLine>();
   let fromRow = 1;
   let month: string | null = null;
   let language: "ru" | "tg" | "unknown" = "unknown";
   let hasMore = true;
   let calls = 0;
+  let strayNumbers = 0;
   while (hasMore && calls < maxCalls) {
     const chunk = await extractExpenseTableChunk(image, wallet, fromRow);
     calls += 1;
@@ -123,6 +130,8 @@ export async function rowsFromTablePhoto(image: Buffer, sourceHash: string, wall
     let progressed = false;
     for (const row of chunk.rows) {
       if (row.n < fromRow || byNumber.has(row.n)) continue;
+      // Номер вне разумного (дальше конца порции вдвое) — строка «не прочиталась», а не дыра на 10 000 номеров.
+      if (row.n > fromRow + 2 * EXPENSE_TABLE_CHUNK_ROWS) { strayNumbers += 1; continue; }
       progressed = true;
       const title = row.title?.replace(/\s+/gu, " ").trim();
       const date = row.date && /^\d{4}-\d{2}-\d{2}$/u.test(row.date) ? row.date : undefined;
@@ -133,7 +142,7 @@ export async function rowsFromTablePhoto(image: Buffer, sourceHash: string, wall
           ...(row.currency ? { currency: row.currency } : { currencyUnstated: true as const }),
           ...(date ? { date } : {}), category: defaultRootCategory(title),
           sourceText: `стр. ${row.n} на фото: ${title} ${row.amountMinor / 100}${row.currency ? ` ${row.currency}` : ""}`,
-          sourceHash, sourceIndex: row.n - 1,
+          sourceHash, sourceIndex: indexOffset + row.n - 1,
         }
         : { line: row.n, reason: "unreadable" });
     }
@@ -150,7 +159,73 @@ export async function rowsFromTablePhoto(image: Buffer, sourceHash: string, wall
     else if ("title" in row) rows.push({ ...row, ...(row.date ? {} : month ? { month } : {}) });
     else skipped.push(row);
   }
-  return { rows, skipped, language, ...(hasMore ? { readUpTo: last } : {}) };
+  for (let k = 0; k < strayNumbers; k++) skipped.push({ line: last + k + 1, reason: "unreadable" });
+  return { rows, skipped, language, calls, ...(hasMore ? { readUpTo: last } : {}) };
+}
+
+export const PDF_MAX_PAGES = 30;
+export const PDF_MAX_BYTES = 10_000_000;
+/** Порций ИИ на один PDF — общий потолок на все страницы-сканы (повторное ревью 10.11.2026). */
+export const PDF_MAX_PORTIONS = 60;
+/** Строки сканов нумеруются после строк текстового слоя: 50 000 + сквозной номер, предел схемы 100 000. */
+const PDF_SCAN_BASE = 50_000;
+
+export type PdfPageNote = { page: number; skipped: number[]; readUpTo?: number; unreadable?: true; notRead?: true };
+
+/** Строки страницы из текстового слоя (колонки — по двум и больше пробелам). */
+function pageCells(text: string): string[][] {
+  return text.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean).map((line) => line.split(/\s{2,}|\t/u));
+}
+
+/**
+ * МНОГОСТРАНИЧНЫЙ PDF (10.11.2026). Страница, на которой текстовый слой даёт хотя бы одну строку
+ * расхода, разбирается кодом: такие страницы — одна таблица (заголовок с первой, номера сквозные), без
+ * ИИ. Остальные (сканы, а также страница с одним водяным знаком «Scanned with …») — картинкой через
+ * ИИ: каждая такая страница списывает дневной предел (`claimScanPage`), а все вместе — не больше
+ * PDF_MAX_PORTIONS порций; не хватило — честное «не дочитала» по странице. Ключ повтора у всех строк —
+ * хэш файла + номер строки. Невидимый текст PDF человек видит в карточке до записи.
+ */
+export async function rowsFromPdf(
+  bytes: Buffer, sourceHash: string, wallet: AssistantMoneyWallet, texts: string[],
+  claimScanPage: () => Promise<boolean>,
+) {
+  const lines: string[][] = [];
+  const scans: number[] = [];
+  texts.forEach((text, i) => {
+    const cells = pageCells(text);
+    if (expenseRowsFromTable(cells).rows.length) lines.push(...cells);
+    else scans.push(i + 1);
+  });
+  const parsed = expenseRowsFromTable(lines);
+  const rows: IntakeRow[] = parsed.rows.slice(0, PDF_SCAN_BASE).map((row, i) => ({ ...row, sourceHash, sourceIndex: i, sourceText: `PDF, ${row.sourceText}`.slice(0, 500) }));
+  const pageNotes: PdfPageNote[] = [];
+  let language: "ru" | "tg" | "unknown" = "unknown";
+  let portionsLeft = PDF_MAX_PORTIONS;
+  let scanOffset = PDF_SCAN_BASE;
+  for (const page of scans) {
+    if (portionsLeft <= 0 || !(await claimScanPage())) { pageNotes.push({ page, skipped: [], notRead: true }); continue; }
+    const image = await renderExpensePdfPage(bytes, page, PDF_MAX_PAGES);
+    const table = await rowsFromTablePhoto(image, sourceHash, wallet, Math.min(PHOTO_TABLE_MAX_CALLS, portionsLeft), scanOffset);
+    portionsLeft -= table.calls;
+    if (language === "unknown") language = table.language;
+    const lastLine = Math.max(0, ...table.rows.map((row) => (row.sourceIndex ?? scanOffset) - scanOffset + 1), ...table.skipped.map((s) => s.line));
+    scanOffset += lastLine;
+    rows.push(...table.rows.map((row) => ({ ...row, sourceText: `PDF стр. ${page}, ${row.sourceText ?? ""}`.slice(0, 500) })));
+    if (!table.rows.length) pageNotes.push({ page, skipped: [], unreadable: true });
+    else if (table.skipped.length || table.readUpTo) pageNotes.push({ page, skipped: table.skipped.map((s) => s.line), ...(table.readUpTo ? { readUpTo: table.readUpTo } : {}) });
+  }
+  return { rows, skipped: parsed.skipped, pageNotes, pages: texts.length, language };
+}
+
+/** Строки о страницах-сканах PDF, которые прочитались не целиком (номера — по странице). */
+export function pdfPageNotesText(lang: IntakeLang, notes: PdfPageNote[]): string | null {
+  if (!notes.length) return null;
+  const line = (n: PdfPageNote) => n.notRead
+    ? lang === "tg" ? `саҳифаи ${n.page}-ро нахондам — ҳадди хондан тамом шуд, онро алоҳида фиристед` : `страницу ${n.page} не читала — исчерпан предел разбора, пришлите её отдельно`
+    : lang === "tg"
+    ? n.unreadable ? `саҳифаи ${n.page}-ро хонда натавонистам` : `саҳифаи ${n.page}: ${n.skipped.length ? `сатрҳои ${n.skipped.join(", ")} хонда нашуданд` : ""}${n.readUpTo ? ` то сатри ${n.readUpTo} хондам` : ""}`
+    : n.unreadable ? `страницу ${n.page} не разобрала` : `стр. ${n.page}: ${n.skipped.length ? `не прочитались строки ${n.skipped.join(", ")}` : ""}${n.readUpTo ? ` дочитала до строки ${n.readUpTo}` : ""}`;
+  return notes.map((n) => `⚠️ ${line(n).trim()}`).join("\n");
 }
 
 /** Что уже есть по каждому фото/файлу: записано (из пачки, альбома или как одиночный чек) или ждёт карточки. */

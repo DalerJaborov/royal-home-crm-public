@@ -40,8 +40,8 @@ export const PAYDO_DISAPPEAR_AFTER_HOURS = PAYDO_CRAWL_INTERVAL_HOURS * 3; // 72
  * потерянные разряды. Выше — тоже: обычно приписан лишний ноль. Пороги грубые
  * нарочно, они отсекают опечатки, а не дорогие или дешёвые варианты.
  */
-const MIN_PRICE_PER_SQM_TJS = 500;
-const MAX_PRICE_PER_SQM_TJS = 100_000;
+export const MIN_PRICE_PER_SQM_TJS = 500;
+export const MAX_PRICE_PER_SQM_TJS = 100_000;
 
 /** Цена за квадрат, если она правдоподобна; иначе null — считать по ней нельзя. */
 export function pricePerSqm(priceTjs: number | null, areaSqm: number | null): number | null {

@@ -50,7 +50,7 @@ import { useAuthStore } from "../store/auth";
 import { DuplicatesModal } from "../components/DuplicatesModal";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { isRecentlyReturned } from "../components/ReturnedBadge";
-import { INACTIVE_LEVEL_LABELS } from "../components/InactiveLevelBadge";
+import { INACTIVE_LEVEL_LABELS, showsInactiveLabel } from "../components/InactiveLevelBadge";
 import { ClientStateBadge } from "../components/ClientStateBadge";
 import { clientPrimaryState } from "../lib/clientPrimaryState";
 import { ClientFormModal } from "../components/ClientFormModal";
@@ -957,6 +957,7 @@ function ClientRow({
           CLIENT_SOURCE_LABELS[c.source],
           showAgent && c.assignedAgent?.fullName ? `Агент ${c.assignedAgent.fullName}` : null,
           isRecentlyReturned(c.returnedAt) ? "вернулся" : null,
+          showsInactiveLabel(c) ? "неактивен" : null,
         ]
   ).filter(Boolean);
 
@@ -1030,7 +1031,7 @@ function ClientRow({
       name={name}
       href={isTrashed ? undefined : `/clients/${c.shortId}`}
       avatar={<ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />}
-      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · ")}
+      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null, showsInactiveLabel(c) ? "неактивен" : null].filter(Boolean).join(" · ")}
       request={isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен"}
       source={CLIENT_SOURCE_LABELS[c.source] ?? c.source}
       nextAction={canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null)}

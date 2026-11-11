@@ -5,6 +5,8 @@ import { cardWhereFromParam } from "../lib/cardIdParam.js";
 import { emptyDynamics, findDynamics } from "../lib/market/dynamics.js";
 import { emptyResult, findSimilar, verdictFor, type Repair } from "../lib/market/similarComps.js";
 import { loadMoneyContext, toTjs } from "../lib/money.js";
+import { findSegments } from "../lib/market/segments.js";
+import { marketSegmentsQuerySchema } from "@royal-home/shared";
 
 export const marketRouter = Router();
 
@@ -89,4 +91,16 @@ marketRouter.get("/property/:id/dynamics", requireAuth, async (req, res) => {
     return res.json(emptyDynamics("для этого типа объекта динамика рынка не считается", "unsupported"));
   }
   res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, areaSqm }));
+});
+
+/**
+ * GET /api/v1/market/segments — средние цены по сегментам (район × комнаты × ремонт) по активным
+ * объявлениям всех площадок каталога. Доступ тот же, что у блока «Рынок» в карточке объекта:
+ * любой вошедший сотрудник (данные публичные, из чужих объявлений, личных данных в ответе нет).
+ * Сегмент меньше порога MIN_SAMPLE приходит без чисел (enough=false).
+ */
+marketRouter.get("/segments", requireAuth, async (req, res) => {
+  const parsed = marketSegmentsQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+  res.json(await findSegments(parsed.data));
 });

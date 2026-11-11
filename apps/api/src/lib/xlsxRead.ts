@@ -70,12 +70,14 @@ function columnIndex(ref: string): number {
   return n - 1;
 }
 
-/** Серийный номер даты Excel (система 1900) → YYYY-MM-DD. */
-export function excelSerialDate(serial: number): string {
-  return new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86_400_000).toISOString().slice(0, 10);
+/** Серийный номер даты Excel → YYYY-MM-DD; книга «1904» (старый Mac) считает от 1904-01-01. */
+export function excelSerialDate(serial: number, date1904 = false): string {
+  const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30);
+  return new Date(epoch + Math.floor(serial) * 86_400_000).toISOString().slice(0, 10);
 }
 
-const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47]);
+/** Встроенные форматы даты; 18–21 и 45–47 — время (без дня), их числа не даты. */
+const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 22]);
 
 /** Формат каждого стиля ячейки: дата или валюта (по коду формата, в т. ч. [$$-409], €, ₽). */
 function cellFormats(styles: string): { date?: boolean; currency?: string }[] {
@@ -91,7 +93,7 @@ function cellFormats(styles: string): { date?: boolean; currency?: string }[] {
     const id = Number(/\bnumFmtId="(\d+)"/.exec(m[1]!)?.[1] ?? 0);
     const code = custom.get(id) ?? "";
     const bare = code.replace(/"[^"]*"/g, "").replace(/\[[^\]]*\]/g, "");
-    const date = BUILTIN_DATE_FORMATS.has(id) || (!!bare && /[dmyдмг]/i.test(bare) && !/[#0?]/.test(bare));
+    const date = BUILTIN_DATE_FORMATS.has(id) || (!!bare && /[dyдг]/i.test(bare) && !/[#0?]/.test(bare));
     // «[$€-1]» — знак валюты в скобках после «[$»; без скобок — знак в самом формате.
     const bracket = /\[\$([^\]-]*)/.exec(code)?.[1];
     const sign = bracket !== undefined && bracket !== "" ? bracket : code.replace(/"[^"]*"/g, "");
@@ -120,6 +122,7 @@ export function readXlsxFirstSheet(buf: Buffer): string[][] {
       ?.match(/\bTarget="([^"]+)"/)?.[1] : undefined;
     if (target) sheetPath = target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\.\//, "")}`;
   }
+  const date1904 = workbook ? /<workbookPr\b[^>]*\bdate1904="(?:1|true)"/.test(read(buf, workbook)) : false;
   const stylesEntry = byName.get("xl/styles.xml");
   const formats = cellFormats(stylesEntry ? read(buf, stylesEntry) : "");
   const sheet = byName.get(sheetPath) ?? list.find((e) => /^xl\/worksheets\/sheet\d+\.xml$/.test(e.name));
@@ -138,7 +141,7 @@ export function readXlsxFirstSheet(buf: Buffer): string[][] {
       // Формулу не вычисляем: <v> — значение, которое Excel сохранил при последнем пересчёте.
       const style = formats[Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? -1)];
       const numeric = !type || type === "n";
-      const value = numeric && style?.date && /^\d+(?:\.\d+)?$/.test(raw) ? excelSerialDate(Number(raw))
+      const value = numeric && style?.date && /^\d+(?:\.\d+)?$/.test(raw) ? excelSerialDate(Number(raw), date1904)
         : numeric && style?.currency && raw ? `${raw} ${style.currency}` : raw;
       const col = ref ? columnIndex(ref) : cells.length;
       if (col > 200) continue;

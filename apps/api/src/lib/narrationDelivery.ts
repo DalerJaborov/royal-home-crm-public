@@ -2,7 +2,7 @@ import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { buildMontajerDelivery } from "./videoHandoff.js";
+import { buildMontajerDelivery, EDITOR_HOLDER_WHERE } from "./videoHandoff.js";
 import { narrationFacts, narrationHash } from "./propertyNarration.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
@@ -102,6 +102,72 @@ export async function executeNarrationDelivery(id: string) {
     return { status };
   }
 }
+/**
+ * ОЗВУЧКА ПЕРЕХОДИТ К ТЕКУЩЕМУ МОНТАЖЁРУ (решение владельца 11.11.2026: «когда
+ * удаляем монтажёра, всё идёт к новому»). Посылка озвучки привязана к editorId
+ * своей строки: при смене монтажёра ждущая посылка гасла на сверке перед отправкой
+ * («назначение изменилось»), а доставленная оставалась у прежнего — новый
+ * монтажёр монтировал держателя места без озвучки.
+ *
+ * Для держателя места (тот же, кого досылает montajerHandover.ts) и его последней
+ * готовой версии: если озвучка была отправлена или ждала отправки ДРУГОМУ
+ * монтажёру, а у текущего её нет — ставим текущему свою посылку AUDIO_ONLY
+ * (исходники уходят основной передачей очереди). Ждущую посылку прежнему
+ * гасим, пока она не начата. Ключ requestKey выводится из исходной строки и
+ * текущего монтажёра — повторный тик вторую посылку не заведёт. Посылки
+ * в полёте (SENDING) и требующие сверки (UNKNOWN) не трогаем: автоповтора нет.
+ * Пока внешняя отправка выключена (PREVIEW), не делаем ничего.
+ */
+export async function handOverNarrationToCurrentMontajer(currentEditorId: string): Promise<boolean> {
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
+  const holder = await prisma.property.findFirst({ where: EDITOR_HOLDER_WHERE, select: { id: true } });
+  if (!holder) return false;
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: holder.id }, orderBy: { revision: "desc" } });
+  if (!latest || latest.status !== "READY") return false;
+  const rows = await prisma.propertyNarrationDelivery.findMany({
+    where: { propertyId: holder.id, versionId: latest.id },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+  if (rows.some((r) => r.editorId === currentEditorId && ["QUEUED", "SENDING", "SENT", "UNKNOWN", "CANCELLED"].includes(r.status))) return false;
+  if (rows.some((r) => r.status === "SENDING" || r.status === "UNKNOWN")) return false;
+  const source = rows.find((r) => r.editorId && r.editorId !== currentEditorId && (r.status === "SENT" || r.status === "QUEUED"));
+  if (!source) return false;
+  let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
+  try {
+    prepared = await prepareNarrationDeliveryPlan(holder.id, latest.id, "AUDIO_ONLY", currentEditorId);
+  } catch {
+    // Нет Telegram у монтажёра, факты устарели и т.п. — отправлять нечего; сверка повторится тиком.
+    return false;
+  }
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${holder.id} FOR UPDATE`;
+    if (source.status === "QUEUED") {
+      await tx.propertyNarrationDelivery.updateMany({
+        where: { id: source.id, status: "QUEUED" },
+        data: { status: "CANCELLED", lastError: "Монтажёра сменили — озвучка передана текущему монтажёру" },
+      });
+    }
+    if (await tx.propertyNarrationDelivery.count({ where: { propertyId: holder.id, status: { in: ["QUEUED", "SENDING", "UNKNOWN"] } } })) return false;
+    const requestKey = `montajer-handover:${source.id}:${currentEditorId}`;
+    if (await tx.propertyNarrationDelivery.findUnique({ where: { requestKey }, select: { id: true } })) return false;
+    await tx.propertyNarrationDelivery.create({
+      data: {
+        propertyId: holder.id,
+        versionId: latest.id,
+        editorId: prepared.editorId,
+        mode: "AUDIO_ONLY",
+        requestKey,
+        createdById: source.createdById,
+        plan: prepared.plan,
+        status: "QUEUED",
+        executionMode: "LIVE",
+      },
+    });
+    return true;
+  });
+}
+
 export async function executeQueuedNarrationDeliveries(now = new Date()) {
   if (mediaExecutionMode("NARRATION") !== "LIVE") return;
   // A legitimate multi-file batch can exceed three minutes. Each file is one bounded
