@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
-import type { ClientPropertyMatchEvidence, ClientPropertyMatchSummary, ClientKind, ClientSort, SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
+import type { ClientPropertyMatchEvidence, ClientPropertyMatchSummary, ClientKind, ClientSort, RobotCallStopState, SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
 import { api, ApiError } from "../lib/api";
 import { keepWhilePaging, keepWhilePagingAt, keepWhilePagingIndexed } from "../lib/keepWhilePaging";
 import { OfflineQueuedError } from "../lib/offlineQueue";
@@ -454,6 +454,66 @@ export function useLiveVoiceCall(clientId: string) {
     // открытая карточка кэширована по shortId, поэтому — весь префикс ["client"].
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client"] });
+    },
+    meta: { silent: true },
+  });
+}
+
+/**
+ * «Не звонить роботом» (П3, 11.11.2026): GET/PUT /clients/:id/robot-call-stop.
+ * Отметку читает одна дверь на сервере (lib/robotCallPolicy.ts) перед каждым набором
+ * робота — опрос, проверка продавца, приглашение и кнопка «Звонок роботом».
+ */
+export function robotCallStopKey(clientId: string | undefined): QueryKey {
+  return ["robot-call-stop", clientId];
+}
+
+export function useRobotCallStop(clientId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: robotCallStopKey(clientId),
+    queryFn: () => api<RobotCallStopState>(`/clients/${clientId}/robot-call-stop`),
+    enabled: !!clientId && enabled,
+    staleTime: 60_000,
+  });
+}
+
+/** Что меняет ручка «не звонить роботом»: отметку сотрудника или (руководитель) разрешение вопреки просьбе клиента. */
+export type RobotStopChange = { stopped: boolean; overrideClientRequest?: true };
+
+/** Положение до ответа сервера: тумблер — только отметка сотрудника, просьба клиента остаётся. */
+export function robotStopOptimistic(prev: RobotCallStopState, change: RobotStopChange, now: Date = new Date()): RobotCallStopState {
+  if (change.overrideClientRequest) {
+    return { ...prev, stopped: false, staffStop: false, clientReasons: [], canClear: false, canOverride: false,
+      allowedBySupervisor: prev.optedOutInChat || prev.allowedBySupervisor };
+  }
+  if (change.stopped) {
+    return { ...prev, stopped: true, staffStop: true, canClear: true, allowedBySupervisor: false,
+      since: prev.since ?? now.toISOString() };
+  }
+  return { ...prev, staffStop: false, canClear: false, stopped: prev.clientReasons.length > 0 };
+}
+
+/**
+ * Тумблер переключается сразу (правило владельца 11.08): положение меняется до ответа
+ * сервера, отказ возвращает прежнее, ответ сервера — окончательная правда.
+ */
+export function useSetRobotCallStop(clientId: string) {
+  const qc = useQueryClient();
+  const key = robotCallStopKey(clientId);
+  return useMutation({
+    mutationFn: (change: RobotStopChange) =>
+      api<RobotCallStopState>(`/clients/${clientId}/robot-call-stop`, { method: "PUT", body: change }),
+    onMutate: async (change: RobotStopChange) => {
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<RobotCallStopState>(key);
+      if (prev) qc.setQueryData<RobotCallStopState>(key, robotStopOptimistic(prev, change));
+      return { prev };
+    },
+    onError: (_err, _change, ctx) => {
+      if (ctx?.prev) qc.setQueryData(key, ctx.prev);
+    },
+    onSuccess: (state) => {
+      qc.setQueryData(key, state);
     },
     meta: { silent: true },
   });

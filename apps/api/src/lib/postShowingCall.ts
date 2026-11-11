@@ -11,7 +11,7 @@ import { companyDaysOffSnapshot, loadCompanyDaysOff } from "./daysOffCalendar.js
 import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
 import { logSystemAudit } from "./audit.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
-import { scenarioCallBlockReason } from "./scenarioCallEligibility.js";
+import { scenarioBlockFromPolicy, scenarioCallBlockReason } from "./scenarioCallEligibility.js";
 import { logSystemError } from "./systemError.js";
 import { originateLiveVoiceScenarioCall } from "./telephony/liveVoiceBridge.js";
 import { LIVE_VOICE_STATION_AUDIO_RETRY_MS, NO_STATION_AUDIO_REASON } from "./telephony/liveVoiceAudioPath.js";
@@ -569,10 +569,18 @@ async function dialOnePostShowingCall(callId: string, now: Date): Promise<DialOu
       data: {
         status: claim.status,
         lastAttemptAt: claim.lastAttemptAt,
-        scheduledFor: new Date(now.getTime() + POST_SHOWING_CALL_BUSY_RETRY_MS),
+        // Дверь звонков робота (П3) знает, когда снова можно: утро, конец праздника, завтра.
+        scheduledFor: result.retryAt ?? new Date(now.getTime() + POST_SHOWING_CALL_BUSY_RETRY_MS),
       },
     });
     return "busy";
+  }
+  // Окончательный отказ двери (П3): «не звонить», «не беспокойте», чёрный список —
+  // не сбой станции: запись закрывается причиной, без журнала ошибок и повторов.
+  const policyBlock = scenarioBlockFromPolicy(result);
+  if (policyBlock) {
+    await markPostShowingCallSkipped(call.id, policyBlock);
+    return "skipped";
   }
   if (!result.ok || !result.channelId) {
     // Станция не приняла набор — это не отказ клиента и не его молчание.
