@@ -22,8 +22,13 @@ import {
  * этот модуль доделывает остальное через REST API ElevenLabs:
  *
  *  1. наши объявления функций (те же, что получает Gemini) заводятся отдельными
- *     инструментами: POST /v1/convai/tools, при совпадении имени — PATCH
- *     /v1/convai/tools/{id};
+ *     инструментами ПО СОДЕРЖИМОМУ (11.11.2026): ищется функция с тем же именем,
+ *     описанием и параметрами (elevenLabsToolContentKey), нет такой — POST
+ *     /v1/convai/tools. Существующие функции НЕ ПРАВЯТСЯ (PATCH tools убран): у
+ *     приглашения, опроса после показа и консультанта одно имя end_call с разным
+ *     описанием, и правка по имени отдавала всем видам звонка описание того,
+ *     кто готовился последним; функции общие на весь аккаунт, правка задевала бы
+ *     и других агентов;
  *  2. их id добавляются к агенту (conversation_config.agent.prompt.tool_ids) —
  *     PATCH /v1/convai/agents/{agent_id};
  *  3. там же включаются разрешения на подмену: системный промт, первая фраза,
@@ -53,7 +58,15 @@ import {
  *    conversation_initiation_client_data_config_input.py) — точные имена полей;
  *  - ключ — заголовок xi-api-key (core/client_wrapper.py).
  *
- * ⚠️ НЕ ПРОВЕРЕНО НА НАСТОЯЩЕМ КЛЮЧЕ: из облачной сессии api.elevenlabs.io закрыт.
+ * Замер 11.11.2026 на тестовом агенте (docs/journal/2026-11-11-voice-p2-end-call-per-kind.md):
+ *  - две клиентские функции end_call с разным описанием заводятся (разные id),
+ *    агент принимает обе в tool_ids, разговор с ними идёт, end_call вызывается;
+ *  - подмена tool_ids на разговор принимает ТОЛЬКО прикреплённые к агенту id:
+ *    чужой id — закрытие 1008 «Tool IDs not attached to this agent» сразу после
+ *    метаданных. Поэтому к агенту прикрепляется объединение функций всех видов
+ *    звонка, а на разговор подменяется набор своего вида;
+ *  - built_in_tools.end_call = null и platform_settings.privacy.retention_days = 30
+ *    принимаются (PATCH 200, GET возвращает).
  */
 
 /** Адрес REST API. Рычаг на случай, если сервер ходит к ElevenLabs через прокси. */
@@ -145,6 +158,136 @@ export function toElevenLabsClientTool(decl: LiveVoiceFunctionDeclaration): Reco
     expects_response: true,
     response_timeout_secs: TOOL_RESPONSE_TIMEOUT_SECS,
   };
+}
+
+/**
+ * СОДЕРЖИМОЕ КЛИЕНТСКОЙ ФУНКЦИИ — ТОЛЬКО ТО, ЧТО ЗАДАЁМ МЫ (11.11.2026).
+ * GET /v1/convai/tools отдаёт tool_config шире, чем мы его отправляли: сервис
+ * дописывает disable_interruptions, execution_mode, enum: null и т.п. (замер
+ * 11.11). Поэтому «полное совпадение» — совпадение проекции на наши поля, одной
+ * и той же функцией для нашего объявления и для строки из списка сервиса.
+ * enum null / [] — то же, что нет enum; порядок свойств и required не важен.
+ *
+ * Поля поведения, которых мы НЕ шлём (прерывания, речь перед вызовом, звук,
+ * подстановки), в КЛЮЧ НЕ входят (повторное ревью 11.11.2026): их умолчания известны
+ * из одного замера, и смени ElevenLabs умолчание — каждая подготовка заводила бы новые
+ * функции. Вместо этого они только РАНЖИРУЮТ совпавшие по ключу функции
+ * (hasDefaultToolBehavior): из нескольких одинаковых по нашим полям берётся та, что не
+ * поправлена в кабинете; новой из-за них не заводится никогда.
+ */
+const TOOL_BEHAVIOR_DEFAULTS: Readonly<Record<string, unknown>> = {
+  disable_interruptions: false,
+  interruption_mode: "allow",
+  force_pre_tool_speech: false,
+  pre_tool_speech: "auto",
+  assignments: [],
+  tool_call_sound: null,
+  tool_call_sound_behavior: "auto",
+  tool_error_handling_mode: "auto",
+  execution_mode: "immediate",
+  dynamic_variables: { dynamic_variable_placeholders: {} },
+};
+/** Поля одного параметра, меняющие поведение (постоянное значение, подстановка). */
+const PARAM_BEHAVIOR_DEFAULTS: Readonly<Record<string, unknown>> = {
+  is_system_provided: false,
+  dynamic_variable: "",
+  constant_value: "",
+  allowed_values: null,
+  allowed_values_dynamic_variable: "",
+  is_omitted: false,
+};
+/** Поля объекта parameters целиком. */
+const PARAMS_OBJECT_DEFAULTS: Readonly<Record<string, unknown>> = { description: "", dynamic_variable: "", is_omitted: false };
+
+/** Поля нет или оно равно умолчанию замера 11.11 (сравнение по JSON). */
+function onlyDefaults(src: Json, defaults: Readonly<Record<string, unknown>>): boolean {
+  return Object.entries(defaults).every(([k, def]) => src[k] === undefined || JSON.stringify(src[k]) === JSON.stringify(def));
+}
+
+/** Функция не поправлена в кабинете: поля поведения — умолчания (или их нет). Только для выбора
+ *  среди совпавших по ключу, в ключ не входит. */
+export function hasDefaultToolBehavior(cfg: unknown): boolean {
+  if (!isObj(cfg)) return false;
+  const params = isObj(cfg.parameters) ? cfg.parameters : {};
+  const props = isObj(params.properties) ? params.properties : {};
+  return (
+    onlyDefaults(cfg, TOOL_BEHAVIOR_DEFAULTS) &&
+    onlyDefaults(params, PARAMS_OBJECT_DEFAULTS) &&
+    Object.values(props).every((p) => !isObj(p) || onlyDefaults(p, PARAM_BEHAVIOR_DEFAULTS))
+  );
+}
+
+export function canonicalClientToolContent(cfg: unknown): Json | null {
+  if (!isObj(cfg) || cfg.type !== "client" || !str(cfg.name)) return null;
+  const params = isObj(cfg.parameters) ? cfg.parameters : {};
+  const propsIn = isObj(params.properties) ? params.properties : {};
+  const properties: Json = {};
+  for (const name of Object.keys(propsIn).sort()) {
+    const p = isObj(propsIn[name]) ? propsIn[name] : {};
+    const values = Array.isArray(p.enum) ? p.enum.filter((v): v is string => typeof v === "string") : [];
+    properties[name] = {
+      type: typeof p.type === "string" ? p.type.toLowerCase() : null,
+      description: typeof p.description === "string" ? p.description : "",
+      ...(values.length > 0 ? { enum: values } : {}),
+    };
+  }
+  const required = Array.isArray(params.required) ? [...new Set(params.required.filter(str))].sort() : [];
+  return {
+    type: "client",
+    name: cfg.name,
+    description: typeof cfg.description === "string" ? cfg.description : "",
+    parameters: { properties, required },
+    expects_response: cfg.expects_response === true,
+    response_timeout_secs: typeof cfg.response_timeout_secs === "number" ? cfg.response_timeout_secs : null,
+  };
+}
+
+/** Ключ функции: имя + хеш содержимого. Одно имя с разным описанием — разные ключи. */
+export function elevenLabsToolContentKey(cfg: unknown): string | null {
+  const content = canonicalClientToolContent(cfg);
+  if (!content) return null;
+  return `${String(content.name)}:${createHash("sha256").update(JSON.stringify(content)).digest("hex").slice(0, 16)}`;
+}
+
+/**
+ * ЧТО CRM ДЕРЖИТ НА АГЕНТЕ ПОМИМО ЗВУЧАНИЯ — ОДНО МЕСТО (11.11.2026).
+ * Отдельно от ELEVENLABS_PHONE_AGENT_TUNING: тот ведёт звучание, этот — политику.
+ *  - retentionDays: разговоры у ElevenLabs хранятся не дольше 30 дней (по
+ *    умолчанию -1 — «без предела», api-reference/agents/update). Меньший срок,
+ *    заданный владельцем в кабинете, не удлиняется. На прошлые разговоры не
+ *    распространяется (apply_to_existing_conversations не шлём — решение владельца).
+ *  - disabledBuiltInTools: встроенный end_call выключен — трубку кладёт мост по
+ *    НАШЕЙ функции end_call с причиной; встроенный закрыл бы разговор мимо CRM
+ *    (без причины), а с нашей функцией того же имени модель видела бы две.
+ */
+export const ELEVENLABS_AGENT_CRM_POLICY = {
+  retentionDays: 30,
+  disabledBuiltInTools: ["end_call"],
+} as const;
+
+/** Встроенные инструменты агента с выключенными по политике (значение null). */
+function withCrmBuiltInPolicy(builtIn: Json): Json {
+  const out: Json = { ...builtIn };
+  for (const name of ELEVENLABS_AGENT_CRM_POLICY.disabledBuiltInTools) out[name] = null;
+  return out;
+}
+
+/**
+ * platform_settings.privacy для PATCH: срок хранения по политике и простые флаги
+ * владельца как были (на случай, если PATCH заменяет подобъект целиком).
+ * Прочитанный объект целиком назад не уходит — та же осторожность, что у PATCH №2.
+ */
+export function buildAgentPrivacyPatch(agent: unknown): Json {
+  const platform = isObj(agent) && isObj(agent.platform_settings) ? agent.platform_settings : {};
+  const privacy = isObj(platform.privacy) ? platform.privacy : {};
+  const out: Json = {};
+  for (const flag of ["record_voice", "delete_transcript_and_pii", "delete_audio", "zero_retention_mode"]) {
+    if (typeof privacy[flag] === "boolean") out[flag] = privacy[flag];
+  }
+  const max = ELEVENLABS_AGENT_CRM_POLICY.retentionDays;
+  const own = privacy.retention_days;
+  out.retention_days = typeof own === "number" && own > 0 && own <= max ? own : max;
+  return out;
 }
 
 /**
@@ -298,10 +441,16 @@ export function buildAgentSyncPatch(agent: unknown, toolIds: string[]): Json {
   // Устаревшее поле `tools` вместе с `tool_ids` API не принимает — оставляем только id.
   delete prompt.tools;
   prompt.tool_ids = mergedToolIds(prompt, toolIds);
+  // 11.11.2026: встроенный end_call выключен (ELEVENLABS_AGENT_CRM_POLICY) — в первом PATCH,
+  // потому что он и есть «без чего звонок не работает как надо»: иначе агент кладёт трубку мимо CRM.
+  prompt.built_in_tools = withCrmBuiltInPolicy(isObj(prompt.built_in_tools) ? prompt.built_in_tools : {});
   const platform = isObj(agent) && isObj(agent.platform_settings) ? agent.platform_settings : {};
   return {
     conversation_config: { agent: { prompt } },
-    platform_settings: { overrides: deepMerge(platform.overrides ?? {}, ELEVENLABS_REQUIRED_OVERRIDES) },
+    platform_settings: {
+      overrides: deepMerge(platform.overrides ?? {}, ELEVENLABS_REQUIRED_OVERRIDES),
+      privacy: buildAgentPrivacyPatch(agent),
+    },
   };
 }
 
@@ -351,7 +500,9 @@ export function buildAgentTuningPatch(agent: unknown, toolIds: string[], opts: E
   prompt.max_tokens = T.prompt.max_tokens;
   prompt.timezone = T.prompt.timezone;
   const builtIn = isObj(promptIn.built_in_tools) ? promptIn.built_in_tools : {};
-  prompt.built_in_tools = { ...builtIn, language_detection: LANGUAGE_DETECTION_TOOL };
+  // Политика CRM поверх: снимок агента взят ДО первого PATCH, и без неё второй PATCH вернул бы
+  // встроенный end_call, если он был включён в кабинете.
+  prompt.built_in_tools = withCrmBuiltInPolicy({ ...builtIn, language_detection: LANGUAGE_DETECTION_TOOL });
 
   const ttsIn = isObj(config.tts) ? config.tts : {};
   const tts: Json = { ...T.tts };
@@ -396,7 +547,124 @@ export function buildAgentTuningPatch(agent: unknown, toolIds: string[], opts: E
 
 interface ElevenLabsToolRow {
   id?: string;
-  tool_config?: { type?: string; name?: string };
+  tool_config?: unknown;
+}
+
+/** Больше стольких новых функций за одну подготовку — тревога (сравнение разошлось с сервисом).
+ *  Самый большой набор звонка — ~14 функций; после правки описаний новых — единицы. */
+export const ELEVENLABS_TOOLS_CREATED_ALARM = 5;
+
+/** Страниц списка функций не больше этого (по 100 — потолок page_size, замер 11.11: 101 → 422). */
+const TOOL_LIST_MAX_PAGES = 10;
+
+/** Все клиентские функции аккаунта. Список постраничный (has_more / next_cursor): прежнее
+ *  чтение одной страницы (30 по умолчанию) с ростом числа функций заводило бы дубли. */
+async function listElevenLabsClientTools(apiKey: string): Promise<ElevenLabsToolRow[]> {
+  const rows: ElevenLabsToolRow[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < TOOL_LIST_MAX_PAGES; page++) {
+    const q = new URLSearchParams({ types: "client", page_size: "100" });
+    if (cursor) q.set("cursor", cursor);
+    const res = await elevenLabsRequest<{ tools?: ElevenLabsToolRow[]; has_more?: boolean; next_cursor?: string | null }>(
+      apiKey,
+      "GET",
+      `/v1/convai/tools?${q.toString()}`
+    );
+    rows.push(...(res.tools ?? []));
+    if (!res.has_more || !res.next_cursor) return rows;
+    cursor = res.next_cursor;
+  }
+  void logSystemError(
+    "telephony",
+    `Живой голос (ElevenLabs): функций в аккаунте больше ${TOOL_LIST_MAX_PAGES * 100} — список прочитан не весь, ` +
+      "возможны дубли функций. Удалите в кабинете ElevenLabs старые клиентские функции, не прикреплённые ни к одному агенту.",
+    { dedupKey: "elevenlabs-tool-list-cap" }
+  );
+  return rows;
+}
+
+/** Заведение функции в полёте по ключу содержимого: два вида звонка, готовящиеся разом,
+ *  с одинаковой функцией (save_contact) не заводят две копии. */
+const toolCreateInFlight = new Map<string, Promise<string>>();
+
+function createToolOnce(apiKey: string, key: string, tool_config: Record<string, unknown>, name: string): Promise<string> {
+  const existing = toolCreateInFlight.get(key);
+  if (existing) return existing;
+  const pending = elevenLabsRequest<{ id?: string }>(apiKey, "POST", "/v1/convai/tools", { tool_config }).then((created) => {
+    if (!created.id) throw new ElevenLabsHttpError(`ElevenLabs: инструмент ${name} создан без id`, null);
+    return created.id;
+  });
+  toolCreateInFlight.set(key, pending);
+  void pending.finally(() => {
+    if (toolCreateInFlight.get(key) === pending) toolCreateInFlight.delete(key);
+  }).catch(() => {});
+  return pending;
+}
+
+/**
+ * id функций этого набора: по ключу содержимого среди уже заведённых (предпочтение —
+ * уже прикреплённым к агенту), иначе новая функция. Существующие не правятся.
+ */
+async function ensureElevenLabsTools(
+  apiKey: string,
+  tools: LiveVoiceFunctionDeclaration[],
+  attachedIds: ReadonlySet<string>
+): Promise<Map<string, string>> {
+  const names = tools.map((t) => t.name);
+  const dup = names.find((n, i) => names.indexOf(n) !== i);
+  // Внутри одного звонка имя — ключ ответа (ids по имени) и имя вызова: двойник потерялся бы молча.
+  if (dup) throw new ElevenLabsHttpError(`ElevenLabs: в наборе функций звонка имя ${dup} повторяется`, null);
+  // Среди одинаковых по ключу: не поправленная в кабинете важнее, прикреплённая к агенту — ещё важнее.
+  const rank = (id: string, cfg: unknown) => (hasDefaultToolBehavior(cfg) ? 2 : 0) + (attachedIds.has(id) ? 1 : 0);
+  const byContent = new Map<string, { id: string; rank: number }>();
+  for (const row of await listElevenLabsClientTools(apiKey)) {
+    const key = row.id ? elevenLabsToolContentKey(row.tool_config) : null;
+    if (!key || !row.id) continue;
+    const r = rank(row.id, row.tool_config);
+    const prev = byContent.get(key);
+    if (!prev || r > prev.rank) byContent.set(key, { id: row.id, rank: r });
+  }
+  const ids = new Map<string, string>();
+  let created = 0;
+  await Promise.all(
+    tools.map(async (decl) => {
+      const tool_config = toElevenLabsClientTool(decl);
+      const key = elevenLabsToolContentKey(tool_config)!;
+      const found = byContent.get(key)?.id;
+      if (found) return void ids.set(decl.name, found);
+      created++;
+      ids.set(decl.name, await createToolOnce(apiKey, key, tool_config, decl.name));
+    })
+  );
+  if (created > ELEVENLABS_TOOLS_CREATED_ALARM) {
+    void logSystemError(
+      "telephony",
+      `Живой голос (ElevenLabs): за одну подготовку заведено ${created} новых функций. Если описания функций в коде не ` +
+        "менялись, сервис, похоже, хранит функции иначе, чем CRM их сравнивает, — функции будут копиться с каждым " +
+        "перезапуском. Проверить: npm run voice:patch-check («повторная подготовка не заводит новых»).",
+      { dedupKey: "elevenlabs-tools-created-many" }
+    );
+  }
+  return ids;
+}
+
+/**
+ * Подготовки одного агента идут по очереди (11.11.2026). Каждая читает агента и пишет
+ * tool_ids = прочитанные ∪ свои; две разом (консультант и исходящий в одну минуту)
+ * затирали бы id друг друга, и подмена набора у проигравшего падала бы 1008
+ * «Tool IDs not attached». Очередь — в пределах процесса.
+ */
+const agentSyncQueue = new Map<string, Promise<unknown>>();
+
+function serializePerAgent<T>(agentId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = agentSyncQueue.get(agentId) ?? Promise.resolve();
+  const run = prev.catch(() => {}).then(fn);
+  const tail = run.catch(() => {});
+  agentSyncQueue.set(agentId, tail);
+  void tail.then(() => {
+    if (agentSyncQueue.get(agentId) === tail) agentSyncQueue.delete(agentId);
+  });
+  return run;
 }
 
 /** Итог подготовки агента: id функций и приняты ли настройки разговора. */
@@ -419,32 +687,23 @@ export async function syncElevenLabsAgentDetailed(
   tools: LiveVoiceFunctionDeclaration[],
   opts: ElevenLabsAgentTuningOptions = {}
 ): Promise<ElevenLabsAgentSyncOutcome> {
-  // Без функций список инструментов не нужен, а настройки разговора — нужны.
-  const listed: { tools?: ElevenLabsToolRow[] } =
-    tools.length > 0 ? await elevenLabsRequest<{ tools?: ElevenLabsToolRow[] }>(apiKey, "GET", "/v1/convai/tools") : {};
-  const byName = new Map<string, string>();
-  for (const row of listed.tools ?? []) {
-    if (row.id && row.tool_config?.type === "client" && row.tool_config.name) byName.set(row.tool_config.name, row.id);
-  }
-  const ids = new Map<string, string>();
-  await Promise.all(
-    tools.map(async (decl) => {
-      const tool_config = toElevenLabsClientTool(decl);
-      const existing = byName.get(decl.name);
-      if (existing) {
-        await elevenLabsRequest(apiKey, "PATCH", `/v1/convai/tools/${encodeURIComponent(existing)}`, { tool_config });
-        ids.set(decl.name, existing);
-      } else {
-        const created = await elevenLabsRequest<{ id?: string }>(apiKey, "POST", "/v1/convai/tools", { tool_config });
-        if (!created.id) throw new ElevenLabsHttpError(`ElevenLabs: инструмент ${decl.name} создан без id`, null);
-        ids.set(decl.name, created.id);
-      }
-    })
-  );
+  return serializePerAgent(agentId, () => syncElevenLabsAgentNow(apiKey, agentId, tools, opts));
+}
+
+async function syncElevenLabsAgentNow(
+  apiKey: string,
+  agentId: string,
+  tools: LiveVoiceFunctionDeclaration[],
+  opts: ElevenLabsAgentTuningOptions
+): Promise<ElevenLabsAgentSyncOutcome> {
   const agentPath = `/v1/convai/agents/${encodeURIComponent(agentId)}`;
   const agent = await elevenLabsRequest(apiKey, "GET", agentPath);
+  // Без функций список инструментов не нужен, а настройки разговора — нужны.
+  const ids =
+    tools.length > 0 ? await ensureElevenLabsTools(apiKey, tools, new Set(mergedToolIds(readPrompt(agent), []))) : new Map<string, string>();
   await elevenLabsRequest(apiKey, "PATCH", agentPath, buildAgentSyncPatch(agent, [...ids.values()]));
   const tajikPronunciation = await syncTajikPronunciationDictionary(apiKey, agent);
+  let outcome: ElevenLabsAgentSyncOutcome;
   try {
     await elevenLabsRequest(
       apiKey,
@@ -452,7 +711,7 @@ export async function syncElevenLabsAgentDetailed(
       agentPath,
       buildAgentTuningPatch(agent, [...ids.values()], tajikPronunciation ? { ...opts, tajikPronunciation } : opts)
     );
-    return { ids, tuned: true, tuningError: null };
+    outcome = { ids, tuned: true, tuningError: null };
   } catch (err) {
     const detail = describeError(err);
     void logSystemError(
@@ -462,8 +721,91 @@ export async function syncElevenLabsAgentDetailed(
         `${ELEVENLABS_SYNC_RETRY_PAUSE_MS / 60_000} мин.`,
       { dedupKey: "elevenlabs-agent-tuning" }
     );
-    return { ids, tuned: false, tuningError: detail };
+    outcome = { ids, tuned: false, tuningError: detail };
   }
+  await assertToolIdsAttached(apiKey, agentPath, ids);
+  // Функции у агента — подмена снова разрешена (кнопка «Проверить агента» снимает паузу сразу).
+  // Счётчик 1008 не сбрасывается: иначе 1008 → переподготовка → 1008 шли бы по кругу на каждом звонке,
+  // и паузы не случалось бы никогда.
+  if (ids.size > 0) toolOverridePausedUntil.delete(agentId);
+  return outcome;
+}
+
+/**
+ * Сверка после PATCH (11.11.2026): ответ 200 ещё не значит, что функции у агента. Подмена
+ * набора на звонок принимает только прикреплённые id (иначе 1008 сразу после начала
+ * разговора), поэтому подготовка без наших id в tool_ids агента — не готова: бросаем, и
+ * звонки идут без подмены до повтора после паузы, а не падают по одному.
+ */
+async function assertToolIdsAttached(apiKey: string, agentPath: string, ids: Map<string, string>): Promise<void> {
+  if (ids.size === 0) return;
+  const after = await elevenLabsRequest(apiKey, "GET", agentPath);
+  const attached = new Set(mergedToolIds(readPrompt(after), []));
+  const missing = [...ids.values()].filter((id) => !attached.has(id));
+  if (missing.length > 0) {
+    throw new ElevenLabsHttpError(
+      `ElevenLabs: агент не сохранил наши функции (${missing.length} из ${ids.size} нет в tool_ids) — подмена набора на звонок была бы отклонена`,
+      null
+    );
+  }
+}
+
+/**
+ * ЗАКРЫТИЕ 1008 «Tool IDs not attached» (11.11.2026). Первый раз — забыть подготовку
+ * агента: следующий звонок заново прикрепит функции. Повтор за окно — причина не уходит
+ * (агент держит функции не там, куда пишет PATCH, кабинет снимает их снова и т.п.), и
+ * каждая новая подготовка стоила бы звонку до ELEVENLABS_SYNC_BUDGET_MS тишины и снова
+ * 1008: подмена функций на звонок ставится на паузу, звонки идут с набором агента,
+ * одна тревога в журнал.
+ */
+export const ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS = 30 * 60_000;
+const toolsNotAttachedAt = new Map<string, number>();
+const toolOverridePausedUntil = new Map<string, number>();
+
+export function noteElevenLabsToolsNotAttached(agentId: string): "resync" | "paused" {
+  const now = Date.now();
+  const prev = toolsNotAttachedAt.get(agentId);
+  toolsNotAttachedAt.set(agentId, now);
+  if (prev !== undefined && now - prev < ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS) {
+    toolOverridePausedUntil.set(agentId, now + ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS);
+    void logSystemError(
+      "telephony",
+      `Живой голос (ElevenLabs): агент ${agentId} снова отклонил набор функций звонка (1008 «Tool IDs not attached»). ` +
+        `Подмена функций на звонок выключена на ${ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS / 60_000} мин — звонки идут с ` +
+        "функциями, прикреплёнными к агенту в кабинете. Проверьте агента кнопкой «Проверить агента» в Настройках.",
+      { dedupKey: "elevenlabs-tools-override-paused" }
+    );
+    return "paused";
+  }
+  forgetElevenLabsAgentSync(agentId);
+  void logSystemError(
+    "telephony",
+    "Живой голос (ElevenLabs): агент отклонил набор функций звонка — их сняли с агента. Звонок повторён с функциями " +
+      "агента, следующий звонок заново прикрепит функции.",
+    { dedupKey: "elevenlabs-tools-not-attached" }
+  );
+  return "resync";
+}
+
+/**
+ * Снять паузу подмены функций (повторное ревью 11.11.2026): сама — после удачной сверки
+ * tool_ids в подготовке (кнопка «Проверить агента», о которой говорит тревога); снаружи —
+ * из общего сброса удержаний живого голоса (П1: resetLiveVoiceProviderHolds при своде).
+ * Без agentId — для всех агентов.
+ */
+export function clearElevenLabsToolOverridePause(agentId?: string): void {
+  if (agentId === undefined) {
+    toolOverridePausedUntil.clear();
+    toolsNotAttachedAt.clear();
+    return;
+  }
+  toolOverridePausedUntil.delete(agentId);
+  toolsNotAttachedAt.delete(agentId);
+}
+
+/** Подмена функций на звонок на паузе после повторных 1008 (см. noteElevenLabsToolsNotAttached). */
+export function isElevenLabsToolOverridePaused(agentId: string): boolean {
+  return (toolOverridePausedUntil.get(agentId) ?? 0) > Date.now();
 }
 
 /** Сколько страниц списка словарей читаем (по 100): дальше — не наш случай. */
@@ -562,15 +904,39 @@ const syncPausedUntil = new Map<string, number>();
 
 function syncKey(agentId: string, tools: LiveVoiceFunctionDeclaration[], opts: ElevenLabsAgentTuningOptions): string {
   // Сменился таджикский голос или настройки — агент готовится заново.
+  // Ключ — по СОДЕРЖИМОМУ набора (имя + описание + параметры каждой функции): у приглашения
+  // и опроса после показа одно имя end_call, но наборы разные — каждый готовится и
+  // помнится отдельно со своими id (11.11.2026).
+  const toolKeys = tools.map((t) => elevenLabsToolContentKey(toElevenLabsClientTool(t)));
   const payload = JSON.stringify([
-    tools,
+    toolKeys,
     opts.voiceIdTg?.trim() || null,
     ELEVENLABS_PHONE_AGENT_TUNING,
+    ELEVENLABS_AGENT_CRM_POLICY,
     // Сменились подтверждённые правила произношения или слова распознавания — готовим заново.
     approvedTajikPronunciationRules(),
     TAJIK_ASR_KEYWORDS,
   ]);
   return `${agentId}:${createHash("sha256").update(payload).digest("hex")}`;
+}
+
+/**
+ * Забыть подготовки агента (11.11.2026): ElevenLabs закрыл разговор 1008 «Tool IDs not
+ * attached to this agent» — значит, наши id с агента сняли (правка в кабинете, другой
+ * скрипт). Без этого память процесса отдавала бы те же id до перезапуска, и каждый
+ * звонок падал бы так же. Следующий звонок подготовит агента заново.
+ */
+export function forgetElevenLabsAgentSync(agentId: string): void {
+  const prefix = `${agentId}:`;
+  for (const map of [syncDone, syncPausedUntil]) {
+    for (const key of [...map.keys()]) if (key.startsWith(prefix)) map.delete(key);
+  }
+}
+
+/** Закрытие разговора ElevenLabs из-за того, что подменённые функции не прикреплены к агенту
+ *  (замер 11.11: код 1008, «Tool IDs not attached to this agent: [...]»). */
+export function isElevenLabsToolsNotAttachedClose(code: number, reason: string): boolean {
+  return code === 1008 && /tool ids? not attached/i.test(reason);
 }
 
 function startSync(
@@ -657,4 +1023,8 @@ export function resetElevenLabsSyncCacheForTests(): void {
   syncInFlight.clear();
   syncDone.clear();
   syncPausedUntil.clear();
+  toolCreateInFlight.clear();
+  agentSyncQueue.clear();
+  toolsNotAttachedAt.clear();
+  toolOverridePausedUntil.clear();
 }

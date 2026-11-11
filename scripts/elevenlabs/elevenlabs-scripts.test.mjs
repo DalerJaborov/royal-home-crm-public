@@ -136,13 +136,19 @@ function fakeServer(mode) {
   };
   let n = 0;
   const calls = [];
+  const savedTools = [];
   const fetchImpl = async (url, init) => {
     const u = String(url).replace("https://api.elevenlabs.io", "");
     const method = init?.method || "GET";
     calls.push(`${method} ${u}`);
     const body = init?.body ? JSON.parse(init.body) : null;
-    if (u === "/v1/convai/tools" && method === "GET") return json(200, { tools: [] });
-    if (u === "/v1/convai/tools" && method === "POST") return json(200, { id: `tool_${++n}` });
+    // Функции помнятся, как у настоящего сервиса: повторная подготовка не должна заводить новые.
+    if (u === "/v1/convai/tools" && method === "GET") return json(200, { tools: savedTools });
+    if (u === "/v1/convai/tools" && method === "POST") {
+      const id = `tool_${++n}`;
+      savedTools.push({ id, tool_config: body.tool_config });
+      return json(200, { id });
+    }
     if (u.startsWith("/v1/convai/agents/")) {
       if (method === "GET") return json(200, JSON.parse(JSON.stringify(agent)));
       let patch = body;
@@ -498,4 +504,126 @@ test("load-env: значение из .env перекрывает устарев
   assert.ok(!JSON.stringify(replaced).includes(KEY));
   assert.deepEqual(loadElevenLabsEnv({}, path.join(dir, "нет.env")), []);
   rmSync(dir, { recursive: true, force: true });
+});
+
+// ── П2 (11.11.2026): функции по содержимому, у каждого вида звонка свой end_call ─────────
+import { ensureTools, perKindToolViolations } from "./patch-check.mjs";
+
+const END_A = { name: "end_call", description: "конец", parameters: { type: "OBJECT", properties: { reason: { type: "STRING", description: "r", enum: ["answered", "refused"] } }, required: ["reason"] } };
+const END_B = { ...END_A, parameters: { type: "OBJECT", properties: { reason: { type: "STRING", description: "r", enum: ["answered", "wrong_person"] } }, required: ["reason"] } };
+const TWO_KINDS = [
+  { kind: "invite", tools: [END_A] },
+  { kind: "post", tools: [END_B] },
+];
+
+test("patch-check по видам звонка: одно имя end_call с разными параметрами — разные id, повтор не заводит новых", async () => {
+  const sync = await loadAgentSync();
+  const srv = fakeServer("merge");
+  const c = collect();
+  const r = await runPatchCheck({ env: PC_ENV, fetchImpl: srv.fetchImpl, sync, kinds: TWO_KINDS, say: c.say, writeFiles: false });
+  assert.equal(r.failed, 0, c.text());
+  assert.match(c.text(), /OK\s+у каждого вида звонка свои функции/);
+  assert.match(c.text(), /OK\s+повторная подготовка не заводит новых функций/);
+  assert.match(c.text(), /OK\s+conversation_config\.agent\.prompt\.built_in_tools\.end_call/);
+  assert.match(c.text(), /OK\s+platform_settings\.privacy\.retention_days/);
+  // Функции не правились: ни одного PATCH /v1/convai/tools/…
+  assert.equal(srv.calls.filter((x) => x.startsWith("PATCH /v1/convai/tools/")).length, 0);
+  assert.equal(srv.calls.filter((x) => x === "POST /v1/convai/tools").length, 2);
+});
+
+test("patch-check: сервис хранит функцию иначе, чем мы её сравниваем — повтор заводит дубли, проверка краснеет", async () => {
+  const sync = await loadAgentSync();
+  const srv = fakeServer("merge");
+  const fetchImpl = async (url, init) => {
+    const res = await srv.fetchImpl(url, init);
+    if ((init?.method || "GET") === "GET" && String(url).endsWith("/v1/convai/tools")) {
+      const body = JSON.parse(await res.text());
+      for (const t of body.tools) t.tool_config = { ...t.tool_config, description: t.tool_config.description + "!" };
+      return json(200, body);
+    }
+    return res;
+  };
+  const c = collect();
+  const r = await runPatchCheck({ env: PC_ENV, fetchImpl, sync, kinds: TWO_KINDS, say: c.say, writeFiles: false });
+  assert.equal(r.failed, 1);
+  assert.match(c.text(), /FAIL повторная подготовка не заводит новых функций — заведено повторно: 2/);
+});
+
+test("patch-check: сервис не принял срок хранения — ключевое поле PATCH №1 красное", async () => {
+  const sync = await loadAgentSync();
+  const srv = fakeServer("merge");
+  const fetchImpl = async (url, init) => {
+    if (init?.method === "PATCH" && String(url).includes("/agents/")) {
+      const body = JSON.parse(init.body);
+      delete body.platform_settings?.privacy;
+      return srv.fetchImpl(url, { ...init, body: JSON.stringify(body) });
+    }
+    return srv.fetchImpl(url, init);
+  };
+  const c = collect();
+  const r = await runPatchCheck({ env: PC_ENV, fetchImpl, sync, kinds: TWO_KINDS, say: c.say, writeFiles: false });
+  assert.equal(r.failed, 1);
+  assert.match(c.text(), /FAIL platform_settings\.privacy\.retention_days/);
+});
+
+test("perKindToolViolations: прежняя выдача по имени (один id на оба end_call) — нарушение; одно содержимое — нет", async () => {
+  const sync = await loadAgentSync();
+  const { elevenLabsToolContentKey } = await import("../../apps/api/src/ai/elevenLabsAgentSync.ts");
+  const byName = [
+    { kind: "invite", tools: [END_A], idByName: { end_call: "tool_1" } },
+    { kind: "post", tools: [END_B], idByName: { end_call: "tool_1" } },
+  ];
+  assert.equal(perKindToolViolations(byName, sync.toElevenLabsClientTool, elevenLabsToolContentKey).length, 1);
+  const same = [
+    { kind: "a", tools: [END_A], idByName: { end_call: "tool_1" } },
+    { kind: "b", tools: [END_A], idByName: { end_call: "tool_1" } },
+  ];
+  assert.deepEqual(perKindToolViolations(same, sync.toElevenLabsClientTool, elevenLabsToolContentKey), []);
+});
+
+test("ensureTools без явного ключа берёт ключ сервера (один источник правила) и читает список постранично", async () => {
+  const sync = await loadAgentSync();
+  const pages = [];
+  const fetchImpl = async (url, init) => {
+    const u = String(url).replace("https://api.elevenlabs.io", "");
+    const method = init?.method || "GET";
+    if (method === "GET") {
+      pages.push(u);
+      return u.includes("cursor=") ? json(200, { tools: [], has_more: false }) : json(200, { tools: [], has_more: true, next_cursor: "c2" });
+    }
+    return json(200, { id: "tool_new" });
+  };
+  const request = makeClient({ apiKey: KEY, fetchImpl, retries: 0 });
+  const e = await ensureTools(request, [END_A], sync.toElevenLabsClientTool);
+  assert.equal(e.error, null);
+  assert.deepEqual(pages, ["/v1/convai/tools", "/v1/convai/tools?cursor=c2"]);
+  assert.equal(e.idByName.end_call, "tool_new");
+});
+
+test("patch-check: PATCH №1 заменил privacy целиком (пропал флаг владельца) — «чужие поля целы» краснеет", async () => {
+  const sync = await loadAgentSync();
+  const srv = fakeServer("merge");
+  srv.agent.platform_settings.privacy = { record_voice: true, retention_days: -1, user_memory: { enabled: true } };
+  const fetchImpl = async (url, init) => {
+    const res = await srv.fetchImpl(url, init);
+    const body = init?.body ? JSON.parse(init.body) : null;
+    if (init?.method === "PATCH" && String(url).includes("/agents/") && body?.platform_settings?.privacy) {
+      srv.agent.platform_settings.privacy = body.platform_settings.privacy; // замена подобъекта, а не слияние
+    }
+    return res;
+  };
+  const c = collect();
+  const r = await runPatchCheck({ env: PC_ENV, fetchImpl, sync, kinds: TWO_KINDS, say: c.say, writeFiles: false });
+  assert.equal(r.failed, 1);
+  assert.match(c.text(), /FAIL PATCH №1: чужие поля целы — .*platform_settings\.privacy\.user_memory\.enabled/);
+});
+
+test("patch-check: сервис слил PATCH №1 глубоко — «чужие поля целы» зелёный", async () => {
+  const sync = await loadAgentSync();
+  const srv = fakeServer("merge");
+  srv.agent.platform_settings.privacy = { record_voice: true, retention_days: -1, user_memory: { enabled: true } };
+  const c = collect();
+  const r = await runPatchCheck({ env: PC_ENV, fetchImpl: srv.fetchImpl, sync, kinds: TWO_KINDS, say: c.say, writeFiles: false });
+  assert.equal(r.failed, 0, c.text());
+  assert.match(c.text(), /OK\s+PATCH №1: чужие поля целы/);
 });
