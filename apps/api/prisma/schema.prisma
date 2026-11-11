@@ -7010,7 +7010,7 @@ model Settings {
   /// (исходящие переносятся, входящие уходят на автоответчик станции), идущий разговор не
   /// рвётся; тревога директору на 80% и 100%. 0 — без потолка. Умолчания и расчёт —
   /// packages/shared/src/liveVoiceSpend.ts, дверь — lib/liveVoiceSpend.ts.
-  liveVoiceDailyMinutesCap          Int       @default(30)
+  liveVoiceDailyMinutesCap          Int       @default(60)
   liveVoiceMonthlyMinutesCap        Int       @default(250)
   /// ЧАСЫ АЛАРМОВ РУКОВОДИТЕЛЮ (владелец 07.09.2026) — НАМЕРЕННО ОТДЕЛЬНОЕ ПОЛЕ
   /// от workHoursStart/End выше: то поле решает, когда лид уходит агенту, это —

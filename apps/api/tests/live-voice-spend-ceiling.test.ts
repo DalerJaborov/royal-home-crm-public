@@ -120,6 +120,18 @@ describe("потолок минут: чистая часть", () => {
     expect(Number(m![1]) * MIN).toBe(shared.LIVE_VOICE_SESSION_BILLING_CAP_MS);
   });
 
+  it("умолчания — 60 мин/сутки (решение владельца 11.11) и 250 мин/месяц, одинаково в shared, схеме и миграции", () => {
+    expect(shared.LIVE_VOICE_DAILY_MINUTES_CAP_DEFAULT).toBe(60);
+    expect(shared.LIVE_VOICE_MONTHLY_MINUTES_CAP_DEFAULT).toBe(250);
+    const here = dirname(fileURLToPath(import.meta.url));
+    const schema = readFileSync(join(here, "../prisma/schema.prisma"), "utf8");
+    const migration = readFileSync(join(here, "../prisma/migrations/20261111180000_live_voice_spend_ceiling/migration.sql"), "utf8");
+    expect(schema).toMatch(new RegExp(String.raw`liveVoiceDailyMinutesCap\s+Int\s+@default\(${shared.LIVE_VOICE_DAILY_MINUTES_CAP_DEFAULT}\)`));
+    expect(schema).toMatch(new RegExp(String.raw`liveVoiceMonthlyMinutesCap\s+Int\s+@default\(${shared.LIVE_VOICE_MONTHLY_MINUTES_CAP_DEFAULT}\)`));
+    expect(migration).toContain(`"liveVoiceDailyMinutesCap" INTEGER NOT NULL DEFAULT ${shared.LIVE_VOICE_DAILY_MINUTES_CAP_DEFAULT}`);
+    expect(migration).toContain(`"liveVoiceMonthlyMinutesCap" INTEGER NOT NULL DEFAULT ${shared.LIVE_VOICE_MONTHLY_MINUTES_CAP_DEFAULT}`);
+  });
+
   it("0 — без потолка; дробь, минус, null и лишний ноль — значение по умолчанию", () => {
     expect(shared.liveVoiceMinutesCapOrDefault(0, 30)).toBe(0);
     expect(shared.liveVoiceMinutesCapOrDefault(45, 30)).toBe(45);

@@ -4,7 +4,7 @@
 -- индекс строится обычным CREATE INDEX внутри транзакции миграции.
 
 -- AlterTable
-ALTER TABLE "Settings" ADD COLUMN "liveVoiceDailyMinutesCap" INTEGER NOT NULL DEFAULT 30,
+ALTER TABLE "Settings" ADD COLUMN "liveVoiceDailyMinutesCap" INTEGER NOT NULL DEFAULT 60,
 ADD COLUMN "liveVoiceMonthlyMinutesCap" INTEGER NOT NULL DEFAULT 250;
 
 -- CreateIndex
