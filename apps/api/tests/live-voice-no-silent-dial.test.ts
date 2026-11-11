@@ -279,6 +279,13 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  // Полдень по Душанбе (12.11.2026): робот звонит только с 09:00 до 19:00 (robotCallPolicy.ts),
+  // и вечерний прогон падал отказом «outside_hours», а не тем, что проверяет тест. Подменяем
+  // только Date; часы идут дальше (shouldAdvanceTime), таймеры и waitFor — настоящие.
+  const noon = new Date();
+  noon.setUTCHours(7, 0, 0, 0);
+  vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+  vi.setSystemTime(noon);
   resetLiveVoiceAudioPathForTests();
   resetLiveVoiceProviderHolds();
   logged.entries.length = 0;
@@ -292,6 +299,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await hangUpAll();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 

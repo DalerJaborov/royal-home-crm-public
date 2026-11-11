@@ -46,6 +46,8 @@ export interface LiveVoiceCallMetrics {
   talkOverMs: number[];
   interrupted: number;
   localBargeIns: number;
+  /** Короткие звуки поверх робота, не дошедшие до поставщика (liveVoiceBargeInHold.ts); нет — правило не работало. */
+  heldShortSounds?: number;
   echoFrames: number;
   echoSpeechFrames: number;
   echoFramesLegacy: number;

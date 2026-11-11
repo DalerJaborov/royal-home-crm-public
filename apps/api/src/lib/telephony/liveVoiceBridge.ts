@@ -55,6 +55,7 @@ import {
   type CallerLanguageAction,
   type CallerLanguageTracker,
 } from "./liveVoiceCallerLanguage.js";
+import { BargeInHold, bargeInHoldFrames } from "./liveVoiceBargeInHold.js";
 import { PoorLineTracker, poorLineBreakNote, poorLineTranscriptLine } from "./liveVoicePoorLine.js";
 import { loadMoneyContext } from "../money.js";
 import { robotCallRefusal } from "../robotCallPolicy.js";
@@ -1312,6 +1313,8 @@ interface LiveVoiceSession {
   /** Пороги эха и VAD от самой линии (liveVoiceEchoGate.ts): опорный сигнал бота,
    *  оценка эха, шумовой пол — одно на сессию. */
   echoGate: LiveVoiceEchoGate;
+  /** Короткие звуки поверх речи робота не перебивают его (ElevenLabs, liveVoiceBargeInHold.ts). */
+  bargeInHold: BargeInHold;
   /** Вдох (generateBreathSound) уже сыгран для текущей реплики бота — либо по
    *  сигналу локального VAD (клиент замолчал), либо по первому кадру звука от
    *  Gemini, смотря что случилось раньше. Не даёт сыграть вдох дважды на одну
@@ -3098,6 +3101,7 @@ async function startLiveVoiceSessionInner(event: AriEvent, ctx: StartContext): P
       isSpeaking: false,
       vadState: { speaking: false, silenceStreak: 0 },
       echoGate: new LiveVoiceEchoGate(),
+      bargeInHold: new BargeInHold(providerConfig.provider === "elevenlabs" ? bargeInHoldFrames() : 0),
       turnFillerPlayed: false,
       lastBotAudioAt: 0,
       endWhenQuietStarted: false,
@@ -3955,6 +3959,17 @@ function callWindingDown(session: LiveVoiceSession): boolean {
 }
 
 /**
+ * Пометка о языке — в контекст, без нового хода модели, где поставщик это умеет
+ * (ElevenLabs contextual_update, 12.11.2026). Пометка приходит на реплику, на которую
+ * модель уже отвечает: user_message обрывал этот ответ («...» в расшифровке) и заставлял
+ * отвечать заново — пауза ~6 с на звонке владельца 11.11. Gemini — прежний sendText.
+ */
+export function sendLanguageNote(session: Pick<LiveVoiceSession, "gemini">, note: string): void {
+  if (session.gemini.sendContext) session.gemini.sendContext(note);
+  else session.gemini.sendText(note);
+}
+
+/**
  * ЯЗЫК ЗВОНЯЩЕГО (10.10.2026, liveVoiceCallerLanguage.ts). Переключение — после двух уверенных
  * кириллических реплик подряд на другом языке; мусорная расшифровка (арабица, латиница…) языка
  * не меняет. Язык так и не ясен — один раз спросить на обоих языках, таджикский первым.
@@ -3965,10 +3980,10 @@ function handleCallerLanguage(session: LiveVoiceSession, action: CallerLanguageA
     if (action.kind === "switch") {
       session.replyGuard.setLanguage(action.to);
       session.transcript.push(`[язык] звонящий говорит ${action.to === "ru" ? "по-русски" : "по-таджикски"} — робот переходит на этот язык`);
-      session.gemini.sendText(callerLanguageSwitchNote(action.to));
+      sendLanguageNote(session, callerLanguageSwitchNote(action.to, { languageTool: session.provider === "elevenlabs" }));
     } else {
       session.transcript.push("[язык] язык звонящего не ясен — робот спрашивает, на каком удобнее");
-      session.gemini.sendText(callerLanguageAskNote());
+      sendLanguageNote(session, callerLanguageAskNote());
     }
   } catch (err) {
     console.warn(`[живой голос] язык звонящего: ${describeError(err)}`);
@@ -4620,9 +4635,12 @@ function wireRtpSocket(session: LiveVoiceSession): void {
         else session.gemini.sendAudioChunk(pcm16k, CHANNEL_SAMPLE_RATE * 2);
       } else {
         // ElevenLabs принимает звук в частоте формата разговора (при ulaw_8000
-        // подъём частоты не нужен вовсе) — клиент сам называет её.
+        // подъём частоты не нужен вовсе) — клиент сам называет её. Короткий звук поверх
+        // речи робота придерживается и уходит тишиной (liveVoiceBargeInHold.ts).
         const inputRate = session.gemini.inputSampleRateHz;
-        session.gemini.sendAudioChunk(int16ToBufferLE(resamplePcm16(toModel, CHANNEL_SAMPLE_RATE, inputRate)), inputRate);
+        for (const frame of session.bargeInHold.push(toModel, session.metrics.botOnLine, gate.bargeIn)) {
+          session.gemini.sendAudioChunk(int16ToBufferLE(resamplePcm16(frame, CHANNEL_SAMPLE_RATE, inputRate)), inputRate);
+        }
       }
     } catch (err) {
       // Один плохой пакет НЕ должен ронять ни сессию, ни (что важнее) весь
@@ -4864,7 +4882,10 @@ async function endLiveVoiceSession(channelId: string, reason: string, only?: Liv
     // 2. ИТОГ В БАЗУ — с потолком: зависшая запись не должна держать итог сценария.
     // Замеры звонка — строкой в конце расшифровки (без миграции схемы, liveVoiceMetrics.ts)
     // и в лог; сценарию уходит расшифровка без неё (ниже, session.transcript).
-    const metricsLine = formatLiveVoiceMetricsLine(session.metrics.snapshot(session.echoGate.state()));
+    const metricsLine = formatLiveVoiceMetricsLine({
+      ...session.metrics.snapshot(session.echoGate.state()),
+      ...(session.provider === "elevenlabs" ? { heldShortSounds: session.bargeInHold.suppressed } : {}),
+    });
     console.log(`[живой голос] замеры канала ${channelId} (${reason}): ${metricsLine}`);
     const wrote = await withTimeout(
       // Строка журнала заводится параллельно снятию трубки — сперва дождаться её (у неё
