@@ -8,10 +8,16 @@
 //   ELEVENLABS_PAID_TESTS_APPROVED=1    — окружение, ставит только владелец.
 // Перед стартом — остаток подписки (GET /v1/user/subscription, бесплатно) и отказ, если
 // бюджет больше остатка; во время — стоп, как только потрачено ≥ бюджета; после — итог.
-// Сторож в elevenlabs-scripts.test.mjs не пропустит файл с платным адресом без этого замка.
+// Сторож (unguardedPaidScripts ниже, тест в elevenlabs-scripts.test.mjs) не пропустит
+// скрипт с платным адресом без этого замка — в scripts/ и apps/api/scripts целиком.
+// Разрешение НЕ читается из apps/api/.env (load-env.mjs его пропускает): постоянная «1»
+// в файле превратила бы замок в открытую дверь. Только оболочка, на один запуск.
 //
 // ФАКТ (справочник ElevenLabs, GET /v1/user/subscription): character_count — израсходовано
 // за период, character_limit — лимит периода; кредиты считаются в этих единицах.
+
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 /** Адреса API, вызов которых тратит кредиты. Сторож ищет их в скриптах. */
 export const PAID_ENDPOINT_PATTERNS = [
@@ -86,4 +92,44 @@ export async function openPaidBudget({ env, values, request, say }) {
       return spent;
     },
   };
+}
+
+/** Файлы, которые сторож смотрит: исходники скриптов, без тестов и без самого замка. */
+const SCRIPT_FILE = /\.(?:mjs|cjs|js|mts|ts)$/;
+const SKIP_FILE = /(?:\.test\.|\.spec\.)|^paid-guard\.mjs$/;
+const SKIP_DIR = new Set(["node_modules", "dist", ".git", "generated"]);
+
+function* walkScripts(dir) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      if (!SKIP_DIR.has(e.name)) yield* walkScripts(path.join(dir, e.name));
+    } else if (SCRIPT_FILE.test(e.name) && !SKIP_FILE.test(e.name)) {
+      yield path.join(dir, e.name);
+    }
+  }
+}
+
+/**
+ * СТОРОЖ ЗАМКА: скрипты под `roots`, в исходнике которых есть платный адрес
+ * (PAID_ENDPOINT_PATTERNS — даже в комментарии: защита по умолчанию), но нет вызова
+ * `openPaidBudget(`. Возвращает пути таких файлов; пусто — все под замком.
+ * Ограничение (ОЦЕНКА): косвенный платный вызов — через функцию продукта или адрес,
+ * собранный из кусков, — статически не виден; его держит только поведенческий тест.
+ */
+export function unguardedPaidScripts(roots) {
+  const out = [];
+  for (const root of roots) {
+    for (const file of walkScripts(root)) {
+      const src = readFileSync(file, "utf8");
+      if (!PAID_ENDPOINT_PATTERNS.some((re) => re.test(src))) continue;
+      if (!/\bopenPaidBudget\s*\(/.test(src)) out.push(file);
+    }
+  }
+  return out;
 }
