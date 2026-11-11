@@ -16,10 +16,10 @@
   "paths": 733,
   "cron": 127,
   "jobs": 32,
-  "conditions": 3917,
-  "untranslatedUnique": 447,
-  "untranslatedTotal": 573,
-  "partialUnique": 1063,
+  "conditions": 3920,
+  "untranslatedUnique": 449,
+  "untranslatedTotal": 575,
+  "partialUnique": 1064,
   "translatedShare": 85
  },
  "untranslated": [
@@ -119,6 +119,7 @@
   "!sendPrivateFile(res, application.cvFile, \"vacancy-cv\")",
   "!serviceTokenValid(req)",
   "!session || session.propertyId !== property.id",
+  "!settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))",
   "!settings?.asteriskAriUrl?.trim()",
   "!source || source.kind !== \"contact\" || source.status !== \"COMMITTED\" || source.supersededAt || !source.commi…",
   "!state.contactKeyFingerprint || state.contactKeyFingerprint !== somonKeyFingerprint()",
@@ -195,6 +196,7 @@
   "await forbiddenPrivilegedTarget(actor, batch.fromAgentId)",
   "await forbiddenPrivilegedTarget(actor, fromId)",
   "await forbiddenPrivilegedTarget(actor, targetId)",
+  "await handOverHolderToCurrentMontajer(montajerAgentId, now)",
   "await handledByQuietHours([agentId], payload)",
   "await manualRobotCallLimitReached(req.agent!.id)",
   "await phoneBelongsToHiddenOwner(req, phone)",
@@ -56272,6 +56274,19 @@
          ]
         }
        ]
+      },
+      {
+       "t": "если нет: видео montajer сотрудник",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ],
      "raw": "previousMontajerAgentId !== undefined && pair.videoMontajerAgentId !== previousMontajerAgentId"
@@ -73747,8 +73762,36 @@
        "a": [],
        "c": [
         {
-         "t": "если нет: видео handoff включено или нет: видео montajer сотрудник",
+         "t": "если нет: видео handoff включено",
          "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если !settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ],
+         "raw": "!settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))"
+        },
+        {
+         "t": "если await handOverHolderToCurrentMontajer(montajerAgentId, now)",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "await handOverHolderToCurrentMontajer(montajerAgentId, now)"
+        },
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
          "a": [],
          "c": []
         },
