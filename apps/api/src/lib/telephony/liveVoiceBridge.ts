@@ -102,6 +102,7 @@ import {
   ulawEncode,
   designLowPassFir,
 } from "./pcmCodec.js";
+import { clearElevenLabsToolOverridePause } from "../../ai/elevenLabsAgentSync.js";
 import { formatLiveVoiceMetricsLine, LiveVoiceMetricsTracker } from "./liveVoiceMetrics.js";
 import { frameEnergy, LiveVoiceEchoGate, VAD_SPEECH_ENERGY_THRESHOLD } from "./liveVoiceEchoGate.js";
 import {
@@ -456,6 +457,25 @@ export function liveVoiceInboundPaused(now: number = Date.now()): boolean {
 export function resetLiveVoiceProviderHolds(): void {
   clearProviderPauses();
   resetLiveVoiceProviderProbe();
+  // П1+П2 (свод 11.11.2026): и паузу подмены функций после повторных 1008 — новый ключ
+  // или агент начинают с чистого листа, а не ждут полчаса паузы от прежнего.
+  clearElevenLabsToolOverridePause();
+}
+
+/**
+ * Мгновенная проверка П1 БЕЗ чтения базы и сети (свод П1+П3, 11.11.2026): выбранный
+ * поставщик на паузе или у ElevenLabs отметка «минуты кончились». Стоит ПЕРЕД дверью П3
+ * (robotCallRefusal): та читает базу и пишет причину отказа, а пауза поставщика — не
+ * решение «звонить ли этому человеку», звонок просто переносится, попытка не тратится.
+ */
+function liveVoiceProviderHoldNow(now: number = Date.now()): LiveVoiceTestCallResult | null {
+  if (selectedProvider === "elevenlabs" && elevenLabsQuotaExhausted(now)) {
+    return { ok: false, busy: true, error: "У ElevenLabs закончились минуты — робозвонок остановлен, звонок перенесён" };
+  }
+  if (liveVoiceSelectedProviderPaused(now)) {
+    return { ok: false, busy: true, error: "Голос робота не подключается — робот на паузе" };
+  }
+  return null;
 }
 
 function rememberSelectedProvider(provider: LiveVoiceProviderName): void {
@@ -2193,6 +2213,8 @@ export async function originateLiveVoiceCallToClient(
   client: { id: string; phone: string; fullName: string },
   propertyDescription?: string | null
 ): Promise<LiveVoiceClientCallResult> {
+  // П1 мгновенно — до двери П3 (свод 11.11.2026, см. liveVoiceProviderHoldNow).
+  { const hold = liveVoiceProviderHoldNow(); if (hold) return hold; }
   // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts).
   { const refusal = await robotCallRefusal({ phone: client.phone, clientId: client.id, kind: "client_card" }); if (refusal) return refusal; }
   if (!isDialableTajikNumber(client.phone)) {
@@ -2292,6 +2314,8 @@ export async function originateLiveVoiceScenarioCall(
   },
   options?: { callerId?: string; channelId?: string; beforeOriginate?: () => Promise<void> }
 ): Promise<LiveVoiceClientCallResult> {
+  // П1 мгновенно — до двери П3 (свод 11.11.2026, см. liveVoiceProviderHoldNow).
+  { const hold = liveVoiceProviderHoldNow(); if (hold) return { ...hold, notDialed: true }; }
   // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts).
   { const refusal = await robotCallRefusal({ phone: phoneNumber, clientId: task.clientId, conversationId: task.conversationId, contactProfileId: task.contactProfileId, purpose: task.purpose, kind: "scenario" }); if (refusal) return refusal; }
   if (!isDialableTajikNumber(phoneNumber)) {
@@ -2901,6 +2925,9 @@ async function prepareModelPart(ctx: StartContext, checkAlive: () => void): Prom
       inputTranscription: liveVoiceInputTranscriptionConfig(
         liveVoiceTranscriptionHintLanguage(forceRussianOnly, task?.language ?? options.language)
       ),
+      // П1+П2 (свод 11.11.2026): входящий (консультант, тестовый номер) — человек уже на
+      // линии, ElevenLabs не обрывает его из-за неполного набора функций (strictTools).
+      direction: (options.direction ?? "outbound") === "outbound" ? "outbound" : "inbound",
     });
   } catch (err) {
     early.stop();

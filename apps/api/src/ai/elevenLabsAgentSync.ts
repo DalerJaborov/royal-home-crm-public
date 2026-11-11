@@ -762,6 +762,17 @@ export const ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS = 30 * 60_000;
 const toolsNotAttachedAt = new Map<string, number>();
 const toolOverridePausedUntil = new Map<string, number>();
 
+/**
+ * Кого позвать после «забыли подготовку» (свод П1+П2, 11.11.2026): прогрев агента
+ * (lib/telephony/liveVoiceWarmup.ts) подписывается сам при загрузке. Иначе после 1008
+ * первый звонок каждого вида снова ждал бы подготовку в тишине. Подписка, а не импорт:
+ * прогрев зависит от этого модуля, обратный импорт дал бы цикл.
+ */
+let afterAgentSyncForgotten: ((agentId: string) => void) | null = null;
+export function onElevenLabsAgentSyncForgotten(cb: ((agentId: string) => void) | null): void {
+  afterAgentSyncForgotten = cb;
+}
+
 export function noteElevenLabsToolsNotAttached(agentId: string): "resync" | "paused" {
   const now = Date.now();
   const prev = toolsNotAttachedAt.get(agentId);
@@ -778,6 +789,11 @@ export function noteElevenLabsToolsNotAttached(agentId: string): "resync" | "pau
     return "paused";
   }
   forgetElevenLabsAgentSync(agentId);
+  try {
+    afterAgentSyncForgotten?.(agentId);
+  } catch {
+    // Прогрев — подспорье: его сбой не должен ломать закрытие звонка.
+  }
   void logSystemError(
     "telephony",
     "Живой голос (ElevenLabs): агент отклонил набор функций звонка — их сняли с агента. Звонок повторён с функциями " +

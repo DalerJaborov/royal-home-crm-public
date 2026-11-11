@@ -1,5 +1,5 @@
 import type { LiveVoiceFunctionDeclaration } from "../../ai/liveVoiceClient.js";
-import { ensureElevenLabsAgentReady } from "../../ai/elevenLabsAgentSync.js";
+import { ensureElevenLabsAgentReady, onElevenLabsAgentSyncForgotten } from "../../ai/elevenLabsAgentSync.js";
 import { INTERVIEW_INVITE_CALL_TOOLS } from "../../ai/interviewInviteCallPersona.js";
 import { loadLiveVoiceProviderConfig, type ElevenLabsProviderConfig } from "../../ai/liveVoiceProvider.js";
 import { POST_SHOWING_CALL_TOOLS } from "../../ai/postShowingCallPersona.js";
@@ -109,6 +109,9 @@ export async function warmElevenLabsAgent(
   if (timer) clearTimeout(timer);
   return { prepared, failed: [...failed], toolIds: ids.size, timedOut };
 }
+
+/** После 1008 «Tool IDs not attached» подготовку забыли — прогреть заново в фоне (свод П1+П2). */
+onElevenLabsAgentSyncForgotten(() => void startLiveVoiceAgentWarmup());
 
 /** Потолок прогрева при старте: дальше подготовка идёт в фоне, старт его не ждёт вовсе. */
 export const LIVE_VOICE_WARMUP_BUDGET_MS = 90_000;
