@@ -55,6 +55,9 @@ export function matchExpect(value, exp) {
     if ("present" in exp) return value !== undefined && value !== null && String(value).trim() !== "";
     if ("num" in exp) return Number(value) === exp.num;
     if ("oneOf" in exp) return exp.oneOf.some((x) => String(value).toLowerCase() === String(x).toLowerCase());
+    // noneOf — свободный текст без перечисленных слов: у end_call опроса/собственника нет enum, модель пишет причину
+    // фразой («Опрос завершён успешно»), а код CRM (scenarioEndKind) ищет в ней только voicemail/wrong_person/call_back_later.
+    if ("noneOf" in exp) return String(value ?? "").trim() !== "" && !exp.noneOf.some((x) => String(value).toLowerCase().includes(String(x).toLowerCase()));
     if ("contains" in exp) return String(value ?? "").toLowerCase().includes(String(exp.contains).toLowerCase());
     return false;
   }
@@ -106,8 +109,24 @@ export function evaluateTranscript(scenario, transcript) {
   return { ok: failures.length === 0, failures, inconclusive };
 }
 
+/**
+ * У end_call опроса после показа и проверки собственника нет enum у reason (у приглашения кандидата есть): модель пишет
+ * причину фразой («Опрос завершён успешно»), а CRM (scenarioEndKind) ищет в ней только voicemail / wrong_person /
+ * call_back_later. Поэтому ожидание «answered» для такой функции проверяем так же мягко, как CRM: любая непустая
+ * причина без этих трёх слов. Три настоящие причины остаются строгими.
+ */
+export function relaxFreeTextReason(scenario, tools) {
+  const exp = scenario.expectTool;
+  const want = exp?.args?.reason;
+  const decl = tools.find((t) => t.name === exp?.name)?.parameters?.properties?.reason;
+  if (!want || !decl || decl.enum) return scenario;
+  const answered = want === "answered" || (typeof want === "object" && Array.isArray(want.oneOf) && want.oneOf.includes("answered"));
+  if (!answered) return scenario;
+  return { ...scenario, expectTool: { ...exp, args: { ...exp.args, reason: { noneOf: ["voicemail", "wrong_person", "call_back_later"] } } } };
+}
+
 const clientToolMock = (name) =>
-  ({ search_properties: "Подходящих объектов сейчас нет.", get_property: "Данных по объекту нет.", showing_slots: "Свободного времени нет.", my_status: "Данных нет." })[name] || "Записано.";
+  ({ end_call: "Звонок завершён, трубка положена. Больше ничего не говори.", search_properties: "Подходящих объектов сейчас нет.", get_property: "Данных по объекту нет.", showing_slots: "Свободного времени нет.", my_status: "Данных нет." })[name] || "Записано.";
 
 /** Тело теста-симуляции (форма — справочник agent-testing/create, 11.11.2026). */
 export function buildSimulationTest(scenario, idByName, toolNames) {
@@ -172,7 +191,9 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
     out(`FAIL набор сценариев — ${e instanceof Error ? e.message : e}`);
     return { failed: 1, results: [] };
   }
-  const planned = all.filter((s) => !only || only.includes(s.kind) || only.includes(s.id));
+  const planned = all
+    .filter((s) => !only || only.includes(s.kind) || only.includes(s.id))
+    .map((s) => relaxFreeTextReason(s, kinds.find((k) => k.kind === s.kind)?.tools ?? []));
   // Сценарий с видом звонка, которого нет среди kinds, молча не запускался бы — называем это явно.
   const orphan = planned.filter((s) => !kinds.some((k) => k.kind === s.kind));
   if (orphan.length) {

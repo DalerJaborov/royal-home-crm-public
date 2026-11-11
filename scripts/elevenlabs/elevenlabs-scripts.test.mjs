@@ -537,3 +537,18 @@ test("suite: сценарий с неизвестным видом звонка 
   assert.equal(evaluateTranscript(voicemail, silent).ok, true);
   assert.equal(evaluateTranscript({ ...voicemail, allowSilent: false }, silent).ok, false);
 });
+
+test("relaxFreeTextReason: «answered» у end_call без enum проверяется как в CRM (фраза без трёх слов), с enum — строго", async () => {
+  const { relaxFreeTextReason } = await import("./suite.mjs");
+  const kinds = await loadCrmCallKinds();
+  const post = kinds.find((k) => k.kind === "post-showing");
+  const invite = kinds.find((k) => k.kind === "invite-ru");
+  const sc = { id: "s", expectTool: { name: "end_call", args: { reason: "answered" } } };
+  const relaxed = relaxFreeTextReason(sc, post.tools);
+  assert.equal(evaluateTranscript(relaxed, [{ role: "agent", message: "до свидания", tool_calls: [{ tool_name: "end_call", params_as_json: '{"reason":"Опрос завершён успешно"}' }] }]).ok, true);
+  assert.equal(evaluateTranscript(relaxed, [{ role: "agent", message: "до свидания", tool_calls: [{ tool_name: "end_call", params_as_json: '{"reason":"voicemail"}' }] }]).ok, false);
+  assert.equal(relaxFreeTextReason(sc, invite.tools), sc, "у приглашения enum есть — ожидание не меняется");
+  assert.equal(relaxFreeTextReason({ id: "w", expectTool: { name: "end_call", args: { reason: "wrong_person" } } }, post.tools).expectTool.args.reason, "wrong_person");
+  assert.equal(matchExpect("Звонок ок", { noneOf: ["voicemail"] }), true);
+  assert.equal(matchExpect("", { noneOf: ["voicemail"] }), false);
+});

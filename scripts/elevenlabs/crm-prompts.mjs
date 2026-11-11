@@ -34,6 +34,7 @@ export async function loadCrmCallKinds() {
     import(src("ai/sellerProbeCallPersona.ts")),
     import(src("ai/liveVoicePersona.ts")),
   ]);
+  const recruit = await import(src("lib/recruitmentCommunicationContent.ts"));
   const { CLIENT_TOOLS } = await import(src("lib/telephony/liveVoiceClientTools.ts"));
   const { PROPERTY_TOOLS } = await import(src("lib/telephony/liveVoicePropertyTools.ts"));
 
@@ -56,6 +57,21 @@ export async function loadCrmCallKinds() {
     propertyLabel: "трёхкомнатную на Фирдавси",
     voiceGender: "female",
   };
+  const recruitPrompt = (purpose, language) =>
+    recruit.buildRecruitmentCommunicationContent(
+      { purpose, language, channels: ["ASSISTANT_CALL"], ...(purpose === "INVITE" ? { interviewAt: INTERVIEW_AT.toISOString() } : {}) },
+      {
+        name: "Мехрона",
+        titleRu: "Агент по продажам недвижимости",
+        titleTg: "Агенти фурӯши молу мулк",
+        detailsRu: "Полный день, доход от процента со сделок, обучение и наставник.",
+        detailsTg: "Рӯзи пурра, даромад аз фоизи созишҳо, омӯзиш ва роҳбалад.",
+        address: "Душанбе, ул. Бухоро 49, Bukhoro Tower, 2 этаж",
+        addressTg: "Душанбе, кӯчаи Бухоро 49, Bukhoro Tower, ошёнаи 2",
+        mapUrl: null,
+        missing: ["age", "experience", "startWhen"],
+      }
+    ).callPrompt;
   return [
     {
       kind: "invite-ru",
@@ -136,6 +152,29 @@ export async function loadCrmCallKinds() {
       tools: probe.SELLER_PROBE_CALL_TOOLS,
       expectsTool: "end_call",
     },
+    // ── Звонок помощника кандидату из карточки отклика (lib/recruitmentCommunications.ts, ASSISTANT_CALL) ──
+    // Свой промпт (recruitmentCommunicationContent.ts), не тот, что у «приглашения» выше. Данные вакансии
+    // здесь условные: в боевом вызове их отдаёт каталог вакансий, а не вымысел скрипта.
+    ...["ru", "tg"].flatMap((language) => [
+      {
+        kind: `recruit-invite-${language}`,
+        label: `Помощник кандидату из карточки отклика: приглашение (${language})`,
+        language,
+        prompt: recruitPrompt("INVITE", language),
+        greeting: "(Кандидат снял трубку. Представься голосовым помощником Royal Home и спроси, удобно ли говорить.)",
+        tools: invite.INTERVIEW_INVITE_CALL_TOOLS,
+        expectsTool: "end_call",
+      },
+      {
+        kind: `recruit-clarify-${language}`,
+        label: `Помощник кандидату из карточки отклика: уточнение анкеты (${language})`,
+        language,
+        prompt: recruitPrompt("CLARIFY", language),
+        greeting: "(Кандидат снял трубку. Представься голосовым помощником Royal Home и спроси, удобно ли говорить.)",
+        tools: invite.INTERVIEW_INVITE_CALL_TOOLS,
+        expectsTool: "end_call",
+      },
+    ]),
     {
       // Кнопка «Тестовый звонок» в Настройках: общий промпт консультанта без клиента (originateLiveVoiceTestCall).
       kind: "test-call",
