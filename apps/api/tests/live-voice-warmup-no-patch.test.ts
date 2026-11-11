@@ -38,6 +38,7 @@ let adminId: string;
 let token: string;
 let saved: Record<string, unknown> | null = null;
 const keyBefore = process.env.ELEVENLABS_API_KEY;
+const baseBefore = process.env.ELEVENLABS_API_BASE;
 
 type Call = { method: string; path: string };
 let calls: Call[] = [];
@@ -97,6 +98,9 @@ class FakeSocket extends EventEmitter {
 
 beforeAll(async () => {
   process.env.ELEVENLABS_API_KEY = "sk_p1_fake_key_not_real";
+  // Страховка от живых запросов: даже если фоновая подготовка переживёт подмену fetch,
+  // она уйдёт в закрытый локальный порт, а не в ElevenLabs.
+  process.env.ELEVENLABS_API_BASE = "http://127.0.0.1:9";
   saved = await prisma.settings.findUnique({
     where: { id: "singleton" },
     select: { liveVoiceProvider: true, elevenLabsApiKey: true, elevenLabsAgentId: true, elevenLabsVoiceIdTg: true },
@@ -128,6 +132,8 @@ afterEach(() => {
 afterAll(async () => {
   if (keyBefore === undefined) delete process.env.ELEVENLABS_API_KEY;
   else process.env.ELEVENLABS_API_KEY = keyBefore;
+  if (baseBefore === undefined) delete process.env.ELEVENLABS_API_BASE;
+  else process.env.ELEVENLABS_API_BASE = baseBefore;
   if (saved) await prisma.settings.update({ where: { id: "singleton" }, data: saved });
   await prisma.agent.delete({ where: { id: adminId } }).catch(() => {});
   resetElevenLabsSyncCacheForTests();

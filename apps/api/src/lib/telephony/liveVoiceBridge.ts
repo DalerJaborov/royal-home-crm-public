@@ -103,6 +103,7 @@ import {
 import { formatLiveVoiceMetricsLine, LiveVoiceMetricsTracker } from "./liveVoiceMetrics.js";
 import { frameEnergy, LiveVoiceEchoGate, VAD_SPEECH_ENERGY_THRESHOLD } from "./liveVoiceEchoGate.js";
 import {
+  clearElevenLabsQuotaMark,
   createLiveVoiceProviderClient,
   elevenLabsQuotaExhausted,
   isElevenLabsQuotaError,
@@ -459,9 +460,18 @@ function rememberSelectedProvider(provider: LiveVoiceProviderName): void {
   selectedProvider = provider;
 }
 
+/** Перечитать выбор поставщика сразу после сохранения Настроек (settingsSideEffects):
+ *  первый входящий после переключения смотрит паузу нового поставщика, а не прежнего. */
+export async function refreshLiveVoiceSelectedProvider(): Promise<void> {
+  const read = await withTimeout(loadLiveVoiceProviderConfig(), DB_READ_TIMEOUT_MS);
+  if (read !== TIMED_OUT) rememberSelectedProvider(read.provider);
+}
+
 function noteProviderStartOk(provider: LiveVoiceProviderName): void {
   providerFailStreak[provider] = 0;
   providerPausedUntil[provider] = 0;
+  // Разговор ElevenLabs поднялся — минуты есть, отметка «нет минут» неверна (ревью П1).
+  if (provider === "elevenlabs") clearElevenLabsQuotaMark();
 }
 
 function noteProviderStartFailed(provider: LiveVoiceProviderName, reason: string): void {
@@ -2104,6 +2114,11 @@ export async function originateLiveVoiceTestCall(phoneNumber: string): Promise<L
   const [settings, creds] = await Promise.all([loadLiveVoiceSettings(), loadCredsSafe()]);
   if (!creds) return { ok: false, error: "Телефония не настроена" };
   if (!settings?.liveVoiceEnabled) return { ok: false, error: "Живой голос выключен — включите тумблер выше" };
+  // Поставщик голоса не выдаёт разговор — владелец увидит причину, а не тишину в трубке (П1).
+  // Проба — ДО проверок номера и линии: между проверкой и бронью не должно быть await
+  // (ревью П1: за 3 с пробы тик сценария занимал линию, и набирались двое).
+  const providerRefusal = await liveVoiceProviderRefusal({ probeOnly: true });
+  if (providerRefusal) return { ok: false, error: providerRefusal.error };
   // Повторная проверка ПОСЛЕ await настроек/кредов — за это время параллельный
   // originate на тот же номер мог успеть зарезервировать его первым.
   if (hasActiveCallToNumber(target)) {
@@ -2113,9 +2128,6 @@ export async function originateLiveVoiceTestCall(phoneNumber: string): Promise<L
   if (liveVoiceLineBusy()) {
     return { ok: false, busy: true, error: "Линия живого голоса занята другим разговором" };
   }
-  // Поставщик голоса не выдаёт разговор — владелец увидит причину, а не тишину в трубке (П1).
-  const providerRefusal = await liveVoiceProviderRefusal({ probeOnly: true });
-  if (providerRefusal) return { ok: false, error: providerRefusal.error };
   // Кнопка «Проверить» паузу «нет звука со станции» НЕ соблюдает (аудит 02.10.2026,
   // п.1): это и есть проба. Раньше пауза отказывала и ей, а снять паузу могла
   // только сессия со станции — тоннель починили, а робот молчал до конца паузы.
@@ -2186,6 +2198,10 @@ export async function originateLiveVoiceCallToClient(
   const [settings, creds] = await Promise.all([loadLiveVoiceSettings(), loadCredsSafe()]);
   if (!creds) return { ok: false, error: "Телефония не настроена" };
   if (!settings?.liveVoiceEnabled) return { ok: false, error: "Живой голос выключен — включите тумблер в Настройках" };
+  // Поставщик голоса на паузе или не выдаёт разговор (П1, 11.11) — человек снял бы трубку в тишину.
+  // Проба — ДО проверок номера и линии: между ними и бронью ниже await быть не должно (ревью П1).
+  const providerRefusal = await liveVoiceProviderRefusal();
+  if (providerRefusal) return providerRefusal;
   if (hasActiveCallToNumber(target)) {
     return { ok: false, error: "На этот номер уже идёт звонок" };
   }
@@ -2198,9 +2214,6 @@ export async function originateLiveVoiceCallToClient(
   if (liveVoiceAudioPathDown()) {
     return { ok: false, busy: true, error: "Звук со станции не доходит до CRM — робот на паузе" };
   }
-  // Поставщик голоса на паузе или не выдаёт разговор (П1, 11.11) — человек снял бы трубку в тишину.
-  const providerRefusal = await liveVoiceProviderRefusal();
-  if (providerRefusal) return providerRefusal;
   // Промпт собирается ДО резерва номера: исключение между резервом и таймером
   // оставило бы номер «занятым» до рестарта (аудит С7).
   const systemInstruction = buildLiveVoiceSystemPrompt(
@@ -2886,7 +2899,7 @@ async function prepareModelPart(ctx: StartContext, checkAlive: () => void): Prom
       if (providerConfig.provider === "elevenlabs") {
         const reason = describeError(err);
         if (isElevenLabsQuotaError(reason)) {
-          noteElevenLabsQuotaExhausted(reason);
+          noteElevenLabsQuotaExhausted(reason, providerConfig.apiKey);
         } else {
           ctx.modelFailed = true;
           void logSystemError(

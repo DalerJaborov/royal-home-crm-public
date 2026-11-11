@@ -1,7 +1,11 @@
 import { restartAriEvents } from "./telephony/ariEvents.js";
 import { syncFailoverInBackground } from "./telephony/failoverSync.js";
 import { syncRoutingModeInBackground } from "./telephony/routingModeSync.js";
-import { resetLiveVoiceProviderHolds, restartLiveVoiceListener } from "./telephony/liveVoiceBridge.js";
+import {
+  refreshLiveVoiceSelectedProvider,
+  resetLiveVoiceProviderHolds,
+  restartLiveVoiceListener,
+} from "./telephony/liveVoiceBridge.js";
 import { startLiveVoiceAgentWarmup } from "./telephony/liveVoiceWarmup.js";
 import { syncIncomingPrimaryReachabilityInBackground } from "./telephony/agentMobileFallback.js";
 
@@ -78,6 +82,7 @@ export function applySettingsSideEffects(touched: readonly string[]): void {
   }
   if (LIVE_VOICE_PROVIDER_FIELDS.some((f) => set.has(f))) {
     resetLiveVoiceProviderHolds();
+    void refreshLiveVoiceSelectedProvider().catch(() => {});
     void startLiveVoiceAgentWarmup();
   }
   if (FAILOVER_FIELDS.some((f) => set.has(f))) {

@@ -7,8 +7,7 @@ import { SELLER_PROBE_CALL_TOOLS } from "../../ai/sellerProbeCallPersona.js";
 import { describeError } from "../describeError.js";
 import { logSystemError } from "../systemError.js";
 import { LIVE_VOICE_TOOLS } from "./liveVoiceBridge.js";
-import { CONSULTANT_TOOLS } from "./liveVoiceConsultant.js";
-import { TRANSFER_TOOL } from "./liveVoiceTransfer.js";
+import { consultantToolsFor } from "./liveVoiceConsultant.js";
 
 /**
  * ПРОГРЕВ АГЕНТА ELEVENLABS ДО ПЕРВОГО ЗВОНКА (11.11.2026, П1, находка В6).
@@ -39,8 +38,8 @@ export function liveVoiceWarmupToolSets(): LiveVoiceWarmupToolSet[] {
   return [
     { kind: "звонок клиенту из карточки и проверочный звонок", tools: LIVE_VOICE_TOOLS },
     // Консультант на входящем — с переводом агенту и без (liveVoiceConsultant.ts: transferAvailable).
-    { kind: "консультант на входящем", tools: CONSULTANT_TOOLS },
-    { kind: "консультант на входящем без перевода", tools: CONSULTANT_TOOLS.filter((t) => t.name !== TRANSFER_TOOL.name) },
+    { kind: "консультант на входящем", tools: consultantToolsFor(true) },
+    { kind: "консультант на входящем без перевода", tools: consultantToolsFor(false) },
     { kind: "опрос после показа", tools: POST_SHOWING_CALL_TOOLS },
     { kind: "проверка собственника", tools: SELLER_PROBE_CALL_TOOLS },
     { kind: "приглашение кандидата", tools: INTERVIEW_INVITE_CALL_TOOLS },

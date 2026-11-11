@@ -41,7 +41,14 @@ const voice = vi.hoisted(() => ({
 }));
 const logged = vi.hoisted(() => ({ entries: [] as { message: string; key?: string }[] }));
 /** Ответ ElevenLabs на запрос ссылки разговора (проба). */
-const net = vi.hoisted(() => ({ signedUrl: "ok" as "ok" | "fail" | "quota", requests: [] as string[] }));
+const net = vi.hoisted(() => ({
+  signedUrl: "ok" as "ok" | "fail" | "quota",
+  requests: [] as string[],
+  /** Задержать ответ на запрос ссылки, пока тест не отпустит (гонка «проба ↔ бронь линии»). */
+  holdSignedUrl: null as Promise<void> | null,
+  /** Ответ подписки (остаток минут): used/limit или отказ. */
+  subscription: { used: 100, limit: 100 } as { used: number; limit: number } | "fail",
+}));
 
 vi.mock("../src/lib/telephony/ariClient.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/telephony/ariClient.js")>()),
@@ -142,7 +149,9 @@ const {
 } = bridge;
 const { applySettingsSideEffects } = await import("../src/lib/settingsSideEffects.js");
 const { startLiveVoiceAgentWarmup, liveVoiceWarmupToolSets } = await import("../src/lib/telephony/liveVoiceWarmup.js");
-const { elevenLabsQuotaExhausted, isElevenLabsQuotaError } = await import("../src/ai/liveVoiceProvider.js");
+const { elevenLabsQuotaExhausted, isElevenLabsQuotaError, noteElevenLabsQuotaExhausted, recheckElevenLabsQuota } = await import(
+  "../src/ai/liveVoiceProvider.js"
+);
 const { resetElevenLabsSyncCacheForTests } = await import("../src/ai/elevenLabsAgentSync.js");
 const { waitFor } = await import("./helpers/waitFor.js");
 import type { LiveVoiceFunctionDeclaration } from "../src/ai/liveVoiceClient.js";
@@ -153,6 +162,7 @@ const envBefore = {
   port: process.env.LIVE_VOICE_RTP_PORT,
   peer: process.env.LIVE_VOICE_RTP_PEER,
   key: process.env.ELEVENLABS_API_KEY,
+  base: process.env.ELEVENLABS_API_BASE,
 };
 let settingsBefore: Record<string, unknown> | null = null;
 const started: string[] = [];
@@ -178,9 +188,19 @@ function stubElevenLabsNetwork(): void {
     vi.fn(async (url: string) => {
       const path = new URL(String(url)).pathname;
       net.requests.push(path);
+      if (path === "/v1/user/subscription") {
+        if (net.subscription === "fail") return new Response(JSON.stringify({ detail: "missing_permissions" }), { status: 401 });
+        return new Response(
+          JSON.stringify({ character_count: net.subscription.used, character_limit: net.subscription.limit }),
+          { status: 200 }
+        );
+      }
       if (path === "/v1/convai/conversation/get-signed-url") {
-        if (net.signedUrl === "fail") return new Response(JSON.stringify({ detail: "invalid api key" }), { status: 401 });
-        if (net.signedUrl === "quota") return new Response(quotaBody(), { status: 401 });
+        // Ответ — каким он был в момент запроса, даже если тест держит его дольше.
+        const mode = net.signedUrl;
+        if (net.holdSignedUrl) await net.holdSignedUrl;
+        if (mode === "fail") return new Response(JSON.stringify({ detail: "invalid api key" }), { status: 401 });
+        if (mode === "quota") return new Response(quotaBody(), { status: 401 });
         return new Response(JSON.stringify({ signed_url: "wss://example.test/convai?token=t" }), { status: 200 });
       }
       // Подготовка агента в этом файле не нужна (клиент ElevenLabs подменён) — сеть «лежит».
@@ -238,13 +258,23 @@ beforeAll(async () => {
   delete process.env.LIVE_VOICE_RTP_PEER;
   // Ненастоящий ключ: resolveElevenLabsKey берёт .env, когда в Настройках ключа нет.
   process.env.ELEVENLABS_API_KEY = "sk_p1_fake_key_not_real";
+  // Страховка от живых запросов: даже если фоновая подготовка переживёт подмену fetch,
+  // она уйдёт в закрытый локальный порт, а не в ElevenLabs.
+  process.env.ELEVENLABS_API_BASE = "http://127.0.0.1:9";
   settingsBefore = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { liveVoiceEnabled: true, liveVoiceProvider: true, elevenLabsApiKey: true, elevenLabsAgentId: true },
+    select: {
+      liveVoiceEnabled: true,
+      liveVoiceProvider: true,
+      liveVoiceInboundMode: true,
+      elevenLabsApiKey: true,
+      elevenLabsAgentId: true,
+    },
   });
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { liveVoiceEnabled: true, elevenLabsApiKey: null, elevenLabsAgentId: "agent_p1" },
+    // Входящие берёт робот — для гонки «проба ↔ входящий занял линию».
+    data: { liveVoiceEnabled: true, liveVoiceInboundMode: "always", elevenLabsApiKey: null, elevenLabsAgentId: "agent_p1" },
   });
 });
 
@@ -254,6 +284,8 @@ beforeEach(() => {
   logged.entries.length = 0;
   net.requests.length = 0;
   net.signedUrl = "ok";
+  net.holdSignedUrl = null;
+  net.subscription = { used: 100, limit: 100 };
   voice.elevenMode = "ok";
   stubElevenLabsNetwork();
 });
@@ -269,6 +301,7 @@ afterAll(async () => {
     ["LIVE_VOICE_RTP_PORT", envBefore.port],
     ["LIVE_VOICE_RTP_PEER", envBefore.peer],
     ["ELEVENLABS_API_KEY", envBefore.key],
+    ["ELEVENLABS_API_BASE", envBefore.base],
   ] as const) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -433,6 +466,103 @@ describe("у ElevenLabs кончились кредиты — робозвоно
   });
 });
 
+describe("ревью П1: остаток минут, бронь линии, сброс проб, выбор поставщика", () => {
+  it("«нет минут» не гаснет по часам: ссылку не спрашиваем; перепроверка подписки — ноль → стоим, есть → звоним", async () => {
+    await setProvider("elevenlabs");
+    noteElevenLabsQuotaExhausted("quota_exceeded", "sk_p1_fake_key_not_real");
+    const busy = await dial("+992 93 000 78 01");
+    expect(busy.res).toMatchObject({ ok: false, busy: true });
+    expect(net.requests).not.toContain("/v1/convai/conversation/get-signed-url");
+    net.subscription = { used: 100, limit: 100 };
+    expect(await recheckElevenLabsQuota()).toBe("still");
+    expect(elevenLabsQuotaExhausted()).toBe(true);
+    net.subscription = { used: 10, limit: 100 };
+    expect(await recheckElevenLabsQuota()).toBe("cleared");
+    expect(elevenLabsQuotaExhausted()).toBe(false);
+    const call = await dial("+992 93 000 78 02");
+    expect(call.res.ok).toBe(true);
+    expect(call.clients.map((c) => c.kind)).toEqual(["elevenlabs"]);
+  });
+
+  it("остаток спросить не вышло — отметка остаётся, одна запись в журнале", async () => {
+    noteElevenLabsQuotaExhausted("quota_exceeded", "sk_p1_fake_key_not_real");
+    net.subscription = "fail";
+    expect(await recheckElevenLabsQuota()).toBe("failed");
+    expect(elevenLabsQuotaExhausted()).toBe(true);
+    expect(keys()).toContain("elevenlabs-quota-recheck-failed");
+  });
+
+  it("удачный разговор ElevenLabs снимает отметку «нет минут» (проверочный звонок владельца)", async () => {
+    await setProvider("elevenlabs");
+    noteElevenLabsQuotaExhausted("quota_exceeded", "sk_p1_fake_key_not_real");
+    const res = await bridge.originateLiveVoiceTestCall("+992 93 000 78 03");
+    expect(res.ok).toBe(true);
+    started.push(res.channelId!);
+    await onLiveVoiceAriEvent({
+      type: "StasisStart",
+      application: "royalhome-live-voice",
+      args: [],
+      channel: { id: res.channelId!, name: `SIP/out-${res.channelId}`, state: "Up", caller: { number: "930007803" } },
+    } as never);
+    await waitFor(() => !elevenLabsQuotaExhausted() || null, { label: "отметка снята" });
+  });
+
+  for (const kind of ["проверочный", "из карточки"] as const) {
+    it(`звонок ${kind}: пока шла проба, линию занял другой разговор — второй человек НЕ набирается`, async () => {
+      await setProvider("elevenlabs");
+      let release!: () => void;
+      net.holdSignedUrl = new Promise<void>((r) => (release = r));
+      const originatesBefore = station.originates;
+      const pending =
+        kind === "проверочный"
+          ? bridge.originateLiveVoiceTestCall("+992 93 000 79 01")
+          : bridge.originateLiveVoiceCallToClient({ id: "p1-race-client", phone: "+992 93 000 79 02", fullName: "Гонка" });
+      await waitFor(() => net.requests.includes("/v1/convai/conversation/get-signed-url") || null, { label: "проба началась" });
+      // Пока проба ждёт ответа, входящий занимает единственную линию.
+      const inbound = `lv-p1-inbound-${kind === "проверочный" ? "t" : "c"}-${Date.now().toString(36)}`;
+      started.push(inbound);
+      await onLiveVoiceAriEvent({
+        type: "StasisStart",
+        application: "royalhome-live-voice",
+        args: ["inbound"],
+        channel: { id: inbound, name: `SIP/in-${inbound}`, state: "Ring", caller: { number: "931112233" } },
+      } as never);
+      await waitFor(() => liveVoiceLineBusy() || null, { label: "линия занята входящим" });
+      const originatesAtRelease = station.originates;
+      release();
+      const res = await pending;
+      expect(res.ok).toBe(false);
+      expect(station.originates).toBe(originatesAtRelease);
+      expect(originatesAtRelease).toBe(originatesBefore);
+    });
+  }
+
+  it("итог пробы, начатой до правки Настроек, в память не ложится", async () => {
+    await setProvider("elevenlabs");
+    let release!: () => void;
+    net.holdSignedUrl = new Promise<void>((r) => (release = r));
+    net.signedUrl = "fail";
+    const first = dial("+992 93 000 79 11");
+    await waitFor(() => net.requests.includes("/v1/convai/conversation/get-signed-url") || null, { label: "проба началась" });
+    applySettingsSideEffects(["elevenLabsApiKey"]);
+    net.signedUrl = "ok";
+    release();
+    net.holdSignedUrl = null;
+    expect((await first).res).toMatchObject({ ok: false, busy: true });
+    // Старый отказ не помнится: новая проба (уже удачная) — и звонок идёт.
+    const second = await dial("+992 93 000 79 12");
+    expect(second.res.ok).toBe(true);
+  });
+
+  it("переключили поставщика в Настройках — входящий сразу смотрит паузу нового поставщика", async () => {
+    // Мост последним читал «google» (сброс в beforeEach), в базе уже elevenlabs.
+    await setProvider("elevenlabs");
+    applySettingsSideEffects(["liveVoiceProvider"]);
+    noteElevenLabsQuotaExhausted("quota_exceeded", null);
+    await waitFor(() => bridge.liveVoiceInboundPaused() || null, { label: "входящий видит «нет минут» ElevenLabs" });
+  });
+});
+
 describe("прогрев агента при старте", () => {
   it("ElevenLabs недоступен (сеть лежит) — прогрев завершается без исключения", async () => {
     await setProvider("elevenlabs");
@@ -484,7 +614,7 @@ describe("сторож: каждый набор функций, с которы�
       if (rel === "lib/telephony/liveVoiceWarmup.ts") continue;
       for (const line of readFileSync(file, "utf8").split("\n")) {
         if (!/\btools:/.test(line)) continue;
-        for (const m of line.matchAll(/\b([A-Z][A-Z0-9_]*_TOOLS)\b/g)) {
+        for (const m of line.matchAll(/\b([A-Z][A-Z0-9_]*_TOOLS|consultantToolsFor)\b/g)) {
           // Функции текстового бота в переписке — не звонок, ElevenLabs их не видит.
           if (m[1].startsWith("CUSTOMER_AGENT_")) continue;
           used.add(m[1]);
@@ -492,7 +622,7 @@ describe("сторож: каждый набор функций, с которы�
       }
     }
     expect([...used].sort()).toEqual(
-      ["CONSULTANT_TOOLS", "INTERVIEW_INVITE_CALL_TOOLS", "LIVE_VOICE_TOOLS", "POST_SHOWING_CALL_TOOLS", "SELLER_PROBE_CALL_TOOLS"].sort()
+      ["INTERVIEW_INVITE_CALL_TOOLS", "LIVE_VOICE_TOOLS", "POST_SHOWING_CALL_TOOLS", "SELLER_PROBE_CALL_TOOLS", "consultantToolsFor"].sort()
     );
     const missing = [...used].filter((name) => !new RegExp(`\\b${name}\\b`).test(warmupText));
     expect(missing).toEqual([]);

@@ -132,6 +132,13 @@ export const CONSULTANT_TOOLS: LiveVoiceFunctionDeclaration[] = [
   ...ESCALATE_AND_END,
 ];
 
+/** Набор функций консультанта на этот звонок: без перевода агенту, если переводить
+ *  некому. Одно место для звонка и прогрева агента ElevenLabs (liveVoiceWarmup.ts):
+ *  разойдись они — прогретый набор звонку бы не достался. */
+export function consultantToolsFor(transferAvailable: boolean): LiveVoiceFunctionDeclaration[] {
+  return transferAvailable ? CONSULTANT_TOOLS : CONSULTANT_TOOLS.filter((t) => t.name !== TRANSFER_TOOL.name);
+}
+
 /** Всё, что консультант узнал о звонящем до ответа. */
 export interface IdentifiedCaller {
   phone: string | null;
@@ -435,7 +442,7 @@ export async function resolveConsultantCall(info: LiveVoiceCallInfo): Promise<Li
               pickConsultantGreetingTrigger(false),
               consultantGreetingLanguage(info.settings?.liveVoiceForceRussianOnly ?? true, who.language)
             ),
-    tools: transferAvailable ? CONSULTANT_TOOLS : CONSULTANT_TOOLS.filter((t) => t.name !== TRANSFER_TOOL.name),
+    tools: consultantToolsFor(transferAvailable),
     voiceName: consultantVoiceName(info.settings, who.language),
     language: consultantLanguage(info.settings, who.language),
     clientId: who.clientId,

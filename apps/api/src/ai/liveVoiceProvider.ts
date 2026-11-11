@@ -5,6 +5,7 @@ import { describeError } from "../lib/describeError.js";
 import { logSystemError } from "../lib/systemError.js";
 import { LiveVoiceClient } from "./liveVoiceClient.js";
 import { ElevenLabsVoiceClient, fetchElevenLabsSignedUrl } from "./elevenLabsVoiceClient.js";
+import { elevenLabsRequest } from "./elevenLabsAgentSync.js";
 import type { VoiceGender } from "@royal-home/shared";
 import type { LiveVoiceProviderClient } from "./liveVoiceProviderTypes.js";
 
@@ -147,36 +148,113 @@ export function isElevenLabsQuotaError(text: string | null | undefined): boolean
   return !!text && ELEVENLABS_QUOTA_RE.test(text);
 }
 
-/** Сколько верить «кредиты кончились» до новой пробы: пополнение или новый месяц
- *  подхватывается сам, без перезапуска, а очередь не спрашивает ElevenLabs на каждый номер. */
+/**
+ * Отметка «нет минут» НЕ гаснет по часам (ревью П1, 11.11.2026). Прежде через 30 мин
+ * решала снова проба ссылки — а НЕТ ДАННЫХ, отказывает ли ссылка при нуле кредитов:
+ * если выдаётся, живой человек получал «алло → отбой», а проверка собственника теряла
+ * попытку. Теперь остаток перепроверяется запросом подписки, без звонка
+ * (recheckElevenLabsQuota, раз в ELEVENLABS_QUOTA_RECHECK_MS), а отметку снимают:
+ * остаток снова есть, удачный разговор ElevenLabs (мост), правка Настроек
+ * (resetLiveVoiceProviderProbe), ручной проверочный звонок (свежая проба).
+ *  - ФАКТ (elevenlabs.io/docs/api-reference/user/subscription/get, 11.11.2026):
+ *    GET /v1/user/subscription, поля `character_count` (израсходовано) и
+ *    `character_limit` (предел периода), `next_character_count_reset_unix`.
+ *  - ОЦЕНКА: кредиты разговоров считаются в тех же полях (отдельного поля кредитов в
+ *    ответе нет). НЕТ ДАННЫХ, как они ведут себя при включённой оплате сверх лимита —
+ *    тогда ElevenLabs и `quota_exceeded` не отдаёт, и отметка не ставится вовсе.
+ */
 export const ELEVENLABS_QUOTA_RECHECK_MS = 30 * 60_000;
-let elevenLabsQuotaOutUntil = 0;
+let elevenLabsQuotaMarked = false;
+let quotaRecheckTimer: ReturnType<typeof setTimeout> | null = null;
+/** Чем перепроверять: ключ последнего звонка, получившего «нет минут». */
+let quotaRecheckKey: string | null = null;
 
-/** Кредиты ElevenLabs кончились (по последнему ответу) — робозвонок остановлен до новой пробы. */
-export function elevenLabsQuotaExhausted(now: number = Date.now()): boolean {
-  return now < elevenLabsQuotaOutUntil;
+/** Кредиты ElevenLabs кончились — робозвонок остановлен, пока перепроверка не скажет иное. */
+export function elevenLabsQuotaExhausted(_now: number = Date.now()): boolean {
+  return elevenLabsQuotaMarked;
 }
 
-/** Ответ ElevenLabs сказал «нет кредитов» — запомнить и ОДНОЙ тревогой сказать директору. */
-export function noteElevenLabsQuotaExhausted(reason: string, now: number = Date.now()): void {
-  elevenLabsQuotaOutUntil = now + ELEVENLABS_QUOTA_RECHECK_MS;
+function scheduleQuotaRecheck(): void {
+  if (quotaRecheckTimer) clearTimeout(quotaRecheckTimer);
+  quotaRecheckTimer = setTimeout(() => {
+    quotaRecheckTimer = null;
+    void recheckElevenLabsQuota();
+  }, ELEVENLABS_QUOTA_RECHECK_MS);
+  quotaRecheckTimer.unref?.();
+}
+
+/** Ответ ElevenLabs сказал «нет кредитов» — запомнить и ОДНОЙ тревогой сказать директору.
+ *  `apiKey` — чем потом спросить остаток (без него отметку снимут Настройки или удачный звонок). */
+export function noteElevenLabsQuotaExhausted(reason: string, apiKey?: string | null): void {
+  elevenLabsQuotaMarked = true;
+  if (apiKey) quotaRecheckKey = apiKey;
+  scheduleQuotaRecheck();
   void logSystemError(
     "ai",
     "КРИТИЧНО: Робозвонок остановлен: у ElevenLabs закончились минуты (кредиты). Звонки переносятся, " +
       "входящие идут на автоответчик станции. Пополните баланс или включите оплату сверх лимита в кабинете " +
-      `ElevenLabs; CRM проверит снова через ${ELEVENLABS_QUOTA_RECHECK_MS / 60_000} мин. Ответ ElevenLabs: ${reason.slice(0, 200)}`,
+      `ElevenLabs; CRM проверяет остаток раз в ${ELEVENLABS_QUOTA_RECHECK_MS / 60_000} мин и возобновит звонки сама. ` +
+      `Ответ ElevenLabs: ${reason.slice(0, 200)}`,
     { dedupKey: "elevenlabs-quota-exhausted" }
   );
 }
 
-function clearElevenLabsQuota(): void {
-  elevenLabsQuotaOutUntil = 0;
+/** Снять отметку «нет минут»: удачный разговор ElevenLabs, остаток снова есть, правка Настроек. */
+export function clearElevenLabsQuotaMark(): void {
+  elevenLabsQuotaMarked = false;
+  quotaRecheckKey = null;
+  if (quotaRecheckTimer) clearTimeout(quotaRecheckTimer);
+  quotaRecheckTimer = null;
+}
+
+/**
+ * Перепроверить остаток запросом подписки — без звонка человеку. «cleared» — минуты
+ * есть, отметка снята; «still» — по-прежнему ноль, следующая перепроверка взведена;
+ * «failed» — спросить не вышло (сеть, права ключа): отметка остаётся, звонить вслепую
+ * хуже, чем подождать, и одна запись в журнале.
+ */
+export async function recheckElevenLabsQuota(): Promise<"cleared" | "still" | "failed" | "idle"> {
+  if (!elevenLabsQuotaMarked) return "idle";
+  const apiKey = quotaRecheckKey;
+  if (!apiKey) {
+    scheduleQuotaRecheck();
+    return "failed";
+  }
+  try {
+    const sub = await elevenLabsRequest<{ character_count?: unknown; character_limit?: unknown }>(
+      apiKey,
+      "GET",
+      "/v1/user/subscription"
+    );
+    const used = Number(sub.character_count);
+    const limit = Number(sub.character_limit);
+    if (!Number.isFinite(used) || !Number.isFinite(limit)) throw new Error("в ответе нет character_count/character_limit");
+    if (used < limit) {
+      clearElevenLabsQuotaMark();
+      console.log(`[живой голос] у ElevenLabs снова есть минуты (${used} из ${limit}) — робозвонок возобновлён`);
+      return "cleared";
+    }
+    scheduleQuotaRecheck();
+    return "still";
+  } catch (err) {
+    scheduleQuotaRecheck();
+    void logSystemError(
+      "ai",
+      `Робозвонок остановлен: не удалось проверить остаток минут ElevenLabs (${describeError(err)}). ` +
+        "Звонки ждут; после пополнения сохраните ключ ElevenLabs в Настройках или сделайте проверочный звонок.",
+      { dedupKey: "elevenlabs-quota-recheck-failed" }
+    );
+    return "failed";
+  }
 }
 
 type SignedUrlFetcher = (apiKey: string, agentId: string) => Promise<string>;
 
 const probeDone = new Map<string, { result: LiveVoiceProbeResult; at: number }>();
 const probeInFlight = new Map<string, Promise<LiveVoiceProbeResult>>();
+/** Номер сброса проб: итог пробы, начатой ДО сброса (правка Настроек), в память не
+ *  кладётся и отметок не ставит — иначе старый отказ пережил бы починку ключа. */
+let probeEpoch = 0;
 
 function probeKey(apiKey: string, agentId: string): string {
   // Ключ — отпечатком: сам ключ в памяти кеша не нужен, а смена ключа обязана дать новую пробу.
@@ -227,7 +305,7 @@ export async function probeLiveVoiceProvider(
     return { ok: false, reason };
   }
   const now = opts.now ?? Date.now;
-  // Кредиты кончились недавно — не спрашиваем снова до ELEVENLABS_QUOTA_RECHECK_MS.
+  // Кредиты кончились — ссылку не спрашиваем вовсе: остаток перепроверяет recheckElevenLabsQuota.
   if (!opts.fresh && elevenLabsQuotaExhausted(now())) {
     return { ok: false, quota: true, reason: "у ElevenLabs закончились кредиты" };
   }
@@ -236,16 +314,19 @@ export async function probeLiveVoiceProvider(
   if (!opts.fresh && done && now() - done.at < LIVE_VOICE_PROBE_CACHE_MS) return done.result;
   const existing = probeInFlight.get(key);
   if (existing) return existing;
-  const agentId = config.agentId;
-  const pending = runElevenLabsProbe(config.apiKey, agentId, opts.fetchSignedUrl ?? fetchElevenLabsSignedUrl).then((raw) => {
+  const { agentId, apiKey } = config;
+  const epoch = probeEpoch;
+  const pending = runElevenLabsProbe(apiKey, agentId, opts.fetchSignedUrl ?? fetchElevenLabsSignedUrl).then((raw) => {
     const result: LiveVoiceProbeResult = raw.ok ? raw : isElevenLabsQuotaError(raw.reason) ? { ...raw, quota: true } : raw;
+    // Настройки поменяли, пока шла проба: её итог относится к прежним ключу/агенту.
+    if (epoch !== probeEpoch) return result;
     probeDone.set(key, { result, at: now() });
     // Удачная проба отметку «кредиты кончились» НЕ снимает: НЕТ ДАННЫХ, отказывает ли
     // signed URL при нуле кредитов, — отметку могло поставить подключение (после «алло»),
     // и снятие здесь снова пускало бы звонки, которые оборвутся на подключении.
-    // Отметка гаснет сама (ELEVENLABS_QUOTA_RECHECK_MS) или при правке Настроек.
+    // Отметку снимают перепроверка остатка, удачный разговор и правка Настроек.
     if (!result.ok && result.quota) {
-      noteElevenLabsQuotaExhausted(result.reason, now());
+      noteElevenLabsQuotaExhausted(result.reason, apiKey);
     } else if (!result.ok) {
       // Одна проблема на все отказы подряд (dedupKey), а не запись на каждый номер очереди.
       void logSystemError(
@@ -268,7 +349,8 @@ export async function probeLiveVoiceProvider(
 /** Забыть итоги проб и отметку «кредиты кончились»: смена поставщика, ключа или агента
  *  в Настройках (settingsSideEffects) — владелец мог как раз пополнить баланс или сменить ключ. */
 export function resetLiveVoiceProviderProbe(): void {
+  probeEpoch += 1;
   probeDone.clear();
   probeInFlight.clear();
-  clearElevenLabsQuota();
+  clearElevenLabsQuotaMark();
 }
