@@ -16,10 +16,8 @@ const tg = { lang: "tg" as const, text: "Ассалому алейкум! {ви�
 // Стартовые шаблоны лежат в миграции (текст владельца живёт в настройках, не в коде).
 const migration = readFileSync(new URL("../prisma/migrations/20261111120000_narration_flow/migration.sql", import.meta.url), "utf8");
 const firstSeed = narrationTemplateSchema.array().parse(JSON.parse(migration.split("$json$")[1]));
-// Решение владельца 11.11.2026 «Да, говорить цену»: вторая миграция дописывает {цена} в стартовые тексты.
-const priceMigration = readFileSync(new URL("../prisma/migrations/20261111150000_narration_price/migration.sql", import.meta.url), "utf8");
-const priceRows = JSON.parse(priceMigration.split("$json$")[1]) as Array<{ id: string; old: string; text: string }>;
-const seeded = firstSeed.map((t) => ({ ...t, text: priceRows.find((r) => r.id === t.id)?.text ?? t.text }));
+// Решение владельца 11.11.2026 «Да, говорить цену»: все стартовые шаблоны (3 таджикских, 3 русских) говорят цену.
+const seeded = firstSeed;
 
 describe("narration text rules (one builder for CRM wizard, Shabnam and server)", () => {
   it("spells Tajik numbers as words and drops optional fragments with missing facts", () => {
@@ -46,8 +44,9 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     expect(narrationTemplateError("Квартира — хорошая")).toMatch(/тире/);
     expect(narrationTemplateError(tg.text)).toBeNull();
   });
-  it("seeded starter templates are valid, price-free and speak Tajik without digits", () => {
-    expect(seeded.map((t) => t.id)).toEqual(["tg-short", "tg-family", "ru-short"]);
+  it("seeded starter templates are valid, speak the price and speak Tajik without digits", () => {
+    expect(seeded.map((t) => t.id)).toEqual(["tg-short", "tg-family", "tg-offer", "ru-short", "ru-family", "ru-offer"]);
+    for (const template of seeded) expect(template.text).toContain("{цена}");
     for (const template of seeded) {
       expect(narrationTemplateError(template.text)).toBeNull();
       for (const facts of [apartment, house]) {
@@ -91,14 +90,6 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     const text = renderNarrationTemplate({ lang: "tg", text: "Нархаш {цена}." }, apartment);
     expect(text).toBe("Нархаш ҳаштоду панҷ ҳазор доллар.");
     expect(/\d/u.test(renderNarrationTemplate(seeded[0], apartment))).toBe(false);
-  });
-  it("the price migration only replaces untouched starter texts", () => {
-    expect(priceRows.map((r) => r.id)).toEqual(firstSeed.map((t) => t.id));
-    for (const row of priceRows) {
-      expect(row.old).toBe(firstSeed.find((t) => t.id === row.id)!.text);
-      expect(row.text).toContain("{цена}");
-      expect(narrationTemplateError(row.text)).toBeNull();
-    }
   });
   it("ElevenLabs «credits are over» gets its own code (no retry, no charge)", async () => {
     const config = { modelId: "eleven_v4", voices: [{ id: "voice", name: "V" }] };
