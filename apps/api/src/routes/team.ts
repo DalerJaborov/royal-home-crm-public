@@ -14,7 +14,7 @@ import { activeLeadCounts, loadLeadLimits, NO_LEADS } from "../lib/leadLimits.js
 import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
 import { findSellerPropertyMissing } from "../lib/sellerPropertyMissingAntifraud.js";
 import { runLimited } from "../lib/concurrency.js";
-import { RATED_ROLES } from "@royal-home/shared";
+import { INCLUDE_FORMER_STAFF_PARAM, RATED_ROLES, wantsFormerStaff } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { loadStaffLive, ONLINE_WINDOW_MS } from "../lib/staffLive.js";
 import {
@@ -69,7 +69,7 @@ const STAGE_STATUSES: ClientStatus[] = [
  */
 teamRouter.get("/stages", async (req, res) => {
   const agents = await prisma.agent.findMany({
-    where: { role: { in: [...RATED_ROLES] } },
+    where: { role: { in: [...RATED_ROLES] }, isActive: true },
     select: { id: true },
     take: 500,
   });
@@ -176,7 +176,12 @@ teamRouter.get("/", async (req, res) => {
   const agents = await prisma.agent.findMany({
     // Только работающие агентами: директор/админ/менеджер в командной статистике
     // не участвуют — им лиды не назначаются, сравнение было бы нечестным.
-    where: { role: { in: [...RATED_ROLES] } },
+    // Бывшие (isActive=false) в «Команде» не показываются (владелец 11.11.2026,
+    // packages/shared/src/formerStaff.ts); директору — по просьбе includeFormer=1.
+    where: {
+      role: { in: [...RATED_ROLES] },
+      ...(can(req, "agents.manage") && wantsFormerStaff(req.query[INCLUDE_FORMER_STAFF_PARAM]) ? {} : { isActive: true }),
+    },
     select: {
       id: true,
       fullName: true,
