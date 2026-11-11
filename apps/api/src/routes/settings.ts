@@ -1,6 +1,7 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, canViewInvestigations } from "@royal-home/shared";
+import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, canViewInvestigations } from "@royal-home/shared";
+import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
 import { settingsInstagramAppBindingRouter } from "./settingsInstagramAppBinding.js";
@@ -502,8 +503,14 @@ async function withLiveVoiceInboundStatus<T extends Record<string, unknown>>(pay
   const snapshot = await prisma.integrationHealthSnapshot
     .findUnique({ where: { name: `Телефония: ${CONSULTANT_DIALPLAN_CHECK}` } })
     .catch(() => null);
+  // Сколько робот наговорил за сутки и месяц против потолка (П5, 11.11.2026). Только
+  // чтение: удержание и тревоги ставит тик и дверь. Не прочиталось — экран без строки.
+  const spend = await readLiveVoiceSpend().catch(() => null);
   return {
     ...payload,
+    liveVoiceSpend: spend
+      ? { day: spend.day, month: spend.month, held: spend.held, retryAt: spend.retryAt?.toISOString() ?? null, provider: spend.provider }
+      : null,
     liveVoiceInbound: {
       wanted: readiness.wanted,
       rtpHostConfigured: readiness.rtpHostConfigured,
@@ -1038,6 +1045,10 @@ const settingsUpdateSchema = z.object({
   elevenLabsVoiceGender: z.enum(["female", "male"]).nullable().optional(),
   /** Ключ ElevenLabs. Пустая строка — очистить (вернуться на .env ELEVENLABS_API_KEY). */
   elevenLabsApiKey: z.string().trim().max(500).optional(),
+  /** Потолок минут робота за сутки и месяц по Душанбе (П5, 11.11.2026, lib/liveVoiceSpend.ts).
+   *  0 — без потолка (явный выбор владельца). Верх — защита от лишнего нуля. */
+  liveVoiceDailyMinutesCap: z.number().int().min(0).max(LIVE_VOICE_MINUTES_CAP_MAX).optional(),
+  liveVoiceMonthlyMinutesCap: z.number().int().min(0).max(LIVE_VOICE_MINUTES_CAP_MAX).optional(),
   /** ГОЛОСОВЫЕ ОТВЕТЫ БОТА В ПЕРЕПИСКЕ (13.09.2026) — озвучивает свой текстовый
    *  ответ, только если клиент сам прислал голосовое в этом же ходе (см.
    *  messengers/botCapabilities.ts::voiceReplies). Выключено по умолчанию —

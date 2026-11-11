@@ -65,6 +65,10 @@ export interface LiveVoiceWarmupOutcome {
 
 type Ensure = typeof ensureElevenLabsAgentReady;
 
+/** Сколько прогрев ждёт подготовку одного набора: PATCH агента сам может идти до 30 с с повторами
+ *  (ELEVENLABS_PATCH_TIMEOUT_MS), а общие 12 с звонка давали ложное «не подготовлен» (аудит 11.11). */
+export const LIVE_VOICE_WARMUP_SET_WAIT_MS = 60_000;
+
 /**
  * Подготовить агента под все наборы. По очереди, а не разом: каждая подготовка
  * читает агента и пишет его заново (GET + PATCH), и параллельные записи затирали
@@ -85,7 +89,7 @@ export async function warmElevenLabsAgent(
   const run = (async () => {
     for (const set of sets) {
       // Аргументы — ровно как у ElevenLabsVoiceClient.connect: иначе ключ памяти разойдётся.
-      const got = await ensure(apiKey, agentId, set.tools, { voiceIdTg: config.voiceIdTg }).catch(() => null);
+      const got = await ensure(apiKey, agentId, set.tools, { voiceIdTg: config.voiceIdTg }, LIVE_VOICE_WARMUP_SET_WAIT_MS).catch(() => null);
       if (got) {
         prepared += 1;
         for (const id of got.values()) ids.add(id);

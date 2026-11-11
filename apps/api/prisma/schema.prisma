@@ -7005,6 +7005,13 @@ model Settings {
   /// владельца по умолчанию из плана 11.11 (1 и 3).
   robotCallDailyMaxPerNumber        Int       @default(1)
   robotCallWeeklyMaxPerNumber       Int       @default(3)
+  /// ПОТОЛОК МИНУТ РОБОТА (П5, 11.11.2026): сколько минут разговоров робота на ElevenLabs
+  /// за сутки и за календарный месяц по Душанбе. Дошли — новые звонки робота на паузе
+  /// (исходящие переносятся, входящие уходят на автоответчик станции), идущий разговор не
+  /// рвётся; тревога директору на 80% и 100%. 0 — без потолка. Умолчания и расчёт —
+  /// packages/shared/src/liveVoiceSpend.ts, дверь — lib/liveVoiceSpend.ts.
+  liveVoiceDailyMinutesCap          Int       @default(60)
+  liveVoiceMonthlyMinutesCap        Int       @default(250)
   /// ЧАСЫ АЛАРМОВ РУКОВОДИТЕЛЮ (владелец 07.09.2026) — НАМЕРЕННО ОТДЕЛЬНОЕ ПОЛЕ
   /// от workHoursStart/End выше: то поле решает, когда лид уходит агенту, это —
   /// когда директору можно слать пуши/алармы (антифрод, «заявлено/сделано»,
@@ -8432,6 +8439,8 @@ model LiveVoiceSession {
   @@index([channelId])
   /// Частота звонков робота на номер (lib/robotCallPolicy.ts) — счёт исходящих за окно.
   @@index([callerNumber, startedAt])
+  /// Потолок минут робота (lib/liveVoiceSpend.ts) — минуты поставщика за сутки и месяц.
+  @@index([provider, startedAt])
 }
 
 /// ЗВОНОК-ОПРОС ПОСЛЕ ПОКАЗА (антифрод, владелец 13.09.2026) — см. докстринг

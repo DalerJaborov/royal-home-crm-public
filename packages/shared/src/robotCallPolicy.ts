@@ -23,6 +23,18 @@ export const ROBOT_CALL_DAY_END_HOUR = 19;
 export const ROBOT_CALL_DAILY_MAX_DEFAULT = 1;
 export const ROBOT_CALL_WEEKLY_MAX_DEFAULT = 3;
 
+/**
+ * ПРЕДОХРАНИТЕЛЬ НАБОРОВ НА ОДИН НОМЕР (П5, 11.11.2026). Частота выше считает только
+ * состоявшиеся разговоры: автоответчик, «взял не тот» и наш сбой её не тратят — так
+ * задумано, чтобы повтор после сбоя не убивал приглашение. Но каждый такой поднятый
+ * звонок тратит минуты ElevenLabs, и сценарий, зациклившийся на автоответчике, звонил бы
+ * одному номеру без конца. Поэтому отдельно: не больше стольких ПОДНЯТЫХ звонков робота
+ * (любых сессий, с любым итогом) на номер за сутки по Душанбе. Это предохранитель от
+ * нашей ошибки, а не политика компании: в Настройки не вынесен (ОЦЕНКА — подтвердить у
+ * владельца). Проверочный звонок из Настроек не считается.
+ */
+export const ROBOT_CALL_DAILY_SESSIONS_FUSE = 4;
+
 /** Дата праздника «ГГГГ-ММ-ДД» по Душанбе. */
 export const companyHolidayDateSchema = z
   .string()
@@ -113,6 +125,10 @@ export const ROBOT_CALL_REFUSAL_CODES = [
   "daily_limit",
   "weekly_limit",
   "policy_unavailable",
+  // П5 (11.11.2026): потолок минут робота (lib/liveVoiceSpend.ts) и предохранитель наборов на номер.
+  "minutes_cap_day",
+  "minutes_cap_month",
+  "daily_sessions_fuse",
 ] as const;
 export type RobotCallRefusalCode = (typeof ROBOT_CALL_REFUSAL_CODES)[number];
 
@@ -128,6 +144,9 @@ export const ROBOT_CALL_REFUSAL_TEXT: Record<RobotCallRefusalCode, string> = {
   daily_limit: "Робот уже разговаривал с этим номером сегодня — следующий звонок завтра",
   weekly_limit: "Робот уже разговаривал с этим номером несколько раз за неделю — пауза",
   policy_unavailable: "Не удалось проверить, можно ли звонить, — попробуйте позже",
+  minutes_cap_day: "Робот наговорил дневной потолок минут — звонки перенесены на завтра. Потолок — в Настройках, раздел «Живой голос»",
+  minutes_cap_month: "Робот наговорил месячный потолок минут — звонки перенесены на следующий месяц. Потолок — в Настройках, раздел «Живой голос»",
+  daily_sessions_fuse: "Робот уже несколько раз поднимал звонок на этот номер сегодня — следующий звонок завтра",
 };
 
 function timesRu(n: number): string {
@@ -162,6 +181,9 @@ export const ROBOT_CALL_DEFER_CODES: ReadonlySet<RobotCallRefusalCode> = new Set
   "daily_limit",
   "weekly_limit",
   "policy_unavailable",
+  "minutes_cap_day",
+  "minutes_cap_month",
+  "daily_sessions_fuse",
 ]);
 
 /**

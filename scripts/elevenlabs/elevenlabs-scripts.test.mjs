@@ -21,6 +21,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Ключ собран из кусков, чтобы сам файл не выглядел секретом для сторожей.
 const KEY = "sk_" + "test" + "0123456789abcdef0123456789abcdef";
 const json = (status, body) => ({ status, text: async () => (typeof body === "string" ? body : JSON.stringify(body)) });
+// Платный прогон в тестах — только через замок (paid-guard.mjs): разрешение владельца в окружении.
+const PAID_ENV = { ELEVENLABS_API_KEY: KEY, ELEVENLABS_PAID_TESTS_APPROVED: dushanbeDate() };
 const collect = () => {
   const lines = [];
   return { lines, say: (...p) => lines.push(redact(p.join(" "), KEY)), text: () => lines.join("\n") };
@@ -302,10 +304,11 @@ test("suite целиком на подставном сервере: сцена�
       return json(200, { id: "inv1", test_runs: runs });
     }
     if (u.startsWith("/v1/convai/agents/")) return json(200, { conversation_config: { agent: { prompt: { llm: "x" } } } });
+    if (u === "/v1/user/subscription") return json(200, { character_count: 1000, character_limit: 100000 });
     return json(404, {});
   };
   const c = collect();
-  const r = await runSuite({ env: { ELEVENLABS_API_KEY: KEY, ELEVENLABS_TEST_AGENT_ID: "agent_test", ELEVENLABS_AGENT_ID: "agent_prod" }, values: { only: "client-buy-full,client-sell" }, fetchImpl, kinds, sync, say: c.say, sleepFn: async () => {}, writeFiles: false });
+  const r = await runSuite({ env: { ...PAID_ENV, ELEVENLABS_TEST_AGENT_ID: "agent_test", ELEVENLABS_AGENT_ID: "agent_prod" }, values: { only: "client-buy-full,client-sell", "budget-credits": "5000" }, fetchImpl, kinds, sync, say: c.say, sleepFn: async () => {}, writeFiles: false });
   assert.equal(r.results.length, 2);
   assert.equal(r.results.find((x) => x.id === "client-buy-full").pass, true, c.text());
   const sell = r.results.find((x) => x.id === "client-sell");
@@ -478,10 +481,11 @@ test("suite --llm: модель записывается в тестового �
       if (method === "PATCH") patched.push(JSON.parse(init.body));
       return json(200, { conversation_config: { agent: { prompt: { llm: "deepseek-v41-flash" } } } });
     }
+    if (u === "/v1/user/subscription") return json(200, { character_count: 0, character_limit: 100000 });
     return json(404, {});
   };
   const c = collect();
-  const r = await runSuite({ env: { ELEVENLABS_API_KEY: KEY, ELEVENLABS_TEST_AGENT_ID: "agent_test" }, values: { only: "client-buy-full", llm: "gemini-3.8-flash" }, fetchImpl, kinds, sync, say: c.say, sleepFn: async () => {}, writeFiles: false });
+  const r = await runSuite({ env: { ...PAID_ENV, ELEVENLABS_TEST_AGENT_ID: "agent_test" }, values: { only: "client-buy-full", llm: "gemini-3.8-flash", "budget-credits": "5000" }, fetchImpl, kinds, sync, say: c.say, sleepFn: async () => {}, writeFiles: false });
   assert.equal(patched[0].conversation_config.agent.prompt.llm, "gemini-3.8-flash");
   assert.match(c.text(), /ИТОГ \[gemini-3\.8-flash\]: 0\/1/);
   assert.ok(!c.text().includes("[object Object]"));
@@ -626,4 +630,197 @@ test("patch-check: сервис слил PATCH №1 глубоко — «чуж�
   const r = await runPatchCheck({ env: PC_ENV, fetchImpl: srv.fetchImpl, sync, kinds: TWO_KINDS, say: c.say, writeFiles: false });
   assert.equal(r.failed, 0, c.text());
   assert.match(c.text(), /OK\s+PATCH №1: чужие поля целы/);
+});
+
+// ── ЗАМОК ПЛАТНЫХ ПРОВЕРОК (11.11.2026, paid-guard.mjs) ─────────────────────────────────────
+// Владелец: «сделай так чтобы автотестов не было … надо полностью контролировать это».
+import { APPROVAL_ENV, dushanbeDate, PAID_ENDPOINT_PATTERNS, openPaidBudget, paidRunGate, unguardedPaidScripts } from "./paid-guard.mjs";
+import { mkdirSync } from "node:fs";
+
+const isPaidUrl = (url) => PAID_ENDPOINT_PATTERNS.some((re) => re.test(String(url)));
+const TWO_SIM_KINDS = [
+  { kind: "consultant", label: "Консультант", prompt: "ПРОМПТ-1", tools: [{ name: "save_client_request", description: "d", parameters: { type: "OBJECT", properties: {} } }] },
+  { kind: "client", label: "Звонок клиенту", prompt: "ПРОМПТ-2", tools: [{ name: "save_client_request", description: "d", parameters: { type: "OBJECT", properties: {} } }] },
+];
+
+/**
+ * Подставной ElevenLabs для прогона suite: записывает каждый запрос.
+ * `costPerRun` — сколько кредитов «съедает» один запуск run-tests (растёт character_count).
+ * `subscriptionFails` — остаток читается только первый раз, дальше 500.
+ */
+function paidServer({ used = 0, limit = 100_000, costPerRun = 0, subscriptionFails = false } = {}) {
+  const seen = [];
+  const created = new Map();
+  let nextTest = 0;
+  let subscriptionReads = 0;
+  const fetchImpl = async (url, init) => {
+    const u = String(url).replace("https://api.elevenlabs.io", "");
+    const method = init?.method || "GET";
+    seen.push(`${method} ${u}`);
+    if (u === "/v1/user/subscription") {
+      subscriptionReads += 1;
+      if (subscriptionFails && subscriptionReads > 1) return json(500, {});
+      return json(200, { character_count: used, character_limit: limit });
+    }
+    if (u === "/v1/convai/tools") return method === "GET" ? json(200, { tools: [] }) : json(200, { id: "tool_1" });
+    if (u === "/v1/convai/agent-testing/create") {
+      const id = `t${++nextTest}`;
+      created.set(id, JSON.parse(init.body));
+      return json(200, { id });
+    }
+    if (method === "DELETE") return json(200, {});
+    if (u.endsWith("/run-tests")) {
+      used += costPerRun;
+      return json(200, { id: "inv1" });
+    }
+    if (u === "/v1/convai/test-invocations/inv1") {
+      const runs = [...created.keys()].map((id) => ({ test_id: id, status: "passed", condition_result: { result: "success" }, agent_responses: [agentTurn("Записала", [["save_client_request", FULL_ARGS]])] }));
+      return json(200, { test_runs: runs });
+    }
+    if (u.startsWith("/v1/convai/agents/")) return json(200, { conversation_config: { agent: { prompt: { llm: "x" } } } });
+    return json(404, {});
+  };
+  return { fetchImpl, seen, paid: () => seen.filter(isPaidUrl) };
+}
+
+const suiteRun = async (srv, { env = PAID_ENV, values = {}, kinds = TWO_SIM_KINDS } = {}) => {
+  const sync = await loadAgentSync();
+  const c = collect();
+  const r = await runSuite({ env: { ...env, ELEVENLABS_TEST_AGENT_ID: "agent_test" }, values: { only: "client-buy-full,client-out-wrong-person", ...values }, fetchImpl: srv.fetchImpl, kinds, sync, say: c.say, sleepFn: async () => {}, writeFiles: false });
+  return { r, c };
+};
+
+test("замок: paidRunGate — без бюджета или без разрешения владельца закрыто; кривой бюджет не проходит", () => {
+  const ok = { [APPROVAL_ENV]: dushanbeDate() };
+  assert.equal(paidRunGate({ env: ok, values: { "budget-credits": "500" } }).allowed, true);
+  assert.equal(paidRunGate({ env: ok, values: { "budget-credits": "500" } }).budget, 500);
+  for (const bad of [undefined, true, "", "0", "-5", "1.5", "abc", "1e3x"]) {
+    assert.equal(paidRunGate({ env: ok, values: { "budget-credits": bad } }).allowed, false, `бюджет ${bad}`);
+  }
+  // «1» и вчерашняя дата больше не открывают (разрешение на один день); чужой регистр имени — тоже имя.
+  const yesterday = dushanbeDate(Date.now() - 86_400_000);
+  for (const env of [{}, { [APPROVAL_ENV]: "0" }, { [APPROVAL_ENV]: "1" }, { [APPROVAL_ENV]: "yes" }, { [APPROVAL_ENV]: "true" }, { [APPROVAL_ENV]: yesterday }, { ...ok, ELEVENLABS_Paid_Tests_Approved: "1" }]) {
+    assert.equal(paidRunGate({ env, values: { "budget-credits": "500" } }).allowed, false, JSON.stringify(env));
+  }
+});
+
+test("замок: suite без --budget-credits или без разрешения — ни одного запроса вообще", async () => {
+  for (const [env, values] of [
+    [{ ELEVENLABS_API_KEY: KEY }, {}],
+    [{ ELEVENLABS_API_KEY: KEY }, { "budget-credits": "5000" }],
+    [PAID_ENV, {}],
+  ]) {
+    const srv = paidServer();
+    const { r, c } = await suiteRun(srv, { env, values });
+    assert.equal(r.failed, 1);
+    assert.match(r.refused, /платный запуск закрыт/);
+    assert.deepEqual(srv.seen, [], `запросы при ${JSON.stringify(values)}: ${srv.seen.join(", ")}`);
+    assert.match(c.text(), /FAIL платный запуск закрыт/);
+  }
+});
+
+test("замок: бюджет больше остатка подписки — отказ после одного бесплатного чтения остатка", async () => {
+  const srv = paidServer({ used: 99_000, limit: 100_000 });
+  const { r } = await suiteRun(srv, { values: { "budget-credits": "5000" } });
+  assert.equal(r.failed, 1);
+  assert.match(r.refused, /бюджет 5000 больше остатка 1000/);
+  assert.deepEqual(srv.seen, ["GET /v1/user/subscription"]);
+  assert.deepEqual(srv.paid(), []);
+});
+
+test("замок: остаток не прочитать — платить вслепую нельзя, отказ до платного запроса", async () => {
+  const sync = await loadAgentSync();
+  const seen = [];
+  const fetchImpl = async (u) => (seen.push(String(u)), json(401, { detail: { status: "missing_permissions" } }));
+  const r = await runSuite({ env: { ...PAID_ENV, ELEVENLABS_TEST_AGENT_ID: "agent_test" }, values: { only: "client-buy-full", "budget-credits": "100" }, fetchImpl, kinds: TWO_SIM_KINDS, sync, say: collect().say, sleepFn: async () => {}, writeFiles: false });
+  assert.match(r.refused, /не удалось прочитать остаток/);
+  assert.equal(seen.filter(isPaidUrl).length, 0);
+});
+
+test("замок: бюджет исчерпан после первого вида звонка — второй не запускается, итог называет потраченное", async () => {
+  const srv = paidServer({ used: 10_000, costPerRun: 1200 });
+  const { r, c } = await suiteRun(srv, { values: { "budget-credits": "1000" } });
+  // Первый вид (консультант) прошёл, второй (звонок клиенту) не запускался вовсе.
+  assert.equal(srv.seen.filter((s) => s.endsWith("/run-tests")).length, 1, srv.seen.join("\n"));
+  assert.equal(srv.seen.filter((s) => s === "POST /v1/convai/agent-testing/create").length, 1);
+  const second = r.results.find((x) => x.id === "client-out-wrong-person");
+  assert.equal(second.pass, false);
+  assert.match(second.failures.join(), /не запущен: бюджет кредитов исчерпан/);
+  assert.equal(r.spentCredits, 1200);
+  assert.match(c.text(), /СТОП: бюджет кредитов исчерпан/);
+  assert.match(c.text(), /Потрачено за запуск: 1200 кредитов из бюджета 1000; остаток 88800 из 100000/);
+  assert.equal(r.failed, 1);
+});
+
+test("замок: в пределах бюджета идут оба вида звонка, итог — сколько потрачено", async () => {
+  const srv = paidServer({ used: 0, costPerRun: 300 });
+  const { r, c } = await suiteRun(srv, { values: { "budget-credits": "1000" } });
+  assert.equal(srv.seen.filter((s) => s.endsWith("/run-tests")).length, 2);
+  assert.equal(r.spentCredits, 600);
+  assert.match(c.text(), /Бюджет запуска: 1000 кредитов; остаток до старта 100000 из 100000/);
+  assert.match(c.text(), /Потрачено за запуск: 600 кредитов из бюджета 1000/);
+  assert.equal(r.failed, 0, c.text());
+});
+
+test("замок: счётчик расхода пропал посреди прогона — следующий вид звонка не запускается", async () => {
+  const srv = paidServer({ used: 0, costPerRun: 10, subscriptionFails: true });
+  const { r } = await suiteRun(srv, { values: { "budget-credits": "1000" } });
+  assert.equal(srv.seen.filter((s) => s.endsWith("/run-tests")).length, 0, "первый же exhausted() без счётчика — стоп");
+  assert.ok(r.results.length > 0 && r.results.every((x) => /не запущен/.test(x.failures.join())));
+});
+
+test("замок: openPaidBudget без разрешения не делает ни одного запроса", async () => {
+  let calls = 0;
+  const r = await openPaidBudget({ env: {}, values: { "budget-credits": "10" }, request: async () => (calls++, { ok: true, json: {} }), say: () => {} });
+  assert.match(r.refused, new RegExp(APPROVAL_ENV));
+  assert.equal(calls, 0);
+});
+
+const REPO = path.join(HERE, "..", "..");
+const PAID_SCRIPT_ROOTS = [path.join(REPO, "scripts"), path.join(REPO, "apps", "api", "scripts")];
+
+test("сторож замка: каждый скрипт с платным адресом ElevenLabs зовёт openPaidBudget", () => {
+  const bad = unguardedPaidScripts(PAID_SCRIPT_ROOTS);
+  assert.deepEqual(bad.map((f) => path.relative(REPO, f)), [], "скрипт тратит кредиты мимо замка — подключите openPaidBudget (paid-guard.mjs)");
+});
+
+test("сторож замка проверен нарочной поломкой: suite.mjs без вызова замка и новый скрипт озвучки ловятся", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "el-guard-"));
+  try {
+    // 1. Копия suite.mjs, из которой убран вызов замка.
+    const src = readFileSync(path.join(HERE, "suite.mjs"), "utf8");
+    assert.match(src, /openPaidBudget\(/);
+    writeFileSync(path.join(dir, "suite.mjs"), src.replace(/openPaidBudget\(/g, "skipPaidBudget("));
+    // 2. Новый «замер озвучки» во вложенной папке — без замка.
+    mkdirSync(path.join(dir, "bench"));
+    writeFileSync(path.join(dir, "bench", "narration-model-bench.mjs"), "await fetch(`${base}/v1/text-to-speech/${voice}`, { method: \"POST\" });\n");
+    // 3. Бесплатная проверка (как preflight) и скрипт с замком — не ловятся; тест и node_modules не смотрятся.
+    writeFileSync(path.join(dir, "preflight.mjs"), 'await request("GET", "/v1/user");\n');
+    writeFileSync(path.join(dir, "with-lock.mjs"), 'const paid = await openPaidBudget({});\nawait request("POST", "/v1/speech-to-text");\n');
+    writeFileSync(path.join(dir, "x.test.mjs"), '"/v1/text-to-speech"\n');
+    mkdirSync(path.join(dir, "node_modules"));
+    writeFileSync(path.join(dir, "node_modules", "lib.mjs"), '"/v1/text-to-speech"\n');
+    const bad = unguardedPaidScripts([dir]).map((f) => path.relative(dir, f).split(path.sep).join("/")).sort();
+    assert.deepEqual(bad, ["bench/narration-model-bench.mjs", "suite.mjs"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("бесплатные проверки остаются бесплатными: preflight и patch-check не содержат платных адресов", () => {
+  for (const name of ["preflight.mjs", "patch-check.mjs", "lib.mjs", "crm-prompts.mjs", "load-env.mjs"]) {
+    const src = readFileSync(path.join(HERE, name), "utf8");
+    assert.ok(!PAID_ENDPOINT_PATTERNS.some((re) => re.test(src)), `${name} содержит платный адрес`);
+  }
+});
+
+test("load-env: разрешение платного запуска из apps/api/.env не берётся никогда", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "el-env-"));
+  const file = path.join(dir, ".env");
+  writeFileSync(file, `ELEVENLABS_API_KEY=${KEY}\n${APPROVAL_ENV}=1\n`);
+  const env = {};
+  loadElevenLabsEnv(env, file);
+  assert.equal(env.ELEVENLABS_API_KEY, KEY);
+  assert.equal(env[APPROVAL_ENV], undefined);
+  rmSync(dir, { recursive: true, force: true });
 });

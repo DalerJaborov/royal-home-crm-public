@@ -76,7 +76,18 @@ export function elevenLabsApiBase(): string {
 
 /** Потолок одного запроса к REST API: звонок ждёт подготовку, тянуть нельзя. */
 export const ELEVENLABS_HTTP_TIMEOUT_MS = 8_000;
-/** Потолок всей подготовки агента перед звонком. */
+/**
+ * Потолок PATCH агента (11.11.2026, аудит голосового робота, сбой 11). PATCH пишет большой
+ * конфиг (промт, настройки речи, словари), и сразу после выкладки он не укладывался в общие 8 с:
+ * «нет ответа (timeout)» → агент «не подготовлен» → первые звонки шли с настройками кабинета.
+ * GET-ам хватает и 8 с, а PATCH — идемпотентная запись, ему можно ждать дольше и повторять.
+ */
+export const ELEVENLABS_PATCH_TIMEOUT_MS = 30_000;
+/** Попыток PATCH (первая + повторы) при обрыве, таймауте, 429 и 5xx. 4xx не повторяется — это отказ по сути. */
+export const ELEVENLABS_PATCH_ATTEMPTS = 3;
+/** Пауза между попытками PATCH. */
+export const ELEVENLABS_PATCH_RETRY_PAUSE_MS = 2_000;
+/** Сколько звонок ждёт подготовку агента. Прогрев при старте ждёт дольше (waitBudgetMs). */
 export const ELEVENLABS_SYNC_BUDGET_MS = 12_000;
 /** Сколько агент ждёт ответа нашей функции (поиск квартир ходит в базу). */
 const TOOL_RESPONSE_TIMEOUT_SECS = 30;
@@ -95,7 +106,8 @@ export async function elevenLabsRequest<T = unknown>(
   apiKey: string,
   method: "GET" | "POST" | "PATCH",
   path: string,
-  body?: unknown
+  body?: unknown,
+  timeoutMs: number = method === "PATCH" ? ELEVENLABS_PATCH_TIMEOUT_MS : ELEVENLABS_HTTP_TIMEOUT_MS
 ): Promise<T> {
   let res: Response;
   try {
@@ -103,7 +115,7 @@ export async function elevenLabsRequest<T = unknown>(
       method,
       headers: { "xi-api-key": apiKey, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(ELEVENLABS_HTTP_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     throw new ElevenLabsHttpError(`ElevenLabs ${method} ${path}: нет ответа (${describeError(err)})`, null);
@@ -676,6 +688,32 @@ export interface ElevenLabsAgentSyncOutcome {
   tuningError: string | null;
 }
 
+/** Стоит ли повторить запрос: связь, таймаут, 429, 5xx. Отказ по сути (401, 403, 404, 422) — нет. */
+export function isRetryableElevenLabsError(err: unknown): boolean {
+  if (!(err instanceof ElevenLabsHttpError)) return false;
+  return err.status === null || err.status === 429 || err.status >= 500;
+}
+
+/** PATCH агента с повторами и паузой (см. ELEVENLABS_PATCH_TIMEOUT_MS). Пауза и число попыток — параметры ради теста. */
+export async function patchElevenLabsAgent(
+  apiKey: string,
+  agentPath: string,
+  body: unknown,
+  opts: { attempts?: number; pauseMs?: number } = {}
+): Promise<void> {
+  const attempts = Math.max(1, opts.attempts ?? ELEVENLABS_PATCH_ATTEMPTS);
+  const pauseMs = opts.pauseMs ?? ELEVENLABS_PATCH_RETRY_PAUSE_MS;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await elevenLabsRequest(apiKey, "PATCH", agentPath, body);
+      return;
+    } catch (err) {
+      if (attempt >= attempts || !isRetryableElevenLabsError(err)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, pauseMs));
+    }
+  }
+}
+
 /**
  * Завести или обновить наши функции, прикрепить их к агенту (первый PATCH), затем
  * выставить настройки разговора (второй PATCH). Бросает только при отказе первой
@@ -701,13 +739,12 @@ async function syncElevenLabsAgentNow(
   // Без функций список инструментов не нужен, а настройки разговора — нужны.
   const ids =
     tools.length > 0 ? await ensureElevenLabsTools(apiKey, tools, new Set(mergedToolIds(readPrompt(agent), []))) : new Map<string, string>();
-  await elevenLabsRequest(apiKey, "PATCH", agentPath, buildAgentSyncPatch(agent, [...ids.values()]));
+  await patchElevenLabsAgent(apiKey, agentPath, buildAgentSyncPatch(agent, [...ids.values()]));
   const tajikPronunciation = await syncTajikPronunciationDictionary(apiKey, agent);
   let outcome: ElevenLabsAgentSyncOutcome;
   try {
-    await elevenLabsRequest(
+    await patchElevenLabsAgent(
       apiKey,
-      "PATCH",
       agentPath,
       buildAgentTuningPatch(agent, [...ids.values()], tajikPronunciation ? { ...opts, tajikPronunciation } : opts)
     );
@@ -717,8 +754,8 @@ async function syncElevenLabsAgentNow(
     void logSystemError(
       "telephony",
       `Живой голос (ElevenLabs): агент ${agentId} не принял настройки разговора (${detail}) — функции и подмены ` +
-        "заведены, звонки идут со звучанием из кабинета. Повтор — не раньше чем через " +
-        `${ELEVENLABS_SYNC_RETRY_PAUSE_MS / 60_000} мин.`,
+        "заведены, звонки идут со звучанием из кабинета. Повтор в фоне — через " +
+        `${ELEVENLABS_SYNC_RETRY_PAUSE_MS / 1000} с.`,
       { dedupKey: "elevenlabs-agent-tuning" }
     );
     outcome = { ids, tuned: false, tuningError: detail };
@@ -908,7 +945,10 @@ export async function syncElevenLabsAgent(
  * Отказ первой части — звонки без подготовки до конца паузы; отказ только
  * настроек — id функций берутся из памяти, настройки повторяются в фоне после паузы.
  */
-export const ELEVENLABS_SYNC_RETRY_PAUSE_MS = 5 * 60_000;
+export const ELEVENLABS_SYNC_RETRY_PAUSE_MS = 30_000;
+/** Сколько раз подряд подготовка повторяется в фоне сама, без звонка (11.11.2026): неподготовленный
+ *  агент не должен ждать, пока кто-то позвонит. Исчерпали — одна тревога и дальше только по звонку. */
+export const ELEVENLABS_SYNC_BACKGROUND_RETRIES = 3;
 
 /** Подготовка в полёте: агент + набор функций + настройки → итог. */
 const syncInFlight = new Map<string, Promise<ElevenLabsAgentSyncOutcome>>();
@@ -955,6 +995,39 @@ export function isElevenLabsToolsNotAttachedClose(code: number, reason: string):
   return code === 1008 && /tool ids? not attached/i.test(reason);
 }
 
+/** Попыток фонового повтора по ключу подготовки и их таймеры (11.11.2026, аудит: «агент не подготовлен»). */
+const syncBackgroundAttempts = new Map<string, number>();
+const syncBackgroundTimers = new Set<ReturnType<typeof setTimeout>>();
+
+function scheduleBackgroundRetry(
+  key: string,
+  apiKey: string,
+  agentId: string,
+  tools: LiveVoiceFunctionDeclaration[],
+  opts: ElevenLabsAgentTuningOptions
+): void {
+  const attempt = (syncBackgroundAttempts.get(key) ?? 0) + 1;
+  if (attempt > ELEVENLABS_SYNC_BACKGROUND_RETRIES) {
+    syncBackgroundAttempts.delete(key);
+    void logSystemError(
+      "telephony",
+      `Живой голос (ElevenLabs): агент ${agentId} не удалось подготовить ${ELEVENLABS_SYNC_BACKGROUND_RETRIES} раза подряд в фоне — ` +
+        "звонки идут с настройками из кабинета. Проверьте ключ и агента кнопкой «Проверить агента» в Настройках.",
+      { dedupKey: "elevenlabs-agent-sync-gave-up" }
+    );
+    return;
+  }
+  syncBackgroundAttempts.set(key, attempt);
+  const timer = setTimeout(() => {
+    syncBackgroundTimers.delete(timer);
+    // Уже готов полностью (звонок успел раньше) — повторять нечего.
+    if (syncDone.get(key)?.outcome.tuned) return;
+    startSync(key, apiKey, agentId, tools, opts).catch(() => {});
+  }, ELEVENLABS_SYNC_RETRY_PAUSE_MS);
+  timer.unref?.();
+  syncBackgroundTimers.add(timer);
+}
+
 function startSync(
   key: string,
   apiKey: string,
@@ -970,9 +1043,13 @@ function startSync(
     (outcome) => {
       syncDone.set(key, { outcome, at: Date.now() });
       syncPausedUntil.delete(key);
+      // Настройки разговора не приняты — подготовка неполная, добиваем в фоне.
+      if (outcome.tuned) syncBackgroundAttempts.delete(key);
+      else scheduleBackgroundRetry(key, apiKey, agentId, tools, opts);
     },
     () => {
       syncPausedUntil.set(key, Date.now() + ELEVENLABS_SYNC_RETRY_PAUSE_MS);
+      scheduleBackgroundRetry(key, apiKey, agentId, tools, opts);
     }
   ).finally(() => {
     if (syncInFlight.get(key) === pending) syncInFlight.delete(key);
@@ -989,7 +1066,9 @@ export async function ensureElevenLabsAgentReady(
   apiKey: string,
   agentId: string,
   tools: LiveVoiceFunctionDeclaration[],
-  opts: ElevenLabsAgentTuningOptions = {}
+  opts: ElevenLabsAgentTuningOptions = {},
+  /** Сколько ждать подготовку здесь. Звонок — ELEVENLABS_SYNC_BUDGET_MS; прогрев при старте ждёт дольше. */
+  waitBudgetMs: number = ELEVENLABS_SYNC_BUDGET_MS
 ): Promise<Map<string, string> | null> {
   // Звонок без функций тоже готовит агента: настройки разговора (темп, очередь
   // реплик, язык) нужны любому звонку. Прежний ранний выход их пропускал.
@@ -1012,7 +1091,7 @@ export async function ensureElevenLabsAgentReady(
     const outcome = await Promise.race([
       pending,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`не уложились в ${ELEVENLABS_SYNC_BUDGET_MS / 1000} с`)), ELEVENLABS_SYNC_BUDGET_MS);
+        timer = setTimeout(() => reject(new Error(`не уложились в ${waitBudgetMs / 1000} с`)), waitBudgetMs);
         timer.unref?.();
       }),
     ]);
@@ -1024,8 +1103,8 @@ export async function ensureElevenLabsAgentReady(
     void logSystemError(
       "telephony",
       `Живой голос (ElevenLabs): агент ${agentId} не подготовлен под наши функции (${describeError(err)}) — ` +
-        "звонок идёт с теми функциями и настройками, что заведены у агента в кабинете. Повтор — не раньше чем через " +
-        `${ELEVENLABS_SYNC_RETRY_PAUSE_MS / 60_000} мин.`,
+        "звонок идёт с теми функциями и настройками, что заведены у агента в кабинете. Повтор в фоне — через " +
+        `${ELEVENLABS_SYNC_RETRY_PAUSE_MS / 1000} с.`,
       { dedupKey: "elevenlabs-agent-sync" }
     );
     return null;
@@ -1039,6 +1118,9 @@ export function resetElevenLabsSyncCacheForTests(): void {
   syncInFlight.clear();
   syncDone.clear();
   syncPausedUntil.clear();
+  syncBackgroundAttempts.clear();
+  for (const timer of syncBackgroundTimers) clearTimeout(timer);
+  syncBackgroundTimers.clear();
   toolCreateInFlight.clear();
   agentSyncQueue.clear();
   toolsNotAttachedAt.clear();

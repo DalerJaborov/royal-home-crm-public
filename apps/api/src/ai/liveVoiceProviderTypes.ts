@@ -40,6 +40,15 @@ export interface LiveVoiceProviderClient extends EventEmitter {
   sendAudioChunk(pcm16: Buffer, sampleRateHz?: number): void;
   /** Служебная реплика от лица собеседника (приветствие, извинение на таджикском). */
   sendText(text: string): void;
+  /**
+   * Служебная пометка БЕЗ нового хода модели (12.11.2026). У ElevenLabs — событие
+   * contextual_update («context text to inject into the conversation without
+   * interrupting», справочник WebSocket агентов). user_message там — реплика собеседника:
+   * агент обрывает начатый ответ и отвечает заново (звонок владельца 11.11: пометка
+   * «человек говорит по-таджикски» оборвала ответ и дала паузу ~6 с). Нет у поставщика —
+   * мост зовёт sendText.
+   */
+  sendContext?(text: string): void;
   sendToolResponse(
     call: LiveVoiceToolCall,
     response: Record<string, unknown>,

@@ -48,6 +48,7 @@ import type { LiveVoiceConnectOptions, LiveVoiceLanguage } from "./liveVoiceProv
  *   { user_audio_chunk: "<base64>" }  — формат из user_input_audio_format;
  *   { type: "pong", event_id }         — ответ на каждый ping;
  *   { type: "user_message", text }     — служебная реплика (как sendText у Gemini);
+ *   { type: "contextual_update", text } — пометка без нового хода агента (sendContext);
  *   { type: "client_tool_result", tool_call_id, result: <строка>, is_error }.
  *  К нам:
  *   conversation_initiation_metadata → conversation_initiation_metadata_event
@@ -70,6 +71,9 @@ import type { LiveVoiceConnectOptions, LiveVoiceLanguage } from "./liveVoiceProv
  * ⚠️ НЕ ПРОВЕРЕНО ЖИВЫМ ЗВОНКОМ: из облачной сессии api.elevenlabs.io закрыт,
  * сверено только с документацией и юнит-тестами на поддельном сокете.
  */
+
+/** Обычное закрытие WebSocket (RFC 6455, 7.4.1) — так мост кладёт трубку. */
+export const ELEVENLABS_NORMAL_CLOSE_CODE = 1000;
 
 /** Сколько ждём рукопожатия WebSocket — как у Gemini. */
 const ELEVENLABS_HANDSHAKE_TIMEOUT_MS = 15_000;
@@ -643,6 +647,13 @@ export class ElevenLabsVoiceClient extends EventEmitter {
     this.ws.send(JSON.stringify({ type: "user_message", text }));
   }
 
+  /** Пометка в контекст разговора без нового хода агента (см. LiveVoiceProviderClient.sendContext).
+   *  До соединения не копится: пометки о языке нужны только посреди разговора. */
+  sendContext(text: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: "contextual_update", text }));
+  }
+
   /** Ответ на вызов функции. scheduling — понятие Gemini, здесь не нужно:
    *  разговор и так ждёт ответа (expects_response у инструмента). */
   sendToolResponse(call: LiveVoiceToolCall, response: Record<string, unknown>): void {
@@ -667,8 +678,12 @@ export class ElevenLabsVoiceClient extends EventEmitter {
     if (this.closed) return;
     this.closed = true;
     this.clearTurnIdle();
-    this.ws?.close();
+    // Код 1000 — обычное окончание (12.11.2026): без кода сокет закрывался 1005, а в истории
+    // ElevenLabs каждый звонок значился «Client disconnected unexpectedly».
+    // Сначала отвязываем: событие close этого сокета — уже не «поставщик закончил разговор».
+    const ws = this.ws;
     this.ws = null;
+    ws?.close(ELEVENLABS_NORMAL_CLOSE_CODE, "call ended");
     this.connectingWs?.close();
     this.connectingWs = null;
   }
