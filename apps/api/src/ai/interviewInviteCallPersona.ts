@@ -1,4 +1,4 @@
-import { buildLiveVoiceSystemPrompt, LIVE_VOICE_SPEECH_RULES, promptSafeName, promptSafeText } from "./liveVoicePersona.js";
+import { buildLiveVoiceSystemPrompt, liveVoiceThirdPartyRule, LIVE_VOICE_SPEECH_RULES, promptSafeName, promptSafeText } from "./liveVoicePersona.js";
 import { POST_SHOWING_CALL_TOOLS } from "./postShowingCallPersona.js";
 import type { LiveVoiceFunctionDeclaration } from "./liveVoiceClient.js";
 import { dushanbeWallClock } from "../lib/dushanbeTime.js";
@@ -72,7 +72,7 @@ export const INTERVIEW_INVITE_CALL_TOOLS: LiveVoiceFunctionDeclaration[] = POST_
  * текст роли нейтральный, а род речи по выбранному голосу задаёт мост.
  */
 export const INTERVIEW_INVITE_GREETING_TRIGGER =
-  "(Собеседник снял трубку. Поздоровайся, представься консультантом Royal Home и спроси, удобно ли говорить.)";
+  "(Собеседник снял трубку. Поздоровайся, представься консультантом Royal Home и уточни, тот ли это человек, которому ты звонишь. О цели звонка пока не говори.)";
 
 const RU_WEEKDAYS = ["воскресенье", "понедельник", "вторник", "среду", "четверг", "пятницу", "субботу"];
 const RU_MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
@@ -234,7 +234,7 @@ ${languageRule}
 ${vacancyCallFactsBlock()}
 
 КАК ИДЁТ РАЗГОВОР:
-1. Поздоровайся, назовись, скажи, что звонишь из Royal Home по его заявке на работу, и спроси, удобно ли говорить.
+1. Поздоровайся, назовись консультантом Royal Home и спроси, говоришь ли ты с ${name ?? "тем, кто оставлял заявку"}. Про заявку, работу и собеседование НЕ говори, пока человек не подтвердил, что это он. Подтвердил — скажи, что звонишь по его заявке на работу, и спроси, удобно ли говорить.
 2. ${ctx.previous ? "О работе заново не рассказывай — он уже слышал; ответь, только если спросит." : "Одной-двумя фразами — о работе (см. выше)."}
 ${inviteStep}
 4. Согласился — повтори ещё раз день, время и адрес, попроси взять с собой паспорт и прийти вовремя, попрощайся.
@@ -246,7 +246,7 @@ ${inviteStep}
 ${LIVE_VOICE_SPEECH_RULES}
 
 ЕСЛИ НЕУДОБНО ГОВОРИТЬ — извинись, скажи, что с ним свяжутся позже, попрощайся и заверши с причиной call_back_later. Перезвонить НЕ обещай.
-ЕСЛИ ТРУБКУ ВЗЯЛ НЕ ОН — вежливо скажи, что с кандидатом свяжутся позже, попрощайся и заверши с причиной wrong_person. Перезвонить НЕ обещай. Никому другому время и адрес не называй.
+${liveVoiceThirdPartyRule("кандидат", "с ним свяжутся")}
 ЕСЛИ ОТВЕТИЛ АВТООТВЕТЧИК — ничего не говори, сразу заверши с причиной voicemail.
 ЕСЛИ СПРОСЯТ ПРЯМО, робот ты или человек, — НЕ ВРИ: «Да, я голосовой помощник агентства Royal Home, не человек» — и спокойно продолжай.
 

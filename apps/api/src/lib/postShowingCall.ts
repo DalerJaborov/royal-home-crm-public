@@ -17,6 +17,7 @@ import { originateLiveVoiceScenarioCall } from "./telephony/liveVoiceBridge.js";
 import { LIVE_VOICE_STATION_AUDIO_RETRY_MS, NO_STATION_AUDIO_REASON } from "./telephony/liveVoiceAudioPath.js";
 import { scenarioVoice } from "./telephony/scenarioVoice.js";
 import { clientLinesOf, looksLikeVoicemail } from "../ai/scenarioTranscript.js";
+import { reportThirdPartyDisclosure } from "../ai/thirdPartyDisclosure.js";
 import type { LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
 import { parsePostShowingCall, POST_SHOWING_CALL_RED_OUTCOMES } from "../ai/postShowingCallParse.js";
 import type { PostShowingCallOutcome } from "../generated/prisma/client.js";
@@ -626,6 +627,7 @@ export async function finishPostShowingCall(result: LiveVoiceScenarioResult, now
   // остаётся на записи, событие — в аудите.
   if (kind === "wrong_person") {
     logSystemAudit("post_showing_call_wrong_person", "PostShowingCall", call.id, { attempts: call.attempts });
+    reportThirdPartyDisclosure("post_showing", call.id, result.transcript);
     const retryAt = nextAttemptAt(call.attempts, now, call.id);
     if (!retryAt) {
       // Попытки кончились, а покупателя так и не слышали: запись закрывается БЕЗ звонка, как
