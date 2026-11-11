@@ -153,6 +153,7 @@ import {
 import { contactProfileForPrompt, rememberContactTurn } from "../lib/contactProfileMemory.js";
 import { collectSellerFacts } from "../ai/sellerIntake.js";
 import { describeError } from "../lib/describeError.js";
+import { revokeRobotCallAllowOnOptOut } from "../lib/robotCallPolicy.js";
 import {
   aiDailyBudgetOf,
   noticeAiBudgetHandover,
@@ -1909,6 +1910,13 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     await prisma.botConversation
       .update({ where: { id: resolved.id }, data: { optedOutAt: new Date() } })
       .catch((err) => console.error("[messenger] отметка отказа от рассылки:", err instanceof Error ? err.message : err));
+  }
+  // Клиент снова просит не беспокоить — разрешение руководства звонить роботом вопреки
+  // прежней просьбе гаснет (П3; optedOutAt выше ставится только один раз).
+  if (text && isOptOutMessage(text)) {
+    await revokeRobotCallAllowOnOptOut(resolved.id).catch((err) =>
+      console.error("[messenger] отзыв разрешения робота:", err instanceof Error ? err.message : err)
+    );
   }
 
   /**

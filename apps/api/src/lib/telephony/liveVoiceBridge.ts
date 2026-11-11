@@ -57,6 +57,8 @@ import {
 } from "./liveVoiceCallerLanguage.js";
 import { PoorLineTracker, poorLineBreakNote, poorLineTranscriptLine } from "./liveVoicePoorLine.js";
 import { loadMoneyContext } from "../money.js";
+import { robotCallRefusal } from "../robotCallPolicy.js";
+import type { RobotCallRefusalCode } from "@royal-home/shared";
 import {
   buildLiveVoiceSystemPrompt,
   LIVE_VOICE_SYSTEM_PROMPT,
@@ -100,11 +102,18 @@ import {
   ulawEncode,
   designLowPassFir,
 } from "./pcmCodec.js";
+import { clearElevenLabsToolOverridePause } from "../../ai/elevenLabsAgentSync.js";
 import { formatLiveVoiceMetricsLine, LiveVoiceMetricsTracker } from "./liveVoiceMetrics.js";
 import { frameEnergy, LiveVoiceEchoGate, VAD_SPEECH_ENERGY_THRESHOLD } from "./liveVoiceEchoGate.js";
 import {
+  clearElevenLabsQuotaMark,
   createLiveVoiceProviderClient,
+  elevenLabsQuotaExhausted,
+  isElevenLabsQuotaError,
   loadLiveVoiceProviderConfig,
+  noteElevenLabsQuotaExhausted,
+  probeLiveVoiceProvider,
+  resetLiveVoiceProviderProbe,
   type LiveVoiceLanguage,
   type LiveVoiceProviderClient,
   type LiveVoiceProviderConfig,
@@ -386,41 +395,134 @@ export function clearLiveVoiceAudioPathHold(): void {
 /** Только для тестов: и пауза «нет звука», и выключатель Gemini (ниже). */
 export function resetLiveVoiceAudioPathForTests(): void {
   clearLiveVoiceAudioPathHold();
-  geminiStartFailStreak = 0;
-  geminiPausedUntil = 0;
+  clearProviderPauses();
+  selectedProvider = "google";
 }
 
 /**
- * ВЫКЛЮЧАТЕЛЬ «GEMINI ОТКАЗЫВАЕТ» (09.10.2026, аудит линии робота, п.7). Кончились
+ * ВЫКЛЮЧАТЕЛЬ «ПОСТАВЩИК ГОЛОСА ОТКАЗЫВАЕТ» (09.10.2026, аудит линии робота, п.7). Кончились
  * деньги или квота — каждый следующий звонящий ждал до 25 с подключения и всё равно
  * уходил на автоответчик. Теперь GEMINI_START_FAILS_TO_PAUSE отказов подключения
  * подряд — пауза GEMINI_PAUSE_MS: входящие сразу отдаются станции (автоответчик, без
  * секунды ожидания), сценарные звонки переносятся, как при занятой линии. Кнопка
  * «Проверить» паузу не соблюдает (это проба), а удачное подключение снимает её.
+ *
+ * ПАУЗА — У КАЖДОГО ПОСТАВЩИКА СВОЯ (11.11.2026, П1). Одна общая пауза держала робота и
+ * после отката на Google: две неудачи ElevenLabs, владелец переключил голос — а звонки
+ * ещё десять минут «на паузе». Теперь считаются отказы того поставщика, чей клиент
+ * подключался, и пауза одного не держит другого. Смена поставщика, ключа или агента
+ * в Настройках снимает обе (resetLiveVoiceProviderHolds, settingsSideEffects).
+ * Запасного голоса нет (решение владельца 11.11.2026): ElevenLabs на паузе или без
+ * кредитов — исходящие переносятся, входящие сразу станции (автоответчик).
  */
 export const GEMINI_START_FAILS_TO_PAUSE = 2;
 export const GEMINI_PAUSE_MS = 10 * 60_000;
-let geminiStartFailStreak = 0;
-let geminiPausedUntil = 0;
+const providerFailStreak: Record<LiveVoiceProviderName, number> = { google: 0, elevenlabs: 0 };
+const providerPausedUntil: Record<LiveVoiceProviderName, number> = { google: 0, elevenlabs: 0 };
+/** Поставщик по последнему прочитанному выбору в Настройках — для проверок без await
+ *  (входящий, повторная проверка сценария). Пишется при каждом чтении выбора. */
+let selectedProvider: LiveVoiceProviderName = "google";
 
+function clearProviderPauses(): void {
+  for (const p of ["google", "elevenlabs"] as const) {
+    providerFailStreak[p] = 0;
+    providerPausedUntil[p] = 0;
+  }
+}
+
+/** Пауза ЭТОГО поставщика (отказывал подряд). */
+export function liveVoiceProviderPaused(provider: LiveVoiceProviderName, now: number = Date.now()): boolean {
+  return now < providerPausedUntil[provider];
+}
+
+/** Пауза Gemini (Google). Имя прежнее — им пользуются тесты и здоровье станции. */
 export function liveVoiceGeminiPaused(now: number = Date.now()): boolean {
-  return now < geminiPausedUntil;
+  return liveVoiceProviderPaused("google", now);
 }
 
-function noteGeminiStartOk(): void {
-  geminiStartFailStreak = 0;
-  geminiPausedUntil = 0;
+/** Выбранный сейчас поставщик на паузе — исходящий не набирается. */
+export function liveVoiceSelectedProviderPaused(now: number = Date.now()): boolean {
+  return liveVoiceProviderPaused(selectedProvider, now);
 }
 
-function noteGeminiStartFailed(reason: string): void {
-  geminiStartFailStreak += 1;
-  if (geminiStartFailStreak < GEMINI_START_FAILS_TO_PAUSE) return;
-  geminiPausedUntil = Date.now() + GEMINI_PAUSE_MS;
+/** Входящий не поднимется: выбранный поставщик на паузе (у ElevenLabs — и без кредитов),
+ *  запасного голоса нет — звонок сразу станции, без секунды тишины. */
+export function liveVoiceInboundPaused(now: number = Date.now()): boolean {
+  if (selectedProvider === "elevenlabs") return liveVoiceProviderPaused("elevenlabs", now) || elevenLabsQuotaExhausted(now);
+  return liveVoiceGeminiPaused(now);
+}
+
+/** Смена поставщика, ключа или агента ElevenLabs в Настройках — начать с чистого листа:
+ *  снять паузы обоих, забыть пробы и отметку «кредиты кончились». */
+export function resetLiveVoiceProviderHolds(): void {
+  clearProviderPauses();
+  resetLiveVoiceProviderProbe();
+  // П1+П2 (свод 11.11.2026): и паузу подмены функций после повторных 1008 — новый ключ
+  // или агент начинают с чистого листа, а не ждут полчаса паузы от прежнего.
+  clearElevenLabsToolOverridePause();
+}
+
+/**
+ * Проверка П1 (свод П1+П3, 11.11.2026): выбранный поставщик на паузе или у ElevenLabs
+ * отметка «минуты кончились» — звонок переносится («занято»), попытка не тратится.
+ * Стоит СРАЗУ ПОСЛЕ двери П3 (robotCallRefusal первой строкой — правило
+ * robot-call-policy-architecture.test.ts; разрешение двери ничего не пишет).
+ * Выбор поставщика перечитывается из базы: Настройки сохраняет процесс API, а набирать
+ * может worker — закешированный выбор держал бы паузу прежнего поставщика после
+ * переключения голоса. База не ответила за DB_READ_TIMEOUT_MS — судим по последнему выбору.
+ */
+async function liveVoiceProviderHoldFresh(): Promise<LiveVoiceTestCallResult | null> {
+  await refreshLiveVoiceSelectedProvider().catch(() => {});
+  return liveVoiceProviderHoldNow();
+}
+
+function liveVoiceProviderHoldNow(now: number = Date.now()): LiveVoiceTestCallResult | null {
+  if (selectedProvider === "elevenlabs" && elevenLabsQuotaExhausted(now)) {
+    return { ok: false, busy: true, error: "У ElevenLabs закончились минуты — робозвонок остановлен, звонок перенесён" };
+  }
+  if (liveVoiceSelectedProviderPaused(now)) {
+    return { ok: false, busy: true, error: "Голос робота не подключается — робот на паузе" };
+  }
+  return null;
+}
+
+function rememberSelectedProvider(provider: LiveVoiceProviderName): void {
+  selectedProvider = provider;
+}
+
+/** Перечитать выбор поставщика сразу после сохранения Настроек (settingsSideEffects):
+ *  первый входящий после переключения смотрит паузу нового поставщика, а не прежнего. */
+export async function refreshLiveVoiceSelectedProvider(): Promise<void> {
+  const read = await withTimeout(loadLiveVoiceProviderConfig(), DB_READ_TIMEOUT_MS);
+  if (read !== TIMED_OUT) rememberSelectedProvider(read.provider);
+}
+
+function noteProviderStartOk(provider: LiveVoiceProviderName): void {
+  providerFailStreak[provider] = 0;
+  providerPausedUntil[provider] = 0;
+  // Разговор ElevenLabs поднялся — минуты есть, отметка «нет минут» неверна (ревью П1).
+  if (provider === "elevenlabs") clearElevenLabsQuotaMark();
+}
+
+function noteProviderStartFailed(provider: LiveVoiceProviderName, reason: string): void {
+  providerFailStreak[provider] += 1;
+  if (providerFailStreak[provider] < GEMINI_START_FAILS_TO_PAUSE) return;
+  providerPausedUntil[provider] = Date.now() + GEMINI_PAUSE_MS;
+  if (provider === "google") {
+    void logSystemError(
+      "ai",
+      `КРИТИЧНО: робот на паузе ${GEMINI_PAUSE_MS / 60_000} мин — Gemini не подключился ${providerFailStreak[provider]} раза подряд ` +
+        `(последний отказ: ${reason}). Входящие идут сразу на автоответчик станции. Проверьте баланс и ключ Gemini.`,
+      { dedupKey: "live-voice-gemini-paused" }
+    );
+    return;
+  }
   void logSystemError(
     "ai",
-    `КРИТИЧНО: робот на паузе ${GEMINI_PAUSE_MS / 60_000} мин — Gemini не подключился ${geminiStartFailStreak} раза подряд ` +
-      `(последний отказ: ${reason}). Входящие идут сразу на автоответчик станции. Проверьте баланс и ключ Gemini.`,
-    { dedupKey: "live-voice-gemini-paused" }
+    `КРИТИЧНО: ElevenLabs на паузе ${GEMINI_PAUSE_MS / 60_000} мин — не подключился ${providerFailStreak[provider]} раза подряд ` +
+      `(последний отказ: ${reason}). Робозвонок остановлен: исходящие переносятся, входящие идут на автоответчик станции. ` +
+      "Проверьте ключ и агента кнопкой «Проверить агента» в Настройках.",
+    { dedupKey: "live-voice-elevenlabs-paused" }
   );
 }
 
@@ -431,12 +533,15 @@ export interface LiveVoicePauseState {
   audioPathDownUntil: number | null;
   /** Gemini отказывает подключаться, до этого времени (мс). */
   geminiPausedUntil: number | null;
+  /** ElevenLabs отказывает подключаться, до этого времени (мс): исходящие переносятся. */
+  elevenLabsPausedUntil: number | null;
 }
 
 export function liveVoicePauseState(now: number = Date.now()): LiveVoicePauseState {
   return {
     audioPathDownUntil: now < stationAudioDeadUntil ? stationAudioDeadUntil : null,
-    geminiPausedUntil: now < geminiPausedUntil ? geminiPausedUntil : null,
+    geminiPausedUntil: liveVoiceProviderPaused("google", now) ? providerPausedUntil.google : null,
+    elevenLabsPausedUntil: liveVoiceProviderPaused("elevenlabs", now) ? providerPausedUntil.elevenlabs : null,
   };
 }
 
@@ -637,7 +742,7 @@ const ESCALATE_TO_HUMAN_TOOL: LiveVoiceFunctionDeclaration = {
   },
 };
 
-const LIVE_VOICE_TOOLS: LiveVoiceFunctionDeclaration[] = [
+export const LIVE_VOICE_TOOLS: LiveVoiceFunctionDeclaration[] = [
   {
     name: "save_contact",
     description:
@@ -1960,6 +2065,9 @@ export interface LiveVoiceTestCallResult {
   busy?: boolean;
   /** Мост подтверждает: отказ случился ДО набора, звонка точно нет (можно повторять). */
   notDialed?: boolean;
+  /** П3: отказ двери lib/robotCallPolicy.ts — код причины и когда пробовать снова. */
+  policyCode?: RobotCallRefusalCode;
+  retryAt?: Date;
 }
 
 /**
@@ -1973,6 +2081,35 @@ function rtpConfigRefusal(): LiveVoiceTestCallResult | null {
   if (!problem) return null;
   void logSystemError("telephony", `Живой голос: звонок не набран. ${problem}`, { dedupKey: "live-voice-rtp-not-configured" });
   return { ok: false, busy: true, error: problem };
+}
+
+/**
+ * ВЫБРАННЫЙ ПОСТАВЩИК ГОЛОСА СЕЙЧАС НЕ ПОДНИМЕТСЯ — НЕ НАБИРАЕМ (11.11.2026, П1).
+ * Сессия исходящего поднимается после ответа: не поднялась — человек снял трубку в
+ * тишину. Поэтому до набора: пауза этого поставщика (отказывал подряд) и проба
+ * ElevenLabs (probeLiveVoiceProvider: ссылка на разговор за 3 с, итог помнится минуту).
+ * Отказ, в том числе «у ElevenLabs кончились кредиты», — «занято»: вызывающий
+ * переносит звонок, попытку не тратит (решение владельца 11.11: робозвонок — только
+ * ElevenLabs, запасного голоса нет). `probeOnly` — ручной тестовый звонок: паузу не
+ * соблюдает (это и есть проба), память пробы не берёт.
+ */
+async function liveVoiceProviderRefusal(opts: { probeOnly?: boolean } = {}): Promise<LiveVoiceTestCallResult | null> {
+  const read = await withTimeout(loadLiveVoiceProviderConfig(), DB_READ_TIMEOUT_MS);
+  // Не прочитали вовремя — подъём тоже пойдёт через Google (prepareModelPart); судим по нему.
+  const config: LiveVoiceProviderConfig = read === TIMED_OUT ? { provider: "google" } : read;
+  if (read !== TIMED_OUT) rememberSelectedProvider(config.provider);
+  const paused = { ok: false, busy: true, error: "Голос робота не подключается — робот на паузе" } as const;
+  if (!opts.probeOnly && liveVoiceProviderPaused(config.provider)) return paused;
+  const probe = await probeLiveVoiceProvider(config, { fresh: opts.probeOnly });
+  if (probe.ok) return null;
+  // Причина — в журнале (probeLiveVoiceProvider, одна тревога); человеку и сценарию — простыми словами.
+  return {
+    ok: false,
+    busy: true,
+    error: probe.quota
+      ? "У ElevenLabs закончились минуты — робозвонок остановлен, звонок перенесён"
+      : "Голос робота (ElevenLabs) сейчас не отвечает — звонок перенесён",
+  };
 }
 
 /** originateToStasisApp, который не бросает: исключение оставило бы резерв номера
@@ -1998,6 +2135,8 @@ async function originateGuarded(
  * попадает плечо ;1: не агенту, а сразу в Stasis-приложение живого голоса.
  */
 export async function originateLiveVoiceTestCall(phoneNumber: string): Promise<LiveVoiceTestCallResult> {
+  // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts); проверочному — мимо часов и частоты.
+  { const refusal = await robotCallRefusal({ phone: phoneNumber, kind: "test" }); if (refusal) return refusal; }
   if (!isDialableTajikNumber(phoneNumber)) {
     return { ok: false, error: "Не похоже на таджикский номер" };
   }
@@ -2010,6 +2149,11 @@ export async function originateLiveVoiceTestCall(phoneNumber: string): Promise<L
   const [settings, creds] = await Promise.all([loadLiveVoiceSettings(), loadCredsSafe()]);
   if (!creds) return { ok: false, error: "Телефония не настроена" };
   if (!settings?.liveVoiceEnabled) return { ok: false, error: "Живой голос выключен — включите тумблер выше" };
+  // Поставщик голоса не выдаёт разговор — владелец увидит причину, а не тишину в трубке (П1).
+  // Проба — ДО проверок номера и линии: между проверкой и бронью не должно быть await
+  // (ревью П1: за 3 с пробы тик сценария занимал линию, и набирались двое).
+  const providerRefusal = await liveVoiceProviderRefusal({ probeOnly: true });
+  if (providerRefusal) return { ok: false, error: providerRefusal.error };
   // Повторная проверка ПОСЛЕ await настроек/кредов — за это время параллельный
   // originate на тот же номер мог успеть зарезервировать его первым.
   if (hasActiveCallToNumber(target)) {
@@ -2077,6 +2221,10 @@ export async function originateLiveVoiceCallToClient(
   client: { id: string; phone: string; fullName: string },
   propertyDescription?: string | null
 ): Promise<LiveVoiceClientCallResult> {
+  // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts).
+  { const refusal = await robotCallRefusal({ phone: client.phone, clientId: client.id, kind: "client_card" }); if (refusal) return refusal; }
+  // П1 сразу после двери (свод 11.11.2026, см. liveVoiceProviderHoldFresh).
+  { const hold = await liveVoiceProviderHoldFresh(); if (hold) return hold; }
   if (!isDialableTajikNumber(client.phone)) {
     return { ok: false, error: "Номер клиента не похож на таджикский — станция не сможет его набрать" };
   }
@@ -2089,6 +2237,10 @@ export async function originateLiveVoiceCallToClient(
   const [settings, creds] = await Promise.all([loadLiveVoiceSettings(), loadCredsSafe()]);
   if (!creds) return { ok: false, error: "Телефония не настроена" };
   if (!settings?.liveVoiceEnabled) return { ok: false, error: "Живой голос выключен — включите тумблер в Настройках" };
+  // Поставщик голоса на паузе или не выдаёт разговор (П1, 11.11) — человек снял бы трубку в тишину.
+  // Проба — ДО проверок номера и линии: между ними и бронью ниже await быть не должно (ревью П1).
+  const providerRefusal = await liveVoiceProviderRefusal();
+  if (providerRefusal) return providerRefusal;
   if (hasActiveCallToNumber(target)) {
     return { ok: false, error: "На этот номер уже идёт звонок" };
   }
@@ -2100,10 +2252,6 @@ export async function originateLiveVoiceCallToClient(
   // тишину. Вызывающий переносит звонок, как при занятой линии.
   if (liveVoiceAudioPathDown()) {
     return { ok: false, busy: true, error: "Звук со станции не доходит до CRM — робот на паузе" };
-  }
-  // Gemini отказывал подряд (выключатель, п.7 аудита 09.10) — человек снял бы трубку в тишину.
-  if (liveVoiceGeminiPaused()) {
-    return { ok: false, busy: true, error: "Gemini не подключается — робот на паузе" };
   }
   // Промпт собирается ДО резерва номера: исключение между резервом и таймером
   // оставило бы номер «занятым» до рестарта (аудит С7).
@@ -2157,6 +2305,11 @@ export async function originateLiveVoiceScenarioCall(
     greetingTrigger?: string;
     tools?: LiveVoiceFunctionDeclaration[];
     clientId?: string;
+    /** П3: диалог бота и досье собеседника — «не беспокойте» без карточки клиента (кандидат). */
+    conversationId?: string | null;
+    contactProfileId?: string | null;
+    /** П3: зачем звонок (приглашение с назначенным временем суточный предел не держит). */
+    purpose?: "interview_invite";
     onFinished?: (result: LiveVoiceScenarioResult) => Promise<void>;
     /** Голос на весь звонок. Пусто — как у остальных сценариев
      *  (resolveLiveVoiceVoiceName). Сценарий, знающий язык собеседника, выбирает
@@ -2169,6 +2322,10 @@ export async function originateLiveVoiceScenarioCall(
   },
   options?: { callerId?: string; channelId?: string; beforeOriginate?: () => Promise<void> }
 ): Promise<LiveVoiceClientCallResult> {
+  // П3: одна дверь «можно ли звонить роботом» (lib/robotCallPolicy.ts).
+  { const refusal = await robotCallRefusal({ phone: phoneNumber, clientId: task.clientId, conversationId: task.conversationId, contactProfileId: task.contactProfileId, purpose: task.purpose, kind: "scenario" }); if (refusal) return refusal; }
+  // П1 сразу после двери (свод 11.11.2026, см. liveVoiceProviderHoldFresh).
+  { const hold = await liveVoiceProviderHoldFresh(); if (hold) return { ...hold, notDialed: true }; }
   if (!isDialableTajikNumber(phoneNumber)) {
     return { ok: false, notDialed: true, error: "Номер не похож на таджикский — станция не сможет его набрать" };
   }
@@ -2197,17 +2354,16 @@ export async function originateLiveVoiceScenarioCall(
   if (liveVoiceAudioPathDown()) {
     return { ok: false, busy: true, error: "Звук со станции не доходит до CRM — робот на паузе" };
   }
-  // Gemini отказывал подряд (выключатель, п.7 аудита 09.10) — человек снял бы трубку в тишину.
-  if (liveVoiceGeminiPaused()) {
-    return { ok: false, busy: true, error: "Gemini не подключается — робот на паузе" };
-  }
+  // Поставщик голоса на паузе или не выдаёт разговор (П1, 11.11) — человек снял бы трубку в тишину.
+  const providerRefusal = await liveVoiceProviderRefusal();
+  if (providerRefusal) return providerRefusal;
   await options?.beforeOriginate?.();
   // The source guard may wait on DB locks. Recheck the in-process physical
   // reservation after that await, then reserve without another async gap.
   if (hasActiveCallToNumber(target) || liveVoiceLineBusy()) {
     return { ok: false, busy: true, error: "Линия или номер уже заняты другим разговором" };
   }
-  if (liveVoiceAudioPathDown() || liveVoiceGeminiPaused()) {
+  if (liveVoiceAudioPathDown() || liveVoiceSelectedProviderPaused()) {
     return { ok: false, busy: true, error: "Голосовой помощник временно приостановлен" };
   }
   activeCallsByNumber.set(target, "pending");
@@ -2320,8 +2476,11 @@ interface StartContext {
   /** Начало подъёма (StasisStart) и готовность модели — для замеров (liveVoiceMetrics.ts). */
   startedAtMs: number;
   modelReadyAt: number | null;
-  /** Отказал именно поставщик голоса (а не станция) — счёт выключателя Gemini. */
+  /** Отказал именно поставщик голоса (а не станция) — счёт выключателя. */
   modelFailed: boolean;
+  /** Чей клиент голоса подключается сейчас: отказ и удача идут в счёт ЭТОГО
+   *  поставщика (пауза по поставщику, П1). */
+  modelProvider: LiveVoiceProviderName | null;
   /** Что уже убрано на станции — уборка идемпотентна (её зовут и поздние ветки подъёма). */
   removedIds: Set<string>;
 }
@@ -2428,7 +2587,7 @@ async function failStart(ctx: StartContext, reason: string): Promise<void> {
     void logSystemError("telephony", `Живой голос: сессия для канала ${ctx.channelId} не поднялась: ${reason}`, {
       dedupKey: "live-voice-start-failed",
     });
-    if (ctx.modelFailed) noteGeminiStartFailed(reason);
+    if (ctx.modelFailed) noteProviderStartFailed(ctx.modelProvider ?? "google", reason);
   }
   try {
     if (ctx.session) {
@@ -2480,6 +2639,7 @@ async function startLiveVoiceSession(event: AriEvent, options: StartOptions = {}
     startedAtMs: Date.now(),
     modelReadyAt: null,
     modelFailed: false,
+    modelProvider: null,
     removedIds: new Set(),
   };
   startContexts.set(channelId, ctx);
@@ -2731,14 +2891,15 @@ async function prepareModelPart(ctx: StartContext, checkAlive: () => void): Prom
     providerConfig = { provider: "google" };
   } else {
     providerConfig = providerRead;
+    rememberSelectedProvider(providerConfig.provider);
   }
-  const gemini = createLiveVoiceProviderClient(providerConfig);
-  ctx.gemini = gemini;
-  const early = recordEarlyProviderEvents(gemini);
-
   // РОД О СЕБЕ — ОТ ГОЛОСА, КОТОРЫЙ ЗВУЧИТ (02.10.2026, ai/liveVoiceSelfGender.ts):
   // имя голоса здесь окончательное, поэтому правило вешается тут, один раз на все роли.
   const voiceName = task?.voiceName || options.voiceName || LIVE_VOICE_VOICE_NAME;
+  const gemini = createLiveVoiceProviderClient(providerConfig);
+  ctx.gemini = gemini;
+  ctx.modelProvider = providerConfig.provider;
+  const early = recordEarlyProviderEvents(gemini);
   // У ElevenLabs пол — из Настроек (selfGenderForCall), у Gemini — по имени голоса.
   const selfGender = selfGenderForCall(providerConfig, voiceName);
   const greetingText = withSelfGenderReminderFor(
@@ -2772,11 +2933,37 @@ async function prepareModelPart(ctx: StartContext, checkAlive: () => void): Prom
       inputTranscription: liveVoiceInputTranscriptionConfig(
         liveVoiceTranscriptionHintLanguage(forceRussianOnly, task?.language ?? options.language)
       ),
+      // П1+П2 (свод 11.11.2026): входящий (консультант, тестовый номер) — человек уже на
+      // линии, ElevenLabs не обрывает его из-за неполного набора функций (strictTools).
+      direction: (options.direction ?? "outbound") === "outbound" ? "outbound" : "inbound",
     });
   } catch (err) {
     early.stop();
     // Отказ самого поставщика, а не «подъём уже свернули» (тогда сокет закрыли мы).
-    if (!ctx.failed) ctx.modelFailed = true;
+    if (!ctx.failed) {
+      // ElevenLabs отказал ПОСЛЕ ответа человека (11.11.2026, П1, решение владельца:
+      // робозвонок — только ElevenLabs, запасного голоса нет). Человека не держим в
+      // тишине: подъём сразу сворачивается (failStart → отбой, сценарию — start_failed,
+      // а start_failed сценарии считают «сбой по нашей вине» и повторяют звонок).
+      // Кредиты кончились — отметка: следующие звонки не набираются вовсе (проба), и
+      // одна тревога директору. Иначе — счёт паузы ElevenLabs и своя тревога.
+      if (providerConfig.provider === "elevenlabs") {
+        const reason = describeError(err);
+        if (isElevenLabsQuotaError(reason)) {
+          noteElevenLabsQuotaExhausted(reason, providerConfig.apiKey);
+        } else {
+          ctx.modelFailed = true;
+          void logSystemError(
+            "telephony",
+            `Робозвонок: ElevenLabs не подключился после ответа человека (${reason}) — трубка положена сразу, ` +
+              "звонок повторится. Два отказа подряд — исходящие на паузе 10 мин.",
+            { dedupKey: "elevenlabs-connect-failed" }
+          );
+        }
+      } else {
+        ctx.modelFailed = true;
+      }
+    }
     throw err;
   }
   checkAlive();
@@ -2884,7 +3071,7 @@ async function startLiveVoiceSessionInner(event: AriEvent, ctx: StartContext): P
     for (const part of parts) part.catch(() => {});
     const [station, model] = await Promise.all([stationPart, modelPart]);
     checkAlive();
-    noteGeminiStartOk();
+    noteProviderStartOk(model.providerConfig.provider);
 
     const { task, providerConfig, gemini } = model;
     const clientId = task?.clientId ?? options.clientId ?? null;
@@ -5145,10 +5332,10 @@ async function processLiveVoiceAriEvent(event: AriEvent): Promise<void> {
     }
     // Gemini отказывал подключаться несколько раз подряд — робот на паузе (выключатель,
     // п.7 аудита 09.10): звонок сразу станции, без 25 с ожидания подключения.
-    if (arrival && channelId && liveVoiceGeminiPaused()) {
+    if (arrival && channelId && liveVoiceInboundPaused()) {
       void logSystemError(
         "telephony",
-        `Живой голос: робот на паузе (Gemini отказывает) — входящий ${channelId} отдан станции (автоответчик), трубку робот не брал.`,
+        `Живой голос: робот на паузе (голос робота отказывает) — входящий ${channelId} отдан станции (автоответчик), трубку робот не брал.`,
         { dedupKey: "live-voice-gemini-paused-skip" }
       );
       const creds = await loadCredsSafe();

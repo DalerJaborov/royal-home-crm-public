@@ -1,4 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// Сохранение поставщика/ключа/агента прогревает агента в фоне (П1, 11.11.2026) — здесь
+// ключ ненастоящий, и в сеть ElevenLabs тест ходить не должен.
+const warmup = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("../src/lib/telephony/liveVoiceWarmup.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/telephony/liveVoiceWarmup.js")>()),
+  startLiveVoiceAgentWarmup: async () => {
+    warmup.calls += 1;
+  },
+}));
 import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
@@ -63,6 +73,8 @@ describe("Настройки: поставщик живого голоса и к
     });
     expect(res.status).toBe(200);
     expect(res.body.liveVoiceProvider).toBe("elevenlabs");
+    // Смена поставщика прогревает агента (settingsSideEffects → liveVoiceWarmup).
+    expect(warmup.calls).toBeGreaterThan(0);
     expect(res.body.elevenLabsApiKeyConfigured).toBe(true);
     expect(res.body.elevenLabsApiKeyMasked).toBe(`••••${KEY.slice(-4)}`);
     expect(res.body.elevenLabsApiKeySource).toBe("settings");

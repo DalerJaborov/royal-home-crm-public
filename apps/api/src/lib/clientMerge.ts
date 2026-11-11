@@ -436,6 +436,11 @@ export const MERGE_LINKS_MOVED = [
   "InsightCase.clientId",
   "SmsMessage.clientId",
   "LiveVoiceSession.clientId",
+  // Робозвонок (П3, 11.11.2026): «не звонить» и разрешение сотрудника относятся к человеку —
+  // без переноса просьба «больше не звоните» осталась бы на удалённом дубле, и робот
+  // позвонил бы основной карточке снова.
+  "RobotCallStop.clientId",
+  "RobotCallAllow.clientId",
   "DealReview.clientId",
   "CallWhisper.clientId",
   "SellerObjectFacts.clientId",
@@ -484,6 +489,8 @@ async function moveRemainingClientLinks(tx: TxClient, from: string, to: string):
   await tx.insightCase.updateMany(move);
   await tx.smsMessage.updateMany(move);
   await tx.liveVoiceSession.updateMany(move);
+  await tx.robotCallStop.updateMany(move);
+  await tx.robotCallAllow.updateMany(move);
   await tx.jobApplication.updateMany(move);
 
   // Уникальные пары: переезжает только то, чего у основной карточки ещё нет.

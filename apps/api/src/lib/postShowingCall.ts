@@ -11,12 +11,13 @@ import { companyDaysOffSnapshot, loadCompanyDaysOff } from "./daysOffCalendar.js
 import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
 import { logSystemAudit } from "./audit.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
-import { scenarioCallBlockReason } from "./scenarioCallEligibility.js";
+import { scenarioBlockFromPolicy, scenarioCallBlockReason } from "./scenarioCallEligibility.js";
 import { logSystemError } from "./systemError.js";
 import { originateLiveVoiceScenarioCall } from "./telephony/liveVoiceBridge.js";
 import { LIVE_VOICE_STATION_AUDIO_RETRY_MS, NO_STATION_AUDIO_REASON } from "./telephony/liveVoiceAudioPath.js";
 import { scenarioVoice } from "./telephony/scenarioVoice.js";
 import { clientLinesOf, looksLikeVoicemail } from "../ai/scenarioTranscript.js";
+import { reportThirdPartyDisclosure } from "../ai/thirdPartyDisclosure.js";
 import type { LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
 import { parsePostShowingCall, POST_SHOWING_CALL_RED_OUTCOMES } from "../ai/postShowingCallParse.js";
 import type { PostShowingCallOutcome } from "../generated/prisma/client.js";
@@ -568,10 +569,18 @@ async function dialOnePostShowingCall(callId: string, now: Date): Promise<DialOu
       data: {
         status: claim.status,
         lastAttemptAt: claim.lastAttemptAt,
-        scheduledFor: new Date(now.getTime() + POST_SHOWING_CALL_BUSY_RETRY_MS),
+        // Дверь звонков робота (П3) знает, когда снова можно: утро, конец праздника, завтра.
+        scheduledFor: result.retryAt ?? new Date(now.getTime() + POST_SHOWING_CALL_BUSY_RETRY_MS),
       },
     });
     return "busy";
+  }
+  // Окончательный отказ двери (П3): «не звонить», «не беспокойте», чёрный список —
+  // не сбой станции: запись закрывается причиной, без журнала ошибок и повторов.
+  const policyBlock = scenarioBlockFromPolicy(result);
+  if (policyBlock) {
+    await markPostShowingCallSkipped(call.id, policyBlock);
+    return "skipped";
   }
   if (!result.ok || !result.channelId) {
     // Станция не приняла набор — это не отказ клиента и не его молчание.
@@ -626,6 +635,7 @@ export async function finishPostShowingCall(result: LiveVoiceScenarioResult, now
   // остаётся на записи, событие — в аудите.
   if (kind === "wrong_person") {
     logSystemAudit("post_showing_call_wrong_person", "PostShowingCall", call.id, { attempts: call.attempts });
+    reportThirdPartyDisclosure("post_showing", call.id, result.transcript);
     const retryAt = nextAttemptAt(call.attempts, now, call.id);
     if (!retryAt) {
       // Попытки кончились, а покупателя так и не слышали: запись закрывается БЕЗ звонка, как

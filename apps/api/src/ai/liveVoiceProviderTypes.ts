@@ -58,6 +58,13 @@ export type LiveVoiceLanguage = "ru" | "tg";
  *  (у Gemini язык определяет сама модель, поле в setup не уходит). */
 export interface LiveVoiceConnectOptions extends LiveVoiceSetupOptions {
   language?: LiveVoiceLanguage;
+  /**
+   * Кто звонил (11.11.2026, читает только ElevenLabs). Не "inbound" — строгий режим: звонок
+   * без СВОЕГО набора функций не начинается (у агента накоплены функции всех видов звонка,
+   * с чужими end_call итог теряется). "inbound" — человек уже на линии, лучше разговор с
+   * функциями агента, чем тишина. Не задано — строгий режим (защита по умолчанию).
+   */
+  direction?: "inbound" | "outbound";
 }
 
 export type LiveVoiceProviderName = "google" | "elevenlabs";
