@@ -172,7 +172,7 @@ export function StepReview({
       )}
 
       <NarrationChoice
-        facts={{ type: values.type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "", floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: districts.find((d) => d.id === values.districtId)?.name ?? null }}
+        facts={{ type: values.type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "", floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: districts.find((d) => d.id === values.districtId)?.name ?? null, price: values.price || null, currency: values.currency || null }}
         value={narration ?? {}}
         onChange={(next) => onNarrationChange?.(next)}
       />

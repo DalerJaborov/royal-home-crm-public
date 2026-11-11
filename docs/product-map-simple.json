@@ -16,9 +16,9 @@
   "paths": 734,
   "cron": 126,
   "jobs": 32,
-  "conditions": 3901,
-  "untranslatedUnique": 446,
-  "untranslatedTotal": 570,
+  "conditions": 3902,
+  "untranslatedUnique": 447,
+  "untranslatedTotal": 571,
   "partialUnique": 1060,
   "translatedShare": 85
  },
@@ -359,6 +359,7 @@
   "now.getTime() - sentAt.getTime() < redeliveryDelayMs(p.videoHandoffDispatchAttempts)",
   "nowMs - file.mtimeMs < DISK_CLEANUP_MIN_AGE_MS",
   "ours.has(bridge.id) || !bridge.channels.some((id) => orphanIds.has(id))",
+  "outcome.errorCode === NARRATION_QUOTA_EXCEEDED",
   "ownAgentId && client.assignedAgentId !== ownAgentId",
   "ownAgentId && client.assignedAgentId === ownAgentId && client.acceptedAt",
   "ownAgentId && existing.agentId !== ownAgentId",
@@ -39745,6 +39746,20 @@
            "c": []
           }
          ]
+        },
+        {
+         "t": "если outcome.errorCode === NARRATION_QUOTA_EXCEEDED",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "ответ 402: «Кредиты ElevenLabs закончились. Деньги не списаны; после пополнения…»",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ],
+         "raw": "outcome.errorCode === NARRATION_QUOTA_EXCEEDED"
         }
        ]
       },

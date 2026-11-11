@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import {
-  narrationDraftText, narrationLimits, narrationModelSupportsTajik, narrationWizardChoiceSchema, pickNarrationTemplate, pickNarrationVoice,
+  hasVideoHistory, narrationDraftText, narrationLimits, narrationModelSupportsTajik, narrationWizardChoiceSchema, pickNarrationTemplate, pickNarrationVoice,
   type NarrationConfig, type NarrationWizardChoice,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
+import { logAgentAudit } from "./audit.js";
+import { sendBackToMontajer } from "./publishedVideoFix.js";
 import { prepareNarrationDeliveryPlan } from "./narrationDelivery.js";
-import { generateNarrationVersion, loadNarrationConfiguration, narrationProviderReady } from "./narrationGeneration.js";
+import { generateNarrationVersion, loadNarrationConfiguration, narrationProviderReady, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS } from "./narrationGeneration.js";
+import { NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 import { narrationFacts, narrationHash, narrationScriptError } from "./propertyNarration.js";
 import { logSystemError } from "./systemError.js";
 
@@ -128,7 +131,7 @@ export async function approveNarrationVersion(input: { propertyId: string; versi
   });
 }
 
-export type NarrationDeliveryStart = "QUEUED" | "PREVIEW" | "WAITING_FOR_MONTAGE" | "BUSY" | "ALREADY" | "NOT_READY";
+export type NarrationDeliveryStart = "QUEUED" | "PREVIEW" | "WAITING_FOR_MONTAGE" | "BUSY" | "ALREADY" | "NOT_READY" | "SOUND_REMAKE";
 /**
  * Одобренное аудио — монтажёру существующим путём. Объект ещё не в очереди монтажа —
  * обход повторит, когда он туда попадёт. Ключ запроса постоянный: повтор не плодит передач.
@@ -136,7 +139,10 @@ export type NarrationDeliveryStart = "QUEUED" | "PREVIEW" | "WAITING_FOR_MONTAGE
 export async function afterNarrationApproved(propertyId: string, versionId: string): Promise<NarrationDeliveryStart> {
   let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
   try { prepared = await prepareNarrationDeliveryPlan(propertyId, versionId, "AUDIO_ONLY"); }
-  catch { return "WAITING_FOR_MONTAGE"; }
+  catch {
+    // Объект не у монтажёра. Если ролик уже вышел со старой озвучкой — заменить только звук.
+    return (await requestNarrationSoundRemake(propertyId, versionId)) === "QUEUED" ? "SOUND_REMAKE" : "WAITING_FOR_MONTAGE";
+  }
   const live = mediaExecutionMode("NARRATION") === "LIVE";
   const requestKey = `auto:${versionId}:${prepared.editorId}`;
   return prisma.$transaction(async (tx): Promise<NarrationDeliveryStart> => {
@@ -150,6 +156,44 @@ export async function afterNarrationApproved(propertyId: string, versionId: stri
       createdById: latest.approvedById ?? "system", plan: prepared.plan, status: live ? "QUEUED" : "PREVIEW", executionMode: live ? "LIVE" : "PREVIEW" } });
     return live ? "QUEUED" : "PREVIEW";
   });
+}
+
+export type NarrationSoundRemake = "QUEUED" | "OFF" | "IN_MONTAGE" | "NO_PUBLISHED_VIDEO" | "NO_OLD_NARRATION" | "NOT_APPROVED" | "REFUSED";
+/**
+ * «ЗАМЕНИТЬ ТОЛЬКО ЗВУК» (решение владельца 11.11.2026). Новая озвучка одобрена агентом, а
+ * ролик со СТАРОЙ озвучкой уже вышел: объект уходит монтажёру существующим возвратом
+ * `sendBackToMontajer` (lib/publishedVideoFix.ts) с причиной NARRATION_CHANGED — не брак монтажёра,
+ * монтаж прежний. Старые посты снимаются, КОГДА ВЫЙДЕТ НОВЫЙ ролик (`removeFromSocial: "on-new-video"`,
+ * тот же путь, что у перемонтажа по смене цены). Аудио монтажёр получит обычной передачей,
+ * как только объект встанет у него (обход deliverApprovedNarrations).
+ *
+ * Права: одобрение агентом и есть согласие — так решил владелец. Поэтому зовём сам возврат, а не
+ * обёртку кнопки (там после публикации — только руководство), и только с этой узкой причиной.
+ * Без отправки по-настоящему (CRM_NARRATION_EXECUTION_MODE ≠ LIVE) ничего не делается: «старая
+ * озвучка в ролике» значит, что прошлая версия была реально отправлена монтажёру (SENT).
+ */
+export async function requestNarrationSoundRemake(propertyId: string, versionId: string): Promise<NarrationSoundRemake> {
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return "OFF";
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
+  // Только самая новая версия: устаревшее одобрение звук не меняет.
+  if (latest?.id !== versionId) return "NOT_APPROVED";
+  const [property, version, oldSent] = await Promise.all([
+    prisma.property.findUnique({ where: { id: propertyId }, select: { videoHandoffStatus: true, videoHandoffFinalPath: true, publishedChannels: true, instagramUrl: true, status: true, deletedAt: true } }),
+    prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { status: true, approvedAt: true, approvedById: true, revision: true } }),
+    prisma.propertyNarrationDelivery.count({ where: { propertyId, status: "SENT", versionId: { not: versionId } } }),
+  ]);
+  if (!property || property.deletedAt || !version || version.status !== "READY" || !version.approvedAt || !version.approvedById) return "NOT_APPROVED";
+  if (property.videoHandoffStatus === "QUEUED" || property.videoHandoffStatus === "SENT_TO_EDITOR") return "IN_MONTAGE";
+  if (!hasVideoHistory(property)) return "NO_PUBLISHED_VIDEO";
+  if (!oldSent) return "NO_OLD_NARRATION";
+  const sent = await sendBackToMontajer(propertyId, version.approvedById, "NARRATION_CHANGED",
+    `Новая озвучка, версия ${version.revision}: замените только звук, монтаж и кадры прежние. Аудио придёт следом.`, null, { removeFromSocial: "on-new-video" });
+  if (!sent.ok) {
+    void logSystemError("api", `Озвучка: замена звука в ролике не поставлена: ${sent.error}`, { dedupKey: `narration-sound-remake:${versionId}` });
+    return "REFUSED";
+  }
+  logAgentAudit(version.approvedById, "PROPERTY_SENT_BACK_TO_MONTAJER", "Property", propertyId, { reason: "NARRATION_CHANGED", narrationVersionId: versionId, queued: sent.queued, source: "narration-approval" });
+  return "QUEUED";
 }
 
 const DAY_MS = 86_400_000;
@@ -202,6 +246,9 @@ async function refreshNarrationDrafts(config: NarrationConfig, now: Date): Promi
 async function generateDueNarrations(config: NarrationConfig, key: string, now: Date): Promise<number> {
   const started = Date.now();
   let generated = 0;
+  // Кредиты кончились меньше часа назад — платный сервис не трогаем вовсе.
+  const quotaSince = await narrationQuotaExceededSince();
+  if (quotaSince && now.getTime() - quotaSince.getTime() < NARRATION_QUOTA_PAUSE_MS) return 0;
   const due = await prisma.propertyNarrationVersion.findMany({ where: { status: "DRAFT", generateAfter: { lte: now }, source: { not: "MANUAL" } }, orderBy: { generateAfter: "asc" }, take: 5 });
   for (const row of due) {
     if (Date.now() - started > GENERATION_WINDOW_MS) break;
@@ -220,6 +267,10 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
       const stale = now.getTime() - row.createdAt.getTime() > 3 * DAY_MS;
       await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "DRAFT" }, data: { generateAfter: stale ? null : new Date(now.getTime() + 10 * 60_000) } });
       continue;
+    }
+    if (outcome.status === "FAILED" && outcome.errorCode === NARRATION_QUOTA_EXCEEDED) {
+      void logSystemError("ai", "Озвучка роликов: кредиты ElevenLabs закончились. Озвучки ждут пополнения, проверка раз в час; агентам ничего не отправлено", { dedupKey: "narration-quota-exceeded" });
+      break;
     }
     if (outcome.status === "FAILED" && outcome.errorCode === "PROVIDER_HTTP_429" && row.generationAttempts + 1 < RETRY_429_LIMIT) {
       // Сервис просит подождать: деньги не списаны, повтор без сообщений агенту.

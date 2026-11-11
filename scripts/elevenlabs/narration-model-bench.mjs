@@ -34,11 +34,11 @@ const PRICE_PER_1K = { eleven_v4: 0.08, eleven_v4_turbo: 0.04, eleven_multilingu
 const TAJIK = new Set(["eleven_v4", "eleven_v4_turbo"]);
 
 const SAMPLES = [
-  { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино" },
-  { type: "APARTMENT", rooms: 1, areaSqm: "42", floor: 12, totalFloors: 16, district: "Исмоили Сомонӣ" },
-  { type: "HOUSE", rooms: 6, areaSqm: "240", floor: null, totalFloors: 2, district: "Шоҳмансур" },
+  { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" },
+  { type: "APARTMENT", rooms: 1, areaSqm: "42", floor: 12, totalFloors: 16, district: "Исмоили Сомонӣ", price: "390000", currency: "TJS" },
+  { type: "HOUSE", rooms: 6, areaSqm: "240", floor: null, totalFloors: 2, district: "Шоҳмансур", price: "230000", currency: "USD" },
   { type: "APARTMENT", rooms: 2, areaSqm: "64", floor: 1, totalFloors: 5, district: "Фирдавсӣ" },
-  { type: "COMMERCIAL", rooms: null, areaSqm: "120", floor: 1, totalFloors: 3, district: "Сино" },
+  { type: "COMMERCIAL", rooms: null, areaSqm: "120", floor: 1, totalFloors: 3, district: "Сино", price: null, currency: null },
 ];
 
 export function parseArgs(argv) {
@@ -58,8 +58,11 @@ export function parseArgs(argv) {
 
 export async function buildTexts(count) {
   const shared = await import(pathToFileURL(path.join(ROOT, "packages", "shared", "dist", "index.js")).href);
-  const sql = readFileSync(path.join(ROOT, "apps", "api", "prisma", "migrations", "20261111120000_narration_flow", "migration.sql"), "utf8");
-  const templates = JSON.parse(sql.split("$json$")[1]).filter((t) => t.lang === "tg");
+  const migration = (name) => readFileSync(path.join(ROOT, "apps", "api", "prisma", "migrations", name, "migration.sql"), "utf8");
+  const first = JSON.parse(migration("20261111120000_narration_flow").split("$json$")[1]);
+  // Стартовые тексты с ценой (решение владельца 11.11): вторая миграция.
+  const priced = new Map(JSON.parse(migration("20261111150000_narration_price").split("$json$")[1]).map((r) => [r.id, r.text]));
+  const templates = first.map((t) => ({ ...t, text: priced.get(t.id) ?? t.text })).filter((t) => t.lang === "tg");
   return SAMPLES.slice(0, count).map((facts, i) => {
     const template = templates[i % templates.length];
     return { id: `t${i + 1}`, template: template.id, text: shared.renderNarrationTemplate(template, facts) };

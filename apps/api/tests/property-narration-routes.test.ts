@@ -217,7 +217,7 @@ describe("property narration route boundaries", () => {
     expect(response.status).toBe(429);
     expect(s.audio).not.toHaveBeenCalled();
   });
-  it("settings PUT keeps fields the old screen does not send and refuses a template with a price", async () => {
+  it("settings PUT keeps fields the old screen does not send; a spoken price is fine, an unknown word is not", async () => {
     s.role = "ADMIN"; s.configSave.mockResolvedValue({});
     const templates = [{ id: "tg-short", name: "Кӯтоҳ", lang: "tg", text: "{вид} барои фурӯш. Масоҳаташ {площадь} метри мураббаъ." }];
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates, autoGenerate: true }, elevenLabsApiKey: "test" });
@@ -225,9 +225,9 @@ describe("property narration route boundaries", () => {
     expect(s.configSave.mock.calls[0][0].update.propertyNarrationConfig).toMatchObject({ modelId: "eleven_v4_turbo", templates, autoGenerate: true });
     // У multilingual v2 и flash v2.5 таджикского нет (ФАКТ 11.11): с таджикским шаблоном не сохраняется.
     for (const modelId of ["eleven_multilingual_v2", "eleven_flash_v2_5"]) expect((await request(app).put("/properties/narration-settings").send({ modelId })).status).toBe(400);
-    const priced = [{ ...templates[0], text: "{вид}. Нарх: 900000 сомонӣ." }];
-    expect((await request(app).put("/properties/narration-settings").send({ templates: priced })).status).toBe(400);
-    expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{цена} барои фурӯш." }] })).status).toBe(400);
+    // Цену говорим (владелец 11.11.2026): {цена} — допустимое слово шаблона.
+    expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{вид} барои фурӯш. Нархаш {цена}." }] })).status).toBe(200);
+    expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{стоимость} барои фурӯш." }] })).status).toBe(400);
   });
   it("wizard options show templates and voices to any staff, without key or model", async () => {
     s.role = "AGENT";

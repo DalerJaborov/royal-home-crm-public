@@ -482,6 +482,7 @@ async function review(ctx: Context, draft: DraftRecord) {
   const narration = type ? narrationDraftText((await loadNarrationConfiguration()).config, {
     type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "",
     floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: district?.name ?? null,
+    price: values.price ? String(values.price) : null, currency: values.currency ?? null,
   }).text : null;
   const lines = [
     c.title,

@@ -10,9 +10,9 @@ import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNu
  * Settings.propertyNarrationConfig.templates и правятся в Настройках; первый
  * набор положила миграция `narration_flow_11_11`, в коде их нет.
  *
- * Цена в озвучке не произносится намеренно (`narrationScriptError`): цена
- * живёт в описании под видео и меняется там сама, а смена цены не тянет за
- * собой ни новую озвучку, ни перемонтаж.
+ * ЦЕНУ ГОВОРИМ (решение владельца 11.11.2026: «Да, говорить цену»): слово `{цена}`
+ * произносит цену словами с валютой карточки, без цены — «договорная». Поэтому
+ * цена входит в факты озвучки: смена цены даёт новую версию и новое одобрение.
  */
 
 export const NARRATION_LANGS = ["tg", "ru"] as const;
@@ -84,7 +84,11 @@ export function narrationLimits(config: Pick<NarrationConfig, "debounceMinutes" 
   };
 }
 
-export type NarrationFacts = { type: string; rooms: number | null; areaSqm: string; floor: number | null; totalFloors: number | null; district: string | null };
+export type NarrationFacts = {
+  type: string; rooms: number | null; areaSqm: string; floor: number | null; totalFloors: number | null; district: string | null;
+  /** Цена как хранится в карточке (строка десятичного числа) и её валюта: TJS или USD. */
+  price?: string | null; currency?: string | null;
+};
 
 /** Прежний текст по фактам — остаётся, пока владелец не завёл ни одного шаблона. */
 export function suggestedNarration(facts: NarrationFacts): string {
@@ -97,7 +101,23 @@ export function suggestedNarration(facts: NarrationFacts): string {
 }
 
 /** Слова, которые владелец может ставить в шаблон; квадратные скобки — «если есть». */
-export const NARRATION_PLACEHOLDERS = ["вид", "комнаты", "площадь", "этаж", "этаж_пор", "этажей", "район"] as const;
+export const NARRATION_PLACEHOLDERS = ["вид", "комнаты", "площадь", "этаж", "этаж_пор", "этажей", "район", "цена"] as const;
+
+/** Русское «доллар / доллара / долларов» по числу. */
+function rubPlural(n: number, one: string, few: string, many: string): string {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+/** Цена для озвучки: словами по-таджикски, цифрами по-русски, валюта из карточки; нет цены — «договорная». */
+export function narrationPriceWords(price: string | null | undefined, currency: string | null | undefined, lang: NarrationLang): string {
+  const value = Math.round(Number(price));
+  if (!price || !Number.isFinite(value) || value <= 0) return lang === "tg" ? "бо мувофиқа" : "договорная";
+  const usd = currency === "USD";
+  if (lang === "tg") return `${tajikCardinal(value)} ${usd ? "доллар" : "сомонӣ"}`;
+  return `${value} ${usd ? rubPlural(value, "доллар", "доллара", "долларов") : "сомони"}`;
+}
 const TYPE_WORDS: Record<NarrationLang, Record<string, string>> = {
   tg: { APARTMENT: "квартира", HOUSE: "ҳавлӣ", LAND: "замин", COMMERCIAL: "ҷои тиҷоратӣ" },
   ru: { APARTMENT: "квартира", HOUSE: "дом", LAND: "участок", COMMERCIAL: "коммерческое помещение" },
@@ -120,6 +140,8 @@ function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<s
     этаж_пор: spokenNumber(facts.floor, lang, true),
     этажей: spokenNumber(facts.totalFloors, lang),
     район: facts.district?.trim() ?? "",
+    // Цена есть всегда: без неё — «договорная», поэтому фрагмент с {цена} не выпадает.
+    цена: narrationPriceWords(facts.price, facts.currency, lang),
   };
 }
 
@@ -244,6 +266,8 @@ export type PropertyNarrationView = {
   /** Агент объекта одобряет готовое аудио (автоозвучка), маркетинг — по-прежнему черновой текст. */
   canApproveAudio?: boolean; autoGenerate?: boolean;
   budget?: { usedChars: number; usedGenerations: number; dailyChars: number; dailyGenerations: number };
+  /** Последняя генерация упала на «кредиты ElevenLabs закончились» (видно руководству). */
+  quotaExceeded?: boolean;
   deliveries?: Array<{ id: string; status: string; mode: string; versionId: string; createdAt: string; lastError: string | null; planHash: string | null }>;
   ownerReportsEnabled?: boolean;
   ownerReport?: { active: boolean; revision: number; executionMode: string; deliveries: Array<{ id: string; status: string; period: string; lastError: string | null }> };

@@ -7,7 +7,8 @@ import { hasMarketingRole } from "../marketing.js";
 import { canManageProperty } from "./shared.js";
 import { narrationFacts, narrationHash, suggestedNarration, narrationScriptError } from "../../lib/propertyNarration.js";
 import { localVideoFilePath } from "../../lib/localVideoStorage.js";
-import { generateNarrationVersion, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady } from "../../lib/narrationGeneration.js";
+import { generateNarrationVersion, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince } from "../../lib/narrationGeneration.js";
+import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
 import { afterNarrationApproved, approveNarrationVersion, narrationAutoEnabled, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
 import { setOwnerReportConsent, prepareOwnerReportDelivery } from "../../lib/ownerReport/delivery.js";
 import { prepareNarrationDeliveryPlan, narrationDeliveryAttemptBudgetMs } from "../../lib/narrationDelivery.js";
@@ -21,12 +22,12 @@ const idSchema = z.string().uuid();
 const manager = (role?: string) => hasMarketingRole(role);
 const configuration = loadNarrationConfiguration;
 /** Образец объекта для проверки шаблона при сохранении: цена и ошибки ловятся до первой оплаты. */
-const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино" };
+const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" };
 // This static path is mounted before /properties/:id.
 narrationRouter.get("/narration-settings", async (req, res) => {
   if (!manager(req.agent?.role)) return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
   const { config, key } = await configuration();
-  res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false });
+  res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceededSince() });
 });
 /** Мастер объекта (CRM) и карточка: шаблоны и голоса без ключа и модели. Любой сотрудник. */
 narrationRouter.get("/narration-options", async (_req, res) => {
@@ -97,7 +98,8 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     canDraft: req.agent!.role !== "EDITOR", readiness: { voiceCount: config.voices.length, modelConfigured: !!config.modelId, apiKeyConfigured: !!key },
     // Агент объекта (canManageProperty уже проверен выше) одобряет готовое аудио автоозвучки.
     canApproveAudio: req.agent!.role !== "EDITOR", autoGenerate: narrationAutoEnabled(config),
-    budget: manager(req.agent?.role) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined });
+    budget: manager(req.agent?.role) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
+    quotaExceeded: manager(req.agent?.role) ? !!await narrationQuotaExceededSince() : undefined });
 });
 
 narrationRouter.post("/:id/narration", async (req, res) => {
@@ -164,6 +166,7 @@ narrationRouter.post("/:id/narration/:versionId/generate", async (req, res) => {
     case "ALREADY": return res.status(outcome.current === "READY" ? 200 : 409).json({ status: outcome.current, error: outcome.current === "READY" ? undefined : "Запрос уже выполнялся. Автоматический повтор отключён." });
     case "FAILED": case "UNKNOWN":
       if (!outcome.recorded) return res.status(409).json({ error: "Результат уже проверен руководством. Поздний ответ не изменил решение." });
+      if (outcome.errorCode === NARRATION_QUOTA_EXCEEDED) return res.status(402).json({ status: outcome.status, error: "Кредиты ElevenLabs закончились. Деньги не списаны; после пополнения подготовьте новую версию." });
       return res.status(502).json({ status: outcome.status, error: "Озвучка не получена. Повтор не выполнялся; проверьте результат в ElevenLabs." });
     case "LATE": return res.status(409).json({ error: "Пришёл поздний результат генерации. Решение руководства сохранено; новая готовая версия не объявлялась." });
     case "PERSIST_FAILED": return res.status(503).json({ error: "Провайдер создал аудио, но сохранить его не удалось. Повторная генерация заблокирована." });

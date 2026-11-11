@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Row = Record<string, any>;
 const s = vi.hoisted(() => ({
   versions: [] as Row[], deliveries: [] as Row[], property: null as Row | null, config: {} as Row,
-  audio: vi.fn(), upload: vi.fn(), prepare: vi.fn(), log: vi.fn(), mode: "PREVIEW",
+  audio: vi.fn(), upload: vi.fn(), prepare: vi.fn(), log: vi.fn(), mode: "PREVIEW", sendBack: vi.fn(), audit: vi.fn(),
 }));
 
 function matches(row: Row, where: Row = {}): boolean {
@@ -65,6 +65,8 @@ vi.mock("../src/lib/propertyNarration.js", async (importOriginal) => ({ ...await
 vi.mock("../src/lib/localVideoStorage.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/localVideoStorage.js")>(), localVideoUpload: s.upload, localVideoDelete: vi.fn() }));
 vi.mock("../src/lib/narrationDelivery.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/narrationDelivery.js")>(), prepareNarrationDeliveryPlan: s.prepare }));
 vi.mock("../src/lib/systemError.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/systemError.js")>(), logSystemError: s.log }));
+vi.mock("../src/lib/publishedVideoFix.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/publishedVideoFix.js")>(), sendBackToMontajer: s.sendBack }));
+vi.mock("../src/lib/audit.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/audit.js")>(), logAgentAudit: s.audit }));
 vi.mock("../src/lib/mediaExecution.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/mediaExecution.js")>(), mediaExecutionMode: () => s.mode }));
 
 const { requestAutoNarration, startNarrationForNewProperty, approveNarrationVersion, afterNarrationApproved, runNarrationAutoFlow } = await import("../src/lib/narrationAutoFlow.js");
@@ -83,7 +85,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   s.versions = []; s.deliveries = []; s.mode = "PREVIEW";
   s.config = baseConfig();
-  s.property = { id: propertyId, shortId: 7, deletedAt: null, type: "APARTMENT", rooms: 2, areaSqm: "62", floor: 3, totalFloors: 9, district: { name: "Сино" }, assignedAgentId: "agent", videoHandoffStatus: "NONE" };
+  s.property = { id: propertyId, shortId: 7, deletedAt: null, type: "APARTMENT", rooms: 2, areaSqm: "62", floor: 3, totalFloors: 9, district: { name: "Сино" }, price: "85000", currency: "USD",
+    assignedAgentId: "agent", videoHandoffStatus: "NONE", status: "AWAITING_VIDEO", publishedChannels: [], videoHandoffFinalPath: null, instagramUrl: null };
+  s.sendBack.mockResolvedValue({ ok: true, queued: false, message: "Отправлено монтажёру" });
   s.audio.mockResolvedValue({ status: "READY", audio: Buffer.from("mp3"), requestId: "req" });
   s.upload.mockResolvedValue(undefined);
   s.prepare.mockResolvedValue({ editorId: "editor", plan: { factsHash: "x", recipientHash: "y", files: [{ id: "f" }], sourcesHash: "z" } });
@@ -101,12 +105,12 @@ describe("auto narration after property creation", () => {
     expect(s.versions[0]).toMatchObject({ script: "Квартира барои фурӯш. Ду ҳуҷра. Масоҳаташ шасту ду метри мураббаъ.", voiceId: "voiceA", templateId: "tg-short", language: "tg", source: "WIZARD", modelId: "eleven_v4" });
     expect(s.versions[0].generateAfter.getTime()).toBe(now.getTime());
   });
-  it("keeps the agent's wizard choice; a price in the text falls back to the template", async () => {
+  it("keeps the agent's wizard choice, including a price the agent typed (spoken price, owner 11.11.2026)", async () => {
     await startNarrationForNewProperty(propertyId, "agent", { templateId: "ru-short", voiceId: "voiceB" });
     expect(s.versions[0]).toMatchObject({ templateId: "ru-short", voiceId: "voiceB", language: "ru", script: "В продаже квартира. Площадь 62 метров." });
     s.versions = [];
     await startNarrationForNewProperty(propertyId, "agent", { script: "Квартира за 90 000 сомони, звоните." });
-    expect(s.versions[0].script).not.toMatch(/сомони/u);
+    expect(s.versions[0].script).toBe("Квартира за 90 000 сомони, звоните.");
   });
 });
 
@@ -220,5 +224,97 @@ describe("approval by the property's agent and hand-over to the editor", () => {
     s.deliveries = [];
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("QUEUED");
     expect(s.deliveries[0]).toMatchObject({ status: "QUEUED", executionMode: "LIVE" });
+  });
+});
+
+describe("spoken price (owner 11.11.2026): new version on price change, sound-only replacement of a published clip", () => {
+  const PRICED = [{ id: "tg-short", name: "Кӯтоҳ", lang: "tg", text: "{вид} барои фурӯш. Нархаш {цена}." }];
+  async function approvedAt(price: string, at: Date) {
+    s.property = { ...s.property, price };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now: at });
+  }
+  it("price changed twice within 3 minutes gives one new version and one paid generation", async () => {
+    s.config = { ...baseConfig(), templates: PRICED };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    await runNarrationAutoFlow({ now });
+    expect(s.versions[0].script).toBe("Квартира барои фурӯш. Нархаш ҳаштоду панҷ ҳазор доллар.");
+    await approvedAt("82000", later(10_000));
+    await approvedAt("80000", later(70_000));
+    expect(s.versions).toHaveLength(2);
+    expect(s.versions[1].script).toBe("Квартира барои фурӯш. Нархаш ҳаштод ҳазор доллар.");
+    await runNarrationAutoFlow({ now: later(70_000 + 3 * 60_000 + 1) });
+    expect(s.audio).toHaveBeenCalledTimes(2);
+    expect(s.versions[1]).toMatchObject({ status: "READY", approvedAt: null });
+  });
+  async function approveNewPrice() {
+    s.config = { ...baseConfig(), templates: PRICED };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    await runNarrationAutoFlow({ now });
+    const first = s.versions[0];
+    s.deliveries.push({ propertyId, versionId: first.id, editorId: "editor", mode: "AUDIO_ONLY", status: "SENT", requestKey: "old" });
+    s.property = { ...s.property, price: "80000" };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now, debounceMs: 0 });
+    await runNarrationAutoFlow({ now: later(60_000) });
+    const second = s.versions[1];
+    expect(await approveNarrationVersion({ propertyId, versionId: second.id, expectedRevision: 2, actorId: "agent", isManager: false })).toBe("AUDIO_APPROVED");
+    s.prepare.mockRejectedValue(new Error("Сначала передайте объект в работу монтажёру"));
+    return second;
+  }
+  it("published clip with the old narration: after approval the editor gets a sound-only task, old posts go when the new one is out", async () => {
+    s.mode = "LIVE";
+    s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
+    const v = await approveNewPrice();
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
+    expect(s.sendBack).toHaveBeenCalledTimes(1);
+    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringContaining("только звук"), null, { removeFromSocial: "on-new-video" });
+    expect(s.audit).toHaveBeenCalledWith("agent", "PROPERTY_SENT_BACK_TO_MONTAJER", "Property", propertyId, expect.objectContaining({ reason: "NARRATION_CHANGED" }));
+  });
+  it("no published clip: no task for the editor", async () => {
+    s.mode = "LIVE";
+    const v = await approveNewPrice();
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("WAITING_FOR_MONTAGE");
+    expect(s.sendBack).not.toHaveBeenCalled();
+  });
+  it("nothing starts before the agent approves, while the editor already works, or while sending is PREVIEW", async () => {
+    const { requestNarrationSoundRemake } = await import("../src/lib/narrationAutoFlow.js");
+    s.mode = "LIVE";
+    s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
+    const v = await approveNewPrice();
+    s.property = { ...s.property, videoHandoffStatus: "SENT_TO_EDITOR" };
+    expect(await requestNarrationSoundRemake(propertyId, v.id)).toBe("IN_MONTAGE");
+    s.property = { ...s.property, videoHandoffStatus: "RECEIVED" };
+    s.mode = "PREVIEW";
+    expect(await requestNarrationSoundRemake(propertyId, v.id)).toBe("OFF");
+    s.mode = "LIVE";
+    s.property = { ...s.property, price: "75000" };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now: later(120_000), debounceMs: 0 });
+    await runNarrationAutoFlow({ now: later(180_000) });
+    expect(s.versions[2]).toMatchObject({ status: "READY", approvedAt: null });
+    expect(await requestNarrationSoundRemake(propertyId, s.versions[2].id)).toBe("NOT_APPROVED");
+    expect(s.sendBack).not.toHaveBeenCalled();
+  });
+});
+
+describe("ElevenLabs credits are over", () => {
+  it("waits for a top-up: no retries for an hour, one log line, nothing to the agent, Settings flag clears after success", async () => {
+    const { narrationQuotaExceededSince } = await import("../src/lib/narrationGeneration.js");
+    s.audio.mockResolvedValue({ status: "FAILED", errorCode: "PROVIDER_QUOTA_EXCEEDED" });
+    const notify = vi.fn();
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    await runNarrationAutoFlow({ notifyAgent: notify, now });
+    expect(s.versions[0]).toMatchObject({ status: "DRAFT", errorCode: "PROVIDER_QUOTA_EXCEEDED" });
+    expect(s.versions[0].generateAfter.getTime()).toBe(now.getTime() + 60 * 60_000);
+    expect(s.log).toHaveBeenCalledWith("ai", expect.stringContaining("кредиты ElevenLabs закончились"), { dedupKey: "narration-quota-exceeded" });
+    expect(await narrationQuotaExceededSince()).not.toBeNull();
+    s.versions[0].generateAfter = now; // даже ожидающая версия не тратит вызов, пока пауза
+    await runNarrationAutoFlow({ notifyAgent: notify, now: later(30 * 60_000) });
+    expect(s.audio).toHaveBeenCalledTimes(1);
+    s.audio.mockResolvedValue({ status: "READY", audio: Buffer.from("mp3"), requestId: "req" });
+    await runNarrationAutoFlow({ notifyAgent: notify, now: later(61 * 60_000) });
+    expect(s.audio).toHaveBeenCalledTimes(2);
+    expect(s.versions[0]).toMatchObject({ status: "READY", errorCode: null });
+    expect(await narrationQuotaExceededSince()).toBeNull();
+    expect(s.log.mock.calls.filter(([, message]) => String(message).includes("кредиты"))).toHaveLength(1);
+    expect(notify).toHaveBeenCalledTimes(1); // только «озвучка готова», про кредиты — ничего
   });
 });

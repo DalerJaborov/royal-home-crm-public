@@ -30,7 +30,7 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   if (!editorId || editorId !== settings?.videoMontajerAgentId) throw new Error("Сначала назначьте монтажёра в существующих настройках монтажа");
   const editor = await prisma.agent.findFirst({ where: { id: editorId, role: "EDITOR", isActive: true }, select: { telegramChatId: true } });
   if (!editor?.telegramChatId) throw new Error("У назначенного монтажёра не подключён Telegram");
-  const files: Plan["files"] = [{ id: version.id, storageKey: version.storageKey, filename: `property-${p.shortId}-voice-v${version.revision}.mp3`, caption: `Объект №${p.shortId}. Озвучка, версия ${version.revision}. Используйте эту версию; цена остаётся в описании.` },
+  const files: Plan["files"] = [{ id: version.id, storageKey: version.storageKey, filename: `property-${p.shortId}-voice-v${version.revision}.mp3`, caption: `Объект №${p.shortId}. Озвучка, версия ${version.revision}. Используйте эту версию.` },
     { id: `${version.id}-script`, storageKey: "SCRIPT", filename: `property-${p.shortId}-voice-v${version.revision}.txt`, caption: version.script }];
   if (mode === "WITH_SOURCES") {
     if (!sources.videos.length) throw new Error("У объекта нет исходников");

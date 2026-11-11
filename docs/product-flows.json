@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 734,
-  "forks": 3917,
+  "forks": 3918,
   "mounts": 82,
   "cron": 126,
   "jobs": 32,
@@ -47747,6 +47747,21 @@
          ]
         },
         {
+         "k": "if",
+         "t": "outcome.errorCode === NARRATION_QUOTA_EXCEEDED",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(402).json({ status: outcome.status, error: \"Кредиты ElevenLabs закончились. Деньги не списа…",
+           "a": [
+            "ответ 402 — «Кредиты ElevenLabs закончились. Деньги не списаны; после пополнения…»"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
          "t": "return res.status(502).json({ status: outcome.status, error: \"Озвучка не получена. Повтор не выполнялся; пров…",
          "a": [
@@ -60813,7 +60828,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false });",
+     "t": "res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceede…",
      "a": [
       "ответ 200"
      ],

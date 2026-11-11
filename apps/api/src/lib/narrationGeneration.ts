@@ -3,7 +3,18 @@ import { prisma, type TxClient } from "../db.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
 import { localVideoDelete, localVideoUpload } from "./localVideoStorage.js";
-import { generateNarrationAudio, narrationFacts, narrationHash } from "./propertyNarration.js";
+import { generateNarrationAudio, narrationFacts, narrationHash, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
+
+/** Пауза после «кредиты кончились»: раз в час одна проверка, пока владелец не пополнит. */
+export const NARRATION_QUOTA_PAUSE_MS = 60 * 60_000;
+/**
+ * Состояние ElevenLabs для Настроек и для паузы автоозвучки: последняя начатая генерация
+ * упала на «кредиты кончились». Первая удачная генерация после пополнения снимает признак сама.
+ */
+export async function narrationQuotaExceededSince(db: Pick<Tx, "propertyNarrationVersion"> = prisma): Promise<Date | null> {
+  const last = await db.propertyNarrationVersion.findFirst({ where: { generationStartedAt: { not: null } }, orderBy: { generationStartedAt: "desc" }, select: { errorCode: true, generationStartedAt: true } });
+  return last?.errorCode === NARRATION_QUOTA_EXCEEDED ? last.generationStartedAt : null;
+}
 
 /**
  * ОДНА ДВЕРЬ ПЛАТНОЙ ОЗВУЧКИ (11.11.2026). И кнопка маркетинга
@@ -81,7 +92,11 @@ export async function generateNarrationVersion(input: {
   const result = await generateNarrationAudio({ script, voiceId: row.voiceId!, config, apiKey: input.key });
   const guard = { id: row.id, status: "GENERATING", generationStartedAt: row.generationStartedAt };
   if (result.status !== "READY") {
-    const saved = await prisma.propertyNarrationVersion.updateMany({ where: guard, data: { status: result.status, errorCode: result.errorCode } });
+    // Автоозвучка при кончившихся кредитах не теряет версию: она снова ждёт (через час), агенту ничего.
+    const waitForTopUp = !input.requireApproval && result.errorCode === NARRATION_QUOTA_EXCEEDED;
+    const saved = await prisma.propertyNarrationVersion.updateMany({ where: guard, data: waitForTopUp
+      ? { status: "DRAFT", errorCode: result.errorCode, generateAfter: new Date(now.getTime() + NARRATION_QUOTA_PAUSE_MS) }
+      : { status: result.status, errorCode: result.errorCode } });
     return { status: result.status, errorCode: result.errorCode, recorded: saved.count > 0 };
   }
   const storageKey = `${input.propertyId}/${row.id}.mp3`;
@@ -89,7 +104,7 @@ export async function generateNarrationVersion(input: {
     await localVideoUpload(storageKey, result.audio);
     const saved = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${input.propertyId} FOR UPDATE`;
-      const changed = await tx.propertyNarrationVersion.updateMany({ where: guard, data: { status: "READY", storageKey, providerRequestId: result.requestId, generateAfter: null } });
+      const changed = await tx.propertyNarrationVersion.updateMany({ where: guard, data: { status: "READY", storageKey, providerRequestId: result.requestId, generateAfter: null, errorCode: null } });
       if (changed.count) return "READY";
       const retained = await tx.propertyNarrationVersion.updateMany({ where: { id: row.id }, data: { storageKey, providerRequestId: result.requestId } });
       return retained.count ? "RECONCILED" : "REMOVED";
