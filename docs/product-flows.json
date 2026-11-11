@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 735,
-  "forks": 3919,
+  "endpoints": 737,
+  "forks": 3933,
   "mounts": 82,
   "cron": 125,
   "jobs": 32,
@@ -16732,6 +16732,285 @@
      "t": "res.status(204).send();",
      "a": [
       "ответ 204"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/robot-call-stop",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/robot-call-stop",
+   "file": "apps/api/src/routes/clients/communications.ts",
+   "router": "communicationsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!found.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(found.status).json({ error: found.error });",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await robotCallStopState(req, found.client));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/:id/robot-call-stop",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/robot-call-stop",
+   "file": "apps/api/src/routes/clients/communications.ts",
+   "router": "communicationsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = robotCallStopUpdateSchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой robotCallStopUpdateSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный запрос\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверный запрос»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!found.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(found.status).json({ error: found.error });",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!isDialableTajikNumber(client.phone)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"У клиента нет номера, на который робот мог бы позвонить\" });",
+       "a": [
+        "ответ 409 — «У клиента нет номера, на который робот мог бы позвонить»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "parsed.data.stopped",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await setRobotCallStop({ phone: client.phone, clientId: client.id, source: \"STAFF\", setByAgent…",
+       "a": [
+        "зовёт setRobotCallStop()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "result.created",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_STOP_SET\", \"Client\", client.id, { shortId: client.shortId, stopId: result.id });",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const revoked = await revokeRobotCallAllow(client.id, req.agent!.id);",
+       "a": [
+        "зовёт revokeRobotCallAllow()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "revoked > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_OPT_OUT_ALLOW_REVOKED\", \"Client\", client.id, { shortId: client.shortId });",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "elseif",
+     "t": "parsed.data.overrideClientRequest",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!canOverrideClientRequest(req)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"Разрешить звонок вопреки просьбе клиента может только руководитель\" });",
+         "a": [
+          "ответ 403 — «Разрешить звонок вопреки просьбе клиента может только руководитель»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const cleared = await clearRobotCallStop({ phone: client.phone, clientId: client.id, clearedByAgentId: req.ag…",
+       "a": [
+        "зовёт clearRobotCallStop()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "cleared > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_STOP_CLEARED\", \"Client\", client.id, { shortId: client.shortId, cleared, override: t…",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "current.optedOutInChat",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await revokeRobotCallAllow(client.id, req.agent!.id);",
+         "a": [
+          "зовёт revokeRobotCallAllow()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await allowRobotCallDespiteOptOut(client.id, req.agent!.id);",
+         "a": [
+          "зовёт allowRobotCallDespiteOptOut()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_OPT_OUT_ALLOWED\", \"Client\", client.id, { shortId: client.shortId, reasons: current.…",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "else",
+     "t": "иначе",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const cleared = await clearStaffRobotCallStops({ phone: client.phone, clientId: client.id, clearedByAgentId: …",
+       "a": [
+        "зовёт clearStaffRobotCallStops()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "cleared > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_STOP_CLEARED\", \"Client\", client.id, { shortId: client.shortId, cleared });",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await robotCallStopState(req, client));",
+     "a": [
+      "ответ 200"
      ],
      "c": []
     }
@@ -69291,17 +69570,9 @@
    "tree": [
     {
      "k": "do",
-     "t": "const row = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { elevenLabsApiKey: true, …",
+     "t": "const config = await loadElevenLabsProviderConfig();",
      "a": [
-      "читает в базе: settings"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const apiKey = resolveElevenLabsKey(row?.elevenLabsApiKey);",
-     "a": [
-      "зовёт resolveElevenLabsKey()"
+      "зовёт loadElevenLabsProviderConfig()"
      ],
      "c": []
     },
@@ -69342,15 +69613,53 @@
      "c": [
       {
        "k": "do",
-       "t": "const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS);",
+       "t": "const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: config.voic…",
        "a": [
-        "зовёт syncElevenLabsAgent()"
+        "зовёт syncElevenLabsAgentDetailed()"
        ],
        "c": []
       },
       {
        "k": "do",
-       "t": "res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: tools.size });",
+       "t": "const warm = await warmElevenLabsAgent(config, { budgetMs: ELEVENLABS_CHECK_WARMUP_BUDGET_MS });",
+       "a": [
+        "зовёт warmElevenLabsAgent()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!outcome.tuned",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Функции заведены (${outcome.…",
+         "a": [
+          "ответ 200 — «Функции заведены (${outcome.ids.size}), но агент не принял настройки…»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "warm.failed.length > 0 && !warm.timedOut",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Агент отвечает, но не подгот…",
+         "a": [
+          "ответ 200 — «Агент отвечает, но не подготовлен для звонков: ${warm.failed.join(»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "res.json({ ok: true, agentName: agent.name ?? null, toolsSynced });",
        "a": [
         "ответ 200"
        ],
