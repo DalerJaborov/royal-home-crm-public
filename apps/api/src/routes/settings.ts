@@ -58,9 +58,10 @@ import { originateLiveVoiceTestCall, LIVE_VOICE_GREETING_TRIGGER } from "../lib/
 import { liveVoiceRtpProblem, configuredRtpHost } from "../lib/telephony/liveVoiceRtpConfig.js";
 import { liveVoiceErrorForPerson } from "../lib/telephony/liveVoiceUserError.js";
 import { previewLiveVoiceGreeting } from "../ai/liveVoiceClient.js";
-import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
+import { loadElevenLabsProviderConfig } from "../ai/liveVoiceProvider.js";
 import { elevenLabsRequest, syncElevenLabsAgentDetailed } from "../ai/elevenLabsAgentSync.js";
 import { CONSULTANT_TOOLS } from "../lib/telephony/liveVoiceConsultant.js";
+import { warmElevenLabsAgent } from "../lib/telephony/liveVoiceWarmup.js";
 import { r2PresignDownloadUrl } from "../lib/r2Client.js";
 import { phoneSafeText } from "../lib/clientPhone.js";
 import { loadAmiCredentials, testAmiConnection } from "../lib/telephony/amiClient.js";
@@ -2028,34 +2029,51 @@ settingsRouter.post("/gemini-test", requireAuth, requirePermission("settings.man
  * сколько функций заведено; ключа в ответе нет.
  */
 settingsRouter.post("/live-voice/elevenlabs-check", requireAuth, requirePermission("settings.manage"), requireElevation, async (_req, res) => {
-  const row = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: { elevenLabsApiKey: true, elevenLabsAgentId: true, elevenLabsVoiceIdTg: true },
-  });
-  const apiKey = resolveElevenLabsKey(row?.elevenLabsApiKey);
-  const agentId = row?.elevenLabsAgentId?.trim();
+  // Те же поля и та же обработка, что у звонка (ai/liveVoiceProvider.ts), — иначе ключ
+  // памяти подготовки разойдётся со звонком и прогрев ему не достанется (П1, 11.11.2026).
+  const config = await loadElevenLabsProviderConfig();
+  const { apiKey, agentId } = config;
   if (!apiKey) return res.status(400).json({ ok: false, error: "Ключ ElevenLabs не задан — сначала сохраните ключ" });
   if (!agentId) return res.status(400).json({ ok: false, error: "Не указан id агента ElevenLabs" });
   try {
     const agent = await elevenLabsRequest<{ name?: string }>(apiKey, "GET", `/v1/convai/agents/${encodeURIComponent(agentId)}`);
-    const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.elevenLabsVoiceIdTg });
+    // Свежая проверка с причиной (приняты ли настройки звучания) — память подготовки её не хранит.
+    const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: config.voiceIdTg });
+    // И тот же путь, что у звонка (lib/telephony/liveVoiceWarmup.ts): каждый вид звонка
+    // подготовлен в памяти процесса, и первый звонок после кнопки не ждёт подготовку.
+    const warm = await warmElevenLabsAgent(config, { budgetMs: ELEVENLABS_CHECK_WARMUP_BUDGET_MS });
+    const toolsSynced = Math.max(warm.toolIds, outcome.ids.size);
     // Функции заведены, а настройки звучания агент не принял — не «готов»: экран
     // показывает error, и владелец видит причину, а не зелёную строку.
     if (!outcome.tuned) {
       return res.json({
         ok: false,
         agentName: agent.name ?? null,
-        toolsSynced: outcome.ids.size,
+        toolsSynced,
         error: `Функции заведены (${outcome.ids.size}), но агент не принял настройки звучания: ${outcome.tuningError}`,
       });
     }
-    res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: outcome.ids.size });
+    if (warm.failed.length > 0 && !warm.timedOut) {
+      return res.json({
+        ok: false,
+        agentName: agent.name ?? null,
+        toolsSynced,
+        error:
+          `Агент отвечает, но не подготовлен для звонков: ${warm.failed.join(", ")}. Причина — в журнале ошибок; ` +
+          "после недавней неудачи подготовка повторяется не раньше чем через 5 минут.",
+      });
+    }
+    // Не уложились в потолок — оставшиеся виды доготовятся в фоне, звонки возьмут их из памяти.
+    res.json({ ok: true, agentName: agent.name ?? null, toolsSynced });
   } catch (err) {
     const detail = describeError(err);
     void logSystemError("telephony", `Проверка агента ElevenLabs не прошла: ${detail}`);
     res.json({ ok: false, error: detail });
   }
 });
+
+/** Потолок прогрева на кнопке: экран не ждёт дольше, остальное доготовится в фоне. */
+const ELEVENLABS_CHECK_WARMUP_BUDGET_MS = 30_000;
 
 /**
  * ПРОВЕРКА СТАТИСТИКИ INSTAGRAM (21.09.2026). Владелец выпустил новый маркер с
