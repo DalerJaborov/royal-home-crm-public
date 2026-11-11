@@ -28,6 +28,7 @@ import { LIVE_VOICE_STATION_AUDIO_RETRY_MS } from "./telephony/liveVoiceAudioPat
 import { scenarioVoice } from "./telephony/scenarioVoice.js";
 import { clientLinesOf, looksLikeVoicemail } from "../ai/scenarioTranscript.js";
 import { reportThirdPartyDisclosure } from "../ai/thirdPartyDisclosure.js";
+import { liveVoiceScenarioCommonRules } from "../ai/liveVoicePersona.js";
 import type { LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
 import type { SellerProbeCallOutcome } from "../generated/prisma/client.js";
 
@@ -108,6 +109,19 @@ export async function scheduleSellerProbeCalls(now: Date = new Date()): Promise<
  * Один проход: завести новые проверки, освободить зависшие, набрать те, чей час
  * настал. Возвращает число начатых звонков.
  */
+/**
+ * Роль звонка собственнику из НОВОГО источника (не после показа). Общие правила сценариев — одно место с
+ * приглашением и опросом (liveVoiceScenarioCommonRules: речь, посторонний на линии, автоответчик, «вы робот?», сроки).
+ * Название объекта называется, только чтобы уточнить, тот ли это собственник: цену, этаж и подробности — нет.
+ */
+export function buildNewSourceSellerProbePrompt(propertyTitle: string, tajik: boolean): string {
+  return (
+    `Вы сотрудник Royal Home. Честно скажите, что уточняете данные квартиры «${propertyTitle}». Спросите, является ли собеседник собственником, продаётся ли квартира, или планы изменились. ` +
+    "Не утверждайте, что реклама сейчас идёт или что показ был. Не обвиняйте, не обещайте автоматического снятия. При просьбе не звонить закончите разговор. Используйте инструмент завершения разговора.\n\n" +
+    liveVoiceScenarioCommonRules({ addressee: "собственник", tajik })
+  );
+}
+
 export async function runSellerProbeCallTick(now: Date = new Date()): Promise<number> {
   const settings = await prisma.settings.findUnique({
     where: { id: "singleton" },
@@ -338,7 +352,7 @@ async function dialSellerProbeCall(id: string, now: Date, allowNewSource = false
 
   // Голос — до промта: имя и «сотрудница/сотрудник» в нём от пола голоса (02.10.2026).
   const voice = await scenarioVoice();
-  const prompt = newSource ? `Вы сотрудник Royal Home. Честно скажите, что уточняете данные квартиры «${probe.property.title}». Спросите, является ли собеседник собственником, продаётся ли квартира, или планы изменились. Не утверждайте, что реклама сейчас идёт или что показ был. Не обвиняйте, не обещайте автоматического снятия. При просьбе не звонить закончите разговор. Используйте инструмент завершения разговора.` : buildSellerProbeCallPrompt({
+  const prompt = newSource ? buildNewSourceSellerProbePrompt(probe.property.title, !voice.forceRussianOnly) : buildSellerProbeCallPrompt({
     sellerName: firstName(probe.seller.fullName),
     propertyLabel: probe.property.title,
     voiceGender: voice.gender,

@@ -78,7 +78,7 @@ export function buildSellerProbeCallPrompt(ctx: SellerProbeCallContext, forceRus
 
 ЕСЛИ ОТКАЗЫВАЕТСЯ РАЗГОВАРИВАТЬ — поблагодари, попрощайся, заверши с причиной refused.
 
-${liveVoiceThirdPartyRule("собственник", "с ним свяжутся")} Квартиру не обсуждай вообще.
+${liveVoiceThirdPartyRule("собственник", "с ним свяжутся", !forceRussianOnly)} Квартиру не обсуждай вообще.
 
 ЕСЛИ ОТВЕТИЛ АВТООТВЕТЧИК — не говори ничего и сразу заверши с причиной voicemail.
 

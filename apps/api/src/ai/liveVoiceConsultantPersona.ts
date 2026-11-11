@@ -8,6 +8,7 @@ import {
   LIVE_VOICE_RUSSIAN_ONLY_OVERRIDE,
   LIVE_VOICE_SPEECH_RULES,
   LIVE_VOICE_TAJIK_EXAMPLES_INBOUND,
+  LIVE_VOICE_NO_PRICE_WITHOUT_DATA_RULE,
   liveVoiceIdentityRules,
 } from "./liveVoicePersona.js";
 
@@ -476,6 +477,8 @@ ${liveVoiceIdentityRules(forceRussianOnly)}
     (forceRussianOnly ? input.knowledge.replace(VOICE_CENTER_RULE, () => VOICE_CENTER_RULE_RU_ONLY) : input.knowledge) +
     (forceRussianOnly ? "" : LIVE_VOICE_TAJIK_EXAMPLES_INBOUND) +
     (callerInfo ? `\n\n<кто_звонит>${callerInfo}\n</кто_звонит>\n` : "") +
+    // Цены без данных функции не называем (11.11.2026); в коде — сторож реплик LiveVoiceReplyGuard. До хвоста запретов: он остаётся последним.
+    LIVE_VOICE_NO_PRICE_WITHOUT_DATA_RULE +
     CONSULTANT_TAIL_RULES +
     // Замок — по-прежнему самым последним блоком (за ним мост вешает только правило рода).
     (forceRussianOnly ? LIVE_VOICE_RUSSIAN_ONLY_OVERRIDE : "")

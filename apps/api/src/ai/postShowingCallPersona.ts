@@ -68,6 +68,9 @@ export const POST_SHOWING_CALL_TOOLS: LiveVoiceFunctionDeclaration[] = [
       properties: {
         reason: {
           type: "STRING",
+          // Только эти слова (11.11.2026): фраза со словом «перезвон» в причине не должна ставить повторный звонок —
+          // обработчик итога ищет слово из списка, а не угадывает по тексту (postShowingCall.ts::scenarioEndKind).
+          enum: ["answered", "call_back_later", "refused", "voicemail", "wrong_person"],
           description:
             "Ровно одно слово: answered — поговорили, человек ответил на вопросы; call_back_later — попросил перезвонить, сейчас неудобно; refused — отказался говорить; voicemail — ответил автоответчик, живого человека не было; wrong_person — трубку взял не тот, о ком речь.",
         },
@@ -114,7 +117,7 @@ export function buildPostShowingCallPrompt(ctx: PostShowingCallContext, forceRus
 
 ЕСЛИ ЧЕЛОВЕК РАЗДРАЖЁН, устал или явно не хочет разговаривать — закругляйся, не дожимая. Один недовольный ответ стоит дороже любого опроса.
 
-${liveVoiceThirdPartyRule("покупатель", "с ним свяжутся")} Вопросов о показе не задавай.
+${liveVoiceThirdPartyRule("покупатель", "с ним свяжутся", !forceRussianOnly)} Вопросов о показе не задавай.
 
 ЕСЛИ ОТВЕТИЛ АВТООТВЕТЧИК (запись, гудок, «оставьте сообщение») — НЕ говори ничего вообще и сразу заверши звонок с причиной voicemail. Опрос на автоответчике бесполезен, а наговоренное в пустоту звучит как спам.
 

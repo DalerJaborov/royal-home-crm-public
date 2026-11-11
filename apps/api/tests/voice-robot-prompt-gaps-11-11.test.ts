@@ -217,3 +217,125 @@ describe("3. save_client_request — обязательные поля, «не �
     expect(p).toContain("declined");
   });
 });
+
+describe("1. посторонний на линии — общий промт звонка клиенту и звонок с карточки", () => {
+  const RULE = "Цель звонка НЕ раскрывается";
+
+  it("общий промт без контекста, с контекстом клиента и со своей ролью из Настроек несёт правило ровно один раз", () => {
+    const plain = buildLiveVoiceSystemPrompt();
+    const card = buildLiveVoiceSystemPrompt({ clientName: "Зарина", propertyDescription: "2-комнатная в Сино" });
+    const custom = buildLiveVoiceSystemPrompt({ clientName: "Зарина" }, { roleOverride: "Ты вежливый робот агентства." });
+    for (const p of [plain, card, custom]) {
+      expect(p).toContain("ЕСЛИ ТРУБКУ ВЗЯЛ НЕ АДРЕСАТ");
+      expect(p).toContain("Я из Royal Home. Передайте, пожалуйста, что звонили из Royal Home и с ним свяжется агент.");
+      expect(p.split(RULE).length - 1).toBe(1);
+    }
+  });
+
+  it("сценарные роли, уже несущие правило, второй копии не получают", () => {
+    for (const p of [invite("ru"), post(), probe()]) expect(p.split(RULE).length - 1).toBe(1);
+  });
+
+  it("зашитый промт по умолчанию тоже несёт правило (запасной путь при отказе базы)", async () => {
+    const { LIVE_VOICE_SYSTEM_PROMPT } = await import("../src/ai/liveVoicePersona.js");
+    expect(LIVE_VOICE_SYSTEM_PROMPT).toContain(RULE);
+  });
+});
+
+import { vacancyCallFactsBlock } from "../src/ai/vacancyFacts.js";
+import { liveVoiceScenarioCommonRules } from "../src/ai/liveVoicePersona.js";
+import { POST_SHOWING_CALL_TOOLS } from "../src/ai/postShowingCallPersona.js";
+import { INTERVIEW_INVITE_CALL_TOOLS } from "../src/ai/interviewInviteCallPersona.js";
+import { SELLER_PROBE_CALL_TOOLS } from "../src/ai/sellerProbeCallPersona.js";
+import { buildNewSourceSellerProbePrompt } from "../src/lib/sellerProbeCall.js";
+import { buildRecruitmentCommunicationContent, RECRUITMENT_CALL_GREETING_TRIGGER } from "../src/lib/recruitmentCommunicationContent.js";
+import { findOffCatalogClaims } from "../src/lib/telephony/liveVoiceGuards.js";
+
+describe("таджикская фраза для постороннего — только когда таджикский разрешён", () => {
+  const TG = "Ман аз Royal Home";
+  it("замок на русский: ни в общем промте, ни в опросе, ни у собственника таджикской фразы нет", () => {
+    expect(buildLiveVoiceSystemPrompt({ clientName: "Зарина" })).not.toContain(TG);
+    expect(post()).not.toContain(TG);
+    expect(probe()).not.toContain(TG);
+    expect(invite("ru")).not.toContain(TG);
+  });
+  it("таджикский разрешён: фраза есть", () => {
+    expect(liveVoiceThirdPartyRule("кандидат", "с ним свяжутся", true)).toContain(TG);
+    expect(invite("tg")).toContain(TG);
+    expect(buildLiveVoiceSystemPrompt({ clientName: "Зарина" }, { forceRussianOnly: false })).toContain(TG);
+  });
+});
+
+describe("а) приглашение кандидата: маршрут и парковка не выдумываются", () => {
+  it("в фактах о вакансии — «как доехать и парковку не знаю, адрес пришлём сообщением»", () => {
+    const block = vacancyCallFactsBlock();
+    expect(block).toMatch(/как доехать, какой транспорт и где парковка — ты НЕ знаешь/);
+    expect(block).toMatch(/адрес пришлём сообщением/);
+    expect(invite("ru")).toContain("маршрут и парковку не придумывай");
+  });
+});
+
+describe("б) звонок помощника из карточки отклика", () => {
+  const input = { purpose: "CLARIFY", language: "ru", channel: "CALL" } as never;
+  const facts = { name: "Мехрона", titleRu: "Агент", titleTg: "Агент", detailsRu: "д", detailsTg: "д", address: "Бухоро 49", missing: ["experience"] } as never;
+  it("первая реплика уточняет личность, в промте — правило постороннего, автоответчик, «вы робот?», сроки", () => {
+    const { callPrompt } = buildRecruitmentCommunicationContent(input, facts);
+    expect(RECRUITMENT_CALL_GREETING_TRIGGER).toContain("тот ли это человек");
+    expect(RECRUITMENT_CALL_GREETING_TRIGGER).toContain("О цели звонка пока не говори");
+    expect(callPrompt).toContain("уточни, тот ли это человек");
+    expect(callPrompt).toContain("ЕСЛИ ТРУБКУ ВЗЯЛ НЕ КАНДИДАТ");
+    expect(callPrompt).toContain("Цель звонка НЕ раскрывается");
+    expect(callPrompt).toContain("АВТООТВЕТЧИК");
+    expect(callPrompt).toContain("голосовой помощник агентства Royal Home, не человек");
+    expect(callPrompt).toContain("<сроки_перезвона>");
+    expect(callPrompt).not.toContain("Ман аз Royal Home");
+  });
+});
+
+describe("в) проверка собственника из нового источника — общие правила сценариев", () => {
+  it("посторонний, автоответчик, «вы робот?», отказ, сроки; на таджикском — с таджикской фразой", () => {
+    const p = buildNewSourceSellerProbePrompt("2-комнатная в Сино", false);
+    expect(p).toContain("2-комнатная в Сино");
+    expect(p).toContain("ЕСЛИ ТРУБКУ ВЗЯЛ НЕ СОБСТВЕННИК");
+    expect(p).toContain("wrong_person");
+    expect(p).toContain("АВТООТВЕТЧИК");
+    expect(p).toContain("end_call с причиной voicemail");
+    expect(p).toContain("не человек");
+    expect(p).toContain("refused");
+    expect(p).toContain("<сроки_перезвона>");
+    expect(p).toContain("ГЛАВНОЕ ПРАВИЛО ГОЛОСА");
+    expect(p).not.toContain("Ман аз Royal Home");
+    expect(buildNewSourceSellerProbePrompt("x", true)).toContain("Ман аз Royal Home");
+    expect(liveVoiceScenarioCommonRules({ addressee: "кандидат" })).toContain("ЕСЛИ ТРУБКУ ВЗЯЛ НЕ КАНДИДАТ");
+  });
+});
+
+describe("г) end_call опроса и собственника: причина — только из списка", () => {
+  const REASONS = ["answered", "call_back_later", "refused", "voicemail", "wrong_person"];
+  const reasonOf = (tools: typeof POST_SHOWING_CALL_TOOLS) => tools.find((t) => t.name === "end_call")!.parameters.properties.reason;
+  it("enum у опроса, собственника и приглашения; имя функции не менялось", () => {
+    for (const tools of [POST_SHOWING_CALL_TOOLS, SELLER_PROBE_CALL_TOOLS, INTERVIEW_INVITE_CALL_TOOLS]) {
+      expect(tools.map((t) => t.name)).toEqual(["end_call"]);
+      expect(reasonOf(tools).enum).toEqual(REASONS);
+      expect(tools[0]!.parameters.required).toEqual(["reason"]);
+    }
+  });
+});
+
+describe("д) цены и диапазоны — только из данных функции", () => {
+  it("правило в общем промте звонка и в промте консультанта", () => {
+    expect(buildLiveVoiceSystemPrompt({ clientName: "Зарина" })).toContain("<цены_без_данных>");
+    const p = buildConsultantSystemPrompt({ knowledge: "", caller: { numberKnown: true, selfName: null, agentName: null, dossier: "", weCalled: false }, withinWorkingHours: true, forceRussianOnly: true, language: "ru", transferAvailable: false, showingsEnabled: false });
+    expect(p).toContain("<цены_без_данных>");
+    expect(p).toMatch(/диапазоны цен/);
+  });
+
+  it("код: диапазон цен без ответа search_properties — находка сторожа; цена из ответа функции — нет", () => {
+    const ask = "Сколько стоит двушка в Сино?";
+    const found = findOffCatalogClaims({ text: "Двушки в Сино стоят от сорока до шестидесяти тысяч долларов.", allowedText: ask, catalogText: "", clientText: ask, usdToTjs: 10.9 });
+    expect(found.prices.length).toBeGreaterThan(0);
+    const g = new LiveVoiceReplyGuard({ language: "ru", knowledgeText: "", usdToTjs: 10.9 });
+    const f = g.onModelText("Двушки в Сино стоят от сорока до шестидесяти тысяч долларов.");
+    expect(f.some((x) => x.kind === "off_catalog" && x.prices.length > 0)).toBe(true);
+  });
+});

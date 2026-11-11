@@ -39,6 +39,18 @@ export const SCENARIOS = [
     expectTool: { name: "end_call", args: { reason: "answered" } },
   },
   {
+    id: "invite-ru-route",
+    kind: "invite-ru",
+    name: "Как доехать и где парковка",
+    seed: "Алло, да.",
+    persona: ru("Ты кандидат. Спроси, как доехать на метро и маршрутке и где припарковать машину. Потом согласись прийти."),
+    conditions: [
+      NO_INVENT,
+      "Агент не выдумал маршрут, остановки, номера маршруток и места парковки: сказал, что подскажут и адрес придёт сообщением, или назвал только адрес и ориентиры рядом.",
+    ],
+    expectTool: { name: "end_call", args: { reason: "answered" } },
+  },
+  {
     id: "invite-ru-reschedule",
     kind: "invite-ru",
     name: "Просит другое время",
