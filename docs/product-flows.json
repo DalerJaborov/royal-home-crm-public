@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 733,
-  "forks": 3909,
+  "endpoints": 734,
+  "forks": 3917,
   "mounts": 82,
-  "cron": 125,
+  "cron": 126,
   "jobs": 32,
   "hidden": 0
  },
@@ -47408,7 +47408,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -47416,14 +47416,14 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "req.agent!.role === \"EDITOR\"",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Текст подтверждает маркетинг или руководство\" });",
+       "t": "return res.status(403).json({ error: \"Озвучку одобряет агент объекта\" });",
        "a": [
-        "ответ 403 — «Текст подтверждает маркетинг или руководство»"
+        "ответ 403 — «Озвучку одобряет агент объекта»"
        ],
        "c": []
       }
@@ -47454,59 +47454,22 @@
     },
     {
      "k": "do",
-     "t": "const count = await prisma.$transaction(async (tx)",
+     "t": "const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision…",
      "a": [
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: property",
-      "читает в базе: propertyNarrationVersion",
-      "меняет в базе: propertyNarrationVersion"
+      "зовёт approveNarrationVersion()"
      ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"FORBIDDEN\"",
+     "a": [],
      "c": [
       {
        "k": "do",
-       "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${p.id} FOR UPDATE`;",
+       "t": "return res.status(403).json({ error: \"Текст подтверждает маркетинг или руководство\" });",
        "a": [
-        "обращается к базе своим SQL"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const current = await tx.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });",
-       "a": [
-        "читает в базе: property"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision…",
-       "a": [
-        "читает в базе: propertyNarrationVersion"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "current.deletedAt || !latest || latest.id !== versionId.data || latest.revision !== parsed.data.expectedRevis…",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return 0;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: \"DRAFT\" }, data: { app…",
-       "a": [
-        "меняет в базе: propertyNarrationVersion"
+        "ответ 403 — «Текст подтверждает маркетинг или руководство»"
        ],
        "c": []
       }
@@ -47514,7 +47477,7 @@
     },
     {
      "k": "if",
-     "t": "!count",
+     "t": "outcome === \"CONFLICT\"",
      "a": [],
      "c": [
       {
@@ -47529,7 +47492,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ok: true });",
+     "t": "res.json({ ok: true, ...(outcome === \"AUDIO_APPROVED\" ? { delivery: await afterNarrationApproved(p.id, versio…",
      "a": [
       "ответ 200"
      ],
@@ -47549,7 +47512,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -47640,7 +47603,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -47686,7 +47649,7 @@
     },
     {
      "k": "if",
-     "t": "!key || !config.modelId || !config.voices.length",
+     "t": "!key || !narrationProviderReady(config, key)",
      "a": [],
      "c": [
       {
@@ -47701,234 +47664,83 @@
     },
     {
      "k": "do",
-     "t": "const claimed = await prisma.$transaction(async (tx)",
+     "t": "const outcome = await generateNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevisio…",
      "a": [
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: property",
-      "читает в базе: propertyNarrationVersion",
-      "считает в базе: propertyNarrationVersion",
-      "меняет в базе: propertyNarrationVersion"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${p.id} FOR UPDATE`;",
-       "a": [
-        "обращается к базе своим SQL"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const current = await tx.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });",
-       "a": [
-        "читает в базе: property"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision…",
-       "a": [
-        "читает в базе: propertyNarrationVersion"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "current.deletedAt || !latest || latest.id !== versionId.data || latest.revision !== parsed.data.expectedRevis…",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return null;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "latest.status !== \"DRAFT\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return { row: latest, run: false };",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!latest.voiceId || !config.voices.some((v) => v.id === latest.voiceId) || latest.modelId !== config.modelId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return null;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "await tx.propertyNarrationVersion.count({ where: { propertyId: p.id, status: { in: [\"GENERATING\", \"UNKNOWN\"] …",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return null;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data: { status: \"GENERATING\", generation…",
-       "a": [
-        "меняет в базе: propertyNarrationVersion"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!claimed",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Проверьте актуальность текста и голоса. Предыдущий запрос с неизвестным…",
-       "a": [
-        "ответ 409 — «Проверьте актуальность текста и голоса. Предыдущий запрос с…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!claimed.run",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(claimed.row.status === \"READY\" ? 200 : 409).json({ status: claimed.row.status, error: claim…",
-       "a": [
-        "ответ (код зависит от условия)"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const result = await generateNarrationAudio({ script: claimed.row.script, voiceId: claimed.row.voiceId!, conf…",
-     "a": [
-      "зовёт generateNarrationAudio()"
+      "зовёт generateNarrationVersion()"
      ],
      "c": []
     },
     {
-     "k": "if",
-     "t": "result.status !== \"READY\"",
+     "k": "switch",
+     "t": "смотря что в: outcome.status",
      "a": [],
      "c": [
       {
-       "k": "do",
-       "t": "const saved = await prisma.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: \"GENERA…",
-       "a": [
-        "меняет в базе: propertyNarrationVersion"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!saved.count",
+       "k": "case",
+       "t": "case \"REJECTED\"",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(409).json({ error: \"Результат уже проверен руководством. Поздний ответ не изменил решение.\"…",
+         "t": "return res.status(409).json({ error: \"Проверьте актуальность текста и голоса. Предыдущий запрос с неизвестным…",
          "a": [
-          "ответ 409 — «Результат уже проверен руководством. Поздний ответ не изменил решение.»"
+          "ответ 409 — «Проверьте актуальность текста и голоса. Предыдущий запрос с…»"
          ],
          "c": []
         }
        ]
       },
       {
-       "k": "do",
-       "t": "return res.status(502).json({ status: result.status, error: \"Озвучка не получена. Повтор не выполнялся; прове…",
-       "a": [
-        "ответ 502 — «Озвучка не получена. Повтор не выполнялся; проверьте результат в…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await localVideoUpload(storageKey, result.audio);",
-       "a": [
-        "зовёт localVideoUpload()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const saved = await prisma.$transaction(async tx",
-       "a": [
-        "всё внутри — одной транзакцией",
-        "обращается к базе своим SQL",
-        "меняет в базе: propertyNarrationVersion"
-       ],
+       "k": "case",
+       "t": "case \"BUDGET\"",
+       "a": [],
        "c": [
         {
          "k": "do",
-         "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${p.id} FOR UPDATE`;",
+         "t": "return res.status(429).json({ error: \"Дневной предел озвучки исчерпан. Его меняет руководство в настройках оз…",
          "a": [
-          "обращается к базе своим SQL"
+          "ответ 429 — «Дневной предел озвучки исчерпан. Его меняет руководство в настройках…»"
          ],
          "c": []
-        },
+        }
+       ]
+      },
+      {
+       "k": "case",
+       "t": "case \"ALREADY\"",
+       "a": [],
+       "c": [
         {
          "k": "do",
-         "t": "const changed = await tx.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: \"GENERATI…",
+         "t": "return res.status(outcome.current === \"READY\" ? 200 : 409).json({ status: outcome.current, error: outcome.cur…",
          "a": [
-          "меняет в базе: propertyNarrationVersion"
+          "ответ (код зависит от условия)"
          ],
          "c": []
-        },
+        }
+       ]
+      },
+      {
+       "k": "case",
+       "t": "case \"FAILED\"",
+       "a": [],
+       "c": []
+      },
+      {
+       "k": "case",
+       "t": "case \"UNKNOWN\"",
+       "a": [],
+       "c": [
         {
          "k": "if",
-         "t": "changed.count",
+         "t": "!outcome.recorded",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return \"READY\";",
+           "t": "return res.status(409).json({ error: \"Результат уже проверен руководством. Поздний ответ не изменил решение.\"…",
            "a": [
-            "дословно из кода"
+            "ответ 409 — «Результат уже проверен руководством. Поздний ответ не изменил решение.»"
            ],
            "c": []
           }
@@ -47936,34 +47748,19 @@
         },
         {
          "k": "do",
-         "t": "const retained = await tx.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id }, data: { storag…",
+         "t": "return res.status(502).json({ status: outcome.status, error: \"Озвучка не получена. Повтор не выполнялся; пров…",
          "a": [
-          "меняет в базе: propertyNarrationVersion"
+          "ответ 502 — «Озвучка не получена. Повтор не выполнялся; проверьте результат в…»"
          ],
          "c": []
         }
        ]
       },
       {
-       "k": "if",
-       "t": "saved !== \"READY\"",
+       "k": "case",
+       "t": "case \"LATE\"",
        "a": [],
        "c": [
-        {
-         "k": "if",
-         "t": "saved === \"REMOVED\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await localVideoDelete(storageKey);",
-           "a": [
-            "зовёт localVideoDelete()"
-           ],
-           "c": []
-          }
-         ]
-        },
         {
          "k": "do",
          "t": "return res.status(409).json({ error: \"Пришёл поздний результат генерации. Решение руководства сохранено; нова…",
@@ -47973,62 +47770,53 @@
          "c": []
         }
        ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await prisma.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: \"GENERATING\", generat…",
-       "a": [
-        "меняет в базе: propertyNarrationVersion"
-       ],
-       "c": []
       },
       {
-       "k": "do",
-       "t": "return res.status(503).json({ error: \"Провайдер создал аудио, но сохранить его не удалось. Повторная генераци…",
-       "a": [
-        "ответ 503 — «Провайдер создал аудио, но сохранить его не удалось. Повторная…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const afterGeneration = await prisma.property.findUnique({ where: { id: p.id }, select: { deletedAt: true } }…",
-     "a": [
-      "читает в базе: property"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!afterGeneration",
-     "a": [],
-     "c": [
+       "k": "case",
+       "t": "case \"PERSIST_FAILED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(503).json({ error: \"Провайдер создал аудио, но сохранить его не удалось. Повторная генераци…",
+         "a": [
+          "ответ 503 — «Провайдер создал аудио, но сохранить его не удалось. Повторная…»"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Объект уже удалён. Озвучка недоступна.\" });",
-       "a": [
-        "ответ 409 — «Объект уже удалён. Озвучка недоступна.»"
-       ],
-       "c": []
+       "k": "case",
+       "t": "case \"GONE\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Объект уже удалён. Озвучка недоступна.\" });",
+         "a": [
+          "ответ 409 — «Объект уже удалён. Озвучка недоступна.»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "case",
+       "t": "case \"READY\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json({ status: \"READY\", propertyTrashed: outcome.propertyTrashed, ...(outcome.propertyTrashed ? { …",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "res.json({ status: \"READY\", propertyTrashed: !!afterGeneration.deletedAt, ...(afterGeneration.deletedAt ? { m…",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
     }
    ]
   },
@@ -48044,7 +47832,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48217,7 +48005,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48373,7 +48161,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48574,7 +48362,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48734,7 +48522,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48808,7 +48596,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48874,7 +48662,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48940,7 +48728,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49046,7 +48834,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49100,6 +48888,74 @@
        "t": "return res.status(400).json({ error: \"Выберите голос из настроек\" });",
        "a": [
         "ответ 400 — «Выберите голос из настроек»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "parsed.data.generate",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!narrationAutoEnabled(config)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Автоозвучка выключена в настройках. Сохраните текст без генерации.\" });",
+         "a": [
+          "ответ 409 — «Автоозвучка выключена в настройках. Сохраните текст без генерации.»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: \"AGENT\", scrip…",
+       "a": [
+        "зовёт requestAutoNarration()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "outcome.status === \"INVALID\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: outcome.error });",
+         "a": [
+          "ответ 400"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "outcome.status !== \"QUEUED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: outcome.status === \"BUSY\" ? \"Предыдущая озвучка ещё готовится. Попробуйт…",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true });",
+       "a": [
+        "ответ 201"
        ],
        "c": []
       }
@@ -60888,6 +60744,42 @@
   },
   {
    "method": "GET",
+   "path": "/narration-options",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-options",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const view: NarrationOptionsView = { templates: config.templates ?? [], voices: config.voices.map((v)",
+     "a": [
+      "зовёт narrationAutoEnabled()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(view);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/narration-settings",
    "mount": "/api/v1/properties",
    "full": "/api/v1/properties/narration-settings",
@@ -60898,7 +60790,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -60941,7 +60833,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -60964,7 +60856,30 @@
     },
     {
      "k": "do",
-     "t": "const parsed = narrationConfigSchema.safeParse(req.body);",
+     "t": "const patch = narrationConfigPatchSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой narrationConfigPatchSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!patch.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Проверьте модель и список голосов\", details: patch.error.flatten() });",
+       "a": [
+        "ответ 400 — «Проверьте модель и список голосов»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…",
      "a": [
       "проверяет данные схемой narrationConfigSchema"
      ],
@@ -60982,6 +60897,43 @@
         "ответ 400 — «Проверьте модель и список голосов»"
        ],
        "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "modelProblem",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: modelProblem });",
+       "a": [
+        "ответ 400"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const template of parsed.data.templates ?? []",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "problem",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });",
+         "a": [
+          "ответ 400 — «Шаблон «${template.name}»: ${problem}»"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -99481,6 +99433,69 @@
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "narration-auto-flow",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval });",
+     "a": [
+      "зовёт runNarrationAutoFlow()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { config, key } = await loadNarrationConfiguration();",
+       "a": [
+        "зовёт loadNarrationConfiguration()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "narrationAutoEnabled(config) && key && narrationProviderReady(config, key)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "report.drafted = await refreshNarrationDrafts(config, now);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "report.generated = await generateDueNarrations(config, key, now);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "options.notifyAgent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "report.notified = await notifyReadyNarrations(options.notifyAgent);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runNarrationAutoFlow() — apps/api/src/lib/narrationAutoFlow.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"

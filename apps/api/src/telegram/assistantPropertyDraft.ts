@@ -25,7 +25,7 @@ import {
   SECONDARY_CONDITIONS, UPLOAD_VIDEO_MAX_BYTES, fieldsForNewBuildPhase, formatClientCode, formatPropertyCode, parseShortCode,
   propertyCreateSchema, propertyDetailFieldLabel, propertyDetailOptionLabel, propertyDetailShown, propertyDuplicateCheckQuerySchema,
   propertyFieldShown, propertyFinishSummary, propertyHasCondition, propertyHasMarket, propertyWizardDraftValuesSchema,
-  propertyWizardErrors, propertyWizardTypeChange, suggestedNarration,
+  propertyWizardErrors, propertyWizardTypeChange, narrationDraftText,
   type PermissionId, type PropertyDetailKey, type PropertyDuplicateMatch, type PropertyType, type PropertyWizardDraftValues,
 } from "@royal-home/shared";
 import { z } from "zod";
@@ -57,6 +57,7 @@ import {
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import { extractPropertyFields } from "./assistantPropertyFields.js";
 import { sendPropertyMatchesCard } from "./assistantPropertyOffers.js";
+import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
 
 type Lang = "ru" | "tg";
 type Values = PropertyWizardDraftValues;
@@ -159,7 +160,7 @@ const copy = {
     rejected: "CRM отклонила черновик. Проверьте поля и продавца в мастере.",
     confirmFailed: "Не удалось подтвердить результат. Проверьте список объектов в CRM перед повтором.",
     seller: "Продавец", intake: "Принял объект", files: "Файлы", photo: "фото", video: "видео", point: "Точка на карте",
-    yes: "есть", addressSet: "указан", floorWord: "этаж", narration: "Текст для озвучки ролика",
+    yes: "есть", addressSet: "указан", floorWord: "этаж", narration: "Озвучка ролика (голос и текст поменяете, когда она придёт)",
     placeSite: "На сайт и в соцсети", placeCrm: "Только CRM (закрытый)",
     b: { review: "Проверить", create: "Создать", createAnyway: "Всё равно создать", fix: "Исправить поле", exit: "Выйти", back: "Назад",
       replaceDraft: "Заменить черновик", replaceMedia: "Заменить фото", keepMedia: "Оставить мои фото", keep: "Оставить как есть" },
@@ -230,7 +231,7 @@ const copy = {
     rejected: "CRM сиёҳнависро рад кард. Майдонҳо ва фурӯшандаро дар CRM санҷед.",
     confirmFailed: "Натиҷаро тасдиқ карда натавонистам. Пеш аз такрор рӯйхати объектҳоро дар CRM санҷед.",
     seller: "Фурӯшанда", intake: "Кӣ қабул кард", files: "Файлҳо", photo: "акс", video: "видео", point: "Нуқта дар харита",
-    yes: "ҳаст", addressSet: "нишон дода шуд", floorWord: "ошёна", narration: "Матн барои овози видео",
+    yes: "ҳаст", addressSet: "нишон дода шуд", floorWord: "ошёна", narration: "Овози видео (овоз ва матнро вақте ки меояд, иваз карда метавонед)",
     placeSite: "Ба сайт ва шабакаҳо", placeCrm: "Танҳо CRM (пӯшида)",
     b: { review: "Санҷидан", create: "Сохтан", createAnyway: "Ба ҳар ҳол сохтан", fix: "Ислоҳи майдон", exit: "Баромадан", back: "Бозгашт",
       replaceDraft: "Иваз кардан", replaceMedia: "Аксҳоро иваз кардан", keepMedia: "Аксҳои маро гузоред", keep: "Ҳамон тавр гузоштан" },
@@ -476,11 +477,12 @@ async function review(ctx: Context, draft: DraftRecord) {
   const detailLines = PROPERTY_DETAIL_KEYS
     .filter(key => propertyDetailShown(values.type, key) && values.details?.[key] && values.details[key] !== DETAIL_NOT_SET)
     .map(key => `${propertyDetailFieldLabel(key)}: ${propertyDetailOptionLabel(key, values.details?.[key] ?? "")}`);
-  // Текст для озвучки — тот же, что показывает шаг «Проверка» мастера CRM.
-  const narration = type ? suggestedNarration({
-    type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || gap,
+  // Текст для озвучки — та же функция и те же шаблоны, что у шага «Проверка» мастера CRM.
+  // Голос, шаблон и правку текста агент выбирает кнопками, когда озвучка придёт на одобрение.
+  const narration = type ? narrationDraftText((await loadNarrationConfiguration()).config, {
+    type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "",
     floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: district?.name ?? null,
-  }) : null;
+  }).text : null;
   const lines = [
     c.title,
     row("place", values.offSite ? c.placeCrm : c.placeSite),

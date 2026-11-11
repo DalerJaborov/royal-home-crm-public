@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **733**. Развилок в самих путях: **2410**; вместе с задачами по расписанию и фоновыми заданиями — **3909**. Модулей: **82**.
+Путей: **734**. Развилок в самих путях: **2416**; вместе с задачами по расписанию и фоновыми заданиями — **3917**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10708,42 +10708,30 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/approve
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
-  - return res.status(403).json({ error: "Текст подтверждает маркетинг или руководство" });
-    · ответ 403 — «Текст подтверждает маркетинг или руководство»
+- если req.agent!.role === "EDITOR"
+  - return res.status(403).json({ error: "Озвучку одобряет агент объекта" });
+    · ответ 403 — «Озвучку одобряет агент объекта»
 - const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…
   · проверяет данные схемой narrationActionSchema
 - если !parsed.success || !versionId.success
   - return res.status(400).json({ error: "Подтвердите текст и номер версии" });
     · ответ 400 — «Подтвердите текст и номер версии»
-- const count = await prisma.$transaction(async (tx)
-  · всё внутри — одной транзакцией
-  · обращается к базе своим SQL
-  · читает в базе: property
-  · читает в базе: propertyNarrationVersion
-  · меняет в базе: propertyNarrationVersion
-  - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${p.id} FOR UPDATE`;
-    · обращается к базе своим SQL
-  - const current = await tx.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });
-    · читает в базе: property
-  - const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision…
-    · читает в базе: propertyNarrationVersion
-  - если current.deletedAt || !latest || latest.id !== versionId.data || latest.revision !== parsed.data.expectedRevis…
-    - return 0;
-      · дословно из кода
-  - return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "DRAFT" }, data: { app…
-    · меняет в базе: propertyNarrationVersion
-- если !count
+- const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision…
+  · зовёт approveNarrationVersion()
+- если outcome === "FORBIDDEN"
+  - return res.status(403).json({ error: "Текст подтверждает маркетинг или руководство" });
+    · ответ 403 — «Текст подтверждает маркетинг или руководство»
+- если outcome === "CONFLICT"
   - return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
     · ответ 409 — «Факты или версия изменились. Подготовьте и проверьте новый текст.»
-- res.json({ ok: true });
+- res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versio…
   · ответ 200
 
 ### GET /api/v1/properties/:id/narration/:versionId/audio
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const versionId = idSchema.safeParse(req.params.versionId);
   · проверяет данные схемой idSchema
@@ -10765,7 +10753,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/generate
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Генерация доступна маркетингу и руководству" });
@@ -10775,90 +10763,44 @@
 - если !parsed.success || !versionId.success
   - return res.status(400).json({ error: "Подтвердите генерацию выбранной версии" });
     · ответ 400 — «Подтвердите генерацию выбранной версии»
-- если !key || !config.modelId || !config.voices.length
+- если !key || !narrationProviderReady(config, key)
   - return res.status(409).json({ error: "ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках." }…
     · ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»
-- const claimed = await prisma.$transaction(async (tx)
-  · всё внутри — одной транзакцией
-  · обращается к базе своим SQL
-  · читает в базе: property
-  · читает в базе: propertyNarrationVersion
-  · считает в базе: propertyNarrationVersion
-  · меняет в базе: propertyNarrationVersion
-  - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${p.id} FOR UPDATE`;
-    · обращается к базе своим SQL
-  - const current = await tx.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });
-    · читает в базе: property
-  - const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision…
-    · читает в базе: propertyNarrationVersion
-  - если current.deletedAt || !latest || latest.id !== versionId.data || latest.revision !== parsed.data.expectedRevis…
-    - return null;
-      · дословно из кода
-  - если latest.status !== "DRAFT"
-    - return { row: latest, run: false };
-      · дословно из кода
-  - если !latest.voiceId || !config.voices.some((v) => v.id === latest.voiceId) || latest.modelId !== config.modelId
-    - return null;
-      · дословно из кода
-  - если await tx.propertyNarrationVersion.count({ where: { propertyId: p.id, status: { in: ["GENERATING", "UNKNOWN"] …
-    - return null;
-      · дословно из кода
-  - await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data: { status: "GENERATING", generation…
-    · меняет в базе: propertyNarrationVersion
-- если !claimed
-  - return res.status(409).json({ error: "Проверьте актуальность текста и голоса. Предыдущий запрос с неизвестным…
-    · ответ 409 — «Проверьте актуальность текста и голоса. Предыдущий запрос с…»
-- если !claimed.run
-  - return res.status(claimed.row.status === "READY" ? 200 : 409).json({ status: claimed.row.status, error: claim…
-    · ответ (код зависит от условия)
-- const result = await generateNarrationAudio({ script: claimed.row.script, voiceId: claimed.row.voiceId!, conf…
-  · зовёт generateNarrationAudio()
-- если result.status !== "READY"
-  - const saved = await prisma.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: "GENERA…
-    · меняет в базе: propertyNarrationVersion
-  - если !saved.count
-    - return res.status(409).json({ error: "Результат уже проверен руководством. Поздний ответ не изменил решение."…
-      · ответ 409 — «Результат уже проверен руководством. Поздний ответ не изменил решение.»
-  - return res.status(502).json({ status: result.status, error: "Озвучка не получена. Повтор не выполнялся; прове…
-    · ответ 502 — «Озвучка не получена. Повтор не выполнялся; проверьте результат в…»
-- пробует
-  - await localVideoUpload(storageKey, result.audio);
-    · зовёт localVideoUpload()
-  - const saved = await prisma.$transaction(async tx
-    · всё внутри — одной транзакцией
-    · обращается к базе своим SQL
-    · меняет в базе: propertyNarrationVersion
-    - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${p.id} FOR UPDATE`;
-      · обращается к базе своим SQL
-    - const changed = await tx.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: "GENERATI…
-      · меняет в базе: propertyNarrationVersion
-    - если changed.count
-      - return "READY";
-        · дословно из кода
-    - const retained = await tx.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id }, data: { storag…
-      · меняет в базе: propertyNarrationVersion
-  - если saved !== "READY"
-    - если saved === "REMOVED"
-      - await localVideoDelete(storageKey);
-        · зовёт localVideoDelete()
+- const outcome = await generateNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevisio…
+  · зовёт generateNarrationVersion()
+- смотря что в: outcome.status
+  - вариант case "REJECTED"
+    - return res.status(409).json({ error: "Проверьте актуальность текста и голоса. Предыдущий запрос с неизвестным…
+      · ответ 409 — «Проверьте актуальность текста и голоса. Предыдущий запрос с…»
+  - вариант case "BUDGET"
+    - return res.status(429).json({ error: "Дневной предел озвучки исчерпан. Его меняет руководство в настройках оз…
+      · ответ 429 — «Дневной предел озвучки исчерпан. Его меняет руководство в настройках…»
+  - вариант case "ALREADY"
+    - return res.status(outcome.current === "READY" ? 200 : 409).json({ status: outcome.current, error: outcome.cur…
+      · ответ (код зависит от условия)
+  - вариант case "FAILED"
+  - вариант case "UNKNOWN"
+    - если !outcome.recorded
+      - return res.status(409).json({ error: "Результат уже проверен руководством. Поздний ответ не изменил решение."…
+        · ответ 409 — «Результат уже проверен руководством. Поздний ответ не изменил решение.»
+    - return res.status(502).json({ status: outcome.status, error: "Озвучка не получена. Повтор не выполнялся; пров…
+      · ответ 502 — «Озвучка не получена. Повтор не выполнялся; проверьте результат в…»
+  - вариант case "LATE"
     - return res.status(409).json({ error: "Пришёл поздний результат генерации. Решение руководства сохранено; нова…
       · ответ 409 — «Пришёл поздний результат генерации. Решение руководства сохранено;…»
-- если сорвалось
-  - await prisma.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: "GENERATING", generat…
-    · меняет в базе: propertyNarrationVersion
-  - return res.status(503).json({ error: "Провайдер создал аудио, но сохранить его не удалось. Повторная генераци…
-    · ответ 503 — «Провайдер создал аудио, но сохранить его не удалось. Повторная…»
-- const afterGeneration = await prisma.property.findUnique({ where: { id: p.id }, select: { deletedAt: true } }…
-  · читает в базе: property
-- если !afterGeneration
-  - return res.status(409).json({ error: "Объект уже удалён. Озвучка недоступна." });
-    · ответ 409 — «Объект уже удалён. Озвучка недоступна.»
-- res.json({ status: "READY", propertyTrashed: !!afterGeneration.deletedAt, ...(afterGeneration.deletedAt ? { m…
-  · ответ 200
+  - вариант case "PERSIST_FAILED"
+    - return res.status(503).json({ error: "Провайдер создал аудио, но сохранить его не удалось. Повторная генераци…
+      · ответ 503 — «Провайдер создал аудио, но сохранить его не удалось. Повторная…»
+  - вариант case "GONE"
+    - return res.status(409).json({ error: "Объект уже удалён. Озвучка недоступна." });
+      · ответ 409 — «Объект уже удалён. Озвучка недоступна.»
+  - вариант case "READY"
+    - return res.json({ status: "READY", propertyTrashed: outcome.propertyTrashed, ...(outcome.propertyTrashed ? { …
+      · ответ 200
 
 ### POST /api/v1/properties/:id/narration/:versionId/handoff-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Передачу готовит маркетинг или руководство" });
@@ -10896,7 +10838,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/reconcile
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Результат проверяет руководство" });
@@ -10934,7 +10876,7 @@
 
 ### POST /api/v1/properties/:id/narration/deliveries/:deliveryId/queue
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -10981,7 +10923,7 @@
 
 ### POST /api/v1/properties/:id/narration/delivery-reconcile
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Сверку сохраняет руководство" });
@@ -11023,7 +10965,7 @@
 
 ### POST /api/v1/properties/:id/narration/owner-report-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11040,7 +10982,7 @@
 
 ### POST /api/v1/properties/:id/narration/owner-report-revoke
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11055,7 +10997,7 @@
 
 ### POST /api/v1/properties/:id/narration/publication-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11070,7 +11012,7 @@
 
 ### GET /api/v1/properties/:id/narration
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const facts = narrationFacts(p);
   · зовёт narrationFacts()
@@ -11095,7 +11037,7 @@
 
 ### POST /api/v1/properties/:id/narration
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если req.agent!.role === "EDITOR"
   - return res.status(403).json({ error: "Монтажёр получает подтверждённую озвучку" });
@@ -11108,6 +11050,20 @@
 - если parsed.data.voiceId && !config.voices.some((v) => v.id === parsed.data.voiceId)
   - return res.status(400).json({ error: "Выберите голос из настроек" });
     · ответ 400 — «Выберите голос из настроек»
+- если parsed.data.generate
+  - если !narrationAutoEnabled(config)
+    - return res.status(409).json({ error: "Автоозвучка выключена в настройках. Сохраните текст без генерации." });
+      · ответ 409 — «Автоозвучка выключена в настройках. Сохраните текст без генерации.»
+  - const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", scrip…
+    · зовёт requestAutoNarration()
+  - если outcome.status === "INVALID"
+    - return res.status(400).json({ error: outcome.error });
+      · ответ 400
+  - если outcome.status !== "QUEUED"
+    - return res.status(409).json({ error: outcome.status === "BUSY" ? "Предыдущая озвучка ещё готовится. Попробуйт…
+      · ответ 409
+  - return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true });
+    · ответ 201
 - const facts = narrationFacts(p);
   · зовёт narrationFacts()
 - const error = narrationScriptError(script);
@@ -13756,9 +13712,18 @@
 - res.json(response);
   · ответ 200
 
+### GET /api/v1/properties/narration-options
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- const view: NarrationOptionsView = { templates: config.templates ?? [], voices: config.voices.map((v)
+  · зовёт narrationAutoEnabled()
+- res.json(view);
+  · ответ 200
+
 ### GET /api/v1/properties/narration-settings
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
@@ -13768,16 +13733,28 @@
 
 ### PUT /api/v1/properties/narration-settings
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Голоса настраивает руководство" });
     · ответ 403 — «Голоса настраивает руководство»
-- const parsed = narrationConfigSchema.safeParse(req.body);
+- const patch = narrationConfigPatchSchema.safeParse(req.body);
+  · проверяет данные схемой narrationConfigPatchSchema
+- если !patch.success
+  - return res.status(400).json({ error: "Проверьте модель и список голосов", details: patch.error.flatten() });
+    · ответ 400 — «Проверьте модель и список голосов»
+- const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…
   · проверяет данные схемой narrationConfigSchema
 - если !parsed.success
   - return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
     · ответ 400 — «Проверьте модель и список голосов»
+- если modelProblem
+  - return res.status(400).json({ error: modelProblem });
+    · ответ 400
+- для каждого: const template of parsed.data.templates ?? []
+  - если problem
+    - return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
+      · ответ 400 — «Шаблон «${template.name}»: ${problem}»
 - await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig…
   · создаёт или меняет в базе: settings
 - res.json({ config: parsed.data, sendsEnabled: false });
@@ -22291,6 +22268,21 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### narration-auto-flow — * * * * *
+
+- await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval });
+  · зовёт runNarrationAutoFlow()
+  - const { config, key } = await loadNarrationConfiguration();
+    · зовёт loadNarrationConfiguration()
+  - если narrationAutoEnabled(config) && key && narrationProviderReady(config, key)
+    - report.drafted = await refreshNarrationDrafts(config, now);
+      · дословно из кода
+    - report.generated = await generateDueNarrations(config, key, now);
+      · дословно из кода
+  - если options.notifyAgent
+    - report.notified = await notifyReadyNarrations(options.notifyAgent);
+      · дословно из кода
 
 ### narration-version-delivery — * * * * *
 

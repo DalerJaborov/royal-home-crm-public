@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { NarrationConfig, PropertyNarrationView } from "@royal-home/shared";
+import { NARRATION_TAJIK_MODELS, type NarrationConfig, type NarrationTemplate, type PropertyNarrationView } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { PublicationMetadataReconcile, type MetadataAttemptSummary } from "./PublicationMetadataReconcile";
 
@@ -21,6 +21,8 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   const [deliveryChecked, setDeliveryChecked] = useState(false), [deliveryNote, setDeliveryNote] = useState("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null), [settingsOpen, setSettingsOpen] = useState(false);
   const [modelId, setModelId] = useState<string | null>(null), [voicesText, setVoicesText] = useState<string | null>(null);
+  const [autoGenerate, setAutoGenerate] = useState<boolean | null>(null), [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string }>({});
+  const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null);
   const [publicationRows, setPublicationRows] = useState<Array<MetadataAttemptSummary & { reason: string }>>([]);
   const draftKey = useRef(crypto.randomUUID());
   const latest = data?.versions[0];
@@ -54,17 +56,53 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
     {!data.configured && <p className="rounded-lg bg-amber-50 p-3 text-sm" role="status">Генерация пока недоступна. Руководству нужно настроить ключ ElevenLabs, модель и список голосов. Черновик можно сохранить сейчас.</p>}
     {data.canConfigure && settingsOpen && <fieldset className="space-y-2 rounded-lg border p-3"><legend>ElevenLabs · сохраняет директор или администратор</legend>
       {data.readiness && <p className="text-sm">Ключ: {data.readiness.apiKeyConfigured ? "настроен" : "не настроен"} · модель: {data.readiness.modelConfigured ? "выбрана" : "не выбрана"} · голосов: {data.readiness.voiceCount}</p>}
-      <label className="block text-sm">ID модели<input className="mt-1 w-full rounded border p-2" value={modelId ?? data.config.modelId} onChange={(e) => setModelId(e.target.value)} /></label>
-      <label className="block text-sm">Голоса: одна строка «ID | название»<textarea className="mt-1 min-h-24 w-full rounded border p-2" value={voicesText ?? data.config.voices.map((v) => `${v.id} | ${v.name}`).join("\n")} onChange={(e) => setVoicesText(e.target.value)} /></label>
+      <label className="block text-sm">Модель озвучки<select className="mt-1 w-full rounded border p-2" value={modelId ?? data.config.modelId} onChange={(e) => setModelId(e.target.value)}>
+        {!(modelId ?? data.config.modelId) && <option value="">Выберите модель</option>}
+        {NARRATION_TAJIK_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+        {(modelId ?? data.config.modelId) && !NARRATION_TAJIK_MODELS.some((m) => m.id === (modelId ?? data.config.modelId)) && <option value={modelId ?? data.config.modelId}>{modelId ?? data.config.modelId} (без таджикского)</option>}
+      </select></label>
+      <label className="block text-sm">Голоса: одна строка «ID | название | м или ж»<textarea className="mt-1 min-h-24 w-full rounded border p-2" value={voicesText ?? voiceLines(data.config)} onChange={(e) => setVoicesText(e.target.value)} /></label>
+      <label className="flex gap-2 text-sm"><input type="checkbox" checked={autoGenerate ?? !!data.config.autoGenerate} onChange={(e) => setAutoGenerate(e.target.checked)} />Автоозвучка: готовить аудио сразу после создания объекта и после правки его данных, агент одобряет сам</label>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <label className="block text-sm">Символов в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.chars ?? String(data.config.dailyCharLimit ?? 20000)} onChange={(e) => setLimitsText({ ...limitsText, chars: e.target.value })} /></label>
+        <label className="block text-sm">Озвучек в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.gens ?? String(data.config.dailyGenerationLimit ?? 40)} onChange={(e) => setLimitsText({ ...limitsText, gens: e.target.value })} /></label>
+        <label className="block text-sm">Пауза после правки, мин<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.pause ?? String(data.config.debounceMinutes ?? 3)} onChange={(e) => setLimitsText({ ...limitsText, pause: e.target.value })} /></label>
+      </div>
+      {data.budget && <p className="text-sm">Сегодня потрачено: {data.budget.usedChars} из {data.budget.dailyChars} символов, {data.budget.usedGenerations} из {data.budget.dailyGenerations} озвучек.</p>}
+      <fieldset className="space-y-2"><legend className="text-sm font-medium">Шаблоны текста</legend>
+        <p className="text-sm text-slate-600">Слова в фигурных скобках подставляются из объекта: {"{вид} {комнаты} {площадь} {этаж} {этаж_пор} {этажей} {район}"}. Квадратные скобки означают «если есть».</p>
+        {(templatesDraft ?? data.config.templates ?? []).map((t, i, all) => <div key={t.id} className="space-y-1 rounded border p-2">
+          <div className="flex flex-wrap gap-2"><input aria-label="Название шаблона" className="flex-1 rounded border p-2 text-sm" value={t.name} onChange={(e) => setTemplatesDraft(all.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+            <select aria-label="Язык шаблона" className="rounded border p-2 text-sm" value={t.lang} onChange={(e) => setTemplatesDraft(all.map((x, j) => j === i ? { ...x, lang: e.target.value as "tg" | "ru" } : x))}><option value="tg">по-таджикски</option><option value="ru">по-русски</option></select>
+            <button type="button" className="pill sm" onClick={() => setTemplatesDraft(all.filter((_, j) => j !== i))}>Убрать</button></div>
+          <textarea aria-label="Текст шаблона" rows={4} className="w-full rounded border p-2 text-sm" value={t.text} onChange={(e) => setTemplatesDraft(all.map((x, j) => j === i ? { ...x, text: e.target.value } : x))} />
+        </div>)}
+        <button type="button" className="pill sm" onClick={() => { const all = templatesDraft ?? data.config.templates ?? []; setTemplatesDraft([...all, { id: `t-${Date.now().toString(36)}`, name: "Новый шаблон", lang: "tg", text: "{вид} барои фурӯш. Масоҳаташ {площадь} метри мураббаъ." }]); }}>Добавить шаблон</button>
+      </fieldset>
       <p className="text-xs text-slate-600">Ключ ElevenLabs хранится в общих настройках CRM. Число голосов не ограничено двумя.</p>
       <label className="flex gap-2 text-sm"><input type="checkbox" checked={monthlyPreview ?? !!data.config.ownerReportPreviewEnabled} onChange={(e) => setMonthlyPreview(e.target.checked)} />Готовить черновик каждого месяца для уже согласованных отчётов. SMS не отправлять.</label>
       <button className="pill" type="button" disabled={busy || data.canDraft === false} onClick={() => void run(async () => {
-        const voices = (voicesText ?? data.config.voices.map((v) => `${v.id} | ${v.name}`).join("\n")).split("\n").filter((line) => line.trim()).map((line) => { const [id, ...name] = line.split("|"); return { id: id.trim(), name: name.join("|").trim() }; });
-        const config: NarrationConfig = { modelId: modelId ?? data.config.modelId, voices, ownerReportPreviewEnabled: monthlyPreview ?? !!data.config.ownerReportPreviewEnabled };
+        const voices = parseVoiceLines(voicesText ?? voiceLines(data.config));
+        const number = (text: string | undefined, fallback: number | undefined) => text === undefined ? fallback : Math.max(0, Math.round(Number(text) || 0));
+        const config: Partial<NarrationConfig> = { modelId: modelId ?? data.config.modelId, voices, ownerReportPreviewEnabled: monthlyPreview ?? !!data.config.ownerReportPreviewEnabled,
+          autoGenerate: autoGenerate ?? !!data.config.autoGenerate, dailyCharLimit: number(limitsText.chars, data.config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, data.config.dailyGenerationLimit),
+          debounceMinutes: number(limitsText.pause, data.config.debounceMinutes), ...(templatesDraft ? { templates: templatesDraft } : {}) };
         await api("/properties/narration-settings", { method: "PUT", body: config }); setMessage("Настройки сохранены. Провайдер не вызывался.");
       })}>Сохранить настройки</button></fieldset>}
     <label className="block text-sm">Текст диктора<textarea readOnly={data.canDraft === false} maxLength={5000} rows={7} className="mt-1 w-full rounded-lg border p-3" value={shownScript} onChange={(e) => { setScript(e.target.value); setConfirmed(false); }} /></label>
     <div className="flex flex-wrap items-center gap-3"><label className="text-sm">Голос <select disabled={data.canDraft === false} className="rounded border p-2" value={selectedVoice} onChange={(e) => { setVoiceId(e.target.value); setConfirmed(false); }}><option value="">Выберите голос</option>{data.config.voices.map((v) => <option value={v.id} key={v.id}>{v.name}</option>)}</select></label><span className="text-xs text-slate-500">{shownScript.length}/5000</span></div>
+    {data.canApproveAudio && latest && latest.source && latest.source !== "MANUAL" && <div className="space-y-2 rounded-lg border border-blue-200 p-3">
+      {latest.status === "DRAFT" && latest.generateAfter && <p className="text-sm" role="status">Озвучка готовится. Придёт вам на прослушивание здесь и в Шабнам.</p>}
+      {latest.status === "READY" && !latest.approvedAt && !latest.stale && <><p className="text-sm font-medium">Озвучка ждёт вашего одобрения</p>
+        <div className="flex flex-wrap gap-2"><button className="pill" type="button" disabled={busy} onClick={() => void run(async () => { const blob = await api<Blob>(`/properties/${propertyId}/narration/${latest.id}/audio`, { responseType: "blob" }); setAudioUrl(URL.createObjectURL(blob)); })}>Прослушать</button>
+          <button className="pill" type="button" disabled={busy || edited} onClick={() => void run(async () => { await api(`/properties/${propertyId}/narration/${latest.id}/approve`, { method: "POST", body: { expectedRevision: latest.revision, confirmed: true } }); setMessage("Озвучка одобрена. Монтажёр получит её вместе с заданием на ролик."); })}>Одобрить</button></div>
+        <p className="text-sm text-slate-600">Не нравится текст или голос: поправьте ниже и нажмите «Озвучить заново».</p></>}
+      {latest.status === "READY" && latest.approvedAt && <p className="text-sm">Одобрено. Монтажёр получает аудио вместе с заданием на ролик.</p>}
+      {data.autoGenerate && data.canDraft !== false && <button className="pill" type="button" disabled={busy || !edited} onClick={() => void run(async () => {
+        await api(`/properties/${propertyId}/narration`, { method: "POST", body: { expectedRevision: latest.revision, requestKey: draftKey.current, script: shownScript, generate: true, ...(selectedVoice ? { voiceId: selectedVoice } : {}) } });
+        draftKey.current = crypto.randomUUID(); setScript(null); setVoiceId(""); setMessage("Готовлю новую озвучку. Придёт на прослушивание через минуту-две.");
+      })}>Озвучить заново</button>}
+    </div>}
     {latest && <p className="text-sm">Версия {latest.revision} · {STATUS[latest.status] ?? latest.status}{latest.approvedAt ? " · текст подтверждён" : ""}{latest.stale ? " · факты объекта изменились, подготовьте новую версию" : ""}</p>}
     {data.canConfigure && data.versions.some(v => v.canReconcile) && <fieldset className="space-y-2 rounded-lg border border-amber-200 p-3"><legend>Проверка неизвестного результата</legend>
       <p className="text-sm">Проверьте историю ElevenLabs. Если пригодного аудио нет, зафиксируйте это здесь. Возможное списание сохраняется; автоматического повтора не будет. Для новой попытки понадобятся новая версия и отдельный платный запрос.</p>
@@ -106,7 +144,21 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
     {data.canConfigure && [...(data.deliveries ?? []).map(d => ({ ...d, kind: "NARRATION" })), ...(data.ownerReport?.deliveries ?? []).map(d => ({ ...d, kind: "OWNER_REPORT" }))].some(d => ["UNKNOWN", "SENDING"].includes(d.status)) && <fieldset className="space-y-2 rounded border p-3"><legend>Сверка неопределённой доставки</legend><p className="text-sm">Проверьте историю Telegram или SMS. Сверка сохраняет квитанции и не отменяет возможное списание. Используйте её только если пригодный результат не подтверждён.</p><label className="flex gap-2 text-sm"><input type="checkbox" checked={deliveryChecked} onChange={e => setDeliveryChecked(e.target.checked)} />Я проверил историю у провайдера</label><textarea className="w-full rounded border p-2" aria-label="Результат сверки доставки" value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} minLength={20} maxLength={2000} placeholder="Что проверено и что обнаружено (от 20 символов)" />
       {[...(data.deliveries ?? []).map(d => ({ ...d, kind: "NARRATION" })), ...(data.ownerReport?.deliveries ?? []).map(d => ({ ...d, kind: "OWNER_REPORT" }))].filter(d => ["UNKNOWN", "SENDING"].includes(d.status)).map(d => <button key={d.id} className="pill sm" disabled={busy || !deliveryChecked || deliveryNote.trim().length < 20} onClick={() => void run(async () => { const result = await api<{ message: string }>(`/properties/${propertyId}/narration/delivery-reconcile`, { method: "POST", body: { kind: d.kind, deliveryId: d.id, checkedProviderHistory: true, note: deliveryNote } }); setMessage(result.message); })}>Сохранить сверку {d.kind === "NARRATION" ? "передачи монтажёру" : "SMS"} · {d.id.slice(0, 8)}</button>)}
     </fieldset>}
-    <p className="text-xs text-slate-500">Предварительные планы сами не отправляются при включении сервера. Генерация аудио — отдельный платный запрос только по кнопке. Принятие сервисом не означает, что человек просмотрел материал.</p>
+    <p className="text-xs text-slate-500">Предварительные планы сами не отправляются при включении сервера. {data.autoGenerate ? "Автоозвучка включена: аудио готовится само в пределах дневного лимита." : "Генерация аудио — отдельный платный запрос только по кнопке."} Принятие сервисом не означает, что человек просмотрел материал.</p>
     {message && <p className="text-sm" role="status">{message}</p>}
   </section>;
+}
+
+function voiceLines(config: NarrationConfig): string {
+  return config.voices.map((v) => [v.id, v.name, v.gender === "male" ? "м" : v.gender === "female" ? "ж" : ""].filter(Boolean).join(" | ")).join("\n");
+}
+/** «ID | название | м/ж» в голоса настроек. Пол необязателен. */
+export function parseVoiceLines(text: string): NarrationConfig["voices"] {
+  return text.split("\n").filter((line) => line.trim()).map((line) => {
+    const parts = line.split("|").map((part) => part.trim());
+    const last = parts.length > 2 ? parts[parts.length - 1].toLowerCase() : "";
+    const gender = last === "м" || last === "муж" ? "male" as const : last === "ж" || last === "жен" ? "female" as const : undefined;
+    const name = (gender ? parts.slice(1, -1) : parts.slice(1)).join(" | ");
+    return { id: parts[0], name, ...(gender ? { gender } : {}) };
+  });
 }

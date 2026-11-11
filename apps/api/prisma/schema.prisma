@@ -2910,8 +2910,22 @@ model PropertyNarrationVersion {
   requestKey String @unique
   generationStartedAt DateTime?
   createdAt DateTime @default(now())
+  /// MANUAL — прежний путь маркетинга; WIZARD / AUTO / AGENT — автоозвучка (11.11.2026).
+  source String @default("MANUAL")
+  templateId String?
+  language String?
+  /// Автоозвучка: не раньше этого времени (пауза после последней правки). null — не ставить в очередь.
+  generateAfter DateTime?
+  generationAttempts Int @default(0)
+  /// Агенту ушло одно сообщение «прослушайте и одобрите»; повторов нет.
+  approvalNotifiedAt DateTime?
+  approvalChatId String?
+  /// Агент нажал «Править текст» в Шабнам: следующий его текст в течение 15 минут — новый текст озвучки.
+  editRequestedAt DateTime?
   deliveries PropertyNarrationDelivery[]
   @@unique([propertyId, revision])
+  @@index([status, generateAfter])
+  @@index([approvalChatId, editRequestedAt])
 }
 
 model PropertyNarrationDelivery {

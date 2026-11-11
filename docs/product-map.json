@@ -969,9 +969,9 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 125,
+      "endpoints": 126,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 31
+      "usedBy": 32
     },
     {
       "mount": "/api/v1/clients",
@@ -1884,6 +1884,11 @@
       "label": "Утренний дайджест директорам"
     },
     {
+      "id": "narration-auto-flow",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
       "id": "narration-version-delivery",
       "expr": "* * * * *",
       "label": null
@@ -2287,7 +2292,7 @@
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 17
+      "files": 18
     },
     {
       "name": "Телефония FreePBX / Asterisk",
