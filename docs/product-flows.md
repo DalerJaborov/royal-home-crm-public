@@ -21855,6 +21855,10 @@
   - isOrphanSweepRunning = false;
     · дословно из кода
 
+### live-voice-spend-ceiling — undefined
+
+- тело без развилок и известных действий
+
 ### log-cleanup — 0 3 * * *
 
 - пробует

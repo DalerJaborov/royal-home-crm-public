@@ -17,7 +17,7 @@
 import { pathToFileURL } from "node:url";
 import { ensureTools } from "./patch-check.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
-import { openPaidBudget } from "./paid-guard.mjs";
+import { APPROVAL_ENV, openPaidBudget } from "./paid-guard.mjs";
 import { baseUrl, describeFailure, formatRationale, looksGeoBlocked, makeClient, makePrinter, parseArgv, reportDir, stampNow, writeReport } from "./lib.mjs";
 
 const MAX_TURNS = 24;
@@ -161,6 +161,7 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
     }
     out("\nПроверки кодом везде: нет «лутфан», агент заговорил, нужная функция вызвана с полными полями.");
     out(`Переменные: ELEVENLABS_API_KEY ${apiKey ? "задан" : "НЕ ЗАДАН"}, ELEVENLABS_TEST_AGENT_ID ${testId ? "задан" : "НЕ ЗАДАН"}.`);
+    out(`Платный запуск закрыт замком: нужен --budget-credits=N и ${APPROVAL_ENV}=1 в оболочке (ставит только владелец).`);
     return { failed: 0, results: [] };
   }
 

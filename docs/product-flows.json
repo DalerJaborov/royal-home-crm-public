@@ -4,7 +4,7 @@
   "endpoints": 737,
   "forks": 3933,
   "mounts": 82,
-  "cron": 125,
+  "cron": 126,
   "jobs": 32,
   "hidden": 0
  },
@@ -97405,6 +97405,11 @@
      ]
     }
    ],
+   "file": "apps/api/src/lib/telephony/liveVoiceScenarioTicks.ts"
+  },
+  {
+   "id": "live-voice-spend-ceiling",
+   "tree": [],
    "file": "apps/api/src/lib/telephony/liveVoiceScenarioTicks.ts"
   },
   {

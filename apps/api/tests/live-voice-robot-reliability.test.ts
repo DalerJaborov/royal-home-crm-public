@@ -317,6 +317,55 @@ describe("сторож тишины", () => {
 });
 
 /**
+ * ПОТОЛОК ОДНОГО ЗВОНКА (П5, 11.11.2026, владелец: «чтобы … звонков вдруг не отключиться и
+ * у нас деньги пойдут в минус»). Сторож тишины выше закрывает молчащую линию; здесь — линия,
+ * где говорят без конца, а отбоя (BYE/StasisEnd) нет: звук идёт, реплики идут, модель
+ * отвечает. Закрыть такой звонок может только потолок длительности LIVE_VOICE_MAX_SESSION_MS
+ * (15 минут, liveVoiceBridge.ts; то же число — потолок учёта минут, liveVoiceSpend).
+ * До этого теста потолок не проверялся ни одним тестом.
+ */
+describe("потолок длительности одного звонка", () => {
+  const MAX_SESSION_MS = 15 * 60_000;
+
+  it("разговор без отбоя идёт 15 минут — сессия закрывается сама (max_duration), линия свободна", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const channelId = nextChannel("endless");
+    let client: (typeof gem.clients)[number] | undefined;
+    try {
+      const started = onLiveVoiceAriEvent(stasisStart(channelId) as never);
+      for (let i = 0; i < 50 && !gem.clients.at(-1)?.connected; i++) await vi.advanceTimersByTimeAsync(100);
+      await started;
+      client = gem.clients.at(-1)!;
+      expect(liveVoiceLineBusy()).toBe(true);
+      client.emit("turnComplete");
+      // Каждые 2 с — кадр звука со станции (сторож пропажи звука ждёт 3 с), каждые 10 с —
+      // реплика человека и ответ модели (сторожа тишины и «модель молчит» не срабатывают).
+      for (let t = 0; t <= MAX_SESSION_MS + 30_000 && liveVoiceLineBusy(); t += 2_000) {
+        await sendCallerSecond();
+        if (t % 10_000 === 0) {
+          client.emit("transcript", { role: "user", text: `Расскажите ещё про квартиру, вопрос ${t / 10_000}` });
+          client.emit("transcript", { role: "model", text: "Да, конечно, рассказываю." });
+          client.emit("turnComplete");
+        }
+        await vi.advanceTimersByTimeAsync(2_000);
+        // До потолка звонок жив: его не закрыл ни один другой сторож.
+        if (t + 2_000 < MAX_SESSION_MS - 5_000) expect(liveVoiceLineBusy(), `закрыт раньше потолка на ${t} мс`).toBe(true);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(logged.messages.some((m) => m.includes(channelId) && /потолку длительности \(15 мин\)/.test(m))).toBe(true);
+    const row = await waitFor(
+      () => prisma.liveVoiceSession.findFirst({ where: { channelId, endedAt: { not: null } } }),
+      { label: "сессия закрыта по потолку" }
+    );
+    expect(row.endedReason).toBe("max_duration");
+    expect(client?.closed).toBe(true);
+    expect(liveVoiceLineBusy()).toBe(false);
+  });
+});
+
+/**
  * МЁРТВЫЙ ПУТЬ ЗВУКА (02.10.2026, живая проба Dan): тоннель звука станция→CRM
  * умер 28.09, команды станции ходили другим путём — робот брал трубку и говорил
  * в тишину пять дней. Ни одного кадра со станции — звонок назад станции и пауза.

@@ -1,5 +1,6 @@
 import {
   ROBOT_CALL_DAILY_MAX_DEFAULT,
+  ROBOT_CALL_DAILY_SESSIONS_FUSE,
   ROBOT_CALL_DEFER_CODES,
   ROBOT_CALL_WEEKLY_MAX_DEFAULT,
   robotCallLimitOrDefault,
@@ -16,6 +17,7 @@ import {
 import { prisma } from "../db.js";
 import { clientLinesOf, looksLikeVoicemail } from "../ai/scenarioTranscript.js";
 import { dushanbeDayRange } from "./dushanbeTime.js";
+import { refreshLiveVoiceSpend } from "./liveVoiceSpend.js";
 import { logSystemError } from "./systemError.js";
 import { normalizeDialNumber } from "./telephony/ariClient.js";
 import { NO_STATION_AUDIO_REASON } from "./telephony/liveVoiceAudioPath.js";
@@ -38,11 +40,14 @@ import { isNumberBlocked } from "./telephony/stationBlacklist.js";
  *  1. номер вообще набирается;
  *  2. часы 09:00–19:00 по Душанбе, общие выходные (Settings.companyDaysOff) и праздники
  *     (Settings.companyHolidays) — кроме проверочного звонка из Настроек;
+ *  2а. потолок минут робота за сутки и месяц (П5, lib/liveVoiceSpend.ts) — кроме
+ *     проверочного звонка;
  *  3. отметка «Не звонить роботом» (модель RobotCallStop) — по номеру в девяти цифрах
  *     и по карточке клиента;
  *  4. «не беспокойте» в переписке (BotConversation.optedOutAt);
  *  5. частота на номер: разговоров робота за сутки по Душанбе и за семь суток — по всем
  *     видам вместе (Settings.robotCallDailyMaxPerNumber / robotCallWeeklyMaxPerNumber),
+ *     и предохранитель поднятых звонков на номер за сутки (ROBOT_CALL_DAILY_SESSIONS_FUSE) —
  *     кроме проверочного звонка;
  *  6. чёрный список станции (Asterisk, семейство blacklist) — последним, он самый
  *     медленный (AMI, до трёх секунд).
@@ -401,20 +406,28 @@ export function robotSessionCountsAsConversation(
   return true;
 }
 
-/** Состоявшиеся разговоры робота на этот номер (исходящие) с момента `since`. */
-async function outboundConversationsSince(phoneKey: string, since: Date, now: Date): Promise<Date[]> {
+/**
+ * Поднятые звонки робота на этот номер (исходящие) с момента `since`: все сессии — для
+ * предохранителя наборов — и из них состоявшиеся разговоры — для частоты.
+ */
+async function outboundSessionsSince(phoneKey: string, since: Date, now: Date): Promise<{ all: Date[]; conversations: Date[] }> {
   const rows = await prisma.liveVoiceSession.findMany({
     where: { direction: "outbound", callerNumber: phoneKey, startedAt: { gte: since } },
     select: { startedAt: true, endedAt: true, endedReason: true, transcript: true },
     orderBy: { startedAt: "asc" },
     take: 50,
   });
-  return rows.filter((r) => robotSessionCountsAsConversation(r, now)).map((r) => r.startedAt);
+  return {
+    all: rows.map((r) => r.startedAt),
+    conversations: rows.filter((r) => robotSessionCountsAsConversation(r, now)).map((r) => r.startedAt),
+  };
 }
 
 /**
  * Частота на номер: считаются только состоявшиеся разговоры
- * (robotSessionCountsAsConversation). Недозвон частоту не тратит.
+ * (robotSessionCountsAsConversation). Недозвон частоту не тратит. Отдельно — предохранитель
+ * ROBOT_CALL_DAILY_SESSIONS_FUSE: поднятых звонков с любым итогом (автоответчик, наш сбой)
+ * на номер за сутки не больше стольких, и для приглашения кандидата тоже (П5, 11.11.2026).
  */
 async function frequencyRefusal(
   phoneKey: string,
@@ -424,7 +437,10 @@ async function frequencyRefusal(
 ): Promise<Extract<RobotCallDecision, { allowed: false }> | null> {
   const today = dushanbeDayRange(now);
   const weekStart = new Date(today.start.getTime() - (WEEK_DAYS - 1) * DAY_MS);
-  const sessions = await outboundConversationsSince(phoneKey, weekStart, now);
+  const { all, conversations: sessions } = await outboundSessionsSince(phoneKey, weekStart, now);
+  if (all.filter((at) => at.getTime() >= today.start.getTime()).length >= ROBOT_CALL_DAILY_SESSIONS_FUSE) {
+    return refuse("daily_sessions_fuse", nextRobotCallWindowStart(today.end, settings.calendar));
+  }
   const todayCount = sessions.filter((at) => at.getTime() >= today.start.getTime()).length;
   if (purpose !== "interview_invite" && todayCount >= settings.dailyMax) {
     return refuse("daily_limit", nextRobotCallWindowStart(today.end, settings.calendar));
@@ -435,6 +451,17 @@ async function frequencyRefusal(
     return refuse("weekly_limit", nextRobotCallWindowStart(new Date(oldest.getTime() + WEEK_DAYS * DAY_MS), settings.calendar), settings);
   }
   return null;
+}
+
+/**
+ * Потолок минут робота (lib/liveVoiceSpend.ts): дошли — «перенести» до начала окна звонков
+ * после конца суток или месяца. Чтение заодно обновляет удержание входящих и ставит
+ * тревоги директору. Сбой базы бросает — дверь отвечает «попробуйте позже».
+ */
+async function spendCapRefusal(now: Date, calendar: RobotCallCalendar): Promise<Extract<RobotCallDecision, { allowed: false }> | null> {
+  const reading = await refreshLiveVoiceSpend(now);
+  if (!reading.held || !reading.retryAt) return null;
+  return refuse(reading.held === "month" ? "minutes_cap_month" : "minutes_cap_day", nextRobotCallWindowStart(reading.retryAt, calendar));
 }
 
 /**
@@ -450,6 +477,9 @@ export async function robotCallAllowed(target: RobotCallTarget): Promise<RobotCa
     if (target.kind !== "test") {
       const window = robotCallWindowRefusal(now, settings.calendar);
       if (window) return refuse(window, nextRobotCallWindowStart(now, settings.calendar));
+      // П5: потолок минут робота за сутки/месяц — общий на все номера, поэтому до проверок номера.
+      const spend = await spendCapRefusal(now, settings.calendar);
+      if (spend) return spend;
     }
     const stored = await storedStopReason(target);
     if (stored) return refuse(stored);

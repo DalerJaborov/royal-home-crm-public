@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
 import { logSystemError } from "../lib/systemError.js";
+import { liveVoiceSpendCapHeld } from "../lib/liveVoiceSpendHold.js";
 import { LiveVoiceClient } from "./liveVoiceClient.js";
 import { ElevenLabsVoiceClient, fetchElevenLabsSignedUrl } from "./elevenLabsVoiceClient.js";
 import { elevenLabsRequest } from "./elevenLabsAgentSync.js";
@@ -169,9 +170,16 @@ let quotaRecheckTimer: ReturnType<typeof setTimeout> | null = null;
 /** Чем перепроверять: ключ последнего звонка, получившего «нет минут». */
 let quotaRecheckKey: string | null = null;
 
-/** Кредиты ElevenLabs кончились — робозвонок остановлен, пока перепроверка не скажет иное. */
-export function elevenLabsQuotaExhausted(_now: number = Date.now()): boolean {
-  return elevenLabsQuotaMarked;
+/**
+ * Кредиты ElevenLabs кончились — робозвонок остановлен, пока перепроверка не скажет иное.
+ * П5 (11.11.2026): или наш потолок минут робота за сутки/месяц (lib/liveVoiceSpend.ts) —
+ * та же дверь «у ElevenLabs нет минут»: мост по ней не берёт входящий и не набирает
+ * исходящий, второй проверки в мосте нет. Удачный разговор, перепроверка остатка и правка
+ * ключа снимают только отметку «кредиты кончились», потолок — нет: он гаснет сам в конце
+ * периода или когда владелец поднимет его в Настройках.
+ */
+export function elevenLabsQuotaExhausted(now: number = Date.now()): boolean {
+  return elevenLabsQuotaMarked || liveVoiceSpendCapHeld(now);
 }
 
 function scheduleQuotaRecheck(): void {
