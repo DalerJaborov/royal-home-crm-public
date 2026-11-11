@@ -4,7 +4,6 @@
 import { register } from "tsx/esm/api";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { CLIENT_CARD_CALL_TOOLS } from "./client-call-tools.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const src = (rel) => pathToFileURL(path.join(ROOT, "apps", "api", "src", rel)).href;
@@ -60,7 +59,7 @@ export async function loadCrmCallKinds() {
     voiceGender: "female",
   };
   // Настоящий исходящий звонок клиенту по кнопке в карточке: замок «только русский» в базе по умолчанию выключен
-  // (Settings.liveVoiceForceRussianOnly = false), функции — только LIVE_VOICE_TOOLS моста (client-call-tools.mjs).
+  // (Settings.liveVoiceForceRussianOnly = false), функции — только LIVE_VOICE_TOOLS моста (save_contact, escalate_to_human, end_call).
   const cardPrompt = (propertyDescription) =>
     persona.buildLiveVoiceSystemPrompt({ clientName: "Зарина", propertyDescription }, { forceRussianOnly: false });
   return [
@@ -70,7 +69,7 @@ export async function loadCrmCallKinds() {
       language: "ru",
       prompt: cardPrompt("2-комнатная квартира, Сино, 62 кв. м"),
       greeting: "(Собеседник снял трубку. Поздоровайся и представься.)",
-      tools: CLIENT_CARD_CALL_TOOLS,
+      tools: LIVE_VOICE_TOOLS,
       expectsTool: "end_call",
     },
     {
@@ -79,7 +78,7 @@ export async function loadCrmCallKinds() {
       language: "ru",
       prompt: cardPrompt(null),
       greeting: "(Собеседник снял трубку. Поздоровайся и представься.)",
-      tools: CLIENT_CARD_CALL_TOOLS,
+      tools: LIVE_VOICE_TOOLS,
       expectsTool: "end_call",
     },
     {

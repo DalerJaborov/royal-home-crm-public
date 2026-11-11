@@ -501,14 +501,12 @@ test("load-env: значение из .env перекрывает устарев
 });
 
 // ── звонки клиентам из карточки: свой набор сценариев (--scenarios), expectAnyTool, forbidText ──
-import { CLIENT_CARD_CALL_TOOLS } from "./client-call-tools.mjs";
-
-test("client-call-tools: описания функций совпадают с LIVE_VOICE_TOOLS моста (копия не разъехалась)", () => {
-  const bridge = readFileSync(path.join(HERE, "..", "..", "apps", "api", "src", "lib", "telephony", "liveVoiceBridge.ts"), "utf8");
-  assert.deepEqual(CLIENT_CARD_CALL_TOOLS.map((t) => t.name), ["save_contact", "escalate_to_human", "end_call"]);
-  for (const t of CLIENT_CARD_CALL_TOOLS) {
-    assert.ok(bridge.includes(t.description), `описание ${t.name} не найдено в liveVoiceBridge.ts`);
-    for (const p of Object.values(t.parameters.properties)) assert.ok(bridge.includes(p.description), `описание поля ${t.name} не найдено в мосте`);
+test("client-card: функции звонка из карточки — LIVE_VOICE_TOOLS моста (save_contact, escalate_to_human, end_call), без функций консультанта", async () => {
+  const kinds = await loadCrmCallKinds();
+  for (const k of ["client-card", "client-card-open"]) {
+    const kind = kinds.find((x) => x.kind === k);
+    assert.deepEqual(kind.tools.map((t) => t.name), ["save_contact", "escalate_to_human", "end_call"]);
+    assert.ok(!/ГОВОРИ ТОЛЬКО ПО-РУССКИ/.test(kind.prompt), "боевой промпт без замка на русский");
   }
 });
 
