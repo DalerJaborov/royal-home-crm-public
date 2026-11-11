@@ -22,6 +22,8 @@ const MAX_TURNS = 24;
 const POLL_MS = 5_000;
 const POLL_LIMIT_MS = 8 * 60_000;
 const LUTFAN = /лутфан|lutfan/i;
+/** Функции, которые в живом звонке кладут трубку. */
+const HANGUP_TOOLS = new Set(["end_call", "escalate_to_human"]);
 /** Прощание агента: по нему отличаем «агент не положил трубку» от «симуляция оборвалась на вопросе». */
 const GOODBYE = /до свидания|всего доброго|хорошего дня|удачи|хайр|худо ҳофиз|хуш омед|ташаккур|рӯзатон бахайр/i;
 /** Добавка к роли собеседника: без неё модель-собеседник заканчивает разговор раньше прощания агента. */
@@ -69,7 +71,11 @@ export function evaluateTranscript(scenario, transcript) {
     if (calls.some((c) => c.name === bad)) failures.push(`агент вызвал запрещённую функцию ${bad}`);
   }
   // Запрещённые слова в речи агента (сценарий: forbidText: [{ re, why }]) — детерминированно, без судьи.
-  for (const f of scenario.forbidText ?? []) if (agentText.some((m) => f.re.test(m))) failures.push(`в речи агента: ${f.why}`);
+  // Только то, что агент успел сказать ДО отбоя: в живом звонке end_call/escalate_to_human кладут трубку, а подставной ответ
+  // функции в симуляции разговор не прерывает, и собеседник-модель продолжает говорить с уже «отбитой» линией.
+  const hangupAt = (transcript ?? []).findIndex((t) => t.role === "agent" && (t.tool_calls ?? []).some((c) => HANGUP_TOOLS.has(c.tool_name)));
+  const spoken = (hangupAt >= 0 ? (transcript ?? []).slice(0, hangupAt + 1) : transcript ?? []).filter((t) => t.role === "agent" && t.message).map((t) => t.message);
+  for (const f of scenario.forbidText ?? []) if (spoken.some((m) => f.re.test(m))) failures.push(`в речи агента: ${f.why}`);
   // Годится любая из перечисленных функций (сценарий: expectAnyTool: ["end_call", "escalate_to_human"]).
   const anyOf = scenario.expectAnyTool;
   if (anyOf && !calls.some((c) => anyOf.includes(c.name))) failures.push(`разговор не дошёл ни до одной из функций ${anyOf.join("/")} (вызваны: ${calls.map((c) => c.name).join(", ") || "никакие"})`);

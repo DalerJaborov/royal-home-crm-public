@@ -566,3 +566,11 @@ test("scenarios-clients-extra: в регулярках forbidText нет \w и \
   // Нарочная поломка: сам сторож должен краснеть на плохой регулярке.
   assert.ok(/\\[wb]/.test(/скидк\w+/.source));
 });
+
+test("evaluateTranscript: forbidText смотрит только на речь ДО end_call (после отбоя симуляция продолжает говорить)", () => {
+  const sc = { id: "t", expectAnyTool: ["end_call"], forbidText: [{ re: /Сино/, why: "раскрыл объект" }] };
+  const after = evaluateTranscript(sc, [agentTurn("Простите, ошибся номером. До свидания."), agentTurn("", [["end_call", {}]]), agentTurn("Звонил по поводу квартиры в Сино.")]);
+  assert.deepEqual(after.failures, [], "реплика после end_call не считается");
+  const before = evaluateTranscript(sc, [agentTurn("Звоню по поводу квартиры в Сино."), agentTurn("", [["end_call", {}]])]);
+  assert.ok(before.failures.some((f) => /раскрыл объект/.test(f)));
+});
