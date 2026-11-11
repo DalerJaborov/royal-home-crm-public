@@ -152,6 +152,18 @@ export async function loadCrmCallKinds() {
       tools: probe.SELLER_PROBE_CALL_TOOLS,
       expectsTool: "end_call",
     },
+    {
+      // Проверка собственника НЕ после показа (sourceKind != POST_SHOWING): промпт зашит строкой в lib/sellerProbeCall.ts
+      // (runSellerProbeCall, ветка newSource) — копия дословно; при смене текста там обновить здесь.
+      kind: "seller-probe-new",
+      label: "Проверка собственника, новый источник (короткий промпт из sellerProbeCall.ts)",
+      language: "ru",
+      prompt:
+        "Вы сотрудник Royal Home. Честно скажите, что уточняете данные квартиры «2-комнатная квартира в Сино». Спросите, является ли собеседник собственником, продаётся ли квартира, или планы изменились. Не утверждайте, что реклама сейчас идёт или что показ был. Не обвиняйте, не обещайте автоматического снятия. При просьбе не звонить закончите разговор. Используйте инструмент завершения разговора.",
+      greeting: probe.SELLER_PROBE_CALL_GREETING_TRIGGER,
+      tools: probe.SELLER_PROBE_CALL_TOOLS,
+      expectsTool: "end_call",
+    },
     // ── Звонок помощника кандидату из карточки отклика (lib/recruitmentCommunications.ts, ASSISTANT_CALL) ──
     // Свой промпт (recruitmentCommunicationContent.ts), не тот, что у «приглашения» выше. Данные вакансии
     // здесь условные: в боевом вызове их отдаёт каталог вакансий, а не вымысел скрипта.
