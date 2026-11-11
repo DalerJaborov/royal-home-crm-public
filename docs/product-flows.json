@@ -4546,14 +4546,14 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json(await listStaffDirectory(req.agent!));",
+     "t": "res.json( await listStaffDirectory(req.agent!, { includeFormer: wantsFormerStaff(req.query[INCLUDE_FORMER_STA…",
      "a": [
       "ответ 200"
      ],
      "c": [
       {
        "k": "do",
-       "t": "const agents = await prisma.agent.findMany({ select: isAdmin ? ADMIN_DIRECTORY_SELECT : PEER_DIRECTORY_SELECT…",
+       "t": "const agents = await prisma.agent.findMany({ ...(includeFormer ? {} : { where: { isActive: true } }), select:…",
        "a": [
         "читает в базе: agent"
        ],
@@ -74924,7 +74924,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true },…",
+     "t": "const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, selec…",
      "a": [
       "читает в базе: agent"
      ],
@@ -75036,7 +75036,7 @@
     },
     {
      "k": "do",
-     "t": "const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true, f…",
+     "t": "const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, ...(can(req, \"agents.ma…",
      "a": [
       "читает в базе: agent"
      ],
