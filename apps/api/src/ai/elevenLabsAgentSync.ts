@@ -160,12 +160,11 @@ export function toElevenLabsClientTool(decl: LiveVoiceFunctionDeclaration): Reco
  * enum null / [] — то же, что нет enum; порядок свойств и required не важен.
  *
  * Поля поведения, которых мы НЕ шлём (прерывания, речь перед вызовом, звук,
- * подстановки), входят в содержимое со значением сервиса по умолчанию (ниже,
- * замер 11.11): функция с тем же именем и описанием, но поправленная в кабинете
- * (например, disable_interruptions: true или постоянное значение параметра), — не
- * наша, и её поведение звонку не достаётся. Сменит сервис умолчание — повторная
- * подготовка заведёт новые функции; это ловит `voice:patch-check` («повторная
- * подготовка не заводит новых»).
+ * подстановки), в КЛЮЧ НЕ входят (повторное ревью 11.11.2026): их умолчания известны
+ * из одного замера, и смени ElevenLabs умолчание — каждая подготовка заводила бы новые
+ * функции. Вместо этого они только РАНЖИРУЮТ совпавшие по ключу функции
+ * (hasDefaultToolBehavior): из нескольких одинаковых по нашим полям берётся та, что не
+ * поправлена в кабинете; новой из-за них не заводится никогда.
  */
 const TOOL_BEHAVIOR_DEFAULTS: Readonly<Record<string, unknown>> = {
   disable_interruptions: false,
@@ -191,11 +190,22 @@ const PARAM_BEHAVIOR_DEFAULTS: Readonly<Record<string, unknown>> = {
 /** Поля объекта parameters целиком. */
 const PARAMS_OBJECT_DEFAULTS: Readonly<Record<string, unknown>> = { description: "", dynamic_variable: "", is_omitted: false };
 
-/** Значение поля, а если его нет — умолчание сервиса. */
-function behaviorFields(src: Json, defaults: Readonly<Record<string, unknown>>): Json {
-  const out: Json = {};
-  for (const [k, def] of Object.entries(defaults)) out[k] = src[k] === undefined ? def : src[k];
-  return out;
+/** Поля нет или оно равно умолчанию замера 11.11 (сравнение по JSON). */
+function onlyDefaults(src: Json, defaults: Readonly<Record<string, unknown>>): boolean {
+  return Object.entries(defaults).every(([k, def]) => src[k] === undefined || JSON.stringify(src[k]) === JSON.stringify(def));
+}
+
+/** Функция не поправлена в кабинете: поля поведения — умолчания (или их нет). Только для выбора
+ *  среди совпавших по ключу, в ключ не входит. */
+export function hasDefaultToolBehavior(cfg: unknown): boolean {
+  if (!isObj(cfg)) return false;
+  const params = isObj(cfg.parameters) ? cfg.parameters : {};
+  const props = isObj(params.properties) ? params.properties : {};
+  return (
+    onlyDefaults(cfg, TOOL_BEHAVIOR_DEFAULTS) &&
+    onlyDefaults(params, PARAMS_OBJECT_DEFAULTS) &&
+    Object.values(props).every((p) => !isObj(p) || onlyDefaults(p, PARAM_BEHAVIOR_DEFAULTS))
+  );
 }
 
 export function canonicalClientToolContent(cfg: unknown): Json | null {
@@ -210,7 +220,6 @@ export function canonicalClientToolContent(cfg: unknown): Json | null {
       type: typeof p.type === "string" ? p.type.toLowerCase() : null,
       description: typeof p.description === "string" ? p.description : "",
       ...(values.length > 0 ? { enum: values } : {}),
-      ...behaviorFields(p, PARAM_BEHAVIOR_DEFAULTS),
     };
   }
   const required = Array.isArray(params.required) ? [...new Set(params.required.filter(str))].sort() : [];
@@ -218,10 +227,9 @@ export function canonicalClientToolContent(cfg: unknown): Json | null {
     type: "client",
     name: cfg.name,
     description: typeof cfg.description === "string" ? cfg.description : "",
-    parameters: { properties, required, ...behaviorFields(params, PARAMS_OBJECT_DEFAULTS) },
+    parameters: { properties, required },
     expects_response: cfg.expects_response === true,
     response_timeout_secs: typeof cfg.response_timeout_secs === "number" ? cfg.response_timeout_secs : null,
-    ...behaviorFields(cfg, TOOL_BEHAVIOR_DEFAULTS),
   };
 }
 
@@ -483,6 +491,10 @@ interface ElevenLabsToolRow {
   tool_config?: unknown;
 }
 
+/** Больше стольких новых функций за одну подготовку — тревога (сравнение разошлось с сервисом).
+ *  Самый большой набор звонка — ~14 функций; после правки описаний новых — единицы. */
+export const ELEVENLABS_TOOLS_CREATED_ALARM = 5;
+
 /** Страниц списка функций не больше этого (по 100 — потолок page_size, замер 11.11: 101 → 422). */
 const TOOL_LIST_MAX_PAGES = 10;
 
@@ -543,20 +555,37 @@ async function ensureElevenLabsTools(
   const dup = names.find((n, i) => names.indexOf(n) !== i);
   // Внутри одного звонка имя — ключ ответа (ids по имени) и имя вызова: двойник потерялся бы молча.
   if (dup) throw new ElevenLabsHttpError(`ElevenLabs: в наборе функций звонка имя ${dup} повторяется`, null);
-  const byContent = new Map<string, string>();
+  // Среди одинаковых по ключу: не поправленная в кабинете важнее, прикреплённая к агенту — ещё важнее.
+  const rank = (id: string, cfg: unknown) => (hasDefaultToolBehavior(cfg) ? 2 : 0) + (attachedIds.has(id) ? 1 : 0);
+  const byContent = new Map<string, { id: string; rank: number }>();
   for (const row of await listElevenLabsClientTools(apiKey)) {
     const key = row.id ? elevenLabsToolContentKey(row.tool_config) : null;
     if (!key || !row.id) continue;
-    if (!byContent.has(key) || (attachedIds.has(row.id) && !attachedIds.has(byContent.get(key)!))) byContent.set(key, row.id);
+    const r = rank(row.id, row.tool_config);
+    const prev = byContent.get(key);
+    if (!prev || r > prev.rank) byContent.set(key, { id: row.id, rank: r });
   }
   const ids = new Map<string, string>();
+  let created = 0;
   await Promise.all(
     tools.map(async (decl) => {
       const tool_config = toElevenLabsClientTool(decl);
       const key = elevenLabsToolContentKey(tool_config)!;
-      ids.set(decl.name, byContent.get(key) ?? (await createToolOnce(apiKey, key, tool_config, decl.name)));
+      const found = byContent.get(key)?.id;
+      if (found) return void ids.set(decl.name, found);
+      created++;
+      ids.set(decl.name, await createToolOnce(apiKey, key, tool_config, decl.name));
     })
   );
+  if (created > ELEVENLABS_TOOLS_CREATED_ALARM) {
+    void logSystemError(
+      "telephony",
+      `Живой голос (ElevenLabs): за одну подготовку заведено ${created} новых функций. Если описания функций в коде не ` +
+        "менялись, сервис, похоже, хранит функции иначе, чем CRM их сравнивает, — функции будут копиться с каждым " +
+        "перезапуском. Проверить: npm run voice:patch-check («повторная подготовка не заводит новых»).",
+      { dedupKey: "elevenlabs-tools-created-many" }
+    );
+  }
   return ids;
 }
 
@@ -630,6 +659,10 @@ async function syncElevenLabsAgentNow(
     outcome = { ids, tuned: false, tuningError: detail };
   }
   await assertToolIdsAttached(apiKey, agentPath, ids);
+  // Функции у агента — подмена снова разрешена (кнопка «Проверить агента» снимает паузу сразу).
+  // Счётчик 1008 не сбрасывается: иначе 1008 → переподготовка → 1008 шли бы по кругу на каждом звонке,
+  // и паузы не случалось бы никогда.
+  if (ids.size > 0) toolOverridePausedUntil.delete(agentId);
   return outcome;
 }
 
@@ -687,6 +720,22 @@ export function noteElevenLabsToolsNotAttached(agentId: string): "resync" | "pau
     { dedupKey: "elevenlabs-tools-not-attached" }
   );
   return "resync";
+}
+
+/**
+ * Снять паузу подмены функций (повторное ревью 11.11.2026): сама — после удачной сверки
+ * tool_ids в подготовке (кнопка «Проверить агента», о которой говорит тревога); снаружи —
+ * из общего сброса удержаний живого голоса (П1: resetLiveVoiceProviderHolds при своде).
+ * Без agentId — для всех агентов.
+ */
+export function clearElevenLabsToolOverridePause(agentId?: string): void {
+  if (agentId === undefined) {
+    toolOverridePausedUntil.clear();
+    toolsNotAttachedAt.clear();
+    return;
+  }
+  toolOverridePausedUntil.delete(agentId);
+  toolsNotAttachedAt.delete(agentId);
 }
 
 /** Подмена функций на звонок на паузе после повторных 1008 (см. noteElevenLabsToolsNotAttached). */

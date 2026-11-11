@@ -249,6 +249,16 @@ export class ElevenLabsSetupRejectedError extends Error {
 }
 
 /**
+ * Звонок не начат: своего набора функций нет (повторное ревью 11.11.2026). Без подмены агент
+ * получил бы ВСЕ накопленные функции — и end_call чужих видов звонка с чужими причинами, итог
+ * звонка терялся бы. Отказ connect: мост поступает как с любым отказом поставщика до разговора
+ * (П1: занято/перенос до «алло», отбой с пометкой «наш сбой» после).
+ */
+export class ElevenLabsCallToolsUnavailableError extends Error {
+  readonly ourFault = true;
+}
+
+/**
  * Сколько после начала разговора ещё можно переоткрыть его без подмены функций, если
  * ElevenLabs закрыл его 1008 «Tool IDs not attached» (11.11.2026). Замер: закрытие
  * приходит сразу после метаданных, агент ещё не сказал ни слова — человек повтора не
@@ -316,6 +326,8 @@ export class ElevenLabsVoiceClient extends EventEmitter {
   private retriedWithoutTools = false;
   /** Служебные реплики до первого звука агента — повторяются в новый сокет при повторе. */
   private readonly earlyTexts: string[] = [];
+  /** Строгий режим (не входящий): без своего набора функций звонок не идёт, повтора без функций нет. */
+  private strictTools = true;
 
   constructor(
     private readonly config: ElevenLabsVoiceClientConfig,
@@ -368,6 +380,21 @@ export class ElevenLabsVoiceClient extends EventEmitter {
       !overridePaused && toolIdsByName && (opts.tools ?? []).every((t) => toolIdsByName.has(t.name))
         ? (opts.tools ?? []).map((t) => toolIdsByName.get(t.name)!)
         : null;
+    this.strictTools = opts.direction !== "inbound";
+    if (this.strictTools && (opts.tools ?? []).length > 0 && !toolIds) {
+      const why = overridePaused
+        ? "подмена функций на паузе после повторных отказов агента (1008)"
+        : !toolIdsByName
+          ? "агент не подготовлен (подготовка не удалась или на паузе)"
+          : "не все функции звонка заведены у агента";
+      void logSystemError(
+        "telephony",
+        `Живой голос (ElevenLabs): звонок не начат — ${why}. Без своего набора функций агент получил бы функции ` +
+          "всех видов звонка, и итог звонка терялся бы. Наш сбой, не клиента; проверьте агента в Настройках.",
+        { dedupKey: "elevenlabs-call-tools-unavailable" }
+      );
+      throw new ElevenLabsCallToolsUnavailableError(`Живой голос (ElevenLabs): звонок не начат — ${why}`);
+    }
 
     const base: ElevenLabsInitiationOptions = {
       systemInstruction: opts.systemInstruction,
@@ -382,8 +409,12 @@ export class ElevenLabsVoiceClient extends EventEmitter {
         break;
       } catch (err) {
         if (!(err instanceof ElevenLabsSetupRejectedError) || this.closed || attempt >= 2) throw err;
-        // Подменённые функции не у агента (1008): этот же звонок — с функциями агента.
+        // Подменённые функции не у агента (1008). Исходящий — отказ старта (свой набор обязателен);
+        // входящий — тот же звонок с функциями агента (человек уже ждёт на линии).
         if (err.toolsNotAttached && init.toolIds) {
+          if (this.strictTools) {
+            throw new ElevenLabsCallToolsUnavailableError("Живой голос (ElevenLabs): звонок не начат — агент отклонил набор функций звонка (1008)");
+          }
           this.retriedWithoutTools = true;
           init = { ...init, toolIds: null };
           continue;
@@ -469,6 +500,7 @@ export class ElevenLabsVoiceClient extends EventEmitter {
           !this.heardAudio &&
           !this.closed &&
           !this.retriedWithoutTools &&
+          !this.strictTools &&
           Date.now() - this.metadataAt <= ELEVENLABS_TOOLS_RETRY_WINDOW_MS
         ) {
           // Агент ещё молчал: тот же звонок — новым разговором с функциями агента, мост закрытия не видит.
