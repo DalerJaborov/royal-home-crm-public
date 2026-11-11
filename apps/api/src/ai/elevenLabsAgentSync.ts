@@ -2,6 +2,15 @@ import { createHash } from "node:crypto";
 import { describeError } from "../lib/describeError.js";
 import { logSystemError } from "../lib/systemError.js";
 import type { LiveVoiceFunctionDeclaration } from "./liveVoiceClient.js";
+import {
+  approvedTajikPronunciationRules,
+  mergeAsrKeywords,
+  TAJIK_ASR_KEYWORDS,
+  TAJIK_DICTIONARY_NAME_PREFIX,
+  tajikDictionaryName,
+  tajikDictionaryRequest,
+  type TajikPronunciationRule,
+} from "./tajikVoiceLexicon.js";
 
 /**
  * ПОДГОТОВКА АГЕНТА ELEVENLABS ПОД НАШИ ФУНКЦИИ (02.10.2026).
@@ -176,7 +185,15 @@ export const ELEVENLABS_PHONE_AGENT_TUNING = {
     stability: 0.45,
     expressive_mode: false,
     agent_output_audio_format: "ulaw_8000",
-    text_normalisation_type: "elevenlabs",
+    /**
+     * system_prompt, а не elevenlabs (11.11.2026, замер на eleven_v4_turbo с языком tg):
+     * нормализатор ElevenLabs читает таджикские цифры с ошибками — «80» распознано
+     * как «82»/«800», «1 380 000» как «1 382 000», «10:30» как «даҳ сиву даҳ»; те же
+     * числа словами — верно. При system_prompt сервис просит модель писать числа
+     * словами в самом промте, а наши функции и так отдают цены словами
+     * (packages/shared/spokenNumber). Подробно — ai/tajikPhoneSpeech.ts.
+     */
+    text_normalisation_type: "system_prompt",
   },
   asr: { user_input_audio_format: "ulaw_8000" },
   turn: {
@@ -216,6 +233,39 @@ const LANGUAGE_DETECTION_TOOL = {
 export interface ElevenLabsAgentTuningOptions {
   /** Голос для таджикского (Настройки → elevenLabsVoiceIdTg): уходит в пресет языка tg. */
   voiceIdTg?: string | null;
+  /**
+   * Таджикский словарь произношения (ai/tajikVoiceLexicon.ts), найденный или
+   * заведённый в аккаунте перед PATCH. Не задан — словари агента не меняются.
+   */
+  tajikPronunciation?: TajikPronunciationSync;
+}
+
+/** Ссылка на словарь произношения в формате агента. */
+export interface PronunciationLocator {
+  pronunciation_dictionary_id: string;
+  version_id: string | null;
+}
+
+export interface TajikPronunciationSync {
+  /** Наш словарь текущей версии; null — подтверждённых правил нет, наш словарь снять. */
+  locator: PronunciationLocator | null;
+  /** id всех наших словарей в аккаунте (любой версии) — их снимаем, словари владельца оставляем. */
+  ourIds: string[];
+}
+
+/** Сколько словарей ElevenLabs принимает на один синтез (справочник TTS: «up to 3»). */
+const PRONUNCIATION_LOCATORS_MAX = 3;
+
+/** Словари агента после подготовки: наш первым, словари владельца целы, наши старые сняты. */
+export function mergePronunciationLocators(existing: unknown, sync: TajikPronunciationSync): PronunciationLocator[] {
+  const drop = new Set(sync.ourIds);
+  const owner: PronunciationLocator[] = [];
+  for (const raw of Array.isArray(existing) ? existing : []) {
+    if (!isObj(raw) || !str(raw.pronunciation_dictionary_id) || drop.has(raw.pronunciation_dictionary_id)) continue;
+    if (sync.locator && raw.pronunciation_dictionary_id === sync.locator.pronunciation_dictionary_id) continue;
+    owner.push({ pronunciation_dictionary_id: raw.pronunciation_dictionary_id, version_id: str(raw.version_id) ? raw.version_id : null });
+  }
+  return [...(sync.locator ? [sync.locator] : []), ...owner].slice(0, PRONUNCIATION_LOCATORS_MAX);
 }
 
 /** Разрешения на подмену, которые нужны нашему разговору. */
@@ -306,11 +356,20 @@ export function buildAgentTuningPatch(agent: unknown, toolIds: string[], opts: E
   const ttsIn = isObj(config.tts) ? config.tts : {};
   const tts: Json = { ...T.tts };
   if (str(ttsIn.voice_id)) tts.voice_id = ttsIn.voice_id;
+  // Словари произношения: при замене подобъекта tts целиком словари владельца
+  // пропали бы — поэтому они уходят всегда, наш таджикский — первым.
+  if (opts.tajikPronunciation) {
+    tts.pronunciation_dictionary_locators = mergePronunciationLocators(ttsIn.pronunciation_dictionary_locators, opts.tajikPronunciation);
+  } else if (Array.isArray(ttsIn.pronunciation_dictionary_locators) && ttsIn.pronunciation_dictionary_locators.length > 0) {
+    tts.pronunciation_dictionary_locators = mergePronunciationLocators(ttsIn.pronunciation_dictionary_locators, { locator: null, ourIds: [] });
+  }
 
   const asrIn = isObj(config.asr) ? config.asr : {};
   const asr: Json = { ...T.asr };
   if (str(asrIn.provider)) asr.provider = asrIn.provider;
-  if (Array.isArray(asrIn.keywords)) asr.keywords = asrIn.keywords.filter(str);
+  // Слова распознавания: слова владельца первыми, затем таджикские районы и
+  // слова рынка (ai/tajikVoiceLexicon.ts), в пределах Scribe Realtime.
+  asr.keywords = mergeAsrKeywords(Array.isArray(asrIn.keywords) ? asrIn.keywords.filter(str) : []);
 
   const turnIn = isObj(config.turn) ? config.turn : {};
   const ownTerms = Array.isArray(turnIn.interruption_ignore_terms) ? turnIn.interruption_ignore_terms.filter(str) : [];
@@ -385,8 +444,14 @@ export async function syncElevenLabsAgentDetailed(
   const agentPath = `/v1/convai/agents/${encodeURIComponent(agentId)}`;
   const agent = await elevenLabsRequest(apiKey, "GET", agentPath);
   await elevenLabsRequest(apiKey, "PATCH", agentPath, buildAgentSyncPatch(agent, [...ids.values()]));
+  const tajikPronunciation = await syncTajikPronunciationDictionary(apiKey, agent);
   try {
-    await elevenLabsRequest(apiKey, "PATCH", agentPath, buildAgentTuningPatch(agent, [...ids.values()], opts));
+    await elevenLabsRequest(
+      apiKey,
+      "PATCH",
+      agentPath,
+      buildAgentTuningPatch(agent, [...ids.values()], tajikPronunciation ? { ...opts, tajikPronunciation } : opts)
+    );
     return { ids, tuned: true, tuningError: null };
   } catch (err) {
     const detail = describeError(err);
@@ -398,6 +463,74 @@ export async function syncElevenLabsAgentDetailed(
       { dedupKey: "elevenlabs-agent-tuning" }
     );
     return { ids, tuned: false, tuningError: detail };
+  }
+}
+
+/** Сколько страниц списка словарей читаем (по 100): дальше — не наш случай. */
+const DICTIONARY_LIST_MAX_PAGES = 5;
+
+interface DictionaryRow {
+  id?: string;
+  name?: string;
+  latest_version_id?: string;
+  archived_time_unix?: number | null;
+}
+
+/**
+ * Таджикский словарь произношения в аккаунте ElevenLabs (11.11.2026). Правила —
+ * в коде (ai/tajikVoiceLexicon.ts, только подтверждённые владельцем); словарь
+ * заводится сам под именем с отпечатком правил, правка правил — новый словарь.
+ *
+ * Не трогает сеть вовсе, если подтверждённых правил нет и у агента нет ни одного
+ * словаря (так сейчас). Отказ — undefined и запись в журнал: словари агента
+ * тогда не меняются, звонок и прочие настройки идут как обычно.
+ */
+export async function syncTajikPronunciationDictionary(
+  apiKey: string,
+  agent: unknown,
+  rules: TajikPronunciationRule[] = approvedTajikPronunciationRules()
+): Promise<TajikPronunciationSync | undefined> {
+  const tts = readConfig(agent).tts;
+  const attached = isObj(tts) && Array.isArray(tts.pronunciation_dictionary_locators) ? tts.pronunciation_dictionary_locators : [];
+  if (rules.length === 0 && attached.length === 0) return undefined;
+  try {
+    const rows: DictionaryRow[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < DICTIONARY_LIST_MAX_PAGES; page++) {
+      const q: string = `?page_size=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+      const res = await elevenLabsRequest<{ pronunciation_dictionaries?: DictionaryRow[]; next_cursor?: string | null; has_more?: boolean }>(
+        apiKey,
+        "GET",
+        `/v1/pronunciation-dictionaries${q}`
+      );
+      rows.push(...(res.pronunciation_dictionaries ?? []));
+      cursor = res.has_more && res.next_cursor ? res.next_cursor : null;
+      if (!cursor) break;
+    }
+    const ours = rows.filter((r) => str(r.id) && str(r.name) && r.name.startsWith(TAJIK_DICTIONARY_NAME_PREFIX));
+    const ourIds = ours.map((r) => r.id as string);
+    if (rules.length === 0) return { locator: null, ourIds };
+    const name = tajikDictionaryName(rules);
+    const current = ours.find((r) => r.name === name && !r.archived_time_unix && str(r.latest_version_id));
+    if (current) return { locator: { pronunciation_dictionary_id: current.id as string, version_id: current.latest_version_id as string }, ourIds };
+    const created = await elevenLabsRequest<{ id?: string; version_id?: string }>(
+      apiKey,
+      "POST",
+      "/v1/pronunciation-dictionaries/add-from-rules",
+      tajikDictionaryRequest(rules)
+    );
+    if (!str(created.id)) throw new ElevenLabsHttpError("ElevenLabs: словарь произношения создан без id", null);
+    return {
+      locator: { pronunciation_dictionary_id: created.id, version_id: str(created.version_id) ? created.version_id : null },
+      ourIds: [...ourIds, created.id],
+    };
+  } catch (err) {
+    void logSystemError(
+      "telephony",
+      `Живой голос (ElevenLabs): таджикский словарь произношения не подготовлен (${describeError(err)}) — словари агента не менялись.`,
+      { dedupKey: "elevenlabs-tajik-dictionary" }
+    );
+    return undefined;
   }
 }
 
@@ -429,7 +562,14 @@ const syncPausedUntil = new Map<string, number>();
 
 function syncKey(agentId: string, tools: LiveVoiceFunctionDeclaration[], opts: ElevenLabsAgentTuningOptions): string {
   // Сменился таджикский голос или настройки — агент готовится заново.
-  const payload = JSON.stringify([tools, opts.voiceIdTg?.trim() || null, ELEVENLABS_PHONE_AGENT_TUNING]);
+  const payload = JSON.stringify([
+    tools,
+    opts.voiceIdTg?.trim() || null,
+    ELEVENLABS_PHONE_AGENT_TUNING,
+    // Сменились подтверждённые правила произношения или слова распознавания — готовим заново.
+    approvedTajikPronunciationRules(),
+    TAJIK_ASR_KEYWORDS,
+  ]);
   return `${agentId}:${createHash("sha256").update(payload).digest("hex")}`;
 }
 

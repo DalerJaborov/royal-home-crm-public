@@ -80,13 +80,20 @@ describe("второй PATCH: настройки из передачи 24.10, б
       stability: 0.45,
       expressive_mode: false,
       agent_output_audio_format: "ulaw_8000",
-      text_normalisation_type: "elevenlabs",
+      // 11.11.2026: таджикские цифры нормализатор ElevenLabs читает с ошибками.
+      text_normalisation_type: "system_prompt",
       voice_id: "larisa",
     });
   });
 
-  it("распознавание: ulaw 8 кГц; поставщик и ключевые слова владельца целы, прочее не уходит", () => {
-    expect(cc.asr).toEqual({ user_input_audio_format: "ulaw_8000", provider: "scribe_realtime", keywords: ["Сино"] });
+  it("распознавание: ulaw 8 кГц; поставщик цел; слова владельца первыми, затем таджикские, без повторов; прочее не уходит", () => {
+    expect(Object.keys(cc.asr).sort()).toEqual(["keywords", "provider", "user_input_audio_format"]);
+    expect(cc.asr).toMatchObject({ user_input_audio_format: "ulaw_8000", provider: "scribe_realtime" });
+    const kw = cc.asr.keywords as string[];
+    expect(kw[0]).toBe("Сино");
+    expect(kw.filter((w) => w === "Сино")).toHaveLength(1);
+    for (const w of ["Шоҳмансур", "Фирдавсӣ", "Рӯдакӣ", "Роял Хоум"]) expect(kw).toContain(w);
+    expect(kw.length).toBeLessThanOrEqual(50);
   });
 
   it("очередь реплик: eager, turn_timeout 5, turn_v3 + speculative_turn; заполнители выкл; чужих полей нет", () => {
