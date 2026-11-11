@@ -105,6 +105,47 @@ export async function loadCrmCallKinds() {
       tools: [...CLIENT_TOOLS, ...PROPERTY_TOOLS],
       expectsTool: "save_client_request",
     },
+    // ── Виды, которых не было в первом наборе (проверяющий штата, 11.11.2026) ──
+    {
+      kind: "invite-moved-ru",
+      label: "Приглашение: собеседование ПЕРЕНЕСЛИ (ru)",
+      language: "ru",
+      prompt: invite.buildInterviewInviteCallPrompt({
+        ...inviteCtx("ru"),
+        previous: { interviewAt: new Date("2026-11-12T06:00:00Z"), askedByCandidate: false },
+      }),
+      greeting: invite.INTERVIEW_INVITE_GREETING_TRIGGER,
+      tools: invite.INTERVIEW_INVITE_CALL_TOOLS,
+      expectsTool: "end_call",
+    },
+    {
+      kind: "post-showing-tg",
+      label: "Опрос после показа, замок на русский ВЫКЛЮЧЕН (tg)",
+      language: "tg",
+      prompt: post.buildPostShowingCallPrompt(postCtx, false),
+      greeting: post.POST_SHOWING_CALL_GREETING_TRIGGER,
+      tools: post.POST_SHOWING_CALL_TOOLS,
+      expectsTool: "end_call",
+    },
+    {
+      kind: "seller-probe-tg",
+      label: "Проверка собственника, замок на русский ВЫКЛЮЧЕН (tg)",
+      language: "tg",
+      prompt: probe.buildSellerProbeCallPrompt(probeCtx, false),
+      greeting: probe.SELLER_PROBE_CALL_GREETING_TRIGGER,
+      tools: probe.SELLER_PROBE_CALL_TOOLS,
+      expectsTool: "end_call",
+    },
+    {
+      // Кнопка «Тестовый звонок» в Настройках: общий промпт консультанта без клиента (originateLiveVoiceTestCall).
+      kind: "test-call",
+      label: "Тестовый звонок из Настроек (общий консультант, без клиента)",
+      language: "ru",
+      prompt: persona.buildLiveVoiceSystemPrompt(undefined, { forceRussianOnly: true }),
+      greeting: "(Собеседник снял трубку. Поздоровайся и представься.)",
+      tools: [...CLIENT_TOOLS, ...PROPERTY_TOOLS],
+      expectsTool: null,
+    },
   ];
 }
 

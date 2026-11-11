@@ -12,10 +12,32 @@
 // Проверки: судья ElevenLabs по условиям сценария + код по расшифровке (вызвал ли агент нужную
 // функцию с нужными полями, нет ли слова «лутфан», не вызвал ли запрещённую функцию).
 // ВНИМАНИЕ: каждая симуляция тратит кредиты ElevenLabs (модель собеседника и судья). --dry — план без сети.
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { ensureTools } from "./patch-check.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
 import { baseUrl, describeFailure, formatRationale, looksGeoBlocked, makeClient, makePrinter, parseArgv, reportDir, stampNow, writeReport } from "./lib.mjs";
+
+/**
+ * Набор сценариев по флагу --scenarios=<файл>[,<файл>]: «default» — встроенный scenarios.mjs, остальное — пути к .mjs
+ * с экспортом SCENARIOS (относительные — от текущей папки). Без флага — только встроенный набор.
+ * Повтор id между наборами — ошибка: два сценария с одним id молча затирали бы друг друга в отчёте.
+ */
+export async function loadScenarioSet(spec, importer = (file) => import(pathToFileURL(path.resolve(file)).href)) {
+  if (!spec) return SCENARIOS;
+  const out = [];
+  const seen = new Set();
+  for (const part of spec.split(",").map((x) => x.trim()).filter(Boolean)) {
+    const list = part === "default" ? SCENARIOS : (await importer(part)).SCENARIOS;
+    if (!Array.isArray(list) || list.length === 0) throw new Error(`в наборе «${part}» нет массива SCENARIOS`);
+    for (const s of list) {
+      if (seen.has(s.id)) throw new Error(`повтор id сценария «${s.id}» (набор «${part}»)`);
+      seen.add(s.id);
+      out.push(s);
+    }
+  }
+  return out;
+}
 
 const MAX_TURNS = 24;
 const POLL_MS = 5_000;
@@ -62,7 +84,7 @@ export function evaluateTranscript(scenario, transcript) {
   const failures = [];
   const agentText = (transcript ?? []).filter((t) => t.role === "agent" && t.message).map((t) => t.message);
   if (agentText.some((m) => LUTFAN.test(m))) failures.push("агент сказал «лутфан»");
-  if (agentText.length === 0) failures.push("агент не сказал ни слова");
+  if (agentText.length === 0 && !scenario.allowSilent) failures.push("агент не сказал ни слова");
   const calls = toolCallsOf(transcript);
   for (const bad of scenario.forbidTools ?? []) {
     if (calls.some((c) => c.name === bad)) failures.push(`агент вызвал запрещённую функцию ${bad}`);
@@ -135,7 +157,7 @@ function markdownReport(results, meta) {
  * deps: { env, flags, values, fetchImpl, kinds, say, sleepFn, writeFiles }.
  * kinds — результат loadCrmCallKinds() (подменяется в тестах).
  */
-export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl, kinds, sync: syncDep, say, sleepFn = sleep, writeFiles = true }) {
+export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl, kinds, sync: syncDep, say, sleepFn = sleep, writeFiles = true, scenarios: scenariosDep }) {
   const apiKey = env.ELEVENLABS_API_KEY?.trim() || "";
   const out = say || makePrinter(apiKey);
   const testId = env.ELEVENLABS_TEST_AGENT_ID?.trim();
@@ -143,7 +165,20 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
   const only = values.only ? values.only.split(",") : null;
   // Модель разговора для ЭТОГО прогона (пишется в тестового агента). Пусто — как у агента.
   const llm = values.llm?.trim() || env.ELEVENLABS_SIM_LLM?.trim() || null;
-  const planned = SCENARIOS.filter((s) => !only || only.includes(s.kind) || only.includes(s.id));
+  let all;
+  try {
+    all = scenariosDep ?? (await loadScenarioSet(values.scenarios));
+  } catch (e) {
+    out(`FAIL набор сценариев — ${e instanceof Error ? e.message : e}`);
+    return { failed: 1, results: [] };
+  }
+  const planned = all.filter((s) => !only || only.includes(s.kind) || only.includes(s.id));
+  // Сценарий с видом звонка, которого нет среди kinds, молча не запускался бы — называем это явно.
+  const orphan = planned.filter((s) => !kinds.some((k) => k.kind === s.kind));
+  if (orphan.length) {
+    out(`FAIL нет вида звонка для сценариев: ${orphan.map((s) => `${s.id} [${s.kind}]`).join(", ")}`);
+    return { failed: 1, results: [] };
+  }
 
   if (flags.has("dry")) {
     out(`План (без сети, --dry): ${planned.length} симуляций, до ${MAX_TURNS} реплик каждая; тесты создаются у ТЕСТОВОГО агента и удаляются после прогона.`);

@@ -499,3 +499,41 @@ test("load-env: значение из .env перекрывает устарев
   assert.deepEqual(loadElevenLabsEnv({}, path.join(dir, "нет.env")), []);
   rmSync(dir, { recursive: true, force: true });
 });
+
+// ── --scenarios=<файл>: дополнительные наборы (проверяющий штата, 11.11.2026) ──
+import { loadScenarioSet } from "./suite.mjs";
+import { SCENARIOS as STAFF_SCENARIOS } from "./scenarios-staff-extra.mjs";
+
+test("loadScenarioSet: без флага — встроенный набор; default + файл склеиваются; повтор id — ошибка", async () => {
+  assert.equal(await loadScenarioSet(undefined), SCENARIOS);
+  const importer = async () => ({ SCENARIOS: STAFF_SCENARIOS });
+  const both = await loadScenarioSet("default,extra.mjs", importer);
+  assert.equal(both.length, SCENARIOS.length + STAFF_SCENARIOS.length);
+  await assert.rejects(() => loadScenarioSet("default,default"), /повтор id/);
+  await assert.rejects(() => loadScenarioSet("пусто.mjs", async () => ({})), /нет массива SCENARIOS/);
+});
+
+test("набор scenarios-staff-extra: ≥20 сценариев, у каждого id/kind/seed/persona/условия, id не пересекаются со встроенными, виды есть в crm-prompts", async () => {
+  assert.ok(STAFF_SCENARIOS.length >= 20);
+  const kinds = new Set((await loadCrmCallKinds()).map((k) => k.kind));
+  const ids = new Set(SCENARIOS.map((s) => s.id));
+  for (const s of STAFF_SCENARIOS) {
+    assert.ok(s.id && s.kind && s.seed && s.persona && s.conditions?.length, `поля сценария ${s.id}`);
+    assert.ok(!ids.has(s.id), `повтор id ${s.id}`);
+    ids.add(s.id);
+    assert.ok(kinds.has(s.kind), `нет вида звонка ${s.kind} для ${s.id}`);
+    assert.ok(!/лутфан/i.test(s.persona + s.seed), `в роли собеседника «лутфан»: ${s.id}`);
+  }
+});
+
+test("suite: сценарий с неизвестным видом звонка — отказ до сети, а allowSilent разрешает молчание агента", async () => {
+  const c = collect();
+  const bad = [{ id: "z", kind: "нет-такого", name: "z", seed: "a", persona: "p", conditions: ["c"], expectTool: null }];
+  const r = await runSuite({ env: { ELEVENLABS_API_KEY: KEY, ELEVENLABS_TEST_AGENT_ID: "agent_t" }, fetchImpl: async () => { throw new Error("сеть запрещена"); }, kinds: [{ kind: "client", label: "k", prompt: "p", tools: [] }], say: c.say, scenarios: bad, writeFiles: false });
+  assert.equal(r.failed, 1);
+  assert.match(c.text(), /нет вида звонка для сценариев: z \[нет-такого\]/);
+  const voicemail = { id: "v", expectTool: { name: "end_call", args: { reason: "voicemail" } }, allowSilent: true };
+  const silent = [{ role: "agent", message: "", tool_calls: [{ tool_name: "end_call", params_as_json: '{"reason":"voicemail"}' }] }];
+  assert.equal(evaluateTranscript(voicemail, silent).ok, true);
+  assert.equal(evaluateTranscript({ ...voicemail, allowSilent: false }, silent).ok, false);
+});
