@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **735**. Развилок в самих путях: **2422**; вместе с задачами по расписанию и фоновыми заданиями — **3921**. Модулей: **82**.
+Путей: **735**. Развилок в самих путях: **2423**; вместе с задачами по расписанию и фоновыми заданиями — **3922**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3841,21 +3841,28 @@
   - если revoked > 0
     - logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOW_REVOKED", "Client", client.id, { shortId: client.shortId });
       · зовёт logAudit()
-- иначе
-  - если current.stopped && !current.canClear
-    - return res.status(403).json({ error: "Клиент сам просил не беспокоить — снять запрет может только руководител…
-      · ответ 403 — «Клиент сам просил не беспокоить — снять запрет может только…»
+- иначе если parsed.data.overrideClientRequest
+  - если !canOverrideClientRequest(req)
+    - return res.status(403).json({ error: "Разрешить звонок вопреки просьбе клиента может только руководитель" });
+      · ответ 403 — «Разрешить звонок вопреки просьбе клиента может только руководитель»
   - const cleared = await clearRobotCallStop({ phone: client.phone, clientId: client.id, clearedByAgentId: req.ag…
     · зовёт clearRobotCallStop()
   - если cleared > 0
+    - logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared, override: t…
+      · зовёт logAudit()
+  - если current.optedOutInChat
+    - await revokeRobotCallAllow(client.id, req.agent!.id);
+      · зовёт revokeRobotCallAllow()
+    - await allowRobotCallDespiteOptOut(client.id, req.agent!.id);
+      · зовёт allowRobotCallDespiteOptOut()
+    - logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOWED", "Client", client.id, { shortId: client.shortId, reasons: current.…
+      · зовёт logAudit()
+- иначе
+  - const cleared = await clearStaffRobotCallStops({ phone: client.phone, clientId: client.id, clearedByAgentId: …
+    · зовёт clearStaffRobotCallStops()
+  - если cleared > 0
     - logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared });
       · зовёт logAudit()
-  - если current.optedOutInChat && !current.allowedBySupervisor
-    - const allowed = await allowRobotCallDespiteOptOut(client.id, req.agent!.id);
-      · зовёт allowRobotCallDespiteOptOut()
-    - если allowed.created
-      - logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOWED", "Client", client.id, { shortId: client.shortId });
-        · зовёт logAudit()
 - res.json(await robotCallStopState(req, client));
   · ответ 200
 

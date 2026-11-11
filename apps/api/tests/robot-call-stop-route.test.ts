@@ -91,7 +91,7 @@ describe("PUT/GET /clients/:id/robot-call-stop", () => {
   it("свой агент ставит отметку; повторная постановка не плодит записей; снимает свою", async () => {
     const first = await put(ownToken, { stopped: true });
     expect(first.status).toBe(200);
-    expect(first.body).toMatchObject({ stopped: true, source: "STAFF", canClear: true });
+    expect(first.body).toMatchObject({ stopped: true, staffStop: true, clientReasons: [], canClear: true, canOverride: false });
     const again = await put(ownToken, { stopped: true });
     expect(again.status).toBe(200);
     expect(await prisma.robotCallStop.count({ where: { phone: local, clearedAt: null } })).toBe(1);
@@ -101,48 +101,37 @@ describe("PUT/GET /clients/:id/robot-call-stop", () => {
 
     const off = await put(ownToken, { stopped: false });
     expect(off.status).toBe(200);
-    expect(off.body).toMatchObject({ stopped: false, source: null });
+    expect(off.body).toMatchObject({ stopped: false, staffStop: false });
     expect(await prisma.robotCallStop.count({ where: { phone: local, clearedAt: null } })).toBe(0);
   });
 
-  it("просьбу самого клиента снимает только руководитель", async () => {
-    await prisma.robotCallStop.create({ data: { phone: local, clientId, source: "VOICE" } });
-    const asAgent = await put(ownToken, { stopped: false });
-    expect(asAgent.status).toBe(403);
-    expect(await prisma.robotCallStop.count({ where: { phone: local, clearedAt: null } })).toBe(1);
-    const asDirector = await put(directorToken, { stopped: false });
-    expect(asDirector.status).toBe(200);
-    expect(asDirector.body.stopped).toBe(false);
-  });
-
-  it("своя отметка не открывает снятие чужой: отметка сотрудника + просьба клиента по карточке", async () => {
-    expect((await put(ownToken, { stopped: true })).status).toBe(200);
-    await prisma.robotCallStop.create({ data: { phone: `93${String(randomInt(0, 10_000_000)).padStart(7, "0")}`, clientId, source: "VOICE" } });
-    const state = await request(app).get(`/api/v1/clients/${clientId}/robot-call-stop`).set("Authorization", `Bearer ${ownToken}`);
-    expect(state.body).toMatchObject({ stopped: true, source: "VOICE", canClear: false });
-    expect((await put(ownToken, { stopped: false })).status).toBe(403);
-    expect((await put(directorToken, { stopped: false })).status).toBe(200);
-    expect(await prisma.robotCallStop.count({ where: { clientId, clearedAt: null } })).toBe(0);
-  });
-
-  it("«не беспокойте» в переписке: агент снять не может; руководитель разрешает только робота; включение отзывает", async () => {
-    const conv = await prisma.botConversation.create({ data: { channel: "whatsapp", subscriberId: `stop-route-${tag}`, clientId, optedOutAt: new Date() } });
+  it("обе причины видны; снятие своей отметки просьбу клиента не снимает и разрешения не создаёт", async () => {
+    const conv = await prisma.botConversation.create({ data: { channel: "whatsapp", subscriberId: `stop-both-${tag}`, clientId, optedOutAt: new Date() } });
     try {
+      await put(ownToken, { stopped: true });
+      await prisma.robotCallStop.create({ data: { phone: `93${String(randomInt(0, 10_000_000)).padStart(7, "0")}`, clientId, source: "VOICE" } });
       const state = await request(app).get(`/api/v1/clients/${clientId}/robot-call-stop`).set("Authorization", `Bearer ${ownToken}`);
-      expect(state.body).toMatchObject({ stopped: true, source: "CONVERSATION", optedOutInChat: true, allowedBySupervisor: false, canClear: false });
-      expect((await put(ownToken, { stopped: false })).status).toBe(403);
+      expect(state.body).toMatchObject({ stopped: true, staffStop: true, canClear: true, canOverride: false });
+      expect([...state.body.clientReasons].sort()).toEqual(["CONVERSATION", "VOICE"]);
+      // Руководитель снимает СВОЮ отметку обычным тумблером — просьба клиента остаётся.
       const off = await put(directorToken, { stopped: false });
       expect(off.status).toBe(200);
-      expect(off.body).toMatchObject({ stopped: false, allowedBySupervisor: true, optedOutInChat: true });
+      expect(off.body).toMatchObject({ stopped: true, staffStop: false, allowedBySupervisor: false, canOverride: true });
+      expect(await prisma.robotCallAllow.count({ where: { clientId, revokedAt: null } })).toBe(0);
+      expect(await prisma.robotCallStop.count({ where: { clientId, clearedAt: null, source: "VOICE" } })).toBe(1);
+      // Агент явного разрешения дать не может.
+      expect((await put(ownToken, { stopped: false, overrideClientRequest: true })).status).toBe(403);
+      // Явное действие руководителя.
+      const allow = await put(directorToken, { stopped: false, overrideClientRequest: true });
+      expect(allow.status).toBe(200);
+      expect(allow.body).toMatchObject({ stopped: false, clientReasons: [], allowedBySupervisor: true });
       expect(await prisma.robotCallAllow.count({ where: { clientId, revokedAt: null } })).toBe(1);
-      // Отметка переписки для рассылок не тронута.
       expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: conv.id } })).optedOutAt).not.toBeNull();
+      // Включение тумблера отзывает разрешение.
       const on = await put(ownToken, { stopped: true });
       expect(on.body).toMatchObject({ stopped: true, allowedBySupervisor: false });
       expect(await prisma.robotCallAllow.count({ where: { clientId, revokedAt: null } })).toBe(0);
-      expect((await put(directorToken, { stopped: false })).status).toBe(200);
-      await put(directorToken, { stopped: true });
-      await put(ownToken, { stopped: true });
+      expect((await put(ownToken, { stopped: true, overrideClientRequest: true })).status).toBe(400);
     } finally {
       await prisma.robotCallStop.updateMany({ where: { clientId, clearedAt: null }, data: { clearedAt: new Date() } });
       await prisma.robotCallAllow.deleteMany({ where: { clientId } });

@@ -51,7 +51,9 @@ import type { LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
  */
 export const INTERVIEW_INVITE_MAX_ATTEMPTS = 1;
 /** Ближе этого к собеседованию уже не звоним: звать поздно, лучше HR сам. */
-const TOO_LATE_MS = 60 * 60 * 1000;
+/** Позже этого до собеседования робот не звонит (его же берёт рекрутинг для срока приглашения). */
+export const INTERVIEW_INVITE_TOO_LATE_MS = 60 * 60 * 1000;
+const TOO_LATE_MS = INTERVIEW_INVITE_TOO_LATE_MS;
 /**
  * Зависший CALLING без итога. Потолок разговора в мосте —
  * LIVE_VOICE_MAX_SESSION_MS, 15 минут, плюс до минуты на гудки
@@ -80,9 +82,10 @@ const OUR_FAILURE_MAX_RETRIES = 1;
  * no_caller_speech — собеседник за весь звонок не издал ни звука: почти всегда
  * это звук в одну сторону (см. NO_CALLER_SPEECH_REASON в мосту), а не молчун.
  */
-export function isOurCallFailure(reason: string | null | undefined): boolean {
+export function isOurCallFailure(reason: string | null | undefined, transcript?: readonly string[] | null): boolean {
   // Одно правило на все звонки робота (П3): им же дверь решает, тратит ли сессия частоту.
-  return isRobotCallOurFailure(reason);
+  // Расшифровка нужна, чтобы обрыв ПОСЛЕ настоящего разговора не дал второй звонок.
+  return isRobotCallOurFailure(reason, transcript);
 }
 
 /**
@@ -640,7 +643,7 @@ export async function finishInterviewInviteCall(result: LiveVoiceScenarioResult,
   const recordingKey = result.recordingKey ?? null;
 
   // Сорвалось по нашей вине — кандидат тут ни при чём (см. isOurCallFailure).
-  if (isOurCallFailure(result.reason)) {
+  if (isOurCallFailure(result.reason, result.transcript)) {
     const next = alignToCallHours(new Date(now.getTime() + OUR_FAILURE_RETRY_MS), null);
     const canRetry =
       call.failureRetries < OUR_FAILURE_MAX_RETRIES && call.interviewAt.getTime() - next.getTime() >= TOO_LATE_MS;

@@ -151,11 +151,15 @@ export async function activeRobotCallStops(phoneKey: string, clientId?: string |
 }
 
 /** Просил ли человек не писать и не звонить — по любому его диалогу с ботом. */
-export async function hasOptedOutOfContact(target: {
-  clientId?: string | null;
-  conversationId?: string | null;
-  contactProfileId?: string | null;
-}): Promise<boolean> {
+export async function hasOptedOutOfContact(
+  target: {
+    clientId?: string | null;
+    conversationId?: string | null;
+    contactProfileId?: string | null;
+  },
+  /** Учитывать только просьбы ПОЗЖЕ этого момента (после разрешения руководства). */
+  after?: Date | null
+): Promise<boolean> {
   const or: Array<Record<string, unknown>> = [];
   if (target.conversationId) or.push({ id: target.conversationId });
   if (target.clientId) {
@@ -166,7 +170,7 @@ export async function hasOptedOutOfContact(target: {
   if (or.length === 0) return false;
 
   const found = await prisma.botConversation.findFirst({
-    where: { optedOutAt: { not: null }, OR: or },
+    where: { optedOutAt: after ? { gt: after } : { not: null }, OR: or },
     select: { id: true },
   });
   return found !== null;
@@ -228,19 +232,67 @@ async function storedStopReason(target: Omit<RobotCallTarget, "kind" | "now">): 
   const key = robotCallPhoneKey(target.phone);
   if (await activeRobotCallStop(key, target.clientId)) return "stopped";
   const clientIds = target.clientId ? [target.clientId] : await clientIdsByPhone(key);
-  // Разрешение руководства снимает «не беспокойте» переписки ТОЛЬКО для робота и только
-  // по той карточке, где его дали.
-  const allowed = new Set(clientIds.length ? await clientsAllowedDespiteOptOut(clientIds) : []);
+  // Разрешение руководства снимает «не беспокойте» переписки ТОЛЬКО для робота, только по
+  // той карточке, где его дали, и только просьбы, сделанные ДО разрешения: новая просьба
+  // клиента (optedOutAt позже разрешения) снова закрывает робозвонок.
+  const allowedAt = clientIds.length ? await robotCallAllowMoments(clientIds) : new Map<string, Date>();
   const own = { conversationId: target.conversationId, contactProfileId: target.contactProfileId };
-  if ((own.conversationId || own.contactProfileId) && (await hasOptedOutOfContact(own))) {
-    // Диалог или досье без карточки: снять просьбу можно только через карточку.
+  if (own.conversationId || own.contactProfileId) {
     const ownClient = await clientOfConversation(own);
-    if (!ownClient || !(await clientsAllowedDespiteOptOut([ownClient])).length) return "opted_out";
+    const ownAllowedAt = ownClient ? allowedAt.get(ownClient) ?? (await robotCallAllowMoments([ownClient])).get(ownClient) ?? null : null;
+    if (await hasOptedOutOfContact(own, ownAllowedAt)) return "opted_out";
   }
   for (const clientId of clientIds) {
-    if (!allowed.has(clientId) && (await hasOptedOutOfContact({ clientId }))) return "opted_out";
+    if (await hasOptedOutOfContact({ clientId }, allowedAt.get(clientId) ?? null)) return "opted_out";
   }
   return null;
+}
+
+/**
+ * «Не беспокойте» переписки по карточке: была ли просьба, есть ли разрешение руководства и
+ * закрывает ли она робозвонок сейчас (просьба позже разрешения — закрывает).
+ */
+export async function chatOptOutState(clientId: string): Promise<{ optedOut: boolean; allowed: boolean; blocks: boolean }> {
+  const allowedAt = (await robotCallAllowMoments([clientId])).get(clientId) ?? null;
+  const optedOut = await hasOptedOutOfContact({ clientId });
+  const blocks = optedOut && (allowedAt ? await hasOptedOutOfContact({ clientId }, allowedAt) : true);
+  return { optedOut, allowed: !!allowedAt, blocks };
+}
+
+/** Снять только отметки сотрудника (просьбы клиента остаются). */
+export async function clearStaffRobotCallStops(input: { phone: string; clientId?: string | null; clearedByAgentId: string | null; now?: Date }): Promise<number> {
+  const phone = robotCallPhoneKey(input.phone);
+  const or: Array<Record<string, unknown>> = [{ phone }];
+  if (input.clientId) or.push({ clientId: input.clientId });
+  const result = await prisma.robotCallStop.updateMany({
+    where: { clearedAt: null, source: "STAFF", OR: or },
+    data: { clearedAt: input.now ?? new Date(), clearedByAgentId: input.clearedByAgentId },
+  });
+  return result.count;
+}
+
+/** Действующие разрешения руководства: карточка → когда дано. */
+async function robotCallAllowMoments(clientIds: string[]): Promise<Map<string, Date>> {
+  const rows = await prisma.robotCallAllow.findMany({
+    where: { clientId: { in: clientIds }, revokedAt: null },
+    select: { clientId: true, createdAt: true },
+  });
+  return new Map(rows.map((r) => [r.clientId, r.createdAt]));
+}
+
+/**
+ * Клиент снова написал «не беспокойте» — разрешение руководства по его карточке гаснет
+ * (переписка ставит optedOutAt только один раз, поэтому одной сверки дат мало).
+ */
+export async function revokeRobotCallAllowOnOptOut(conversationId: string): Promise<number> {
+  const conv = await prisma.botConversation.findUnique({
+    where: { id: conversationId },
+    select: { clientId: true, contactProfile: { select: { clientId: true } } },
+  });
+  const ids = [...new Set([conv?.clientId, conv?.contactProfile?.clientId].filter((x): x is string => !!x))];
+  if (ids.length === 0) return 0;
+  const r = await prisma.robotCallAllow.updateMany({ where: { clientId: { in: ids }, revokedAt: null }, data: { revokedAt: new Date() } });
+  return r.count;
 }
 
 /** Карточка, к которой привязан диалог или досье (если есть). */
@@ -286,20 +338,33 @@ export async function revokeRobotCallAllow(clientId: string, agentId: string | n
  * кандидата, interviewInviteCall.ts::isOurCallFailure): связь, голос не поднялся, немая
  * линия, процесс перезапустился.
  */
-export function isRobotCallOurFailure(reason: string | null | undefined): boolean {
+export function isRobotCallOurFailure(reason: string | null | undefined, transcript?: readonly string[] | string | null): boolean {
   if (!reason) return false;
-  return (
+  // Сбой до разговора или прежний список приглашения (02.10.2026) — сбой всегда.
+  if (
     reason.startsWith("start_failed") ||
-    reason.startsWith("gemini_") ||
-    reason.startsWith("elevenlabs_") ||
-    reason.startsWith("orphan_") ||
-    reason === "ended_while_offline" ||
+    reason === "gemini_error" ||
+    reason === "gemini_closed" ||
     reason === "rtp_socket_error" ||
     reason === "listener_stopped" ||
     reason === "ari_error" ||
     reason === NO_STATION_AUDIO_REASON ||
     reason === "no_caller_speech"
-  );
+  ) {
+    return true;
+  }
+  // Оборвалось посреди (перезапуск, зависший голос, отказ поставщика): если разговор уже
+  // был — это не сбой, иначе человеку позвонят второй раз о том же (ревью П3).
+  if (
+    reason.startsWith("gemini_") ||
+    reason.startsWith("elevenlabs_") ||
+    reason.startsWith("orphan_") ||
+    reason === "ended_while_offline"
+  ) {
+    const lines = clientLinesOf(typeof transcript === "string" ? transcript.split("\n") : [...(transcript ?? [])]);
+    return lines.length < SUBSTANTIAL_CLIENT_LINES;
+  }
+  return false;
 }
 
 /** Модель закончила звонок как «автоответчик» или «взял не тот» (слова причины end_call). */
@@ -332,7 +397,7 @@ export function robotSessionCountsAsConversation(
   if (endedAsNotReached(session.endedReason)) return false;
   const lines = clientLinesOf((session.transcript ?? "").split("\n"));
   if (lines.length === 0 || looksLikeVoicemail(lines)) return false;
-  if (isRobotCallOurFailure(session.endedReason)) return lines.length >= SUBSTANTIAL_CLIENT_LINES;
+  if (isRobotCallOurFailure(session.endedReason, session.transcript)) return lines.length >= SUBSTANTIAL_CLIENT_LINES;
   return true;
 }
 

@@ -16,6 +16,7 @@ import { payomSend, PAYOM_NOT_DELIVERED } from "./sms/payom.js";
 import { originateLiveVoiceScenarioCall, type LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
 import { INTERVIEW_INVITE_CALL_TOOLS } from "../ai/interviewInviteCallPersona.js";
 import { parseInterviewInviteCall } from "../ai/interviewInviteCallParse.js";
+import { INTERVIEW_INVITE_TOO_LATE_MS } from "./interviewInviteCall.js";
 import { isWithinPostShowingCallHours } from "./postShowingCall.js";
 import { loadCompanyDaysOff } from "./daysOffCalendar.js";
 import { vacancyOfficeMapUrl } from "../ai/vacancyFacts.js";
@@ -226,7 +227,11 @@ export async function previewRecruitmentContact(applicationId: string, actorId: 
       originalInterviewAt: source.app.interviewAt?.toISOString() ?? null, phone: source.app.phone!,
       positionKey: source.position.key, positionRevision: source.position.revision, companyHash: source.companyHash,
       fence: source.state?.fence ?? null, sourceKind: source.state ? "CORE" : "LEGACY_HR", legacyBindingHash: source.legacy?.hash ?? null, request, ...content,
-      validUntil: request.interviewAt ?? new Date(now.getTime() + 24 * 60 * 60_000).toISOString() };
+      // Приглашение живо до часа перед собеседованием — тот же запас, что у робота-приглашения
+      // (INTERVIEW_INVITE_TOO_LATE_MS): позже звонить и писать «приходите» поздно.
+      validUntil: request.interviewAt
+        ? new Date(new Date(request.interviewAt).getTime() - INTERVIEW_INVITE_TOO_LATE_MS).toISOString()
+        : new Date(now.getTime() + 24 * 60 * 60_000).toISOString() };
     const previewId = randomUUID(), previewHash = digest(snapshot);
     for (const channel of request.channels) await tx.$executeRaw`INSERT INTO "RecruitmentCommunication"
       ("id","previewId","jobApplicationId","actorId","purpose","channel","status","previewHash","snapshotJson","expiresAt","createdAt","updatedAt")

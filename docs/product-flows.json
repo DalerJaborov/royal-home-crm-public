@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 735,
-  "forks": 3921,
+  "forks": 3922,
   "mounts": 82,
   "cron": 125,
   "jobs": 32,
@@ -16737,20 +16737,20 @@
      ]
     },
     {
-     "k": "else",
-     "t": "иначе",
+     "k": "elseif",
+     "t": "parsed.data.overrideClientRequest",
      "a": [],
      "c": [
       {
        "k": "if",
-       "t": "current.stopped && !current.canClear",
+       "t": "!canOverrideClientRequest(req)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(403).json({ error: \"Клиент сам просил не беспокоить — снять запрет может только руководител…",
+         "t": "return res.status(403).json({ error: \"Разрешить звонок вопреки просьбе клиента может только руководитель\" });",
          "a": [
-          "ответ 403 — «Клиент сам просил не беспокоить — снять запрет может только…»"
+          "ответ 403 — «Разрешить звонок вопреки просьбе клиента может только руководитель»"
          ],
          "c": []
         }
@@ -16771,7 +16771,7 @@
        "c": [
         {
          "k": "do",
-         "t": "logAudit(req, \"ROBOT_CALL_STOP_CLEARED\", \"Client\", client.id, { shortId: client.shortId, cleared });",
+         "t": "logAudit(req, \"ROBOT_CALL_STOP_CLEARED\", \"Client\", client.id, { shortId: client.shortId, cleared, override: t…",
          "a": [
           "зовёт logAudit()"
          ],
@@ -16781,31 +16781,62 @@
       },
       {
        "k": "if",
-       "t": "current.optedOutInChat && !current.allowedBySupervisor",
+       "t": "current.optedOutInChat",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "const allowed = await allowRobotCallDespiteOptOut(client.id, req.agent!.id);",
+         "t": "await revokeRobotCallAllow(client.id, req.agent!.id);",
+         "a": [
+          "зовёт revokeRobotCallAllow()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await allowRobotCallDespiteOptOut(client.id, req.agent!.id);",
          "a": [
           "зовёт allowRobotCallDespiteOptOut()"
          ],
          "c": []
         },
         {
-         "k": "if",
-         "t": "allowed.created",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "logAudit(req, \"ROBOT_CALL_OPT_OUT_ALLOWED\", \"Client\", client.id, { shortId: client.shortId });",
-           "a": [
-            "зовёт logAudit()"
-           ],
-           "c": []
-          }
-         ]
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_OPT_OUT_ALLOWED\", \"Client\", client.id, { shortId: client.shortId, reasons: current.…",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "else",
+     "t": "иначе",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const cleared = await clearStaffRobotCallStops({ phone: client.phone, clientId: client.id, clearedByAgentId: …",
+       "a": [
+        "зовёт clearStaffRobotCallStops()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "cleared > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"ROBOT_CALL_STOP_CLEARED\", \"Client\", client.id, { shortId: client.shortId, cleared });",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
         }
        ]
       }

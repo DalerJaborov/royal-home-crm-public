@@ -28,7 +28,7 @@ import {
   useDisputePropertyCount,
   type PropertyCountDisputeRole,
 } from "../hooks/useDeleteRequests";
-import { CLIENT_KINDS, DEAL_STAGE_LABELS, canViewInvestigations, clientIntents, clientCardCanWrite, type ClientKind } from "@royal-home/shared";
+import { CLIENT_KINDS, DEAL_STAGE_LABELS, canViewInvestigations, clientIntents, clientCardCanWrite, type ClientKind, robotCallClientReasonsRu } from "@royal-home/shared";
 import { useAgents } from "../hooks/useAgents";
 import { assignableStaff, notAgentConfirmText, notAgentWarningText, staffOptionLabel } from "../lib/assignableStaff";
 import { useSettings } from "../hooks/useSettings";
@@ -1089,22 +1089,36 @@ function ClientDetailCard() {
    */
   if (!locked && settings?.liveVoiceEnabled && robotStop.data) {
     const stop = robotStop.data;
-    const clientAsked = stop.stopped && !stop.canClear;
+    const clientWhy = robotCallClientReasonsRu(stop.clientReasons);
+    // Обе причины видны сразу: отметка сотрудника и просьба самого клиента (ревью П3).
     extraItems.push({
       key: "robot-stop",
       label: "Не звонить роботом",
       icon: PhoneOff,
       checked: stop.stopped,
-      hint: clientAsked
-        ? "Клиент сам просил не беспокоить — снять может руководитель"
-        : stop.stopped && stop.source === "CONVERSATION"
-          ? "Клиент просил в переписке не беспокоить. Выключите, чтобы робот всё же звонил"
-          : !stop.stopped && stop.allowedBySupervisor
-            ? "Руководитель разрешил звонить, хотя клиент просил в переписке не беспокоить"
-            : undefined,
-      disabled: clientAsked,
-      onSelect: () => setRobotStop.mutate(!stop.stopped),
+      hint: stop.clientReasons.length
+        ? stop.staffStop
+          ? `Стоит ваша отметка, и клиент сам просил не беспокоить (${clientWhy}) — снятие отметки этого не отменит`
+          : `Клиент сам просил не беспокоить (${clientWhy})`
+        : !stop.stopped && stop.allowedBySupervisor
+          ? "Руководитель разрешил звонить, хотя клиент просил не беспокоить"
+          : undefined,
+      // Тумблер ставит и снимает только отметку сотрудника; просьбу клиента он не снимает.
+      disabled: stop.stopped && !stop.staffStop,
+      onSelect: () => setRobotStop.mutate({ stopped: !stop.staffStop }),
     });
+    // Разрешить вопреки просьбе клиента — отдельное явное действие руководителя.
+    if (stop.canOverride) {
+      extraItems.push({
+        key: "robot-override",
+        label: "Звонить вопреки просьбе клиента",
+        icon: Bot,
+        tone: "danger",
+        hint: `Клиент просил не беспокоить (${clientWhy}). Робот снова сможет звонить; рассылки по-прежнему молчат`,
+        disabled: setRobotStop.isPending,
+        onSelect: () => setRobotStop.mutate({ stopped: false, overrideClientRequest: true }),
+      });
+    }
   }
 
   /**

@@ -47,20 +47,20 @@ describe("строка-тумблер «Не звонить роботом»", (
 });
 
 describe("тумблер переключается сразу", () => {
-  const base: RobotCallStopState = { stopped: false, source: null, since: null, optedOutInChat: false, allowedBySupervisor: false, canClear: false };
+  const base: RobotCallStopState = { stopped: false, staffStop: false, clientReasons: [], since: null, optedOutInChat: false,
+    allowedBySupervisor: false, canClear: false, canOverride: false };
   it("включение — своя отметка, её можно снять", () => {
-    const next = robotStopOptimistic(base, true, new Date("2026-11-11T07:00:00Z"));
-    expect(next).toMatchObject({ stopped: true, source: "STAFF", canClear: true, since: "2026-11-11T07:00:00.000Z" });
+    const next = robotStopOptimistic(base, { stopped: true }, new Date("2026-11-11T07:00:00Z"));
+    expect(next).toMatchObject({ stopped: true, staffStop: true, canClear: true, since: "2026-11-11T07:00:00.000Z" });
   });
-  it("выключение гасит источник; чужая просьба при включении не подменяется", () => {
-    const voice: RobotCallStopState = { ...base, stopped: true, source: "VOICE", since: "x", canClear: false };
-    expect(robotStopOptimistic(voice, true)).toBe(voice);
-    expect(robotStopOptimistic(voice, false)).toMatchObject({ stopped: false, source: null });
+  it("снятие своей отметки при просьбе клиента — запрет остаётся, разрешения нет", () => {
+    const both: RobotCallStopState = { ...base, stopped: true, staffStop: true, clientReasons: ["CONVERSATION"], optedOutInChat: true, canClear: true, canOverride: true };
+    expect(robotStopOptimistic(both, { stopped: false })).toMatchObject({ stopped: true, staffStop: false, allowedBySupervisor: false });
   });
-  it("снятие просьбы из переписки — разрешение руководства; включение его отзывает", () => {
-    const chat: RobotCallStopState = { ...base, stopped: true, source: "CONVERSATION", optedOutInChat: true, canClear: true };
-    const off = robotStopOptimistic(chat, false);
-    expect(off).toMatchObject({ stopped: false, allowedBySupervisor: true });
-    expect(robotStopOptimistic(off, true)).toMatchObject({ stopped: true, allowedBySupervisor: false });
+  it("явное разрешение руководителя снимает всё и отмечается; включение его отзывает", () => {
+    const chat: RobotCallStopState = { ...base, stopped: true, clientReasons: ["CONVERSATION"], optedOutInChat: true, canOverride: true };
+    const off = robotStopOptimistic(chat, { stopped: false, overrideClientRequest: true });
+    expect(off).toMatchObject({ stopped: false, clientReasons: [], allowedBySupervisor: true });
+    expect(robotStopOptimistic(off, { stopped: true })).toMatchObject({ stopped: true, allowedBySupervisor: false });
   });
 });

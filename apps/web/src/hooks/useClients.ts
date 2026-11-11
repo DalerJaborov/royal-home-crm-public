@@ -477,12 +477,20 @@ export function useRobotCallStop(clientId: string | undefined, enabled = true) {
   });
 }
 
-/** Положение тумблера до ответа сервера: своя отметка — снимаемая, снятие гасит источник. */
-export function robotStopOptimistic(prev: RobotCallStopState, stopped: boolean, now: Date = new Date()): RobotCallStopState {
-  // Снятие при просьбе в переписке — разрешение руководства (только для робота).
-  if (!stopped) return { ...prev, stopped: false, source: null, since: null, canClear: false, allowedBySupervisor: prev.optedOutInChat || prev.allowedBySupervisor };
-  if (prev.stopped) return prev;
-  return { ...prev, stopped: true, source: "STAFF", since: now.toISOString(), canClear: true, allowedBySupervisor: false };
+/** Что меняет ручка «не звонить роботом»: отметку сотрудника или (руководитель) разрешение вопреки просьбе клиента. */
+export type RobotStopChange = { stopped: boolean; overrideClientRequest?: true };
+
+/** Положение до ответа сервера: тумблер — только отметка сотрудника, просьба клиента остаётся. */
+export function robotStopOptimistic(prev: RobotCallStopState, change: RobotStopChange, now: Date = new Date()): RobotCallStopState {
+  if (change.overrideClientRequest) {
+    return { ...prev, stopped: false, staffStop: false, clientReasons: [], canClear: false, canOverride: false,
+      allowedBySupervisor: prev.optedOutInChat || prev.allowedBySupervisor };
+  }
+  if (change.stopped) {
+    return { ...prev, stopped: true, staffStop: true, canClear: true, allowedBySupervisor: false,
+      since: prev.since ?? now.toISOString() };
+  }
+  return { ...prev, staffStop: false, canClear: false, stopped: prev.clientReasons.length > 0 };
 }
 
 /**
@@ -493,15 +501,15 @@ export function useSetRobotCallStop(clientId: string) {
   const qc = useQueryClient();
   const key = robotCallStopKey(clientId);
   return useMutation({
-    mutationFn: (stopped: boolean) =>
-      api<RobotCallStopState>(`/clients/${clientId}/robot-call-stop`, { method: "PUT", body: { stopped } }),
-    onMutate: async (stopped: boolean) => {
+    mutationFn: (change: RobotStopChange) =>
+      api<RobotCallStopState>(`/clients/${clientId}/robot-call-stop`, { method: "PUT", body: change }),
+    onMutate: async (change: RobotStopChange) => {
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<RobotCallStopState>(key);
-      if (prev) qc.setQueryData<RobotCallStopState>(key, robotStopOptimistic(prev, stopped));
+      if (prev) qc.setQueryData<RobotCallStopState>(key, robotStopOptimistic(prev, change));
       return { prev };
     },
-    onError: (_err, _stopped, ctx) => {
+    onError: (_err, _change, ctx) => {
       if (ctx?.prev) qc.setQueryData(key, ctx.prev);
     },
     onSuccess: (state) => {

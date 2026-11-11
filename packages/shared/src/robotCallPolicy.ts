@@ -164,30 +164,52 @@ export const ROBOT_CALL_DEFER_CODES: ReadonlySet<RobotCallRefusalCode> = new Set
   "policy_unavailable",
 ]);
 
-/** PUT /clients/:id/robot-call-stop — поставить или снять «Не звонить роботом». */
+/**
+ * PUT /clients/:id/robot-call-stop — поставить или снять «Не звонить роботом».
+ * `stopped: false` снимает только отметку сотрудника. Просьбу САМОГО клиента (в переписке,
+ * в разговоре с роботом, станция) снимает лишь явное действие руководителя:
+ * `{ stopped: false, overrideClientRequest: true }` — это не побочный эффект снятия своей отметки.
+ */
 export const robotCallStopUpdateSchema = z
   .object({
     stopped: z.boolean(),
+    overrideClientRequest: z.literal(true).optional(),
     note: z.string().trim().max(300).nullable().optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => !(v.stopped && v.overrideClientRequest), "Разрешение вопреки просьбе клиента — только при снятии запрета");
 export type RobotCallStopUpdate = z.infer<typeof robotCallStopUpdateSchema>;
 
-/** Ответ ручки: что сейчас запрещает роботу звонить этому клиенту. */
+/** Просьба самого клиента: откуда она. */
+export const ROBOT_CALL_CLIENT_REASONS = ["CONVERSATION", "VOICE", "STATION"] as const;
+export type RobotCallClientReason = (typeof ROBOT_CALL_CLIENT_REASONS)[number];
+
+/** Ответ ручки: что сейчас запрещает роботу звонить этому клиенту — все причины сразу. */
 export const robotCallStopStateSchema = z.object({
-  /**
-   * Не звонит ли робот этому клиенту: стоит отметка «Не звонить роботом» ИЛИ клиент
-   * просил в переписке не беспокоить и руководство это для робота не снимало.
-   */
+  /** Робот этому клиенту не звонит (по любой из причин ниже). */
   stopped: z.boolean(),
-  /** Почему: источник отметки; «просьба в переписке» — CONVERSATION. */
-  source: z.enum(ROBOT_CALL_STOP_SOURCES).nullable(),
+  /** Отметка сотрудника «Не звонить роботом». */
+  staffStop: z.boolean(),
+  /** Действующие просьбы самого клиента; пусто — их нет (или руководство разрешило). */
+  clientReasons: z.array(z.enum(ROBOT_CALL_CLIENT_REASONS)),
   since: z.string().nullable(),
   /** Клиент просил в переписке не беспокоить (сама отметка переписки, для рассылок не трогается). */
   optedOutInChat: z.boolean(),
-  /** Руководство разрешило роботу звонить вопреки просьбе в переписке (кто — в журнале действий). */
+  /** Руководство разрешило роботу звонить вопреки просьбе клиента (кто — в журнале действий). */
   allowedBySupervisor: z.boolean(),
-  /** Может ли этот сотрудник снять запрет (просьбу клиента снимает только руководство). */
+  /** Может ли этот сотрудник снять отметку сотрудника. */
   canClear: z.boolean(),
+  /** Может ли этот сотрудник разрешить робота вопреки просьбе клиента (руководство). */
+  canOverride: z.boolean(),
 });
 export type RobotCallStopState = z.infer<typeof robotCallStopStateSchema>;
+
+/** Подпись причин просьбы клиента: «в переписке и в разговоре с роботом». */
+export function robotCallClientReasonsRu(reasons: readonly RobotCallClientReason[]): string {
+  const words: Record<RobotCallClientReason, string> = {
+    CONVERSATION: "в переписке",
+    VOICE: "в разговоре с роботом",
+    STATION: "номер в чёрном списке станции",
+  };
+  return reasons.map((r) => words[r]).join(", ");
+}

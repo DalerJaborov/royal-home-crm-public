@@ -22,7 +22,7 @@ vi.mock("../src/lib/telephony/ariClient.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { robotCallAllowed, setRobotCallStop, clearRobotCallStop, allowRobotCallDespiteOptOut, revokeRobotCallAllow } = await import("../src/lib/robotCallPolicy.js");
+const { robotCallAllowed, setRobotCallStop, clearRobotCallStop, allowRobotCallDespiteOptOut, revokeRobotCallAllow, revokeRobotCallAllowOnOptOut, isRobotCallOurFailure } = await import("../src/lib/robotCallPolicy.js");
 const { originateLiveVoiceCallToClient, originateLiveVoiceTestCall } = await import("../src/lib/telephony/liveVoiceBridge.js");
 const { ROBOT_CALL_DAY_START_HOUR, ROBOT_CALL_DAY_END_HOUR, robotCallWindowRefusal, nextRobotCallWindowStart } = await import("@royal-home/shared");
 const { POST_SHOWING_CALL_DAY_START_HOUR, POST_SHOWING_CALL_DAY_END_HOUR } = await import("../src/lib/postShowingCall.js");
@@ -369,6 +369,42 @@ describe("«не беспокойте» без карточки и разреш�
       await prisma.botConversation.delete({ where: { id: conv.id } });
       await prisma.client.delete({ where: { id: c.id } });
     }
+  });
+});
+
+describe("разрешение руководства — только для просьб ДО него (повторное ревью П3)", () => {
+  it("клиент снова пишет «не беспокойте» после разрешения — робот не звонит", async () => {
+    const phone = freshPhone();
+    const c = await prisma.client.create({ data: { fullName: `Повторная просьба ${phone}`, phone: `+992${phone}`, source: "PHONE_CALL" } });
+    const old = await prisma.botConversation.create({ data: { channel: "whatsapp", subscriberId: `policy-old-${phone}`, clientId: c.id, optedOutAt: new Date(Date.now() - 8 * 86_400_000) } });
+    const now = dushanbe(DAY, 12);
+    try {
+      await allowRobotCallDespiteOptOut(c.id, "test-director");
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toEqual({ allowed: true });
+      // Новая просьба в другом канале — позже разрешения.
+      const fresh = await prisma.botConversation.create({ data: { channel: "telegram", subscriberId: `policy-new-${phone}`, clientId: c.id, optedOutAt: new Date(Date.now() + 1000) } });
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "opted_out" });
+      await prisma.botConversation.delete({ where: { id: fresh.id } });
+      // Та же переписка, повторное «не беспокойте» (optedOutAt не меняется) — разрешение гаснет.
+      expect(await revokeRobotCallAllowOnOptOut(old.id)).toBe(1);
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "opted_out" });
+    } finally {
+      await prisma.robotCallAllow.deleteMany({ where: { clientId: c.id } });
+      await prisma.botConversation.deleteMany({ where: { clientId: c.id } });
+      await prisma.client.delete({ where: { id: c.id } });
+    }
+  });
+});
+
+describe("обрыв после настоящего разговора — не «наш сбой» (повторное ревью П3)", () => {
+  const talk = ["Клиент: Да", "Клиент: Слушаю вас", "Клиент: Хорошо, приду"];
+  it.each(["orphan_after_restart", "gemini_stalled", "elevenlabs_disconnected", "ended_while_offline"])("%s с разговором — не сбой, без разговора — сбой", (reason) => {
+    expect(isRobotCallOurFailure(reason, talk)).toBe(false);
+    expect(isRobotCallOurFailure(reason, ["Робот: Алло?"])).toBe(true);
+  });
+  it("сбой до разговора — сбой всегда", () => {
+    expect(isRobotCallOurFailure("start_failed: connect", talk)).toBe(true);
+    expect(isRobotCallOurFailure("no_station_audio", talk)).toBe(true);
   });
 });
 
