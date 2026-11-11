@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { narrationDraftText, pickNarrationVoice, type NarrationFacts, type NarrationOptionsView, type NarrationWizardChoice } from "@royal-home/shared";
 import { api } from "../../lib/api";
+import { VoiceSamplePicker } from "../VoiceSamplePicker";
 
 /**
  * КОНЕЦ МАСТЕРА — ОЗВУЧКА РОЛИКА (схема владельца 10.11.2026). Текст собирается
@@ -28,9 +29,6 @@ export function NarrationChoice({ facts, value, onChange }: {
   const drafted = narrationDraftText({ templates, defaultTemplateId: data?.defaultTemplateId ?? undefined }, facts, value.templateId);
   const text = value.script ?? drafted.text;
   const voiceId = data ? pickNarrationVoice({ voices: data.voices, defaultVoiceId: data.defaultVoiceId ?? undefined }, value.voiceId) : null;
-  const male = data?.voices.filter((v) => v.gender === "male") ?? [];
-  const female = data?.voices.filter((v) => v.gender === "female") ?? [];
-  const other = data?.voices.filter((v) => !v.gender) ?? [];
 
   return (
     <section className="card mt-4 space-y-3 p-4" aria-label="Озвучка ролика">
@@ -48,13 +46,9 @@ export function NarrationChoice({ facts, value, onChange }: {
           onChange={(e) => onChange({ ...value, script: e.target.value, templateId: drafted.templateId ?? undefined })} />
       </label>
       {!!data?.voices.length && (
-        <label className="block text-sm" htmlFor={`${ids}-voice`}>Голос
-          <select id={`${ids}-voice`} className="mt-1 w-full rounded-lg border p-2" value={voiceId ?? ""} onChange={(e) => onChange({ ...value, voiceId: e.target.value })}>
-            {female.length > 0 && <optgroup label="Женские">{female.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</optgroup>}
-            {male.length > 0 && <optgroup label="Мужские">{male.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</optgroup>}
-            {other.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
-        </label>
+        // Голос выбирают на слух: у каждого «▶ Прослушать» одной и той же фразой на языке шаблона.
+        <VoiceSamplePicker name={`${ids}-voice`} voices={data.voices} value={voiceId} samples={data.samples} lang={drafted.lang}
+          onChange={(id) => onChange({ ...value, voiceId: id })} />
       )}
       <p className="text-sm text-slate-600">
         {data?.autoGenerate

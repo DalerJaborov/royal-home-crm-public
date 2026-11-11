@@ -107,13 +107,15 @@ export function handoffReceiptText(result: ReceiveEditedVideoResult, shortId: nu
   const oldLeft = result.oldVideoLeftIn?.length
     ? `\nВ сетях ${result.oldVideoLeftIn.map(channelLabel).join(", ")} остался старый ролик — туда новый сам не уйдёт.`
     : "";
-  if (!result.media) return `${base}${oldLeft}`;
+  // Ролик без голоса (11.11.2026): голос наложила CRM — одной строкой монтажёру.
+  const mixed = result.narrationMixedRevision ? `\nОзвучку (версия ${result.narrationMixedRevision}) CRM наложила сама.` : "";
+  if (!result.media) return `${base}${mixed}${oldLeft}`;
   const { media, filename } = result;
   const parts = [filename ? `Файл: ${filename}` : null, media.sizeBytes ? `${Math.round(media.sizeBytes / 1024 / 1024)} МБ` : null];
   if (media.durationSec > 0) parts.push(formatDurationShort(media.durationSec));
   if (media.width && media.height) parts.push(`${media.width}×${media.height}`);
-  parts.push(media.hasAudio ? "звук есть" : "звука нет");
-  return `${base}\n${parts.filter(Boolean).join(", ")}${oldLeft}`;
+  parts.push(media.hasAudio ? "звук есть" : result.narrationMixedRevision ? "без голоса" : "звука нет");
+  return `${base}\n${parts.filter(Boolean).join(", ")}${mixed}${oldLeft}`;
 }
 
 /** «в 14:30» сегодня, «26.09 в 14:30» в другой день, «сейчас» — если слот уже настал. */

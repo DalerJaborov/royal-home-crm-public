@@ -1888,6 +1888,10 @@ crudRouter.delete("/:id/permanent", requireAuth, requirePermission("properties.p
   });
   if (!purge) return res.status(409).json({ error: "Объект изменился или озвучка ещё генерируется. Обновите карточку перед удалением." });
   await removePurgedNarrationAudio(property.id, purge.narrationIds);
+  // Ролик без голоса (11.11.2026) — в том же закрытом хранилище, ссылка уходит вместе с объектом.
+  if (property.videoMasterStorageKey && !await localVideoDelete(property.videoMasterStorageKey)) {
+    void logSystemError("storage", `Объект ${property.shortId}: ролик без голоса ${property.videoMasterStorageKey} не удалён`);
+  }
   for (const d of purge.detached) {
     logAudit(req, "UPDATE", "Ad", d.adId, {
       reason: "property-purged",

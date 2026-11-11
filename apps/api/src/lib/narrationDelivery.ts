@@ -1,6 +1,7 @@
 import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
+import { narrationConfigSchema, narrationMixByCrm } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { buildMontajerDelivery } from "./videoHandoff.js";
 import { narrationFacts, narrationHash } from "./propertyNarration.js";
@@ -9,7 +10,8 @@ import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
 import { sendDocumentFile, TELEGRAM_BOT_SEND_LIMIT_BYTES } from "../telegram/api.js";
 
 const fileSchema = z.object({ id: z.string(), storageKey: z.string(), filename: z.string(), caption: z.string() });
-const planSchema = z.object({ factsHash: z.string(), recipientHash: z.string(), files: z.array(fileSchema).min(1), sourcesHash: z.string() });
+/** mixByCrm — монтажёру сказано «пришлите ролик без голоса»: принятый ролик станет мастером (lib/narrationMaster.ts). */
+const planSchema = z.object({ factsHash: z.string(), recipientHash: z.string(), files: z.array(fileSchema).min(1), sourcesHash: z.string(), mixByCrm: z.boolean().optional() });
 type Plan = z.infer<typeof planSchema>;
 /** Shared by watchdog and manual reconciliation; a whole batch may exceed 3 minutes. */
 export function narrationDeliveryAttemptBudgetMs(plan: unknown): number {
@@ -21,7 +23,7 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   const [p, version, settings, sources] = await Promise.all([
     prisma.property.findUnique({ where: { id: propertyId }, include: { district: true } }),
     prisma.propertyNarrationVersion.findUnique({ where: { id: versionId } }),
-    prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } }),
+    prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true, propertyNarrationConfig: true } }),
     buildMontajerDelivery(propertyId),
   ]);
   const editorId = requestedEditorId ?? settings?.videoMontajerAgentId;
@@ -30,14 +32,20 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   if (!editorId || editorId !== settings?.videoMontajerAgentId) throw new Error("Сначала назначьте монтажёра в существующих настройках монтажа");
   const editor = await prisma.agent.findFirst({ where: { id: editorId, role: "EDITOR", isActive: true }, select: { telegramChatId: true } });
   if (!editor?.telegramChatId) throw new Error("У назначенного монтажёра не подключён Telegram");
-  const files: Plan["files"] = [{ id: version.id, storageKey: version.storageKey, filename: `property-${p.shortId}-voice-v${version.revision}.mp3`, caption: `Объект №${p.shortId}. Озвучка, версия ${version.revision}. Используйте эту версию.` },
+  // Новый порядок (11.11.2026): голос накладывает CRM, монтажёру озвучка — для длины и темпа.
+  const parsedConfig = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});
+  const mixByCrm = parsedConfig.success && narrationMixByCrm(parsedConfig.data);
+  const audioCaption = mixByCrm
+    ? `Объект №${p.shortId}. Озвучка, версия ${version.revision}: под неё длина и темп. Пришлите ролик БЕЗ голоса (музыка и звуки можно), голос CRM наложит сама. Ролик не короче озвучки.`
+    : `Объект №${p.shortId}. Озвучка, версия ${version.revision}. Используйте эту версию.`;
+  const files: Plan["files"] = [{ id: version.id, storageKey: version.storageKey, filename: `property-${p.shortId}-voice-v${version.revision}.mp3`, caption: audioCaption },
     { id: `${version.id}-script`, storageKey: "SCRIPT", filename: `property-${p.shortId}-voice-v${version.revision}.txt`, caption: version.script }];
   if (mode === "WITH_SOURCES") {
     if (!sources.videos.length) throw new Error("У объекта нет исходников");
     for (const video of sources.videos) files.push({ id: video.id, storageKey: video.storageKey, filename: video.filename, caption: `Объект №${p.shortId}. Исходник. Озвучка v${version.revision}.\n${sources.factsText}` });
   }
   return { editorId, plan: { factsHash: version.factsHash, recipientHash: mediaRecipientHash(editorId, editor.telegramChatId), files,
-    sourcesHash: narrationHash(mode === "WITH_SOURCES" ? sources.videos.map(v => [v.id, v.storageKey]) : []) } satisfies Plan };
+    sourcesHash: narrationHash(mode === "WITH_SOURCES" ? sources.videos.map(v => [v.id, v.storageKey]) : []), ...(mixByCrm ? { mixByCrm: true } : {}) } satisfies Plan };
 }
 
 export async function executeNarrationDelivery(id: string) {

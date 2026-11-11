@@ -7,7 +7,7 @@ import { hasMarketingRole } from "../marketing.js";
 import { canManageProperty } from "./shared.js";
 import { narrationFacts, narrationHash, suggestedNarration, narrationScriptError } from "../../lib/propertyNarration.js";
 import { localVideoFilePath } from "../../lib/localVideoStorage.js";
-import { generateNarrationVersion, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince } from "../../lib/narrationGeneration.js";
+import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
 import { afterNarrationApproved, approveNarrationVersion, narrationAutoEnabled, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
 import { setOwnerReportConsent, prepareOwnerReportDelivery } from "../../lib/ownerReport/delivery.js";
@@ -17,7 +17,7 @@ import { preparePublicationMetadataPreview } from "../../lib/publicationMetadata
 import { listPriceCaptionDelivery } from "../../lib/priceCaptionDelivery.js";
 
 export const narrationRouter = Router();
-narrationRouter.use(["/narration-settings", "/narration-options", "/:id/narration"], requireAuth);
+narrationRouter.use(["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], requireAuth);
 const idSchema = z.string().uuid();
 const manager = (role?: string) => hasMarketingRole(role);
 const configuration = loadNarrationConfiguration;
@@ -33,8 +33,34 @@ narrationRouter.get("/narration-settings", async (req, res) => {
 narrationRouter.get("/narration-options", async (_req, res) => {
   const { config } = await configuration();
   const view: NarrationOptionsView = { templates: config.templates ?? [], voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
-    defaultTemplateId: config.defaultTemplateId ?? null, defaultVoiceId: config.defaultVoiceId ?? null, autoGenerate: narrationAutoEnabled(config) };
+    defaultTemplateId: config.defaultTemplateId ?? null, defaultVoiceId: config.defaultVoiceId ?? null, autoGenerate: narrationAutoEnabled(config),
+    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })) };
   res.json(view);
+});
+
+/**
+ * ОБРАЗЦЫ ГОЛОСОВ (11.11.2026). Подготовка — платно, один раз на голос и фразу, только
+ * руководство; прослушивание — любой сотрудник, без затрат (файл из кэша).
+ */
+narrationRouter.post("/narration-voice-samples/prepare", async (req, res) => {
+  if (!["ADMIN", "DIRECTOR"].includes(req.agent!.role)) return res.status(403).json({ error: "Образцы голосов готовит руководство" });
+  if (!z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success) return res.status(400).json({ error: "Подтвердите подготовку образцов" });
+  const { config, key } = await configuration();
+  if (!key || !narrationProviderReady(config, key)) return res.status(409).json({ error: "ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках." });
+  const report = await generateVoiceSamples({ config, key, actorId: req.agent!.id });
+  const parts = [`Новых образцов: ${report.created}`, `уже были: ${report.existing}`];
+  if (report.failed) parts.push(`не получилось: ${report.failed}`);
+  const tail = report.quota ? " Кредиты ElevenLabs закончились." : report.budget ? " Дневной предел озвучки исчерпан — остальные завтра." : report.remaining ? ` Осталось ${report.remaining} — нажмите ещё раз.` : "";
+  res.json({ ...report, message: `${parts.join(", ")}.${tail}` });
+});
+narrationRouter.get("/narration-voice-samples/:voiceId/:lang", async (req, res) => {
+  const params = z.object({ voiceId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/), lang: z.enum(["tg", "ru"]) }).safeParse(req.params);
+  if (!params.success) return res.status(400).json({ error: "Некорректный голос" });
+  const { config } = await configuration();
+  const sample = (await readyVoiceSamples(config)).find((s) => s.voiceId === params.data.voiceId && s.lang === params.data.lang);
+  const file = sample ? localVideoFilePath(sample.storageKey) : null;
+  if (!file) return res.status(404).json({ error: "Образец этого голоса ещё не подготовлен" });
+  res.setHeader("Cache-Control", "private, max-age=3600"); res.type("audio/mpeg").sendFile(file);
 });
 narrationRouter.put("/narration-settings", async (req, res) => {
   if (!["ADMIN", "DIRECTOR"].includes(req.agent!.role)) return res.status(403).json({ error: "Голоса настраивает руководство" });
@@ -99,6 +125,8 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     // Агент объекта (canManageProperty уже проверен выше) одобряет готовое аудио автоозвучки.
     canApproveAudio: req.agent!.role !== "EDITOR", autoGenerate: narrationAutoEnabled(config),
     budget: manager(req.agent?.role) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
+    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })),
+    mix: { hasMaster: !!p.videoMasterStorageKey, error: manager(req.agent?.role) ? p.videoMasterMixError ?? null : null },
     quotaExceeded: manager(req.agent?.role) ? !!await narrationQuotaExceededSince() : undefined });
 });
 

@@ -16,6 +16,7 @@ vi.mock("../src/db.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/db.js")>();
   const prisma = { $disconnect: vi.fn(), $queryRaw: vi.fn().mockResolvedValue([]),
     property: { findUnique: s.property, findUniqueOrThrow: s.property }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
+    narrationVoiceSample: { findMany: vi.fn().mockResolvedValue([]) },
     propertyNarrationVersion: { findFirst: s.latest, findUnique: s.findVersion, findMany: s.versions, create: s.create, update: s.update, updateMany: s.updateMany, count: s.count },
     ownerReportSubscription: { findUnique: vi.fn().mockResolvedValue(null) }, propertyNarrationDelivery: { findMany: vi.fn().mockResolvedValue([]), findFirst: s.assigned, findUnique: s.deliveryFind, updateMany: s.deliveryUpdate, count: vi.fn().mockResolvedValue(0), upsert: s.delivery }, publicationMetadataSync: { upsert: s.preview, findMany: s.metadataList }, ownerReportDelivery: { upsert: s.report, findMany: vi.fn().mockResolvedValue([]) },
   };
@@ -234,7 +235,7 @@ describe("property narration route boundaries", () => {
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "secret-model", voices: [{ id: "voice", name: "Мадина", gender: "female" }], autoGenerate: true, templates: [] }, elevenLabsApiKey: "test" });
     const response = await request(app).get("/properties/narration-options");
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ templates: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true });
+    expect(response.body).toEqual({ templates: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true, samples: [] });
   });
   it("an agent edit with generate is refused while auto narration is off", async () => {
     s.role = "AGENT";

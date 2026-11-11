@@ -46,6 +46,9 @@ const narrationConfigBase = z.object({
   templates: z.array(narrationTemplateSchema).max(20).optional(),
   defaultTemplateId: z.string().trim().max(40).optional(),
   defaultVoiceId: z.string().trim().max(100).optional(),
+  /** Рубильник (11.11.2026): озвучку на ролик накладывает CRM — монтажёр присылает ролик без голоса.
+   *  Не задан — включено (решение владельца); false — монтажёр вклеивает голос сам, как раньше. */
+  mixByCrm: z.boolean().optional(),
 });
 const uniqueVoices = (v: { voices: { id: string }[] }) => new Set(v.voices.map((voice) => voice.id)).size === v.voices.length;
 const uniqueTemplates = (v: { templates?: { id: string }[] }) => !v.templates || new Set(v.templates.map((t) => t.id)).size === v.templates.length;
@@ -55,6 +58,23 @@ export const narrationConfigSchema = narrationConfigBase
 /** PUT настроек: поле, которого нет в запросе, остаётся прежним (старый экран не стирает шаблоны). */
 export const narrationConfigPatchSchema = narrationConfigBase.partial();
 export type NarrationConfig = z.infer<typeof narrationConfigSchema>;
+
+/** Наложение озвучки делает CRM, если руководство не выключило это в настройках озвучки. */
+export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): boolean {
+  return config.mixByCrm !== false;
+}
+
+/**
+ * ФРАЗА ОБРАЗЦА ГОЛОСА (11.11.2026, владелец): агент слушает несколько голосов одной и той же
+ * фразой и выбирает. Одна константа на язык шаблона; поменяли текст — образцы готовятся заново
+ * (кэш по голосу, модели и тексту фразы), старые просто перестают отдаваться.
+ */
+export const NARRATION_VOICE_SAMPLE_TEXT: Record<NarrationLang, string> = {
+  tg: "Ассалому алайкум! Ин Роял Хом. Квартираи се ҳуҷра дар ноҳияи Сино, масоҳаташ ҳаштод метри мураббаъ, нархаш шаст ҳазор доллар. Барои дидан ба мо нависед!",
+  ru: "Здравствуйте! Это Роял Хом. Трёхкомнатная квартира в районе Сино, восемьдесят квадратных метров, цена шестьдесят тысяч долларов. Пишите нам, покажем!",
+};
+/** Образец, который можно прослушать: голос и язык фразы. */
+export type NarrationVoiceSampleRef = { voiceId: string; lang: NarrationLang };
 
 /** Умолчания чисел — не текст владельца, а осторожные пределы до первой настройки. */
 /**
@@ -259,6 +279,8 @@ export type PropertyNarrationItem = {
 export type NarrationOptionsView = {
   templates: NarrationTemplate[]; voices: Array<{ id: string; name: string; gender?: "male" | "female" }>;
   defaultTemplateId: string | null; defaultVoiceId: string | null; autoGenerate: boolean;
+  /** Готовые образцы голосов (кнопка «▶ Прослушать»). */
+  samples?: NarrationVoiceSampleRef[];
 };
 export type PropertyNarrationView = {
   versions: PropertyNarrationItem[]; suggestedScript: string; config: NarrationConfig;
@@ -272,4 +294,7 @@ export type PropertyNarrationView = {
   ownerReportsEnabled?: boolean;
   ownerReport?: { active: boolean; revision: number; executionMode: string; deliveries: Array<{ id: string; status: string; period: string; lastError: string | null }> };
   readiness?: { voiceCount: number; modelConfigured: boolean; apiKeyConfigured: boolean };
+  samples?: NarrationVoiceSampleRef[];
+  /** Озвучку на этот ролик накладывает CRM (есть ролик без голоса от монтажёра); ошибка наложения — для руководства. */
+  mix?: { hasMaster: boolean; error: string | null };
 };

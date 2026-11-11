@@ -3,6 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NARRATION_TAJIK_MODELS, type NarrationConfig, type NarrationTemplate, type PropertyNarrationView } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { PublicationMetadataReconcile, type MetadataAttemptSummary } from "./PublicationMetadataReconcile";
+import { VoiceSamplePicker } from "./VoiceSamplePicker";
+
+/** Что сказать агенту после одобрения: кто и как поменяет звук (ответ маршрута approve). */
+function approvedMessage(delivery: string | undefined): string {
+  if (delivery === "CRM_REMIX") return "Озвучка одобрена. Ролик уже вышел: CRM сама наложит новую озвучку и заменит его, монтажёр не нужен.";
+  if (delivery === "SOUND_REMAKE") return "Озвучка одобрена. Ролик уже вышел: монтажёр заменит в нём только звук.";
+  return "Озвучка одобрена. Монтажёр получит её вместе с заданием на ролик.";
+}
 
 const STATUS: Record<string, string> = { DRAFT: "Черновик", GENERATING: "Генерируется", READY: "Аудио готово", FAILED: "Ошибка генерации", UNKNOWN: "Результат требует проверки в ElevenLabs" };
 const DELIVERY_STATUS: Record<string, string> = { PREVIEW: "Предварительный просмотр · не отправлено", QUEUED: "В очереди", SENDING: "Передаётся", SENT: "Принято сервисом · получение человеком не подтверждено", DELIVERED: "Провайдер подтвердил доставку", NOT_DELIVERED: "Провайдер сообщил: не доставлено", UNKNOWN: "Результат неизвестен · повтор отключён", FAILED: "Отказ или завершённая сверка", CANCELLED: "Остановлено: данные изменились" };
@@ -21,6 +29,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   const [deliveryChecked, setDeliveryChecked] = useState(false), [deliveryNote, setDeliveryNote] = useState("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null), [settingsOpen, setSettingsOpen] = useState(false);
   const [modelId, setModelId] = useState<string | null>(null), [voicesText, setVoicesText] = useState<string | null>(null);
+  const [mixByCrm, setMixByCrm] = useState<boolean | null>(null);
   const [autoGenerate, setAutoGenerate] = useState<boolean | null>(null), [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string }>({});
   const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null);
   const [publicationRows, setPublicationRows] = useState<Array<MetadataAttemptSummary & { reason: string }>>([]);
@@ -63,6 +72,14 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
       </select></label>
       <label className="block text-sm">Голоса: одна строка «ID | название | м или ж»<textarea className="mt-1 min-h-24 w-full rounded border p-2" value={voicesText ?? voiceLines(data.config)} onChange={(e) => setVoicesText(e.target.value)} /></label>
       <label className="flex gap-2 text-sm"><input type="checkbox" checked={autoGenerate ?? !!data.config.autoGenerate} onChange={(e) => setAutoGenerate(e.target.checked)} />Автоозвучка: готовить аудио сразу после создания объекта и после правки его данных, агент одобряет сам</label>
+      <label className="flex gap-2 text-sm"><input type="checkbox" checked={mixByCrm ?? data.config.mixByCrm !== false} onChange={(e) => setMixByCrm(e.target.checked)} />Озвучку на ролик накладывает CRM: монтажёр присылает ролик без голоса, смена цены меняет звук и описание сама</label>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className="pill sm" disabled={busy || !data.configured} onClick={() => void run(async () => {
+          const result = await api<{ message: string }>("/properties/narration-voice-samples/prepare", { method: "POST", body: { confirmed: true }, timeoutMs: 150_000 });
+          setMessage(result.message);
+        })}>Подготовить образцы голосов</button>
+        <span className="text-sm text-slate-600">Одна фраза каждым голосом, платно один раз. Готово: {data.samples?.length ?? 0}</span>
+      </div>
       <div className="grid gap-2 sm:grid-cols-3">
         <label className="block text-sm">Символов в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.chars ?? String(data.config.dailyCharLimit ?? 20000)} onChange={(e) => setLimitsText({ ...limitsText, chars: e.target.value })} /></label>
         <label className="block text-sm">Озвучек в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.gens ?? String(data.config.dailyGenerationLimit ?? 40)} onChange={(e) => setLimitsText({ ...limitsText, gens: e.target.value })} /></label>
@@ -86,17 +103,21 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
         const voices = parseVoiceLines(voicesText ?? voiceLines(data.config));
         const number = (text: string | undefined, fallback: number | undefined) => text === undefined ? fallback : Math.max(0, Math.round(Number(text) || 0));
         const config: Partial<NarrationConfig> = { modelId: modelId ?? data.config.modelId, voices, ownerReportPreviewEnabled: monthlyPreview ?? !!data.config.ownerReportPreviewEnabled,
-          autoGenerate: autoGenerate ?? !!data.config.autoGenerate, dailyCharLimit: number(limitsText.chars, data.config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, data.config.dailyGenerationLimit),
+          autoGenerate: autoGenerate ?? !!data.config.autoGenerate, mixByCrm: mixByCrm ?? data.config.mixByCrm !== false, dailyCharLimit: number(limitsText.chars, data.config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, data.config.dailyGenerationLimit),
           debounceMinutes: number(limitsText.pause, data.config.debounceMinutes), ...(templatesDraft ? { templates: templatesDraft } : {}) };
         await api("/properties/narration-settings", { method: "PUT", body: config }); setMessage("Настройки сохранены. Провайдер не вызывался.");
       })}>Сохранить настройки</button></fieldset>}
     <label className="block text-sm">Текст диктора<textarea readOnly={data.canDraft === false} maxLength={5000} rows={7} className="mt-1 w-full rounded-lg border p-3" value={shownScript} onChange={(e) => { setScript(e.target.value); setConfirmed(false); }} /></label>
-    <div className="flex flex-wrap items-center gap-3"><label className="text-sm">Голос <select disabled={data.canDraft === false} className="rounded border p-2" value={selectedVoice} onChange={(e) => { setVoiceId(e.target.value); setConfirmed(false); }}><option value="">Выберите голос</option>{data.config.voices.map((v) => <option value={v.id} key={v.id}>{v.name}</option>)}</select></label><span className="text-xs text-slate-500">{shownScript.length}/5000</span></div>
+    <p className="text-sm text-slate-500">{shownScript.length}/5000</p>
+    {data.config.voices.length > 0 && <VoiceSamplePicker name={`voice-${propertyId}`} voices={data.config.voices} value={selectedVoice || null} samples={data.samples}
+      lang={latest?.language === "ru" ? "ru" : "tg"} disabled={data.canDraft === false} onChange={(id) => { setVoiceId(id); setConfirmed(false); }} />}
+    {data.mix?.hasMaster && <p className="text-sm text-slate-600">Озвучку на этот ролик накладывает CRM: поменяется цена — звук и описание обновятся сами.</p>}
+    {data.mix?.error && <p className="rounded-lg bg-amber-50 p-3 text-sm" role="status">Новую озвучку на ролик наложить не получилось: {data.mix.error}</p>}
     {data.canApproveAudio && latest && latest.source && latest.source !== "MANUAL" && <div className="space-y-2 rounded-lg border border-blue-200 p-3">
       {latest.status === "DRAFT" && latest.generateAfter && <p className="text-sm" role="status">Озвучка готовится. Придёт вам на прослушивание здесь и в Шабнам.</p>}
       {latest.status === "READY" && !latest.approvedAt && !latest.stale && <><p className="text-sm font-medium">Озвучка ждёт вашего одобрения</p>
         <div className="flex flex-wrap gap-2"><button className="pill" type="button" disabled={busy} onClick={() => void run(async () => { const blob = await api<Blob>(`/properties/${propertyId}/narration/${latest.id}/audio`, { responseType: "blob" }); setAudioUrl(URL.createObjectURL(blob)); })}>Прослушать</button>
-          <button className="pill" type="button" disabled={busy || edited} onClick={() => void run(async () => { await api(`/properties/${propertyId}/narration/${latest.id}/approve`, { method: "POST", body: { expectedRevision: latest.revision, confirmed: true } }); setMessage("Озвучка одобрена. Монтажёр получит её вместе с заданием на ролик; если ролик уже вышел, он заменит в нём только звук."); })}>Одобрить</button></div>
+          <button className="pill" type="button" disabled={busy || edited} onClick={() => void run(async () => { const result = await api<{ delivery?: string }>(`/properties/${propertyId}/narration/${latest.id}/approve`, { method: "POST", body: { expectedRevision: latest.revision, confirmed: true } }); setMessage(approvedMessage(result.delivery)); })}>Одобрить</button></div>
         <p className="text-sm text-slate-600">Не нравится текст или голос: поправьте ниже и нажмите «Озвучить заново».</p></>}
       {latest.status === "READY" && latest.approvedAt && <p className="text-sm">Одобрено. Монтажёр получает аудио вместе с заданием на ролик.</p>}
       {data.autoGenerate && data.canDraft !== false && <button className="pill" type="button" disabled={busy || !edited} onClick={() => void run(async () => {

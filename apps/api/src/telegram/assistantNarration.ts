@@ -16,7 +16,7 @@ import { prisma } from "../db.js";
 import { hasMarketingRole } from "../lib/marketingRole.js";
 import { localVideoFilePath } from "../lib/localVideoStorage.js";
 import { afterNarrationApproved, approveNarrationVersion, requestAutoNarration, type NarrationDeliveryStart } from "../lib/narrationAutoFlow.js";
-import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
+import { loadNarrationConfiguration, readyVoiceSamples } from "../lib/narrationGeneration.js";
 import { createNotification } from "../lib/notifications.js";
 import { canManagePropertyAs } from "../lib/propertyAccess.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -36,8 +36,10 @@ const copy = {
     ready: (code: string) => `🎙 Озвучка ролика для ${code} готова. Прослушайте файл выше и одобрите.`,
     text: "Текст", voice: "Голос",
     remade: "Ролик уже вышел со старой озвучкой. После одобрения монтажёр заменит в нём только звук.",
+    remadeCrm: "Ролик уже вышел со старой озвучкой. После одобрения CRM сама заменит в нём звук и описание.",
+    samples: "Образцы голосов: одна и та же фраза. Послушайте и выберите ниже.",
     b: { approve: "✅ Одобрить", edit: "✏️ Править текст", voice: "🎙 Другой голос", template: "📝 Другой шаблон" },
-    approved: (d: NarrationDeliveryStart) => `✅ Одобрено. ${d === "SOUND_REMAKE" ? "Ролик уже вышел: монтажёр заменит в нём только звук, старые посты снимутся, когда выйдет новый." : d === "QUEUED" ? "Аудио уходит монтажёру." : d === "WAITING_FOR_MONTAGE" ? "Монтажёр получит аудио, когда объект попадёт в монтаж." : d === "PREVIEW" ? "Отправка монтажёру пока выключена в настройках." : "Монтажёр уже получил эту версию."}`,
+    approved: (d: NarrationDeliveryStart) => `✅ Одобрено. ${d === "CRM_REMIX" ? "Ролик уже вышел: CRM сама наложит новую озвучку и заменит ролик, монтажёр не нужен." : d === "SOUND_REMAKE" ? "Ролик уже вышел: монтажёр заменит в нём только звук, старые посты снимутся, когда выйдет новый." : d === "QUEUED" ? "Аудио уходит монтажёру." : d === "WAITING_FOR_MONTAGE" ? "Монтажёр получит аудио, когда объект попадёт в монтаж." : d === "PREVIEW" ? "Отправка монтажёру пока выключена в настройках." : "Монтажёр уже получил эту версию."}`,
     editPrompt: "Пришлите новый текст озвучки одним сообщением.",
     pickVoice: "Выберите голос:", pickTemplate: "Выберите шаблон:",
     queued: "Хорошо, готовлю новую озвучку и пришлю.",
@@ -50,8 +52,10 @@ const copy = {
     ready: (code: string) => `🎙 Овози видео барои ${code} тайёр аст. Файлро гӯш кунед ва тасдиқ кунед.`,
     text: "Матн", voice: "Овоз",
     remade: "Видео аллакай бо овози кӯҳна баромадааст. Баъди тасдиқ монтажёр танҳо овозашро иваз мекунад.",
+    remadeCrm: "Видео аллакай бо овози кӯҳна баромадааст. Баъди тасдиқ CRM худаш овоз ва тавсифро иваз мекунад.",
+    samples: "Намунаи овозҳо: ҳамон як ҷумла. Гӯш кунед ва дар поён интихоб кунед.",
     b: { approve: "✅ Тасдиқ", edit: "✏️ Ислоҳи матн", voice: "🎙 Овози дигар", template: "📝 Қолаби дигар" },
-    approved: (d: NarrationDeliveryStart) => `✅ Тасдиқ шуд. ${d === "SOUND_REMAKE" ? "Видео аллакай баромадааст: монтажёр танҳо овозашро иваз мекунад, постҳои кӯҳна вақти баромадани видеои нав гирифта мешаванд." : d === "QUEUED" ? "Овоз ба монтажёр меравад." : d === "WAITING_FOR_MONTAGE" ? "Вақте ки объект ба монтаж мерасад, овоз ба монтажёр меравад." : d === "PREVIEW" ? "Фиристодан ба монтажёр ҳоло дар танзимот хомӯш аст." : "Монтажёр ин версияро аллакай гирифтааст."}`,
+    approved: (d: NarrationDeliveryStart) => `✅ Тасдиқ шуд. ${d === "CRM_REMIX" ? "Видео аллакай баромадааст: CRM худаш овози навро мегузорад ва видеоро иваз мекунад, монтажёр лозим нест." : d === "SOUND_REMAKE" ? "Видео аллакай баромадааст: монтажёр танҳо овозашро иваз мекунад, постҳои кӯҳна вақти баромадани видеои нав гирифта мешаванд." : d === "QUEUED" ? "Овоз ба монтажёр меравад." : d === "WAITING_FOR_MONTAGE" ? "Вақте ки объект ба монтаж мерасад, овоз ба монтажёр меравад." : d === "PREVIEW" ? "Фиристодан ба монтажёр ҳоло дар танзимот хомӯш аст." : "Монтажёр ин версияро аллакай гирифтааст."}`,
     editPrompt: "Матни навро бо як паём фиристед.",
     pickVoice: "Овозро интихоб кунед:", pickTemplate: "Қолабро интихоб кунед:",
     queued: "Хуб, овози навро тайёр мекунам ва мефиристам.",
@@ -76,7 +80,7 @@ const approvalButtons = (versionId: string, lang: Lang): TelegramInlineButton[][
 /** Одно сообщение агенту на готовую версию (зовёт обход narration-auto-flow). */
 export async function notifyNarrationApproval(versionId: string): Promise<void> {
   const version = await prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, include: { property: { select: {
-    id: true, shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true, videoHandoffStatus: true } } } });
+    id: true, shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true, videoHandoffStatus: true, videoMasterStorageKey: true } } } });
   if (!version || version.status !== "READY" || !version.storageKey) return;
   const p = version.property;
   const agentId = p.assignedAgentId ?? p.intakeAgentId ?? p.createdById;
@@ -88,7 +92,7 @@ export async function notifyNarrationApproval(versionId: string): Promise<void> 
   const feed = {
     // Вид «Задачи»: агент может выключить такие пуши в своих настройках уведомлений.
     kind: "task" as const, level: "APPROVAL" as const, title: "Озвучка ролика готова",
-    body: `${code}: прослушайте и одобрите озвучку.${remade ? " После одобрения монтажёр заменит звук в вышедшем ролике." : ""}`,
+    body: `${code}: прослушайте и одобрите озвучку.${remade ? (p.videoMasterStorageKey ? " После одобрения CRM сама заменит звук в вышедшем ролике." : " После одобрения монтажёр заменит звук в вышедшем ролике.") : ""}`,
     // Один тег на объект: новая версия обновляет ту же строку, а не добавляет вторую.
     url: `/properties/${p.id}`, tag: `narration-approval:${p.id}`,
   };
@@ -103,13 +107,27 @@ export async function notifyNarrationApproval(versionId: string): Promise<void> 
   const voice = config.voices.find((v) => v.id === version.voiceId)?.name;
   try {
     await sendDocumentFile(agent.telegramChatId, { path }, `${code}-ovoz-v${version.revision}.mp3`, `${code} · v${version.revision}`, 60_000, true);
-    const text = [c.ready(code), "", `${c.text}: ${version.script}`, voice ? `${c.voice}: ${voice}` : "", remade ? `\n${c.remade}` : ""].filter((line) => line !== "").join("\n");
+    const text = [c.ready(code), "", `${c.text}: ${version.script}`, voice ? `${c.voice}: ${voice}` : "", remade ? `\n${p.videoMasterStorageKey ? c.remadeCrm : c.remade}` : ""].filter((line) => line !== "").join("\n");
     await sendMessageWithButtons(agent.telegramChatId, text.slice(0, 3800), [...approvalButtons(version.id, lang), [{ text: `CRM ${code}`, url: crmUrl(p.id) }]]);
     await prisma.propertyNarrationVersion.updateMany({ where: { id: version.id }, data: { approvalChatId: agent.telegramChatId } });
     await createNotification({ agentId: agent.id, ...feed });
   } catch (err) {
     void logSystemError("telegram", `Озвучка: сообщение агенту в Telegram не ушло, записано в CRM: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-approval-telegram" });
     await sendPushToAgent(agent.id, feed);
+  }
+}
+
+/** Образцы голосов файлами — только уже готовые (их платно один раз готовит руководство). */
+async function sendVoiceSamples(chatId: string, config: Awaited<ReturnType<typeof loadNarrationConfiguration>>["config"], lang: Lang, intro: string): Promise<void> {
+  const ready = new Map((await readyVoiceSamples(config)).filter((s) => s.lang === lang).map((s) => [s.voiceId, s.storageKey]));
+  const voices = config.voices.slice(0, MAX_CHOICES).filter((v) => ready.has(v.id));
+  if (!voices.length) return;
+  await sendMessage(chatId, intro);
+  for (const voice of voices) {
+    const path = localVideoFilePath(ready.get(voice.id)!);
+    if (!path) continue;
+    await sendDocumentFile(chatId, { path }, `ovoz-${voice.id.slice(0, 12)}.mp3`, voice.name, 60_000, true)
+      .catch((err) => logSystemError("telegram", `Образец голоса не ушёл в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-voice-sample-send" }));
   }
 }
 
@@ -137,7 +155,7 @@ export async function handleNarrationCallback(query: TelegramCallbackQuery): Pro
   const lang = await chatLang(chatId);
   const c = copy[lang];
   try {
-    const version = await prisma.propertyNarrationVersion.findUnique({ where: { id: match[2] }, select: { id: true, propertyId: true, revision: true } });
+    const version = await prisma.propertyNarrationVersion.findUnique({ where: { id: match[2] }, select: { id: true, propertyId: true, revision: true, language: true } });
     if (!version) { await answer(c.stale); return true; }
     const clicker = await clickerFor(chatId, version.propertyId);
     if (!clicker) { await answer(c.forbidden); return true; }
@@ -166,6 +184,8 @@ export async function handleNarrationCallback(query: TelegramCallbackQuery): Pro
         ? config.voices.slice(0, MAX_CHOICES).map((v, i) => [{ text: v.gender ? `${v.name} · ${c[v.gender]}` : v.name, callback_data: `nar:p:${version.id}:${i}` }])
         : (config.templates ?? []).slice(0, MAX_CHOICES).map((t, i) => [{ text: `${t.name} · ${t.lang === "tg" ? "тоҷикӣ" : "рус."}`, callback_data: `nar:m:${version.id}:${i}` }]);
       await answer();
+      // «Другой голос»: сначала образцы — одна и та же фраза каждым голосом (готовые, без затрат).
+      if (action === "v") await sendVoiceSamples(chatId, config, version.language === "ru" ? "ru" : "tg", c.samples);
       await sendMessageWithButtons(chatId, action === "v" ? c.pickVoice : c.pickTemplate, buttons);
       return true;
     }

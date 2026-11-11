@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 734,
-  "forks": 3918,
+  "endpoints": 736,
+  "forks": 3928,
   "mounts": 82,
   "cron": 126,
   "jobs": 32,
@@ -47408,7 +47408,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -47512,7 +47512,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -47603,7 +47603,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -47847,7 +47847,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48020,7 +48020,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48176,7 +48176,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48377,7 +48377,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48537,7 +48537,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48611,7 +48611,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48677,7 +48677,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48743,7 +48743,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48849,7 +48849,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49475,6 +49475,21 @@
       "зовёт removePurgedNarrationAudio()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "property.videoMasterStorageKey && !await localVideoDelete(property.videoMasterStorageKey)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"storage\", `Объект ${property.shortId}: ролик без голоса ${property.videoMasterStorageKey…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "loop",
@@ -60769,7 +60784,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -60805,7 +60820,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -60848,7 +60863,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/:id/narration\"]",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -60963,6 +60978,185 @@
     {
      "k": "do",
      "t": "res.json({ config: parsed.data, sendsEnabled: false });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/narration-voice-samples/:voiceId/:lang",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-voice-samples/:voiceId/:lang",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!params.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный голос\" });",
+       "a": [
+        "ответ 400 — «Некорректный голос»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const sample = (await readyVoiceSamples(config)).find((s)",
+     "a": [
+      "зовёт readyVoiceSamples()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const file = sample ? localVideoFilePath(sample.storageKey) : null;",
+     "a": [
+      "зовёт localVideoFilePath()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!file",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Образец этого голоса ещё не подготовлен\" });",
+       "a": [
+        "ответ 404 — «Образец этого голоса ещё не подготовлен»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.setHeader(\"Cache-Control\", \"private, max-age=3600\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.type(\"audio/mpeg\").sendFile(file);",
+     "a": [
+      "ответ 200",
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/narration-voice-samples/prepare",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-voice-samples/prepare",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "![\"ADMIN\", \"DIRECTOR\"].includes(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Образцы голосов готовит руководство\" });",
+       "a": [
+        "ответ 403 — «Образцы голосов готовит руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подтвердите подготовку образцов\" });",
+       "a": [
+        "ответ 400 — «Подтвердите подготовку образцов»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!key || !narrationProviderReady(config, key)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.\" }…",
+       "a": [
+        "ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const report = await generateVoiceSamples({ config, key, actorId: req.agent!.id });",
+     "a": [
+      "зовёт generateVoiceSamples()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "report.failed",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "parts.push(`не получилось: ${report.failed}`);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...report, message: `${parts.join(\", \")}.${tail}` });",
      "a": [
       "ответ 200"
      ],
@@ -89400,6 +89594,72 @@
             "дословно из кода"
            ],
            "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of await prisma.propertyNarrationVersion.findMany({ where: { storageKey: { not: null } }, select: {…",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "row.storageKey",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "rawRefs.add(row.storageKey);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of await prisma.narrationVoiceSample.findMany({ where: { storageKey: { not: null } }, select: { sto…",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "row.storageKey",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "rawRefs.add(row.storageKey);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of await prisma.property.findMany({ where: { videoMasterStorageKey: { not: null } }, select: { vide…",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "row.videoMasterStorageKey",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "rawRefs.add(row.videoMasterStorageKey);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         },

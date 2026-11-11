@@ -2373,6 +2373,17 @@ model Property {
   /// Готовый файл от монтажёра — путь в том же локальном хранилище, что и сырые
   /// ролики (lib/localVideoStorage.ts), до публикации.
   videoHandoffFinalPath          String?
+  /// РОЛИК БЕЗ ГОЛОСА ОТ МОНТАЖЁРА (11.11.2026, владелец: «где просто меняется звук и описание
+  /// нам монтажёр не нужен»). Монтажёр прислал ролик без голоса (музыка и звуки можно) — CRM
+  /// хранит его здесь (ключ закрытого хранилища, lib/localVideoStorage.ts) и сама накладывает
+  /// одобренную озвучку (lib/narrationMix.ts). null — голос вклеен монтажёром, замена звука
+  /// идёт прежним путём через монтажёра (NARRATION_CHANGED).
+  videoMasterStorageKey          String?
+  /// Какая версия озвучки наложена в текущий готовый ролик (videoHandoffFinalPath).
+  videoMasterNarrationVersionId  String?
+  /// Наложение не получилось для этой версии (текст для руководства); повтор — только новой версией.
+  videoMasterMixError            String?
+  videoMasterMixErrorVersionId   String?
   /// МОМЕНТ, КОГДА ГОТОВЫЙ РОЛИК РЕАЛЬНО ПОЛУЧЕН (21.09.2026, случай №114 — ролик
   /// принят, файл лёг на диск, но рестарт контейнеров посреди публикации оборвал
   /// её молча, publishedChannels остался пуст, объект завис в EDITING навсегда).
@@ -2926,6 +2937,28 @@ model PropertyNarrationVersion {
   @@unique([propertyId, revision])
   @@index([status, generateAfter])
   @@index([approvalChatId, editRequestedAt])
+}
+
+/// ОБРАЗЕЦ ГОЛОСА (11.11.2026): одна и та же фраза каждым голосом из настроек озвучки, чтобы
+/// агент выбрал голос на слух. Платно один раз на голос + модель + текст фразы (ключ уникальности),
+/// дальше файл отдаётся без затрат. Считается в общем дневном потолке озвучки.
+model NarrationVoiceSample {
+  id                  String   @id @default(uuid())
+  voiceId             String
+  modelId             String
+  lang                String
+  textHash            String
+  chars               Int
+  /// GENERATING | READY | FAILED | UNKNOWN
+  status              String   @default("GENERATING")
+  storageKey          String?
+  errorCode           String?
+  generationStartedAt DateTime @default(now())
+  createdById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  @@unique([voiceId, modelId, textHash])
+  @@index([generationStartedAt])
 }
 
 model PropertyNarrationDelivery {

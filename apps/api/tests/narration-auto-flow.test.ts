@@ -57,6 +57,8 @@ vi.mock("../src/db.js", async (importOriginal) => {
     },
     settings: { findUnique: vi.fn(async () => ({ propertyNarrationConfig: s.config, elevenLabsApiKey: "test-key" })) },
     propertyNarrationVersion: versionModel, propertyNarrationDelivery: deliveryModel,
+    // Образцы голосов (11.11.2026) считаются в том же дневном потолке; здесь их нет.
+    narrationVoiceSample: { findMany: vi.fn(async () => []) },
   };
   return { ...await importOriginal<typeof import("../src/db.js")>(), prisma: { ...db, $transaction: (fn: (tx: typeof db) => unknown) => fn(db) } };
 });
@@ -266,8 +268,29 @@ describe("spoken price (owner 11.11.2026): new version on price change, sound-on
     const v = await approveNewPrice();
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
     expect(s.sendBack).toHaveBeenCalledTimes(1);
-    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringContaining("только звук"), null, { removeFromSocial: "on-new-video" });
+    // С 11.11.2026 голос накладывает CRM: монтажёр присылает тот же ролик без голоса (один раз).
+    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringContaining("БЕЗ голоса"), null, { removeFromSocial: "on-new-video" });
     expect(s.audit).toHaveBeenCalledWith("agent", "PROPERTY_SENT_BACK_TO_MONTAJER", "Property", propertyId, expect.objectContaining({ reason: "NARRATION_CHANGED" }));
+  });
+  it("switch «CRM накладывает озвучку» off: the editor replaces the sound himself, as before", async () => {
+    s.mode = "LIVE";
+    s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
+    const v = await approveNewPrice();
+    s.config = { ...s.config, mixByCrm: false };
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
+    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringContaining("только звук"), null, { removeFromSocial: "on-new-video" });
+  });
+  it("same template and voice after a price change: approves itself, nothing to the agent", async () => {
+    s.property = { ...s.property, status: "AVAILABLE", videoHandoffStatus: "NONE" };
+    await approveNewPrice();
+    s.property = { ...s.property, price: "90000" };
+    const notify = vi.fn();
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now: later(120_000), debounceMs: 0 });
+    await runNarrationAutoFlow({ notifyAgent: notify, now: later(180_000) });
+    expect(s.versions[2]).toMatchObject({ status: "READY", approvedById: "agent" });
+    expect(s.versions[2].approvedAt).toBeInstanceOf(Date);
+    expect(notify).not.toHaveBeenCalled();
+    expect(s.audit).toHaveBeenCalledWith("agent", "PROPERTY_NARRATION_AUTO_APPROVED", "Property", propertyId, expect.objectContaining({ narrationVersionId: s.versions[2].id }));
   });
   it("no published clip: no task for the editor", async () => {
     s.mode = "LIVE";
@@ -287,7 +310,8 @@ describe("spoken price (owner 11.11.2026): new version on price change, sound-on
     expect(await requestNarrationSoundRemake(propertyId, v.id)).toBe("OFF");
     s.mode = "LIVE";
     s.property = { ...s.property, price: "75000" };
-    await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now: later(120_000), debounceMs: 0 });
+    // Другой голос — не то, что агент уже одобрял: самоодобрения нет, ждём агента.
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", voiceId: "voiceB", now: later(120_000), debounceMs: 0 });
     await runNarrationAutoFlow({ now: later(180_000) });
     expect(s.versions[2]).toMatchObject({ status: "READY", approvedAt: null });
     expect(await requestNarrationSoundRemake(propertyId, s.versions[2].id)).toBe("NOT_APPROVED");
