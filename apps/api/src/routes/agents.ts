@@ -1,3 +1,4 @@
+import { INCLUDE_FORMER_STAFF_PARAM, wantsFormerStaff } from "@royal-home/shared";
 import { Router, type Response } from "express";
 import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
@@ -59,7 +60,11 @@ function send(res: Response, outcome: StaffOutcome<unknown>) {
  * учётных данных: контакты, роль и KPI коллег — это админская зона.
  */
 agentsRouter.get("/", requirePermission("agents.manage", "clients.assign", "team.viewFull"), async (req, res) => {
-  res.json(await listStaffDirectory(req.agent!));
+  res.json(
+    await listStaffDirectory(req.agent!, {
+      includeFormer: wantsFormerStaff(req.query[INCLUDE_FORMER_STAFF_PARAM]),
+    })
+  );
 });
 
 /**

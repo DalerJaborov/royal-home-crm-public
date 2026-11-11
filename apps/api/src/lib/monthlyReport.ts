@@ -133,7 +133,7 @@ export async function buildMonthlyMetrics(periodStart: Date): Promise<MonthlyMet
       // отчёте каждый месяц стояло «Расходы 0 с.», а владелец считал по этой цифре
       // прибыль. Сборка молчала — расходы не проверял ни один тест.
       prisma.expense.findMany({where:{month:expenseMonthKey(periodStart),deletedAt:null,status:"PAID"},select:{amount:true,currency:true,exchangeRate:true},take:20001}),
-      prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true, fullName: true } }),
+      prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true, fullName: true } }),
       prisma.client.groupBy({ by: ["source"], where: { createdAt: period, deletedAt: null }, _count: { _all: true } }),
       prisma.property.count({ where: { createdAt: period, deletedAt: null } }),
       loadMoneyContext(),
