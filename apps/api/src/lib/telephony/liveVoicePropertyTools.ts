@@ -219,6 +219,8 @@ export interface PropertyCallMemory {
   tajikAllowed?: boolean;
   /** Что звонящий ищет — структурно, для агента (save_client_request, liveVoiceClientTools.ts). */
   request?: ClientCallRequest | null;
+  /** Поля условий, которые человек не знает или не хочет называть (declined в save_client_request): считаются заполненными. */
+  requestDeclined?: string[];
   /** Перезвон на время, которое человек выбрал сам (request_callback). */
   callbackAt?: Date | null;
   callbackTopic?: string | null;

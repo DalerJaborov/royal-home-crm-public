@@ -27,6 +27,7 @@ import { originateLiveVoiceScenarioCall } from "./telephony/liveVoiceBridge.js";
 import { LIVE_VOICE_STATION_AUDIO_RETRY_MS } from "./telephony/liveVoiceAudioPath.js";
 import { scenarioVoice } from "./telephony/scenarioVoice.js";
 import { clientLinesOf, looksLikeVoicemail } from "../ai/scenarioTranscript.js";
+import { reportThirdPartyDisclosure } from "../ai/thirdPartyDisclosure.js";
 import type { LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
 import type { SellerProbeCallOutcome } from "../generated/prisma/client.js";
 
@@ -463,6 +464,7 @@ export async function finishSellerProbeCall(result: LiveVoiceScenarioResult, now
   // Номер при этом живой (аудит №6, №12).
   if (kind === "wrong_person") {
     logSystemAudit("seller_probe_call_wrong_person", "SellerProbeCall", probe.id, { attempts: probe.attempts });
+    reportThirdPartyDisclosure("seller_probe", probe.id, result.transcript);
     await markSellerProbeNoAnswer(probe, now, ["line_alive", "wrong_person"]);
     if (probe.sourceKind !== "POST_SHOWING") await raiseDeadNumberAlertIfManualCard(probe.id);
     return;

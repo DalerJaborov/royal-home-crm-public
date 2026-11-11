@@ -262,13 +262,13 @@ test("suite --dry печатает план по всем пяти видам з
   const c = collect();
   const r = await runSuite({ env: { ELEVENLABS_API_KEY: KEY }, flags: new Set(["dry"]), fetchImpl: async () => { throw new Error("сеть запрещена"); }, kinds, say: c.say });
   assert.equal(r.failed, 0);
-  for (const k of ["invite-ru", "invite-tg", "post-showing", "seller-probe", "client"]) assert.match(c.text(), new RegExp(`\\[${k}\\]`));
+  for (const k of ["invite-ru", "invite-tg", "post-showing", "seller-probe", "consultant", "client"]) assert.match(c.text(), new RegExp(`\\[${k}\\]`));
   assert.ok(!c.text().includes(KEY));
 });
 
 test("suite целиком на подставном сервере: сценарий проходит, а другой краснеет на «лутфан»", async () => {
   const sync = await loadAgentSync();
-  const kinds = [{ kind: "client", label: "Звонок клиенту", prompt: "ПРОМПТ", tools: [{ name: "save_client_request", description: "d", parameters: { type: "OBJECT", properties: {} } }] }];
+  const kinds = [{ kind: "consultant", label: "Консультант", prompt: "ПРОМПТ", tools: [{ name: "save_client_request", description: "d", parameters: { type: "OBJECT", properties: {} } }] }];
   const created = new Map();
   let nextTest = 0;
   const deleted = [];
@@ -455,7 +455,7 @@ test("patch-check: пересобранное зеркало prompt.tools не �
 
 test("suite --llm: модель записывается в тестового агента вместе с промптом, итог называет модель", async () => {
   const sync = await loadAgentSync();
-  const kinds = [{ kind: "client", label: "Звонок клиенту", prompt: "ПРОМПТ", tools: [{ name: "save_client_request", description: "d", parameters: { type: "OBJECT", properties: {} } }] }];
+  const kinds = [{ kind: "consultant", label: "Консультант", prompt: "ПРОМПТ", tools: [{ name: "save_client_request", description: "d", parameters: { type: "OBJECT", properties: {} } }] }];
   const patched = [];
   let createdId = null;
   const fetchImpl = async (url, init) => {
