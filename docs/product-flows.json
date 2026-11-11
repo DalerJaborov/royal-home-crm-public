@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 733,
-  "forks": 3912,
+  "endpoints": 735,
+  "forks": 3919,
   "mounts": 82,
   "cron": 125,
   "jobs": 32,
@@ -14695,6 +14695,178 @@
     {
      "k": "do",
      "t": "res.json({ ok: true, channelId: result.channelId });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/market-listings",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/market-listings",
+   "file": "apps/api/src/routes/clients/matching.ts",
+   "router": "matchingRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = marketBuyerListingsQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой marketBuyerListingsQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success || !parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры подбора с площадок\" });",
+       "a": [
+        "ответ 400 — «Неверные параметры подбора с площадок»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const client = await prisma.client.findUnique({ where: { id: id.data }, include: { desiredPlaces: true } });",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!client || client.deletedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
+       "a": [
+        "ответ 404 — «Клиент не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!canAccessAssignedAgent(req, client.assignedAgentId)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const ownAgentId = scopeToOwnAgent(req);",
+     "a": [
+      "зовёт scopeToOwnAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(empty(\"pending_acceptance\"));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!confirmedClientIntents(client).buys",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(empty(\"not_buyer\"));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const wants = await buyerWantsFromCriteria(currentBuyerMatchingCriteria(client));",
+     "a": [
+      "зовёт buyerWantsFromCriteria()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const criteria = describeBuyerCriteria(wants);",
+     "a": [
+      "зовёт describeBuyerCriteria()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!hasBuyerCriteria(wants)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(empty(\"no_criteria\", criteria, wants.budgetMaxTjs));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);",
+     "a": [
+      "зовёт findBuyerListings()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const body: MarketBuyerListingsResponse = { status: \"ok\", criteria, total, totalIsLowerBound, budgetMaxTjs: w…",
+     "a": [
+      "зовёт phoneSafeText()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "return res.json(body);",
      "a": [
       "ответ 200"
      ],
@@ -38824,6 +38996,55 @@
     {
      "k": "do",
      "t": "res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === \"ok\" ?…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/segments",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/segments",
+   "file": "apps/api/src/routes/market.ts",
+   "router": "marketRouter",
+   "top": "apps/api/src/routes/market.ts::marketRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = marketSegmentsQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой marketSegmentsQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await findSegments(parsed.data));",
      "a": [
       "ответ 200"
      ],

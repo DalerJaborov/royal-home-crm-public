@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **733**. Развилок в самих путях: **2411**; вместе с задачами по расписанию и фоновыми заданиями — **3912**. Модулей: **82**.
+Путей: **735**. Развилок в самих путях: **2418**; вместе с задачами по расписанию и фоновыми заданиями — **3919**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3371,6 +3371,45 @@
   - void logSystemError( "telephony", `Звонок роботом по карточке ${client.shortId}: запись в хронологию не легла…
     · запись в журнал ошибок
 - res.json({ ok: true, channelId: result.channelId });
+  · ответ 200
+
+### GET /api/v1/clients/:id/market-listings
+
+`apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = marketBuyerListingsQuerySchema.safeParse(req.query);
+  · проверяет данные схемой marketBuyerListingsQuerySchema
+- если !id.success || !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры подбора с площадок" });
+    · ответ 400 — «Неверные параметры подбора с площадок»
+- const client = await prisma.client.findUnique({ where: { id: id.data }, include: { desiredPlaces: true } });
+  · читает в базе: client
+- если !client || client.deletedAt
+  - return res.status(404).json({ error: "Клиент не найден" });
+    · ответ 404 — «Клиент не найден»
+- если !canAccessAssignedAgent(req, client.assignedAgentId)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- const ownAgentId = scopeToOwnAgent(req);
+  · зовёт scopeToOwnAgent()
+- если ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt
+  - return res.json(empty("pending_acceptance"));
+    · ответ 200
+- если !confirmedClientIntents(client).buys
+  - return res.json(empty("not_buyer"));
+    · ответ 200
+- const wants = await buyerWantsFromCriteria(currentBuyerMatchingCriteria(client));
+  · зовёт buyerWantsFromCriteria()
+- const criteria = describeBuyerCriteria(wants);
+  · зовёт describeBuyerCriteria()
+- если !hasBuyerCriteria(wants)
+  - return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
+    · ответ 200
+- const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);
+  · зовёт findBuyerListings()
+- const body: MarketBuyerListingsResponse = { status: "ok", criteria, total, totalIsLowerBound, budgetMaxTjs: w…
+  · зовёт phoneSafeText()
+- return res.json(body);
   · ответ 200
 
 ### GET /api/v1/clients/:id/match
@@ -8630,6 +8669,18 @@
 - const result = await findSimilar({ ...subjectBase, propertyType: p.type }, { propertyId: p.id });
   · зовёт findSimilar()
 - res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === "ok" ?…
+  · ответ 200
+
+### GET /api/v1/market/segments
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = marketSegmentsQuerySchema.safeParse(req.query);
+  · проверяет данные схемой marketSegmentsQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- res.json(await findSegments(parsed.data));
   · ответ 200
 
 ## /api/v1/market/matches
