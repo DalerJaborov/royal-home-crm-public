@@ -3,7 +3,12 @@ import WebSocket, { type RawData } from "ws";
 import { describeError } from "../lib/describeError.js";
 import { logSystemError } from "../lib/systemError.js";
 import { bufferToInt16LE, int16ToBufferLE, resamplePcm16, ulawDecode, ulawEncode } from "../lib/telephony/pcmCodec.js";
-import { ensureElevenLabsAgentReady, elevenLabsRequest } from "./elevenLabsAgentSync.js";
+import {
+  ensureElevenLabsAgentReady,
+  elevenLabsRequest,
+  forgetElevenLabsAgentSync,
+  isElevenLabsToolsNotAttachedClose,
+} from "./elevenLabsAgentSync.js";
 import type { LiveVoiceToolCall, LiveVoiceTranscriptEvent } from "./liveVoiceClient.js";
 import type { LiveVoiceConnectOptions, LiveVoiceLanguage } from "./liveVoiceProviderTypes.js";
 
@@ -211,8 +216,9 @@ export function parseElevenLabsServerMessage(raw: unknown): ElevenLabsServerUpda
 /**
  * ЗАКРЫТИЕ СО СТОРОНЫ ELEVENLABS — КОНЕЦ РАЗГОВОРА ИЛИ СБОЙ (02.10.2026).
  *
- * Агент сам кладёт трубку своим системным инструментом «End call» (или по
- * пределу длительности) — ElevenLabs закрывает сокет обычным кодом 1000. Это
+ * Агент сам кладёт трубку своим системным инструментом «End call» (с 11.11.2026
+ * CRM его выключает — ELEVENLABS_AGENT_CRM_POLICY; остаётся предел длительности и
+ * включение встроенного в кабинете между подготовками) — ElevenLabs закрывает сокет обычным кодом 1000. Это
  * такой же вежливый конец разговора, как end_call у Gemini, и мост обязан
  * закончить звонок как обычно, а не отдавать человека автоответчику. Сбоем
  * считается всё остальное: другой код (ключ, нарушение протокола, обрыв 1006),
@@ -292,6 +298,7 @@ export class ElevenLabsVoiceClient extends EventEmitter {
       socketFactory?: ElevenLabsSocketFactory;
       signedUrl?: (apiKey: string, agentId: string) => Promise<string>;
       prepareAgent?: typeof ensureElevenLabsAgentReady;
+      forgetAgentSync?: (agentId: string) => void;
     } = {}
   ) {
     super();
@@ -398,6 +405,16 @@ export class ElevenLabsVoiceClient extends EventEmitter {
       ws.on("close", (code: number, reason: Buffer) => {
         const text = reason?.toString() ?? "";
         console.log(`[живой голос] сокет ElevenLabs закрыт: код ${code} причина «${text}»`);
+        if (isElevenLabsToolsNotAttachedClose(code, text)) {
+          // Наши функции сняли с агента: память подготовки врёт — следующий звонок готовит заново.
+          (this.deps.forgetAgentSync ?? forgetElevenLabsAgentSync)(agentId);
+          void logSystemError(
+            "telephony",
+            "Живой голос (ElevenLabs): агент отклонил набор функций звонка — их сняли с агента в кабинете. " +
+              "Следующий звонок заново прикрепит функции к агенту.",
+            { dedupKey: "elevenlabs-tools-not-attached" }
+          );
+        }
         if (!settled) {
           settle(() => reject(new ElevenLabsSetupRejectedError(`закрыто до начала разговора: код ${code} «${text}»`)));
           return;

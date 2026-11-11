@@ -442,9 +442,12 @@ describe("ElevenLabs: подготовка агента", () => {
     };
     expect(buildAgentSyncPatch(agent, ["tool_1", "own_tool"])).toEqual({
       conversation_config: {
-        agent: { prompt: { prompt: "старый", llm: "gemini-3.5-flash", tool_ids: ["own_tool", "tool_1"] } },
+        agent: {
+          prompt: { prompt: "старый", llm: "gemini-3.5-flash", tool_ids: ["own_tool", "tool_1"], built_in_tools: { end_call: null } },
+        },
       },
       platform_settings: {
+        privacy: { retention_days: 30 },
         overrides: {
           conversation_config_override: {
             agent: { prompt: { prompt: true, tool_ids: true }, first_message: true, language: true },

@@ -117,7 +117,8 @@ describe("второй PATCH: настройки из передачи 24.10, б
       max_tokens: 300,
       timezone: "Asia/Dushanbe",
       built_in_tools: {
-        end_call: { type: "system", name: "end_call" },
+        // Встроенный end_call владельца выключается политикой CRM (11.11.2026): трубку кладёт мост.
+        end_call: null,
         language_detection: {
           type: "system",
           name: "language_detection",
