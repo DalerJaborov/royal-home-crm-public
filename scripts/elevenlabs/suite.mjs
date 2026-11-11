@@ -15,12 +15,17 @@
 import { pathToFileURL } from "node:url";
 import { ensureTools } from "./patch-check.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
-import { baseUrl, describeFailure, looksGeoBlocked, makeClient, makePrinter, parseArgv, reportDir, stampNow, writeReport } from "./lib.mjs";
+import { baseUrl, describeFailure, formatRationale, looksGeoBlocked, makeClient, makePrinter, parseArgv, reportDir, stampNow, writeReport } from "./lib.mjs";
 
-const MAX_TURNS = 12;
+const MAX_TURNS = 24;
 const POLL_MS = 5_000;
 const POLL_LIMIT_MS = 8 * 60_000;
 const LUTFAN = /лутфан|lutfan/i;
+/** Прощание агента: по нему отличаем «агент не положил трубку» от «симуляция оборвалась на вопросе». */
+const GOODBYE = /до свидания|всего доброго|хорошего дня|удачи|хайр|худо ҳофиз|хуш омед|ташаккур|рӯзатон бахайр/i;
+/** Добавка к роли собеседника: без неё модель-собеседник заканчивает разговор раньше прощания агента. */
+export const SIM_PERSONA_SUFFIX =
+  " Веди разговор до конца: не прощайся первым и не заканчивай разговор, пока агент сам не попрощался (кроме случаев, когда сценарий велит прервать разговор). Отвечай на вопрос агента, даже если ты уже согласился.";
 
 /** Равенство без регистра, oneOf, contains, num, present. */
 export function matchExpect(value, exp) {
@@ -73,7 +78,10 @@ export function evaluateTranscript(scenario, transcript) {
       if (best.length) failures.push(`${exp.name}: поля не те или не заполнены: ${best.join(", ")}`);
     }
   }
-  return { ok: failures.length === 0, failures };
+  // «Не дошёл до функции» при разговоре, оборванном на вопросе агента, — ограничение симуляции, а не ошибка агента.
+  const lastAgent = [...(transcript ?? [])].reverse().find((t) => t.role === "agent" && t.message?.trim());
+  const inconclusive = !!exp && calls.every((c) => c.name !== exp.name) && !!lastAgent && !GOODBYE.test(lastAgent.message);
+  return { ok: failures.length === 0, failures, inconclusive };
 }
 
 const clientToolMock = (name) =>
@@ -86,7 +94,7 @@ export function buildSimulationTest(scenario, idByName, toolNames) {
   return {
     name: `crm-voice/${scenario.id}`,
     type: "simulation",
-    simulation_scenario: scenario.persona,
+    simulation_scenario: scenario.persona + SIM_PERSONA_SUFFIX,
     success_conditions: scenario.conditions,
     simulation_max_turns: MAX_TURNS,
     chat_history: [{ role: "user", message: scenario.seed, time_in_call_secs: 0 }],
@@ -112,10 +120,11 @@ export async function waitInvocation(request, id, { pollMs = POLL_MS, limitMs = 
 }
 
 function markdownReport(results, meta) {
-  const lines = [`# Симуляции робозвонка ElevenLabs — ${meta.stamp}`, "", `Итог: ${results.filter((r) => r.pass).length}/${results.length}`, ""];
+  const lines = [`# Симуляции робозвонка ElevenLabs — ${meta.stamp}`, "", `Модель агента: ${meta.llm || "как у агента"}`, `Итог: ${results.filter((r) => r.pass).length}/${results.length}` + (results.some((r) => r.inconclusive) ? ` (неопределённых: ${results.filter((r) => r.inconclusive).length})` : ""), ""];
   for (const r of results) {
     lines.push(`## ${r.pass ? "OK" : "FAIL"} ${r.id} — ${r.name}`);
-    if (r.judge) lines.push(`- судья: ${r.judge.result}${r.judge.rationale ? " — " + r.judge.rationale : ""}`);
+    if (r.judge) lines.push(`- судья: ${r.judge.result}${r.judge.rationale ? " — " + formatRationale(r.judge.rationale) : ""}`);
+    if (r.inconclusive) lines.push("- неопределённо: разговор оборвался до прощания агента (предел ходов или собеседник закончил первым)");
     for (const f of r.failures) lines.push(`- ${f}`);
     lines.push("", ...(r.transcript ?? []).map((t) => `- ${t.role === "agent" ? "Робот" : "Человек"}: ${t.message ?? ""}${(t.tool_calls ?? []).length ? ` [функция: ${t.tool_calls.map((c) => c.tool_name).join(",")}]` : ""}`), "");
   }
@@ -132,6 +141,8 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
   const testId = env.ELEVENLABS_TEST_AGENT_ID?.trim();
   const prodId = env.ELEVENLABS_AGENT_ID?.trim();
   const only = values.only ? values.only.split(",") : null;
+  // Модель разговора для ЭТОГО прогона (пишется в тестового агента). Пусто — как у агента.
+  const llm = values.llm?.trim() || env.ELEVENLABS_SIM_LLM?.trim() || null;
   const planned = SCENARIOS.filter((s) => !only || only.includes(s.kind) || only.includes(s.id));
 
   if (flags.has("dry")) {
@@ -190,7 +201,7 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
     // Промпт и функции этого вида звонка — в тестового агента (как сервер подменяет их на звонок).
     const fresh = await request("GET", agentPath);
     const prevPrompt = fresh.json?.conversation_config?.agent?.prompt ?? {};
-    const prompt = { ...prevPrompt, prompt: kind.prompt, tool_ids: kind.tools.map((t) => ensured.idByName[t.name]).filter(Boolean) };
+    const prompt = { ...prevPrompt, ...(llm ? { llm } : {}), prompt: kind.prompt, tool_ids: kind.tools.map((t) => ensured.idByName[t.name]).filter(Boolean) };
     delete prompt.tools;
     const patched = await request("PATCH", agentPath, { conversation_config: { agent: { prompt } } });
     if (!patched.ok) {
@@ -225,27 +236,35 @@ export async function runSuite({ env, flags = new Set(), values = {}, fetchImpl,
       const code = evaluateTranscript(s, tr.agent_responses);
       const judge = tr.condition_result ?? null;
       const failures = [...code.failures];
-      if (tr.status !== "passed") failures.push(`судья: ${judge?.result ?? tr.status}${judge?.rationale ? " — " + String(judge.rationale).slice(0, 300) : ""}`);
-      results.push({ id: s.id, name: s.name, pass: failures.length === 0, failures, judge, transcript: tr.agent_responses ?? [] });
+      if (tr.status !== "passed") failures.push(`судья: ${judge?.result ?? tr.status}${judge?.rationale ? " — " + formatRationale(judge.rationale).slice(0, 400) : ""}`);
+      const producing = (tr.agent_responses ?? []).map((t) => t.producing_llm).find(Boolean) ?? null;
+      results.push({ id: s.id, name: s.name, pass: failures.length === 0, failures, judge, llm: producing, inconclusive: !!code.inconclusive && failures.some((f) => /не дошёл до функции/.test(f)), transcript: tr.agent_responses ?? [] });
     }
   }
 
   for (const r of results) out(`${r.pass ? "OK  " : "FAIL"} ${r.id}${r.pass ? "" : " — " + r.failures.join("; ")}`);
   const passed = results.filter((r) => r.pass).length;
-  out(`\nИТОГ: ${passed}/${results.length}`);
+  const unclear = results.filter((r) => r.inconclusive).length;
+  const usedLlm = llm || [...new Set(results.map((r) => r.llm).filter(Boolean))].join(",") || "как у агента";
+  out(`\nИТОГ [${usedLlm}]: ${passed}/${results.length}${unclear ? ` (из провалов неопределённых: ${unclear})` : ""}`);
 
   if (!flags.has("keep")) for (const id of created) await request("DELETE", `/v1/convai/agent-testing/${encodeURIComponent(id)}`);
   if (writeFiles) {
     const stamp = stampNow();
     const dir = reportDir(env, `sim-${stamp}`);
     writeReport(dir, "results.json", results, apiKey);
-    writeReport(dir, "report.md", markdownReport(results, { stamp }), apiKey);
+    writeReport(dir, "report.md", markdownReport(results, { stamp, llm: usedLlm }), apiKey);
     out(`Отчёт (вне git): ${dir}`);
   }
   return { failed: passed === results.length ? 0 : 1, results };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // Ключи и id из apps/api/.env; значения из .env главнее оболочки (устаревший ключ в окружении давал 401).
+  const { loadElevenLabsEnv } = await import("./load-env.mjs");
+  const replaced = loadElevenLabsEnv();
+  if (replaced.length) process.stdout.write(`Из apps/api/.env взяты вместо значений оболочки: ${replaced.join(", ")}
+`);
   const { flags, values } = parseArgv(process.argv.slice(2));
   const { loadCrmCallKinds } = await import("./crm-prompts.mjs");
   const kinds = await loadCrmCallKinds();

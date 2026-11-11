@@ -24,12 +24,18 @@ export function baseUrl(env) {
   return (env.ELEVENLABS_API_BASE?.trim() || DEFAULT_BASE).replace(/\/+$/, "");
 }
 
+/** Сетевые сбои, при которых запрос до сервера не дошёл: повтор безопасен для ЛЮБОГО метода. */
+const CONNECT_ERRORS = new Set(["UND_ERR_CONNECT_TIMEOUT", "ECONNRESET", "ECONNREFUSED", "EAI_AGAIN", "ENOTFOUND", "ETIMEDOUT", "UND_ERR_SOCKET"]);
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /**
- * Клиент REST API. Не бросает на HTTP-ошибках: возвращает { ok, status, ms, json, text, error }.
- * fetchImpl подменяется в тестах. Текст ответа и ошибка уже очищены от ключа.
+ * Клиент REST API. Не бросает на HTTP-ошибках: возвращает { ok, status, ms, json, text, error, attempts }.
+ * fetchImpl и sleepFn подменяются в тестах. Текст ответа и ошибка уже очищены от ключа.
+ * Повторы (retries раз, пауза pauseMs * номер попытки): сбой соединения — для любого метода (запрос не
+ * ушёл); 429/502/503/504 и таймаут ответа — только для GET/DELETE, чтобы не завести дубль теста.
  */
-export function makeClient({ apiKey, base = DEFAULT_BASE, fetchImpl = globalThis.fetch, timeoutMs = 20_000 }) {
-  return async function request(method, p, body) {
+export function makeClient({ apiKey, base = DEFAULT_BASE, fetchImpl = globalThis.fetch, timeoutMs = 20_000, retries = 3, pauseMs = 3_000, sleepFn = sleepMs }) {
+  async function once(method, p, body) {
     const started = Date.now();
     try {
       const res = await fetchImpl(`${base}${p}`, {
@@ -47,11 +53,37 @@ export function makeClient({ apiKey, base = DEFAULT_BASE, fetchImpl = globalThis
         /* не JSON — оставим text */
       }
       const status = res.status;
-      return { ok: status >= 200 && status < 300, status, ms: Date.now() - started, json, text, error: null };
+      return { ok: status >= 200 && status < 300, status, ms: Date.now() - started, json, text, error: null, connectFailure: false };
     } catch (err) {
-      return { ok: false, status: null, ms: Date.now() - started, json: null, text: "", error: redact(err?.cause?.code || err?.message || err, apiKey) };
+      const code = err?.cause?.code || err?.code || "";
+      return { ok: false, status: null, ms: Date.now() - started, json: null, text: "", error: redact(code || err?.message || err, apiKey), connectFailure: CONNECT_ERRORS.has(code), timedOut: err?.name === "TimeoutError" };
     }
+  }
+  return async function request(method, p, body) {
+    const idempotent = method === "GET" || method === "DELETE";
+    let r;
+    for (let attempt = 1; ; attempt++) {
+      r = await once(method, p, body);
+      const retryable = r.connectFailure || (idempotent && (r.timedOut || [429, 502, 503, 504].includes(r.status)));
+      if (!retryable || attempt > retries) break;
+      await sleepFn(pauseMs * attempt);
+    }
+    return r;
   };
+}
+
+/** Причина судьи ElevenLabs: бывает строкой или объектом { messages: [...], summary }. */
+export function formatRationale(rationale) {
+  if (rationale === null || rationale === undefined) return "";
+  if (typeof rationale === "string") return rationale;
+  const parts = Array.isArray(rationale.messages) ? rationale.messages.filter((m) => typeof m === "string" && !/^The simulated user ended/i.test(m)) : [];
+  if (parts.length) return parts.join(" | ");
+  if (typeof rationale.summary === "string") return rationale.summary;
+  try {
+    return JSON.stringify(rationale);
+  } catch {
+    return String(rationale);
+  }
 }
 
 /** Страница защиты / редирект по странам вместо JSON (сервер в запрещённой стране). */

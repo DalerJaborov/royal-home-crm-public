@@ -101,6 +101,11 @@ export async function runPreflight({ env, flags = new Set(), fetchImpl, tuning, 
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // Ключи и id из apps/api/.env; значения из .env главнее оболочки (устаревший ключ в окружении давал 401).
+  const { loadElevenLabsEnv } = await import("./load-env.mjs");
+  const replaced = loadElevenLabsEnv();
+  if (replaced.length) process.stdout.write(`Из apps/api/.env взяты вместо значений оболочки: ${replaced.join(", ")}
+`);
   const { flags } = parseArgv(process.argv.slice(2));
   const { loadAgentSync } = await import("./crm-prompts.mjs");
   const { tuning } = await loadAgentSync();

@@ -354,3 +354,148 @@ test("ключ в окружении есть, а в плане --dry его н�
   await runPreflight({ env: { ELEVENLABS_API_KEY: KEY }, flags: new Set(["dry"]), tuning: TUNING, say: makePrinter(KEY, (l) => c.lines.push(l)) });
   assert.ok(!c.text().includes(KEY));
 });
+
+// ── живой прогон 11.11: повторы, причина судьи, обрыв симуляции, зеркало prompt.tools, --llm ──
+import { formatRationale } from "./lib.mjs";
+import { splitToolMirror } from "./patch-check.mjs";
+import { SIM_PERSONA_SUFFIX } from "./suite.mjs";
+
+const connectError = () => Object.assign(new Error("fetch failed"), { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } });
+
+test("makeClient: сбой соединения повторяется с растущей паузой даже у POST, потом успех", async () => {
+  let n = 0;
+  const pauses = [];
+  const request = makeClient({
+    apiKey: KEY,
+    fetchImpl: async () => {
+      if (++n < 3) throw connectError();
+      return json(200, { id: "t1" });
+    },
+    sleepFn: async (ms) => void pauses.push(ms),
+    pauseMs: 100,
+  });
+  const r = await request("POST", "/v1/convai/agent-testing/create", { name: "x" });
+  assert.equal(r.ok, true);
+  assert.equal(n, 3);
+  assert.deepEqual(pauses, [100, 200]);
+});
+
+test("makeClient: после лимита повторов отдаёт ошибку, а не зацикливается", async () => {
+  let n = 0;
+  const request = makeClient({ apiKey: KEY, fetchImpl: async () => (n++, Promise.reject(connectError())), sleepFn: async () => {}, retries: 2 });
+  const r = await request("GET", "/v1/user");
+  assert.equal(r.ok, false);
+  assert.equal(r.error, "UND_ERR_CONNECT_TIMEOUT");
+  assert.equal(n, 3);
+});
+
+test("makeClient: 503 повторяется у GET, но НЕ у POST (дубль теста не заводим); таймаут ответа POST не повторяется", async () => {
+  let gets = 0;
+  const g = makeClient({ apiKey: KEY, fetchImpl: async () => (++gets < 2 ? json(503, "busy") : json(200, {})), sleepFn: async () => {} });
+  assert.equal((await g("GET", "/x")).ok, true);
+  assert.equal(gets, 2);
+  let posts = 0;
+  const p = makeClient({ apiKey: KEY, fetchImpl: async () => (posts++, json(503, "busy")), sleepFn: async () => {} });
+  assert.equal((await p("POST", "/x", {})).status, 503);
+  assert.equal(posts, 1);
+  let timeouts = 0;
+  const t = makeClient({ apiKey: KEY, fetchImpl: async () => (timeouts++, Promise.reject(Object.assign(new Error("t"), { name: "TimeoutError" }))), sleepFn: async () => {} });
+  await t("POST", "/x", {});
+  assert.equal(timeouts, 1);
+});
+
+test("formatRationale: объект судьи читается текстом, а не [object Object]", () => {
+  const text = formatRationale({ messages: ["Criterion 1 failed: выдумал номер", "The simulated user ended the conversation."], summary: "Evaluation failed" });
+  assert.equal(text, "Criterion 1 failed: выдумал номер");
+  assert.equal(formatRationale("просто строка"), "просто строка");
+  assert.equal(formatRationale({ summary: "итог" }), "итог");
+  assert.ok(!formatRationale({ a: 1 }).includes("[object Object]"));
+  assert.equal(formatRationale(null), "");
+});
+
+test("evaluateTranscript: разговор оборван на вопросе агента — «неопределённо», а с прощанием — настоящий провал", () => {
+  const agree = SCENARIOS.find((s) => s.id === "invite-ru-agree");
+  const cut = evaluateTranscript(agree, [agentTurn("Ждём вас в субботу. Получится прийти?")]);
+  assert.equal(cut.inconclusive, true);
+  const bye = evaluateTranscript(agree, [agentTurn("Отлично, ждём вас. До свидания!")]);
+  assert.equal(bye.inconclusive, false);
+  assert.ok(bye.failures.some((f) => /не дошёл до функции/.test(f)));
+  assert.match(SIM_PERSONA_SUFFIX, /не прощайся первым/);
+});
+
+test("splitToolMirror: зеркало prompt.tools — INFO, если все функции на месте; иначе остаётся провалом", () => {
+  const collateral = [{ path: "conversation_config.agent.prompt.tools", was: "[…]", now: "[…]" }, { path: "conversation_config.tts.x", was: "1", now: "нет" }];
+  const after = { conversation_config: { agent: { prompt: { tools: [{ name: "end_call" }, { name: "save_client_request" }] } } } };
+  const ok = splitToolMirror(collateral, after, ["end_call", "save_client_request"]);
+  assert.deepEqual(ok.real.map((c) => c.path), ["conversation_config.tts.x"]);
+  assert.match(ok.mirrorInfo, /все 2 функций на месте/);
+  const bad = splitToolMirror(collateral, after, ["end_call", "book_showing"]);
+  assert.equal(bad.mirrorInfo, null);
+  assert.equal(bad.real.length, 2);
+});
+
+test("patch-check: пересобранное зеркало prompt.tools не краснит проверку, а даёт INFO", async () => {
+  const sync = await loadAgentSync();
+  const srv = fakeServer("merge");
+  let patches = 0;
+  const fetchImpl = async (url, init) => {
+    const res = await srv.fetchImpl(url, init);
+    if (init?.method === "PATCH" && String(url).includes("/agents/")) {
+      patches++;
+      // после первого PATCH зеркало с лишним полем, после второго — пересобрано без него
+      srv.agent.conversation_config.agent.prompt.tools = FAKE_TOOLS.map((t) => (patches === 1 ? { name: t.name, type: "client", extra: 1 } : { name: t.name, type: "client" }));
+    }
+    return res;
+  };
+  const c = collect();
+  const r = await runPatchCheck({ env: PC_ENV, fetchImpl, sync, tools: FAKE_TOOLS, say: c.say, writeFiles: false });
+  assert.equal(r.failed, 0, c.text());
+  assert.match(c.text(), /INFO prompt\.tools пересобран/);
+});
+
+test("suite --llm: модель записывается в тестового агента вместе с промптом, итог называет модель", async () => {
+  const sync = await loadAgentSync();
+  const kinds = [{ kind: "client", label: "Звонок клиенту", prompt: "ПРОМПТ", tools: [{ name: "save_client_request", description: "d", parameters: { type: "OBJECT", properties: {} } }] }];
+  const patched = [];
+  let createdId = null;
+  const fetchImpl = async (url, init) => {
+    const u = String(url).replace("https://api.elevenlabs.io", "");
+    const method = init?.method || "GET";
+    if (u === "/v1/convai/tools") return method === "GET" ? json(200, { tools: [] }) : json(200, { id: "tool_1" });
+    if (u === "/v1/convai/agent-testing/create") return json(200, { id: (createdId = "t1") });
+    if (method === "DELETE") return json(200, {});
+    if (u.endsWith("/run-tests")) return json(200, { id: "inv1" });
+    if (u === "/v1/convai/test-invocations/inv1") {
+      return json(200, { test_runs: [{ test_id: createdId, status: "failed", condition_result: { result: "failure", rationale: { messages: ["Criterion 1 failed: выдумал"], summary: "Evaluation failed" } }, agent_responses: [{ ...agentTurn("Записала", [["save_client_request", FULL_ARGS]]), producing_llm: "gemini-3.8-flash" }] }] });
+    }
+    if (u.startsWith("/v1/convai/agents/")) {
+      if (method === "PATCH") patched.push(JSON.parse(init.body));
+      return json(200, { conversation_config: { agent: { prompt: { llm: "deepseek-v41-flash" } } } });
+    }
+    return json(404, {});
+  };
+  const c = collect();
+  const r = await runSuite({ env: { ELEVENLABS_API_KEY: KEY, ELEVENLABS_TEST_AGENT_ID: "agent_test" }, values: { only: "client-buy-full", llm: "gemini-3.8-flash" }, fetchImpl, kinds, sync, say: c.say, sleepFn: async () => {}, writeFiles: false });
+  assert.equal(patched[0].conversation_config.agent.prompt.llm, "gemini-3.8-flash");
+  assert.match(c.text(), /ИТОГ \[gemini-3\.8-flash\]: 0\/1/);
+  assert.ok(!c.text().includes("[object Object]"));
+  assert.match(r.results[0].failures.join(), /Criterion 1 failed: выдумал/);
+});
+
+import { loadElevenLabsEnv } from "./load-env.mjs";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+test("load-env: значение из .env перекрывает устаревшее из оболочки, чужие переменные не трогает, значения не возвращает", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "el-env-"));
+  const file = path.join(dir, ".env");
+  writeFileSync(file, `ELEVENLABS_API_KEY=${KEY}\nELEVENLABS_AGENT_ID=agent_new\nOTHER=1\n`);
+  const env = { ELEVENLABS_API_KEY: "sk_old_stale_value", ELEVENLABS_AGENT_ID: "agent_new", OTHER: "0" };
+  const replaced = loadElevenLabsEnv(env, file);
+  assert.equal(env.ELEVENLABS_API_KEY, KEY);
+  assert.equal(env.OTHER, "0");
+  assert.deepEqual(replaced, ["ELEVENLABS_API_KEY"]);
+  assert.ok(!JSON.stringify(replaced).includes(KEY));
+  assert.deepEqual(loadElevenLabsEnv({}, path.join(dir, "нет.env")), []);
+  rmSync(dir, { recursive: true, force: true });
+});

@@ -24,6 +24,21 @@ export const KEY_FIELDS = [
   "conversation_config.agent.prompt.max_tokens",
 ];
 
+/**
+ * ElevenLabs сам пересобирает зеркало prompt.tools из tool_ids (проверено живым прогоном 11.11): оно «меняется»,
+ * хотя мы его не отправляли. Это не потеря, если все наши функции в зеркале есть. Возвращает { real, mirrorInfo }.
+ */
+export function splitToolMirror(collateral, afterAgent, ourToolNames) {
+  const isMirror = (c) => c.path === "conversation_config.agent.prompt.tools" || c.path.startsWith("conversation_config.agent.prompt.tools.");
+  const mirror = collateral.filter(isMirror);
+  if (mirror.length === 0) return { real: collateral, mirrorInfo: null };
+  const listed = afterAgent?.conversation_config?.agent?.prompt?.tools;
+  const names = new Set((Array.isArray(listed) ? listed : []).map((t) => t?.name).filter(Boolean));
+  const missing = ourToolNames.filter((n) => !names.has(n));
+  if (missing.length) return { real: collateral, mirrorInfo: null };
+  return { real: collateral.filter((c) => !isMirror(c)), mirrorInfo: `prompt.tools пересобран из tool_ids, все ${ourToolNames.length} функций на месте` };
+}
+
 const getPath = (o, p) => p.split(".").reduce((a, k) => (a && typeof a === "object" ? a[k] : undefined), o);
 
 /** Заводит/обновляет клиентские функции (как syncElevenLabsAgentDetailed). Возвращает { ids, error }. */
@@ -154,7 +169,12 @@ export async function runPatchCheck({ env, flags = new Set(), fetchImpl, sync, t
       if (!ok) report.problems.push(`ключевое поле не принято: ${f}`);
     }
     // Не отправленное, но исчезнувшее: признак замены подобъекта целиком.
-    report.collateral = collateralLoss(after1.json, after2.json, patch2);
+    const split = splitToolMirror(collateralLoss(after1.json, after2.json, patch2), after2.json, tools.map((t) => t.name));
+    report.collateral = split.real;
+    if (split.mirrorInfo) {
+      report.infos = [split.mirrorInfo];
+      out(`INFO ${split.mirrorInfo}`);
+    }
     step(
       "PATCH №2: глубокое слияние (чужие поля целы)",
       report.collateral.length === 0,
@@ -176,6 +196,11 @@ export async function runPatchCheck({ env, flags = new Set(), fetchImpl, sync, t
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // Ключи и id из apps/api/.env; значения из .env главнее оболочки (устаревший ключ в окружении давал 401).
+  const { loadElevenLabsEnv } = await import("./load-env.mjs");
+  const replaced = loadElevenLabsEnv();
+  if (replaced.length) process.stdout.write(`Из apps/api/.env взяты вместо значений оболочки: ${replaced.join(", ")}
+`);
   const { flags } = parseArgv(process.argv.slice(2));
   const { loadAgentSync, loadCrmCallKinds } = await import("./crm-prompts.mjs");
   const sync = await loadAgentSync();
