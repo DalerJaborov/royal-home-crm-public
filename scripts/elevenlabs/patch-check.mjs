@@ -40,6 +40,22 @@ export function splitToolMirror(collateral, afterAgent, ourToolNames) {
   return { real: collateral.filter((c) => !isMirror(c)), mirrorInfo: `prompt.tools пересобран из tool_ids, все ${ourToolNames.length} функций на месте` };
 }
 
+/**
+ * Поле, которое мы сами обнулили целым подобъектом (встроенный end_call: null), — не «чужая потеря»:
+ * collateralLoss видит пропажу end_call.name, хотя отправлено было именно null выше по пути.
+ */
+export function withoutNulledByUs(collateral, sent) {
+  return collateral.filter((c) => {
+    let cur = sent;
+    for (const k of c.path.split(".")) {
+      if (!cur || typeof cur !== "object" || !(k in cur)) return true;
+      cur = cur[k];
+      if (cur === null) return false;
+    }
+    return true;
+  });
+}
+
 const getPath = (o, p) => p.split(".").reduce((a, k) => (a && typeof a === "object" ? a[k] : undefined), o);
 
 /** Политика CRM на агенте (ELEVENLABS_AGENT_CRM_POLICY), проверяется после PATCH №1. */
@@ -239,6 +255,18 @@ export async function runPatchCheck({ env, flags = new Set(), fetchImpl, sync, t
     out(`     ${ok ? "OK  " : "FAIL"} ${f}`);
     if (!ok) report.problems.push(`PATCH №1: ключевое поле не принято: ${f}`);
   }
+  // Не отправленное, но изменившееся после PATCH №1: он несёт platform_settings.privacy и overrides
+  // подмножеством — замена подобъекта целиком сбросила бы прочие флаги хранения владельца (11.11.2026).
+  const split1 = splitToolMirror(withoutNulledByUs(collateralLoss(before.json, after1.json, patch1), patch1), after1.json, [...new Set(allTools.map((t) => t.name))]);
+  report.collateral1 = split1.real;
+  if (split1.mirrorInfo) out(`INFO PATCH №1: ${split1.mirrorInfo}`);
+  step(
+    "PATCH №1: чужие поля целы",
+    report.collateral1.length === 0,
+    report.collateral1.length
+      ? `изменилось не отправленных полей: ${report.collateral1.length} (первые: ${report.collateral1.slice(0, 5).map((c) => c.path).join(", ")})`
+      : "ничего не пропало"
+  );
 
   // PATCH №2.
   const patch2 = sync.buildAgentTuningPatch(after1.json, ensured.ids, { voiceIdTg });

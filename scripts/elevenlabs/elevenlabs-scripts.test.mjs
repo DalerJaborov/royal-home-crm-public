@@ -599,3 +599,31 @@ test("ensureTools без явного ключа берёт ключ серве�
   assert.deepEqual(pages, ["/v1/convai/tools", "/v1/convai/tools?cursor=c2"]);
   assert.equal(e.idByName.end_call, "tool_new");
 });
+
+test("patch-check: PATCH №1 заменил privacy целиком (пропал флаг владельца) — «чужие поля целы» краснеет", async () => {
+  const sync = await loadAgentSync();
+  const srv = fakeServer("merge");
+  srv.agent.platform_settings.privacy = { record_voice: true, retention_days: -1, user_memory: { enabled: true } };
+  const fetchImpl = async (url, init) => {
+    const res = await srv.fetchImpl(url, init);
+    const body = init?.body ? JSON.parse(init.body) : null;
+    if (init?.method === "PATCH" && String(url).includes("/agents/") && body?.platform_settings?.privacy) {
+      srv.agent.platform_settings.privacy = body.platform_settings.privacy; // замена подобъекта, а не слияние
+    }
+    return res;
+  };
+  const c = collect();
+  const r = await runPatchCheck({ env: PC_ENV, fetchImpl, sync, kinds: TWO_KINDS, say: c.say, writeFiles: false });
+  assert.equal(r.failed, 1);
+  assert.match(c.text(), /FAIL PATCH №1: чужие поля целы — .*platform_settings\.privacy\.user_memory\.enabled/);
+});
+
+test("patch-check: сервис слил PATCH №1 глубоко — «чужие поля целы» зелёный", async () => {
+  const sync = await loadAgentSync();
+  const srv = fakeServer("merge");
+  srv.agent.platform_settings.privacy = { record_voice: true, retention_days: -1, user_memory: { enabled: true } };
+  const c = collect();
+  const r = await runPatchCheck({ env: PC_ENV, fetchImpl: srv.fetchImpl, sync, kinds: TWO_KINDS, say: c.say, writeFiles: false });
+  assert.equal(r.failed, 0, c.text());
+  assert.match(c.text(), /OK\s+PATCH №1: чужие поля целы/);
+});

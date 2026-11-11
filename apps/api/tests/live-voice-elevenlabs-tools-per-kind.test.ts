@@ -34,7 +34,10 @@ const {
   buildAgentTuningPatch,
   elevenLabsToolContentKey,
   ensureElevenLabsAgentReady,
+  ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS,
   forgetElevenLabsAgentSync,
+  isElevenLabsToolOverridePaused,
+  noteElevenLabsToolsNotAttached,
   resetElevenLabsSyncCacheForTests,
   syncElevenLabsAgentDetailed,
   toElevenLabsClientTool,
@@ -362,7 +365,10 @@ describe("сторож: одно имя с разным описанием не 
 
 class FakeSocket extends EventEmitter {
   readyState = 0;
-  send(): void {}
+  sent: Record<string, any>[] = [];
+  send(data: string): void {
+    this.sent.push(JSON.parse(data));
+  }
   close(): void {
     this.readyState = 3;
   }
@@ -379,65 +385,287 @@ class FakeSocket extends EventEmitter {
   }
 }
 
-describe("разговор закрыт 1008 «Tool IDs not attached» — память подготовки сбрасывается", () => {
-  it.each([
-    ["после метаданных (так закрывает ElevenLabs, замер 11.11)", true],
-    ["до метаданных", false],
-  ])("%s", async (_label, afterMetadata) => {
-    const forget = vi.fn();
-    const ws = new FakeSocket();
-    const client = new ElevenLabsVoiceClient(
-      { apiKey: "sk_test", agentId: "agent_1", voiceIdRu: null, voiceIdTg: null },
-      {
-        signedUrl: async () => "wss://fake",
-        prepareAgent: async () => new Map([["end_call", "tool_1"]]),
-        forgetAgentSync: forget,
-        socketFactory: () => {
-          setImmediate(() => ws.open());
-          return ws as unknown as WebSocket;
-        },
-      }
-    );
-    client.on("close", () => {});
-    const connecting = client.connect({ systemInstruction: "P", tools: [endCall(POST_SHOWING_CALL_TOOLS)] } as any);
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    if (afterMetadata) {
-      ws.server({ type: "conversation_initiation_metadata", conversation_initiation_metadata_event: { conversation_id: "c" } });
-      await connecting;
-      ws.closeFromServer(1008, "Tool IDs not attached to this agent: ['tool_1']");
-    } else {
-      ws.closeFromServer(1008, "Tool IDs not attached to this agent: ['tool_1']");
-      await expect(connecting).rejects.toThrow();
+const METADATA = { type: "conversation_initiation_metadata", conversation_initiation_metadata_event: { conversation_id: "c" } };
+const NOT_ATTACHED = "Tool IDs not attached to this agent: ['tool_1']";
+const tick = () => new Promise((r) => setImmediate(r));
+
+/** Клиент на поддельных сокетах: каждый сокет сам «открывается»; список — в sockets. */
+function makeClient(over: Partial<{ signedUrl: () => Promise<string>; paused: boolean; ids: Map<string, string> | null }> = {}) {
+  const sockets: FakeSocket[] = [];
+  const note = vi.fn(() => "resync" as const);
+  const client = new ElevenLabsVoiceClient(
+    { apiKey: "sk_test", agentId: "agent_1", voiceIdRu: null, voiceIdTg: null },
+    {
+      signedUrl: over.signedUrl ?? (async () => "wss://fake"),
+      prepareAgent: async () => (over.ids === undefined ? new Map([["end_call", "tool_1"]]) : over.ids),
+      noteToolsNotAttached: note,
+      toolOverridePaused: () => over.paused ?? false,
+      socketFactory: () => {
+        const ws = new FakeSocket();
+        sockets.push(ws);
+        setImmediate(() => ws.open());
+        return ws as unknown as WebSocket;
+      },
     }
-    expect(forget).toHaveBeenCalledWith("agent_1");
-    expect(logged.messages.some((m) => m.key === "elevenlabs-tools-not-attached")).toBe(true);
+  );
+  const closes: { code: number; normal: boolean }[] = [];
+  client.on("close", (info: { code: number; normal: boolean }) => closes.push(info));
+  const initOf = (ws: FakeSocket) => ws.sent.find((m) => m.type === "conversation_initiation_client_data");
+  return { client, sockets, note, closes, initOf };
+}
+const TOOLS = [endCall(POST_SHOWING_CALL_TOOLS)];
+
+describe("1008 «Tool IDs not attached»: этот звонок — повтор без подмены функций", () => {
+  it("закрытие сразу после метаданных: новый сокет без tool_ids, служебная реплика повторена, мост закрытия не видит", async () => {
+    const { client, sockets, note, closes, initOf } = makeClient();
+    const connecting = client.connect({ systemInstruction: "P", tools: TOOLS } as any);
+    await tick();
+    await tick();
+    sockets[0].server(METADATA);
+    await connecting;
+    expect(initOf(sockets[0]).conversation_config_override.agent.prompt.tool_ids).toEqual(["tool_1"]);
+    client.sendText("(Собеседник снял трубку.)");
+    sockets[0].closeFromServer(1008, NOT_ATTACHED);
+    await tick();
+    await tick();
+    expect(sockets).toHaveLength(2);
+    sockets[1].server(METADATA);
+    await tick();
+    expect(initOf(sockets[1]).conversation_config_override.agent.prompt).not.toHaveProperty("tool_ids");
+    expect(sockets[1].sent.some((m) => m.type === "user_message" && m.text === "(Собеседник снял трубку.)")).toBe(true);
+    expect(note).toHaveBeenCalledTimes(1);
+    expect(closes).toEqual([]);
+    // Второй 1008 в этом звонке не повторяется — закрытие уходит наружу сбоем.
+    sockets[1].closeFromServer(1006, "");
+    expect(closes).toEqual([expect.objectContaining({ code: 1006, normal: false })]);
     client.close();
   });
 
-  it("обычное закрытие 1000 память не трогает", async () => {
-    const forget = vi.fn();
-    const ws = new FakeSocket();
-    const client = new ElevenLabsVoiceClient(
-      { apiKey: "sk_test", agentId: "agent_1", voiceIdRu: null, voiceIdTg: null },
-      {
-        signedUrl: async () => "wss://fake",
-        prepareAgent: async () => null,
-        forgetAgentSync: forget,
-        socketFactory: () => {
-          setImmediate(() => ws.open());
-          return ws as unknown as WebSocket;
-        },
-      }
-    );
-    client.on("close", () => {});
-    const connecting = client.connect({ systemInstruction: "P", tools: [] } as any);
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    ws.server({ type: "conversation_initiation_metadata", conversation_initiation_metadata_event: {} });
+  it("закрытие до метаданных: connect сам повторяет без tool_ids и подключается", async () => {
+    const { client, sockets, note, initOf } = makeClient();
+    const connecting = client.connect({ systemInstruction: "P", tools: TOOLS } as any);
+    await tick();
+    await tick();
+    sockets[0].closeFromServer(1008, NOT_ATTACHED);
+    await tick();
+    await tick();
+    sockets[1].server(METADATA);
     await connecting;
-    ws.closeFromServer(1000, "");
-    expect(forget).not.toHaveBeenCalled();
+    expect(initOf(sockets[1]).conversation_config_override.agent.prompt).not.toHaveProperty("tool_ids");
+    expect(note).toHaveBeenCalledTimes(1);
     client.close();
+  });
+
+  it("повтор не открылся — закрытие-сбой наружу (мост заканчивает звонок как обычно)", async () => {
+    let urls = 0;
+    const { client, sockets, closes } = makeClient({
+      signedUrl: async () => {
+        if (++urls > 1) throw new Error("нет сети");
+        return "wss://fake";
+      },
+    });
+    const connecting = client.connect({ systemInstruction: "P", tools: TOOLS } as any);
+    await tick();
+    await tick();
+    sockets[0].server(METADATA);
+    await connecting;
+    sockets[0].closeFromServer(1008, NOT_ATTACHED);
+    await vi.waitFor(() => expect(closes).toEqual([expect.objectContaining({ code: 1008, normal: false })]));
+    client.close();
+  });
+
+  it("агент уже говорил — повтора нет, закрытие наружу", async () => {
+    const { client, sockets, closes } = makeClient();
+    const connecting = client.connect({ systemInstruction: "P", tools: TOOLS } as any);
+    await tick();
+    await tick();
+    sockets[0].server(METADATA);
+    await connecting;
+    sockets[0].server({ type: "audio", audio_event: { audio_base_64: Buffer.from([1, 2, 3, 4]).toString("base64"), event_id: 1 } });
+    sockets[0].closeFromServer(1008, NOT_ATTACHED);
+    await tick();
+    expect(sockets).toHaveLength(1);
+    expect(closes).toHaveLength(1);
+    client.close();
+  });
+
+  it("подмена на паузе — разговор без tool_ids, хотя функции подготовлены", async () => {
+    const { client, sockets, initOf } = makeClient({ paused: true });
+    const connecting = client.connect({ systemInstruction: "P", tools: TOOLS } as any);
+    await tick();
+    await tick();
+    sockets[0].server(METADATA);
+    await connecting;
+    expect(initOf(sockets[0]).conversation_config_override.agent.prompt).not.toHaveProperty("tool_ids");
+    client.close();
+  });
+
+  it("обычное закрытие 1000 после разговора — без повтора и без отметки 1008", async () => {
+    const { client, sockets, note, closes } = makeClient({ ids: null });
+    const connecting = client.connect({ systemInstruction: "P", tools: [] } as any);
+    await tick();
+    await tick();
+    sockets[0].server(METADATA);
+    await connecting;
+    sockets[0].closeFromServer(1000, "");
+    expect(note).not.toHaveBeenCalled();
+    expect(sockets).toHaveLength(1);
+    expect(closes).toHaveLength(1);
+    client.close();
+  });
+});
+
+describe("1008 повторяется — пауза подмены функций, одна тревога", () => {
+  let now = 1_800_000_000_000;
+  beforeEach(() => {
+    logged.messages.length = 0;
+    resetElevenLabsSyncCacheForTests();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetElevenLabsSyncCacheForTests();
+  });
+
+  it("первый раз — переподготовка; второй за окно — пауза и тревога; после паузы — снова переподготовка", () => {
+    expect(noteElevenLabsToolsNotAttached("agent_1")).toBe("resync");
+    expect(isElevenLabsToolOverridePaused("agent_1")).toBe(false);
+    now += 60_000;
+    expect(noteElevenLabsToolsNotAttached("agent_1")).toBe("paused");
+    expect(isElevenLabsToolOverridePaused("agent_1")).toBe(true);
+    expect(logged.messages.filter((m) => m.key === "elevenlabs-tools-override-paused")).toHaveLength(1);
+    // Другой агент паузу не делит.
+    expect(isElevenLabsToolOverridePaused("agent_2")).toBe(false);
+    now += ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS + 1;
+    expect(isElevenLabsToolOverridePaused("agent_1")).toBe(false);
+    now += ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS + 1;
+    expect(noteElevenLabsToolsNotAttached("agent_1")).toBe("resync");
+  });
+});
+
+describe("сверка после PATCH и очередь подготовок (fetch подменён)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetElevenLabsSyncCacheForTests();
+  });
+
+  it("агент ответил 200, но наших id в tool_ids нет — подготовка не готова, звонок без подмены (null)", async () => {
+    const srv = fakeElevenLabs();
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      const res = await srv.fetchImpl(url, init);
+      // Сервис «принял» PATCH, но функции не сохранил (живой случай: функции на другой ветке агента).
+      if (init.method === "PATCH") srv.agent.conversation_config.agent.prompt.tool_ids = [];
+      return res;
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    await expect(syncElevenLabsAgentDetailed("sk_test", "agent_1", POST_SHOWING_CALL_TOOLS)).rejects.toThrow(/не сохранил наши функции/);
+    expect(await ensureElevenLabsAgentReady("sk_test", "agent_1", POST_SHOWING_CALL_TOOLS)).toBeNull();
+  });
+
+  it("кнопка «Проверить агента» и звонок разом, разные наборы: у агента оба набора, функций без дублей", async () => {
+    const { CONSULTANT_TOOLS } = await import("../src/lib/telephony/liveVoiceConsultant.js");
+    const srv = fakeElevenLabs();
+    vi.stubGlobal("fetch", srv.fetchImpl);
+    const [button, call, again] = await Promise.all([
+      syncElevenLabsAgentDetailed("sk_test", "agent_1", CONSULTANT_TOOLS),
+      ensureElevenLabsAgentReady("sk_test", "agent_1", INTERVIEW_INVITE_CALL_TOOLS),
+      ensureElevenLabsAgentReady("sk_test", "agent_1", CONSULTANT_TOOLS),
+    ]);
+    const attached = srv.agent.conversation_config.agent.prompt.tool_ids as string[];
+    for (const id of [...button.ids.values(), ...call!.values(), ...again!.values()]) expect(attached).toContain(id);
+    const distinct = new Set([...CONSULTANT_TOOLS, ...INTERVIEW_INVITE_CALL_TOOLS].map((t) => elevenLabsToolContentKey(toElevenLabsClientTool(t))));
+    expect(srv.tools).toHaveLength(distinct.size);
+    expect(new Set(attached).size).toBe(attached.length);
+  });
+});
+
+const REPO = path.join(SRC, "..", "..", "..");
+const SCRIPTS = path.join(REPO, "scripts", "elevenlabs");
+const sourceFiles = () => [
+  ...walk(SRC),
+  ...readdirSync(SCRIPTS)
+    .filter((f) => f.endsWith(".mjs") && !f.endsWith(".test.mjs"))
+    .map((f) => path.join(SCRIPTS, f)),
+];
+/** Окно из соседних строк: метод и путь часто стоят в разных строках одного вызова. */
+function nearby(text: string, index: number, span = 300): string {
+  return text.slice(Math.max(0, index - span), index + span);
+}
+
+describe("сторожа переходного периода: правка общих функций аккаунта и запись агента — только одной дверью", () => {
+  it("нигде в apps/api/src и scripts/elevenlabs нет PATCH на /convai/tools (функции общие на аккаунт)", () => {
+    const bad: string[] = [];
+    for (const file of sourceFiles()) {
+      const text = readFileSync(file, "utf8");
+      for (const m of text.matchAll(/convai\/tools\//g)) {
+        if (/["'`]PATCH["'`]/.test(nearby(text, m.index!))) bad.push(path.relative(REPO, file).replace(/\\/g, "/"));
+      }
+    }
+    expect([...new Set(bad)], "функции правятся по месту — заводите новую по содержимому (elevenLabsToolContentKey)").toEqual([]);
+  });
+
+  it("запись агента и функций ElevenLabs в apps/api/src — только в ai/elevenLabsAgentSync.ts, и только через очередь агента", () => {
+    const bad: string[] = [];
+    for (const file of walk(SRC)) {
+      const rel = path.relative(SRC, file).replace(/\\/g, "/");
+      if (rel === "ai/elevenLabsAgentSync.ts") continue;
+      const text = readFileSync(file, "utf8");
+      for (const m of text.matchAll(/convai\/(agents|tools)/g)) {
+        if (/["'`](PATCH|POST|DELETE)["'`]/.test(nearby(text, m.index!))) bad.push(rel);
+      }
+    }
+    expect([...new Set(bad)]).toEqual([]);
+    const syncSrc = readFileSync(path.join(SRC, "ai", "elevenLabsAgentSync.ts"), "utf8");
+    const calls = syncSrc.split("\n").filter((l) => /syncElevenLabsAgentNow\(/.test(l) && !/async function syncElevenLabsAgentNow/.test(l));
+    expect(calls.length, "подготовка агента вызывается мимо очереди").toBeGreaterThan(0);
+    for (const line of calls) expect(line).toMatch(/serializePerAgent\(/);
+  });
+
+  it("каждый набор функций звонка несёт end_call (встроенный выключен — иначе трубку не положит никто)", async () => {
+    const { CONSULTANT_TOOLS } = await import("../src/lib/telephony/liveVoiceConsultant.js");
+    const { SELLER_PROBE_CALL_TOOLS } = await import("../src/ai/sellerProbeCallPersona.js");
+    for (const [label, set] of Object.entries({ CONSULTANT_TOOLS, POST_SHOWING_CALL_TOOLS, INTERVIEW_INVITE_CALL_TOOLS, SELLER_PROBE_CALL_TOOLS })) {
+      expect(set.map((t) => t.name), label).toContain("end_call");
+    }
+    // Набор исходящего звонка в мосту не экспортирован — по исходнику: END_CALL_TOOL внутри LIVE_VOICE_TOOLS.
+    const bridge = readFileSync(path.join(SRC, "lib", "telephony", "liveVoiceBridge.ts"), "utf8");
+    const block = /const LIVE_VOICE_TOOLS: LiveVoiceFunctionDeclaration\[\] = \[([\s\S]*?)\n\];/.exec(bridge)?.[1] ?? "";
+    expect(block, "LIVE_VOICE_TOOLS не найден в мосту").not.toBe("");
+    expect(block).toMatch(/\bEND_CALL_TOOL\b/);
+    expect(bridge).toMatch(/const END_CALL_TOOL: LiveVoiceFunctionDeclaration = \{\s*name: "end_call"/);
+  });
+});
+
+describe("содержимое функции: поведение, поправленное в кабинете, — уже не наша функция", () => {
+  it.each([
+    ["disable_interruptions", { disable_interruptions: true }],
+    ["execution_mode", { execution_mode: "async" }],
+    ["pre_tool_speech", { pre_tool_speech: "force" }],
+    ["tool_call_sound", { tool_call_sound: "typing" }],
+  ])("%s", (_label, patch) => {
+    const ours = toElevenLabsClientTool(endCall(POST_SHOWING_CALL_TOOLS));
+    expect(elevenLabsToolContentKey({ ...asServerStores(ours), ...patch })).not.toBe(elevenLabsToolContentKey(ours));
+  });
+
+  it("постоянное значение параметра (constant_value) — другое содержимое", () => {
+    const ours = toElevenLabsClientTool(endCall(POST_SHOWING_CALL_TOOLS)) as any;
+    const stored = asServerStores(ours) as any;
+    stored.parameters.properties.reason = { ...stored.parameters.properties.reason, constant_value: "answered" };
+    expect(elevenLabsToolContentKey(stored)).not.toBe(elevenLabsToolContentKey(ours));
+  });
+
+  it("строка ровно с умолчаниями сервиса (замер 11.11) — наша функция", () => {
+    const ours = toElevenLabsClientTool(endCall(POST_SHOWING_CALL_TOOLS)) as any;
+    const measured = {
+      ...asServerStores(ours),
+      interruption_mode: "allow",
+      force_pre_tool_speech: false,
+      pre_tool_speech: "auto",
+      assignments: [],
+      tool_call_sound_behavior: "auto",
+      tool_error_handling_mode: "auto",
+      dynamic_variables: { dynamic_variable_placeholders: {} },
+    };
+    expect(elevenLabsToolContentKey(measured)).toBe(elevenLabsToolContentKey(ours));
   });
 });

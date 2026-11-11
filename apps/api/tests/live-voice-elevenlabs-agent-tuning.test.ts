@@ -159,8 +159,12 @@ describe("подготовка агента по сети (fetch подменё�
   let failWhen: (c: Call) => number | null = () => null;
   let now = 1_800_000_000_000;
 
+  // tool_ids, которые агент «сохранил» последним PATCH: подготовка сверяет их GET-ом (11.11.2026).
+  let attached: string[] | null = null;
+
   beforeEach(() => {
     calls = [];
+    attached = null;
     failWhen = () => null;
     logged.messages.length = 0;
     vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -175,13 +179,18 @@ describe("подготовка агента по сети (fetch подменё�
         calls.push(call);
         const status = failWhen(call);
         if (status) return new Response(JSON.stringify({ detail: "Unprocessable" }), { status });
+        const sentIds = call.body?.conversation_config?.agent?.prompt?.tool_ids;
+        if (call.method === "PATCH" && call.path.startsWith("/v1/convai/agents/") && Array.isArray(sentIds)) attached = sentIds as string[];
+        const agentNow = attached
+          ? { ...OWNER_AGENT, conversation_config: { ...OWNER_AGENT.conversation_config, agent: { ...OWNER_AGENT.conversation_config.agent, prompt: { ...OWNER_AGENT.conversation_config.agent.prompt, tool_ids: attached } } } }
+          : OWNER_AGENT;
         const json =
           call.method === "GET" && call.path === "/v1/convai/tools"
             ? { tools: [] }
             : call.method === "POST"
               ? { id: "tool_new" }
               : call.method === "GET"
-                ? OWNER_AGENT
+                ? agentNow
                 : {};
         return new Response(JSON.stringify(json), { status: 200, headers: { "content-type": "application/json" } });
       })

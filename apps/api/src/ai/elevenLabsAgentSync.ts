@@ -158,7 +158,46 @@ export function toElevenLabsClientTool(decl: LiveVoiceFunctionDeclaration): Reco
  * 11.11). Поэтому «полное совпадение» — совпадение проекции на наши поля, одной
  * и той же функцией для нашего объявления и для строки из списка сервиса.
  * enum null / [] — то же, что нет enum; порядок свойств и required не важен.
+ *
+ * Поля поведения, которых мы НЕ шлём (прерывания, речь перед вызовом, звук,
+ * подстановки), входят в содержимое со значением сервиса по умолчанию (ниже,
+ * замер 11.11): функция с тем же именем и описанием, но поправленная в кабинете
+ * (например, disable_interruptions: true или постоянное значение параметра), — не
+ * наша, и её поведение звонку не достаётся. Сменит сервис умолчание — повторная
+ * подготовка заведёт новые функции; это ловит `voice:patch-check` («повторная
+ * подготовка не заводит новых»).
  */
+const TOOL_BEHAVIOR_DEFAULTS: Readonly<Record<string, unknown>> = {
+  disable_interruptions: false,
+  interruption_mode: "allow",
+  force_pre_tool_speech: false,
+  pre_tool_speech: "auto",
+  assignments: [],
+  tool_call_sound: null,
+  tool_call_sound_behavior: "auto",
+  tool_error_handling_mode: "auto",
+  execution_mode: "immediate",
+  dynamic_variables: { dynamic_variable_placeholders: {} },
+};
+/** Поля одного параметра, меняющие поведение (постоянное значение, подстановка). */
+const PARAM_BEHAVIOR_DEFAULTS: Readonly<Record<string, unknown>> = {
+  is_system_provided: false,
+  dynamic_variable: "",
+  constant_value: "",
+  allowed_values: null,
+  allowed_values_dynamic_variable: "",
+  is_omitted: false,
+};
+/** Поля объекта parameters целиком. */
+const PARAMS_OBJECT_DEFAULTS: Readonly<Record<string, unknown>> = { description: "", dynamic_variable: "", is_omitted: false };
+
+/** Значение поля, а если его нет — умолчание сервиса. */
+function behaviorFields(src: Json, defaults: Readonly<Record<string, unknown>>): Json {
+  const out: Json = {};
+  for (const [k, def] of Object.entries(defaults)) out[k] = src[k] === undefined ? def : src[k];
+  return out;
+}
+
 export function canonicalClientToolContent(cfg: unknown): Json | null {
   if (!isObj(cfg) || cfg.type !== "client" || !str(cfg.name)) return null;
   const params = isObj(cfg.parameters) ? cfg.parameters : {};
@@ -171,6 +210,7 @@ export function canonicalClientToolContent(cfg: unknown): Json | null {
       type: typeof p.type === "string" ? p.type.toLowerCase() : null,
       description: typeof p.description === "string" ? p.description : "",
       ...(values.length > 0 ? { enum: values } : {}),
+      ...behaviorFields(p, PARAM_BEHAVIOR_DEFAULTS),
     };
   }
   const required = Array.isArray(params.required) ? [...new Set(params.required.filter(str))].sort() : [];
@@ -178,9 +218,10 @@ export function canonicalClientToolContent(cfg: unknown): Json | null {
     type: "client",
     name: cfg.name,
     description: typeof cfg.description === "string" ? cfg.description : "",
-    parameters: { properties, required },
+    parameters: { properties, required, ...behaviorFields(params, PARAMS_OBJECT_DEFAULTS) },
     expects_response: cfg.expects_response === true,
     response_timeout_secs: typeof cfg.response_timeout_secs === "number" ? cfg.response_timeout_secs : null,
+    ...behaviorFields(cfg, TOOL_BEHAVIOR_DEFAULTS),
   };
 }
 
@@ -465,7 +506,7 @@ async function listElevenLabsClientTools(apiKey: string): Promise<ElevenLabsTool
   void logSystemError(
     "telephony",
     `Живой голос (ElevenLabs): функций в аккаунте больше ${TOOL_LIST_MAX_PAGES * 100} — список прочитан не весь, ` +
-      "возможны дубли функций. Удалите в кабинете ElevenLabs старые клиентские функции.",
+      "возможны дубли функций. Удалите в кабинете ElevenLabs старые клиентские функции, не прикреплённые ни к одному агенту.",
     { dedupKey: "elevenlabs-tool-list-cap" }
   );
   return rows;
@@ -573,9 +614,10 @@ async function syncElevenLabsAgentNow(
   const ids =
     tools.length > 0 ? await ensureElevenLabsTools(apiKey, tools, new Set(mergedToolIds(readPrompt(agent), []))) : new Map<string, string>();
   await elevenLabsRequest(apiKey, "PATCH", agentPath, buildAgentSyncPatch(agent, [...ids.values()]));
+  let outcome: ElevenLabsAgentSyncOutcome;
   try {
     await elevenLabsRequest(apiKey, "PATCH", agentPath, buildAgentTuningPatch(agent, [...ids.values()], opts));
-    return { ids, tuned: true, tuningError: null };
+    outcome = { ids, tuned: true, tuningError: null };
   } catch (err) {
     const detail = describeError(err);
     void logSystemError(
@@ -585,8 +627,71 @@ async function syncElevenLabsAgentNow(
         `${ELEVENLABS_SYNC_RETRY_PAUSE_MS / 60_000} мин.`,
       { dedupKey: "elevenlabs-agent-tuning" }
     );
-    return { ids, tuned: false, tuningError: detail };
+    outcome = { ids, tuned: false, tuningError: detail };
   }
+  await assertToolIdsAttached(apiKey, agentPath, ids);
+  return outcome;
+}
+
+/**
+ * Сверка после PATCH (11.11.2026): ответ 200 ещё не значит, что функции у агента. Подмена
+ * набора на звонок принимает только прикреплённые id (иначе 1008 сразу после начала
+ * разговора), поэтому подготовка без наших id в tool_ids агента — не готова: бросаем, и
+ * звонки идут без подмены до повтора после паузы, а не падают по одному.
+ */
+async function assertToolIdsAttached(apiKey: string, agentPath: string, ids: Map<string, string>): Promise<void> {
+  if (ids.size === 0) return;
+  const after = await elevenLabsRequest(apiKey, "GET", agentPath);
+  const attached = new Set(mergedToolIds(readPrompt(after), []));
+  const missing = [...ids.values()].filter((id) => !attached.has(id));
+  if (missing.length > 0) {
+    throw new ElevenLabsHttpError(
+      `ElevenLabs: агент не сохранил наши функции (${missing.length} из ${ids.size} нет в tool_ids) — подмена набора на звонок была бы отклонена`,
+      null
+    );
+  }
+}
+
+/**
+ * ЗАКРЫТИЕ 1008 «Tool IDs not attached» (11.11.2026). Первый раз — забыть подготовку
+ * агента: следующий звонок заново прикрепит функции. Повтор за окно — причина не уходит
+ * (агент держит функции не там, куда пишет PATCH, кабинет снимает их снова и т.п.), и
+ * каждая новая подготовка стоила бы звонку до ELEVENLABS_SYNC_BUDGET_MS тишины и снова
+ * 1008: подмена функций на звонок ставится на паузу, звонки идут с набором агента,
+ * одна тревога в журнал.
+ */
+export const ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS = 30 * 60_000;
+const toolsNotAttachedAt = new Map<string, number>();
+const toolOverridePausedUntil = new Map<string, number>();
+
+export function noteElevenLabsToolsNotAttached(agentId: string): "resync" | "paused" {
+  const now = Date.now();
+  const prev = toolsNotAttachedAt.get(agentId);
+  toolsNotAttachedAt.set(agentId, now);
+  if (prev !== undefined && now - prev < ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS) {
+    toolOverridePausedUntil.set(agentId, now + ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS);
+    void logSystemError(
+      "telephony",
+      `Живой голос (ElevenLabs): агент ${agentId} снова отклонил набор функций звонка (1008 «Tool IDs not attached»). ` +
+        `Подмена функций на звонок выключена на ${ELEVENLABS_TOOLS_NOT_ATTACHED_WINDOW_MS / 60_000} мин — звонки идут с ` +
+        "функциями, прикреплёнными к агенту в кабинете. Проверьте агента кнопкой «Проверить агента» в Настройках.",
+      { dedupKey: "elevenlabs-tools-override-paused" }
+    );
+    return "paused";
+  }
+  forgetElevenLabsAgentSync(agentId);
+  void logSystemError(
+    "telephony",
+    "Живой голос (ElevenLabs): агент отклонил набор функций звонка — их сняли с агента. Звонок повторён с функциями " +
+      "агента, следующий звонок заново прикрепит функции.",
+    { dedupKey: "elevenlabs-tools-not-attached" }
+  );
+  return "resync";
+}
+
+/** Подмена функций на звонок на паузе после повторных 1008 (см. noteElevenLabsToolsNotAttached). */
+export function isElevenLabsToolOverridePaused(agentId: string): boolean {
+  return (toolOverridePausedUntil.get(agentId) ?? 0) > Date.now();
 }
 
 /** То же, что syncElevenLabsAgentDetailed, — только id функций. */
@@ -730,4 +835,6 @@ export function resetElevenLabsSyncCacheForTests(): void {
   syncPausedUntil.clear();
   toolCreateInFlight.clear();
   agentSyncQueue.clear();
+  toolsNotAttachedAt.clear();
+  toolOverridePausedUntil.clear();
 }
