@@ -90,7 +90,12 @@ import type { LiveVoiceFunctionDeclaration } from "../src/ai/liveVoiceClient.js"
 
 const RTP_PORT = 44000 + Math.floor(Math.random() * 900);
 const envBefore = { host: process.env.LIVE_VOICE_RTP_HOST, port: process.env.LIVE_VOICE_RTP_PORT, peer: process.env.LIVE_VOICE_RTP_PEER };
-let settingsBefore: { liveVoiceEnabled: boolean; liveVoiceProvider: string } | null = null;
+let settingsBefore: {
+  liveVoiceEnabled: boolean;
+  liveVoiceProvider: string;
+  elevenLabsApiKey: string | null;
+  elevenLabsAgentId: string | null;
+} | null = null;
 const started: string[] = [];
 
 const INVITE_TOOL: LiveVoiceFunctionDeclaration = {
@@ -127,7 +132,7 @@ beforeAll(async () => {
   delete process.env.LIVE_VOICE_RTP_PEER;
   settingsBefore = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { liveVoiceEnabled: true, liveVoiceProvider: true },
+    select: { liveVoiceEnabled: true, liveVoiceProvider: true, elevenLabsApiKey: true, elevenLabsAgentId: true },
   });
   await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceEnabled: true } });
 });
@@ -157,8 +162,25 @@ afterAll(async () => {
 
 describe("сценарный исходящий звонок и переключатель поставщика", () => {
   it("Настройки = elevenlabs — звонок идёт через ElevenLabs с промтом, функциями и языком сценария", async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceProvider: "elevenlabs" } });
-    const client = await dialScenario("+992 93 000 81 01");
+    // Перед набором мост пробует ElevenLabs (П1, 11.11.2026: без ключа и агента звонок не
+    // набирается) — ключ ненастоящий, ответ на запрос ссылки подменён, в сеть тест не ходит.
+    const keyBefore = process.env.ELEVENLABS_API_KEY;
+    process.env.ELEVENLABS_API_KEY = "sk_switch_fake_key";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ signed_url: "wss://example.test/c" }), { status: 200 })));
+    const { resetLiveVoiceProviderHolds } = await import("../src/lib/telephony/liveVoiceBridge.js");
+    resetLiveVoiceProviderHolds();
+    await prisma.settings.update({
+      where: { id: "singleton" },
+      data: { liveVoiceProvider: "elevenlabs", elevenLabsApiKey: null, elevenLabsAgentId: "agent_switch" },
+    });
+    let client: FakeProvider;
+    try {
+      client = await dialScenario("+992 93 000 81 01");
+    } finally {
+      vi.unstubAllGlobals();
+      if (keyBefore === undefined) delete process.env.ELEVENLABS_API_KEY;
+      else process.env.ELEVENLABS_API_KEY = keyBefore;
+    }
     expect(client.kind).toBe("elevenlabs");
     expect(String(client.connectOpts!.systemInstruction)).toContain("СЦЕНАРИЙ: приглашение на собеседование");
     expect(client.connectOpts!.tools).toEqual([INVITE_TOOL]);

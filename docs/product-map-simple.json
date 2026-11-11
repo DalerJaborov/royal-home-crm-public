@@ -16,10 +16,10 @@
   "paths": 733,
   "cron": 125,
   "jobs": 32,
-  "conditions": 3904,
+  "conditions": 3905,
   "untranslatedUnique": 446,
   "untranslatedTotal": 572,
-  "partialUnique": 1062,
+  "partialUnique": 1063,
   "translatedShare": 85
  },
  "untranslated": [
@@ -53971,6 +53971,19 @@
        "c": [
         {
          "t": "всё хорошо, отвечает данными: «Функции заведены (…), но агент не принял настройки…»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если failed количество больше 0 и нет: timed out",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "всё хорошо, отвечает данными: «Агент отвечает, но не подготовлен для звонков: ${warm.failed.join(»",
          "k": "do",
          "a": [],
          "c": []

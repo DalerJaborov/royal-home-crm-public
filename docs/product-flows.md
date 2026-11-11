@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **733**. Развилок в самих путях: **2411**; вместе с задачами по расписанию и фоновыми заданиями — **3910**. Модулей: **82**.
+Путей: **733**. Развилок в самих путях: **2412**; вместе с задачами по расписанию и фоновыми заданиями — **3911**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -15331,10 +15331,8 @@
 
 `apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
-- const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { elevenLabsApiKey: true, …
-  · читает в базе: settings
-- const apiKey = resolveElevenLabsKey(row?.elevenLabsApiKey);
-  · зовёт resolveElevenLabsKey()
+- const config = await loadElevenLabsProviderConfig();
+  · зовёт loadElevenLabsProviderConfig()
 - если !apiKey
   - return res.status(400).json({ ok: false, error: "Ключ ElevenLabs не задан — сначала сохраните ключ" });
     · ответ 400 — «Ключ ElevenLabs не задан — сначала сохраните ключ»
@@ -15342,12 +15340,17 @@
   - return res.status(400).json({ ok: false, error: "Не указан id агента ElevenLabs" });
     · ответ 400 — «Не указан id агента ElevenLabs»
 - пробует
-  - const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.eleven…
+  - const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: config.voic…
     · зовёт syncElevenLabsAgentDetailed()
+  - const warm = await warmElevenLabsAgent(config, { budgetMs: ELEVENLABS_CHECK_WARMUP_BUDGET_MS });
+    · зовёт warmElevenLabsAgent()
   - если !outcome.tuned
-    - return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced: outcome.ids.size, error: `Функции за…
+    - return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Функции заведены (${outcome.…
       · ответ 200 — «Функции заведены (${outcome.ids.size}), но агент не принял настройки…»
-  - res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: outcome.ids.size });
+  - если warm.failed.length > 0 && !warm.timedOut
+    - return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Агент отвечает, но не подгот…
+      · ответ 200 — «Агент отвечает, но не подготовлен для звонков: ${warm.failed.join(»
+  - res.json({ ok: true, agentName: agent.name ?? null, toolsSynced });
     · ответ 200
 - если сорвалось
   - const detail = describeError(err);

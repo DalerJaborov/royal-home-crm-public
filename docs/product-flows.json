@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 733,
-  "forks": 3910,
+  "forks": 3911,
   "mounts": 82,
   "cron": 125,
   "jobs": 32,
@@ -69078,17 +69078,9 @@
    "tree": [
     {
      "k": "do",
-     "t": "const row = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { elevenLabsApiKey: true, …",
+     "t": "const config = await loadElevenLabsProviderConfig();",
      "a": [
-      "читает в базе: settings"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const apiKey = resolveElevenLabsKey(row?.elevenLabsApiKey);",
-     "a": [
-      "зовёт resolveElevenLabsKey()"
+      "зовёт loadElevenLabsProviderConfig()"
      ],
      "c": []
     },
@@ -69129,9 +69121,17 @@
      "c": [
       {
        "k": "do",
-       "t": "const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.eleven…",
+       "t": "const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: config.voic…",
        "a": [
         "зовёт syncElevenLabsAgentDetailed()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const warm = await warmElevenLabsAgent(config, { budgetMs: ELEVENLABS_CHECK_WARMUP_BUDGET_MS });",
+       "a": [
+        "зовёт warmElevenLabsAgent()"
        ],
        "c": []
       },
@@ -69142,7 +69142,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced: outcome.ids.size, error: `Функции за…",
+         "t": "return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Функции заведены (${outcome.…",
          "a": [
           "ответ 200 — «Функции заведены (${outcome.ids.size}), но агент не принял настройки…»"
          ],
@@ -69151,8 +69151,23 @@
        ]
       },
       {
+       "k": "if",
+       "t": "warm.failed.length > 0 && !warm.timedOut",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Агент отвечает, но не подгот…",
+         "a": [
+          "ответ 200 — «Агент отвечает, но не подготовлен для звонков: ${warm.failed.join(»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
-       "t": "res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: outcome.ids.size });",
+       "t": "res.json({ ok: true, agentName: agent.name ?? null, toolsSynced });",
        "a": [
         "ответ 200"
        ],
