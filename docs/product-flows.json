@@ -2,10 +2,10 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 747,
-  "forks": 3993,
+  "forks": 4005,
   "mounts": 83,
   "cron": 130,
-  "jobs": 32,
+  "jobs": 33,
   "hidden": 0
  },
  "hidden": [],
@@ -122634,6 +122634,301 @@
    ]
   },
   {
+   "kind": "customerLeadOnlyIntakeJob",
+   "file": "apps/api/src/jobs/customerLeadOnlyIntake.ts",
+   "tree": [
+    {
+     "k": "do",
+     "t": "const result = await runCustomerLeadOnlyIntake(payload);",
+     "a": [
+      "зовёт runCustomerLeadOnlyIntake()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const intake = customerLeadOnlyIntakeSchema.parse(raw);",
+       "a": [
+        "проверяет данные схемой customerLeadOnlyIntakeSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!await turnSettled(intake.eventKey)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"wait\", reason: \"turn_not_settled\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const conversation = await prisma.botConversation.findUnique({ where: { id: intake.conversationId }, select: …",
+       "a": [
+        "читает в базе: botConversation"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!conversation",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"skipped\", reason: \"conversation_missing\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "conversation.clientId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await notifyRepeatInquiry(conversation.clientId, note);",
+         "a": [
+          "зовёт notifyRepeatInquiry()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…",
+       "a": [
+        "зовёт acceptLead()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { clientId: …",
+       "a": [
+        "читает в базе: botConversation"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!linked?.clientId",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "result.accepted",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"ai\", `[alarm] Режим «только заявки»: заявка из ядра (диалог ${conversation.id}) принята …",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "runCustomerLeadOnlyIntake() — apps/api/src/lib/customerLeadOnlyCore.ts"
+    },
+    {
+     "k": "if",
+     "t": "result.status === \"wait\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(result.reason);",
+       "a": [
+        "ошибка Error — «result.reason»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await logSystemError(\"background-jobs\", `[alarm] Режим «только заявки»: заявка из переписки не оформлена (диа…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      }
+     ]
+    }
+   ]
+  },
+  {
    "kind": "customer_owner_question_notify",
    "file": "apps/api/src/jobs/customerOwnerQuestionNotify.ts",
    "tree": [
@@ -128439,14 +128734,6 @@
       },
       {
        "k": "do",
-       "t": "const [propsBlock, learnedBlock, styleBlock, clientHours, money, geoBlock] = await Promise.all([ buyerQueryFo…",
-       "a": [
-        "зовёт buyerQueryForTurn()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
        "t": "const [botPersona, baseGeography, sellerRules, folkGeography] = await Promise.all([ resolveBotPersona(options…",
        "a": [
         "зовёт resolveBotPersona()"
@@ -129235,14 +129522,6 @@
        "t": "const selfName = clientSelfStatedName(history);",
        "a": [
         "зовёт clientSelfStatedName()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const [propsBlock, learnedBlock, styleBlock, clientHours, money, geoBlock] = await Promise.all([ buyerQueryFo…",
-       "a": [
-        "зовёт buyerQueryForTurn()"
        ],
        "c": []
       },

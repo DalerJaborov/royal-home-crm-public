@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **3993**. Модулей: **83**.
+Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4005**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -27240,6 +27240,70 @@
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
 
+### customerLeadOnlyIntakeJob
+
+`apps/api/src/jobs/customerLeadOnlyIntake.ts`
+
+- const result = await runCustomerLeadOnlyIntake(payload);
+  · зовёт runCustomerLeadOnlyIntake()
+  - const intake = customerLeadOnlyIntakeSchema.parse(raw);
+    · проверяет данные схемой customerLeadOnlyIntakeSchema
+  - если !await turnSettled(intake.eventKey)
+    - return { status: "wait", reason: "turn_not_settled" };
+      · дословно из кода
+  - const conversation = await prisma.botConversation.findUnique({ where: { id: intake.conversationId }, select: …
+    · читает в базе: botConversation
+  - если !conversation
+    - return { status: "skipped", reason: "conversation_missing" };
+      · дословно из кода
+  - если conversation.clientId
+    - await notifyRepeatInquiry(conversation.clientId, note);
+      · зовёт notifyRepeatInquiry()
+  - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
+    · зовёт acceptLead()
+  - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { clientId: …
+    · читает в базе: botConversation
+  - если !linked?.clientId
+    - если result.accepted
+      - void logSystemError("ai", `[alarm] Режим «только заявки»: заявка из ядра (диалог ${conversation.id}) принята …
+        · запись в журнал ошибок
+- если result.status === "wait"
+  - throw new Error(result.reason);
+    · ошибка Error — «result.reason»
+- когда попытки кончились
+  - await logSystemError("background-jobs", `[alarm] Режим «только заявки»: заявка из переписки не оформлена (диа…
+    · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
+    - если isShuttingDown()
+      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+        · пишет строку в журнал сервера
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+        · читает в базе: errorLog
+      - если recent
+        - return;
+          · дальше не идёт, ничего не меняя
+      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+        · читает в базе: errorLog
+      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+        · создаёт в базе: errorLog
+      - если !context?.quietPult
+        - requestPultSnapshot();
+          · зовёт requestPultSnapshot()
+      - если !everSeen && !context?.silent
+        - пробует
+        - если сорвалось
+    - если сорвалось
+      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+        · пишет строку в журнал сервера
+
 ### customer_owner_question_notify
 
 `apps/api/src/jobs/customerOwnerQuestionNotify.ts`
@@ -28497,8 +28561,6 @@
     · зовёт jobApplicationIntakeBlock()
   - const selfName = clientSelfStatedName(history);
     · зовёт clientSelfStatedName()
-  - const [propsBlock, learnedBlock, styleBlock, clientHours, money, geoBlock] = await Promise.all([ buyerQueryFo…
-    · зовёт buyerQueryForTurn()
   - const [botPersona, baseGeography, sellerRules, folkGeography] = await Promise.all([ resolveBotPersona(options…
     · зовёт resolveBotPersona()
   - const systemStable = buildStableSystem({ botPersona, baseGeography, sellerRules, folkGeography, canSendGuide:…
@@ -28672,8 +28734,6 @@
     · зовёт jobApplicationIntakeBlock()
   - const selfName = clientSelfStatedName(history);
     · зовёт clientSelfStatedName()
-  - const [propsBlock, learnedBlock, styleBlock, clientHours, money, geoBlock] = await Promise.all([ buyerQueryFo…
-    · зовёт buyerQueryForTurn()
   - const [botPersona, baseGeography, sellerRules, folkGeography] = await Promise.all([ resolveBotPersona(options…
     · зовёт resolveBotPersona()
   - const systemStable = buildStableSystem({ botPersona, baseGeography, sellerRules, folkGeography, canSendGuide:…

@@ -13,9 +13,12 @@ export function customerAgentSayMode(env: Readonly<Record<string, string | undef
 export async function loadCustomerAgentFeaturePolicy() {
   const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: {
     botCanSendLinks: true, botCanSendPhotos: true, botPhotosPerOffer: true, botCanBookShowings: true, botCanHandleVacancies: true,
-    botCanRequestCallback: true, botCanAskOwner: true,
+    botCanRequestCallback: true, botCanAskOwner: true, botLeadOnlyMode: true,
   } });
-  return { links: row?.botCanSendLinks === true, photos: row?.botCanSendPhotos === true,
+  // Режим «только заявки» (13.11.2026): ссылок и фото нет при любых прочих
+  // тумблерах. Подборку убирает из инструментов customerDmAgentTurn по `leadOnly`.
+  const leadOnly = row?.botLeadOnlyMode === true;
+  return { leadOnly, links: !leadOnly && row?.botCanSendLinks === true, photos: !leadOnly && row?.botCanSendPhotos === true,
     photosPerOffer: Math.max(0, Math.min(5, row?.botPhotosPerOffer ?? 0)),
     showings: row?.botCanBookShowings === true, vacancies: row?.botCanHandleVacancies === true,
     // Тумблеры экрана «Бот» (31.10.2026): выключенный — инструмент не предлагается

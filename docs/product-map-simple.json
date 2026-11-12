@@ -15,10 +15,10 @@
   "screens": 53,
   "paths": 747,
   "cron": 130,
-  "jobs": 32,
-  "conditions": 3977,
-  "untranslatedUnique": 458,
-  "untranslatedTotal": 588,
+  "jobs": 33,
+  "conditions": 3989,
+  "untranslatedUnique": 459,
+  "untranslatedTotal": 589,
   "partialUnique": 1078,
   "translatedShare": 85
  },
@@ -49,6 +49,7 @@
   "!availabilityOf(agent).pausedUntil",
   "!await assignmentSourceEpochIsCurrent(prisma, { clientId: row.clientId, subjectAgentId: row.agentId, assignme…",
   "!await current(row, true)",
+  "!await turnSettled(intake.eventKey)",
   "!beginOrigination(req.agent!.id)",
   "!body.id && !body.token?.trim()",
   "!byId.get(pair.videoMontajerAgentId)?.telegramChatId",
@@ -79498,6 +79499,142 @@
        "a": [],
        "c": [],
        "raw": "await handledByQuietHours([agentId], payload)"
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "запись в журнал ошибок",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если это private operation",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если source — «investigation»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если сервер сейчас выключается",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть недавняя запись",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "заводит: запись в журнале ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если нет: quiet пульт",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: ever просмотрено и нет: молчащие",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "customerLeadOnlyIntakeJob",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если !await turnSettled(intake.eventKey)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "!await turnSettled(intake.eventKey)"
+      },
+      {
+       "t": "если нет: переписка",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть клиент (переписка)",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: клиент",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть принят (ответ)",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если статус (ответ) — «wait»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "поломка: «result.reason»",
+       "k": "do",
+       "a": [],
+       "c": []
       }
      ]
     },

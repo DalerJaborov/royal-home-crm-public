@@ -57,6 +57,9 @@ import {
 import { mergeDraft, runQualifyTurn } from "../ai/leadQualifier.js";
 import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
+import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
+import { leadOnlyFilterReply, leadOnlyPhoneLine } from "../ai/leadOnlyMode.js";
+import { legacyLeadOnlyDraftForPhone, planLegacyLeadOnlyTurn } from "./leadOnlyLegacy.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
 import { type ShowcaseAbility } from "../ai/botContract.js";
 import { looksLikeRentRequest, rentRefusalReply } from "../ai/rentGuard.js";
@@ -842,6 +845,11 @@ export async function acceptLead(
      * lastMessageAt/readAt: реплика клиента там уже есть, новых событий не было.
      */
     fromHistory?: boolean;
+    /**
+     * РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (13.11.2026): готовый короткий ответ сервера
+     * (ai/leadOnlyMode.ts) вместо закрывающей реплики модели. Модель не зовётся.
+     */
+    fixedReply?: string;
   }
 ): Promise<MessengerTurnResult> {
   // Без учёта регистра, общим правилом на все каналы (ночная проверка
@@ -1572,7 +1580,7 @@ export async function acceptLead(
    * только то, что слышит клиент. intent=job сюда не доходит вовсе: своя ветка
    * (#454/#455) возвращает результат раньше, до вычисления kind.
    */
-  const closing = await leadAcceptedReply({
+  const closing = options?.fixedReply ?? await leadAcceptedReply({
     kind,
     otherCity,
     created,
@@ -3068,6 +3076,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   // полно чисел, и бюджет «1 100 000» не должен становиться телефоном.
   const typedPhone =
     draft.stage === "awaiting_phone" ? extractTypedPhone(text) : extractVolunteeredPhone(text);
+  // Режим «только заявки» (13.11.2026): читается один раз на ход, см. lib/leadOnlySettings.ts.
+  const leadOnlyConfig = await loadLeadOnlyConfig();
+  const leadOnlyChannel = leadOnlyConfig.enabled && ["WHATSAPP", "INSTAGRAM", "FACEBOOK"].includes(channel);
   // ЗАЯВКА СОЗДАЁТСЯ ТОЛЬКО ПО НОМЕРУ, КОТОРЫЙ ЧЕЛОВЕК НАЗВАЛ САМ.
   //
   // До 01.08 здесь был запасной путь: клиент дошёл до стадии телефона, номер не
@@ -3117,7 +3128,10 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       // Заявку принимаем в любое время суток, но НАЗНАЧЕНИЕ агента вне рабочих
       // часов откладываем до утренней волны: ночью её всё равно некому взять, а
       // счётчик времени ответа агенту шёл бы, пока тот спит.
-      return await acceptLead(conversation.id, channel, conversation.name ?? name, phoneForLead, draft, history, {
+      // Режим «только заявки»: тема заявки — из прежних слов клиента (номер сам её не несёт).
+      const draftForLead = leadOnlyChannel ? legacyLeadOnlyDraftForPhone({ config: leadOnlyConfig, history, text: saidWithPhone || text, draft,
+        propertyId: input.sharedPropertyId ?? input.adPropertyId ?? draft.requestedPropertyId ?? null, jobTopic: vacancyTopic }) : draft;
+      return await acceptLead(conversation.id, channel, conversation.name ?? name, phoneForLead, draftForLead, history, {
         deferAssignment: !(await isWithinWorkingHours()),
         whatsappPhone: waIdentity?.waPhone,
         attachments: saved,
@@ -3125,6 +3139,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         // Разбираем ВЕСЬ текст хода (вместе с тем, что лежало в буфере дебаунса):
         // номера столбиком часто приходят двумя-тремя сообщениями подряд.
         extraPhones: extractAllPhones(saidWithPhone || text),
+        // Режим «только заявки»: короткое «номер получил, агент позвонит» вместо реплики модели.
+        ...(leadOnlyChannel ? { fixedReply: leadOnlyPhoneLine({ kind: "given" }, leadOnlyWhen(leadOnlyConfig),
+          // Голый номер языка не несёт: берём язык прежних слов клиента.
+          ((lang) => (lang === "unknown" ? lastClientLanguage(history) : lang))(detectClientLanguage(saidWithPhone || text)) === "ru"
+            ? "ru" : "tg") ?? undefined } : {}),
       });
     } catch (err) {
       console.error("[messenger] acceptLead", err instanceof Error ? err.message : err);
@@ -3278,6 +3297,54 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * переписке. Meta при этом уже получила 200, повтора не будет.
    */
   await saveIncoming(merged);
+
+  /**
+   * РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (владелец 12–13.11.2026). Продажа, покупка, понравившийся
+   * объект и горячие слова — короткий ответ сервера (ai/leadOnlyMode.ts, та же дверь,
+   * что у ядра) и заявка агенту объекта сразу, без модели. WhatsApp: номер
+   * отправителя и есть номер для звонка. Прочие ходы идут ниже обычным путём, но
+   * без подборки, фото и ссылок.
+   */
+  if (leadOnlyChannel && merged.trim()) {
+    const languageRaw = detectClientLanguage(merged);
+    const leadOnlyLanguage = (languageRaw === "unknown" ? lastClientLanguage(history) : languageRaw) === "ru" ? "ru" as const : "tg" as const;
+    let leadOnlyPropertyId: string | null = input.sharedPropertyId ?? input.adPropertyId ?? null;
+    if (!leadOnlyPropertyId && propertyAdmission && customerPropertyContextEnabled()) {
+      const context = await resolveCustomerPropertyTurnContext(propertyAdmission, propertyTickets).catch(() => null);
+      if (context?.snapshot.focus.status === "resolved" && context.facts) leadOnlyPropertyId = context.facts.propertyId;
+    }
+    leadOnlyPropertyId = leadOnlyPropertyId ?? draft.requestedPropertyId ?? (await propertyChatLeadPropertyId(conversation.id)) ??
+      (await conversationAdPropertyId(conversation.id)) ?? null;
+    const plan = await planLegacyLeadOnlyTurn({ config: leadOnlyConfig, channel, subscriberId, linked: !!conversation.clientId,
+      text: merged, history, draft, propertyId: leadOnlyPropertyId, language: leadOnlyLanguage, jobTopic: vacancyTopic });
+    if (plan) {
+      if (plan.phone && !conversation.clientId) {
+        // Реплика клиента уже в переписке (saveIncoming выше): приём — тихий и без повторной записи.
+        try {
+          await acceptLead(conversation.id, channel, conversation.name ?? name, plan.phone, plan.draft, history, {
+            // Объект известен — его агенту сразу, в любое время (сценарий 2); иначе ночью — утренней волной.
+            deferAssignment: plan.propertyId ? false : !(await isWithinWorkingHours()),
+            ...(plan.whatsappPhone ? { whatsappPhone: plan.whatsappPhone } : {}),
+            attachments: saved, clientText: merged, extraPhones: extractAllPhones(merged), silent: true, fromHistory: true,
+          });
+        } catch (err) {
+          console.error("[messenger] режим «только заявки»: приём заявки", err instanceof Error ? err.message : err);
+          void logSystemError("ai", `[alarm] Режим «только заявки»: заявка не оформлена (диалог ${conversation.id}, ${channel}): ` +
+            `${err instanceof Error ? err.message : String(err)}. Откройте переписку и заведите карточку руками.`);
+        }
+      } else if (conversation.clientId && plan.scenario === "hot") {
+        const { notifyRepeatInquiry } = await import("../services/leads/intake.js");
+        void notifyRepeatInquiry(conversation.clientId, plan.draft.callbackTopic ?? "Клиент готов смотреть")
+          .catch((err) => console.error("[messenger] горячие слова → агенту:", err instanceof Error ? err.message : err));
+      }
+      await appendConversationMessages(conversation.id, [
+        { role: "assistant", content: plan.reply, by: { kind: "bot" }, ...(turnMid ? { replyToMid: turnMid } : {}) },
+      ]);
+      const linkedNow = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { clientId: true } })
+        .then((row) => !!row?.clientId).catch(() => !!conversation.clientId);
+      return { reply: plan.reply, ready: true, accepted: linkedNow };
+    }
+  }
 
   if (propertyAdmission && customerPropertyContextEnabled()) {
     const propertyContext = await resolveCustomerPropertyTurnContext(propertyAdmission, propertyTickets);
@@ -3943,7 +4010,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     const showcase = await showPropertyToClient(
       channel,
       subscriberId,
-      result.showPropertyNumber,
+      // Режим «только заявки»: объект не показываем, даже если модель попросила (второй слой запрета).
+      capabilities.leadOnly ? undefined : result.showPropertyNumber,
       recentBotText(nextHistory),
       capabilities.photosPerOffer,
       account.token,
@@ -3967,7 +4035,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // Файл-гид — то же, что и после приёма заявки: спрашивают про осмотр и
     // документы чаще всего ДО того, как оставили номер (см. lib/buyerGuide.ts).
     const guide = await sendBuyerGuide({
-      wanted: result.sendGuide === true,
+      wanted: result.sendGuide === true && !capabilities.leadOnly,
       conversationId: conversation.id,
       channel,
       recipientId: subscriberId,
@@ -4005,6 +4073,20 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // Одно значение на весь ход: карточка/фото, гид и сам текст ответа должны
     // появиться в виджете ОДНИМ моментом, а не по очереди со своими случайными
     // задержками — иначе выглядело бы более механически, а не менее.
+    // Режим «только заявки», второй слой запрета: ссылки и подборку из ответа модели вырезает код.
+    // Вырезать оказалось всё — короткое «передаю агенту».
+    if (capabilities.leadOnly) {
+      const first = leadOnlyFilterReply(reply), second = reply2 ? leadOnlyFilterReply(reply2) : { text: "", changed: false };
+      if (first.changed || second.changed) {
+        void logSystemError("ai", `Режим «только заявки»: из ответа бота вырезаны ссылка или подборка (диалог ${conversation.id}, ${channel}).`,
+          { dedupKey: `lead-only-filtered:${conversation.id}` });
+        reply = first.text; reply2 = second.text;
+        if (!reply && !reply2) {
+          const filteredLanguage = detectClientLanguage(text);
+          reply = (filteredLanguage === "unknown" ? lastClientLanguage(history) : filteredLanguage) === "ru" ? "Передаю ваш вопрос агенту, он всё расскажет." : "Саволатонро ба агент мерасонам, ӯ ҳамаашро мегӯяд.";
+        }
+      }
+    }
     const visibleAt = websiteReplyVisibleAt(channel);
     const withDelay = (m: ChatMessage): ChatMessage => (visibleAt ? { ...m, visibleAt } : m);
     const outgoing = [reply, reply2].filter(Boolean).join("\n");

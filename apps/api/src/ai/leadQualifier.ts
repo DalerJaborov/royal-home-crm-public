@@ -92,6 +92,7 @@ import {
 import {
   ASK_OWNER_DISABLED_RULE,
   CAUTIOUS_MODE_RULE,
+  LEAD_ONLY_MODE_RULE,
   LINKS_DISABLED_RULE,
   SHOWINGS_DISABLED_RULE,
   VACANCIES_DISABLED_RULE,
@@ -1843,7 +1844,8 @@ export async function runQualifyTurn(
     // Подборка — по черновику, ДОПОЛНЕННОМУ разбором этой реплики (аудит поиска P0-2):
     // черновик модель обновит только в ответе, а «ищу двушку в Сино» в первом же
     // сообщении обязано дать варианты в этом же ходе. Разбор не удался — черновик как был.
-    buyerQueryForTurn(draft, lastClientText)
+    // Режим «только заявки»: подборки в промте нет вовсе — модель не может ни прислать её, ни пересказать.
+    abilities.leadOnly ? Promise.resolve("") : buyerQueryForTurn(draft, lastClientText)
       .catch(() => draft)
       .then((turnQuery) =>
         searchMatchingProperties(
@@ -2001,6 +2003,7 @@ export async function runQualifyTurn(
       : callbackAsLeadPromptRule(callbackPromise(new Date(), clientHours))) +
     (abilities.vacancies ? "" : VACANCIES_DISABLED_RULE) +
     (abilities.links ? "" : LINKS_DISABLED_RULE) +
+    (abilities.leadOnly ? LEAD_ONLY_MODE_RULE : "") +
     // Выводы из случаев, где бот уже ошибался (см. lib/botLessons.ts). Идут в
     // изменяемую часть промта, а не в кэшируемую: список пополняется каждую ночь,
     // и внутри кэш-блока он ломал бы побайтовое совпадение префикса.
