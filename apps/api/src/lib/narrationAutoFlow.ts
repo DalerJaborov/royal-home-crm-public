@@ -339,6 +339,9 @@ export type NarrationRemixOutcome = "REMIXED" | "SKIPPED" | "FAILED";
 export const NARRATION_MIX_CLAIM_STALE_MS = 15 * 60_000;
 export async function remixFromMaster(propertyId: string, now: Date = new Date()): Promise<NarrationRemixOutcome> {
   if (mediaExecutionMode("NARRATION") !== "LIVE") return "SKIPPED";
+  // Метку ставим, только когда сведение и правда нужно (повторное ревью): иначе каждый тик
+  // трогал бы updatedAt всех объектов с роликом без голоса.
+  if (!(await remixWanted(propertyId))) return "SKIPPED";
   // Замок на сам ролик (ревью 12.11.2026): ffmpeg идёт до 9 минут, а задача — раз в минуту с
   // пределом 170 с; следующий тик не запускает вторую копию сведения того же ролика.
   const claimedAt = now;
@@ -354,14 +357,21 @@ export async function remixFromMaster(propertyId: string, now: Date = new Date()
   }
 }
 
-async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemixOutcome> {
-  if (mediaExecutionMode("NARRATION") !== "LIVE") return "SKIPPED";
+/** Нужно ли сводить ролик заново: одни условия и до метки, и после неё (там — свежим чтением). */
+async function remixWanted(propertyId: string) {
   const p = await prisma.property.findUnique({ where: { id: propertyId }, include: { district: true } });
-  if (!p || p.deletedAt || p.narrationOff || !p.videoMasterStorageKey || p.videoHandoffStatus !== "RECEIVED" || CLOSED_STATUSES.some((s) => s === p.status)) return "SKIPPED";
+  if (!p || p.deletedAt || p.narrationOff || !p.videoMasterStorageKey || p.videoHandoffStatus !== "RECEIVED" || CLOSED_STATUSES.some((s) => s === p.status)) return null;
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
-  if (!latest || latest.status !== "READY" || !latest.approvedAt || !latest.storageKey || !narrationFactsCurrent(latest, p)) return "SKIPPED";
-  if (latest.id === p.videoMasterNarrationVersionId || latest.id === p.videoMasterMixErrorVersionId) return "SKIPPED";
-  if (await isHandoffPublishRunning(propertyId)) return "SKIPPED";
+  if (!latest || latest.status !== "READY" || !latest.approvedAt || !latest.storageKey || !narrationFactsCurrent(latest, p)) return null;
+  if (latest.id === p.videoMasterNarrationVersionId || latest.id === p.videoMasterMixErrorVersionId) return null;
+  if (await isHandoffPublishRunning(propertyId)) return null;
+  return { p: { ...p, videoMasterStorageKey: p.videoMasterStorageKey }, latest: { ...latest, storageKey: latest.storageKey } };
+}
+
+async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemixOutcome> {
+  const wanted = await remixWanted(propertyId);
+  if (!wanted) return "SKIPPED";
+  const { p, latest } = wanted;
   const requestedById = latest.approvedById ?? propertyOwnerAgentId(p);
   const masterKey = p.videoMasterStorageKey;
   const seenVersionId = p.videoMasterNarrationVersionId;

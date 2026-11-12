@@ -24,7 +24,7 @@ import { formatPropertyCode, isReadOnlyRole, type PermissionId } from "@royal-ho
 import { prisma } from "../db.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { loadAgentAccess } from "../auth/middleware.js";
-import { canManagePropertyAs } from "../lib/propertyAccess.js";
+import { canManagePropertyAs, publishedActionDeniedReasonAs } from "../lib/propertyAccess.js";
 import { acceptFinalVideoFromStaff, selfApprovedClipOptsFor } from "../lib/finalVideoIntake.js";
 import {
   cancelVideoHandoffQueueEntry, discardReceivedFinalVideo, EDITOR_HOLDER_WHERE, queueVideoHandoff, receiveEditedVideoFromFile, resendSourceVideos,
@@ -206,8 +206,15 @@ type ReadyResult = { kind: "READY"; hadFinal: boolean; remakeRequestId: string |
 type MontageResult = { kind: "MONTAGE"; videoId: string; storageKey: string; queued: boolean; sentBack: boolean };
 
 async function doReady(intakeId: string, p: PropertyRef, actor: Actor, tmpPath: string, filename: string): Promise<string> {
-  const before = await prisma.property.findUnique({ where: { id: p.id }, select: { shortId: true, videoHandoffStatus: true, videoHandoffManualSince: true, videoHandoffFinalPath: true, publishedChannels: true, instagramUrl: true } });
+  const before = await prisma.property.findUnique({ where: { id: p.id }, select: { shortId: true, status: true, offSite: true, videoHandoffStatus: true, videoHandoffManualSince: true, videoHandoffFinalPath: true, publishedChannels: true, instagramUrl: true } });
   if (!before) return "Объект не найден.";
+  // То же правило, что у загрузки готового ролика в карточке CRM (повторное ревью): после публикации
+  // готовый ролик загружает руководство или монтажёр, а не агент-владелец.
+  const denied = publishedActionDeniedReasonAs({ agentId: actor.id, can: actor.can }, before);
+  if (denied) {
+    await prisma.staffClipIntake.update({ where: { id: intakeId }, data: { status: "CHOSEN" } });
+    return `${formatPropertyCode(before.shortId)}: ${denied}`;
+  }
   const published = (before.publishedChannels?.length ?? 0) > 0 || !!before.instagramUrl;
   // Замена вышедшего: старые посты снимет публикация нового (тот же механизм, что у перемонтажа).
   let remakeRequestId: string | null = null;

@@ -187,7 +187,7 @@ async function askWhichObject(input: MontajerVideoInput, candidates: number[], t
  * сделана вызывающим (bot.ts). `forcedShortId` — ответ на вопрос «чей ролик»:
  * номер выбран кнопкой, в имени файла его может и не быть.
  */
-export async function handleMontajerVideo(input: MontajerVideoInput, forcedShortId?: number): Promise<void> {
+export async function handleMontajerVideo(input: MontajerVideoInput, forcedShortId?: number, opts: { finalForSure?: boolean } = {}): Promise<void> {
   const { chatId, filename } = input;
 
   // Передача через бота выключена в Настройках (25.09.2026, А8) — говорим прямо,
@@ -228,7 +228,8 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
   // «Пришлю без голоса» или с подписью «без голоса 123» файл становится мастером для
   // смены голоса, а не новым готовым роликом. Не подошёл по длине после кнопки — дальше
   // обычный приём: монтажёр мог забыть и прислать готовый ролик следующего объекта.
-  if (forcedShortId === undefined) {
+  // finalForSure — монтажёр сам нажал «Это новый готовый ролик»: подпись «без голоса» не в счёт.
+  if (forcedShortId === undefined && !opts.finalForSure) {
     const voiceless = await voicelessCopyTarget(input).catch(() => null);
     if (voiceless && (await handleVoicelessCopy(input, voiceless))) return;
   }
@@ -477,7 +478,7 @@ async function handleVoicelessChoice(chatId: string, agentId: string, kind: "v" 
     return;
   }
   // Новый готовый ролик — обычный приём (вопрос «без голоса» уже снят, файл им не станет).
-  await handleMontajerVideo(payload.input);
+  await handleMontajerVideo(payload.input, undefined, { finalForSure: true });
 }
 
 /** Кнопки «🎵 Пришлю без голоса» (`mj:nv:<номер>`) и «Не сейчас» (`mj:nvx:<номер>`). */

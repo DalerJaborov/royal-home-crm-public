@@ -151,14 +151,26 @@ describe("ревью 12.11.2026", () => {
     expect(line).not.toContain("mp3");
   });
 
-  it("9: пока ролик смешивается, второй запуск ничего не делает; брошенная метка снимается", async () => {
+  it("9: пока ролик смешивается, второй запуск ничего не делает; метка ставится только когда сведение нужно", async () => {
     process.env.CRM_NARRATION_EXECUTION_MODE = "LIVE";
+    // Сводить нечего (нет одобренной озвучки) — метку и updatedAt не трогаем вовсе.
+    const idle = await seedProperty({ videoMasterStorageKey: `x/${randomUUID()}.mp4`, videoHandoffStatus: "RECEIVED" });
+    const idleBefore = await prisma.property.findUniqueOrThrow({ where: { id: idle.id } });
+    expect(await remixFromMaster(idle.id)).toBe("SKIPPED");
+    const idleAfter = await prisma.property.findUniqueOrThrow({ where: { id: idle.id } });
+    expect(idleAfter.videoMasterMixingAt).toBeNull();
+    expect(idleAfter.updatedAt.getTime()).toBe(idleBefore.updatedAt.getTime());
+    // Сводить нужно, но идёт другое сведение — пропуск, метка чужая и остаётся.
     const busySince = new Date();
-    const p = await seedProperty({ videoMasterMixingAt: busySince, videoMasterStorageKey: "x/y.mp4", videoHandoffStatus: "RECEIVED" });
+    const p = await seedProperty({ videoMasterMixingAt: busySince, videoMasterStorageKey: `${randomUUID()}/${randomUUID()}.mp4`, videoHandoffStatus: "RECEIVED" });
+    const facts = narrationFacts(p);
+    await prisma.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: 1, script: "Озвучка.", factsSnapshot: facts, factsHash: narrationHash(facts), status: "READY",
+      storageKey: `${p.id}/${randomUUID()}.mp3`, approvedAt: new Date(), approvedById: agentId, createdById: agentId, requestKey: randomUUID(), source: "AUTO" } });
     expect(await remixFromMaster(p.id)).toBe("SKIPPED");
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).videoMasterMixingAt?.getTime()).toBe(busySince.getTime());
+    // Брошенная метка: сведение идёт (файлов нет — честный отказ), метка снята.
     await prisma.property.update({ where: { id: p.id }, data: { videoMasterMixingAt: new Date(Date.now() - 20 * 60_000) } });
-    await remixFromMaster(p.id);
+    expect(await remixFromMaster(p.id)).toBe("FAILED");
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).videoMasterMixingAt).toBeNull();
     process.env.CRM_NARRATION_EXECUTION_MODE = modeBefore;
   });
@@ -192,6 +204,18 @@ describe("ролик от сотрудника: ревью", () => {
     expect(await handleStaffClipText(msg({ text: "Шабнам, сколько клиентов сегодня?" }), agent())).toBe(false);
     expect((await prisma.staffClipIntake.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe("CANCELLED");
   });
+  it("а: «Заменить вышедший» обычным агентом — отказ, как в карточке CRM; ролик не принят", async () => {
+    const p = await seedProperty({ status: "AVAILABLE", videoHandoffStatus: "RECEIVED", videoHandoffFinalPath: "/uploads/handoff/keep.mp4", publishedChannels: ["FACEBOOK"] });
+    tg.file = Buffer.from("ready-clip");
+    await handleStaffClipMessage(msg({ caption: `№${p.shortId}`, document: { file_id: "rr", file_unique_id: `ra-${runId}`, file_name: "ready.mp4", mime_type: "video/mp4" } }), agent());
+    const intake = await prisma.staffClipIntake.findFirstOrThrow({ where: { fileUniqueId: `ra-${runId}` } });
+    await handleStaffClipCallback({ id: randomUUID(), data: `clip:r:${intake.id}`, from: { id: Number(agentChat) }, message: { message_id: 22, chat: { id: Number(agentChat), type: "private" } } } as never);
+    expect((await prisma.staffClipIntake.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe("CHOSEN");
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(after.videoHandoffFinalPath).toBe("/uploads/handoff/keep.mp4");
+    expect(await prisma.videoRemakeRequest.count({ where: { propertyId: p.id } })).toBe(0);
+    expect(tg.sendMessage.mock.calls.concat(tg.sendMessageWithButtons.mock.calls as never).some((c) => String(c[1]).includes("директор или админ"))).toBe(true);
+  });
   it("5: «Нужен монтаж» по вышедшему ролику без права снимать посты — отказ той же двери, перемонтажа нет", async () => {
     const p = await seedProperty({ videoHandoffStatus: "RECEIVED", videoHandoffFinalPath: "/uploads/handoff/x.mp4", publishedChannels: ["FACEBOOK"] });
     tg.file = Buffer.from("source");
@@ -224,5 +248,23 @@ describe.skipIf(!ffmpegReady)("7: «Пришлю без голоса», а дл�
     expect(after.videoMasterStorageKey).toBeTruthy();
     expect(after.videoMasterNarrationVersionId).toBe(v.id);
     expect(after.videoHandoffFinalPath).toBe(`/uploads/handoff/${finalName}`);
+  });
+  it("в: «Это новый готовый ролик» — обычный приём, даже если в подписи «без голоса»", async () => {
+    const finalName = `${randomUUID()}.mp4`;
+    await fs.copyFile(media.music, path.join(videoHandoffDir, finalName));
+    // Бот просил ролик без голоса — подпись «без голоса» без кнопки тоже ведёт к нему.
+    const p = await seedProperty({ videoHandoffStatus: "RECEIVED", videoHandoffFinalPath: `/uploads/handoff/${finalName}`, videoMasterRequestedAt: new Date() });
+    const facts = narrationFacts(p);
+    const v = await prisma.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: 1, script: "Озвучка.", factsSnapshot: facts, factsHash: narrationHash(facts), status: "READY", approvedAt: new Date(), createdById: agentId, requestKey: randomUUID(), source: "AUTO" } });
+    await prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: v.id, mode: "AUDIO_ONLY", status: "SENT", requestKey: randomUUID(), createdById: agentId, plan: { files: [] }, executionMode: "LIVE", deliveredAt: new Date() } });
+    await handleVoicelessCopyCallback(editorChat, editorId, `mj:nv:${p.shortId}`);
+    tg.file = await fs.readFile(media.long);
+    await handleMontajerVideo({ chatId: editorChat, agentId: editorId, updateId: 778, fileId: "long2", filename: "video.mp4", caption: "без голоса" });
+    expect(tg.sendMessageWithButtons.mock.calls.some((c) => JSON.stringify(c[2]).includes("mj:nvc:f:778"))).toBe(true);
+    tg.sendMessageWithButtons.mockClear(); tg.sendMessage.mockClear();
+    await handleVoicelessCopyCallback(editorChat, editorId, "mj:nvc:f:778");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).videoMasterStorageKey).toBeNull();
+    const replies = tg.sendMessage.mock.calls.concat(tg.sendMessageWithButtons.mock.calls as never).map((c) => String(c[1]));
+    expect(replies.some((t) => t.includes("без голоса сохранён") || t.includes("Что это за файл") || t.includes("по длине"))).toBe(false);
   });
 });
