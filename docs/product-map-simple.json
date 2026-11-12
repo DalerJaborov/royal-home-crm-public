@@ -16,10 +16,10 @@
   "paths": 747,
   "cron": 130,
   "jobs": 32,
-  "conditions": 3976,
+  "conditions": 3978,
   "untranslatedUnique": 458,
   "untranslatedTotal": 588,
-  "partialUnique": 1077,
+  "partialUnique": 1078,
   "translatedShare": 85
  },
  "untranslated": [
@@ -62320,6 +62320,12 @@
       "запись в журнал ошибок"
      ],
      "c": [
+      {
+       "t": "если (статус — «persisted» или статус — «bypass») и есть held количество",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
       {
        "t": "и так по каждому",
        "k": "loop",

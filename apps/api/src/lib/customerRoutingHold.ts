@@ -8,10 +8,12 @@
 // Now each reason has one of three dispositions:
 //  - "retry": a race that a redelivery can resolve -> keep 503, Meta retries;
 //  - "already_handled": the event was already seen by the old bot -> ACK quietly;
-//  - "report" (DEFAULT for every other and every future reason): ACK 200, the
-//    message stays OUT of both bots exactly as before (HELD never falls into the
-//    legacy controller, the webhook skips it by its routing witness), and the
-//    error log gets a line per person so staff answer by hand from the app.
+//  - "report" (DEFAULT for every other and every future reason): the text is
+//    written into the person's CRM chat BEFORE the ACK (customerHeldMessage.ts),
+//    Meta gets 200, the message stays OUT of both bots exactly as before (HELD
+//    never falls into the legacy controller; the webhook skips it by its routing
+//    witness before any Graph lookup), and after the ACK the responsible agent
+//    gets one notification with the client's name and a link to the chat.
 // A new reason therefore never silently becomes "503 forever" again; the guard
 // test `customer-routing-hold-disposition.test.ts` lists every held() literal of
 // the routing chain and fails until the new one is classified on purpose.
@@ -45,31 +47,14 @@ export function customerRoutingHoldDisposition(reason: string): CustomerRoutingH
   return "report";
 }
 
-const CHANNEL_NAME: Record<string, string> = { INSTAGRAM: "Instagram", FACEBOOK: "Facebook", WHATSAPP: "WhatsApp" };
-
-/** Durable, deduplicated trace of a DM that NO bot will answer. One line per
- * person per window (scope = channel/account/peer), a director push only the
- * first time this reason is ever seen (logSystemError's own rule). No message
- * text: the conversation itself stays in the provider's app. */
-export function reportCustomerRoutingHold(hold: { reason: string; channel: string; accountExternalId?: string | null; peer: string }): void {
-  const channel = CHANNEL_NAME[hold.channel] ?? hold.channel;
-  void logSystemError(
-    "meta",
-    `Сообщение клиента в ${channel} не передано ни одному боту (причина «${hold.reason}», ` +
-      `собеседник ${hold.peer}, аккаунт ${hold.accountExternalId ?? "не указан"}). ` +
-      `Meta получила ответ «принято» и повторять не будет: ответьте человеку вручную из приложения ${channel}.`,
-    // Scope = the person: logSystemError keeps the first 120 characters of it.
-    { dedupKey: `customer-dm-routing-held:${hold.reason}`, dedupScope: `${hold.channel}:${hold.peer}` },
-  );
-}
-
 /** A 503 to Meta is a promise that the retry may succeed. Make every one visible:
  * if it repeats for ~15 minutes, Meta gives up and the event is lost. */
-export function reportMetaWebhookNotSaved(kind: "dm" | "public_comment", reason: string): void {
+export function reportMetaWebhookNotSaved(kind: "dm" | "public_comment", reason: string, accountExternalId?: string): void {
   void logSystemError(
     "meta",
     `Вебхук Meta ответил 503 (${kind === "dm" ? "личное сообщение" : "комментарий"} не сохранено, причина «${reason}»). ` +
       `Meta повторяет доставку около 15 минут; если ошибка не уходит, событие потеряется.`,
-    { dedupKey: `meta-webhook-503:${kind}:${reason}` },
+    // Scope = the receiving account: one line per account and reason per window.
+    { dedupKey: `meta-webhook-503:${kind}:${reason}`, ...(accountExternalId ? { dedupScope: `account:${accountExternalId}` } : {}), quietPult: true },
   );
 }

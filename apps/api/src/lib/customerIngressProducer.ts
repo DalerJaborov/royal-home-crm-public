@@ -9,14 +9,16 @@ import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPr
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { NEWER_INPUT_PENDING } from "./customerNewerInboxInput.js";
 import { customerNonInputCode } from "./customerIngressNonInput.js";
-import { customerRoutingHoldDisposition, reportCustomerRoutingHold } from "./customerRoutingHold.js";
+import { customerRoutingHoldDisposition } from "./customerRoutingHold.js";
+import { recordHeldCustomerMessage, type CustomerHeldMessage } from "./customerHeldMessage.js";
+import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
 
 type Request = object & { rawBody?: Buffer; get(name: string): string | undefined };
 type Stored = { eventKey: string; order: bigint; scopeKey: string; endpointScopeId: string | null; payloadVersion: number | null;
   payloadCiphertext: string | null; payloadHash: string | null; conversationId: string | null; originalConversationId: string | null; tombstonedAt: Date | null };
 export type PersistedCustomerIngressBatch =
-  | { status: "persisted"; tickets: Array<{ eventKey: string; order: string; fresh: boolean }>; unsupported: number }
-  | { status: "bypass"; reason: "policy_off" | "unsupported" }
+  | { status: "persisted"; tickets: Array<{ eventKey: string; order: string; fresh: boolean }>; unsupported: number; held?: CustomerHeldMessage[] }
+  | { status: "bypass"; reason: "policy_off" | "unsupported"; held?: CustomerHeldMessage[] }
   | { status: "denied" | "unavailable"; reason: string };
 
 /** Same-request raw normalization + required existing job in one short local
@@ -31,10 +33,28 @@ export async function persistVerifiedCustomerIngressBatch(request: Request): Pro
     // otherwise Meta retries ~15 min and drops the message unseen (12.11.2026).
     const held = (owned ?? []).flatMap(row => row.execution.lane === "HELD" ? [{ row, reason: row.execution.reason }] : []);
     if (held.some(hold => customerRoutingHoldDisposition(hold.reason) === "retry")) return { status: "unavailable", reason: "routing_held" };
+    // The text of a permanently held DM goes into the person's CRM chat BEFORE
+    // the ACK (idempotent by MID); a write failure throws -> 503 -> Meta retries.
+    // Notifications are the webhook's job AFTER the whole batch is durable.
+    const holds: CustomerHeldMessage[] = [];
     for (const { row, reason } of held) {
-      if (customerRoutingHoldDisposition(reason) === "report") reportCustomerRoutingHold({ reason, channel: row.input.channel,
-        accountExternalId: row.input.accountExternalId, peer: row.input.peer });
+      if (customerRoutingHoldDisposition(reason) !== "report") continue;
+      holds.push("inputText" in row.input
+        ? await recordHeldCustomerMessage({ reason, input: row.input as CustomerNormalizedIngressInput, transport: row.transport })
+        : { reason, channel: row.input.channel, peer: row.input.peer, accountExternalId: row.input.accountExternalId ?? null, conversationId: null, excerpt: "" });
     }
+    const result = await persistRoutedCustomerIngress(request, routing, owned);
+    return holds.length && (result.status === "persisted" || result.status === "bypass") ? { ...result, held: holds } : result;
+  } catch (error) {
+    // No raw payloads, URLs or verifier details in errors returned to a caller.
+    return { status: "unavailable", reason: error instanceof SyntaxError ? "invalid_raw_payload" : "inbox_persistence_unavailable" };
+  }
+}
+
+async function persistRoutedCustomerIngress(request: Request,
+  routing: Exclude<Awaited<ReturnType<typeof prepareVerifiedCustomerDmRouting>>, { status: "held" }>,
+  owned: NonNullable<ReturnType<typeof inspectCustomerDmRouting>>[] | null): Promise<PersistedCustomerIngressBatch> {
+  {
     if (owned && owned.every(row => row.execution.lane !== "CORE")) return { status: "bypass", reason: "unsupported" };
     const policy = await prisma.customerRuntimePolicy.findUnique({ where: { id: "singleton" }, select: { contractVersion: true, rolloutMode: true } });
     if (policy?.contractVersion !== "scoped" || policy.rolloutMode === "OFF") {
@@ -148,9 +168,6 @@ export async function persistVerifiedCustomerIngressBatch(request: Request): Pro
       }
       return { status: "persisted" as const, tickets, unsupported };
     }, { maxWait: 5000, timeout: 10000 });
-  } catch (error) {
-    // No raw payloads, URLs or verifier details in errors returned to a caller.
-    return { status: "unavailable", reason: error instanceof SyntaxError ? "invalid_raw_payload" : "inbox_persistence_unavailable" };
   }
 }
 
