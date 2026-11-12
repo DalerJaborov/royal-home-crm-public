@@ -37,6 +37,20 @@ describe("wizard narration choice", () => {
     expect(narrationChoiceForCreate({ script: "  коротко " })).toBeUndefined();
     expect(narrationChoiceForCreate({ templateId: "tg-short", voiceId: "f1", script: "Свой текст агента" })).toEqual({ templateId: "tg-short", voiceId: "f1", script: "Свой текст агента" });
   });
+  it("«Без озвучки» (12.11.2026): уходит одним флагом, текст и голос скрыты", () => {
+    expect(narrationChoiceForCreate({ none: true, voiceId: "f1" })).toEqual({ none: true });
+    const html = render({ none: true });
+    expect(html).toContain("Без озвучки");
+    expect(html).not.toContain("Женские");
+  });
+  it("последний выбор сотрудника стоит заранее и подписан", () => {
+    const client = new QueryClient();
+    client.setQueryData(["narration-options"], { ...options, lastChoice: { voiceId: "f1", templateId: "ru-short" } });
+    const html = renderToStaticMarkup(<QueryClientProvider client={client}><NarrationChoice facts={facts} value={{}} onChange={() => {}} /></QueryClientProvider>);
+    expect(html).toContain("последний раз выбран");
+    expect(html).toContain("В продаже квартира. Площадь 62 метров.");
+    expect(html).toMatch(/value="f1"[^>]*checked|checked[^>]*value="f1"/);
+  });
   it("voice lines accept an optional gender", () => {
     expect(parseVoiceLines("a | Мадина | ж\nb | Фирӯз | м\nc | Без пола")).toEqual([
       { id: "a", name: "Мадина", gender: "female" }, { id: "b", name: "Фирӯз", gender: "male" }, { id: "c", name: "Без пола" },

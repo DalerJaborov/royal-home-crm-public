@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **738**. Развилок в самих путях: **2432**; вместе с задачами по расписанию и фоновыми заданиями — **3938**. Модулей: **82**.
+Путей: **739**. Развилок в самих путях: **2443**; вместе с задачами по расписанию и фоновыми заданиями — **3951**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10770,8 +10770,8 @@
 - const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision…
   · зовёт approveNarrationVersion()
 - если outcome === "FORBIDDEN"
-  - return res.status(403).json({ error: "Текст подтверждает маркетинг или руководство" });
-    · ответ 403 — «Текст подтверждает маркетинг или руководство»
+  - return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
+    · ответ 403 — «Эту озвучку одобряет маркетинг, руководство или владелец»
 - если outcome === "CONFLICT"
   - return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
     · ответ 409 — «Факты или версия изменились. Подготовьте и проверьте новый текст.»
@@ -11015,6 +11015,42 @@
 - res.json({ status: "FAILED", sent: false, message: "Сверка сохранена. Возможное списание не отменено. Автопов…
   · ответ 200
 
+### POST /api/v1/properties/:id/narration/mode
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- если req.agent!.role === "EDITOR"
+  - return res.status(403).json({ error: "Озвучку объекта выбирает агент" });
+    · ответ 403 — «Озвучку объекта выбирает агент»
+- const parsed = narrationModeSchema.safeParse(req.body);
+  · проверяет данные схемой narrationModeSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Укажите, нужна ли озвучка" });
+    · ответ 400 — «Укажите, нужна ли озвучка»
+- const change = await setPropertyNarrationOff(p.id, parsed.data.off, req.agent!.id);
+  · зовёт setPropertyNarrationOff()
+- если !change
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если parsed.data.off
+  - если change.changed && change.heldByMontajer
+    - void tellMontajerNarrationOff(change.shortId);
+      · дословно из кода
+  - return res.json({ off: true, message: "Озвучка выключена. Монтажёр получит пометку «без озвучки»." });
+    · ответ 200
+- если !narrationAutoEnabled(config)
+  - return res.json({ off: false, message: "Озвучка включена. Автоозвучка выключена в настройках, подготовить её …
+    · ответ 200
+- const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revi…
+  · читает в базе: propertyNarrationVersion
+- если latest && latest.factsHash === narrationHash(narrationFacts(p)) && latest.status !== "FAILED"
+  - return res.json({ off: false, message: "Озвучка включена." });
+    · ответ 200
+- const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", expec…
+  · зовёт requestAutoNarration()
+- res.json({ off: false, queued: outcome.status === "QUEUED", message: outcome.status === "QUEUED" ? "Озвучка в…
+  · ответ 200
+
 ### POST /api/v1/properties/:id/narration/owner-report-preview
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
@@ -11111,6 +11147,9 @@
   - если outcome.status === "INVALID"
     - return res.status(400).json({ error: outcome.error });
       · ответ 400
+  - если outcome.status === "DISABLED"
+    - return res.status(409).json({ error: "Для объекта выбрано «Без озвучки». Сначала включите озвучку." });
+      · ответ 409 — «Для объекта выбрано «Без озвучки». Сначала включите озвучку.»
   - если outcome.status !== "QUEUED"
     - return res.status(409).json({ error: outcome.status === "BUSY" ? "Предыдущая озвучка ещё готовится. Попробуйт…
       · ответ 409
@@ -13810,9 +13849,18 @@
   - если problem
     - return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
       · ответ 400 — «Шаблон «${template.name}»: ${problem}»
+- если spoken(existing) !== spoken(saved) || neverSynced
+  - const sync = await syncPronunciationDictionary(saved, (await configuration()).key);
+    · зовёт syncPronunciationDictionary()
+  - если sync.status === "SYNCED"
+    - saved = { ...saved, pronunciationDictionaries: sync.dictionaries };
+      · дословно из кода
+  - если sync.status === "FAILED"
+    - pronunciationNote = `Словарь произношения сохранён в CRM, но в ElevenLabs не обновился: ${sync.error}`;
+      · дословно из кода
 - await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig…
   · создаёт или меняет в базе: settings
-- res.json({ config: parsed.data, sendsEnabled: false });
+- res.json({ config: saved, sendsEnabled: false, ...(pronunciationNote ? { message: pronunciationNote } : {}) }…
   · ответ 200
 
 ### GET /api/v1/properties/narration-voice-samples/:voiceId/:lang
@@ -22382,18 +22430,24 @@
 
 ### narration-auto-flow — * * * * *
 
-- await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval });
+- await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApp…
   · зовёт runNarrationAutoFlow()
   - const { config, key } = await loadNarrationConfiguration();
     · зовёт loadNarrationConfiguration()
+  - report.retired = await retireNarrationsOfClosedProperties();
+    · зовёт retireNarrationsOfClosedProperties()
   - если narrationAutoEnabled(config) && key && narrationProviderReady(config, key)
-    - report.drafted = await refreshNarrationDrafts(config, now);
-      · дословно из кода
-    - report.generated = await generateDueNarrations(config, key, now);
-      · дословно из кода
+    - если config.backfillMontageQueue === true
+      - report.backfilled = await backfillMontageQueue(config, now);
+        · зовёт backfillMontageQueue()
   - если options.notifyAgent
     - report.notified = await notifyReadyNarrations(options.notifyAgent);
       · дословно из кода
+  - если options.remindApprovals
+    - report.reminded = await options.remindApprovals(now).catch((err)
+      · запись в журнал ошибок
+      - void logSystemError("telegram", `Озвучка: напоминания об одобрении не ушли: ${err instanceof Error ? err.mess…
+        · запись в журнал ошибок
 
 ### narration-version-delivery — * * * * *
 

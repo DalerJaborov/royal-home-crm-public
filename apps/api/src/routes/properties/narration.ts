@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { narrationConfigSchema, narrationConfigPatchSchema, narrationDraftSchema, narrationActionSchema, narrationHandoffSchema, narrationTemplateError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { narrationConfigSchema, narrationConfigPatchSchema, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { hasMarketingRole } from "../marketing.js";
@@ -9,7 +9,11 @@ import { narrationFacts, narrationHash, suggestedNarration, narrationScriptError
 import { localVideoFilePath } from "../../lib/localVideoStorage.js";
 import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
-import { afterNarrationApproved, approveNarrationVersion, narrationAutoEnabled, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
+import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAutoEnabled, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
+import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
+import { syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
+import { narrationLastChoiceFor } from "../../lib/narrationLastChoice.js";
+import { sendToMontajer } from "../../lib/montageObservers.js";
 import { setOwnerReportConsent, prepareOwnerReportDelivery } from "../../lib/ownerReport/delivery.js";
 import { prepareNarrationDeliveryPlan, narrationDeliveryAttemptBudgetMs } from "../../lib/narrationDelivery.js";
 import { mediaExecutionMode } from "../../lib/mediaExecution.js";
@@ -34,6 +38,7 @@ narrationRouter.get("/narration-options", async (_req, res) => {
   const { config } = await configuration();
   const view: NarrationOptionsView = { templates: config.templates ?? [], voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
     defaultTemplateId: config.defaultTemplateId ?? null, defaultVoiceId: config.defaultVoiceId ?? null, autoGenerate: narrationAutoEnabled(config),
+    lastChoice: await narrationLastChoiceFor(_req.agent?.id, config),
     samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })) };
   res.json(view);
 });
@@ -76,8 +81,20 @@ narrationRouter.put("/narration-settings", async (req, res) => {
     const problem = narrationTemplateError(template.text) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS));
     if (problem) return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
   }
-  await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig: parsed.data }, update: { propertyNarrationConfig: parsed.data } });
-  res.json({ config: parsed.data, sendsEnabled: false });
+  // Словарь произношения (12.11.2026): правка правил — синхронизация с ElevenLabs, только для
+  // поддержанных моделей (lib/narrationPronunciation.ts); иначе правила просто хранятся.
+  let saved = parsed.data;
+  let pronunciationNote: string | undefined;
+  const spoken = (c: typeof saved) => JSON.stringify((c.pronunciationRules ?? []).map(({ word, alias, phoneme }) => [word, alias ?? "", phoneme ?? ""]));
+  // Правила поменялись, или стартовый набор ещё ни разу не ушёл в ElevenLabs (нет id словаря).
+  const neverSynced = (saved.pronunciationRules ?? []).length > 0 && !(saved.pronunciationDictionaries ?? []).length;
+  if (spoken(existing) !== spoken(saved) || neverSynced) {
+    const sync = await syncPronunciationDictionary(saved, (await configuration()).key);
+    if (sync.status === "SYNCED") saved = { ...saved, pronunciationDictionaries: sync.dictionaries };
+    if (sync.status === "FAILED") pronunciationNote = `Словарь произношения сохранён в CRM, но в ElevenLabs не обновился: ${sync.error}`;
+  }
+  await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig: saved }, update: { propertyNarrationConfig: saved } });
+  res.json({ config: saved, sendsEnabled: false, ...(pronunciationNote ? { message: pronunciationNote } : {}) });
 });
 
 narrationRouter.use("/:id/narration", async (req, res, next) => {
@@ -123,7 +140,10 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     ownerReport: manager(req.agent?.role) ? { active: !!subscription?.active && subscription.sellerClientId === p.sellerClientId, revision: subscription?.revision ?? 0, executionMode: subscription?.executionMode ?? "PREVIEW", deliveries: reportViews } : undefined,
     canDraft: req.agent!.role !== "EDITOR", readiness: { voiceCount: config.voices.length, modelConfigured: !!config.modelId, apiKeyConfigured: !!key },
     // Агент объекта (canManageProperty уже проверен выше) одобряет готовое аудио автоозвучки.
-    canApproveAudio: req.agent!.role !== "EDITOR", autoGenerate: narrationAutoEnabled(config),
+    // Озвучку разового прохода по очереди монтажа одобряет владелец (12.11.2026).
+    canApproveAudio: req.agent!.role !== "EDITOR" && (versions[0]?.source !== "BACKFILL" || isNarrationOwnerRole(req.agent!.role)), autoGenerate: narrationAutoEnabled(config),
+    off: p.narrationOff,
+    lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
     budget: manager(req.agent?.role) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
     samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })),
     mix: { hasMaster: !!p.videoMasterStorageKey, error: manager(req.agent?.role) ? p.videoMasterMixError ?? null : null },
@@ -143,6 +163,7 @@ narrationRouter.post("/:id/narration", async (req, res) => {
     const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", script: parsed.data.script, templateId: parsed.data.templateId,
       voiceId: parsed.data.voiceId, expectedRevision: parsed.data.expectedRevision, requestKey: parsed.data.requestKey, debounceMs: 0 });
     if (outcome.status === "INVALID") return res.status(400).json({ error: outcome.error });
+    if (outcome.status === "DISABLED") return res.status(409).json({ error: "Для объекта выбрано «Без озвучки». Сначала включите озвучку." });
     if (outcome.status !== "QUEUED") return res.status(409).json({ error: outcome.status === "BUSY" ? "Предыдущая озвучка ещё готовится. Попробуйте через минуту." : "Версия изменилась. Обновите карточку." });
     return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true });
   }
@@ -175,11 +196,41 @@ narrationRouter.post("/:id/narration/:versionId/approve", async (req, res) => {
   const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId);
   if (!parsed.success || !versionId.success) return res.status(400).json({ error: "Подтвердите текст и номер версии" });
   const p = res.locals.narrationProperty;
-  const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: req.agent!.id, isManager: manager(req.agent?.role) });
-  if (outcome === "FORBIDDEN") return res.status(403).json({ error: "Текст подтверждает маркетинг или руководство" });
+  const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: req.agent!.id, isManager: manager(req.agent?.role), actorRole: req.agent!.role });
+  if (outcome === "FORBIDDEN") return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
   if (outcome === "CONFLICT") return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
   res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versionId.data) } : {}) });
 });
+
+/**
+ * «БЕЗ ОЗВУЧКИ» / «ВКЛЮЧИТЬ ОЗВУЧКУ» (12.11.2026). Та же дверь, что у мастеров CRM и Шабнам
+ * (lib/narrationOptOut.ts). Включили при автоозвучке — новая версия сразу в очередь генерации.
+ */
+narrationRouter.post("/:id/narration/mode", async (req, res) => {
+  if (req.agent!.role === "EDITOR") return res.status(403).json({ error: "Озвучку объекта выбирает агент" });
+  const parsed = narrationModeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Укажите, нужна ли озвучка" });
+  const p = res.locals.narrationProperty;
+  const change = await setPropertyNarrationOff(p.id, parsed.data.off, req.agent!.id);
+  if (!change) return res.status(404).json({ error: "Объект не найден" });
+  if (parsed.data.off) {
+    if (change.changed && change.heldByMontajer) void tellMontajerNarrationOff(change.shortId);
+    return res.json({ off: true, message: "Озвучка выключена. Монтажёр получит пометку «без озвучки»." });
+  }
+  const { config } = await configuration();
+  if (!narrationAutoEnabled(config)) return res.json({ off: false, message: "Озвучка включена. Автоозвучка выключена в настройках, подготовить её можно ниже." });
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision: "desc" }, select: { revision: true, factsHash: true, status: true } });
+  if (latest && latest.factsHash === narrationHash(narrationFacts(p)) && latest.status !== "FAILED") return res.json({ off: false, message: "Озвучка включена." });
+  const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", expectedRevision: latest?.revision ?? 0, debounceMs: 0 });
+  res.json({ off: false, queued: outcome.status === "QUEUED", message: outcome.status === "QUEUED" ? "Озвучка включена. Придёт вам на прослушивание через минуту-две." : "Озвучка включена." });
+});
+
+async function tellMontajerNarrationOff(shortId: number): Promise<void> {
+  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
+  const editor = settings?.videoMontajerAgentId ? await prisma.agent.findUnique({ where: { id: settings.videoMontajerAgentId }, select: { telegramChatId: true, isActive: true } }) : null;
+  if (!editor?.isActive || !editor.telegramChatId) return;
+  await sendToMontajer(editor.telegramChatId, `Объект №${shortId}: агент выбрал «Без озвучки» — голос в ролик не нужен.`, { copy: true, propertyShortId: shortId }).catch(() => {});
+}
 
 narrationRouter.post("/:id/narration/:versionId/generate", async (req, res) => {
   if (!manager(req.agent?.role)) return res.status(403).json({ error: "Генерация доступна маркетингу и руководству" });

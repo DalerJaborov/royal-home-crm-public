@@ -13,6 +13,8 @@ const s = vi.hoisted(() => ({
 
 function matches(row: Row, where: Row = {}): boolean {
   return Object.entries(where).every(([key, cond]) => {
+    // Условие на объект «продан, снят, удалён или без озвучки» (12.11.2026) — по единственному объекту подделки.
+    if (key === "property" && cond && typeof cond === "object" && "OR" in cond) return !!s.property && cond.OR.some((sub: Row) => matches(s.property!, sub));
     if (["property", "deliveries"].includes(key)) return true;
     const value = row[key];
     if (cond === null) return value === null || value === undefined;
@@ -46,6 +48,8 @@ const deliveryModel = {
   findUnique: vi.fn(async ({ where }: Row) => s.deliveries.find((d) => d.requestKey === where.requestKey) ?? null),
   count: vi.fn(async ({ where }: Row) => s.deliveries.filter((d) => matches(d, where)).length),
   create: vi.fn(async ({ data }: Row) => { s.deliveries.push(data); return data; }),
+  // Снятие осиротевших передач (12.11.2026): в этой подделке объект живой, гасить нечего.
+  updateMany: vi.fn(async () => ({ count: 0 })),
 };
 
 vi.mock("../src/db.js", async (importOriginal) => {
@@ -53,8 +57,10 @@ vi.mock("../src/db.js", async (importOriginal) => {
     $queryRaw: vi.fn().mockResolvedValue([]), $disconnect: vi.fn(),
     property: {
       findUnique: vi.fn(async () => s.property), findUniqueOrThrow: vi.fn(async () => s.property),
-      findMany: vi.fn(async () => []),
+      findMany: vi.fn(async () => []), findFirst: vi.fn(async () => null),
     },
+    // Последний выбор голоса сотрудника (12.11.2026): у подделки его нет.
+    agent: { findUnique: vi.fn(async () => null), update: vi.fn(async () => ({})) },
     settings: { findUnique: vi.fn(async () => ({ propertyNarrationConfig: s.config, elevenLabsApiKey: "test-key" })) },
     propertyNarrationVersion: versionModel, propertyNarrationDelivery: deliveryModel,
     // Образцы голосов (11.11.2026) считаются в том же дневном потолке; здесь их нет.
@@ -100,6 +106,17 @@ describe("auto narration after property creation", () => {
     s.config = { ...baseConfig(), autoGenerate: false };
     expect(await startNarrationForNewProperty(propertyId, "agent")).toEqual({ status: "OFF" });
     expect(s.versions).toHaveLength(0);
+  });
+  it("the montage-queue pass (owner approval) does not run with auto narration alone: its own switch, off by default", async () => {
+    const { prisma } = await import("../src/db.js");
+    const findMany = vi.mocked(prisma.property.findMany);
+    findMany.mockClear();
+    await runNarrationAutoFlow({ now });
+    const backfillQuery = (calls: unknown[][]) => calls.some((c) => JSON.stringify(c[0]).includes("SENT_TO_EDITOR") && JSON.stringify(c[0]).includes("\"none\""));
+    expect(backfillQuery(findMany.mock.calls)).toBe(false);
+    s.config = { ...baseConfig(), backfillMontageQueue: true };
+    await runNarrationAutoFlow({ now });
+    expect(backfillQuery(findMany.mock.calls)).toBe(true);
   });
   it("creates a WIZARD draft from the default Tajik template and voice, due immediately", async () => {
     const outcome = await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
@@ -266,19 +283,20 @@ describe("spoken price (owner 11.11.2026): new version on price change, sound-on
     s.mode = "LIVE";
     s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
     const v = await approveNewPrice();
+    // Рубильник «голос кладёт CRM» включён явно (с 12.11.2026 по умолчанию выключен).
+    s.config = { ...s.config, mixByCrm: true };
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
     expect(s.sendBack).toHaveBeenCalledTimes(1);
-    // С 11.11.2026 голос накладывает CRM: монтажёр присылает тот же ролик без голоса (один раз).
+    // Голос накладывает CRM: монтажёр присылает тот же ролик без голоса (один раз).
     expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringContaining("БЕЗ голоса"), null, { removeFromSocial: "on-new-video" });
     expect(s.audit).toHaveBeenCalledWith("agent", "PROPERTY_SENT_BACK_TO_MONTAJER", "Property", propertyId, expect.objectContaining({ reason: "NARRATION_CHANGED" }));
   });
-  it("switch «CRM накладывает озвучку» off: the editor replaces the sound himself, as before", async () => {
+  it("default (12.11.2026): the editor replaces only the voice himself and is asked for the clip without voice", async () => {
     s.mode = "LIVE";
     s.property = { ...s.property, status: "AVAILABLE", publishedChannels: ["FACEBOOK"], videoHandoffStatus: "RECEIVED" };
     const v = await approveNewPrice();
-    s.config = { ...s.config, mixByCrm: false };
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("SOUND_REMAKE");
-    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringContaining("только звук"), null, { removeFromSocial: "on-new-video" });
+    expect(s.sendBack).toHaveBeenCalledWith(propertyId, "agent", "NARRATION_CHANGED", expect.stringMatching(/только голос.*музыку и монтаж не трогайте.*без голоса/su), null, { removeFromSocial: "on-new-video" });
   });
   it("same template and voice after a price change: approves itself, nothing to the agent", async () => {
     s.property = { ...s.property, status: "AVAILABLE", videoHandoffStatus: "NONE" };

@@ -600,8 +600,8 @@ export function startCronJobs() {
   // Автоозвучка (11.11.2026): черновик по фактам → генерация → одно сообщение агенту → монтажёру.
   scheduleTracked("narration-auto-flow", "* * * * *", async () => {
     const { runNarrationAutoFlow } = await import("./lib/narrationAutoFlow.js");
-    const { notifyNarrationApproval } = await import("./telegram/assistantNarration.js");
-    await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval });
+    const { notifyNarrationApproval, remindPendingNarrationApprovals } = await import("./telegram/assistantNarration.js");
+    await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApprovals });
   }, undefined, undefined, { timeoutMs: 170_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {
     const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");

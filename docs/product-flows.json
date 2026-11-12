@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 738,
-  "forks": 3938,
+  "endpoints": 739,
+  "forks": 3951,
   "mounts": 82,
   "cron": 126,
   "jobs": 32,
@@ -47680,9 +47680,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Текст подтверждает маркетинг или руководство\" });",
+       "t": "return res.status(403).json({ error: \"Эту озвучку одобряет маркетинг, руководство или владелец\" });",
        "a": [
-        "ответ 403 — «Текст подтверждает маркетинг или руководство»"
+        "ответ 403 — «Эту озвучку одобряет маркетинг, руководство или владелец»"
        ],
        "c": []
       }
@@ -48740,6 +48740,171 @@
   },
   {
    "method": "POST",
+   "path": "/:id/narration/mode",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/mode",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-voice-samples\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "req.agent!.role === \"EDITOR\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Озвучку объекта выбирает агент\" });",
+       "a": [
+        "ответ 403 — «Озвучку объекта выбирает агент»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = narrationModeSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой narrationModeSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Укажите, нужна ли озвучка\" });",
+       "a": [
+        "ответ 400 — «Укажите, нужна ли озвучка»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const change = await setPropertyNarrationOff(p.id, parsed.data.off, req.agent!.id);",
+     "a": [
+      "зовёт setPropertyNarrationOff()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!change",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "parsed.data.off",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "change.changed && change.heldByMontajer",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void tellMontajerNarrationOff(change.shortId);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ off: true, message: \"Озвучка выключена. Монтажёр получит пометку «без озвучки».\" });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!narrationAutoEnabled(config)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ off: false, message: \"Озвучка включена. Автоозвучка выключена в настройках, подготовить её …",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revi…",
+     "a": [
+      "читает в базе: propertyNarrationVersion"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "latest && latest.factsHash === narrationHash(narrationFacts(p)) && latest.status !== \"FAILED\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ off: false, message: \"Озвучка включена.\" });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: \"AGENT\", expec…",
+     "a": [
+      "зовёт requestAutoNarration()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ off: false, queued: outcome.status === \"QUEUED\", message: outcome.status === \"QUEUED\" ? \"Озвучка в…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/narration/owner-report-preview",
    "mount": "/api/v1/properties",
    "full": "/api/v1/properties/:id/narration/owner-report-preview",
@@ -49159,6 +49324,21 @@
          "t": "return res.status(400).json({ error: outcome.error });",
          "a": [
           "ответ 400"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "outcome.status === \"DISABLED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Для объекта выбрано «Без озвучки». Сначала включите озвучку.\" });",
+         "a": [
+          "ответ 409 — «Для объекта выбрано «Без озвучки». Сначала включите озвучку.»"
          ],
          "c": []
         }
@@ -61181,6 +61361,51 @@
      ]
     },
     {
+     "k": "if",
+     "t": "spoken(existing) !== spoken(saved) || neverSynced",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const sync = await syncPronunciationDictionary(saved, (await configuration()).key);",
+       "a": [
+        "зовёт syncPronunciationDictionary()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "sync.status === \"SYNCED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "saved = { ...saved, pronunciationDictionaries: sync.dictionaries };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "sync.status === \"FAILED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "pronunciationNote = `Словарь произношения сохранён в CRM, но в ElevenLabs не обновился: ${sync.error}`;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "await prisma.settings.upsert({ where: { id: \"singleton\" }, create: { id: \"singleton\", propertyNarrationConfig…",
      "a": [
@@ -61190,7 +61415,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ config: parsed.data, sendsEnabled: false });",
+     "t": "res.json({ config: saved, sendsEnabled: false, ...(pronunciationNote ? { message: pronunciationNote } : {}) }…",
      "a": [
       "ответ 200"
      ],
@@ -99946,7 +100171,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval });",
+     "t": "await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApp…",
      "a": [
       "зовёт runNarrationAutoFlow()"
      ],
@@ -99960,25 +100185,32 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "report.retired = await retireNarrationsOfClosedProperties();",
+       "a": [
+        "зовёт retireNarrationsOfClosedProperties()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "narrationAutoEnabled(config) && key && narrationProviderReady(config, key)",
        "a": [],
        "c": [
         {
-         "k": "do",
-         "t": "report.drafted = await refreshNarrationDrafts(config, now);",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "report.generated = await generateDueNarrations(config, key, now);",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
+         "k": "if",
+         "t": "config.backfillMontageQueue === true",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "report.backfilled = await backfillMontageQueue(config, now);",
+           "a": [
+            "зовёт backfillMontageQueue()"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },
@@ -99994,6 +100226,30 @@
           "дословно из кода"
          ],
          "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "options.remindApprovals",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "report.reminded = await options.remindApprovals(now).catch((err)",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"telegram\", `Озвучка: напоминания об одобрении не ушли: ${err instanceof Error ? err.mess…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       }

@@ -26,11 +26,33 @@ export const narrationTemplateSchema = z.object({
 });
 export type NarrationTemplate = z.infer<typeof narrationTemplateSchema>;
 
+/**
+ * НАСТРОЙКИ СИНТЕЗА (12.11.2026, задел под значения владельца после разбора документации v4).
+ * Все поля необязательны: не задано — в запрос ElevenLabs не уходит ничего, звучит умолчание
+ * сервиса. Голос может переопределить общий набор конфига по каждому полю отдельно.
+ * Имена полей запроса — narrationTtsOptions ниже (одно место).
+ */
+export const narrationVoiceSettingsSchema = z.object({
+  stability: z.number().min(0).max(1).optional(),
+  similarityBoost: z.number().min(0).max(1).optional(),
+  style: z.number().min(0).max(1).optional(),
+  speed: z.number().min(0.5).max(1.5).optional(),
+  useSpeakerBoost: z.boolean().optional(),
+}).strict();
+export type NarrationVoiceSettings = z.infer<typeof narrationVoiceSettingsSchema>;
+
 export const narrationVoiceSchema = z.object({
   id: z.string().trim().regex(/^[A-Za-z0-9_-]{1,100}$/),
   name: z.string().trim().min(1).max(80),
   gender: z.enum(["male", "female"]).optional(),
+  /** Свой набор синтеза для этого голоса (поверх общего voiceSettings). */
+  settings: narrationVoiceSettingsSchema.optional(),
 });
+/** Словарь произношения ElevenLabs (таджикские ударения): id и, по желанию, версия. */
+export const narrationPronunciationDictionarySchema = z.object({
+  id: z.string().trim().regex(/^[A-Za-z0-9_-]{1,100}$/),
+  versionId: z.string().trim().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
+}).strict();
 
 const narrationConfigBase = z.object({
   ownerReportPreviewEnabled: z.boolean().optional(),
@@ -46,9 +68,29 @@ const narrationConfigBase = z.object({
   templates: z.array(narrationTemplateSchema).max(20).optional(),
   defaultTemplateId: z.string().trim().max(40).optional(),
   defaultVoiceId: z.string().trim().max(100).optional(),
-  /** Рубильник (11.11.2026): озвучку на ролик накладывает CRM — монтажёр присылает ролик без голоса.
-   *  Не задан — включено (решение владельца); false — монтажёр вклеивает голос сам, как раньше. */
+  /** Рубильник: озвучку на ролик накладывает CRM — монтажёр присылает только ролик без голоса.
+   *  С 12.11.2026 по умолчанию ВЫКЛЮЧЕН (решение владельца: «там же музыка есть и громкость»):
+   *  монтажёр получает mp3 и вклеивает голос сам, а к готовому ролику присылает тот же ролик
+   *  без голоса — из него CRM меняет голос при смене цены. true — прежний порядок 11.11. */
   mixByCrm: z.boolean().optional(),
+  /** Рубильник (12.11.2026): озвучка к роликам, которые уже стоят в монтаже, на одобрение владельцу.
+   *  По умолчанию ВЫКЛЮЧЕН и сам с автоозвучкой не включается (решение владельца — завтра). */
+  backfillMontageQueue: z.boolean().optional(),
+  /** Словарь произношения: «слово → как читать» (alias; phoneme — если модель его понимает). Правит
+   *  владелец; синхронизация с ElevenLabs — только для моделей из NARRATION_PRONUNCIATION_MODELS. */
+  pronunciationRules: z.array(z.object({
+    word: z.string().trim().min(1).max(80),
+    alias: z.string().trim().max(160).optional(),
+    phoneme: z.string().trim().max(160).optional(),
+    /** «Проверить носителем»: чтение собрано механически и на слух не проверено (видно в Настройках). */
+    needsNative: z.boolean().optional(),
+  }).strict()).max(300).optional(),
+  /** Общий набор синтеза для всех голосов (12.11.2026). По умолчанию пусто. */
+  voiceSettings: narrationVoiceSettingsSchema.optional(),
+  /** language_code запроса синтеза по языку шаблона, например { tg: "tg" }. По умолчанию пусто. */
+  languageCodes: z.object({ tg: z.string().trim().regex(/^[a-z]{2,3}$/).optional(), ru: z.string().trim().regex(/^[a-z]{2,3}$/).optional() }).strict().optional(),
+  /** Словари произношения ElevenLabs (pronunciation_dictionary_locators), до трёх. По умолчанию пусто. */
+  pronunciationDictionaries: z.array(narrationPronunciationDictionarySchema).max(3).optional(),
 });
 const uniqueVoices = (v: { voices: { id: string }[] }) => new Set(v.voices.map((voice) => voice.id)).size === v.voices.length;
 const uniqueTemplates = (v: { templates?: { id: string }[] }) => !v.templates || new Set(v.templates.map((t) => t.id)).size === v.templates.length;
@@ -59,9 +101,47 @@ export const narrationConfigSchema = narrationConfigBase
 export const narrationConfigPatchSchema = narrationConfigBase.partial();
 export type NarrationConfig = z.infer<typeof narrationConfigSchema>;
 
-/** Наложение озвучки делает CRM, если руководство не выключило это в настройках озвучки. */
+/**
+ * ДОБАВКИ К ЗАПРОСУ СИНТЕЗА ElevenLabs — ОДНО МЕСТО (12.11.2026): озвучка объекта и образцы голосов.
+ * Имена полей запроса по документации POST /v1/text-to-speech/{voice_id}: voice_settings
+ * (stability, similarity_boost, style, speed, use_speaker_boost), language_code,
+ * pronunciation_dictionary_locators (pronunciation_dictionary_id, version_id) — сверить с
+ * документацией v4 перед тем, как задавать значения. Пустой конфиг — пустой объект: запрос
+ * остаётся прежним.
+ */
+/**
+ * Модели, для которых словарь произношения ElevenLabs подтверждён: eleven_v4 — ФАКТ, проверено
+ * на API 12.11.2026 (alias и IPA-phoneme подействовали). Других моделей здесь нет, пока не проверены.
+ */
+export const NARRATION_PRONUNCIATION_MODELS: readonly string[] = ["eleven_v4"];
+/** У этих моделей GET /v1/models отдаёт can_use_style=false и can_use_speaker_boost=false
+ *  (ФАКТ для eleven_v4, 12.11.2026; v4 Turbo — та же семья, не проверено): поля не отправляем. */
+const NARRATION_MODELS_WITHOUT_STYLE: readonly string[] = ["eleven_v4", "eleven_v4_turbo"];
+export function narrationPronunciationSupported(modelId: string | null | undefined): boolean {
+  return !!modelId && NARRATION_PRONUNCIATION_MODELS.includes(modelId);
+}
+
+export function narrationTtsOptions(config: Pick<NarrationConfig, "voices" | "voiceSettings" | "languageCodes" | "pronunciationDictionaries"> & { modelId?: string }, voiceId: string, lang: NarrationLang | null | undefined): Record<string, unknown> {
+  const merged: NarrationVoiceSettings = { ...(config.voiceSettings ?? {}), ...(config.voices.find((v) => v.id === voiceId)?.settings ?? {}) };
+  const noStyle = NARRATION_MODELS_WITHOUT_STYLE.includes(config.modelId ?? "");
+  const voiceSettings = Object.fromEntries(Object.entries({
+    stability: merged.stability, similarity_boost: merged.similarityBoost, style: noStyle ? undefined : merged.style, speed: merged.speed,
+    use_speaker_boost: noStyle ? undefined : merged.useSpeakerBoost,
+  }).filter(([, v]) => v !== undefined));
+  const out: Record<string, unknown> = {};
+  if (Object.keys(voiceSettings).length) out.voice_settings = voiceSettings;
+  // Язык текста — «tg» или «ru» по шаблону (ФАКТ 12.11.2026: v4 принимает оба); можно переопределить.
+  const languageCode = lang ? config.languageCodes?.[lang] ?? lang : undefined;
+  if (languageCode) out.language_code = languageCode;
+  const dictionaries = narrationPronunciationSupported((config as { modelId?: string }).modelId) ? config.pronunciationDictionaries ?? [] : [];
+  if (dictionaries.length) out.pronunciation_dictionary_locators = dictionaries.map((d) => ({ pronunciation_dictionary_id: d.id, ...(d.versionId ? { version_id: d.versionId } : {}) }));
+  return out;
+}
+
+/** Первичный голос накладывает CRM, только если руководство включило это в настройках озвучки
+ *  (12.11.2026: по умолчанию голос вклеивает монтажёр). */
 export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): boolean {
-  return config.mixByCrm !== false;
+  return config.mixByCrm === true;
 }
 
 /**
@@ -70,8 +150,8 @@ export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): bo
  * (кэш по голосу, модели и тексту фразы), старые просто перестают отдаваться.
  */
 export const NARRATION_VOICE_SAMPLE_TEXT: Record<NarrationLang, string> = {
-  tg: "Ассалому алайкум! Ин Роял Хом. Квартираи се ҳуҷра дар ноҳияи Сино, масоҳаташ ҳаштод метри мураббаъ, нархаш шаст ҳазор доллар. Барои дидан ба мо нависед!",
-  ru: "Здравствуйте! Это Роял Хом. Трёхкомнатная квартира в районе Сино, восемьдесят квадратных метров, цена шестьдесят тысяч долларов. Пишите нам, покажем!",
+  tg: "Ассалому алайкум! Хонаи се ҳуҷра дар ноҳияи Сино. Масоҳаташ ҳаштод метри мураббаъ, ошёнаи панҷум аз нӯҳ. Бо таъмир ва мебел. Наздик мактаб ва бозор ҳаст. Нархаш шаст ҳазор доллар. Фардо ҳам омада дидан мумкин аст. Нависед ё занг занед, хонаро ба шумо нишон медиҳем.",
+  ru: "Здравствуйте! Трёхкомнатная квартира в Сино, восемьдесят квадратных метров, пятый этаж из девяти. Ремонт сделан, мебель остаётся. Рядом школа и рынок. Цена шестьдесят тысяч долларов. Посмотреть можно хоть завтра. Пишите или звоните, мы вам всё покажем.",
 };
 /** Образец, который можно прослушать: голос и язык фразы. */
 export type NarrationVoiceSampleRef = { voiceId: string; lang: NarrationLang };
@@ -180,11 +260,24 @@ export function narrationTemplateError(text: string): string | null {
   return null;
 }
 
+/**
+ * Тег голоса v4 вроде «[excited]» (12.11.2026): латиница в квадратных скобках остаётся в тексте
+ * как есть, а не считается фрагментом «если есть». В стартовые шаблоны теги не ставим — в
+ * таджикском не проверены; владелец может вписать сам.
+ */
+const VOICE_TAG = /^\[[a-z][a-z ]{0,30}\]/u;
+export function isNarrationVoiceTagAt(text: string, index: number): number {
+  const m = VOICE_TAG.exec(text.slice(index, index + 34));
+  return m ? m[0].length : 0;
+}
+
 /** Фрагмент `[ ... ]` выпадает целиком, если в нём есть пустое слово. Скобки вкладываются. */
 function renderSegment(text: string, values: Record<string, string>): { out: string; missing: boolean } {
   let out = "", missing = false, i = 0;
   while (i < text.length) {
     const ch = text[i];
+    const tag = ch === "[" ? isNarrationVoiceTagAt(text, i) : 0;
+    if (tag) { out += text.slice(i, i + tag); i += tag; continue; }
     if (ch === "[") {
       let depth = 1, j = i + 1;
       while (j < text.length && depth) { if (text[j] === "[") depth++; else if (text[j] === "]") depth--; j++; }
@@ -259,11 +352,15 @@ export const narrationDraftSchema = z.object({
 });
 /** Выбор агента в конце мастера (CRM и Шабнам): одно поле запроса создания объекта. */
 export const narrationWizardChoiceSchema = z.object({
+  /** «Без озвучки» (12.11.2026): ничего не генерируется и не тратится, монтажёру пометка. */
+  none: z.literal(true).optional(),
   script: z.string().trim().min(10).max(5000).optional(),
   templateId: z.string().trim().max(40).optional(),
   voiceId: z.string().trim().max(100).optional(),
 });
 export type NarrationWizardChoice = z.infer<typeof narrationWizardChoiceSchema>;
+/** Карточка объекта: «Без озвучки» / «Включить озвучку». */
+export const narrationModeSchema = z.object({ off: z.boolean() }).strict();
 export const narrationActionSchema = z.object({ expectedRevision: z.number().int().positive(), confirmed: z.literal(true) });
 export const narrationHandoffSchema = narrationActionSchema.extend({
   audioReviewed: z.literal(true),
@@ -279,11 +376,16 @@ export type PropertyNarrationItem = {
 export type NarrationOptionsView = {
   templates: NarrationTemplate[]; voices: Array<{ id: string; name: string; gender?: "male" | "female" }>;
   defaultTemplateId: string | null; defaultVoiceId: string | null; autoGenerate: boolean;
+  /** Что этот сотрудник выбрал в прошлый раз (если голос и шаблон ещё в настройках). */
+  lastChoice?: { voiceId?: string; templateId?: string };
   /** Готовые образцы голосов (кнопка «▶ Прослушать»). */
   samples?: NarrationVoiceSampleRef[];
 };
 export type PropertyNarrationView = {
   versions: PropertyNarrationItem[]; suggestedScript: string; config: NarrationConfig;
+  /** У объекта выбрано «Без озвучки» (12.11.2026). */
+  off?: boolean;
+  lastChoice?: { voiceId?: string; templateId?: string };
   configured: boolean; canApprove: boolean; canConfigure?: boolean; canDraft?: boolean; sendsEnabled: boolean;
   /** Агент объекта одобряет готовое аудио (автоозвучка), маркетинг — по-прежнему черновой текст. */
   canApproveAudio?: boolean; autoGenerate?: boolean;

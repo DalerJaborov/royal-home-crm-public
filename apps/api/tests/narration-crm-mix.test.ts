@@ -48,6 +48,7 @@ const tmp = path.join(os.tmpdir(), `narration-mix-${runId}`);
 const media = { silent: path.join(tmp, "silent.mp4"), music: path.join(tmp, "music.mp4"), voice: path.join(tmp, "voice.mp3"), longVoice: path.join(tmp, "long.mp3") };
 let districtId: string;
 let agentId: string;
+let configBefore: unknown = null;
 const propertyIds: string[] = [];
 const modeBefore = process.env.CRM_NARRATION_EXECUTION_MODE;
 const template = { id: "ru-mix-test", name: "Тест", lang: "ru" as const, text: "В продаже {вид}. Площадь {площадь} метров. Цена {цена}." };
@@ -101,11 +102,17 @@ beforeAll(async () => {
   ff(["-f", "lavfi", "-i", "sine=frequency=500:duration=9", "-c:a", "libmp3lame", media.longVoice]);
   districtId = (await prisma.district.create({ data: { name: `Озвучка CRM-${runId}` } })).id;
   agentId = (await prisma.agent.create({ data: { fullName: "Агент озвучки", phone, role: "AGENT", passwordHash: await bcrypt.hash("testpass123", 4) } })).id;
-  // Настройки озвучки не трогаем: рубильник «накладывает CRM» включён по умолчанию (mixByCrm не задан).
+  // С 12.11.2026 по умолчанию голос вклеивает монтажёр: этот файл проверяет порядок «голос кладёт
+  // CRM», поэтому рубильник включается явно и возвращается после прогона.
+  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } });
+  configBefore = settings?.propertyNarrationConfig ?? null;
+  await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig: { mixByCrm: true } },
+    update: { propertyNarrationConfig: { ...((configBefore as Record<string, unknown> | null) ?? {}), mixByCrm: true } } });
 });
 
 afterAll(async () => {
   process.env.CRM_NARRATION_EXECUTION_MODE = modeBefore;
+  if (ffmpegReady) await prisma.settings.update({ where: { id: "singleton" }, data: { propertyNarrationConfig: (configBefore ?? {}) as object } }).catch(() => {});
   if (!ffmpegReady) return;
   const props = await prisma.property.findMany({ where: { id: { in: propertyIds } }, select: { videoHandoffFinalPath: true, videoMasterStorageKey: true } });
   for (const p of props) {

@@ -16,7 +16,7 @@ function release(p: Player) {
   p.el = null; p.url = null;
 }
 
-export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disabled, name }: {
+export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disabled, name, lastPickedId }: {
   voices: Voice[];
   value: string | null;
   onChange: (voiceId: string) => void;
@@ -25,6 +25,8 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
   disabled?: boolean;
   /** Имя группы переключателей: на странице может быть два выбора голоса. */
   name: string;
+  /** Голос, который этот сотрудник выбрал в прошлый раз (12.11.2026): подпись рядом с именем. */
+  lastPickedId?: string | null;
 }) {
   const [playing, setPlaying] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -68,6 +70,7 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
               <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">
                 <input type="radio" name={name} value={voice.id} checked={value === voice.id} onChange={() => onChange(voice.id)} />
                 <span className="truncate">{voice.name}</span>
+                {lastPickedId === voice.id && <span className="text-sm text-slate-600">последний раз выбран</span>}
               </label>
               {has.has(voice.id) && (
                 <button type="button" className="pill sm" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}

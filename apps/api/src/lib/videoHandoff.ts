@@ -78,6 +78,7 @@ import { PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LA
 import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { dropNarrationMaster, mixFromStoredMaster, planCrmMixOnReceive, storeNarrationMaster } from "./narrationMaster.js";
+import { narrationLineForMontajer } from "./narrationMontajerNote.js";
 
 /**
  * ЗАДАНИЕ «ПУБЛИКАЦИЯ ПРИНЯТОГО РОЛИКА» (21.09.2026, случай №114) — тип,
@@ -280,17 +281,19 @@ export async function buildMontajerMessageText(
   propertyId: string,
   remake?: RemakeMessageContext | null
 ): Promise<string> {
-  const [facts, property, silentVideos] = await Promise.all([
+  const [facts, property, silentVideos, narrationLine] = await Promise.all([
     propertyFactsForMontajer(propertyId),
     prisma.property.findUnique({
       where: { id: propertyId },
-      select: { shortId: true, videoHandoffLastFactsText: true, videoMasterStorageKey: true },
+      select: { shortId: true, videoHandoffLastFactsText: true },
     }),
     prisma.propertyVideo.findMany({
       where: { propertyId, hasAudio: false },
       select: { filename: true },
       orderBy: { uploadedAt: "asc" },
     }),
+    // Что делать с голосом (12.11.2026): одна строка из lib/narrationMontajerNote.ts.
+    narrationLineForMontajer(propertyId).catch(() => null),
   ]);
   if (!facts) return "";
 
@@ -303,7 +306,7 @@ export async function buildMontajerMessageText(
 
   if (!remake) {
     const queueLine = await queueStatusLine(propertyId);
-    return `${facts}${queueLine}${silentNote ? `\n\n${silentNote}` : ""}`;
+    return `${facts}${queueLine}${narrationLine ? `\n\n${narrationLine}` : ""}${silentNote ? `\n\n${silentNote}` : ""}`;
   }
 
   const lines = [
@@ -317,8 +320,8 @@ export async function buildMontajerMessageText(
       lines.push("", "Что изменилось в карточке:", ...diff.map((d) => `• ${d}`));
     }
   }
-  // Озвучку на этот объект накладывает CRM (11.11.2026): иначе монтажёр вклеит голос, а CRM — второй.
-  if (property?.videoMasterStorageKey) lines.push("", "🎙 Озвучку накладывает CRM: пришлите ролик БЕЗ голоса (музыка и звуки можно).");
+  // Что делать с голосом (12.11.2026): «без озвучки», вклеить mp3 и сдать два файла, или голос кладёт CRM.
+  if (narrationLine) lines.push("", narrationLine);
   lines.push("", facts);
   if (silentNote) lines.push("", silentNote);
   return lines.join("\n");

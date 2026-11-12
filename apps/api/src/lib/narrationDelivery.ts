@@ -8,6 +8,7 @@ import { narrationFacts, narrationHash } from "./propertyNarration.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
 import { sendDocumentFile, TELEGRAM_BOT_SEND_LIMIT_BYTES } from "../telegram/api.js";
+import { VOICELESS_COPY_HINT } from "./narrationMontajerNote.js";
 
 const fileSchema = z.object({ id: z.string(), storageKey: z.string(), filename: z.string(), caption: z.string() });
 /** mixByCrm — монтажёру сказано «пришлите ролик без голоса»: принятый ролик станет мастером (lib/narrationMaster.ts). */
@@ -28,6 +29,7 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   ]);
   const editorId = requestedEditorId ?? settings?.videoMontajerAgentId;
   if (!p || p.deletedAt || !sources || !version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || version.factsHash !== narrationHash(narrationFacts(p))) throw new Error("Нужна актуальная озвучка");
+  if (p.narrationOff) throw new Error("Для объекта выбрано «Без озвучки»");
   if (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince) throw new Error("Сначала передайте объект в работу монтажёру через существующую очередь монтажа");
   if (!editorId || editorId !== settings?.videoMontajerAgentId) throw new Error("Сначала назначьте монтажёра в существующих настройках монтажа");
   const editor = await prisma.agent.findFirst({ where: { id: editorId, role: "EDITOR", isActive: true }, select: { telegramChatId: true } });
@@ -35,9 +37,14 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   // Новый порядок (11.11.2026): голос накладывает CRM, монтажёру озвучка — для длины и темпа.
   const parsedConfig = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});
   const mixByCrm = parsedConfig.success && narrationMixByCrm(parsedConfig.data);
+  // С 12.11.2026 по умолчанию голос вклеивает монтажёр (музыка и громкость его), а к готовому
+  // ролику присылает тот же без голоса — из него CRM сама меняет голос при смене цены.
+  const soundOnly = p.videoHandoffRemakeReason === "NARRATION_CHANGED";
   const audioCaption = mixByCrm
     ? `Объект №${p.shortId}. Озвучка, версия ${version.revision}: под неё длина и темп. Пришлите ролик БЕЗ голоса (музыка и звуки можно), голос CRM наложит сама. Ролик не короче озвучки.`
-    : `Объект №${p.shortId}. Озвучка, версия ${version.revision}. Используйте эту версию.`;
+    : soundOnly
+      ? `Озвучка к ролику №${p.shortId}, версия ${version.revision}: замените в ролике только голос, музыку и монтаж не трогайте. ${VOICELESS_COPY_HINT}`
+      : `Озвучка к ролику №${p.shortId}, версия ${version.revision}, одобрена. Вклейте этот голос сами: музыка, громкость и монтаж ваши. ${VOICELESS_COPY_HINT}`;
   const files: Plan["files"] = [{ id: version.id, storageKey: version.storageKey, filename: `property-${p.shortId}-voice-v${version.revision}.mp3`, caption: audioCaption },
     { id: `${version.id}-script`, storageKey: "SCRIPT", filename: `property-${p.shortId}-voice-v${version.revision}.txt`, caption: version.script }];
   if (mode === "WITH_SOURCES") {
@@ -78,7 +85,7 @@ export async function executeNarrationDelivery(id: string) {
         const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
         const editor = await tx.agent.findFirst({ where: { id: row.editorId!, role: "EDITOR", isActive: true } });
         const videos = row.mode === "WITH_SOURCES" ? await tx.propertyVideo.findMany({ where: { propertyId: row.propertyId }, orderBy: [{ uploadedAt: "asc" }, { id: "asc" }] }) : [];
-        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || latest?.id !== row.versionId || latest.status !== "READY" || narrationHash(narrationFacts(p)) !== plan.factsHash || settings?.videoMontajerAgentId !== row.editorId || !editor?.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash || narrationHash(videos.map(v => [v.id, v.storageKey])) !== plan.sourcesHash) return null;
+        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || latest?.id !== row.versionId || latest.status !== "READY" || narrationHash(narrationFacts(p)) !== plan.factsHash || settings?.videoMontajerAgentId !== row.editorId || !editor?.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash || narrationHash(videos.map(v => [v.id, v.storageKey])) !== plan.sourcesHash) return null;
         return { chatId: editor.telegramChatId, shortId: p.shortId };
       });
       if (!target) {

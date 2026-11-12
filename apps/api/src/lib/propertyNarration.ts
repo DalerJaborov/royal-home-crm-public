@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { NarrationConfig, NarrationFacts } from "@royal-home/shared";
+import { narrationTtsOptions, type NarrationConfig, type NarrationFacts, type NarrationLang } from "@royal-home/shared";
 export { suggestedNarration } from "@royal-home/shared";
 
 export function narrationFacts(p: { type: string; rooms: number | null; areaSqm: { toString(): string }; floor: number | null; totalFloors: number | null; district: { name: string } | null; price?: { toString(): string } | number | null; currency?: string | null }): NarrationFacts {
@@ -17,14 +17,14 @@ export function narrationScriptError(text: string): string | null {
 export const NARRATION_QUOTA_EXCEEDED = "PROVIDER_QUOTA_EXCEEDED";
 export type NarrationAudioResult = { status: "READY"; audio: Buffer; requestId: string | null } | { status: "FAILED" | "UNKNOWN"; errorCode: string };
 /** Official POST /v1/text-to-speech/:voice_id. One attempt only: a timeout may have incurred cost. */
-export async function generateNarrationAudio(input: { script: string; voiceId: string; config: NarrationConfig; apiKey: string }, fetcher: typeof fetch = fetch): Promise<NarrationAudioResult> {
+export async function generateNarrationAudio(input: { script: string; voiceId: string; config: NarrationConfig; apiKey: string; lang?: NarrationLang | null }, fetcher: typeof fetch = fetch): Promise<NarrationAudioResult> {
   if (!input.config.modelId || !input.config.voices.some((v) => v.id === input.voiceId)) return { status: "FAILED", errorCode: "VOICE_NOT_CONFIGURED" };
   if (narrationScriptError(input.script)) return { status: "FAILED", errorCode: "INVALID_SCRIPT" };
   try {
     const base = (process.env.ELEVENLABS_API_BASE?.trim() || "https://api.elevenlabs.io").replace(/\/+$/, "");
     const response = await fetcher(`${base}/v1/text-to-speech/${encodeURIComponent(input.voiceId)}?output_format=mp3_44100_128`, {
       method: "POST", headers: { "xi-api-key": input.apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: input.script, model_id: input.config.modelId }), signal: AbortSignal.timeout(60_000), redirect: "error",
+      body: JSON.stringify({ text: input.script, model_id: input.config.modelId, ...narrationTtsOptions(input.config, input.voiceId, input.lang) }), signal: AbortSignal.timeout(60_000), redirect: "error",
     });
     if (!response.ok) {
       // «Кредиты кончились» (ElevenLabs: detail.status = quota_exceeded, обычно 401): денег не списано,

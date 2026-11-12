@@ -1,4 +1,4 @@
-import { NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, narrationLimits, narrationModelSupportsTajik, narrationSpeechText, type NarrationConfig, type NarrationLang } from "@royal-home/shared";
+import { NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, narrationTtsOptions, narrationLimits, narrationModelSupportsTajik, narrationSpeechText, type NarrationConfig, type NarrationLang } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
@@ -100,7 +100,7 @@ export async function generateNarrationVersion(input: {
   if (claimed.kind === "ALREADY") return { status: "ALREADY", current: claimed.current };
   const row = claimed.row;
   const script = narrationSpeechText(row.script, (row.language as NarrationLang | null) ?? null);
-  const result = await generateNarrationAudio({ script, voiceId: row.voiceId!, config, apiKey: input.key });
+  const result = await generateNarrationAudio({ script, voiceId: row.voiceId!, config, apiKey: input.key, lang: row.language === "tg" || row.language === "ru" ? row.language : null });
   const guard = { id: row.id, status: "GENERATING", generationStartedAt: row.generationStartedAt };
   if (result.status !== "READY") {
     // Автоозвучка при кончившихся кредитах не теряет версию: она снова ждёт (через час), агенту ничего.
@@ -151,6 +151,13 @@ export function voiceSampleLangs(config: NarrationConfig): NarrationLang[] {
   return [...langs].filter((lang) => lang !== "tg" || narrationModelSupportsTajik(config.modelId));
 }
 
+/** Хэш фразы образца; при заданных настройках синтеза они входят в ключ (без них — прежний хэш). */
+function voiceSampleHash(config: NarrationConfig, voiceId: string, lang: NarrationLang): string {
+  const text = NARRATION_VOICE_SAMPLE_TEXT[lang];
+  const options = narrationTtsOptions(config, voiceId, lang);
+  return Object.keys(options).length ? narrationHash([text, options]) : narrationHash(text);
+}
+
 export type VoiceSamplesReport = { created: number; existing: number; failed: number; remaining: number; budget: boolean; quota: boolean };
 
 export async function generateVoiceSamples(input: {
@@ -162,7 +169,7 @@ export async function generateVoiceSamples(input: {
   const jobs = config.voices.flatMap((voice) => voiceSampleLangs(config).map((lang) => ({ voiceId: voice.id, lang })));
   for (const [index, job] of jobs.entries()) {
     const text = NARRATION_VOICE_SAMPLE_TEXT[job.lang];
-    const textHash = narrationHash(text);
+    const textHash = voiceSampleHash(config, job.voiceId, job.lang);
     const where = { voiceId_modelId_textHash: { voiceId: job.voiceId, modelId: config.modelId, textHash } };
     const existing = await prisma.narrationVoiceSample.findUnique({ where });
     if (existing?.status === "READY" && existing.storageKey) { report.existing++; continue; }
@@ -181,7 +188,7 @@ export async function generateVoiceSamples(input: {
     }).catch(() => null);
     if (claimed === "BUDGET") { report.budget = true; report.remaining += jobs.length - index; break; }
     if (!claimed) { report.remaining++; continue; }
-    const result = await generateNarrationAudio({ script: narrationSpeechText(text, job.lang), voiceId: job.voiceId, config, apiKey: input.key }, input.fetcher);
+    const result = await generateNarrationAudio({ script: narrationSpeechText(text, job.lang), voiceId: job.voiceId, config, apiKey: input.key, lang: job.lang }, input.fetcher);
     if (result.status !== "READY") {
       await prisma.narrationVoiceSample.updateMany({ where: { id: claimed.id, status: "GENERATING" }, data: { status: result.status, errorCode: result.errorCode } });
       report.failed++;
@@ -204,10 +211,11 @@ export async function generateVoiceSamples(input: {
 /** Готовые образцы для текущих голосов, модели и фраз — бесплатное чтение для экранов и Шабнам. */
 export async function readyVoiceSamples(config: NarrationConfig): Promise<Array<{ voiceId: string; lang: NarrationLang; storageKey: string }>> {
   if (!config.modelId || !config.voices.length) return [];
-  const hashes = new Map(NARRATION_LANGS.map((lang) => [narrationHash(NARRATION_VOICE_SAMPLE_TEXT[lang]), lang] as const));
+  // Ключ образца — голос + фраза + настройки синтеза: поменяли настройки голоса — образец готовится заново.
+  const hashes = new Map(config.voices.flatMap((v) => NARRATION_LANGS.map((lang) => [`${v.id}|${voiceSampleHash(config, v.id, lang)}`, lang] as const)));
   const rows = await prisma.narrationVoiceSample.findMany({
-    where: { status: "READY", modelId: config.modelId, voiceId: { in: config.voices.map((v) => v.id) }, textHash: { in: [...hashes.keys()] }, storageKey: { not: null } },
-    select: { voiceId: true, textHash: true, storageKey: true }, take: 200,
+    where: { status: "READY", modelId: config.modelId, voiceId: { in: config.voices.map((v) => v.id) }, textHash: { in: [...new Set([...hashes.keys()].map((k) => k.split("|")[1]))] }, storageKey: { not: null } },
+    select: { voiceId: true, textHash: true, storageKey: true }, take: 400,
   });
-  return rows.flatMap((r) => (r.storageKey && hashes.get(r.textHash) ? [{ voiceId: r.voiceId, lang: hashes.get(r.textHash)!, storageKey: r.storageKey }] : []));
+  return rows.flatMap((r) => { const lang = hashes.get(`${r.voiceId}|${r.textHash}`); return r.storageKey && lang ? [{ voiceId: r.voiceId, lang, storageKey: r.storageKey }] : []; });
 }
