@@ -16,10 +16,10 @@
   "paths": 741,
   "cron": 127,
   "jobs": 32,
-  "conditions": 3949,
-  "untranslatedUnique": 453,
-  "untranslatedTotal": 582,
-  "partialUnique": 1076,
+  "conditions": 3943,
+  "untranslatedUnique": 454,
+  "untranslatedTotal": 583,
+  "partialUnique": 1073,
   "translatedShare": 85
  },
  "untranslated": [
@@ -60,6 +60,7 @@
   "!classifyFileName(file.area, path.basename(file.relPath))",
   "!client || client.customerIntakeActionId !== actionId || client.deletedAt",
   "!client.requirementsNotes?.trim()",
+  "!clientPropertyEligible(c, facts, money, policy)",
   "!commandFailed(res, err)",
   "!commandFailed(res, error)",
   "!confirmedClientIntents(client).buys",
@@ -224,7 +225,6 @@
   "buffer.subarray(0, 5).toString() !== \"%PDF-\"",
   "buffered[event.side] >= MAX_BUFFERED_SAMPLES",
   "buffers[side].length === 0",
-  "c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)",
   "changedFields.includes(\"instagramUrl\") && agentReelLinkClosed(existing.status, can(req, \"properties.editForei…",
   "channel && !bot.toggles.channels[channel]",
   "channel === \"INSTAGRAM\" && body.token?.trim()",
@@ -232,6 +232,7 @@
   "client.assignedAgentId !== req.agent!.id && !can(req, \"clients.viewAll\")",
   "client.deals.some((d) => d.stage !== \"CANCELLED\")",
   "client?.assignedAgentId === access.viewerId",
+  "clientDoneBuying(client)",
   "commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…",
   "completed.receipt.outcome !== \"accepted\" && physicalError instanceof PublicManualReplyHeld",
   "completedDeals.length >= DASHBOARD_ROW_LIMIT || pulseInteractions.length >= DASHBOARD_ROW_LIMIT || propsCreat…",
@@ -18786,6 +18787,20 @@
       }
      ],
      "raw": "!confirmedClientIntents(client).buys"
+    },
+    {
+     "t": "если clientDoneBuying(client)",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "clientDoneBuying(client)"
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -79614,53 +79629,11 @@
        "a": [],
        "c": [
         {
-         "t": "если c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)",
+         "t": "если !clientPropertyEligible(c, facts, money, policy)",
          "k": "if",
          "a": [],
          "c": [],
-         "raw": "c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)"
-        },
-        {
-         "t": "если желаемое этаж минимум задан и этаж (объект) задан и этаж (объект) меньше желаемое этаж минимум",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если желаемое этаж предел задан и этаж (объект) задан и этаж (объект) больше желаемое этаж предел",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если желаемое всего floors задан и всего floors задан и всего floors больше желаемое всего floors",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если минимум (окно) задан и минимум (окно) больше цена в сомони",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если предел (окно) задан и предел (окно) меньше цена в сомони",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если есть есть point и желаемое places количество больше 0",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если нет: район получилось и нет: внутри radius",
-         "k": "if",
-         "a": [],
-         "c": []
+         "raw": "!clientPropertyEligible(c, facts, money, policy)"
         }
        ]
       },
