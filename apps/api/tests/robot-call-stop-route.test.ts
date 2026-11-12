@@ -23,6 +23,7 @@ const local = `93${String(randomInt(0, 10_000_000)).padStart(7, "0")}`;
 let ownToken = "";
 let otherToken = "";
 let directorToken = "";
+let directorId = "";
 const agentIds: string[] = [];
 let clientId = "";
 let liveVoiceBefore = false;
@@ -49,6 +50,7 @@ beforeAll(async () => {
   const director = await agent("DIRECTOR", 3);
   ownToken = signAccessToken({ sub: own.id, role: "AGENT" });
   otherToken = signAccessToken({ sub: other.id, role: "AGENT" });
+  directorId = director.id;
   directorToken = signAccessToken({ sub: director.id, role: "DIRECTOR" });
   clientId = (
     await prisma.client.create({
@@ -146,8 +148,11 @@ describe("PUT/GET /clients/:id/robot-call-stop", () => {
     noon.setUTCHours(7, 0, 0, 0);
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(noon);
+    // Пропуск выпускается уже в «полдень»: выпущенный по настоящим часам ночью (до 07:00 UTC)
+    // к подменённому полудню успевает истечь, и вместо 409 приходит 401.
+    const noonToken = signAccessToken({ sub: directorId, role: "DIRECTOR" });
     originateToStasisApp.mockClear();
-    const res = await request(app).post(`/api/v1/clients/${clientId}/live-voice-call`).set("Authorization", `Bearer ${directorToken}`).send({});
+    const res = await request(app).post(`/api/v1/clients/${clientId}/live-voice-call`).set("Authorization", `Bearer ${noonToken}`).send({});
     vi.useRealTimers();
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/Не звонить роботом/);
