@@ -268,7 +268,9 @@ describe("сторож: правило совпадения живёт в одн
         if (/tier\s*:\s*[^,]*\?\s*"alternative"/.test(text)) offenders.push(`${rel} (своё правило уровня)`);
         // Своя проверка бюджета пары = своя копия правила (так жил автопуш до 10.11).
         // Поиск ботом по просьбе в чате (lib/propertyMatch.ts) — другая задача, не пара клиент↔объект.
-        if (/budgetWindowTjs\(/.test(text) && !["lib/matchPolicy.ts", "lib/propertyMatch.ts"].includes(rel)) offenders.push(`${rel} (своя проверка бюджета пары)`);
+        // Объявления с площадок под покупателя (lib/market/buyerMatch.ts, #138) — тоже не наш объект;
+        // бюджет, комнаты и площадь там — те же общие формулы (budgetWindowTjs, roomsWithinTolerance, areaMeetsMinimum).
+        if (/budgetWindowTjs\(/.test(text) && !["lib/matchPolicy.ts", "lib/propertyMatch.ts", "lib/market/buyerMatch.ts"].includes(rel)) offenders.push(`${rel} (своя проверка бюджета пары)`);
         if (/desiredDistrictId\s*==\s*null\s*\|\|/.test(text)) offenders.push(`${rel} (своя проверка района пары)`);
       }
     };
