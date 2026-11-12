@@ -17,6 +17,11 @@ export const VIDEO_REMAKE_REASONS = [
   "POOR_EDIT",
   "CARD_DATA_CHANGED",
   "OTHER",
+  /** Новая одобренная озвучка (11.11.2026): заменить только звук, монтаж прежний. В конце списка —
+   *  кнопки проверки ролика в Telegram ссылаются на причину номером. */
+  "NARRATION_CHANGED",
+  /** Новые кадры прислал сотрудник (СММ и др.) в Telegram с «Нужен монтаж» (12.11.2026). */
+  "NEW_FOOTAGE",
 ] as const;
 export type VideoRemakeReason = (typeof VIDEO_REMAKE_REASONS)[number];
 
@@ -29,6 +34,8 @@ export const VIDEO_REMAKE_REASON_LABELS: Record<VideoRemakeReason, string> = {
   POOR_EDIT: "Плохой монтаж: склейки, дрожь, обрывы",
   CARD_DATA_CHANGED: "Данные карточки изменились, нужен новый текст",
   OTHER: "Другое",
+  NARRATION_CHANGED: "Новая озвучка: заменить только звук, монтаж прежний",
+  NEW_FOOTAGE: "Новые кадры от сотрудника: смонтировать заново",
 };
 
 /**
@@ -39,7 +46,7 @@ export const VIDEO_REMAKE_REASON_LABELS: Record<VideoRemakeReason, string> = {
  * растёт всегда — это просто «сколько раз объект уходил на монтаж», а отдельно
  * считать вину монтажёра нужно этим списком-исключением).
  */
-export const VIDEO_REMAKE_REASONS_NOT_EDITOR_FAULT: readonly VideoRemakeReason[] = ["CARD_DATA_CHANGED"];
+export const VIDEO_REMAKE_REASONS_NOT_EDITOR_FAULT: readonly VideoRemakeReason[] = ["CARD_DATA_CHANGED", "NARRATION_CHANGED", "NEW_FOOTAGE"];
 
 export function isVideoRemakeEditorFault(reason: VideoRemakeReason): boolean {
   return !VIDEO_REMAKE_REASONS_NOT_EDITOR_FAULT.includes(reason);

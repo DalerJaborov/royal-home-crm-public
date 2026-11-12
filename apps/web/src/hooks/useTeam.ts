@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { AbsenceKind, ClientStatus, Role } from "@royal-home/shared";
+import { INCLUDE_FORMER_STAFF_PARAM, type AbsenceKind, type ClientStatus, type Role } from "@royal-home/shared";
 import { api } from "../lib/api";
 
 export interface TeamMember {
@@ -43,10 +43,16 @@ export interface TeamMember {
   };
 }
 
-export function useTeam(enabled = true) {
+/**
+ * «Команда». Бывших (isActive=false) сервер не отдаёт (владелец 11.11.2026);
+ * `includeFormer` — карточке сотрудника у директора, чтобы открыть и вернуть
+ * отключённого по ссылке из истории.
+ */
+export function useTeam(enabled = true, opts?: { includeFormer?: boolean }) {
+  const includeFormer = opts?.includeFormer === true;
   return useQuery({
-    queryKey: ["team"],
-    queryFn: () => api<TeamMember[]>("/team"),
+    queryKey: includeFormer ? ["team", "with-former"] : ["team"],
+    queryFn: () => api<TeamMember[]>(includeFormer ? `/team?${INCLUDE_FORMER_STAFF_PARAM}=1` : "/team"),
     enabled,
     // «Онлайн» живёт 3 минуты — обновляем список, пока экран открыт. Присутствие
     // сотрудника меняется само собой, без действия в CRM, поэтому таймер здесь

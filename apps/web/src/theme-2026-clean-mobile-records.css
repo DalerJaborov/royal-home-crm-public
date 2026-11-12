@@ -152,3 +152,33 @@ html[data-shell="clean"][data-mobile-ux] [data-property-layout="row"] > .clean-p
 html[data-shell="clean"] .clean-property-band { min-width: 0; max-width: 100%; }
 html[data-shell="clean"] .clean-property-band .chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 html[data-shell="clean"][data-mobile-ux] .clean-settings-page .sset-body .acts { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+
+/* Каталог объектов (12.11.2026): одна строка инструментов на ПК, тихая строка
+   счётчика под ней, ровная сетка плиток одной высоты в ряду. */
+html[data-shell="clean"] .rh2 .clean-catalog-toolbar > input.inp { flex: 1 1 260px; width: auto; max-width: none; min-width: 0; }
+html[data-shell="clean"] .clean-catalog-toolbar .pill { flex: none; }
+html[data-shell="clean"] .clean-catalog-view > button { min-width: 44px; justify-content: center; }
+html[data-shell="clean"] .clean-catalog-meta {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 8px 16px; margin: -4px 0 12px; font-size: 13px; color: rgb(var(--rgb-g600));
+}
+html[data-shell="clean"] .clean-catalog-meta > span { margin-left: auto; }
+html[data-shell="clean"] .clean-catalog-selectall {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; font-size: 14px;
+}
+html[data-shell="clean"] .clean-catalog-selectall > input { width: 18px; height: 18px; accent-color: rgb(var(--rgb-accent)); }
+html[data-shell="clean"] .clean-property-grid {
+  display: grid; gap: 16px; align-items: stretch;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+}
+html[data-shell="clean"] .clean-catalog-toolbar .pill .clean-catalog-filter-count {
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding-inline: 5px;
+  border-radius: 8px; color: rgb(var(--rgb-accent)); background: rgb(var(--rgb-accent) / .1);
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+html[data-shell="clean"] .clean-property-tile-skeleton {
+  display: flex; flex-direction: column; gap: 10px; overflow: hidden;
+  border: 1px solid var(--c-line); border-radius: 20px; padding-bottom: 16px;
+}
+html[data-shell="clean"] .clean-property-tile-skeleton > .ph { aspect-ratio: 16 / 10; background: var(--c-line-soft); }
+html[data-shell="clean"] .clean-property-tile-skeleton > .sk { margin-inline: 16px; }

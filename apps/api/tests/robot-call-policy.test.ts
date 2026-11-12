@@ -1,0 +1,415 @@
+import { randomInt } from "node:crypto";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+/**
+ * ОДНА ДВЕРЬ «МОЖНО ЛИ ЗВОНИТЬ РОБОТОМ» (П3, 11.11.2026).
+ *
+ * Время задаётся явно (`now`), а через мост — подменой часов (только Date), поэтому
+ * файл зелёный в любой час суток: часы звонков робота 09:00–19:00 по Душанбе.
+ */
+
+const blacklisted = new Set<string>();
+vi.mock("../src/lib/telephony/stationBlacklist.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/telephony/stationBlacklist.js")>()),
+  isNumberBlocked: vi.fn(async (phone: string) => ({ ok: true as const, blocked: blacklisted.has(phone.replace(/\D/g, "").slice(-9)) })),
+}));
+
+const originateToStasisApp = vi.fn(async () => ({ ok: true, channelId: `lv-policy-${Date.now()}` }));
+vi.mock("../src/lib/telephony/ariClient.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/telephony/ariClient.js")>()),
+  loadAriCredentials: async () => ({ url: "http://station", username: "u", password: "p" }),
+  originateToStasisApp,
+}));
+
+const { prisma } = await import("../src/db.js");
+const { robotCallAllowed, setRobotCallStop, clearRobotCallStop, allowRobotCallDespiteOptOut, revokeRobotCallAllow, revokeRobotCallAllowOnOptOut, isRobotCallOurFailure } = await import("../src/lib/robotCallPolicy.js");
+const { originateLiveVoiceCallToClient, originateLiveVoiceTestCall } = await import("../src/lib/telephony/liveVoiceBridge.js");
+const { ROBOT_CALL_DAY_START_HOUR, ROBOT_CALL_DAY_END_HOUR, robotCallWindowRefusal, nextRobotCallWindowStart } = await import("@royal-home/shared");
+const { POST_SHOWING_CALL_DAY_START_HOUR, POST_SHOWING_CALL_DAY_END_HOUR } = await import("../src/lib/postShowingCall.js");
+
+/** Момент по Душанбе: «2026-11-11» + час:минуты (UTC+5). */
+function dushanbe(day: string, hh: number, mm = 0): Date {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, hh - 5, mm));
+}
+
+/** Свободный номер: девять цифр, своя полоса 93…, по одному на тест. */
+const used: string[] = [];
+function freshPhone(): string {
+  const local = `93${String(randomInt(0, 10_000_000)).padStart(7, "0")}`;
+  used.push(local);
+  return local;
+}
+
+// Среда, обычный рабочий день (общих выходных в тестовой базе по умолчанию нет).
+const DAY = "2026-11-11";
+let settingsBefore: { companyHolidays: string[]; robotCallDailyMaxPerNumber: number; robotCallWeeklyMaxPerNumber: number; liveVoiceEnabled: boolean } | null = null;
+const portBefore = process.env.LIVE_VOICE_RTP_PORT;
+const hostBefore = process.env.LIVE_VOICE_RTP_HOST;
+let clientId = "";
+let clientPhone = "";
+
+beforeAll(async () => {
+  process.env.LIVE_VOICE_RTP_PORT = "40810";
+  process.env.LIVE_VOICE_RTP_HOST = "127.0.0.1";
+  settingsBefore = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { companyHolidays: true, robotCallDailyMaxPerNumber: true, robotCallWeeklyMaxPerNumber: true, liveVoiceEnabled: true },
+  });
+  await prisma.settings.update({
+    where: { id: "singleton" },
+    data: { companyHolidays: [], robotCallDailyMaxPerNumber: 1, robotCallWeeklyMaxPerNumber: 3, liveVoiceEnabled: true },
+  });
+  clientPhone = freshPhone();
+  clientId = (
+    await prisma.client.create({
+      data: { fullName: `Клиент политики робота ${clientPhone}`, phone: `+992${clientPhone}`, source: "PHONE_CALL", acceptedAt: new Date() },
+    })
+  ).id;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  blacklisted.clear();
+});
+
+afterAll(async () => {
+  if (portBefore === undefined) delete process.env.LIVE_VOICE_RTP_PORT;
+  else process.env.LIVE_VOICE_RTP_PORT = portBefore;
+  if (hostBefore === undefined) delete process.env.LIVE_VOICE_RTP_HOST;
+  else process.env.LIVE_VOICE_RTP_HOST = hostBefore;
+  if (settingsBefore) await prisma.settings.update({ where: { id: "singleton" }, data: settingsBefore });
+  await prisma.liveVoiceSession.deleteMany({ where: { callerNumber: { in: used } } });
+  await prisma.robotCallStop.deleteMany({ where: { phone: { in: used } } });
+  await prisma.client.deleteMany({ where: { id: clientId } });
+});
+
+/** Состоявшийся разговор: собеседник говорил, звонок закончился обычным образом. */
+async function outboundSession(
+  phone: string,
+  startedAt: Date,
+  direction = "outbound",
+  end: { reason?: string; transcript?: string; open?: boolean } = {}
+) {
+  await prisma.liveVoiceSession.create({
+    data: {
+      channelId: `policy-${phone}-${startedAt.getTime()}-${randomInt(0, 1e6)}`,
+      startedAt,
+      endedAt: end.open ? null : new Date(startedAt.getTime() + 120_000),
+      endedReason: end.open ? null : end.reason ?? "channel_ended",
+      transcript: end.transcript ?? "Робот: Здравствуйте!\nКлиент: Да, слушаю.\nКлиент: Хорошо, спасибо.",
+      direction,
+      callerNumber: phone,
+    },
+  });
+}
+
+describe("часы, выходные и праздники по Душанбе", () => {
+  it("часы двери совпадают с часами опроса после показа (одно окно на всех)", () => {
+    expect([ROBOT_CALL_DAY_START_HOUR, ROBOT_CALL_DAY_END_HOUR]).toEqual([POST_SHOWING_CALL_DAY_START_HOUR, POST_SHOWING_CALL_DAY_END_HOUR]);
+  });
+
+  it("звонок по карточке в 23:00 — отказ «перенести» с временем следующего окна", async () => {
+    const decision = await robotCallAllowed({ phone: freshPhone(), kind: "client_card", now: dushanbe(DAY, 23) });
+    expect(decision).toMatchObject({ allowed: false, code: "outside_hours", defer: true });
+    expect(decision.allowed === false && decision.retryAt?.toISOString()).toBe(dushanbe("2026-11-12", 9).toISOString());
+  });
+
+  it("в 23:00 через мост — отказ без единого Originate, причина словами", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(dushanbe(DAY, 23));
+    originateToStasisApp.mockClear();
+    const result = await originateLiveVoiceCallToClient({ id: clientId, phone: `+992${clientPhone}`, fullName: "Клиент" });
+    expect(result).toMatchObject({ ok: false, busy: true, notDialed: true });
+    expect(result.error).toMatch(/09:00 до 19:00/);
+    expect(originateToStasisApp).not.toHaveBeenCalled();
+  });
+
+  it("в праздник — отказ, назавтра — можно", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { companyHolidays: [DAY] } });
+    try {
+      const phone = freshPhone();
+      expect(await robotCallAllowed({ phone, kind: "scenario", now: dushanbe(DAY, 12) })).toMatchObject({ allowed: false, code: "holiday", defer: true });
+      expect(await robotCallAllowed({ phone, kind: "scenario", now: dushanbe("2026-11-12", 12) })).toEqual({ allowed: true });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { companyHolidays: [] } });
+    }
+  });
+
+  it("граница праздника — полночь по Душанбе, а не по UTC", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { companyHolidays: ["2026-11-12"] } });
+    try {
+      // 12.11 01:00 по Душанбе — это ещё 11.11 по UTC, но уже праздник.
+      const decision = await robotCallAllowed({ phone: freshPhone(), kind: "test", now: dushanbe("2026-11-12", 1) });
+      expect(decision).toEqual({ allowed: true }); // проверочному праздник не помеха
+      expect(await robotCallAllowed({ phone: freshPhone(), kind: "scenario", now: dushanbe("2026-11-12", 1) })).toMatchObject({ code: "holiday" });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { companyHolidays: [] } });
+    }
+  });
+
+  it("общий выходной компании — отказ (чистое правило, общие Настройки не трогаем)", () => {
+    // 11.11.2026 — среда (3).
+    expect(robotCallWindowRefusal(dushanbe(DAY, 12), { companyDaysOff: [3] })).toBe("day_off");
+    expect(nextRobotCallWindowStart(dushanbe(DAY, 12), { companyDaysOff: [3], companyHolidays: ["2026-11-12"] }).toISOString()).toBe(
+      dushanbe("2026-11-13", 9).toISOString()
+    );
+  });
+
+  it("проверочный звонок в 23:00 — разрешён (часы ему не помеха)", async () => {
+    expect(await robotCallAllowed({ phone: freshPhone(), kind: "test", now: dushanbe(DAY, 23) })).toEqual({ allowed: true });
+  });
+});
+
+describe("единый «не звонить роботом»", () => {
+  it("стоп по номеру ловит тот же номер в другой записи; снятый стоп — снова можно", async () => {
+    const phone = freshPhone();
+    const now = dushanbe(DAY, 12);
+    await setRobotCallStop({ phone: `+992 ${phone.slice(0, 2)} ${phone.slice(2)}`, source: "STAFF" });
+    for (const form of [phone, `0${phone}`, `+992${phone}`, `992-${phone}`]) {
+      expect(await robotCallAllowed({ phone: form, kind: "scenario", now })).toMatchObject({ allowed: false, code: "stopped", defer: false });
+    }
+    // Проверочному звонку запрет человека тоже не обойти.
+    expect(await robotCallAllowed({ phone, kind: "test", now })).toMatchObject({ code: "stopped" });
+    expect(await clearRobotCallStop({ phone, clearedByAgentId: null })).toBe(1);
+    expect(await robotCallAllowed({ phone, kind: "scenario", now })).toEqual({ allowed: true });
+  });
+
+  it("стоп по карточке ловит звонок на другой номер того же клиента", async () => {
+    await setRobotCallStop({ phone: `+992${clientPhone}`, clientId, source: "STAFF" });
+    try {
+      expect(await robotCallAllowed({ phone: freshPhone(), clientId, kind: "scenario", now: dushanbe(DAY, 12) })).toMatchObject({ code: "stopped" });
+    } finally {
+      await clearRobotCallStop({ phone: `+992${clientPhone}`, clientId, clearedByAgentId: null });
+    }
+  });
+
+  it("повторная постановка не плодит записей", async () => {
+    const phone = freshPhone();
+    const first = await setRobotCallStop({ phone, source: "STAFF" });
+    const [second, third] = await Promise.all([setRobotCallStop({ phone: `0${phone}`, source: "VOICE" }), setRobotCallStop({ phone, source: "STAFF" })]);
+    expect(first.created).toBe(true);
+    expect(second.created || third.created).toBe(false);
+    expect(await prisma.robotCallStop.count({ where: { phone, clearedAt: null } })).toBe(1);
+  });
+
+  it("«не беспокойте» в переписке — отказ и без отметки", async () => {
+    const phone = freshPhone();
+    const c = await prisma.client.create({ data: { fullName: `Не беспокоить ${phone}`, phone: `+992${phone}`, source: "PHONE_CALL" } });
+    const conv = await prisma.botConversation.create({
+      data: { channel: "whatsapp", subscriberId: `policy-${phone}`, clientId: c.id, optedOutAt: new Date() },
+    });
+    try {
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now: dushanbe(DAY, 12) })).toMatchObject({ code: "opted_out", defer: false });
+      // Вызывающий карточку не назвал (приглашение, рекрутинг) — найдётся по номеру.
+      expect(await robotCallAllowed({ phone, kind: "scenario", now: dushanbe(DAY, 12) })).toMatchObject({ code: "opted_out" });
+    } finally {
+      await prisma.botConversation.delete({ where: { id: conv.id } });
+      await prisma.client.delete({ where: { id: c.id } });
+    }
+  });
+
+  it("чёрный список станции — отказ", async () => {
+    const phone = freshPhone();
+    blacklisted.add(phone);
+    expect(await robotCallAllowed({ phone: `+992${phone}`, kind: "scenario", now: dushanbe(DAY, 12) })).toMatchObject({ code: "blacklisted", defer: false });
+  });
+
+  it("через мост: стоп по номеру — отказ без Originate и без «занято»", async () => {
+    const phone = freshPhone();
+    await setRobotCallStop({ phone, source: "STAFF" });
+    originateToStasisApp.mockClear();
+    const result = await originateLiveVoiceTestCall(`+992${phone}`);
+    expect(result).toMatchObject({ ok: false, notDialed: true });
+    expect(result.busy).toBeUndefined();
+    expect(originateToStasisApp).not.toHaveBeenCalled();
+  });
+});
+
+describe("частота на номер — по всем видам вместе", () => {
+  it("второй разговор за сутки — отказ до завтрашнего утра", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, dushanbe(DAY, 10));
+    const decision = await robotCallAllowed({ phone, kind: "client_card", now: dushanbe(DAY, 15) });
+    expect(decision).toMatchObject({ allowed: false, code: "daily_limit", defer: true });
+    expect(decision.allowed === false && decision.retryAt?.toISOString()).toBe(dushanbe("2026-11-12", 9).toISOString());
+  });
+
+  it("граница суток — по Душанбе: разговор в 00:30 по Душанбе (вчера по UTC) считается сегодняшним", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, dushanbe(DAY, 0, 30));
+    expect(await robotCallAllowed({ phone, kind: "scenario", now: dushanbe(DAY, 10) })).toMatchObject({ code: "daily_limit" });
+    const other = freshPhone();
+    await outboundSession(other, dushanbe("2026-11-10", 23, 30)); // вчера по Душанбе
+    expect(await robotCallAllowed({ phone: other, kind: "scenario", now: dushanbe(DAY, 10) })).toEqual({ allowed: true });
+  });
+
+  it("четвёртый за семь суток — отказ; разговор восьмидневной давности не в счёт", async () => {
+    const phone = freshPhone();
+    for (const d of ["2026-11-05", "2026-11-07", "2026-11-09"]) await outboundSession(phone, dushanbe(d, 12));
+    const decision = await robotCallAllowed({ phone, kind: "scenario", now: dushanbe(DAY, 12) });
+    expect(decision).toMatchObject({ code: "weekly_limit", defer: true });
+    // Освободится, когда 05.11 выпадет из семи суток: 12.11 с утра.
+    expect(decision.allowed === false && decision.retryAt?.toISOString()).toBe(dushanbe("2026-11-12", 9).toISOString());
+
+    const older = freshPhone();
+    for (const d of ["2026-11-04", "2026-11-07", "2026-11-09"]) await outboundSession(older, dushanbe(d, 12));
+    expect(await robotCallAllowed({ phone: older, kind: "scenario", now: dushanbe(DAY, 12) })).toEqual({ allowed: true });
+  });
+
+  it("входящие и проверочные разговоры частоту не тратят; проверочному частота не помеха", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, dushanbe(DAY, 10), "inbound");
+    await outboundSession(phone, dushanbe(DAY, 11), "test");
+    expect(await robotCallAllowed({ phone, kind: "scenario", now: dushanbe(DAY, 12) })).toEqual({ allowed: true });
+    await outboundSession(phone, dushanbe(DAY, 12));
+    expect(await robotCallAllowed({ phone, kind: "test", now: dushanbe(DAY, 13) })).toEqual({ allowed: true });
+  });
+
+  it("числа берутся из Настроек", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, dushanbe(DAY, 10));
+    await prisma.settings.update({ where: { id: "singleton" }, data: { robotCallDailyMaxPerNumber: 2 } });
+    try {
+      expect(await robotCallAllowed({ phone, kind: "scenario", now: dushanbe(DAY, 12) })).toEqual({ allowed: true });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { robotCallDailyMaxPerNumber: 1 } });
+    }
+  });
+});
+
+describe("что тратит частоту — только состоявшийся разговор (ревью П3)", () => {
+  const now = dushanbe(DAY, 15);
+  const cases: Array<[string, { reason?: string; transcript?: string }]> = [
+    ["автоответчик по слову причины", { reason: "model_ended_call: voicemail" }],
+    ["автоответчик по словам собеседника", { transcript: "Клиент: Абонент временно недоступен, оставьте сообщение после сигнала" }],
+    ["взял не тот", { reason: "model_ended_call: wrong_person" }],
+    ["немая линия (наш сбой)", { reason: "no_station_audio", transcript: "Робот: Алло?" }],
+    ["голос не поднялся (наш сбой)", { reason: "start_failed: elevenlabs connect", transcript: "" }],
+    ["собеседник не сказал ни слова", { transcript: "Робот: Здравствуйте! Вам удобно говорить?" }],
+  ];
+  for (const [name, end] of cases) {
+    it(`${name} — не в счёт`, async () => {
+      const phone = freshPhone();
+      await outboundSession(phone, dushanbe(DAY, 10), "outbound", end);
+      expect(await robotCallAllowed({ phone, kind: "scenario", now })).toEqual({ allowed: true });
+    });
+  }
+
+  it("наш сбой посреди настоящего разговора — в счёт (собеседник успел сказать ≥ 3 реплик)", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, dushanbe(DAY, 10), "outbound", { reason: "gemini_error", transcript: "Клиент: Да\nКлиент: Слушаю\nКлиент: Квартира ещё продаётся" });
+    expect(await robotCallAllowed({ phone, kind: "scenario", now })).toMatchObject({ code: "daily_limit" });
+  });
+
+  it("разговор, который идёт прямо сейчас, — в счёт", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, new Date(now.getTime() - 5 * 60_000), "outbound", { open: true });
+    expect(await robotCallAllowed({ phone, kind: "scenario", now })).toMatchObject({ code: "daily_limit" });
+  });
+
+  it("приглашение на собеседование суточный предел не держит, недельный — держит", async () => {
+    const phone = freshPhone();
+    await outboundSession(phone, dushanbe(DAY, 10));
+    expect(await robotCallAllowed({ phone, kind: "scenario", now })).toMatchObject({ code: "daily_limit" });
+    expect(await robotCallAllowed({ phone, kind: "scenario", purpose: "interview_invite", now })).toEqual({ allowed: true });
+    for (const d of ["2026-11-07", "2026-11-09"]) await outboundSession(phone, dushanbe(d, 12));
+    expect(await robotCallAllowed({ phone, kind: "scenario", purpose: "interview_invite", now })).toMatchObject({ code: "weekly_limit" });
+  });
+
+  it("текст недельного отказа — с числом из Настроек; ноль в Настройках — не «без предела», а умолчание", async () => {
+    const phone = freshPhone();
+    for (const d of ["2026-11-07", "2026-11-09"]) await outboundSession(phone, dushanbe(d, 12));
+    await prisma.settings.update({ where: { id: "singleton" }, data: { robotCallWeeklyMaxPerNumber: 2, robotCallDailyMaxPerNumber: 0 } });
+    try {
+      const d = await robotCallAllowed({ phone, kind: "scenario", now });
+      expect(d).toMatchObject({ code: "weekly_limit" });
+      expect(d.allowed === false && d.message).toContain("2 раза");
+      const other = freshPhone();
+      await outboundSession(other, dushanbe(DAY, 10));
+      expect(await robotCallAllowed({ phone: other, kind: "scenario", now })).toMatchObject({ code: "daily_limit" });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { robotCallWeeklyMaxPerNumber: 3, robotCallDailyMaxPerNumber: 1 } });
+    }
+  });
+});
+
+describe("«не беспокойте» без карточки и разрешение руководства (ревью П3)", () => {
+  it("кандидат без карточки клиента, написавший боту «не беспокойте», — отказ по его диалогу", async () => {
+    const phone = freshPhone();
+    const conv = await prisma.botConversation.create({ data: { channel: "telegram", subscriberId: `policy-cand-${phone}`, optedOutAt: new Date() } });
+    try {
+      expect(await robotCallAllowed({ phone, conversationId: conv.id, kind: "scenario", now: dushanbe(DAY, 12) })).toMatchObject({ code: "opted_out" });
+      expect(await robotCallAllowed({ phone, kind: "scenario", now: dushanbe(DAY, 12) })).toEqual({ allowed: true });
+    } finally {
+      await prisma.botConversation.delete({ where: { id: conv.id } });
+    }
+  });
+
+  it("руководитель разрешил робота вопреки переписке — можно; отозвал — снова нельзя; стоп сильнее разрешения", async () => {
+    const phone = freshPhone();
+    const c = await prisma.client.create({ data: { fullName: `Разрешение ${phone}`, phone: `+992${phone}`, source: "PHONE_CALL" } });
+    const conv = await prisma.botConversation.create({ data: { channel: "whatsapp", subscriberId: `policy-allow-${phone}`, clientId: c.id, optedOutAt: new Date() } });
+    const now = dushanbe(DAY, 12);
+    try {
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "opted_out" });
+      await allowRobotCallDespiteOptOut(c.id, "test-director");
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toEqual({ allowed: true });
+      expect(await robotCallAllowed({ phone, kind: "scenario", now })).toEqual({ allowed: true }); // по номеру — та же карточка
+      expect(await robotCallAllowed({ phone, conversationId: conv.id, kind: "scenario", now })).toEqual({ allowed: true });
+      await setRobotCallStop({ phone, clientId: c.id, source: "STAFF" });
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "stopped" });
+      await clearRobotCallStop({ phone, clientId: c.id, clearedByAgentId: null });
+      await revokeRobotCallAllow(c.id, null);
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "opted_out" });
+      // Сама отметка переписки (рассылки) не тронута.
+      expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: conv.id } })).optedOutAt).not.toBeNull();
+    } finally {
+      await prisma.robotCallAllow.deleteMany({ where: { clientId: c.id } });
+      await prisma.botConversation.delete({ where: { id: conv.id } });
+      await prisma.client.delete({ where: { id: c.id } });
+    }
+  });
+});
+
+describe("разрешение руководства — только для просьб ДО него (повторное ревью П3)", () => {
+  it("клиент снова пишет «не беспокойте» после разрешения — робот не звонит", async () => {
+    const phone = freshPhone();
+    const c = await prisma.client.create({ data: { fullName: `Повторная просьба ${phone}`, phone: `+992${phone}`, source: "PHONE_CALL" } });
+    const old = await prisma.botConversation.create({ data: { channel: "whatsapp", subscriberId: `policy-old-${phone}`, clientId: c.id, optedOutAt: new Date(Date.now() - 8 * 86_400_000) } });
+    const now = dushanbe(DAY, 12);
+    try {
+      await allowRobotCallDespiteOptOut(c.id, "test-director");
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toEqual({ allowed: true });
+      // Новая просьба в другом канале — позже разрешения.
+      const fresh = await prisma.botConversation.create({ data: { channel: "telegram", subscriberId: `policy-new-${phone}`, clientId: c.id, optedOutAt: new Date(Date.now() + 1000) } });
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "opted_out" });
+      await prisma.botConversation.delete({ where: { id: fresh.id } });
+      // Та же переписка, повторное «не беспокойте» (optedOutAt не меняется) — разрешение гаснет.
+      expect(await revokeRobotCallAllowOnOptOut(old.id)).toBe(1);
+      expect(await robotCallAllowed({ phone, clientId: c.id, kind: "scenario", now })).toMatchObject({ code: "opted_out" });
+    } finally {
+      await prisma.robotCallAllow.deleteMany({ where: { clientId: c.id } });
+      await prisma.botConversation.deleteMany({ where: { clientId: c.id } });
+      await prisma.client.delete({ where: { id: c.id } });
+    }
+  });
+});
+
+describe("обрыв после настоящего разговора — не «наш сбой» (повторное ревью П3)", () => {
+  const talk = ["Клиент: Да", "Клиент: Слушаю вас", "Клиент: Хорошо, приду"];
+  it.each(["orphan_after_restart", "gemini_stalled", "elevenlabs_disconnected", "ended_while_offline"])("%s с разговором — не сбой, без разговора — сбой", (reason) => {
+    expect(isRobotCallOurFailure(reason, talk)).toBe(false);
+    expect(isRobotCallOurFailure(reason, ["Робот: Алло?"])).toBe(true);
+  });
+  it("сбой до разговора — сбой всегда", () => {
+    expect(isRobotCallOurFailure("start_failed: connect", talk)).toBe(true);
+    expect(isRobotCallOurFailure("no_station_audio", talk)).toBe(true);
+  });
+});
+
+describe("номер", () => {
+  it("не таджикский номер — окончательный отказ", async () => {
+    expect(await robotCallAllowed({ phone: "+7 999 123", kind: "test" })).toMatchObject({ code: "invalid_number", defer: false });
+  });
+});

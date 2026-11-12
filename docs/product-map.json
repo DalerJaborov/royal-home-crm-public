@@ -362,6 +362,18 @@
       }
     },
     {
+      "path": "/market",
+      "component": "MarketSegments",
+      "file": "apps/web/src/pages/MarketSegments.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/market",
+        "label": "Рынок: цены",
+        "group": "objects",
+        "gate": ""
+      }
+    },
+    {
       "path": "/marketing",
       "component": "MarketingCenter",
       "file": "apps/web/src/pages/MarketingCenter.tsx",
@@ -732,6 +744,12 @@
       "gate": ""
     },
     {
+      "to": "/market",
+      "label": "Рынок: цены",
+      "group": "objects",
+      "gate": ""
+    },
+    {
       "to": "/site-changes",
       "label": "Изменения на сайте",
       "group": "objects",
@@ -969,17 +987,17 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 125,
+      "endpoints": 129,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 31
+      "usedBy": 33
     },
     {
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 60,
+      "endpoints": 63,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
-      "usedBy": 13
+      "usedBy": 14
     },
     {
       "mount": "/api/v1/deals",
@@ -1521,7 +1539,7 @@
       "mount": "/api/v1/market",
       "router": "marketRouter",
       "file": "apps/api/src/routes/market.ts",
-      "endpoints": 2,
+      "endpoints": 3,
       "label": null,
       "usedBy": 1
     },
@@ -1887,6 +1905,11 @@
       "id": "morning-report",
       "expr": "0 8 * * *",
       "label": "Утренний дайджест директорам"
+    },
+    {
+      "id": "narration-auto-flow",
+      "expr": "* * * * *",
+      "label": null
     },
     {
       "id": "narration-version-delivery",
@@ -2292,7 +2315,7 @@
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 17
+      "files": 18
     },
     {
       "name": "Телефония FreePBX / Asterisk",

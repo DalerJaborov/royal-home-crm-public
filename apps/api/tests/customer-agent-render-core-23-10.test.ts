@@ -131,8 +131,10 @@ describe("F07 the résumé is asked once", () => {
   const perceived = (subject: "document" | "home_interior", readableText: string) => ({ language: "ru", transcript: "", subject, visible: [], readableText, speech: "none" });
   const renderJob = (extra: Record<string, unknown>, turns: Array<{ role: "user" | "assistant"; text: string }> = []) =>
     render([catalog, saved], { verifiedContext: context(turns, job), ...extra }, "name") ?? "";
-  it("control: a bare message after the receipt still gets one request for the résumé", () => {
-    expect(renderJob({ inputText: "Здравствуйте" })).toContain("Пришлите резюме");
+  it("control: a bare message after the receipt gets the specialist's phone line and no résumé request (phone-only recruitment)", () => {
+    const text = renderJob({ inputText: "Здравствуйте" });
+    expect(text).toContain("Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста.");
+    expect(text).not.toContain("Пришлите резюме");
   });
   it("does not ask for it after a document or a photographed résumé", () => {
     const text = renderJob({ inputText: "", mediaPerception: perceived("document", "Резюме. Меня зовут Мадина. Опыт: три года ведения Instagram") });

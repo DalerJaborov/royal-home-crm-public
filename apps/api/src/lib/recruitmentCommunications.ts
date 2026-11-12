@@ -16,12 +16,13 @@ import { payomSend, PAYOM_NOT_DELIVERED } from "./sms/payom.js";
 import { originateLiveVoiceScenarioCall, type LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
 import { INTERVIEW_INVITE_CALL_TOOLS } from "../ai/interviewInviteCallPersona.js";
 import { parseInterviewInviteCall } from "../ai/interviewInviteCallParse.js";
+import { INTERVIEW_INVITE_TOO_LATE_MS } from "./interviewInviteCall.js";
 import { isWithinPostShowingCallHours } from "./postShowingCall.js";
 import { loadCompanyDaysOff } from "./daysOffCalendar.js";
 import { vacancyOfficeMapUrl } from "../ai/vacancyFacts.js";
 import { RecruitmentCommunicationError, held, assertSmsLength, smsSegments, bridgeRefusalStatus, isUnresolvedDelivery,
   hasCallWindowBefore, UNKNOWN_SOFT_MINUTES, UNKNOWN_HARD_HOURS } from "./recruitmentCommunicationRules.js";
-import { buildRecruitmentCommunicationContent, recruitmentCommunicationDigest as digest } from "./recruitmentCommunicationContent.js";
+import { buildRecruitmentCommunicationContent, RECRUITMENT_CALL_GREETING_TRIGGER, recruitmentCommunicationDigest as digest } from "./recruitmentCommunicationContent.js";
 
 export { RecruitmentCommunicationError };
 /** SQL-двойник isUnresolvedDelivery (recruitmentCommunicationRules.ts): держать в паре. */
@@ -226,7 +227,11 @@ export async function previewRecruitmentContact(applicationId: string, actorId: 
       originalInterviewAt: source.app.interviewAt?.toISOString() ?? null, phone: source.app.phone!,
       positionKey: source.position.key, positionRevision: source.position.revision, companyHash: source.companyHash,
       fence: source.state?.fence ?? null, sourceKind: source.state ? "CORE" : "LEGACY_HR", legacyBindingHash: source.legacy?.hash ?? null, request, ...content,
-      validUntil: request.interviewAt ?? new Date(now.getTime() + 24 * 60 * 60_000).toISOString() };
+      // Приглашение живо до часа перед собеседованием — тот же запас, что у робота-приглашения
+      // (INTERVIEW_INVITE_TOO_LATE_MS): позже звонить и писать «приходите» поздно.
+      validUntil: request.interviewAt
+        ? new Date(new Date(request.interviewAt).getTime() - INTERVIEW_INVITE_TOO_LATE_MS).toISOString()
+        : new Date(now.getTime() + 24 * 60 * 60_000).toISOString() };
     const previewId = randomUUID(), previewHash = digest(snapshot);
     for (const channel of request.channels) await tx.$executeRaw`INSERT INTO "RecruitmentCommunication"
       ("id","previewId","jobApplicationId","actorId","purpose","channel","status","previewHash","snapshotJson","expiresAt","createdAt","updatedAt")
@@ -353,16 +358,23 @@ export async function dispatchRecruitmentCommunication(id: string, now = new Dat
     } else {
       if (process.env.VITEST && !testTransport || process.env.RECRUITMENT_CONTACT_DRY_RUN === "1") { await settle(id, "DRY_RUN", "Проверка без звонка"); return; }
       const voice = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { liveVoiceVoiceName: true, liveVoiceVoiceNameTajik: true } });
+      // П3: «не беспокойте» кандидата живёт в его диалоге с ботом — двери нужны его ключи.
+      const who = await prisma.jobApplication.findUnique({ where: { id: initial.jobApplicationId },
+        select: { conversationId: true, contactProfileId: true, customerInquiry: { select: { conversationId: true } } } });
       await assertPhysicalSourceCurrent(initial, snapshot);
       const result = await (testTransport?.call ?? originateLiveVoiceScenarioCall)(snapshot.phone, { systemInstruction: snapshot.callPrompt,
-        greetingTrigger: "(Кандидат снял трубку. Представься голосовым помощником Royal Home и спроси, удобно ли говорить.)",
+        greetingTrigger: RECRUITMENT_CALL_GREETING_TRIGGER,
         tools: INTERVIEW_INVITE_CALL_TOOLS, language: snapshot.request.language, forceRussianOnly: false,
+        conversationId: who?.conversationId ?? who?.customerInquiry?.conversationId ?? null, contactProfileId: who?.contactProfileId ?? null,
+        ...(snapshot.request.purpose === "INVITE" && snapshot.request.interviewAt ? { purpose: "interview_invite" as const } : {}),
         voiceName: (snapshot.request.language === "tg" ? voice?.liveVoiceVoiceNameTajik || voice?.liveVoiceVoiceName : voice?.liveVoiceVoiceName) || undefined,
         onFinished: result => finishRecruitmentAssistantCall(id, result) }, { callerId: "Royal Home", channelId: id,
           beforeOriginate: () => assertPhysicalSourceCurrent(initial, snapshot) });
       if (result.busy) {
         // The bridge explicitly proves this branch occurs before any originate.
-        await settle(id, "QUEUED", "Линия ассистента занята; ожидаем свободную линию");
+        await settle(id, "QUEUED", result.policyCode ? result.error ?? "Звонок отложен" : "Линия ассистента занята; ожидаем свободную линию");
+        // Отказ двери по часам/частоте (П3) знает время: до него строка очередь не загораживает.
+        if (result.retryAt) await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "retryAfter"=${result.retryAt} WHERE "id"=${id} AND "status"='QUEUED'`;
       } else if (result.ok && result.channelId) await settle(id, "ACCEPTED", null, result.channelId);
       else await settle(id, bridgeRefusalStatus(result), result.error ?? "Начало звонка не подтверждено — повтор запрещён");
     }
@@ -389,7 +401,9 @@ export async function runRecruitmentCommunicationTick(now = new Date()): Promise
   // СМС уходят всегда; звонки, ждущие окна, выбираются только в окне — иначе они заслоняют СМС.
   await loadCompanyDaysOff();
   const callsNow = isWithinPostShowingCallHours(now);
+  // Отложенные дверью звонков робота (П3, retryAfter) не загораживают новых кандидатов.
   const due = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "RecruitmentCommunication" WHERE "status"='QUEUED'
+    AND ("retryAfter" IS NULL OR "retryAfter"<=${now})
     ${callsNow ? Prisma.empty : Prisma.sql`AND "channel"<>'ASSISTANT_CALL'`} ORDER BY ("channel"='SMS') DESC,"createdAt" LIMIT 10`);
   for (const row of due) await dispatchRecruitmentCommunication(row.id, now);
 }

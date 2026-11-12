@@ -110,6 +110,10 @@ describe("Слияние двух карточек продавца", () => {
       data: { clientId: duplicate.id, agentId, recipient: `99294${tail}`, templateName: "тест" },
     });
 
+    // Робозвонок: «не звонить» и разрешение сотрудника едут за человеком (П3, 11.11.2026).
+    const robotStop = await prisma.robotCallStop.create({ data: { phone: `93${tail}`.slice(-9), clientId: duplicate.id, source: "STAFF", setByAgentId: agentId } });
+    const robotAllow = await prisma.robotCallAllow.create({ data: { clientId: duplicate.id, allowedByAgentId: agentId } });
+
     const knownHash = clientPhoneHash(duplicate.extraPhones[0]), unknownHash = clientPhoneHash(duplicate.extraPhones[1]);
     const oldDate = new Date("2020-01-02T00:00:00Z");
     await prisma.clientPhoneOrigin.update({ where: { clientId_phoneHash: { clientId: duplicate.id, phoneHash: knownHash } }, data: { addedAt: oldDate, source: "MANUAL" } });
@@ -169,6 +173,10 @@ describe("Слияние двух карточек продавца", () => {
     expect(movedApplication.clientId).toBe(primary.id);
     const movedWa = await prisma.whatsAppFirstContact.findUniqueOrThrow({ where: { id: waFirst.id } });
     expect(movedWa.clientId).toBe(primary.id);
+    expect((await prisma.robotCallStop.findUniqueOrThrow({ where: { id: robotStop.id } })).clientId).toBe(primary.id);
+    expect((await prisma.robotCallAllow.findUniqueOrThrow({ where: { id: robotAllow.id } })).clientId).toBe(primary.id);
+    await prisma.robotCallStop.delete({ where: { id: robotStop.id } });
+    await prisma.robotCallAllow.delete({ where: { id: robotAllow.id } });
   });
   it("preserves a manual single role and cancelled task owners while moving live work", async () => {
     const former = await prisma.agent.create({ data: { fullName: "Former merge fixture owner", phone: `merge-former-${randomUUID()}`, passwordHash: "unused", role: "AGENT" } });

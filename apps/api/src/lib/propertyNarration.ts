@@ -1,30 +1,54 @@
 import { createHash } from "node:crypto";
-import type { NarrationConfig, NarrationFacts } from "@royal-home/shared";
+import { narrationTtsOptions, type NarrationConfig, type NarrationFacts, type NarrationLang } from "@royal-home/shared";
 export { suggestedNarration } from "@royal-home/shared";
 
-export function narrationFacts(p: { type: string; rooms: number | null; areaSqm: { toString(): string }; floor: number | null; totalFloors: number | null; district: { name: string } | null }): NarrationFacts {
-  // Deliberate allowlist: no price, owner's identity, phone, free-form title/description.
-  return { type: p.type, rooms: p.rooms, areaSqm: p.areaSqm.toString(), floor: p.floor, totalFloors: p.totalFloors, district: p.district?.name ?? null };
+export function narrationFacts(p: { type: string; rooms: number | null; areaSqm: { toString(): string }; floor: number | null; totalFloors: number | null; district: { name: string } | null; price?: { toString(): string } | number | null; currency?: string | null }): NarrationFacts {
+  // Deliberate allowlist: no owner's identity, phone, free-form title/description.
+  // Price is spoken since 11.11.2026 (owner decision), so a price change is a fact change.
+  return { type: p.type, rooms: p.rooms, areaSqm: p.areaSqm.toString(), floor: p.floor, totalFloors: p.totalFloors, district: p.district?.name ?? null,
+    price: p.price === null || p.price === undefined ? null : p.price.toString(), currency: p.currency ?? null };
 }
 export function narrationHash(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+/**
+ * АКТУАЛЬНА ЛИ ВЕРСИЯ ОЗВУЧКИ ПО ФАКТАМ (12.11.2026, ревью). Цена вошла в факты 11.11.2026; версии,
+ * сделанные раньше (в снимке фактов нет поля price), сравниваются без цены — иначе при включении
+ * все старые ручные озвучки разом стали бы «устаревшими»: волна перегенерации и возвратов монтажёру,
+ * их нельзя было бы одобрить, а поставленные передачи падали бы. Одно место для всех сравнений.
+ */
+export function narrationFactsCurrent(version: { factsHash: string; factsSnapshot?: unknown }, p: Parameters<typeof narrationFacts>[0]): boolean {
+  const facts = narrationFacts(p);
+  if (version.factsHash === narrationHash(facts)) return true;
+  const snapshot = version.factsSnapshot;
+  if (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) && !("price" in snapshot)) {
+    const { price: _price, currency: _currency, ...withoutPrice } = facts;
+    return version.factsHash === narrationHash(withoutPrice);
+  }
+  return false;
+}
 export function narrationScriptError(text: string): string | null {
   if (text.length > 5000) return "Текст длиннее 5000 символов — сократите его перед подтверждением.";
-  // Quantities (area, rooms, floors) stay valid; monetary amounts must stay in the caption.
-  if (/(?:\d[\d\s.,]*\s*(?:сомони|доллар\p{L}*|рубл\p{L}*|евро|tjs|usd|rub|eur)|(?:тысяч|миллион)\p{L}*\s+(?:сомони|доллар\p{L}*|рубл\p{L}*|евро)|[$€₽]|(?:цена|стоимость|нарх)\s*[:—–-]?\s*(?:\d|один|два|три|четыре|пять|шесть|семь|восемь|девять|сто|тысяч|миллион))/iu.test(text)) return "Уберите цену из озвучки. Цена остаётся в описании.";
+  // Price may be spoken since 11.11.2026 (owner: «Да, говорить цену»); {цена} speaks the card price.
   return null;
 }
+export const NARRATION_QUOTA_EXCEEDED = "PROVIDER_QUOTA_EXCEEDED";
 export type NarrationAudioResult = { status: "READY"; audio: Buffer; requestId: string | null } | { status: "FAILED" | "UNKNOWN"; errorCode: string };
 /** Official POST /v1/text-to-speech/:voice_id. One attempt only: a timeout may have incurred cost. */
-export async function generateNarrationAudio(input: { script: string; voiceId: string; config: NarrationConfig; apiKey: string }, fetcher: typeof fetch = fetch): Promise<NarrationAudioResult> {
+export async function generateNarrationAudio(input: { script: string; voiceId: string; config: NarrationConfig; apiKey: string; lang?: NarrationLang | null }, fetcher: typeof fetch = fetch): Promise<NarrationAudioResult> {
   if (!input.config.modelId || !input.config.voices.some((v) => v.id === input.voiceId)) return { status: "FAILED", errorCode: "VOICE_NOT_CONFIGURED" };
   if (narrationScriptError(input.script)) return { status: "FAILED", errorCode: "INVALID_SCRIPT" };
   try {
     const base = (process.env.ELEVENLABS_API_BASE?.trim() || "https://api.elevenlabs.io").replace(/\/+$/, "");
     const response = await fetcher(`${base}/v1/text-to-speech/${encodeURIComponent(input.voiceId)}?output_format=mp3_44100_128`, {
       method: "POST", headers: { "xi-api-key": input.apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: input.script, model_id: input.config.modelId }), signal: AbortSignal.timeout(60_000), redirect: "error",
+      body: JSON.stringify({ text: input.script, model_id: input.config.modelId, ...narrationTtsOptions(input.config, input.voiceId, input.lang) }), signal: AbortSignal.timeout(60_000), redirect: "error",
     });
-    if (!response.ok) return { status: response.status >= 500 ? "UNKNOWN" : "FAILED", errorCode: `PROVIDER_HTTP_${response.status}` };
+    if (!response.ok) {
+      // «Кредиты кончились» (ElevenLabs: detail.status = quota_exceeded, обычно 401): денег не списано,
+      // повтор до пополнения бесполезен — отдельный код, по нему автоозвучка встаёт на паузу.
+      const body = (await response.text().catch(() => "")).slice(0, 4000);
+      if (/quota_exceeded/iu.test(body)) return { status: "FAILED", errorCode: NARRATION_QUOTA_EXCEEDED };
+      return { status: response.status >= 500 ? "UNKNOWN" : "FAILED", errorCode: `PROVIDER_HTTP_${response.status}` };
+    }
     if (!response.headers.get("content-type")?.startsWith("audio/")) return { status: "UNKNOWN", errorCode: "INVALID_AUDIO_RESPONSE" };
     const audio = Buffer.from(await response.arrayBuffer());
     if (!audio.length || audio.length > 25 * 1024 * 1024) return { status: "UNKNOWN", errorCode: "INVALID_AUDIO_SIZE" };

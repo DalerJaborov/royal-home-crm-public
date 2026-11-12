@@ -8,7 +8,8 @@ import {
   type ExpenseReceiptEvidence,
 } from "../lib/telegramExpenseReceipts.js";
 import { extractExpenseReceipt } from "../ai/assistant/expenseReceiptExtraction.js";
-import { renderExpenseReceiptPdf } from "../ai/assistant/mediaProbe.js";
+import { readExpensePdfText, renderExpenseReceiptPdf } from "../ai/assistant/mediaProbe.js";
+import { expenseRowsFromTable } from "../lib/expenseTableRows.js";
 import { loadAssistantSettings } from "../ai/assistant/runtime.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
@@ -16,8 +17,9 @@ import { downloadAssistantMedia } from "./assistantMedia.js";
 import { answerCallbackQuery, editMessageText, sendMessage, sendMessageWithButtons, TelegramApiError, type TelegramCallbackQuery, type TelegramIncomingMessage } from "./api.js";
 import { prisma } from "../db.js";
 import { todayExpenseDay } from "../lib/expenseWorkspace.js";
+import { NO_USD_RATE_TEXT } from "../lib/money.js";
 import {
-  intakeText, knownBatch, normalizeReceiptPhoto, rowsFromSpreadsheet, rowsFromTablePhoto, sourceHashOf, spreadsheetKind, stageExpenseBatch, type SpreadsheetKind,
+  intakeText, knownBatch, normalizeReceiptPhoto, PDF_MAX_BYTES, PDF_MAX_PAGES, pdfPageNotesText, rowsFromPdf, rowsFromSpreadsheet, rowsFromTablePhoto, sourceHashOf, spreadsheetKind, stageExpenseBatch, type SpreadsheetKind,
 } from "./assistantExpenseBatchIntake.js";
 import { collectExpenseAlbumPhoto, hasExpenseAlbum } from "./assistantExpenseAlbum.js";
 
@@ -38,7 +40,7 @@ const receiptMessage = z.object({
 const copy = {
   ru: {
     unavailable: "Не получилось разобрать чек. Пришлите его ещё раз.",
-    invalidPdf: "Пришлите один чек в PDF на одной странице, без пароля и до 2 МБ.",
+    invalidPdf: "Пришлите PDF без пароля: до 30 страниц и до 10 МБ.",
     clarify: "Пришлите чек ещё раз и в подписи уточните только то, что не прочиталось.",
     conflict: "Данные в подписи и на чеке различаются. Проверьте сумму, валюту, дату и назначение, затем пришлите чек ещё раз.",
     noPaidReceipt: "На фото не видно, что оплата прошла. Пришлите чек с итоговой суммой и датой.",
@@ -57,11 +59,11 @@ const copy = {
     expired: "Время на подтверждение вышло. Пришлите чек снова.",
     forbidden: "Записывать чек можно только из привязанной лички директора.",
     uncertain: "Не удалось показать результат. Нажмите кнопку ещё раз.",
-    noRate: "Курс доллара в Настройках CRM не задан — долларовый чек не записываю. Задайте курс в Настройках.",
+    noRate: NO_USD_RATE_TEXT,
   },
   tg: {
     unavailable: "Расидро хонда натавонистам. Боз фиристед.",
-    invalidPdf: "Як расидро дар як саҳифаи PDF фиристед. То 2 МБ ва бе рамз.",
+    invalidPdf: "PDF-ро бе рамз фиристед: то 30 саҳифа ва то 10 МБ.",
     clarify: "Расидро боз фиристед. Дар зераш фақат он чизеро нависед, ки хонда нашуд.",
     conflict: "Навиштаатон бо расид як хел нест. Маблағ, асъор, сана ва барои чӣ буданашро санҷеду расидро боз фиристед.",
     noPaidReceipt: "Аз акс маълум нест, ки пардохт шудааст. Расидро бо маблағ ва сана фиристед.",
@@ -198,12 +200,16 @@ export async function handleTelegramExpenseReceipt(
   try {
     let result = await findExpensePhotoDraft(actor, messageId);
     if (!result) {
-      if (item.file_size && item.file_size > MAX_EXPENSE_RECEIPT_BYTES) {
+      const limit = pdf ? PDF_MAX_BYTES : MAX_EXPENSE_RECEIPT_BYTES;
+      if (item.file_size && item.file_size > limit) {
         if (explicit) await send(pdf ? copy[language].invalidPdf : copy[language].unavailable);
         return explicit;
       }
-      const raw = await downloadAssistantMedia(item.file_id, MAX_EXPENSE_RECEIPT_BYTES);
-      if (!raw.length || raw.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("media_size_rejected");
+      const raw = await downloadAssistantMedia(item.file_id, limit);
+      if (!raw.length || raw.length > limit) throw new Error("media_size_rejected");
+      // PDF из нескольких страниц или с таблицей в текстовом слое — пачка расходов (10.11.2026).
+      if (pdf && await handleExpensePdfBatch({ raw, actor, agentId, messageId, language, wallet, send })) return true;
+      if (raw.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("media_size_rejected");
       const source = pdf ? raw : await normalizeReceiptPhoto(raw);
       const sourceHash = expenseReceiptHash(source);
       result = await findExpensePhotoDraft(actor, messageId, sourceHash);
@@ -333,23 +339,49 @@ export async function handleTelegramExpenseReceiptCallback(query: TelegramCallba
 const MAX_SPREADSHEET_BYTES = 5_000_000;
 
 /**
+ * PDF расходов: страницы с текстом — кодом, сканы — ИИ (rowsFromPdf). Одностраничный PDF без
+ * таблицы в тексте остаётся прежним путём «один чек» (false). Тот же файл второй раз — «уже записаны».
+ */
+async function handleExpensePdfBatch(params: {
+  raw: Buffer; actor: { chatId: string }; agentId: string; messageId: number; language: Language;
+  wallet: AssistantMoneyWallet; send: (text: string) => Promise<unknown>;
+}): Promise<boolean> {
+  const { raw, agentId, messageId, wallet, send } = params;
+  let language = params.language;
+  // Текстовый слой читается один раз — им же решается «один чек или пачка» и разбираются страницы.
+  const texts = await readExpensePdfText(raw, PDF_MAX_PAGES);
+  const textRows = texts.length === 1
+    ? expenseRowsFromTable(texts[0]!.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean).map((line) => line.split(/\s{2,}|\t/u))).rows.length
+    : 0;
+  if (texts.length === 1 && textRows < 2) return false;
+  const sourceHash = sourceHashOf(raw);
+  const known = await knownBatch(agentId, sourceHash);
+  if (known) { await send(intakeText(language)[known]); return true; }
+  // Каждая страница, ушедшая в ИИ, списывает общий дневной предел разборов, как фото.
+  const pdf = await rowsFromPdf(raw, sourceHash, wallet, texts,
+    async () => (await claimAgentAiAction(agentId, "assistant-expense-receipt-ocr", dailyExpenseReceipts)).allowed);
+  if (pdf.language === "tg") language = "tg";
+  if (!pdf.rows.length) { await send([intakeText(language).unreadablePhoto, pdfPageNotesText(language, pdf.pageNotes)].filter(Boolean).join("\n")); return true; }
+  await stageExpenseBatch({ chatId: params.actor.chatId, agentId, rows: pdf.rows, lang: language, kind: "pdf", replyTo: messageId, notes: { skipped: pdf.skipped } });
+  const notes = pdfPageNotesText(language, pdf.pageNotes);
+  if (notes) await send(notes);
+  return true;
+}
+
+/**
  * Excel или CSV в личке (10.11.2026): таблица разбирается кодом, без ИИ, в одну карточку. Файл без
  * строк «название + сумма» без подписи-намерения — не расходы: отдаём обычному пути.
  */
 async function handleExpenseSpreadsheet(params: {
   chatId: string; messageId: number; document: { file_id: string; file_size?: number }; kind: SpreadsheetKind;
-  caption: string; explicit: boolean; agentId: string;
+  caption: string; explicit: boolean; agentId: string; lang?: Language;
 }): Promise<boolean> {
   const { chatId, messageId, document, kind, caption, explicit, agentId } = params;
   const actor = await getExpenseDirector(chatId, agentId);
   if (!actor) return false;
   const captionLanguage = assistantLanguage([{ role: "user", content: caption }]);
-  const language: Language = captionLanguage === "tg" || captionLanguage === "mixed" || /^(?:харҷ|расид)/iu.test(caption) ? "tg" : "ru";
+  const language: Language = params.lang ?? (captionLanguage === "tg" || captionLanguage === "mixed" || /^(?:харҷ|расид)/iu.test(caption) ? "tg" : "ru");
   const send = (text: string) => sendMessage(chatId, text, messageId);
-  if (kind === "xls") {
-    if (explicit || !caption) await send(intakeText(language).xls);
-    return explicit || !caption;
-  }
   if (document.file_size && document.file_size > MAX_SPREADSHEET_BYTES) {
     await send(intakeText(language).broken);
     return true;
@@ -361,6 +393,7 @@ async function handleExpenseSpreadsheet(params: {
     if (known) { await send(intakeText(language)[known]); return true; }
     const table = rowsFromSpreadsheet(kind, bytes);
     if (!table) { await send(intakeText(language).broken); return true; }
+    if ("refused" in table && table.refused) { await send(intakeText(language)[table.refused]); return true; }
     if (!table.rows.length) {
       if (explicit) await send(intakeText(language).empty);
       return explicit;
@@ -378,7 +411,13 @@ const FILE_QUESTION_TTL_MS = 10 * 60_000;
 const FILE_CALLBACK = /^ay:(y|n):(\d{1,10})$/u;
 const FILE_QUESTION = {
   ru: { ask: "Это расходы? Разберу таблицу и покажу карточку — ничего не запишу без вашего «Записать».", yes: "✅ Да, расходы", no: "Нет", cancelled: "Хорошо, файл не трогаю.", stale: "Вопрос устарел — пришлите файл ещё раз с подписью «расходы»." },
+  tg: { ask: "Ин харҷҳоянд? Ҷадвалро мехонам ва корт нишон медиҳам — бе «Сабт кардан»-и шумо ҳеҷ чиз сабт намешавад.", yes: "✅ Ҳа, харҷ", no: "Не", cancelled: "Хуб, ба файл даст намерасонам.", stale: "Савол кӯҳна шуд — файлро бо навишти «харҷ» боз фиристед." },
 } as const;
+
+function questionLang(payload: Record<string, unknown>): Language {
+  const history = Array.isArray(payload.messages) ? payload.messages as { role: string; content: string }[] : [];
+  return ["tg", "mixed"].includes(assistantLanguage(history.filter((m) => m && typeof m.content === "string"))) ? "tg" : "ru";
+}
 
 /** Файл без подписи: спросить кнопками, а файл запомнить в состоянии диалога (история не теряется). */
 async function askIfSpreadsheetIsExpenses(params: {
@@ -391,11 +430,14 @@ async function askIfSpreadsheetIsExpenses(params: {
   const payload = live ? state.payload as Record<string, unknown> : { messages: [] };
   const data = {
     agentId: params.agentId, kind: "assistant",
-    payload: { ...payload, expenseFile: { messageId: params.messageId, fileId: params.document.file_id, fileSize: params.document.file_size ?? null, kind: params.kind, until: Date.now() + FILE_QUESTION_TTL_MS } } as object,
+    payload: { ...payload, expenseFile: { messageId: params.messageId, fileId: params.document.file_id, fileSize: params.document.file_size ?? null, kind: params.kind, until: Date.now() + FILE_QUESTION_TTL_MS, lang: questionLang(payload) } } as object,
     expiresAt: new Date(Math.max(Date.now() + FILE_QUESTION_TTL_MS, live ? state.expiresAt.getTime() : 0)),
   };
   await prisma.telegramDialogState.upsert({ where: { chatId: params.chatId }, create: { chatId: params.chatId, ...data }, update: data });
-  const q = FILE_QUESTION.ru;
+  // Язык вопроса — язык разговора (подписи у файла нет): по последним словам человека в этом чате.
+  const history = Array.isArray(payload.messages) ? payload.messages as { role: string; content: string }[] : [];
+  const lang: Language = ["tg", "mixed"].includes(assistantLanguage(history.filter((m) => m && typeof m.content === "string"))) ? "tg" : "ru";
+  const q = FILE_QUESTION[lang];
   await sendMessageWithButtons(params.chatId, q.ask, [[
     { text: q.yes, callback_data: `ay:y:${params.messageId}` },
     { text: q.no, callback_data: `ay:n:${params.messageId}` },
@@ -413,8 +455,9 @@ export async function handleExpenseFileQuestionCallback(query: TelegramCallbackQ
   const chatId = String(chat.id);
   const state = await prisma.telegramDialogState.findUnique({ where: { chatId } });
   const payload = state?.kind === "assistant" && state.agentId === agentId ? state.payload as Record<string, unknown> : null;
-  const file = payload?.expenseFile as { messageId?: unknown; fileId?: unknown; fileSize?: unknown; kind?: unknown; until?: unknown } | undefined;
-  const q = FILE_QUESTION.ru;
+  const file = payload?.expenseFile as { messageId?: unknown; fileId?: unknown; fileSize?: unknown; kind?: unknown; until?: unknown; lang?: unknown } | undefined;
+  const lang: Language = file?.lang === "tg" ? "tg" : "ru";
+  const q = FILE_QUESTION[lang];
   if (!payload || !file || file.messageId !== Number(match[2]) || typeof file.fileId !== "string" || Number(file.until) < Date.now()
     || (file.kind !== "csv" && file.kind !== "xlsx" && file.kind !== "xls")) {
     await ack(q.stale);
@@ -428,7 +471,7 @@ export async function handleExpenseFileQuestionCallback(query: TelegramCallbackQ
   if (match[1] !== "y") return true;
   if (!(await loadAssistantSettings()).enabled) return true;
   await handleExpenseSpreadsheet({
-    chatId, messageId: Number(file.messageId), agentId, caption: "", explicit: true, kind: file.kind,
+    chatId, messageId: Number(file.messageId), agentId, caption: "", explicit: true, kind: file.kind, lang,
     document: { file_id: file.fileId, ...(typeof file.fileSize === "number" ? { file_size: file.fileSize } : {}) },
   });
   return true;

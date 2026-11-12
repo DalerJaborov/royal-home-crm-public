@@ -1285,6 +1285,7 @@ function VideoHandoffFields() {
   const clipReviewOn = settings?.clipReviewEnabled ?? false;
   const clipOwnerOn = settings?.clipOwnerApproveEnabled ?? false;
   const clipOwnerHours = settings?.clipOwnerAutoPublishHours ?? 3;
+  const staffClipOn = settings?.staffClipIntakeEnabled !== false;
 
   return (
     <>
@@ -1325,6 +1326,18 @@ function VideoHandoffFields() {
             : "CRM не передаёт сырое видео монтажёру — объект просто ждёт в очереди монтажа, ролик забирают вручную."
         }
         warning={handoffOn && !montajerId ? "Монтажёр не выбран — объекты будут копиться в очереди без единой отправки." : null}
+      />
+
+      {/* 12.11.2026, владелец: ролик снял СММщик или другой сотрудник — он присылает его Шабнам. */}
+      <SwitchRow
+        title="Ролики от сотрудников через Шабнам"
+        on={staffClipOn}
+        onToggle={() => updateSettings.mutate({ staffClipIntakeEnabled: !staffClipOn })}
+        hint={
+          staffClipOn
+            ? "Сотрудник присылает видео Шабнам: оно само находит объект и уходит в выпуск или монтажёру."
+            : "Видео от сотрудников Шабнам не принимает как ролики объектов."
+        }
       />
 
       {/* 25.09.2026, владелец: «выключи временно одобрение роликов от агентов —

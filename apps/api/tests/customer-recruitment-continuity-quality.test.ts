@@ -12,6 +12,10 @@ const catalogFacts = { collecting: true, positions };
 const catalog = { kind: "open_vacancies" as const, ...catalogFacts, sourceHash: recruitmentCatalogHash(catalogFacts) };
 const agent = positions.find(row => row.key === "real-estate-agent")!;
 const video = positions.find(row => row.key === "smm-videographer")!;
+// Phone-only recruitment (owner 10–11.11.2026): the bot names the role and gives the specialist's number.
+const phoneLine = (language: "ru" | "tg") => language === "ru"
+  ? "Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста."
+  : "Маълумоти пурраро дар бораи кор мутахассиси мо Ноза бо телефон медиҳад: 777 070 100. Лутфан занг занед.";
 
 function makeContext(language: "ru" | "tg", turns: CustomerAgentVerifiedContext["turns"], jobPositionKey?: string): CustomerAgentVerifiedContext {
   return { surface: "dm", revisionId: hash, turns, recruitmentKnown: ["name", "age", "about"],
@@ -47,6 +51,7 @@ async function firstAcceptedVacancy(language: "ru" | "tg", key = video.key) {
     language, "job_experience");
   if (first.status !== "ready") throw new Error("Expected a synthetic vacancy reply");
   expect(first.text).toContain(language === "ru" ? position.titleRu : position.titleTg);
+  expect(first.text).toContain(phoneLine(language));
   return first.text;
 }
 
@@ -59,19 +64,21 @@ describe("customer recruitment continuity through the real core and renderer", (
     const result = await fixture(input, language, "job_required", makeContext(language, [{ role: "assistant", text: prior }], video.key));
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
-    expect(result.text).toContain(language === "ru" ? "Какой номер телефона" : "кадом рақами телефон");
-    expect(result.text).not.toContain(language === "ru" ? video.titleRu : video.titleTg);
+    // No questionnaire question follows the candidate's answer: only the phone line is given.
+    expect(result.text).toContain(phoneLine(language));
+    expect(result.text).not.toContain(language === "ru" ? "Какой номер телефона" : "кадом рақами телефон");
     expect(result.text).not.toContain(language === "ru" ? video.detailsRu.split("\n")[0] : video.detailsTg.split("\n")[0]);
     expect(result.evidence.some(item => item.value.kind === "receipt")).toBe(false);
     expect(result.text).not.toMatch(/свяжемся|позвоним|мы вам перезвоним|тамос мегирем|занг мезанем/iu);
   });
 
-  it("shows a fresh vacancy and details when no accepted assistant presentation exists", async () => {
+  it("shows a fresh vacancy with the phone line and no details when no accepted assistant presentation exists", async () => {
     const result = await fixture("Вакансия видеографа актуальна?", "ru", "job_experience");
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     expect(result.text).toContain(video.titleRu);
-    expect(result.text).toContain(video.detailsRu.split("\n")[0]);
+    expect(result.text).toContain(phoneLine("ru"));
+    expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
   });
 
   it("does not treat a title-only assistant question as an accepted vacancy presentation", async () => {
@@ -81,17 +88,20 @@ describe("customer recruitment continuity through the real core and renderer", (
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     expect(result.text).toContain(video.titleRu);
-    expect(result.text).toContain(video.detailsRu.split("\n")[0]);
+    expect(result.text).toContain(phoneLine("ru"));
+    expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
   });
 
-  it("repeats current published conditions when prior assistant details for the same title are stale", async () => {
+  it("never republishes conditions, current or stale, when prior assistant details for the same title are stale", async () => {
     const outdated = `Открыта вакансия: ${video.titleRu}\nУсловия: удалённая работа и высокая зарплата.`;
     const result = await fixture("Меня зовут Рустам, мне 29 лет.", "ru", "job_required",
       makeContext("ru", [{ role: "assistant", text: outdated }], video.key));
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
-    expect(result.text).toContain(video.detailsRu.split("\n")[0]);
-    expect(result.text).toContain("Удалённая работа не предусмотрена");
+    expect(result.text).toContain(phoneLine("ru"));
+    expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
+    expect(result.text).not.toContain("Удалённая работа не предусмотрена");
+    expect(result.text).not.toContain("высокая зарплата");
   });
 
   it("suppresses a repeat when verified assistant history contains the current title and conditions", async () => {
@@ -102,6 +112,7 @@ describe("customer recruitment continuity through the real core and renderer", (
     if (result.status !== "ready") return;
     expect(result.text).not.toContain(video.titleRu);
     expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
+    expect(result.text).toContain(phoneLine("ru"));
   });
 
   it("accepts current Tajik conditions when the vacancy title is identical in both languages", async () => {
@@ -126,21 +137,24 @@ describe("customer recruitment continuity through the real core and renderer", (
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     expect(result.text).toContain(video.titleRu);
-    expect(result.text).toContain(video.detailsRu.split("\n")[0]);
+    expect(result.text).toContain(phoneLine("ru"));
+    expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
   });
 
-  it("retains current verified salary and full details on explicit follow-up", async () => {
+  it("answers salary and full-details follow-ups with the phone line only, never with published conditions", async () => {
     const prior = await firstAcceptedVacancy("ru");
     const context = makeContext("ru", [{ role: "assistant", text: prior }], video.key);
     const salary = await fixture("Какая зарплата?", "ru", "none", context);
     expect(salary.status).toBe("ready");
     if (salary.status !== "ready") return;
-    expect(salary.text).toContain("Размер зарплаты");
-    expect(salary.text).toContain("пока не опубликованы");
+    expect(salary.text).toContain(phoneLine("ru"));
+    expect(salary.text).not.toContain("Размер зарплаты");
+    expect(salary.text).not.toMatch(/\b\d{4,}\b/u);
 
     const details = await fixture("Расскажите все условия подробнее", "ru", "none", context);
     expect(details.status).toBe("ready");
     if (details.status !== "ready") return;
-    for (const paragraph of video.detailsRu.split("\n")) expect(details.text).toContain(paragraph);
+    expect(details.text).toContain(phoneLine("ru"));
+    for (const paragraph of video.detailsRu.split("\n")) expect(details.text).not.toContain(paragraph);
   });
 });

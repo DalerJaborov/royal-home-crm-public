@@ -25,7 +25,7 @@ import {
   SECONDARY_CONDITIONS, UPLOAD_VIDEO_MAX_BYTES, fieldsForNewBuildPhase, formatClientCode, formatPropertyCode, parseShortCode,
   propertyCreateSchema, propertyDetailFieldLabel, propertyDetailOptionLabel, propertyDetailShown, propertyDuplicateCheckQuerySchema,
   propertyFieldShown, propertyFinishSummary, propertyHasCondition, propertyHasMarket, propertyWizardDraftValuesSchema,
-  propertyWizardErrors, propertyWizardTypeChange, suggestedNarration,
+  propertyWizardErrors, propertyWizardTypeChange, narrationDraftText,
   type PermissionId, type PropertyDetailKey, type PropertyDuplicateMatch, type PropertyType, type PropertyWizardDraftValues,
 } from "@royal-home/shared";
 import { z } from "zod";
@@ -57,6 +57,7 @@ import {
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import { extractPropertyFields } from "./assistantPropertyFields.js";
 import { sendPropertyMatchesCard } from "./assistantPropertyOffers.js";
+import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
 
 type Lang = "ru" | "tg";
 type Values = PropertyWizardDraftValues;
@@ -69,7 +70,8 @@ const fromClientStart = new RegExp(
   `^(?:${BW}(?:добав(?:ь|ьте|ить)|созда(?:й|йте|ть)|завед(?:и|ите))\\s+объект${EW}\\s+(?:из\\s+карточки\\s+)?(?:продавца\\s+)?|объекти\\s+фурӯшанда\\s+)`
   + `((?:пр|пк|кл|pr|pk|kl)[\\s.\\-–—]*\\d{1,9})(?:\\s+илова\\s+кун(?:ед)?)?[.!?]*$`, "iu");
 const isExit = /^(?:\/(?:cancel|new|reset)|выход|выйти из черновика|баромадан)$/iu;
-const callback = /^pdt:(review|create|exit|edit):([\da-f-]{36})$/u;
+/** nar — «Без озвучки» / «С озвучкой» в карточке проверки (12.11.2026). */
+const callback = /^pdt:(review|create|exit|edit|nar):([\da-f-]{36})$/u;
 const fieldCallback = /^pdt:f:([A-Za-z0-9_]{1,20}):([\da-f-]{36})$/u;
 /** Выбор значения несёт ревизию черновика: после правки в CRM старая кнопка ничего не выберет. */
 const valueCallback = /^pdt:v:([A-Za-z0-9_]{1,20}):(\d{1,2}):([0-9a-z]{1,8}):([\da-f-]{36})$/u;
@@ -159,9 +161,10 @@ const copy = {
     rejected: "CRM отклонила черновик. Проверьте поля и продавца в мастере.",
     confirmFailed: "Не удалось подтвердить результат. Проверьте список объектов в CRM перед повтором.",
     seller: "Продавец", intake: "Принял объект", files: "Файлы", photo: "фото", video: "видео", point: "Точка на карте",
-    yes: "есть", addressSet: "указан", floorWord: "этаж", narration: "Текст для озвучки ролика",
+    yes: "есть", addressSet: "указан", floorWord: "этаж", narration: "Озвучка ролика (голос и текст поменяете, когда она придёт)",
     placeSite: "На сайт и в соцсети", placeCrm: "Только CRM (закрытый)",
-    b: { review: "Проверить", create: "Создать", createAnyway: "Всё равно создать", fix: "Исправить поле", exit: "Выйти", back: "Назад",
+    narrationOffText: "без озвучки, ничего не готовится. Включить можно позже в карточке объекта",
+    b: { noNarration: "🔇 Без озвучки", withNarration: "🎙 С озвучкой", review: "Проверить", create: "Создать", createAnyway: "Всё равно создать", fix: "Исправить поле", exit: "Выйти", back: "Назад",
       replaceDraft: "Заменить черновик", replaceMedia: "Заменить фото", keepMedia: "Оставить мои фото", keep: "Оставить как есть" },
   },
   tg: {
@@ -230,9 +233,10 @@ const copy = {
     rejected: "CRM сиёҳнависро рад кард. Майдонҳо ва фурӯшандаро дар CRM санҷед.",
     confirmFailed: "Натиҷаро тасдиқ карда натавонистам. Пеш аз такрор рӯйхати объектҳоро дар CRM санҷед.",
     seller: "Фурӯшанда", intake: "Кӣ қабул кард", files: "Файлҳо", photo: "акс", video: "видео", point: "Нуқта дар харита",
-    yes: "ҳаст", addressSet: "нишон дода шуд", floorWord: "ошёна", narration: "Матн барои овози видео",
+    yes: "ҳаст", addressSet: "нишон дода шуд", floorWord: "ошёна", narration: "Овози видео (овоз ва матнро вақте ки меояд, иваз карда метавонед)",
     placeSite: "Ба сайт ва шабакаҳо", placeCrm: "Танҳо CRM (пӯшида)",
-    b: { review: "Санҷидан", create: "Сохтан", createAnyway: "Ба ҳар ҳол сохтан", fix: "Ислоҳи майдон", exit: "Баромадан", back: "Бозгашт",
+    narrationOffText: "бе овоз, ҳеҷ чиз тайёр намешавад. Баъдтар дар корти объект фаъол кардан мумкин аст",
+    b: { noNarration: "🔇 Бе овоз", withNarration: "🎙 Бо овоз", review: "Санҷидан", create: "Сохтан", createAnyway: "Ба ҳар ҳол сохтан", fix: "Ислоҳи майдон", exit: "Баромадан", back: "Бозгашт",
       replaceDraft: "Иваз кардан", replaceMedia: "Аксҳоро иваз кардан", keepMedia: "Аксҳои маро гузоред", keep: "Ҳамон тавр гузоштан" },
   },
 } as const;
@@ -476,11 +480,13 @@ async function review(ctx: Context, draft: DraftRecord) {
   const detailLines = PROPERTY_DETAIL_KEYS
     .filter(key => propertyDetailShown(values.type, key) && values.details?.[key] && values.details[key] !== DETAIL_NOT_SET)
     .map(key => `${propertyDetailFieldLabel(key)}: ${propertyDetailOptionLabel(key, values.details?.[key] ?? "")}`);
-  // Текст для озвучки — тот же, что показывает шаг «Проверка» мастера CRM.
-  const narration = type ? suggestedNarration({
-    type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || gap,
+  // Текст для озвучки — та же функция и те же шаблоны, что у шага «Проверка» мастера CRM.
+  // Голос, шаблон и правку текста агент выбирает кнопками, когда озвучка придёт на одобрение.
+  const narration = values.narrationOff ? c.narrationOffText : type ? narrationDraftText((await loadNarrationConfiguration()).config, {
+    type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "",
     floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: district?.name ?? null,
-  }) : null;
+    price: values.price ? String(values.price) : null, currency: values.currency ?? null,
+  }).text : null;
   const lines = [
     c.title,
     row("place", values.offSite ? c.placeCrm : c.placeSite),
@@ -550,7 +556,9 @@ async function sendReview(ctx: Context, draft: DraftRecord, prefix?: string) {
       return true;
     });
     if (!ready) { await sendMessageWithButtons(ctx.chatId, t(ctx.lang).stale, buttons); return; }
-    buttons.unshift([{ text: info.duplicates.length ? t(ctx.lang).b.createAnyway : t(ctx.lang).b.create, callback_data: `pdt:create:${token}` }]);
+    buttons.unshift([{ text: info.duplicates.length ? t(ctx.lang).b.createAnyway : t(ctx.lang).b.create, callback_data: `pdt:create:${token}` }],
+      // «Без озвучки» — явный выбор до создания: ничего не генерируется и не тратится (12.11.2026).
+      [{ text: info.values.narrationOff ? t(ctx.lang).b.withNarration : t(ctx.lang).b.noNarration, callback_data: `pdt:nar:${draft.id}` }]);
   } else if (info.hasStale) {
     buttons.unshift(...removeButtons(draft, ctx.lang, file => isStaleUpload(file)));
   } else if (info.firstChoice) {
@@ -1240,6 +1248,12 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
       await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: id }));
       return true;
     }
+    if (command === "nar") {
+      const draft = await assertActiveDraft(prisma, agent.id, { draftId: id });
+      const values = propertyWizardDraftValuesSchema.parse(draft.values);
+      await sendReview(ctx, await saveFields(ctx, draft, { narrationOff: !values.narrationOff }));
+      return true;
+    }
     if (command === "edit" || command === "field" || command === "value" || command === "remove") {
       const draft = await assertActiveDraft(prisma, agent.id, { draftId: id });
       const values = propertyWizardDraftValuesSchema.parse(draft.values);
@@ -1311,7 +1325,7 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
     }
     const result = await createProperty({
       agent: ctx.access, source: "telegram", expectedDraftMedia: claimed.media,
-      body: { ...info.body, draftId: claimed.draft.id, draftRevision: claimed.draft.revision },
+      body: { ...info.body, draftId: claimed.draft.id, draftRevision: claimed.draft.revision, ...(info.values.narrationOff ? { narration: { none: true } } : {}) },
     });
     if (result.status !== 201) {
       const body: Record<string, unknown> = result.body as Record<string, unknown>;
