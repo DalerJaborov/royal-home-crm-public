@@ -395,6 +395,8 @@ export interface Settings {
   /** Ручная передача видео монтажёру через Telegram (01.09.2026, lib/videoHandoff.ts) —
    *  единственный путь подготовки ролика с 04.09.2026. */
   videoHandoffEnabled: boolean;
+  /** Ролик от сотрудника через Шабнам (12.11.2026): по умолчанию включён. */
+  staffClipIntakeEnabled?: boolean;
   /** Проверять фото и видео агента перед монтажом (25.09.2026). false — CRM одобряет сама. */
   rawReviewRequired: boolean;
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */

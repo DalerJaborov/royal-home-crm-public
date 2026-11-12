@@ -348,6 +348,10 @@ enum AdMatchSource {
 }
 
 model Agent {
+  /// Последний выбор озвучки этого сотрудника (12.11.2026): голос и шаблон. В следующий раз
+  /// мастер CRM, карточка и Шабнам ставят его заранее; убранный из настроек — сбрасывается на
+  /// общий по умолчанию (lib/narrationLastChoice.ts).
+  narrationLastChoice Json?
   /// Ожидания кода Google Authenticator у помощницы (10.11.2026) — уходят вместе с учёткой.
   assistantStepUpChallenges AssistantStepUpChallenge[]
   investigationCases InvestigationCase[] @relation("InvestigationSubject")
@@ -2373,6 +2377,31 @@ model Property {
   /// Готовый файл от монтажёра — путь в том же локальном хранилище, что и сырые
   /// ролики (lib/localVideoStorage.ts), до публикации.
   videoHandoffFinalPath          String?
+  /// РОЛИК БЕЗ ГОЛОСА ОТ МОНТАЖЁРА (11.11.2026, владелец: «где просто меняется звук и описание
+  /// нам монтажёр не нужен»). Монтажёр прислал ролик без голоса (музыка и звуки можно) — CRM
+  /// хранит его здесь (ключ закрытого хранилища, lib/localVideoStorage.ts) и сама накладывает
+  /// одобренную озвучку (lib/narrationMix.ts). null — голос вклеен монтажёром, замена звука
+  /// идёт прежним путём через монтажёра (NARRATION_CHANGED).
+  videoMasterStorageKey          String?
+  /// Какая версия озвучки наложена в текущий готовый ролик (videoHandoffFinalPath).
+  videoMasterNarrationVersionId  String?
+  /// Наложение не получилось для этой версии (текст для руководства); повтор — только новой версией.
+  videoMasterMixError            String?
+  videoMasterMixErrorVersionId   String?
+  /// Бот попросил монтажёра прислать к готовому ролику тот же ролик без голоса (12.11.2026,
+  /// lib/narrationVoicelessCopy.ts). Один раз на принятый ролик; не блокирует выпуск.
+  videoMasterRequestedAt         DateTime?
+  /// «БЕЗ ОЗВУЧКИ» (12.11.2026, решение владельца): агент выбрал в мастере, карточке или у
+  /// Шабнам — озвучка не готовится и не тратит кредиты, смена цены её не создаёт, монтажёру
+  /// пометка «без озвучки». Включить обратно — из карточки (lib/narrationOptOut.ts).
+  narrationOff                   Boolean   @default(false)
+  narrationOffAt                 DateTime?
+  /// Объект заведён мастером CRM или Шабнам (createProperty), а не заявкой с сайта: только такие
+  /// догоняющий проход автоозвучки трогает без явного выбора агента (12.11.2026).
+  createdInCrmWizard             Boolean   @default(false)
+  /// CRM прямо сейчас накладывает новую озвучку на этот ролик (ffmpeg до 9 минут): второй тик
+  /// не запускает вторую копию; метка старше 15 минут считается брошенной (12.11.2026).
+  videoMasterMixingAt            DateTime?
   /// МОМЕНТ, КОГДА ГОТОВЫЙ РОЛИК РЕАЛЬНО ПОЛУЧЕН (21.09.2026, случай №114 — ролик
   /// принят, файл лёг на диск, но рестарт контейнеров посреди публикации оборвал
   /// её молча, publishedChannels остался пуст, объект завис в EDITING навсегда).
@@ -2910,8 +2939,81 @@ model PropertyNarrationVersion {
   requestKey String @unique
   generationStartedAt DateTime?
   createdAt DateTime @default(now())
+  /// MANUAL — прежний путь маркетинга; WIZARD / AUTO / AGENT — автоозвучка (11.11.2026).
+  source String @default("MANUAL")
+  templateId String?
+  language String?
+  /// Автоозвучка: не раньше этого времени (пауза после последней правки). null — не ставить в очередь.
+  generateAfter DateTime?
+  generationAttempts Int @default(0)
+  /// Агенту ушло одно сообщение «прослушайте и одобрите»; повторов нет.
+  approvalNotifiedAt DateTime?
+  approvalChatId String?
+  /// Агент нажал «Править текст» в Шабнам: следующий его текст в течение 15 минут — новый текст озвучки.
+  editRequestedAt DateTime?
+  /// Напоминание агенту через 3 часа без одобрения и, ещё через 3 часа, руководителю (12.11.2026).
+  /// Автоодобрения нет.
+  approvalRemindedAt DateTime?
+  approvalEscalatedAt DateTime?
+  /// Монтажёру одной строкой «озвучка задерживается» (кончились кредиты), один раз на версию.
+  editorDelayNotifiedAt DateTime?
   deliveries PropertyNarrationDelivery[]
   @@unique([propertyId, revision])
+  @@index([status, generateAfter])
+  @@index([approvalChatId, editRequestedAt])
+}
+
+/// ОБРАЗЕЦ ГОЛОСА (11.11.2026): одна и та же фраза каждым голосом из настроек озвучки, чтобы
+/// агент выбрал голос на слух. Платно один раз на голос + модель + текст фразы (ключ уникальности),
+/// дальше файл отдаётся без затрат. Считается в общем дневном потолке озвучки.
+/// РОЛИК ОТ СОТРУДНИКА В TELEGRAM (12.11.2026, решение владельца): СММщик или другой сотрудник
+/// присылает Шабнам ролик — он сам находит объект (номер, ссылка, кнопки), дальше «Готов к
+/// выпуску» (тот же приём готового ролика, что у CRM) или «Нужен монтаж» (исходник монтажёру).
+/// Строка держит файл Telegram до решения, защищает от дубля (fileUniqueId) и даёт час на
+/// «Не тот объект». telegram/staffClip.ts.
+model StaffClipIntake {
+  id             String    @id @default(uuid())
+  chatId         String
+  agentId        String
+  fileId         String
+  fileUniqueId   String?
+  filename       String
+  caption        String?
+  sizeBytes      Int?
+  /// ASKING — ждём объект; CHOSEN — объект найден, ждём кнопку; READY / MONTAGE — сделано;
+  /// UNDONE — «Не тот объект»; CANCELLED; FAILED.
+  status         String    @default("ASKING")
+  propertyId     String?
+  /// Объекты, предложенные кнопками (shortId), и исключённые после «Не тот объект».
+  candidates     Json?
+  excluded       Json?
+  decidedAt      DateTime?
+  /// Что сделал «Готов» / «Монтаж», чтобы «Не тот объект» откатил ровно это.
+  result         Json?
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  @@index([chatId, status, createdAt])
+  @@index([fileUniqueId])
+}
+
+model NarrationVoiceSample {
+  id                  String   @id @default(uuid())
+  voiceId             String
+  modelId             String
+  lang                String
+  textHash            String
+  chars               Int
+  /// GENERATING | READY | FAILED | UNKNOWN
+  status              String   @default("GENERATING")
+  storageKey          String?
+  errorCode           String?
+  generationStartedAt DateTime @default(now())
+  createdById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  @@unique([voiceId, modelId, textHash])
+  @@index([generationStartedAt])
 }
 
 model PropertyNarrationDelivery {
@@ -6133,6 +6235,9 @@ model Settings {
   /// ОДНОМУ человеку личным сообщением бота, готовый ролик от него сразу публикуется
   /// без второй модерации. См. lib/videoHandoff.ts, Property.videoHandoffStatus.
   videoHandoffEnabled               Boolean   @default(false)
+  /// Ролик от СММщика или другого сотрудника через Шабнам (telegram/staffClip.ts, 12.11.2026):
+  /// по умолчанию включён (решение владельца), выключатель — в Настройках → Каналы.
+  staffClipIntakeEnabled            Boolean   @default(true)
   /// ПРОВЕРКА ИСХОДНИКОВ АГЕНТА ПЕРЕД МОНТАЖОМ (25.09.2026, владелец: «выключи
   /// временно одобрение роликов от агентов — пусть сразу идут монтажёру»).
   /// false — объект на проверке с фото и видео одобряется самой CRM

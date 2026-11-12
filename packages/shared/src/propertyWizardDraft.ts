@@ -99,6 +99,8 @@ export const propertyWizardDraftValuesSchema = z
     documentsOther: draftText(200),
     /** Стадия стройки — только у новостройки. */
     stage: draftText(32),
+    /** «Без озвучки» ролика (12.11.2026) — выбор в мастере Шабнам, уходит в создание объекта. */
+    narrationOff: z.boolean(),
   })
   .partial();
 

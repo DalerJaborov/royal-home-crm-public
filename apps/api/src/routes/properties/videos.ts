@@ -27,7 +27,6 @@ import {
   receiveEditedVideo,
   requeueVideoHandoff,
   receiveEditedVideoFromFile,
-  notifyMontajerFinalUploadedManually,
   buildMontajerMessageText,
   withPropertyLock,
   publishHandoffNow,
@@ -42,6 +41,7 @@ import {
 import { logSystemError } from "../../lib/systemError.js";
 import { describeError } from "../../lib/describeError.js";
 import { logAudit } from "../../lib/audit.js";
+import { acceptFinalVideoFromStaff, selfApprovedClipOptsFor } from "../../lib/finalVideoIntake.js";
 import { enqueueBackgroundJob } from "../../jobs/enqueue.js";
 import {
   TIKTOK_PUBLISH_RETRY_JOB_TYPE,
@@ -185,9 +185,8 @@ async function canManageOrIsHandoffMontajer(req: Request, property: { status: st
  * не обходит — ради его роликов она и существует.
  */
 async function selfApprovedClipOpts(req: Request): Promise<{ approvedById?: string }> {
-  if (!req.agent || req.agent.role === "EDITOR" || !req.agent.can("properties.moderate")) return {};
-  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
-  return settings?.videoMontajerAgentId === req.agent.id ? {} : { approvedById: req.agent.id };
+  // Одно правило с роликом от сотрудника в Telegram (lib/finalVideoIntake.ts).
+  return selfApprovedClipOptsFor(req.agent ? { id: req.agent.id, role: req.agent.role, canModerate: req.agent.can("properties.moderate") } : null);
 }
 
 /**
@@ -275,32 +274,17 @@ async function finishHandoffAfterStateCheck(
    * 08.09.2026, так что монтажёр реоткрывал приём у ЛЮБОГО чужого объекта в
    * любом состоянии; finalReopenDeniedReason закрывает эту дыру одной проверкой).
    */
-  const reopenDenied = finalReopenDeniedReason(req, property);
-  if (property.videoHandoffStatus !== "SENT_TO_EDITOR") {
-    if (reopenDenied) {
-      return { status: 409, body: { error: reopenDenied } };
-    }
-    const opened = await openForManualFinalVideo(property.id);
-    if (!opened.ok) return { status: 409, body: { error: opened.error } };
-    logAudit(req, "PROPERTY_FINAL_VIDEO_MANUAL", "Property", property.id, { shortId: property.shortId });
-  }
-
-  // Объект действительно держал монтажёр (не ручное ожидание) — запомним до приёма.
-  const heldByMontajer = property.videoHandoffStatus === "SENT_TO_EDITOR" && !property.videoHandoffManualSince;
-  const result = await receive();
-  if (!result.ok) {
-    // Отказ приёма не отменяет уже принятый прежний ролик (24.09.2026).
-    await closeManualFinalVideoWait(property.id);
-    return { status: 409, body: { error: result.error } };
-  }
-  // Загрузил сотрудник, а не сам монтажёр: монтажёр получает «готов, доделывать не
-  // нужно», следующий из очереди уже ушёл вслед за приёмом (05.10.2026).
-  if (heldByMontajer && req.agent?.role !== "EDITOR") {
-    void notifyMontajerFinalUploadedManually(property.id, property.shortId).catch((err) =>
-      console.error("[video-handoff] уведомление монтажёру о ручной загрузке:", err)
-    );
-  }
-  return { status: 200, body: handoffReceivedBody(result) };
+  // Одна дверь с роликом от сотрудника в Telegram (12.11.2026, lib/finalVideoIntake.ts):
+  // открыть приём, принять, при отказе закрыть ожидание, монтажёру — «доделывать не нужно».
+  const outcome = await acceptFinalVideoFromStaff({
+    property,
+    actorIsEditor: req.agent?.role === "EDITOR",
+    reopenDenied: finalReopenDeniedReason(req, property),
+    receive,
+    onOpened: () => logAudit(req, "PROPERTY_FINAL_VIDEO_MANUAL", "Property", property.id, { shortId: property.shortId }),
+  });
+  if (!outcome.ok) return { status: 409, body: { error: outcome.error } };
+  return { status: 200, body: handoffReceivedBody(outcome.result) };
 }
 
 /**
