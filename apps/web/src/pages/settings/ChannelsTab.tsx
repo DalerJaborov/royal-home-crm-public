@@ -3,6 +3,7 @@ import { GEMINI_VOICES, voiceGenderLabel } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { dushanbeDate, dushanbeDayKey, dushanbeTime, dushanbeTodayKey } from "../../lib/date";
 import { MessengerAccounts } from "./MessengerAccounts";
+import { MetaEternalKeys } from "./MetaEternalKeys";
 import { useSearchParams } from "react-router-dom";
 import {
   AtSign,
@@ -209,6 +210,9 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
         {/* Список аккаунтов — над одиночным маркером: он теперь запасной путь
             для тех, кто ещё не завёл аккаунты списком. */}
         <MessengerAccounts />
+
+        {/* Вечные ключи (12.11.2026): какой канал уже работает ключом компании. */}
+        <MetaEternalKeys />
 
         <SecretKeyEditor
           title="Маркер Instagram"

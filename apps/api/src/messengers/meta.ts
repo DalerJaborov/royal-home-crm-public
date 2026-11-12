@@ -22,6 +22,8 @@ import type { CustomerTransportReference } from "../lib/customerConversationScop
 import type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 import type { CustomerPrincipal } from "../lib/customerPrincipal.js";
 import { assertCustomerReplyPost, CustomerReplyHeldError } from "../lib/customerReplyFence.js";
+import { describeMetaToken, facebookPageTokenFor, instagramReadRequest, routeMetaMessagingCall } from "../lib/metaEternalTokens.js";
+import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 export { verifyAndRegisterMetaCustomerIssuer as verifyCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
 export { verifyAndRegisterPublicMetaCustomerIssuer as verifyPublicCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
@@ -1489,10 +1491,8 @@ export async function instagramTokenIdentity(
  */
 export async function instagramTokenSeesUser(token: string, userId: string, timeoutMs: number): Promise<boolean | null> {
   try {
-    const req = instagramRequest(
-      instagramApiUrl(`/${GRAPH_VERSION}/${encodeURIComponent(userId)}?fields=username`),
-      token
-    );
+    // Тем же путём, что и переписка: при вечном ключе — маркером Страницы.
+    const req = await instagramReadRequest(`/${GRAPH_VERSION}/${encodeURIComponent(userId)}?fields=username`, token);
     // Без повторов fetchWithRetry: проба идёт внутри вебхука, где Meta ждёт 200,
     // а неудача пробы лишь оставляет прежнее поведение (ответ основным аккаунтом).
     const res = await fetch(req.url, { headers: req.headers, signal: AbortSignal.timeout(timeoutMs) });
@@ -1558,10 +1558,9 @@ export async function fetchInstagramProfile(senderId: string, tokenOverride?: st
   if (!igToken) return {};
   const fields = "username,name,profile_pic,follower_count,is_user_follow_business";
   try {
-    const req = instagramRequest(
-      instagramApiUrl(`/${GRAPH_VERSION}/${encodeURIComponent(senderId)}?fields=${fields}`),
-      igToken
-    );
+    // Вечный ключ (lib/metaEternalTokens.ts): профиль читается маркером Страницы
+    // на graph.facebook.com — поля те же (User Profile API Instagram Messaging).
+    const req = await instagramReadRequest(`/${GRAPH_VERSION}/${encodeURIComponent(senderId)}?fields=${fields}`, igToken);
     const res = await fetchWithRetry(req.url, { headers: req.headers });
     if (!res.ok) {
       const body = await res.text();
@@ -1614,8 +1613,9 @@ export async function fetchInstagramProfile(senderId: string, tokenOverride?: st
  */
 export async function fetchMessengerName(psid: string, tokenOverride?: string): Promise<string | undefined> {
   const { pageToken: fallbackToken } = await loadCredentials();
-  const token = tokenOverride || fallbackToken;
-  if (!token) return undefined;
+  const personal = tokenOverride || fallbackToken;
+  if (!personal) return undefined;
+  const token = await facebookPageTokenFor(personal);
   try {
     const res = await fetchWithRetry(
       `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(psid)}?fields=first_name,last_name&access_token=${encodeURIComponent(token)}`,
@@ -1840,8 +1840,19 @@ export async function callGraph<T = unknown>(
   legacyTransport?: CustomerTransportReference
 ): Promise<T | null> {
   traceKnownSecrets([token]);
-  const req = instagramRequest(url, token);
+  /**
+   * ВЕЧНЫЙ КЛЮЧ (12.11.2026, lib/metaEternalTokens.ts): адреса переписки
+   * Instagram/Facebook уходят маркером Страницы от системного пользователя,
+   * если он настроен и проверен. Здесь, у физического вызова, — чтобы подмену
+   * получили ВСЕ пути отправки сразу, а не каждый по отдельности.
+   */
+  // Учёт физической отправки — по ЛОГИЧЕСКОМУ сообщению (до подмены пути): иначе
+  // смена пути между попытками (Страница ↔ личный маркер) дала бы другое тело и
+  // одно и то же сообщение сошло бы за новое.
   const legacyTarget = method === "POST" ? legacyMetaPhysicalTarget(url, body, legacyTransport) : undefined;
+  if (method === "POST") ({ url, token, body } = await routeMetaMessagingCall(url, token, body));
+  traceKnownSecrets([token]);
+  const req = instagramRequest(url, token);
   for (let attempt = 0; ; attempt++) {
     const res = await fetchWithRetry(req.url, {
       method,
@@ -1850,6 +1861,13 @@ export async function callGraph<T = unknown>(
     }, CALL_TIMEOUT_MS, beforePost, legacyTarget);
     const text = await res.text();
     if (!res.ok) {
+      // Ключ не принят — тревога директору сразу, а не строка в журнале (channelKeyAlarm.ts).
+      if (isMetaAuthFailure(res.status, text)) {
+        const failedToken = token;
+        void describeMetaToken(failedToken).then((who) =>
+          raiseChannelKeyAlarm({ ...who, detail: `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}` })
+        );
+      }
       const durable = currentCustomerDeliveryTransport();
       if (durable && method === "POST") {
         await durable.rejected(res.status);

@@ -5,6 +5,7 @@ import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
 import { settingsInstagramAppBindingRouter } from "./settingsInstagramAppBinding.js";
+import { settingsMetaEternalRouter } from "./settingsMetaEternal.js";
 import { settingsSomonRouter } from "./settingsSomon.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -98,6 +99,8 @@ export const settingsRouter = Router();
 settingsRouter.use("/somon", settingsSomonRouter);
 settingsRouter.use("/customer-agent", customerAgentSettingsRouter);
 settingsRouter.use("/messenger-accounts", settingsInstagramAppBindingRouter);
+/** Вечные ключи Meta (12.11.2026): самопроверка, рубильник, Страница аккаунта. */
+settingsRouter.use("/meta-eternal", settingsMetaEternalRouter);
 
 /** Маска ключа: из Настроек (расшифровав) или из окружения. null — не задан нигде. */
 function maskOrNull(encrypted: string | null | undefined, fromEnv: string | undefined): string | null {

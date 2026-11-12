@@ -1,9 +1,9 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 741,
-  "forks": 3973,
-  "mounts": 82,
+  "endpoints": 746,
+  "forks": 3983,
+  "mounts": 83,
   "cron": 128,
   "jobs": 32,
   "hidden": 0
@@ -71008,6 +71008,549 @@
       "ответ 200"
      ],
      "c": []
+    }
+   ]
+  },
+  {
+   "method": "DELETE",
+   "path": "/accounts/:id/page",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/accounts/:id/page",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!params.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный идентификатор аккаунта\" });",
+       "a": [
+        "ответ 400 — «Некорректный идентификатор аккаунта»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await prisma.messengerAccount.updateMany({ where: { id: params.data.id, channel: \"INSTAGRAM\" }, data: { pageI…",
+       "a": [
+        "меняет в базе: messengerAccount"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "resetAccountsCache();",
+       "a": [
+        "зовёт resetAccountsCache()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SETTINGS_UPDATE\", \"MessengerAccount\", params.data.id, { pageId: null });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ ok: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/accounts/:id/page",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/accounts/:id/page",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const body = metaEternalPageInputSchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой metaEternalPageInputSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!params.success || !body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректные данные Страницы\" });",
+       "a": [
+        "ответ 400 — «Некорректные данные Страницы»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const account = await prisma.messengerAccount.findUnique({ where: { id: params.data.id }, select: { id: true,…",
+       "a": [
+        "читает в базе: messengerAccount"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!account || account.channel !== \"INSTAGRAM\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Аккаунт Instagram не найден\" });",
+         "a": [
+          "ответ 404 — «Аккаунт Instagram не найден»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!pageId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const found = await discoverInstagramPage(account.externalId);",
+         "a": [
+          "зовёт discoverInstagramPage()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!found.ok",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(409).json({ error: found.error });",
+           "a": [
+            "ответ 409"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const verified = await verifyInstagramPage(pageId, account.externalId);",
+       "a": [
+        "зовёт verifyInstagramPage()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!verified.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: verified.error });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await prisma.messengerAccount.update({ where: { id: account.id }, data: { pageId } });",
+       "a": [
+        "меняет в базе: messengerAccount"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "resetAccountsCache();",
+       "a": [
+        "зовёт resetAccountsCache()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SETTINGS_UPDATE\", \"MessengerAccount\", account.id, { pageId });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ ok: true, pageId, pageName: verified.pageName ?? pageName });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/pages/:pageId/subscribe",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/pages/:pageId/subscribe",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!params.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный идентификатор Страницы\" });",
+       "a": [
+        "ответ 400 — «Некорректный идентификатор Страницы»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const known = await prisma.messengerAccount.findFirst({ where: { pageId: params.data.pageId }, select: { id: …",
+       "a": [
+        "читает в базе: messengerAccount"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { metaPageId: true } …",
+       "a": [
+        "читает в базе: settings"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const fbAccount = await prisma.messengerAccount.findFirst({ where: { channel: \"FACEBOOK\", externalId: params.…",
+       "a": [
+        "читает в базе: messengerAccount"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!known && !fbAccount && settings?.metaPageId !== params.data.pageId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Эта Страница не подключена в CRM\" });",
+         "a": [
+          "ответ 404 — «Эта Страница не подключена в CRM»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const result = await subscribePageMessaging(params.data.pageId);",
+       "a": [
+        "зовёт subscribePageMessaging()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!result.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: result.error });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SETTINGS_UPDATE\", \"FacebookPageSubscription\", params.data.pageId, { fields: result.fields });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json(result);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/preferred",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/preferred",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const body = metaEternalPreferredInputSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой metaEternalPreferredInputSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректное значение\" });",
+       "a": [
+        "ответ 400 — «Некорректное значение»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: { metaSystemTokenPreferred: body.data.enable…",
+       "a": [
+        "меняет в базе: settings"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "resetMetaEternalCache();",
+       "a": [
+        "зовёт resetMetaEternalCache()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { metaSystemTokenPreferred: body.data.enabled });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ ok: true, enabled: body.data.enabled });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await metaEternalStatus());",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
     }
    ]
   },
