@@ -55,6 +55,7 @@ import { generateReelsCaptionWithAi } from "../../ai/reelsCaptionAi.js";
 import { loadEventPoints, recordScoreEvent } from "../../lib/scoreJournal.js";
 import { localVideoDelete } from "../../lib/localVideoStorage.js";
 import { removePurgedNarrationAudio } from "../../lib/propertyNarrationCleanup.js";
+import { startNarrationForNewProperty } from "../../lib/narrationAutoFlow.js";
 import { propertyOwnedFilePaths } from "../../lib/diskCleanup.js";
 import {
   skipVideoHandoffOnManualPublish,
@@ -63,7 +64,7 @@ import {
 import { describeError } from "../../lib/describeError.js";
 import { closeWorkAfterLeavingSale } from "../../lib/propertyLeftSale.js";
 import { restorePropertyFromTrash, trashProperties, trashProperty } from "../../lib/trashProperty.js";
-import { propertyRemovalSchema } from "@royal-home/shared";
+import { propertyRemovalSchema, narrationWizardChoiceSchema } from "@royal-home/shared";
 import { recordPropertyRemoval } from "../../lib/propertyRemovalEvidence.js";
 import { recomputeSellerCardState } from "../../lib/sellerCardState.js";
 import {
@@ -164,6 +165,8 @@ const createFromDraftSchema = z.object({
    *  отправки снимка, который должен стать первым фото объекта. Тем же
    *  доводом, что и draftId выше: свойство ЭТОГО запроса, не поля объекта. */
   coverUploadKey: z.string().min(8).max(128).optional(),
+  /** Выбор агента в конце мастера (CRM и Шабнам): текст, шаблон и голос озвучки. */
+  narration: narrationWizardChoiceSchema.optional(),
 });
 
 class PropertySellerAccessError extends Error {}
@@ -647,6 +650,8 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       data: {
         ...rest,
         title,
+        // Заведён мастером CRM или Шабнам: догоняющий проход автоозвучки трогает только такие (12.11.2026).
+        createdInCrmWizard: true,
         // Канонный адрес — считается один раз при сохранении (см. комментарий у
         // normalizePropertyAddress) и используется точным равенством в проверке
         // «этот адрес уже заведён» на шаге «Где» (routes/properties/duplicateCheck.ts).
@@ -871,6 +876,10 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       console.error("[автоподбор] новый объект создан сразу в продаже:", err instanceof Error ? err.message : err)
     );
   }
+
+  // Озвучка ролика: сразу ставится в очередь, агенту придёт на одобрение (lib/narrationAutoFlow.ts).
+  // Под рубильником autoGenerate; ошибка не роняет создание объекта.
+  void startNarrationForNewProperty(property.id, req.agent.id, parsedDraftRef.data.narration);
 
   // Автопубликации у объекта в конвейере нет: пока не сняли видео, публиковать
   // нечего, и попытка кончилась бы отказом сайта на каждом созданном объекте.
@@ -1881,6 +1890,10 @@ crudRouter.delete("/:id/permanent", requireAuth, requirePermission("properties.p
   });
   if (!purge) return res.status(409).json({ error: "Объект изменился или озвучка ещё генерируется. Обновите карточку перед удалением." });
   await removePurgedNarrationAudio(property.id, purge.narrationIds);
+  // Ролик без голоса (11.11.2026) — в том же закрытом хранилище, ссылка уходит вместе с объектом.
+  if (property.videoMasterStorageKey && !await localVideoDelete(property.videoMasterStorageKey)) {
+    void logSystemError("storage", `Объект ${property.shortId}: ролик без голоса ${property.videoMasterStorageKey} не удалён`);
+  }
   for (const d of purge.detached) {
     logAudit(req, "UPDATE", "Ad", d.adId, {
       reason: "property-purged",

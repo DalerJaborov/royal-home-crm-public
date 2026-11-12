@@ -47,7 +47,8 @@ interface EnqueueParams {
   excludeAgentId?: string;
 }
 
-export async function enqueueDirectorAlert(params: EnqueueParams): Promise<void> {
+/** true — строка в очереди; false — не встала (ошибка уже в журнале). */
+export async function enqueueDirectorAlert(params: EnqueueParams): Promise<boolean> {
   try {
     await prisma.pendingDirectorAlert.create({
       data: {
@@ -62,6 +63,7 @@ export async function enqueueDirectorAlert(params: EnqueueParams): Promise<void>
         excludeAgentId: params.excludeAgentId ?? null,
       },
     });
+    return true;
   } catch (err) {
     console.error("[directorAlertQueue] не удалось поставить аларм в очередь:", err);
     // И в журнал ошибок (07.10.2026): аларм руководству, который не встал в очередь,
@@ -71,6 +73,7 @@ export async function enqueueDirectorAlert(params: EnqueueParams): Promise<void>
       `Не удалось поставить аларм руководству в очередь («${params.title}»): ${err instanceof Error ? err.message : String(err)}`,
       { dedupKey: `director-alert-enqueue-failed:${params.tag ?? params.title}` }
     );
+    return false;
   }
 }
 

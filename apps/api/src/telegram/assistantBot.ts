@@ -26,6 +26,8 @@ import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, property
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
+import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
+import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
 import { applyExpenseFixMessage, expenseBatchOutcomeText, handleExpenseCardCallback, sendExpenseBatchCard } from "./assistantExpenseCard.js";
@@ -811,7 +813,14 @@ export async function handleAssistantPrivate(
     const forwardedPlain = isForwarded && Boolean((msg.text ?? msg.caption)?.trim());
     const moneyWallet = createAssistantMoneyWallet();
     if (msg.document && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
+    // «Править текст» озвучки (15 минут после кнопки) — раньше мастера объекта и общего ответа.
+    if (!isForwarded && await handleNarrationTextReply(msg, agent)) return;
+    // Ответ «к какому объекту ролик» (30 минут после вопроса) — telegram/staffClip.ts.
+    if (!isForwarded && await handleStaffClipText(msg, agent)) return;
     if (!isForwarded && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
+    // Ролик от СММщика или другого сотрудника (12.11.2026): сам находит объект, дальше
+    // «Готов к выпуску» или «Нужен монтаж». В мастере объекта видео остаётся исходником (выше).
+    if (await handleStaffClipMessage(msg, agent)) return;
     if (msg.photo?.length && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
     let text = (msg.text ?? msg.caption ?? "").trim();
     const fromVoice = Boolean(msg.voice || msg.audio);
@@ -1687,6 +1696,8 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
   }
   if (await handleTelegramPropertyDraftCallback(query)) return true;
   if (await handlePropertyOfferCallback(query)) return true;
+  if (await handleNarrationCallback(query)) return true;
+  if (await handleStaffClipCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);
   if (!match) {

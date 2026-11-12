@@ -159,7 +159,7 @@ describe("мастер объекта в Telegram", () => {
     expect(card).toContain("Новостройка, котлован");
     expect(card).toContain("Документы: Договор + техпаспорт");
     expect(card).toContain("Отопление: Автономное");
-    expect(card).toContain("Текст для озвучки ролика");
+    expect(card).toContain("Озвучка ролика");
     expect(card).not.toContain("555 12 34");
     // Закрытому объекту хватает цены, площади и продавца — как в мастере CRM.
     expect(button("pdt:create:")).toBeDefined();

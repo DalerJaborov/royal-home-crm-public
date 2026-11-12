@@ -9,6 +9,23 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: async () => {} } }));
 
+/**
+ * Модуль бота без заглушки в карте ниже (12.11.2026). Раньше он подменялся пустым
+ * объектом, и новый импорт в assistantBot.ts ронял тест в облаке безликим
+ * «X is not a function» — ship #147 обрывался так трижды. Теперь вызов любой
+ * функции такого модуля называет модуль и имя: добавь заглушку в `dependencies`.
+ * Константы читаются как undefined, как и прежде.
+ */
+function unstubbedModule(name: string) {
+  return new Proxy({}, {
+    get(_target, prop) {
+      if (typeof prop !== "string" || prop === "__esModule" || prop === "then") return undefined;
+      const fail = () => { throw new Error(`assistant-group-callback-gate: нет заглушки для ${name} (вызов ${prop}) — добавь её в dependencies`); };
+      return /^[a-z]/.test(prop) ? fail : undefined;
+    },
+  });
+}
+
 /** Actual handler with inert persistence/provider/action boundaries. No Telegram sends. */
 function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
   let now = 1000;
@@ -53,6 +70,9 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "./staffNotice.js": { handleStaffNoticeCallback: async () => false, handleNoticePreferenceText: async () => false },
     // Кнопки напоминаний об оплатах (11.11.2026) — свой обработчик.
     "../lib/paymentReminders.js": { handlePaymentReminderCallback: async () => false },
+    // Кнопки озвучки (11.11.2026) — не наши, проходят дальше.
+    "./assistantNarration.js": { handleNarrationCallback: async () => false },
+    "./staffClip.js": { handleStaffClipCallback: async () => false },
     "../ai/assistant/tools/expenseBatchTool.js": { ADD_EXPENSES_TOOL: "add_expenses" },
     "../lib/telegramModeration.js": { claimCallback: async () => true },
     "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, discardPendingAssistantAction: cancel },
@@ -70,7 +90,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
   const source = readFileSync(new URL("../src/telegram/assistantBot.ts", import.meta.url), "utf8");
   const exports: Record<string, any> = {};
   runInNewContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.CommonJS } }).outputText, { exports, require: (name: string) => dependencies[name] ?? {}, Date, Map, Set, Promise, console });
+    module: ts.ModuleKind.CommonJS } }).outputText, { exports, require: (name: string) => dependencies[name] ?? unstubbedModule(name), Date, Map, Set, Promise, console });
   const query = (verb = "ok", userId = 1) => ({ id: "test-callback", data: `as:${verb}:11111111-1111-4111-8111-111111111111`,
     from: { id: userId }, message: { chat: { id: type === "private" ? 1 : -100, type }, message_id: 50 } });
   const toggle = async (on: boolean) => exports.handleAssistantGroupMessage({

@@ -11,7 +11,7 @@ import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantSt
 import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
-import { handleMontajerVideo, handleMontajerReceiveCallback } from "./montajerReceive.js";
+import { handleMontajerVideo, handleMontajerReceiveCallback, handleVoicelessCopyCallback } from "./montajerReceive.js";
 import { parseMontajerCallback, parseMontajerText, runMontajerCommand } from "./montajerBot.js";
 import { appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import { batchWindowFor, debounceAndMerge } from "../messengers/debounceBuffer.js";
@@ -270,6 +270,11 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
     // «Это №133» / «Ни то, ни другое» — ответ на вопрос, чей ролик (25.09.2026).
     if (query.data.startsWith("mj:rcv:")) {
       await handleMontajerReceiveCallback(chatId, agent.id, query.data);
+      return;
+    }
+    // «🎵 Пришлю без голоса» / «Не сейчас» под квитанцией (12.11.2026, lib/narrationVoicelessCopy.ts).
+    if (query.data.startsWith("mj:nv")) {
+      await handleVoicelessCopyCallback(chatId, agent.id, query.data);
       return;
     }
     // Меню — telegram/montajerBot.ts; незнакомая (старая) кнопка — меню заново.

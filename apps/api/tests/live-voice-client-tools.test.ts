@@ -243,8 +243,13 @@ describe("save_client_request — условия структурно", () => {
     await handleClientTool(m, call("save_client_request", { intent: "buy", district: "Сино" }));
     const r = await handleClientTool(m, call("save_client_request", { budget_max: 50000 }));
     expect(m.request).toMatchObject({ intent: "buy", districtName: "Сино", budgetMax: 50000 });
-    expect(r!.scheduling).toBe("SILENT");
+    // 11.11.2026: неполное сохраняется, но функция отвечает «не хватает: …» (обязательные поля — liveVoiceClientTools.ts)
+    expect((r!.response as { ok: boolean; saved: boolean }).ok).toBe(false);
+    expect((r!.response as { saved: boolean }).saved).toBe(true);
     expect(toolResultTranscriptLine("save_client_request", r!.response)).toContain("бюджет до 50 000 (валюта не названа)");
+    const done = await handleClientTool(m, call("save_client_request", { type: "APARTMENT", rooms: 2, currency: "USD", timeframe: "к весне" }));
+    expect(done!.scheduling).toBe("SILENT");
+    expect((done!.response as { ok: boolean }).ok).toBe(true);
   });
 });
 
