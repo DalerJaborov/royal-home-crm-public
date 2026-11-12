@@ -23,6 +23,7 @@ import {
   type TelegramCallbackQuery, type TelegramInlineButton,
 } from "./api.js";
 import { escapeHtml } from "./assistantReply.js";
+import { sendStaffNotice } from "./staffNotice.js";
 
 type Lang = "ru" | "tg";
 type Viewer = { agent: NonNullable<Parameters<typeof matchingClientsForAssistant>[0]["agent"]> };
@@ -181,14 +182,21 @@ async function deliverOffer(offerId: string, fromName: string, toAgent: { id: st
     await markPropertyClientOfferDelivered(offerId, "CRM");
     return;
   }
-  try {
-    await sendMessageWithButtons(toAgent.telegramChatId, text, [
+  // Через дверь сообщений помощницы (вид «Подбор объектов»): выключил себе — предложение
+  // не теряется, а ложится в колокольчик CRM, где на него так же можно ответить.
+  const status = await sendStaffNotice({
+    agentId: toAgent.id,
+    kind: "look",
+    dedupKey: `property-offer:${offerId}`,
+    deliver: (chatId, rows) => sendMessageWithButtons(chatId, text, [
       [{ text: "📤 Отправлю клиенту", callback_data: `pdr:s:${offerId}` }, { text: "🙅 Не подходит", callback_data: `pdr:n:${offerId}` }],
       [{ text: `Открыть ${propertyCode}`, url: `${base}/properties/${property.id}` }],
-    ]);
+      ...rows,
+    ]),
+  });
+  if (status === "sent" || status === "duplicate") {
     await markPropertyClientOfferDelivered(offerId, "TELEGRAM");
-  } catch (error) {
-    void logSystemError("telegram", `Предложение объекта коллеге не ушло в Telegram, записано в CRM: ${error instanceof Error ? error.message : String(error)}`);
+  } else {
     await notifyInCrm();
     await markPropertyClientOfferDelivered(offerId, "CRM");
   }

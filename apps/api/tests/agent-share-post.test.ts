@@ -143,9 +143,15 @@ describe("sendAgentSharePost", () => {
     }
   });
 
-  it("личный тумблер Agent.sharePostTelegram выключен — ничего не отправляет", async () => {
+  // С 11.11.2026 «Посты в Telegram» и вид «Публикации объектов» — одна настройка
+  // (Agent.pushMuted через lib/notificationPrefs.ts), флаг sharePostTelegram — её зеркало.
+  it("личный тумблер «Посты в Telegram» выключен (экран команды) — ничего не отправляет, и это тот же вид", async () => {
     const chatId = `81${runId}4`;
-    const agent = await makeAgent("4", { telegramChatId: chatId, sharePostTelegram: false });
+    const agent = await makeAgent("4", { telegramChatId: chatId });
+    const { setKindMuted } = await import("../src/lib/notificationPrefs.js");
+    await setKindMuted(agent.id, "publication", true);
+    const row = await prisma.agent.findUnique({ where: { id: agent.id }, select: { sharePostTelegram: true, pushMuted: true } });
+    expect(row).toEqual({ sharePostTelegram: false, pushMuted: ["publication"] });
     const property = await makeProperty(agent.id);
 
     await sendAgentSharePost(property.id, { succeededChannels: ["INSTAGRAM"] });

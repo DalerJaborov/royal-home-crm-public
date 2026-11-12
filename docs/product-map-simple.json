@@ -14,12 +14,12 @@
  "totals": {
   "screens": 53,
   "paths": 746,
-  "cron": 128,
+  "cron": 130,
   "jobs": 32,
-  "conditions": 3967,
-  "untranslatedUnique": 456,
-  "untranslatedTotal": 586,
-  "partialUnique": 1078,
+  "conditions": 3981,
+  "untranslatedUnique": 457,
+  "untranslatedTotal": 587,
+  "partialUnique": 1080,
   "translatedShare": 85
  },
  "untranslated": [
@@ -470,6 +470,7 @@
   "typeof payload?.outputFilename === \"string\"",
   "typeof phone !== \"string\" || typeof password !== \"string\"",
   "typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)",
+  "typeof rest.sharePostTelegram === \"boolean\"",
   "typeof rest.sipExtension === \"string\"",
   "typeof update?.update_id !== \"number\"",
   "uploadedParts.length !== session.totalParts",
@@ -11915,6 +11916,13 @@
        "k": "do",
        "a": [],
        "c": []
+      },
+      {
+       "t": "если typeof rest.sharePostTelegram === \"boolean\"",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "typeof rest.sharePostTelegram === \"boolean\""
       },
       {
        "t": "если есть сброс overrides",
@@ -50114,22 +50122,30 @@
      ]
     },
     {
-     "t": "если есть включено (присланные данные)",
+     "t": "если не получилось и причина (ответ) — «always-on»",
      "k": "if",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "отказ: такое уже есть: ««…» выключить нельзя. …»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
     },
     {
-     "t": "иначе",
-     "k": "else",
+     "t": "если не получилось",
+     "k": "if",
      "a": [],
-     "c": []
-    },
-    {
-     "t": "меняет: сотрудник",
-     "k": "do",
-     "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "отказ: данные неверные: «Неизвестный вид уведомления»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -71060,6 +71076,94 @@
    ]
   },
   {
+   "id": "payment-reminders",
+   "when": "40 * * * *",
+   "label": "payment-reminders",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: ignore work часы",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если это не внутри dushanbe окно",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если нет: recipients количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если есть отправленных (ответ)",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "phone-lead-watchdog",
    "when": "*/15 * * * *",
    "label": "Клиент оставил номер, а карточки нет: оформляет или отдаёт человеку",
@@ -73483,6 +73587,53 @@
          "a": [],
          "c": [],
          "raw": "error instanceof SomonSourceUnavailable && error.reason === \"not_ready\""
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "staff-notice-cleanup",
+   "when": "40 3 * * *",
+   "label": "staff-notice-cleanup",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "удаляет: staff notice",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
         }
        ]
       }

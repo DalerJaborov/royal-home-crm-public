@@ -1947,6 +1947,11 @@
       "label": null
     },
     {
+      "id": "payment-reminders",
+      "expr": "40 * * * *",
+      "label": null
+    },
+    {
       "id": "phone-lead-watchdog",
       "expr": "*/15 * * * *",
       "label": "Клиент оставил номер, а карточки нет: оформляет или отдаёт человеку"
@@ -2049,6 +2054,11 @@
     {
       "id": "somon-owner-leads",
       "expr": "* * * * *",
+      "label": null
+    },
+    {
+      "id": "staff-notice-cleanup",
+      "expr": "40 3 * * *",
       "label": null
     },
     {
