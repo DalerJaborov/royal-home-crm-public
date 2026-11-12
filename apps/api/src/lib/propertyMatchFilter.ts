@@ -8,6 +8,7 @@
  * тем же самым, иначе агент увидит расхождение между «Подбором» на карточке
  * клиента и автопушем на новый объект.
  */
+import { clientPropertyEligible, type MatchingPropertyFacts } from "./clientPropertyMatching.js";
 import { propertyTypesWithoutField } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
@@ -17,7 +18,6 @@ import { loadMoneyContext, type MoneyContext } from "./money.js";
 import { sendPushToAgent } from "../push.js";
 import { dushanbeEndOfDay } from "./dushanbeTime.js";
 import {
-  budgetWindowTjs,
   clientRequirementsForPropertyWhere,
   loadMatchPolicy,
   waitingBuyerWhere,
@@ -335,6 +335,9 @@ export async function notifyWaitingBuyersOfNewProperty(property: NewlyAvailableP
       desiredFloorMin: true,
       desiredFloorMax: true,
       desiredTotalFloors: true,
+      desiredRooms: true,
+      desiredType: true,
+      requirementsNotes: true,
       desiredPlaces: { select: { lat: true, lng: true, radiusM: true, label: true } },
     },
     // orderBy + предупреждение о срезе (18.09.2026, docs/match-geo-analysis-18-09.md
@@ -353,37 +356,24 @@ export async function notifyWaitingBuyersOfNewProperty(property: NewlyAvailableP
   }
   if (candidates.length === 0) return;
 
-  // Бюджет — в JS, не в SQL: значений мало (фильтр выше уже сузил список), а конверсия
-  // валюты клиента и валюты объекта в TJS с допуском политики — та же формула, что и в
-  // buildPropertyMatchWhere, только записанная в обратную сторону (там границы объекта
-  // считались от бюджета клиента, здесь — цена объекта проверяется против бюджета).
+  // Цена в сомони — только для повтора «снижена цена» ниже; подходит ли объект,
+  // решает единая модель.
   const priceTjs = property.currency === "USD" ? Number(property.price) * money.usdToTjs : Number(property.price);
-  const area = property.areaSqm != null ? Number(property.areaSqm) : null;
   const withDistance: Array<(typeof candidates)[number] & { nearestPlace: ReturnType<typeof nearestDesiredPlace> }> = [];
+  // ТОЧНАЯ ПРОВЕРКА — та же единая модель, что у «Кому подходит» и счётчика спроса
+  // (lib/clientPropertyMatching.ts, быстрый путь без текстов). До 10.11.2026 здесь
+  // была своя копия: клиент с ориентиром без района получал пуш о КАЖДОМ объекте,
+  // участок уходил клиенту, просившему комнаты, а «не первый этаж» из заметок не
+  // читался вовсе (ревью подбора 2.0).
+  const facts: MatchingPropertyFacts = {
+    id: property.id, type: property.type, districtId: property.districtId, price: property.price,
+    currency: property.currency, rooms: property.rooms, areaSqm: property.areaSqm ?? null,
+    floor: property.floor ?? null, totalFloors: property.totalFloors ?? null,
+    lat: property.lat ?? null, lng: property.lng ?? null,
+  };
   for (const c of candidates) {
-    // Те же границы, что в buildPropertyMatchWhere: пустое поле объекта не отсеивает.
-    if (c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)) continue;
-    if (c.desiredFloorMin != null && property.floor != null && property.floor < c.desiredFloorMin) continue;
-    if (c.desiredFloorMax != null && property.floor != null && property.floor > c.desiredFloorMax) continue;
-    if (c.desiredTotalFloors != null && property.totalFloors != null && property.totalFloors > c.desiredTotalFloors) {
-      continue;
-    }
-    const bMinTjs = c.budgetMin ? (c.currency === "USD" ? Number(c.budgetMin) * money.usdToTjs : Number(c.budgetMin)) : null;
-    const bMaxTjs = c.budgetMax ? (c.currency === "USD" ? Number(c.budgetMax) * money.usdToTjs : Number(c.budgetMax)) : null;
-    // Допуск — общей формулой (lib/matchPolicy.ts::budgetWindowTjs), той же, что у ботов.
-    const window = budgetWindowTjs(bMinTjs, bMaxTjs, policy);
-    if (window.min !== null && window.min > priceTjs) continue;
-    if (window.max !== null && window.max < priceTjs) continue;
-
-    // РАЙОН ИЛИ РАДИУС — точная проверка (SQL выше был грубым предфильтром).
-    // Объект без точки (D5): радиус не рассматриваем вовсе, только район.
-    const districtOk = c.desiredDistrictId == null || c.desiredDistrictId === property.districtId;
-    let nearestPlace: ReturnType<typeof nearestDesiredPlace> = null;
-    if (hasPoint && c.desiredPlaces.length > 0) {
-      nearestPlace = nearestDesiredPlace(propertyLat!, propertyLng!, c.desiredPlaces);
-    }
-    if (!districtOk && !nearestPlace?.withinRadius) continue;
-
+    if (!clientPropertyEligible(c, facts, money, policy)) continue;
+    const nearestPlace = hasPoint && c.desiredPlaces.length > 0 ? nearestDesiredPlace(propertyLat!, propertyLng!, c.desiredPlaces) : null;
     withDistance.push({ ...c, nearestPlace });
   }
   if (withDistance.length === 0) return;

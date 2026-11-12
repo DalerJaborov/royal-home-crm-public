@@ -10,7 +10,7 @@ import { prisma } from "../src/db.js";
  *
  * Панель подбора должна показывать «Совпало X%» и расстояние до желаемого места
  * прямо на карточке объекта, не выводя их на фронте по своей формуле — та же
- * шкала (scoreClientProperty), что на карточке объекта, и то же расстояние,
+ * модель (matchClientProperty), что на карточке объекта, и то же расстояние,
  * что уже используется для сортировки.
  */
 
@@ -103,15 +103,15 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("GET /clients/:id/match — score и distanceM", () => {
-  it("score в диапазоне 0..100, distanceM числом для объекта с координатами", async () => {
+describe("GET /clients/:id/match — уровень и distanceM", () => {
+  it("уровень вместо процента, distanceM числом для объекта с координатами", async () => {
     const res = await request(app).get(`/api/v1/clients/${clientId}/match`).set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     const near = res.body.properties.find((p: { id: string }) => p.id === propertyNearId);
     expect(near).toBeDefined();
-    expect(typeof near.score).toBe("number");
-    expect(near.score).toBeGreaterThanOrEqual(0);
-    expect(near.score).toBeLessThanOrEqual(100);
+    // Подбор 2.0 (10.11.2026): процента нет — уровень и причины.
+    expect(near.score).toBeUndefined();
+    expect(["exact", "alternative", "needs_verification"]).toContain(near.match.tier);
     expect(typeof near.distanceM).toBe("number");
     expect(near.distanceM).toBeLessThan(50); // те же координаты, что у желаемого места
   });
@@ -122,6 +122,6 @@ describe("GET /clients/:id/match — score и distanceM", () => {
     const noCoords = res.body.properties.find((p: { id: string }) => p.id === propertyNoCoordsId);
     expect(noCoords).toBeDefined();
     expect(noCoords.distanceM).toBeNull();
-    expect(typeof noCoords.score).toBe("number");
+    expect(noCoords.match.tier).toBeTruthy();
   });
 });

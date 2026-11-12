@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **741**. Развилок в самих путях: **2459**; вместе с задачами по расписанию и фоновыми заданиями — **3987**. Модулей: **82**.
+Путей: **741**. Развилок в самих путях: **2460**; вместе с задачами по расписанию и фоновыми заданиями — **3981**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3440,6 +3440,9 @@
 - если !confirmedClientIntents(client).buys
   - return res.json(empty("not_buyer"));
     · ответ 200
+- если clientDoneBuying(client)
+  - return res.json(empty("closed"));
+    · ответ 200
 - const result = await clientPropertyMatchingCatalog(client.id, currentBuyerMatchingCriteria(client), { viewerI…
   · зовёт clientPropertyMatchingCatalog()
 - return res.json({ ...result, properties: result.properties.map(property
@@ -4319,13 +4322,13 @@
     - console.error("[clients] firstOpenedAt не записан:", err instanceof Error ? err.message : err);
       · пишет строку в журнал сервера
 - если !client.acceptedAt && client.assignReason === "own_property_match" && client.matchedPropertyId
-  - const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: {…
+  - const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: p…
     · читает в базе: property
   - если matchedProperty
-    - const [money, weights] = await Promise.all([loadMoneyContext(), loadMatchWeights()]);
+    - const [money, policy] = await Promise.all([loadMoneyContext(), loadMatchPolicy()]);
       · зовёт loadMoneyContext()
-    - matchScore = scoreClientProperty(client, matchedProperty, money, { weights, includeHotBonus: false }).score;
-      · зовёт scoreClientProperty()
+    - matchScore = matchClientProperty(client, matchedProperty, money, policy)?.points ?? null;
+      · зовёт matchClientProperty()
 - если client.acceptedAt && client.kind !== "OTHER"
   - const callSettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { leadCallMinutes…
     · читает в базе: settings
@@ -27425,32 +27428,11 @@
     - return;
       · дальше не идёт, ничего не меняя
   - для каждого: const c of candidates
-    - если c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)
+    - если !clientPropertyEligible(c, facts, money, policy)
       - continue;
         · переходит к следующему
-    - если c.desiredFloorMin != null && property.floor != null && property.floor < c.desiredFloorMin
-      - continue;
-        · переходит к следующему
-    - если c.desiredFloorMax != null && property.floor != null && property.floor > c.desiredFloorMax
-      - continue;
-        · переходит к следующему
-    - если c.desiredTotalFloors != null && property.totalFloors != null && property.totalFloors > c.desiredTotalFloors
-      - continue;
-        · переходит к следующему
-    - const window = budgetWindowTjs(bMinTjs, bMaxTjs, policy);
-      · зовёт budgetWindowTjs()
-    - если window.min !== null && window.min > priceTjs
-      - continue;
-        · переходит к следующему
-    - если window.max !== null && window.max < priceTjs
-      - continue;
-        · переходит к следующему
-    - если hasPoint && c.desiredPlaces.length > 0
-      - nearestPlace = nearestDesiredPlace(propertyLat!, propertyLng!, c.desiredPlaces);
-        · зовёт nearestDesiredPlace()
-    - если !districtOk && !nearestPlace?.withinRadius
-      - continue;
-        · переходит к следующему
+    - const nearestPlace = hasPoint && c.desiredPlaces.length > 0 ? nearestDesiredPlace(propertyLat!, propertyLng!,…
+      · зовёт nearestDesiredPlace()
   - если withDistance.length === 0
     - return;
       · дальше не идёт, ничего не меняя

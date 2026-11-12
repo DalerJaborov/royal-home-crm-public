@@ -16,7 +16,7 @@
  *    тумблера на экране) одновременно;
  *  - порог «свой объект» — `pickByPropertyMatch` в
  *    apps/api/src/services/leads/assignment.ts сравнивает его с баллом
- *    scoreClientProperty (routes/matching.ts) без бонуса горячему.
+ *    matchClientProperty().points (lib/clientPropertyMatching.ts), бонуса горячему нет с 10.11.2026.
  *
  * Здесь только тексты и расчёт — разметку рисуют вкладки. Чистые функции, чтобы
  * сверить их тестом, а не глазами.
@@ -108,7 +108,7 @@ export interface ScoreWeights {
 }
 
 /** Самый большой балл, который пара может набрать при поиске объектов под клиента
- *  (бонус горячему там не начисляется), с потолком 100 — как в scoreClientProperty. */
+ *  (бонус горячему там не начисляется), с потолком 100 — как в matchClientProperty().points. */
 export function maxOwnPropertyScore(w: ScoreWeights): number {
   return Math.min(100, w.base + w.district + w.rooms + w.budget + w.distance);
 }
