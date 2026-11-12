@@ -21,7 +21,8 @@ it.each(["privateFiles", "safeFetch", "ffmpeg", "workingHours", "intake", "attac
     artifact.changed = name;
     expect(await buildCurrentCustomerAgentManifest(snapshot)).toEqual(before);
   });
-it.each(["customerAgentCore", "customerAgentRegistration", "customerPublicModerationPolicy", "customerDeliveryDispatcher"])(
+it.each(["customerAgentCore", "customerAgentRegistration", "customerPublicModerationPolicy", "customerDeliveryDispatcher",
+  "customerLeadOnlyCore", "leadOnlyMode", "leadOnlySettings"])(
   "editing agent file %s changes coreHash only", async name => {
     const snapshot = createCustomerAgentProviderSnapshot(), before = await buildCurrentCustomerAgentManifest(snapshot);
     artifact.changed = name;
