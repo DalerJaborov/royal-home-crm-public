@@ -6,7 +6,7 @@
  *  · выбросы (цена ниже порога или цена за м² вне 500–100 000) отсекаются (plausible.ts); «среднее» —
  *    усечённое, без 10% дешёвых и 10% дорогих с краёв;
  *  · медиана (не только среднее): одно объявление-выброс не должно двигать «типичную» цену;
- *  · один объект на двух площадках — одно объявление (dedupeAcrossSources), иначе пять квартир
+ *  · один объект (на двух площадках или выложенный дважды) — одно объявление (dedupeListings), иначе пять квартир
  *    выглядят как десять и проходят порог;
  *  · объявления — не цены сделок (подпись на экране).
  *
@@ -26,7 +26,8 @@ import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { MIN_SAMPLE } from "./comps.js";
 import { isPlausibleSale, plausibleSaleWhere, trimmedMean } from "./plausible.js";
-import { dedupeAcrossSources, WINDOW_DAYS } from "./similarComps.js";
+import { dedupeListings, WINDOW_DAYS } from "./similarComps.js";
+import { marketCatalogWhere } from "./somonRubrics.js";
 
 /** Предел выборки на запрос: каталог Душанбе — тысячи объявлений, не сотни тысяч. */
 export const SEGMENTS_FETCH_LIMIT = 20_000;
@@ -44,6 +45,8 @@ export interface SegmentRow {
   floor: number | null;
   firstSeenAt: Date;
   lastSeenAt: Date;
+  /** Продавец на площадке: повтор одной площадки склеивается, только если продавец тот же (или неизвестен). */
+  sellerId?: string | null;
 }
 
 export function median(sorted: number[]): number {
@@ -75,7 +78,7 @@ export function buildSegments(rows: SegmentRow[], now = Date.now()): MarketSegme
     // Дубли между площадками ищутся внутри района и числа комнат; сегмент по ремонту — их подмножество,
     // но один и тот же объект на двух площадках может иметь разный ремонт в записи, поэтому склейка
     // идёт ПО СЕГМЕНТУ (повторный счёт одного объекта внутри ячейки — то, от чего порог защищает).
-    const unique = dedupeAcrossSources(bucket);
+    const unique = dedupeListings(bucket);
     const first = unique[0];
     const enough = unique.length >= MIN_SAMPLE;
     const perSqm = unique.map((r) => r.pricePerSqmTjs).filter((v): v is number => v != null && v > 0).sort((a, b) => a - b);
@@ -115,7 +118,7 @@ export function segmentsWhere(q: MarketSegmentsQuery, now = Date.now()): Prisma.
     districtName: q.districtName ?? { not: null },
     ...(q.repair ? { repair: q.repair } : {}),
     ...(q.building ? { isNewBuilding: q.building === "new" } : {}),
-    AND: [{ OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] }, ...plausibleSaleWhere("APARTMENT")],
+    AND: [{ OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] }, ...plausibleSaleWhere("APARTMENT"), marketCatalogWhere()],
   };
 }
 
@@ -124,7 +127,7 @@ export async function findSegments(q: MarketSegmentsQuery): Promise<MarketSegmen
     where: segmentsWhere(q),
     select: {
       source: true, districtName: true, rooms: true, repair: true, areaSqm: true, priceTjs: true, pricePerSqmTjs: true,
-      floor: true, firstSeenAt: true, lastSeenAt: true,
+      floor: true, firstSeenAt: true, lastSeenAt: true, sellerId: true,
     },
     orderBy: { lastSeenAt: "desc" },
     take: SEGMENTS_FETCH_LIMIT,
@@ -149,6 +152,7 @@ export async function findSegments(q: MarketSegmentsQuery): Promise<MarketSegmen
         floor: r.floor,
         firstSeenAt: r.firstSeenAt,
         lastSeenAt: r.lastSeenAt,
+        sellerId: r.sellerId,
       }))
     ),
   };

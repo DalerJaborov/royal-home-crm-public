@@ -1872,6 +1872,11 @@
       "label": null
     },
     {
+      "id": "market-somon-incremental",
+      "expr": "7,22,37,52 * * * *",
+      "label": null
+    },
+    {
       "id": "market-weekly-crawl",
       "expr": "30 2 * * 0",
       "label": null
@@ -1944,6 +1949,11 @@
     {
       "id": "owner-report-monthly-preview",
       "expr": "20 8 * * *",
+      "label": null
+    },
+    {
+      "id": "payment-reminders",
+      "expr": "40 * * * *",
       "label": null
     },
     {
@@ -2049,6 +2059,11 @@
     {
       "id": "somon-owner-leads",
       "expr": "* * * * *",
+      "label": null
+    },
+    {
+      "id": "staff-notice-cleanup",
+      "expr": "40 3 * * *",
       "label": null
     },
     {

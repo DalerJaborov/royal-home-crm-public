@@ -14,6 +14,7 @@ import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { MARKET_REPAIR_LABEL } from "@royal-home/shared";
 import { MIN_SAMPLE, VERDICT_THRESHOLD_PERCENT } from "./comps.js";
+import { marketCatalogWhere } from "./somonRubrics.js";
 
 export type Repair = "SHELL" | "WHITE" | "PARTIAL" | "RENOVATED" | "DESIGNER";
 
@@ -57,9 +58,9 @@ export interface SimilarResult {
   estimatedPriceTjs: number | null;
   rangeLowTjs: number | null;
   rangeHighTjs: number | null;
-  /** Число УНИКАЛЬНЫХ объявлений: один объект на двух площадках считается раз. */
+  /** Число УНИКАЛЬНЫХ объявлений: один объект (на двух площадках или выложенный дважды) считается раз. */
   sampleSize: number;
-  /** Сколько дублей между площадками склеено (в основании не участвуют). */
+  /** Сколько повторов одного объекта склеено (в основании не участвуют). */
   mergedDuplicates: number;
   windowDays: number;
   basis: string;
@@ -101,12 +102,17 @@ export const APARTMENT_RUNGS: Rung[] = [
 export const HOUSE_RUNGS: Rung[] = [{ name: "house_area", keepRepair: false, keepBuilding: false, keepArea: true, keepRooms: false }];
 
 /**
- * ОДИН ОБЪЕКТ НА ДВУХ ПЛОЩАДКАХ — ОДНО ОБЪЯВЛЕНИЕ. Агент выставляет квартиру и на Somon,
- * и на Paydo: без склейки выборка из пяти квартир выглядит как десять и проходит порог
- * MIN_SAMPLE. Допуски те же узкие, что в listingDedupe.ts (±3 м², ±5% цены): это разные
- * записи ОДНОГО объекта, а не «похожие квартиры». Склеиваем только РАЗНЫЕ площадки —
- * два объявления одной площадки имеют свои id, и две одинаковые квартиры в одном доме
- * там бывают на самом деле. «Неизвестно» в пользу склейки не засчитывается.
+ * ОДИН ОБЪЕКТ — ОДНО ОБЪЯВЛЕНИЕ. Агент выставляет квартиру и на Somon, и на Paydo, а на одной
+ * площадке её ещё и перевыкладывают (на Paydo 12.11.2026 ~3 100 таких повторов: те же комнаты,
+ * площадь, цена, этаж). Без склейки выборка из пяти квартир выглядит как десять и проходит порог
+ * MIN_SAMPLE, а подбор покупателю показывает одну квартиру трижды. «Неизвестно» в пользу склейки
+ * не засчитывается никогда. Одна дверь для сегментов, подбора, оценки и динамики — `dedupeListings`.
+ *
+ *  · Разные площадки (`isCrossSourceDuplicate`): допуски те же узкие, что в listingDedupe.ts
+ *    (±3 м², ±5% цены) — это разные записи ОДНОГО объекта, а не «похожие квартиры».
+ *  · Одна площадка (`isSameSourceRepost`): строже, потому что две одинаковые квартиры в одном доме
+ *    там бывают на самом деле — тот же район и комнаты, этаж известен у обоих и совпадает, площадь
+ *    ±0,5 м², цена ±1%, а ремонт и продавец, если известны у обоих, — те же самые.
  */
 export interface DedupeRow {
   source: string;
@@ -115,24 +121,52 @@ export interface DedupeRow {
   areaSqm?: number | null;
   priceTjs?: number | null;
   floor?: number | null;
+  repair?: string | null;
+  sellerId?: string | null;
+  sellerPhone?: string | null;
 }
 
 const DUP_AREA_SQM = 3;
 const DUP_PRICE_SHARE = 0.05;
+const REPOST_AREA_SQM = 0.5;
+const REPOST_PRICE_SHARE = 0.01;
+
+function priceShareApart(a: number | null | undefined, b: number | null | undefined): number | null {
+  if (!a || !b || a <= 0 || b <= 0) return null;
+  return Math.abs(a - b) / Math.max(a, b);
+}
 
 export function isCrossSourceDuplicate(a: DedupeRow, b: DedupeRow): boolean {
   if (a.source === b.source) return false;
   if (a.districtName == null || a.districtName !== b.districtName) return false;
   if ((a.rooms ?? null) !== (b.rooms ?? null)) return false;
   if (a.areaSqm == null || b.areaSqm == null || Math.abs(a.areaSqm - b.areaSqm) > DUP_AREA_SQM) return false;
-  if (!a.priceTjs || !b.priceTjs || a.priceTjs <= 0 || b.priceTjs <= 0) return false;
-  if (Math.abs(a.priceTjs - b.priceTjs) / Math.max(a.priceTjs, b.priceTjs) > DUP_PRICE_SHARE) return false;
+  const apart = priceShareApart(a.priceTjs, b.priceTjs);
+  if (apart == null || apart > DUP_PRICE_SHARE) return false;
   if (a.floor != null && b.floor != null && a.floor !== b.floor) return false;
   return true;
 }
 
-/** Склеивает дубли между площадками; из пары остаётся ПЕРВОЕ в порядке входа (вызывающий ставит ближайшие первыми). */
-export function dedupeAcrossSources<T extends DedupeRow>(rows: T[]): T[] {
+export function isSameSourceRepost(a: DedupeRow, b: DedupeRow): boolean {
+  if (a.source !== b.source) return false;
+  if (a.districtName == null || a.districtName !== b.districtName) return false;
+  if (a.rooms == null || a.rooms !== b.rooms) return false;
+  if (a.floor == null || b.floor == null || a.floor !== b.floor) return false;
+  if (a.areaSqm == null || b.areaSqm == null || Math.abs(a.areaSqm - b.areaSqm) > REPOST_AREA_SQM) return false;
+  const apart = priceShareApart(a.priceTjs, b.priceTjs);
+  if (apart == null || apart > REPOST_PRICE_SHARE) return false;
+  if (a.repair && b.repair && a.repair !== b.repair) return false;
+  if (a.sellerId && b.sellerId && a.sellerId !== b.sellerId) return false;
+  if (a.sellerPhone && b.sellerPhone && a.sellerPhone !== b.sellerPhone) return false;
+  return true;
+}
+
+export function isDuplicateListing(a: DedupeRow, b: DedupeRow): boolean {
+  return isCrossSourceDuplicate(a, b) || isSameSourceRepost(a, b);
+}
+
+/** Склеивает повторы (между площадками и внутри одной); из пары остаётся ПЕРВОЕ в порядке входа (вызывающий ставит ближайшие первыми). */
+export function dedupeListings<T extends DedupeRow>(rows: T[]): T[] {
   const kept: T[] = [];
   const byDistrict = new Map<string, T[]>();
   for (const row of rows) {
@@ -141,7 +175,7 @@ export function dedupeAcrossSources<T extends DedupeRow>(rows: T[]): T[] {
       continue;
     }
     const bucket = byDistrict.get(row.districtName) ?? [];
-    if (bucket.some((k) => isCrossSourceDuplicate(k, row))) continue;
+    if (bucket.some((k) => isDuplicateListing(k, row))) continue;
     bucket.push(row);
     byDistrict.set(row.districtName, bucket);
     kept.push(row);
@@ -194,7 +228,7 @@ function describe(subject: Subject, rung: Rung, sampleSize: number, merged: numb
   if (rung.keepRepair && subject.repair) parts.push(REPAIR_LABEL[subject.repair]);
   if (rung.keepBuilding && subject.isNewBuilding != null) parts.push(subject.isNewBuilding ? "новостройка" : "старый фонд");
   if (rung.unknownBuildingOk) parts.push("включая объявления без указанного типа дома");
-  const dup = merged > 0 ? ` (дубли между площадками склеены: ${merged})` : "";
+  const dup = merged > 0 ? ` (повторы одного объекта склеены: ${merged})` : "";
   return `медиана по ${sampleSize} уникальным объявлениям${dup}: ${parts.join(", ")}`;
 }
 
@@ -228,7 +262,7 @@ function evaluateRung(rows: SimilarRow[], subject: Subject, rung: Rung): Similar
     .sort((a, b) => a.d - b.d)
     .map((x) => x.r);
   // Ближайшие к объекту идут первыми: из пары дублей остаётся более похожая.
-  const sample = dedupeAcrossSources(filtered);
+  const sample = dedupeListings(filtered);
   if (sample.length < MIN_SAMPLE) return null;
 
   // На ступени без площади объект обязан попадать в основной диапазон выборки:
@@ -347,7 +381,7 @@ export async function findSimilar(subject: Subject, options: FindSimilarOptions 
         pricePerSqmTjs: { not: null },
         ...(own.length ? { id: { notIn: own } } : {}),
         ...(subject.districtName ? { districtName: subject.districtName } : {}),
-        AND: [{ OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] }, ...rungWhere(subject, rung)],
+        AND: [{ OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] }, ...rungWhere(subject, rung), marketCatalogWhere()],
       },
       select: {
         sourceUrl: true, source: true, title: true, rooms: true, areaSqm: true, floor: true, totalFloors: true,

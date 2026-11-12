@@ -622,6 +622,11 @@ async function buildPropertiesSection(ctx: BuildContext): Promise<ProblemSection
         id: true,
         shortId: true,
         title: true,
+        // type и точка решают «подходит/нет» (единая модель подбора): без них
+        // «никто не ищет» срабатывал ложно (ревью 10.11.2026).
+        type: true,
+        lat: true,
+        lng: true,
         price: true,
         currency: true,
         districtId: true,

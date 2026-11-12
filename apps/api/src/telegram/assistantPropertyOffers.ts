@@ -2,13 +2,14 @@
  * «КОМУ ПОДХОДИТ ОБЪЕКТ» В TELEGRAM И «ПРЕДЛОЖИТЬ КОЛЛЕГЕ» (решение владельца
  * 10.11.2026). Сразу после создания объекта мастер присылает одно сообщение:
  * свои клиенты полностью, клиенты коллег — без имени и телефона, с кнопкой
- * «Предложить». Процент совпадения НЕ показываем (владелец: это не качество
- * совпадения) — только причины подбора как есть.
+ * «Предложить». Процента нет (владелец: это не качество совпадения) — уровень
+ * «🎯 точно / 👍 можно предложить / ❓ уточнить» и что именно совпало, та же
+ * модель, что в «Подборе» CRM (подбор 2.0, 10.11.2026).
  *
  * Кто что видит — lib/propertyMatchingClients.ts, запись предложения —
  * lib/propertyClientOffers.ts. Здесь только текст и кнопки.
  */
-import { formatClientCode, formatPropertyCode, isReadOnlyRole, PROPERTY_TYPE_LABELS, type PermissionId } from "@royal-home/shared";
+import { formatClientCode, formatPropertyCode, isReadOnlyRole, matchTierLabel, PROPERTY_TYPE_LABELS, sentAgoText, type PermissionId } from "@royal-home/shared";
 import { loadAgentAccess } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { clientNamePhoneSafe } from "../lib/clientPhone.js";
@@ -23,6 +24,7 @@ import {
   type TelegramCallbackQuery, type TelegramInlineButton,
 } from "./api.js";
 import { escapeHtml } from "./assistantReply.js";
+import { sendStaffNotice } from "./staffNotice.js";
 
 type Lang = "ru" | "tg";
 type Viewer = { agent: NonNullable<Parameters<typeof matchingClientsForAssistant>[0]["agent"]> };
@@ -64,15 +66,24 @@ function matchLines(match: AssistantClientMatch, lang: Lang): string[] {
   const head = match.own || match.name
     ? `• ${code} ${escapeHtml(match.name ?? "")}${match.own ? "" : ` · ${escapeHtml(c.leads(match.agentName ?? c.noAgent))}`}`
     : `• ${code} · ${escapeHtml(match.agentName ? c.leads(match.agentName) : c.noAgent)}`;
-  const reasons = match.reasons.length
-    ? match.reasons.map(reason => `${reason.tradeoff ? "⚠️" : "✅"} ${escapeHtml(reason.text)}`).join(" · ")
-    : c.incomplete;
+  const evidence = match.match;
+  const lines = [
+    evidence.reasons.length ? evidence.reasons.map(text => `✅ ${escapeHtml(text)}`).join(" · ") : null,
+    evidence.tradeoffs.length ? evidence.tradeoffs.map(text => `⚠️ ${escapeHtml(text)}`).join(" · ") : null,
+    evidence.unknowns.length ? evidence.unknowns.map(text => `❓ ${escapeHtml(text)}`).join(" · ") : null,
+  ].filter((line): line is string => Boolean(line));
+  const sent = sentAgoText(evidence, lang);
   const facts = [
     match.budgetMax != null && `💰 ${c.upTo} ${match.currency === "USD" ? `$${money(match.budgetMax)}` : `${money(match.budgetMax)} ${c.tjs}`}`,
     match.rooms != null && c.rooms(match.rooms),
     match.districtName && `📍 ${escapeHtml(match.districtName)}`,
   ].filter(Boolean).join(" · ");
-  return [head, `   ${reasons}`, ...(facts ? [`   ${facts}`] : [])];
+  return [
+    `${head} — ${escapeHtml(matchTierLabel(evidence.tier, lang))}`,
+    ...(lines.length ? lines : [c.incomplete]).map(line => `   ${line}`),
+    ...(sent ? [`   📤 ${escapeHtml(sent)}`] : []),
+    ...(facts ? [`   ${facts}`] : []),
+  ];
 }
 
 /** Одно сообщение после создания объекта. Клиентам ничего не уходит. */
@@ -80,7 +91,7 @@ export async function sendPropertyMatchesCard(chatId: string, viewer: Viewer, pr
   const c = copy[lang];
   try {
     const [matches, property] = await Promise.all([
-      matchingClientsForAssistant(viewer, propertyId),
+      matchingClientsForAssistant(viewer, propertyId, undefined, lang),
       prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } }),
     ]);
     const shownCount = matches.own.length + matches.colleagues.length;
@@ -181,14 +192,21 @@ async function deliverOffer(offerId: string, fromName: string, toAgent: { id: st
     await markPropertyClientOfferDelivered(offerId, "CRM");
     return;
   }
-  try {
-    await sendMessageWithButtons(toAgent.telegramChatId, text, [
+  // Через дверь сообщений помощницы (вид «Подбор объектов»): выключил себе — предложение
+  // не теряется, а ложится в колокольчик CRM, где на него так же можно ответить.
+  const status = await sendStaffNotice({
+    agentId: toAgent.id,
+    kind: "look",
+    dedupKey: `property-offer:${offerId}`,
+    deliver: (chatId, rows) => sendMessageWithButtons(chatId, text, [
       [{ text: "📤 Отправлю клиенту", callback_data: `pdr:s:${offerId}` }, { text: "🙅 Не подходит", callback_data: `pdr:n:${offerId}` }],
       [{ text: `Открыть ${propertyCode}`, url: `${base}/properties/${property.id}` }],
-    ]);
+      ...rows,
+    ]),
+  });
+  if (status === "sent" || status === "duplicate") {
     await markPropertyClientOfferDelivered(offerId, "TELEGRAM");
-  } catch (error) {
-    void logSystemError("telegram", `Предложение объекта коллеге не ушло в Telegram, записано в CRM: ${error instanceof Error ? error.message : String(error)}`);
+  } else {
     await notifyInCrm();
     await markPropertyClientOfferDelivered(offerId, "CRM");
   }

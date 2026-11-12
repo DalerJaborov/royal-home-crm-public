@@ -512,16 +512,9 @@ export async function clearDialog(chatId: string): Promise<void> {
 
 // ─────────────────────────── нажатия кнопок ───────────────────────────
 
-/** Первое ли это нажатие с таким id. Повторная доставка — false. */
-export async function claimCallback(id: string): Promise<boolean> {
-  try {
-    await prisma.telegramCallbackSeen.create({ data: { id } });
-    return true;
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return false;
-    throw err;
-  }
-}
+/** Первое ли это нажатие с таким id — одна реализация в lib/telegramCallbackClaim.ts. */
+import { claimCallback } from "./telegramCallbackClaim.js";
+export { claimCallback };
 
 async function alreadyDecidedText(propertyId: string): Promise<string> {
   const who = await whoDecided(propertyId);

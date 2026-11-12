@@ -88,6 +88,9 @@ export async function notifyDirectorsOfStaffChange(input: StaffChangeNotice): Pr
     .filter(Boolean)
     .join(" ");
   return sendPushToAgents(recipients, {
+    // Вид «безопасность» — в ALWAYS_ON_KINDS: личные отключения его не глушат
+    // (lib/notificationPrefs.ts), а помощница и профиль объясняют почему.
+    kind: "security",
     title: TITLES[input.change],
     body,
     url: input.change === "deleted" ? "/team" : `/team/${input.targetId}`,
