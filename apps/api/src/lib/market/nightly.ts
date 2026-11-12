@@ -32,6 +32,7 @@ import { crawlPaydoSection, PAYDO_SECTIONS } from "./paydoCrawler.js";
 import { PaydoBlockedError, PaydoClient } from "./paydoClient.js";
 import { PAYDO_SOURCE } from "./paydoParser.js";
 import { crawlSection, SECTIONS, type CrawlStop } from "./somonCrawler.js";
+import { marketCatalogWhere } from "./somonRubrics.js";
 
 const SOMON_SOURCE = "somon.tj";
 /** Потолок времени одного прогона. */
@@ -112,6 +113,9 @@ async function previousScopeCount(source: string): Promise<number> {
       dealType: "SALE",
       propertyType: { in: ["APARTMENT", "HOUSE"] },
       lastSeenAt: { gte: new Date(Date.now() - 14 * 24 * 3600_000) },
+      // Мусор чужих рубрик (общая лента 11.11.2026) — не «прежний размер» источника: с ним
+      // честный обход квартир и домов выглядел бы оборванным, и «исчезло» не ставилось бы никогда.
+      AND: [marketCatalogWhere()],
     },
   });
 }

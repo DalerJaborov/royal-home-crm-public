@@ -17,6 +17,13 @@
  * Разделы: только продажа квартир и домов в Душанбе — это ровно то, что пропускает
  * дверь `fetchSomon`. Аренду/коммерцию/участки собирать нельзя без осознанного
  * расширения двери (и согласия владельца).
+ *
+ * СВОЯ РУБРИКА — ИЛИ НИЧЕГО (12.11.2026). Страница сначала проверяется целиком: её собственная
+ * рубрика (метаданные списка) обязана совпасть с рубрикой раздела, иначе сайт отдал не тот список
+ * (так адрес домов 11.11 оказался общей лентой «Все объявления» на 9 326 страниц) — стоп
+ * `wrong_scope` с записью в журнал. Затем каждое объявление: пишется только рубрика из белого
+ * списка раздела (`rubricIds`), тип сделки и объекта — из рубрики (`somonRubrics.ts`). Страница,
+ * где нет ни одного объявления своей рубрики, — конец раздела.
  */
 
 import { SomonSourceUnavailable, fetchSomon } from "../somonLeads/sourceClient.js";
@@ -25,6 +32,7 @@ import { logSystemError } from "../systemError.js";
 import { saveListings, type SaveStats } from "./marketStore.js";
 import type { ParsedListing } from "./somonParser.js";
 import { extractAds, extractNextPayload, toListing } from "./somonParser.js";
+import { SOMON_APARTMENT_SALE_RUBRIC_IDS, SOMON_SOURCE, somonRubricId } from "./somonRubrics.js";
 
 /** Сколько ждём свободный слот бюджета на ОДНУ страницу, прежде чем сдаться. */
 const MAX_WAIT_PER_PAGE_MS = 5 * 60_000;
@@ -38,13 +46,24 @@ export interface CrawlSection {
   /** Путь раздела без адреса сайта и без страницы. */
   path: string;
   label: string;
+  /** Рубрика самой страницы списка (`"rubric":{"id":…}` в метаданных): другая — сайт отдал не тот список. */
+  pageRubricId: number;
+  /** Белый список рубрик объявлений раздела: остальное на странице не пишется. */
+  rubricIds: readonly number[];
 }
 
-/** Разделы, которые собираем (и которые разрешает дверь `fetchSomon`). */
+/**
+ * Разделы, которые собираем (и которые разрешает дверь `fetchSomon`). Номера рубрик сверены по живым
+ * страницам 12.11.2026: квартиры — список 216, объявления 2829–2839; дома — 218 и там, и там.
+ * Прежний адрес домов `/nedvizhimost/prodazha-domov/dushanbe/` отдаёт общую ленту — не возвращать.
+ */
 export const SECTIONS: CrawlSection[] = [
-  { path: "/nedvizhimost/prodazha-kvartir/dushanbe/", label: "Продажа квартир" },
-  { path: "/nedvizhimost/prodazha-domov/dushanbe/", label: "Продажа домов" },
+  { path: "/nedvizhimost/prodazha-kvartir/dushanbe/", label: "Продажа квартир", pageRubricId: 216, rubricIds: SOMON_APARTMENT_SALE_RUBRIC_IDS },
+  { path: "/nedvizhimost/prodazha-domov-havli-i-dach/dushanbe/", label: "Продажа домов", pageRubricId: 218, rubricIds: [218] },
 ];
+
+/** Раздел квартир — его страницы скачивает и минутный парсер лидов. */
+export const APARTMENTS_SECTION = SECTIONS[0];
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -56,6 +75,7 @@ export type CrawlStop =
   | "wait_timeout" // слот бюджета не освободился за разумное время (уступаем лидам или пауза после сбоя)
   | "unavailable" // сеть/5xx после повторной попытки, 404 посреди раздела (если рынок не сжался)
   | "layout_changed" // в странице нет данных объявлений: вёрстка сайта поменялась
+  | "wrong_scope" // сайт отдал список чужой рубрики (общую ленту и т.п.): ничего не пишем
   | "page_limit" // дошли до страховочного предела страниц
   | "save_failed" // не записалось в нашу базу
   | "deadline"; // вышло время, отведённое на прогон
@@ -67,6 +87,8 @@ export interface CrawlResult {
   listingCount: number;
   /** true — дошли до последней страницы раздела. Только тогда можно судить об «исчезнувших». */
   complete: boolean;
+  /** Сколько объявлений чужих рубрик пропущено (не записано). */
+  foreignSkipped: number;
   stopReason?: CrawlStop;
 }
 
@@ -121,19 +143,48 @@ async function confirmShrunk(section: CrawlSection, page: number, pause: (ms: nu
   return detectLastPage(outcome.html) < page;
 }
 
-/** HTML страницы списка → объявления. Пусто, если данных нет. */
-export function parseSomonPage(html: string): ParsedListing[] {
-  return extractAds(extractNextPayload(html))
+/** Рубрика самой страницы списка из её метаданных (`"next_page":…,"rubric":{"id":216,…}`); нет — null. */
+export function somonPageRubricId(payload: string): number | null {
+  const start = payload.indexOf('"next_page":');
+  if (start < 0) return null;
+  const advertsAt = payload.indexOf('"adverts":[', start);
+  const meta = payload.slice(start, advertsAt > start ? advertsAt : start + 8000);
+  const m = /"rubric":\{"id":(\d+)/.exec(meta);
+  return m ? Number(m[1]) : null;
+}
+
+export interface SomonPage {
+  /** Страница — список рубрики раздела (не общая лента, не чужой раздел). */
+  inScope: boolean;
+  /** Сколько объявлений вообще было на странице. */
+  adsTotal: number;
+  /** Объявления рубрик раздела — только они пишутся. */
+  listings: ParsedListing[];
+}
+
+/** HTML страницы списка → объявления раздела. Чужая рубрика страницы — `inScope: false` и пусто. */
+export function parseSomonPage(html: string, section: CrawlSection = APARTMENTS_SECTION): SomonPage {
+  const payload = extractNextPayload(html);
+  const ads = extractAds(payload);
+  if (somonPageRubricId(payload) !== section.pageRubricId) return { inScope: false, adsTotal: ads.length, listings: [] };
+  const allowed = new Set(section.rubricIds);
+  const listings = ads
+    .filter((ad) => {
+      const id = somonRubricId(ad);
+      return id != null && allowed.has(id);
+    })
     .map(toListing)
     .filter((l): l is ParsedListing => l !== null);
+  return { inScope: true, adsTotal: ads.length, listings };
 }
 
 /**
  * Записывает уже скачанную страницу в рыночный каталог (без второго запроса).
- * Зовёт минутный парсер лидов: html уже получен им через ту же дверь.
+ * Зовёт минутный парсер лидов: html уже получен им через ту же дверь (раздел квартир).
+ * Действует то же правило рубрик, что у обхода: чужая страница или чужое объявление не пишутся.
  */
-export async function saveSomonPageHtml(html: string): Promise<SaveStats> {
-  return saveListings("somon.tj", parseSomonPage(html));
+export async function saveSomonPageHtml(html: string, section: CrawlSection = APARTMENTS_SECTION): Promise<SaveStats> {
+  return saveListings(SOMON_SOURCE, parseSomonPage(html, section).listings);
 }
 
 export interface CrawlOptions {
@@ -158,12 +209,14 @@ export interface CrawlOptions {
 export async function crawlSection(section: CrawlSection, options: CrawlOptions = {}): Promise<CrawlResult> {
   const pause = options.pause ?? wait;
   const limit = Math.min(options.maxPages ?? MAX_PAGES, MAX_PAGES);
-  const result: CrawlResult = { section: section.label, pagesFetched: 0, listingCount: 0, complete: false };
+  const result: CrawlResult = { section: section.label, pagesFetched: 0, listingCount: 0, complete: false, foreignSkipped: 0 };
 
   const stop = async (reason: CrawlStop, page: number, status?: number): Promise<CrawlResult> => {
     result.stopReason = reason;
-    // Только код причины и номер страницы: ни тел ответов, ни адресов.
-    if (reason !== "deadline") {
+    // Только код причины и номер страницы: ни тел ответов, ни адресов. Предел страниц, заданный
+    // вызывающим (инкремент читает 2–3 первые), — не сбой, а задуманный конец: молчим.
+    const requestedLimit = reason === "page_limit" && options.maxPages != null;
+    if (reason !== "deadline" && !requestedLimit) {
       await logSystemError("api", `Сбор Somon прерван: «${section.label}», стр. ${page}, причина ${reason}${status ? ` (HTTP ${status})` : ""}`, {
         dedupKey: `market-somon-crawl-${section.path}-${reason}`,
       });
@@ -188,10 +241,21 @@ export async function crawlSection(section: CrawlSection, options: CrawlOptions 
     result.pagesFetched++;
     lastPage = Math.max(lastPage, detectLastPage(html));
     if (!html.includes("self.__next_f.push")) return stop("layout_changed", page);
-    const listings = parseSomonPage(html);
-    if (listings.length === 0) {
+    const parsed = parseSomonPage(html, section);
+    // Сайт отдал не список раздела (общую ленту, чужой раздел): ни одной строки не пишем.
+    if (!parsed.inScope) return stop("wrong_scope", page);
+    if (parsed.adsTotal === 0) {
       // Пустая страница до известного конца — не «конец выдачи», а подозрительный разбор.
       if (page < lastPage || page === 1) return stop("layout_changed", page);
+      break;
+    }
+    const { listings } = parsed;
+    result.foreignSkipped += parsed.adsTotal - listings.length;
+    if (listings.length === 0) {
+      // Объявления есть, но ни одного своей рубрики: раздел кончился (дальше сайт подмешивает
+      // чужое). На первой странице так не бывает — значит, это не тот список.
+      if (page === 1) return stop("wrong_scope", page);
+      console.info(`[market-somon] «${section.label}»: на стр. ${page} нет объявлений своей рубрики — конец раздела`);
       break;
     }
     result.listingCount += listings.length;

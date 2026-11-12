@@ -17,7 +17,8 @@
 
 import { prisma } from "../../db.js";
 import { MIN_SAMPLE } from "./comps.js";
-import { dedupeAcrossSources, ownListingIds, WINDOW_DAYS as ACTIVE_WINDOW_DAYS } from "./similarComps.js";
+import { marketCatalogWhere } from "./somonRubrics.js";
+import { dedupeListings, ownListingIds, WINDOW_DAYS as ACTIVE_WINDOW_DAYS } from "./similarComps.js";
 
 export const DYNAMICS_WINDOW_DAYS = 90;
 /** Снимки цены, отличающиеся меньше этого, — шум округления/курса, не снижение. */
@@ -226,8 +227,8 @@ export function buildDynamics(
 
   // «Ушло» засчитываем только при истории не короче порога (первое появление → последний раз видели) —
   // иначе это молодой каталог. Один объект на двух площадках считается раз (как в similarComps).
-  const gone = dedupeAcrossSources(goneRows.filter((r) => daysListed(r) >= MIN_HISTORY_DAYS));
-  const activeRows = dedupeAcrossSources(activeRowsRaw);
+  const gone = dedupeListings(goneRows.filter((r) => daysListed(r) >= MIN_HISTORY_DAYS));
+  const activeRows = dedupeListings(activeRowsRaw);
 
   const result = emptyDynamics(basis, "insufficient");
   result.goneCount = gone.length;
@@ -315,6 +316,7 @@ export async function findDynamics(subject: DynamicsSubject, now: Date = new Dat
     ...(subject.districtName ? { districtName: subject.districtName } : {}),
     // У домов комнатность ничего не значит (как в similarComps).
     ...(subject.propertyType === "APARTMENT" && subject.rooms ? { rooms: subject.rooms } : {}),
+    AND: [marketCatalogWhere()],
   };
 
   const [goneDb, activeDb] = await Promise.all([
@@ -365,10 +367,10 @@ export async function findDynamics(subject: DynamicsSubject, now: Date = new Dat
   const counts: SellerCounts = {};
   const [byId, byPhone] = await Promise.all([
     ids.length
-      ? prisma.marketListing.groupBy({ by: ["source", "sellerId"], where: { isActive: true, dealType: "SALE", sellerId: { in: ids } }, _count: { _all: true } })
+      ? prisma.marketListing.groupBy({ by: ["source", "sellerId"], where: { isActive: true, dealType: "SALE", sellerId: { in: ids }, AND: [marketCatalogWhere()] }, _count: { _all: true } })
       : Promise.resolve([]),
     phones.length
-      ? prisma.marketListing.groupBy({ by: ["sellerPhone"], where: { isActive: true, dealType: "SALE", sellerId: null, sellerPhone: { in: phones } }, _count: { _all: true } })
+      ? prisma.marketListing.groupBy({ by: ["sellerPhone"], where: { isActive: true, dealType: "SALE", sellerId: null, sellerPhone: { in: phones }, AND: [marketCatalogWhere()] }, _count: { _all: true } })
       : Promise.resolve([]),
   ]);
   // id продавца уникален только внутри площадки: у Somon и Paydo «123» — разные люди.

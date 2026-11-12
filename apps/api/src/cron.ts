@@ -1930,6 +1930,29 @@ export function startCronJobs() {
   );
 
   /**
+   * ИНКРЕМЕНТ SOMON КАЖДЫЕ 15 МИНУТ (12.11.2026): первые 3 страницы продажи квартир и домов. Пауза
+   * Telegram-уведомлений площадок выключает парсер лидов, а с ним и подпитку каталога квартирами —
+   * каталог Somon стоял с 11.11. Квартиры инкремент читает, только когда парсер лидов сам их не пишет
+   * (без двойного трафика), дома — всегда. Через общий бюджет fetchSomon, общий замок обходов рынка;
+   * исчезнувшими не помечает. Минуты 7/22/37/52 — мимо тиков Paydo (:00, :10, …) и сверки (:00, :30).
+   * Тот же флаг MARKET_CRAWL_ENABLED=1. Подробно — lib/market/somonIncremental.ts.
+   */
+  scheduleTracked(
+    "market-somon-incremental",
+    "7,22,37,52 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runSomonIncremental } = await import("./lib/market/somonIncremental.js");
+        await runSomonIncremental();
+      } catch (err) {
+        markCronTickFailed("Ошибка инкремента Somon", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
    * НАШ ОБЪЕКТ НА SOMON/PAYDO (владелец 02.11.2026): раз в 30 минут сверяем наши объекты
    * с каталогом чужих объявлений; агенту уходит пуш о новом совпадении (один раз),
    * о смене цены и о том, что объявление сняли. Только по каталогу, в сеть не ходит.
