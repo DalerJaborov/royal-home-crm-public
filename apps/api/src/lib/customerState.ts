@@ -295,7 +295,7 @@ export async function activateCustomerInquiryForInput(input: AuthenticatedCustom
  * the caller already classified a real customer input. Older completion cannot
  * register a new ordinal or activate a newer owner's inquiry. */
 export async function acceptAuthenticatedCustomerAdmission(input: AuthenticatedCustomerInput, ticket: CustomerPropertyAdmission,
-  db: TxClient): Promise<CustomerStateSnapshot | null> {
+  db: TxClient, adTopic?: "job" | "property" | "seller"): Promise<CustomerStateSnapshot | null> {
   const evidence = inspectAuthenticatedCustomerInput(input);
   if (!evidence || evidence.channel !== ticket.channel || !isActiveTransactionClient(db)) return null;
   const endpoint = await resolveCustomerEndpoint({ channel: evidence.channel, subscriberId: evidence.peer,
@@ -323,10 +323,15 @@ export async function acceptAuthenticatedCustomerAdmission(input: AuthenticatedC
   const codes = ticket.evidence.flatMap(item => [item.reference, item.secondaryReference].flatMap(ref => ref ? [recruitmentPostCode(ref)].filter((code): code is string => !!code) : []));
   const previousPublic = value.state.snapshot.publicState;
   const word = recruitmentKeyword(evidence.inputText);
-  const positions = codes.length || word || previousPublic.topic === "job" || customerRecruitmentTopic(evidence.inputText, previousPublic.topic) === "job" ? await readRecruitmentPositions(db) : [];
+  // `adTopic` is the server-resolved topic of the ad that brought THIS event (lib/adAttribution.ts:
+  // our Ad table or the ad text the customer saw), never model output. A vacancy ad is a job inquiry
+  // exactly like a vacancy post code; the customer's own words still win (customerRecruitmentTopic).
+  const positions = codes.length || word || adTopic === "job" || previousPublic.topic === "job" || customerRecruitmentTopic(evidence.inputText, previousPublic.topic) === "job" ? await readRecruitmentPositions(db) : [];
   const matchedPosts = positions.filter(position => position.postCodes.some(code => codes.includes(code)) || !!word && position.keywords.includes(word));
-  const matchedPublication = matchedPosts.length > 0;
-  const topic = customerRecruitmentTopic(evidence.inputText, previousPublic.topic, matchedPublication);
+  const matchedPublication = matchedPosts.length > 0 || adTopic === "job";
+  const roleTopic = customerRecruitmentTopic(evidence.inputText, previousPublic.topic, matchedPublication);
+  // An ad for owners ("сдайте/продайте нам") makes an otherwise unknown inquiry a seller one.
+  const topic = roleTopic === "unknown" && adTopic === "seller" ? "seller" as const : roleTopic;
   const selected = topic === "job" ? selectedRecruitmentPosition(positions, evidence.inputText,
     matchedPosts.length === 1 ? matchedPosts[0].key : matchedPosts.length === 0 ? previousPublic.jobPositionKey : undefined) : null;
   const { jobPositionKey: _oldPosition, ...publicWithoutPosition } = previousPublic;

@@ -123,6 +123,7 @@ import { isWithinWorkingHours } from "../lib/workingHours.js";
 import { notifyAgentOfClientMessage } from "../lib/clientMessageAlert.js";
 import { notifyPropertyChatMessage } from "../lib/propertyChatMessageAlert.js";
 import { propertyChatLeadPropertyId } from "../lib/ownBotConversationScope.js";
+import { firstTouchAdPatch, persistFirstTouchAdAttribution } from "../lib/adAttribution.js";
 import { analyzeMessageForPropertyCounts } from "../ai/chatPropertyCount.js";
 import { scrubMentionedClientPhonesInText } from "../lib/clientPhoneMasking.js";
 import { isClosingMessage, isOptOutMessage } from "../lib/botFollowUps.js";
@@ -1823,60 +1824,23 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     return { reply: inboundEffects.dealReview.reply, ready: true, accepted: true };
   }
 
-  // С какого объявления пришёл человек — пишем первым касанием и не перезаписываем:
+  // С какого объявления пришёл человек — первым касанием и без перезаписи:
   // атрибуция отвечает «какая реклама ПРИВЕЛА», а не «какую он видел последней».
-  // Ответ клиенту от этого не зависит — ошибку глотаем в лог и идём дальше.
-  if (input.adExternalId && !resolved.adExternalId) {
-    resolved = { ...resolved, adExternalId: input.adExternalId };
-    void prisma.botConversation
-      .updateMany({ where: { id: resolved.id, adExternalId: null }, data: { adExternalId: input.adExternalId } })
-      .then(async () => {
-        // Диалог уже привязан к карточке (клиент писал раньше, потом кликнул
-        // рекламу) — карточке без атрибуции достаётся это объявление.
-        if (resolved.clientId) {
-          await prisma.client.updateMany({
-            where: { id: resolved.clientId, sourceAdId: null },
-            data: { sourceAdId: input.adExternalId },
-          });
-        }
-      })
+  // Одно правило с новым ядром (lib/adAttribution.ts): объявление, ctwa_clid клика,
+  // тема рекламы (вакансия/собственник/объект — переживает первое сообщение и
+  // возвращается в подсказку модели на каждом ходе) и объект объявления (нужен
+  // СЛЕДУЮЩЕМУ ходу, когда человек наконец скажет, что ему нужно). Ответ клиенту
+  // от записи не зависит — ошибку глотаем в лог и идём дальше.
+  const adPatch = firstTouchAdPatch(resolved, {
+    ...(input.adExternalId ? { adExternalId: input.adExternalId } : {}),
+    ...(input.adClickId ? { adClickId: input.adClickId } : {}),
+    ...(input.adTopic ? { adTopic: input.adTopic } : {}),
+    ...(input.adPropertyId ? { adPropertyId: input.adPropertyId } : {}),
+  });
+  if (Object.keys(adPatch).length) {
+    resolved = { ...resolved, ...adPatch };
+    void persistFirstTouchAdAttribution(resolved.id, adPatch, { clientId: resolved.clientId })
       .catch((err) => console.error("[messenger] атрибуция рекламы:", err instanceof Error ? err.message : err));
-  }
-
-  // ctwa_clid клика по рекламе WhatsApp — тем же первым касанием и без перезаписи (04.10.2026).
-  // Условие НЕ завязано на adExternalId: клик мог прийти и без разобранного объявления, а
-  // повтор того же referral (или другой клик позже) первый идентификатор не затирает —
-  // атомарно, через adClickId: null в where. Только хранение, наружу ничего не уходит.
-  if (input.adClickId && !resolved.adClickId) {
-    resolved = { ...resolved, adClickId: input.adClickId };
-    void prisma.botConversation
-      .updateMany({ where: { id: resolved.id, adClickId: null }, data: { adClickId: input.adClickId } })
-      .catch((err) => console.error("[messenger] ctwa_clid рекламы:", err instanceof Error ? err.message : err));
-  }
-
-  /**
-   * ПРИЗНАК «ЭТО ПРО ВАКАНСИЮ» ПЕРЕЖИВАЕТ ПЕРВОЕ СООБЩЕНИЕ (17.09.2026).
-   *
-   * Тем же приёмом, что и adExternalId выше: первым касанием, без перезаписи.
-   * Разница в том, что здесь признак ещё и ВОЗВРАЩАЕТСЯ в подсказку модели на
-   * каждом последующем ходе — иначе бот, поздоровавшись с кандидатом, вторым
-   * сообщением спрашивал бы у него, сколько комнат он ищет.
-   */
-  if (input.adTopic && !resolved.adTopic) {
-    resolved = { ...resolved, adTopic: input.adTopic };
-    void prisma.botConversation
-      .updateMany({ where: { id: resolved.id, adTopic: null }, data: { adTopic: input.adTopic } })
-      .catch((err) => console.error("[messenger] тема рекламы:", err instanceof Error ? err.message : err));
-  }
-
-  // Объект из объявления — тем же первым касанием и по той же причине: на
-  // шаблонную фразу бот отвечает нейтральным вопросом, и объект нужен СЛЕДУЮЩЕМУ
-  // ходу, когда человек наконец скажет, что ему нужно.
-  if (input.adPropertyId && !resolved.adPropertyId) {
-    resolved = { ...resolved, adPropertyId: input.adPropertyId };
-    void prisma.botConversation
-      .updateMany({ where: { id: resolved.id, adPropertyId: null }, data: { adPropertyId: input.adPropertyId } })
-      .catch((err) => console.error("[messenger] объект рекламы:", err instanceof Error ? err.message : err));
   }
 
   // «Голос рынка» (03.10.2026): объект, по которому человек пришёл, — след в

@@ -290,3 +290,60 @@ describe("genuine pending → FINAL across process loss", () => {
     expect(await prisma.botConversation.count({ where: { accountId: a.id, subscriberId: f.peer } })).toBe(0); expect(fakeGet).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * 13.11.2026: 29 of 30 live click-to-chat conversations had no ad on the native, and a candidate from a
+ * vacancy ad was asked "which object?". The CORE acceptance now carries the ad's topic and the native
+ * keeps the first-touch attribution, through the same signed intake as every real message.
+ */
+describe("first-touch ad attribution in the new core", () => {
+  const ads: string[] = [], properties: string[] = [];
+  const adId = () => { const id = `synthetic-ad-${randomUUID()}`; ads.push(id); return id; };
+  const fromAd = (id: string, ref?: string) => ({ referral: { source: "ADS", type: "OPEN_THREAD", ad_id: id, ...(ref ? { ref } : {}) } });
+  afterAll(async () => {
+    await prisma.ad.deleteMany({ where: { platform: "META", externalId: { in: ads } } });
+    await prisma.property.deleteMany({ where: { id: { in: properties } } });
+  });
+  it("a vacancy ad makes the inquiry a job one and the native remembers the ad, once", async () => {
+    const vacancy = adId();
+    await prisma.ad.create({ data: { platform: "META", externalId: vacancy, name: "Вакансия: менеджер по продажам недвижимости" } });
+    const f = frame("Здравствуйте, можно подробнее?", fromAd(vacancy)), row = await pending(f);
+    const result = await recoverAndFinalizeCustomerInboxInput(row.eventKey);
+    expect(result.status).toBe("finalized"); if (result.status !== "finalized") throw new Error("Actual signed ad FINAL required");
+    expect((await prisma.customerInquiry.findUniqueOrThrow({ where: { conversationId: result.ticket.conversationId } })).publicState)
+      .toMatchObject({ topic: "job" });
+    const native = () => prisma.botConversation.findUniqueOrThrow({ where: { id: result.ticket.conversationId },
+      select: { adExternalId: true, adTopic: true, adPropertyId: true } });
+    expect(await native()).toEqual({ adExternalId: vacancy, adTopic: "job", adPropertyId: null });
+    // The same event again (redelivery/second worker) and a later click on another ad change nothing.
+    expect((await recoverAndFinalizeCustomerInboxInput(row.eventKey)).status).toBe("finalized");
+    const other = adId();
+    await prisma.ad.create({ data: { platform: "META", externalId: other, name: "Квартира в Сино" } });
+    const later = await pending(frame("А квартиры есть?", fromAd(other), a, f.peer));
+    expect((await recoverAndFinalizeCustomerInboxInput(later.eventKey)).status).toBe("finalized");
+    expect(await native()).toEqual({ adExternalId: vacancy, adTopic: "job", adPropertyId: null });
+  });
+  it("the ad text alone is enough to recognise a vacancy when our Ad table does not know the ad", async () => {
+    const unknown = adId();
+    await prisma.ad.create({ data: { platform: "META", externalId: unknown, name: "Продвижение публикации" } });
+    const row = await pending(frame("Салом", fromAd(unknown, "vacancy_manager")));
+    const result = await recoverAndFinalizeCustomerInboxInput(row.eventKey);
+    expect(result.status).toBe("finalized"); if (result.status !== "finalized") throw new Error("Actual signed ad FINAL required");
+    expect((await prisma.customerInquiry.findUniqueOrThrow({ where: { conversationId: result.ticket.conversationId } })).publicState)
+      .toMatchObject({ topic: "job" });
+  });
+  it("an ad of one object puts that object on the native for the lead's assignment", async () => {
+    const property = await prisma.property.create({ data: { title: `synthetic-ad-object-${randomUUID()}`, type: "APARTMENT", areaSqm: 60,
+      price: 960000, currency: "TJS", condition: "GOOD", status: "AVAILABLE", publishedOnSite: true, address: "Synthetic private address" } });
+    properties.push(property.id);
+    const objectAd = adId();
+    await prisma.ad.create({ data: { platform: "META", externalId: objectAd, name: "Квартира 2 комнаты", propertyId: property.id } });
+    const row = await pending(frame("Здравствуйте, сколько стоит?", fromAd(objectAd)));
+    const result = await recoverAndFinalizeCustomerInboxInput(row.eventKey);
+    expect(result.status).toBe("finalized"); if (result.status !== "finalized") throw new Error("Actual signed ad FINAL required");
+    expect(await prisma.botConversation.findUniqueOrThrow({ where: { id: result.ticket.conversationId },
+      select: { adExternalId: true, adTopic: true, adPropertyId: true } })).toEqual({ adExternalId: objectAd, adTopic: "property", adPropertyId: property.id });
+    expect((await prisma.customerInquiry.findUniqueOrThrow({ where: { conversationId: result.ticket.conversationId } })).publicState)
+      .not.toMatchObject({ topic: "job" });
+  });
+});
