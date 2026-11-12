@@ -183,3 +183,26 @@ describe("звонок владельца 11.11: «ЦУМ» в подсказк�
     expect(mergeAsrKeywords([])).toContain("ЦУМ");
   });
 });
+
+describe("звонок владельца 12.11 12:38: русский по досье не запрещает таджикский", () => {
+  it("без замка: на вопрос про таджикский — сразу по-таджикски, «не говорю по-таджикски» запрещено", async () => {
+    const { languageLockRule } = await import("../src/ai/liveVoiceConsultantPersona.js");
+    const rule = languageLockRule("ru", true, false);
+    expect(rule).toContain("ЯЗЫК ЭТОГО ЗВОНКА — РУССКИЙ");
+    expect(rule).toContain("Никогда не отвечай, что не говоришь по-таджикски");
+    expect(rule).not.toContain("отвечай только по-русски");
+  });
+
+  it("замок «только русский» — по-прежнему только по-русски", async () => {
+    const { languageLockRule } = await import("../src/ai/liveVoiceConsultantPersona.js");
+    expect(languageLockRule("ru", true, true)).toContain("отвечай только по-русски");
+  });
+});
+
+describe("звонок владельца 12.11: эмоциональный режим включён, скорость не задаётся", () => {
+  it("настройки телефонного агента", async () => {
+    const { ELEVENLABS_PHONE_AGENT_TUNING } = await import("../src/ai/elevenLabsAgentSync.js");
+    expect(ELEVENLABS_PHONE_AGENT_TUNING.tts.expressive_mode).toBe(true);
+    expect("speed" in ELEVENLABS_PHONE_AGENT_TUNING.tts).toBe(false);
+  });
+});

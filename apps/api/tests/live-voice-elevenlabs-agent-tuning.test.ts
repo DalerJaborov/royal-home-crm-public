@@ -73,12 +73,11 @@ describe("второй PATCH: настройки из передачи 24.10, б
   const patch = buildAgentTuningPatch(OWNER_AGENT, ["tool_1"], { voiceIdTg: " manzura " }) as unknown as Patch;
   const cc = patch.conversation_config;
 
-  it("голос: eleven_v4_turbo, скорость 1.15, стабильность 0.45, эмоции выкл, ulaw 8 кГц; голос владельца цел", () => {
+  it("голос: eleven_v4_turbo без скорости (на v4 Turbo не работает), стабильность 0.45, эмоции вкл (12.11), ulaw 8 кГц; голос владельца цел", () => {
     expect(cc.tts).toEqual({
       model_id: "eleven_v4_turbo",
-      speed: 1.15,
       stability: 0.45,
-      expressive_mode: false,
+      expressive_mode: true,
       agent_output_audio_format: "ulaw_8000",
       // 11.11.2026: таджикские цифры нормализатор ElevenLabs читает с ошибками.
       text_normalisation_type: "system_prompt",

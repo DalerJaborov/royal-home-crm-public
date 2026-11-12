@@ -317,7 +317,11 @@ export function buildAgentPrivacyPatch(agent: unknown): Json {
  *  - tts.model_id: eleven_v4_turbo — по умолчанию у агентов и рекомендован для них;
  *    в его списке языков есть «Tajik (tg)» (https://elevenlabs.io/docs/overview/models,
  *    https://elevenlabs.io/docs/overview/capabilities/text-to-speech/eleven-v4);
- *  - tts.expressive_mode (по умолчанию true; для моделей не v3 выключается сам — ставим явно);
+ *  - tts.expressive_mode: «Enabled automatically when you select Eleven v4 Turbo» — включён
+ *    (12.11.2026, «да» владельца: выключенный режим давал плоскую «грустную» интонацию;
+ *    выключали 24.10 на прежнем голосе), https://elevenlabs.io/docs/agents-platform/customization/voice/expressive-mode;
+ *  - tts.speed НЕ задаём: «Speed control is not available for … Eleven v4 Turbo»
+ *    (https://elevenlabs.io/docs/agents-platform/customization/voice/speed-control) — 1.15 молча игнорировалась;
  *  - tts.agent_output_audio_format / asr.user_input_audio_format: ulaw_8000 —
  *    родной формат телефонной линии, мост тогда не пересчитывает частоту;
  *  - tts.text_normalisation_type: elevenlabs (числа и даты читает сам сервис);
@@ -336,9 +340,8 @@ export function buildAgentPrivacyPatch(agent: unknown): Json {
 export const ELEVENLABS_PHONE_AGENT_TUNING = {
   tts: {
     model_id: "eleven_v4_turbo",
-    speed: 1.15,
     stability: 0.45,
-    expressive_mode: false,
+    expressive_mode: true,
     agent_output_audio_format: "ulaw_8000",
     /**
      * system_prompt, а не elevenlabs (11.11.2026, замер на eleven_v4_turbo с языком tg):
