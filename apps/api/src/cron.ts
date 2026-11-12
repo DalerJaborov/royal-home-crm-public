@@ -616,6 +616,18 @@ export function startCronJobs() {
     const { prepareMonthlyOwnerReportPreviews } = await import("./lib/ownerReport/monthlyPreview.js");
     await prepareMonthlyOwnerReportPreviews();
   }, { timezone: "Asia/Dushanbe" });
+  /** Напоминания об оплатах подписок (10.11.2026, lib/paymentReminders.ts): за 3 дня,
+   *  в день оплаты и при сбое оплаты — тем, у кого право finance.view. Каждый час, но
+   *  внутри — только рабочее окно Настроек и один раз на повод (ключ в StaffNotice). */
+  scheduleTracked("payment-reminders", "40 * * * *", async () => {
+    try {
+      const { runPaymentReminders } = await import("./lib/paymentReminders.js");
+      const result = await runPaymentReminders();
+      if (result.sent) console.log(`[cron] Напоминания об оплатах: ${result.sent} из ${result.recipients}`);
+    } catch (err) {
+      reportCronTickError("Напоминания об оплатах не отправлены", err);
+    }
+  }, { timezone: "Asia/Dushanbe" });
   /** Вечерняя сводка агенту — 18:00 по Душанбе, задачи и встречи на завтра одним
    *  push. Вечером накануне, а не утром в день встречи: агент успевает спланировать. */
   scheduleTracked(
@@ -1138,6 +1150,15 @@ export function startCronJobs() {
   );
   scheduleTracked("assistant-telegram-context-cleanup", "*/30 * * * *", async () => {
     await cleanupAssistantTelegramContext();
+  }, { timezone: "Asia/Dushanbe" });
+  /** Журнал сообщений помощницы (StaffNotice) старше 90 дней — 03:40 по Душанбе. */
+  scheduleTracked("staff-notice-cleanup", "40 3 * * *", async () => {
+    try {
+      const { cleanupStaffNotices } = await import("./telegram/staffNotice.js");
+      await cleanupStaffNotices();
+    } catch (err) {
+      reportCronTickError("Уборка журнала сообщений помощницы", err);
+    }
   }, { timezone: "Asia/Dushanbe" });
 
   /** Ночная уборка ТЕХНИЧЕСКИХ журналов — 03:00 по Душанбе. Сознательно
@@ -1920,10 +1941,40 @@ export function startCronJobs() {
     async () => {
       if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
       try {
+        // 02:15–03:15 по Душанбе — окно ночных полных обходов: инкремент не занимает их замок.
+        const { inNightFullCrawlWindow } = await import("./lib/market/nightly.js");
+        if (inNightFullCrawlWindow()) return;
         const { runPaydoIncremental } = await import("./lib/market/paydoIncremental.js");
         await runPaydoIncremental();
       } catch (err) {
         markCronTickFailed("Ошибка инкремента Paydo", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
+   * ИНКРЕМЕНТ SOMON КАЖДЫЕ 15 МИНУТ (12.11.2026): первые 3 страницы продажи квартир и домов. Пауза
+   * Telegram-уведомлений площадок выключает парсер лидов, а с ним и подпитку каталога квартирами —
+   * каталог Somon стоял с 11.11. Квартиры инкремент читает, только когда парсер лидов сам их не пишет
+   * (без двойного трафика), дома — всегда. Через общий бюджет fetchSomon, общий замок обходов рынка;
+   * исчезнувшими не помечает. Минуты 7/22/37/52 — мимо тиков Paydo (:00, :10, …) и сверки (:00, :30);
+   * в окне ночных полных обходов 02:15–03:15 по Душанбе не стартует (как и инкремент Paydo).
+   * Тот же флаг MARKET_CRAWL_ENABLED=1. Подробно — lib/market/somonIncremental.ts.
+   */
+  scheduleTracked(
+    "market-somon-incremental",
+    "7,22,37,52 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        // 02:15–03:15 по Душанбе — окно ночных полных обходов: инкремент не занимает их замок.
+        const { inNightFullCrawlWindow } = await import("./lib/market/nightly.js");
+        if (inNightFullCrawlWindow()) return;
+        const { runSomonIncremental } = await import("./lib/market/somonIncremental.js");
+        await runSomonIncremental();
+      } catch (err) {
+        markCronTickFailed("Ошибка инкремента Somon", err);
       }
     },
     { timezone: "Asia/Dushanbe" }

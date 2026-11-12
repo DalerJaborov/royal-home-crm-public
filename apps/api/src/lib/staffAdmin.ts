@@ -18,6 +18,7 @@ import {
   type Role,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { setKindMuted } from "./notificationPrefs.js";
 import { invalidateAgentAccess } from "../auth/middleware.js";
 import { logAgentAudit } from "./audit.js";
 import { syncAgentQueuePresence } from "./telephony/operatorQueue.js";
@@ -463,6 +464,9 @@ export async function updateStaffMember(actor: StaffActor, targetId: string, raw
   }
 
   const agent = await prisma.agent.update({ where: { id: targetId }, data });
+  // «Посты в Telegram» — то же, что вид «Публикации объектов» в «Что присылать мне»:
+  // одна настройка, источник — Agent.pushMuted (lib/notificationPrefs.ts, ревью 11.11).
+  if (typeof rest.sharePostTelegram === "boolean") await setKindMuted(targetId, "publication", !rest.sharePostTelegram);
   if (resetOverrides) {
     audit(actor, opts, "AGENT_PERMISSIONS_RESET_ON_ROLE_CHANGE", agent.id, {
       targetAgentName: agent.fullName,

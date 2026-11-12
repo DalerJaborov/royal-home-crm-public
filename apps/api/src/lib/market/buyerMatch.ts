@@ -13,7 +13,7 @@
  *
  * Деньги: бюджет клиента (TJS/USD) приводится к сомони ОДНОЙ общей функцией (lib/money.ts toTjs), цена
  * объявления уже в сомони (MarketListing.priceTjs). Выбросы цены отсекает plausible.ts.
- * Один объект на двух площадках — одно объявление (dedupeAcrossSources). Порядок — близость к запросу.
+ * Один объект (на двух площадках или выложенный дважды) — одно объявление (dedupeListings). Порядок — близость к запросу.
  */
 
 import { propertyFieldShown, type MarketBuyerListing } from "@royal-home/shared";
@@ -23,7 +23,8 @@ import { areaMeetsMinimum, roomsWithinTolerance, type MatchingBuyerCriteria } fr
 import { budgetWindowTjs, loadMatchPolicy, type MatchPolicy } from "../matchPolicy.js";
 import { loadMoneyContext, toTjs } from "../money.js";
 import { isPlausibleSale, plausibleSaleWhere } from "./plausible.js";
-import { dedupeAcrossSources, WINDOW_DAYS } from "./similarComps.js";
+import { dedupeListings, WINDOW_DAYS } from "./similarComps.js";
+import { marketCatalogWhere } from "./somonRubrics.js";
 
 /**
  * Предел выборки из базы. Все отборы (район, бюджет, комнаты, площадь) уже в запросе, поэтому
@@ -84,6 +85,8 @@ export interface BuyerRow {
   districtName: string | null;
   firstSeenAt: Date;
   publishedAt: Date | null;
+  /** Продавец на площадке (для склейки повторов одной площадки); наружу не отдаётся. */
+  sellerId?: string | null;
 }
 
 /** Чем меньше, тем ближе к запросу: цена к «центру» бюджета, площадь к желаемой. */
@@ -124,7 +127,7 @@ export function rankBuyerListings(
     .sort((a, b) => a.d - b.d)
     .map((x) => x.r);
   // Ближайшие первыми: из пары дублей остаётся более близкая к запросу.
-  const unique = dedupeAcrossSources(ordered);
+  const unique = dedupeListings(ordered);
   return {
     total: unique.length,
     listings: unique.slice(0, limit).map((r) => ({
@@ -153,6 +156,7 @@ export function buyerListingsWhere(w: BuyerWants, now = Date.now()): Prisma.Mark
   const and: Prisma.MarketListingWhereInput[] = [
     { OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] },
     ...plausibleSaleWhere(w.propertyType),
+    marketCatalogWhere(),
   ];
   if (w.rooms != null) {
     // Комнаты имеют смысл не у каждого типа (участок): им допуск не применяется. Неизвестное число — тоже подходит (как у наших).
@@ -189,7 +193,7 @@ export async function findBuyerListings(
     where: buyerListingsWhere(w),
     select: {
       source: true, sourceUrl: true, title: true, propertyType: true, priceTjs: true, pricePerSqmTjs: true, areaSqm: true,
-      rooms: true, floor: true, totalFloors: true, districtName: true, firstSeenAt: true, publishedAt: true,
+      rooms: true, floor: true, totalFloors: true, districtName: true, firstSeenAt: true, publishedAt: true, sellerId: true,
     },
     // Свежие первыми: если запрос так широк, что упёрся в предел, теряются самые старые, а не самые дорогие.
     orderBy: { lastSeenAt: "desc" },

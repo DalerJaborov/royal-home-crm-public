@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **741**. Развилок в самих путях: **2458**; вместе с задачами по расписанию и фоновыми заданиями — **3959**. Модулей: **82**.
+Путей: **741**. Развилок в самих путях: **2460**; вместе с задачами по расписанию и фоновыми заданиями — **3981**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1019,6 +1019,9 @@
           · дословно из кода
   - const agent = await prisma.agent.update({ where: { id: targetId }, data });
     · меняет в базе: agent
+  - если typeof rest.sharePostTelegram === "boolean"
+    - await setKindMuted(targetId, "publication", !rest.sharePostTelegram);
+      · зовёт setKindMuted()
   - если resetOverrides
     - audit(actor, opts, "AGENT_PERMISSIONS_RESET_ON_ROLE_CHANGE", agent.id, { targetAgentName: agent.fullName, rol…
       · дословно из кода
@@ -14326,9 +14329,7 @@
 
 `apps/api/src/routes/push.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { pushMuted: true }, });
-  · читает в базе: agent
-- res.json({ kinds: PUSH_KINDS.map((k)
+- res.json(preferencesView(await mutedKindsOf(req.agent!.id)));
   · ответ 200
 
 ### PATCH /api/v1/push/preferences
@@ -14338,17 +14339,15 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { pushMuted: true } });
-  · читает в базе: agent
-- если parsed.data.enabled
-  - current.delete(parsed.data.kind);
-    · дословно из кода
-- иначе
-  - current.add(parsed.data.kind);
-    · дословно из кода
-- await prisma.agent.update({ where: { id: req.agent!.id }, data: { pushMuted: [...current] } });
-  · меняет в базе: agent
-- res.json({ kinds: PUSH_KINDS.map((k)
+- const result = await setKindMuted(req.agent!.id, parsed.data.kind, !parsed.data.enabled);
+  · зовёт setKindMuted()
+- если !result.ok && result.reason === "always-on"
+  - return res.status(409).json({ error: `«${result.label}» выключить нельзя. ${result.why}` });
+    · ответ 409 — ««${result.label}» выключить нельзя. ${result.why}»
+- если !result.ok
+  - return res.status(400).json({ error: "Неизвестный вид уведомления" });
+    · ответ 400 — «Неизвестный вид уведомления»
+- res.json(result.view);
   · ответ 200
 
 ### POST /api/v1/push/subscribe
@@ -22162,6 +22161,9 @@
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
+  - если inNightFullCrawlWindow()
+    - return;
+      · дальше не идёт, ничего не меняя
   - await runPaydoIncremental();
     · зовёт runPaydoIncremental()
     - если running
@@ -22175,6 +22177,49 @@
         · дословно из кода
 - если сорвалось
   - markCronTickFailed("Ошибка инкремента Paydo", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
+
+### market-somon-incremental — 7,22,37,52 * * * *
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - если inNightFullCrawlWindow()
+    - return;
+      · дальше не идёт, ничего не меняя
+  - await runSomonIncremental();
+    · зовёт runSomonIncremental()
+    - если running
+      - return null;
+        · дословно из кода
+    - пробует
+      - если await sourceClosed(new Date())
+        - return null;
+          · дословно из кода
+      - const monitorFeeds = await somonMonitorFeedsMarket();
+        · зовёт somonMonitorFeedsMarket()
+      - const locked = await withMarketCrawlLock(async (lock)
+        - для каждого: const section of SECTIONS
+          - если section === APARTMENTS_SECTION && monitorFeeds
+            - continue;
+              · переходит к следующему
+          - const result = await crawlSection(section, { maxPages: options.pages ?? SOMON_INCREMENTAL_PAGES, shouldStop, …
+            - const s = await saveListings(SOMON_SOURCE, listings);
+              · зовёт saveListings()
+          - если stopReason && stopReason !== "wrong_scope"
+            - break;
+              · прекращает перебор
+    - в любом случае
+      - running = false;
+        · дословно из кода
+- если сорвалось
+  - markCronTickFailed("Ошибка инкремента Somon", err);
     · зовёт markCronTickFailed()
     - console.error(`[cron] ${label}:`, reason);
       · пишет строку в журнал сервера
@@ -22724,6 +22769,82 @@
         · запись в журнал ошибок
   - await executeQueuedOwnerReports(now);
     · зовёт executeQueuedOwnerReports()
+
+### payment-reminders — 40 * * * *
+
+- пробует
+  - const result = await runPaymentReminders();
+    · зовёт runPaymentReminders()
+    - если !opts.ignoreWorkHours
+      - const window = await loadWorkWindow();
+        · зовёт loadWorkWindow()
+      - если !isWithinDushanbeWindow(window.start, window.end, now)
+        - return { recipients: 0, sent: 0, skipped: "outside-work-hours" };
+          · дословно из кода
+    - const today = dushanbeDateString(now);
+      · зовёт dushanbeDateString()
+    - const recipients = await findAgentsWithPermission("finance.view");
+      · зовёт findAgentsWithPermission()
+    - если !recipients.length
+      - return { recipients: 0, sent: 0, skipped: "no-recipients" };
+        · дословно из кода
+    - const snoozes = await prisma.staffNotice.findMany({ where: { kind: "payment", agentId: { in: recipients }, re…
+      · читает в базе: staffNotice
+    - const oldest = addDays(today, -SNOOZE_LOOKBACK_DAYS);
+      · зовёт addDays()
+    - const [pool, failures, usdRate, payers, agents] = await Promise.all([ duePayments(today, from), billingFailur…
+      · читает в базе: agent
+    - для каждого: const agent of agents
+      - пробует
+        - const muted = isKindMuted("payment", agent.pushMuted);
+          · зовёт isKindMuted()
+        - const claimed = new Set(await claimNoticeKeys(agent.id, "payment", [...wanted.map((w)
+          · зовёт claimNoticeKeys()
+        - если !muted
+          - для каждого: const s of mySnoozes
+            - если item && !reminders.some((r) => r.item.recurringId === item.recurringId && r.item.dueDate === item.dueDate)
+              - reminders.push({ stage: "repeat", item, key: `snooze:${s.id}` });
+                · дословно из кода
+        - const fireSnoozes = async ()
+          · меняет в базе: staffNotice
+          - если firedSnoozes.length
+            - await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });
+              · меняет в базе: staffNotice
+        - если !reminders.length && !myFailures.length
+          - continue;
+            · переходит к следующему
+        - const markLogged = ()
+          · меняет в базе: staffNotice
+        - если muted
+          - await createNotification({ agentId: agent.id, ...feed });
+            · зовёт createNotification()
+        - иначе если agent.telegramChatId
+          - const status = await sendStaffNotice({ agentId: agent.id, kind: "payment", html: render(reminders, myFailures…
+            · зовёт sendStaffNotice()
+          - если status !== "sent"
+            - continue;
+              · переходит к следующему
+          - await createNotification({ agentId: agent.id, ...feed });
+            · зовёт createNotification()
+        - иначе
+          - await sendPushToAgent(agent.id, feed);
+            · push-уведомление
+        - если !muted
+          - sent++;
+            · дословно из кода
+      - если сорвалось
+        - void logSystemError("api", `Напоминание об оплатах не отправлено: ${describeError(err)}`, { dedupKey: "paymen…
+          · запись в журнал ошибок
+  - если result.sent
+    - console.log(`[cron] Напоминания об оплатах: ${result.sent} из ${result.recipients}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Напоминания об оплатах не отправлены", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### phone-lead-watchdog — */15 * * * *
 
@@ -24096,6 +24217,21 @@
         · дальше не идёт, ничего не меняя
     - throw error;
       · пробрасывает ошибку дальше
+
+### staff-notice-cleanup — 40 3 * * *
+
+- пробует
+  - await cleanupStaffNotices();
+    · зовёт cleanupStaffNotices()
+    - const { count } = await prisma.staffNotice.deleteMany({ where: { createdAt: { lt: before }, OR: [{ remindOn: …
+      · удаляет в базе: staffNotice
+- если сорвалось
+  - reportCronTickError("Уборка журнала сообщений помощницы", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### stale-property-videos-cleanup — 50 3 * * *
 

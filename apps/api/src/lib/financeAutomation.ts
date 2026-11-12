@@ -60,17 +60,10 @@ export async function processRecurringExpenses(): Promise<{ created: number; rem
       // lastRemindedMonth/lastCreatedMonth должен проставиться сразу, иначе тик
       // следующей ночи посчитает то же самое повторно.
       if (t.lastRemindedMonth !== month && today >= t.dayOfMonth - 3 && today < t.dayOfMonth) {
-        // Отметка идёт ДО оповещения (принцип из lib/dealReservation.ts): падение
-        // между ними должно оставить неотправленный аларм, не невыставленную
-        // отметку — иначе следующая ночь напомнит второй раз о том же самом.
+        // Само сообщение — в lib/paymentReminders.ts (10.11.2026): одна дверь на
+        // напоминания об оплатах, с кнопками «Оплатил» и «Напомнить завтра».
+        // Здесь только отметка — по ней считается reminded в журнале тика.
         await prisma.recurringExpense.update({ where: { id: t.id }, data: { lastRemindedMonth: month } });
-        await enqueueDirectorAlert({
-          kind: "finance",
-          title: `Скоро оплата: ${t.title}`,
-          body: `${t.dayOfMonth}-го числа — ${Number(t.amount)} ${t.currency === "USD" ? "$" : "с."} (${t.title}). CRM заведёт строку расхода сама, оплату проводит человек.`,
-          url: "/finance",
-          recipientRoles: [...FINANCE_RECIPIENT_ROLES],
-        });
         reminded++;
       }
 
@@ -78,7 +71,6 @@ export async function processRecurringExpenses(): Promise<{ created: number; rem
       if (t.lastCreatedMonth !== month && today >= t.dayOfMonth) {
         const autoKey = `rec:${t.id}:${month}`;
         const existing = await prisma.expense.findUnique({ where: { autoKey }, select: { id: true } });
-        let expenseCreated = false;
         if (!existing) {
           // Автооплата доллара — по курсу из Настроек; курса нет — строка планом, причина в журнале
           // ошибок (запасное FALLBACK_USD_TO_TJS курсом не является, 10.11.2026).
@@ -112,20 +104,12 @@ export async function processRecurringExpenses(): Promise<{ created: number; rem
             }),
             prisma.recurringExpense.update({ where: { id: t.id }, data: { lastCreatedMonth: month } }),
           ]);
-          expenseCreated = true;
           created++;
         } else {
           await prisma.recurringExpense.update({ where: { id: t.id }, data: { lastCreatedMonth: month } });
         }
-        if (expenseCreated) {
-          await enqueueDirectorAlert({
-            kind: "finance",
-            title: `Пора оплатить: ${t.title}`,
-            body: `Строка расхода за ${month} заведена (${Number(t.amount)} ${t.currency === "USD" ? "$" : "с."}). Осталось провести оплату.`,
-            url: "/finance",
-            recipientRoles: [...FINANCE_RECIPIENT_ROLES],
-          });
-        }
+        // «Пора оплатить» шлёт lib/paymentReminders.ts в рабочее время (10.11.2026),
+        // а не этот ночной тик: два сообщения об одном платеже владелец просил не слать.
       }
     } catch (err) {
       void logSystemError("api", `Повторяющийся платёж «${t.title}» не обработан: ${describeError(err)}`);

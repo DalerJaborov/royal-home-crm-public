@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PropertyRemovalInput } from "@royal-home/shared";
 import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
-import { ChevronDown, Plus, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, LayoutGrid, List, Plus, SlidersHorizontal } from "lucide-react";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CButton } from "../components/clean/ui";
 import { PropertyDraftShortcut } from "../components/PropertyDraftShortcut";
@@ -31,6 +31,7 @@ import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { Pagination } from "../components/Pagination";
 import { formatMoney, PROPERTY_TYPE_LABELS, pluralizeRu } from "../lib/format";
 import { STAGE_SEGMENTS } from "../lib/theme2026";
+import { initialPropertiesView, rememberPropertiesView } from "../lib/propertiesView";
 import { siteSyncFailureText } from "../lib/siteSyncFeedback";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { MobilePropertiesList } from "../components/mobile/MobilePropertiesList";
@@ -99,10 +100,15 @@ export function Properties() {
   const [searchParams, setSearchParams] = useSearchParams();
   // Режим просмотра тоже в адресе: человек выбрал «Галерею», открыл объект,
   // вернулся — и снова оказывался в таблице.
-  const [view, setView] = useState<"table" | "cards">(() => {
-    const fromUrl = searchParams.get("view");
-    return fromUrl === "cards" ? fromUrl : "table";
+  // Плитка — вид по умолчанию (владелец 12.11.2026: «сделай чтобы были сами по
+  // умолчанию плиткой»). Ссылка побеждает, дальше — последний выбор человека.
+  const [view, setViewState] = useState<"table" | "cards">(() => {
+    return initialPropertiesView(searchParams.get("view"));
   });
+  const setView = (next: "table" | "cards") => {
+    setViewState(next);
+    rememberPropertiesView(next);
+  };
   // Ссылкой принимаются только те фильтры, у которых на этом экране есть свой
   // видимый переключатель: район и статус. Комнаты принимались тоже — и резали
   // список молча, показать или снять их было нечем; подбор по требованиям клиента
@@ -281,7 +287,7 @@ export function Properties() {
       agentId: filters.agentId,
       noVideo: filters.noVideo,
       overdue: filters.overdue,
-      view: view !== "table" ? view : undefined,
+      view: view !== "cards" ? view : undefined,
     },
     // Старый одиночный ключ уже прочитан в начальное состояние — дальше живём на
     // districtIds, чтобы в ссылке не было двух источников правды о районе.
@@ -460,10 +466,6 @@ export function Properties() {
       </div>
     )}
     {!clean && searchField}
-    {clean && <>
-      <CButton variant="outline" aria-haspopup="dialog" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={18} aria-hidden />Фильтры{activeExtraFilters > 0 ? ` · ${activeExtraFilters}` : ""}</CButton>
-      <div className="flex gap-1" role="group" aria-label="Вид списка">{(["table", "cards"] as const).map((mode) => <CButton key={mode} variant={view === mode ? "primary" : "soft"} size="sm" aria-pressed={view === mode} onClick={() => setView(mode)}>{mode === "table" ? "Строками" : "Плиткой"}</CButton>)}</div>
-    </>}
     {/* Очередь монтажёра: объекты без ссылки на обзор. Кнопкой-пилюлей
         эталона, состояние — aria-pressed, как у «Мои объекты» в макете. */}
     <button
@@ -479,12 +481,38 @@ export function Properties() {
       )}
       Без видео
     </button>
-    <span className="spacer" />
-    <span style={{ fontSize: "var(--fs-13)", color: "var(--faint)" }}>
-      {data ? `Показаны ${shown} объектов из ${data.total}` : "Загрузка…"}
-    </span>
-
+    {clean && <>
+      <button className="pill ghost" type="button" aria-haspopup="dialog" onClick={() => setFiltersOpen(true)}>
+        <SlidersHorizontal size={18} aria-hidden />
+        Фильтры
+        {activeExtraFilters > 0 && <b className="clean-catalog-filter-count">{activeExtraFilters}</b>}
+      </button>
+      <div className="seg clean-catalog-view" role="tablist" aria-label="Вид списка">
+        {(["cards", "table"] as const).map((mode) => (
+          <button key={mode} type="button" role="tab" aria-selected={view === mode} aria-label={mode === "table" ? "Строками" : "Плиткой"} title={mode === "table" ? "Строками" : "Плиткой"} onClick={() => setView(mode)}>
+            {mode === "table" ? <List size={18} aria-hidden /> : <LayoutGrid size={18} aria-hidden />}
+          </button>
+        ))}
+      </div>
+    </>}
+    {!clean && <>
+      <span className="spacer" />
+      <span style={{ fontSize: "var(--fs-13)", color: "var(--faint)" }}>
+        {data ? `Показаны ${shown} объектов из ${data.total}` : "Загрузка…"}
+      </span>
+    </>}
   </>;
+  // Тихая строка под панелью (clean): счётчик и «Выбрать все» — вместо
+  // отдельной висящей строки над плиткой и счётчика, сползавшего в столбик.
+  const catalogMeta = clean && <div className="clean-catalog-meta">
+    {canSelect && feedItems.length > 0 && (
+      <label className="clean-catalog-selectall">
+        <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAllOnPage} />
+        Выбрать все
+      </label>
+    )}
+    <span>{data ? `Показаны ${shown} из ${data.total}` : "Загрузка…"}</span>
+  </div>;
 
   return (
     <div className={clean ? "rh2 screens clean-properties-page" : "rh2 screens"}>
@@ -625,7 +653,13 @@ export function Properties() {
           </div>
 
           <div className={clean ? "clean-catalog-toolbar" : "filters"} style={clean ? undefined : { marginTop: 16 }}>
-            {clean ? <>
+            {/* На ПК — плоская строка: `<details>` с display: contents Chrome
+                не раскрывает, и инструменты вставали столбиком (12.11.2026).
+                Раскрывашка — только на касании. */}
+            {clean && !mobileUx ? <>
+              {searchField}
+              {catalogTools}
+            </> : clean ? <>
               {searchField}
               <details className="clean-catalog-tools" open={!mobileUx || catalogToolsOpen} onToggle={(event) => { if (mobileUx) setCatalogToolsOpen(event.currentTarget.open); }}>
                 <summary aria-label={`Фильтры и вид списка, активно: ${activeExtraFilters + (scope.isMine ? 1 : 0)}`}>
@@ -639,6 +673,7 @@ export function Properties() {
               </details>
             </> : catalogTools}
           </div>
+          {catalogMeta}
 
           {canSelect && selectedIds.size > 0 && (
             <div className="bulk" style={{ marginTop: 16 }}>
@@ -689,7 +724,20 @@ export function Properties() {
             </div>
           )}
 
-          {isLoading && !error && (
+          {isLoading && !error && clean && view === "cards" && (
+            <div className="clean-property-grid" aria-hidden="true">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="clean-property-tile-skeleton">
+                  <span className="ph" />
+                  <span className="sk w40" />
+                  <span className="sk w40" style={{ width: "60%" }} />
+                  <span className="sk w28" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isLoading && !error && !(clean && view === "cards") && (
             <div className="list">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="prow row">
@@ -721,8 +769,8 @@ export function Properties() {
 
           {data && view === "table" && feedItems.length > 0 && (
             <div className="list">
-              {canSelect && (
-                <label className={clean ? "chk !min-h-11 cursor-pointer" : "chk"}>
+              {canSelect && !clean && (
+                <label className="chk">
                   <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAllOnPage} />
                   Выбрать все на странице
                 </label>
@@ -743,8 +791,7 @@ export function Properties() {
           )}
 
           {data && view === "cards" && feedItems.length > 0 && (
-            <div className={clean ? "grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3" : "pgrid"}>
-              {clean && canSelect && <label className="col-span-full mb-1 flex min-h-11 cursor-pointer items-center gap-2 text-[14px] text-gray-500"><input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAllOnPage} className="size-5 accent-blue" />Выбрать все на странице</label>}
+            <div className={clean ? "clean-property-grid" : "pgrid"}>
               {feedItems.map((p) => (
                 clean ? <PropertyRow key={p.id} property={p} clean cleanVariant="card" myId={currentAgent?.id} selected={selectedIds.has(p.id)} onToggleSelect={canSelect ? toggleSelect : undefined} onTogglePublish={canPublish ? handleRowPublishToggle : undefined} health={health.get(p.id)} /> : <PropertyCard
                   key={p.id}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   APARTMENT_RUNGS,
-  dedupeAcrossSources,
+  dedupeListings,
   pickSimilar,
   rungWhere,
   verdictFor,
@@ -102,7 +102,7 @@ describe("склейка дублей между площадками", () => {
 
   it("5 квартир на двух площадках = 5, а не 10 → «данных мало»", () => {
     const rows = [...Array.from({ length: 5 }, (_, i) => twin(i, "somon.tj")), ...Array.from({ length: 5 }, (_, i) => ({ ...twin(i, "paydo.tj"), priceTjs: 1_020_000 + i * 50_000 }))];
-    expect(dedupeAcrossSources(rows)).toHaveLength(5);
+    expect(dedupeListings(rows)).toHaveLength(5);
     const r = pickSimilar(rows, subject);
     expect(r.status).toBe("insufficient");
     expect(r.medianPerSqm).toBeNull();
@@ -117,21 +117,38 @@ describe("склейка дублей между площадками", () => {
     expect(r.basis).toContain("8 уникальным");
   });
 
-  it("не склеивает: разный этаж, цена дальше 5%, площадь дальше 3 м², та же площадка, район неизвестен", () => {
+  it("не склеивает: разный этаж, цена дальше 5%, площадь дальше 3 м², район неизвестен", () => {
     const a = twin(1, "somon.tj");
-    expect(dedupeAcrossSources([a, { ...twin(1, "paydo.tj"), floor: (a.floor ?? 0) + 1 }])).toHaveLength(2);
-    expect(dedupeAcrossSources([a, { ...twin(1, "paydo.tj"), priceTjs: (a.priceTjs ?? 0) * 1.06 }])).toHaveLength(2);
-    expect(dedupeAcrossSources([a, { ...twin(1, "paydo.tj"), areaSqm: (a.areaSqm ?? 0) + 3.5 }])).toHaveLength(2);
-    expect(dedupeAcrossSources([a, { ...twin(1, "somon.tj"), sourceUrl: "https://somon.tj/other" }])).toHaveLength(2);
-    expect(dedupeAcrossSources([{ ...a, districtName: null }, { ...twin(1, "paydo.tj"), districtName: null }])).toHaveLength(2);
+    expect(dedupeListings([a, { ...twin(1, "paydo.tj"), floor: (a.floor ?? 0) + 1 }])).toHaveLength(2);
+    expect(dedupeListings([a, { ...twin(1, "paydo.tj"), priceTjs: (a.priceTjs ?? 0) * 1.06 }])).toHaveLength(2);
+    expect(dedupeListings([a, { ...twin(1, "paydo.tj"), areaSqm: (a.areaSqm ?? 0) + 3.5 }])).toHaveLength(2);
+    expect(dedupeListings([{ ...a, districtName: null }, { ...twin(1, "paydo.tj"), districtName: null }])).toHaveLength(2);
     // этаж неизвестен у одной стороны — на склейку не влияет
-    expect(dedupeAcrossSources([a, { ...twin(1, "paydo.tj"), floor: null }])).toHaveLength(1);
+    expect(dedupeListings([a, { ...twin(1, "paydo.tj"), floor: null }])).toHaveLength(1);
+  });
+
+  it("повтор на ОДНОЙ площадке (12.11.2026: ~3 100 на Paydo) — одно объявление; похожие соседи — нет", () => {
+    const a = { ...twin(1, "paydo.tj"), sellerId: "u1" };
+    const repost = { ...a, sourceUrl: "https://paydo.tj/again" };
+    expect(dedupeListings([a, repost])).toHaveLength(1);
+    expect(dedupeListings([a, { ...repost, priceTjs: (a.priceTjs ?? 0) * 1.005 }])).toHaveLength(1);
+    // строже, чем между площадками: две одинаковые квартиры в одном доме бывают на самом деле
+    expect(dedupeListings([a, { ...repost, floor: (a.floor ?? 0) + 1 }])).toHaveLength(2);
+    expect(dedupeListings([a, { ...repost, floor: null }])).toHaveLength(2);
+    expect(dedupeListings([{ ...a, floor: null }, { ...repost, floor: null }])).toHaveLength(2);
+    expect(dedupeListings([a, { ...repost, areaSqm: (a.areaSqm ?? 0) + 1 }])).toHaveLength(2);
+    expect(dedupeListings([a, { ...repost, priceTjs: (a.priceTjs ?? 0) * 1.02 }])).toHaveLength(2);
+    expect(dedupeListings([a, { ...repost, sellerId: "u2" }])).toHaveLength(2);
+    expect(dedupeListings([a, { ...repost, rooms: (a.rooms ?? 0) + 1 }])).toHaveLength(2);
+    expect(dedupeListings([a, { ...repost, repair: "SHELL" }])).toHaveLength(2);
+    // продавец неизвестен у одной стороны — не мешает склейке, остальное совпало
+    expect(dedupeListings([a, { ...repost, sellerId: null }])).toHaveLength(1);
   });
 
   it("из пары остаётся первое — вызывающий ставит ближайшее к объекту первым", () => {
     const near = { ...twin(1, "paydo.tj"), title: "ближе" };
     const far = { ...twin(1, "somon.tj"), title: "дальше" };
-    expect(dedupeAcrossSources([near, far]).map((r) => r.title)).toEqual(["ближе"]);
+    expect(dedupeListings([near, far]).map((r) => r.title)).toEqual(["ближе"]);
   });
 });
 
