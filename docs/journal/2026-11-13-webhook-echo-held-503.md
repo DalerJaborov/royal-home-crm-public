@@ -87,3 +87,10 @@
   не трогает; `--restore=<файл>` откатывает. Тест
   `tests/customer-echo-relabel-script-postgres.test.ts`. Запуск на проде —
   только после чтения прода и «да» владельца.
+- `npm run precheck` после доработки: сборки, eslint, тесты фронта (на этот раз
+  зелёные), все audit-шаги, карта и её сторож, журнал, `test:scripts` — зелёные.
+  Полный `test:api` начался, но вывод оборвался через несколько файлов (итога
+  нет — прогон не засчитан). Замечено: `customer-showcase-core-postgres` —
+  таймаут 20 с под загрузкой, в одиночку 3/3; `recruitment-document-text` —
+  `Cannot find module 'mammoth'` в общем `node_modules` главной папки, к правке
+  отношения не имеет. Полный прогон сервера остаётся за `npm run ship`.
