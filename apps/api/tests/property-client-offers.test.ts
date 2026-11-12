@@ -85,8 +85,8 @@ beforeAll(async () => {
   propertyId = property.id;
   propertyShortId = property.shortId;
   const item = (key: string, agentKey: string) => ({
-    id: cl[key].id, shortId: cl[key].shortId, fullName: cl[key].fullName, status: "NEW", score: 92,
-    reasons: ["район совпал", "в бюджете"], assignedAgentId: ag[agentKey].id, assignedAgentName: ag[agentKey].fullName,
+    id: cl[key].id, shortId: cl[key].shortId, fullName: cl[key].fullName, status: "NEW",
+    match: { tier: "exact", reasons: ["Нужный район", "В бюджете"], tradeoffs: [], unknowns: [], ask: [], lastSentAt: null, sentCount: 0 }, assignedAgentId: ag[agentKey].id, assignedAgentName: ag[agentKey].fullName,
   });
   const all = [item("umeds", "umed"), item("own", "author"), item("silents", "silent")];
   findMatching.mockImplementation(async (_p: string, _limit: number, scope: { assignedAgentId?: string; clientId?: string } = {}) => {
@@ -121,7 +121,8 @@ describe("кому подходит объект в Telegram", () => {
     expect(html).not.toContain("Покупатель umeds");
     expect(html).not.toContain("222 22 22");
     expect(html).not.toContain("%");
-    expect(html).toContain("✅ район совпал");
+    expect(html).toContain("✅ Нужный район");
+    expect(html).toContain("🎯 Точно подходит");
     expect(html).toContain("💰 до $90");
     expect(html).toContain(`📍 Сино ${runId}`);
     const offer = (buttons as { callback_data: string; text: string }[][]).flat();
@@ -239,7 +240,7 @@ describe("доставка, ответ из CRM, смена владельца, 
   it("24 клиента — сообщение не длиннее предела Telegram, остальное «и ещё N»", async () => {
     const many = Array.from({ length: 24 }, (_, i) => ({
       id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, shortId: 900_000 + i, fullName: `Длинное имя покупателя номер ${i} ${"х".repeat(40)}`,
-      status: "NEW", score: 90, reasons: ["район совпал", "в бюджете", "комнат столько же", "рядом с «Очень длинный ориентир у дороги» (300 м)"],
+      status: "NEW", match: { tier: "exact", reasons: ["Нужный район", "В бюджете", "3 комнаты, как просил", "Рядом с «Очень длинный ориентир у дороги»: 300 м"], tradeoffs: [], unknowns: [], ask: [], lastSentAt: null, sentCount: 0 },
       assignedAgentId: i % 2 ? ag.author.id : ag.umed.id, assignedAgentName: i % 2 ? ag.author.fullName : ag.umed.fullName,
     }));
     const previous = findMatching.getMockImplementation();

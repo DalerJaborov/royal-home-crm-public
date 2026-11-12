@@ -51,6 +51,7 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "telegram/assistantReadResults.ts": { calls: 3, why: "карточка/список в ответ на просьбу" },
   "telegram/assistantStaffPropertyCard.ts": { calls: 3, why: "карточка объекта по просьбе" },
   "telegram/assistantPropertyDraft.ts": { calls: 30, why: "мастер объекта — ответы на шаги человека" },
+  "telegram/assistantPhotoQuality.ts": { calls: 2, why: "мастер объекта — ответ на присланное человеком сжатое фото (вопрос раз на черновик, #148)" },
   "telegram/assistantConfirmationPhotos.ts": { calls: 2, why: "фото к подтверждению, которое человек запросил" },
   "telegram/assistantExpenseAlbum.ts": { calls: 1, why: "ответ на присланный альбом чеков" },
   "telegram/assistantExpenseBatchIntake.ts": { calls: 5, why: "ответ на присланные расходы" },

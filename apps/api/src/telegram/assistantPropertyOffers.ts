@@ -2,13 +2,14 @@
  * «КОМУ ПОДХОДИТ ОБЪЕКТ» В TELEGRAM И «ПРЕДЛОЖИТЬ КОЛЛЕГЕ» (решение владельца
  * 10.11.2026). Сразу после создания объекта мастер присылает одно сообщение:
  * свои клиенты полностью, клиенты коллег — без имени и телефона, с кнопкой
- * «Предложить». Процент совпадения НЕ показываем (владелец: это не качество
- * совпадения) — только причины подбора как есть.
+ * «Предложить». Процента нет (владелец: это не качество совпадения) — уровень
+ * «🎯 точно / 👍 можно предложить / ❓ уточнить» и что именно совпало, та же
+ * модель, что в «Подборе» CRM (подбор 2.0, 10.11.2026).
  *
  * Кто что видит — lib/propertyMatchingClients.ts, запись предложения —
  * lib/propertyClientOffers.ts. Здесь только текст и кнопки.
  */
-import { formatClientCode, formatPropertyCode, isReadOnlyRole, PROPERTY_TYPE_LABELS, type PermissionId } from "@royal-home/shared";
+import { formatClientCode, formatPropertyCode, isReadOnlyRole, matchTierLabel, PROPERTY_TYPE_LABELS, sentAgoText, type PermissionId } from "@royal-home/shared";
 import { loadAgentAccess } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { clientNamePhoneSafe } from "../lib/clientPhone.js";
@@ -65,15 +66,24 @@ function matchLines(match: AssistantClientMatch, lang: Lang): string[] {
   const head = match.own || match.name
     ? `• ${code} ${escapeHtml(match.name ?? "")}${match.own ? "" : ` · ${escapeHtml(c.leads(match.agentName ?? c.noAgent))}`}`
     : `• ${code} · ${escapeHtml(match.agentName ? c.leads(match.agentName) : c.noAgent)}`;
-  const reasons = match.reasons.length
-    ? match.reasons.map(reason => `${reason.tradeoff ? "⚠️" : "✅"} ${escapeHtml(reason.text)}`).join(" · ")
-    : c.incomplete;
+  const evidence = match.match;
+  const lines = [
+    evidence.reasons.length ? evidence.reasons.map(text => `✅ ${escapeHtml(text)}`).join(" · ") : null,
+    evidence.tradeoffs.length ? evidence.tradeoffs.map(text => `⚠️ ${escapeHtml(text)}`).join(" · ") : null,
+    evidence.unknowns.length ? evidence.unknowns.map(text => `❓ ${escapeHtml(text)}`).join(" · ") : null,
+  ].filter((line): line is string => Boolean(line));
+  const sent = sentAgoText(evidence, lang);
   const facts = [
     match.budgetMax != null && `💰 ${c.upTo} ${match.currency === "USD" ? `$${money(match.budgetMax)}` : `${money(match.budgetMax)} ${c.tjs}`}`,
     match.rooms != null && c.rooms(match.rooms),
     match.districtName && `📍 ${escapeHtml(match.districtName)}`,
   ].filter(Boolean).join(" · ");
-  return [head, `   ${reasons}`, ...(facts ? [`   ${facts}`] : [])];
+  return [
+    `${head} — ${escapeHtml(matchTierLabel(evidence.tier, lang))}`,
+    ...(lines.length ? lines : [c.incomplete]).map(line => `   ${line}`),
+    ...(sent ? [`   📤 ${escapeHtml(sent)}`] : []),
+    ...(facts ? [`   ${facts}`] : []),
+  ];
 }
 
 /** Одно сообщение после создания объекта. Клиентам ничего не уходит. */
@@ -81,7 +91,7 @@ export async function sendPropertyMatchesCard(chatId: string, viewer: Viewer, pr
   const c = copy[lang];
   try {
     const [matches, property] = await Promise.all([
-      matchingClientsForAssistant(viewer, propertyId),
+      matchingClientsForAssistant(viewer, propertyId, undefined, lang),
       prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } }),
     ]);
     const shownCount = matches.own.length + matches.colleagues.length;

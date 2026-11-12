@@ -54,7 +54,8 @@ describe("точка из текста и ссылки карты", () => {
 
 describe("кому подходит объект: кто что видит", () => {
   const client = (id: string, assignedAgentId: string | null, assignedAgentName: string | null = null) => ({
-    id, shortId: 1, fullName: "Клиент +992 93 555 12 34", status: "NEW", score: 80, reasons: ["район совпал", "чуть выше бюджета"], assignedAgentId, assignedAgentName,
+    id, shortId: 1, fullName: "Клиент +992 93 555 12 34", status: "NEW",
+    match: { tier: "alternative", reasons: ["Нужный район"], tradeoffs: ["На 5% дороже бюджета (+20 000 сомони)"], unknowns: [], ask: [], lastSentAt: null, sentCount: 0 }, assignedAgentId, assignedAgentName,
   });
   const viewer = (permissions: string[]) => ({ agent: { id: "me", permissions: new Set(permissions) } }) as never;
 
@@ -73,7 +74,7 @@ describe("кому подходит объект: кто что видит", () 
     expect(agent.own).toMatchObject([{ clientId: "mine", own: true }]);
     expect(agent.own[0].name).toContain("Клиент");
     expect(agent.colleagues.map(c => [c.clientId, c.name, c.agentName])).toEqual([["b", null, "Умед"], ["c", null, null]]);
-    expect(agent.colleagues[0].reasons).toEqual([{ text: "район совпал", tradeoff: false }, { text: "чуть выше бюджета", tradeoff: true }]);
+    expect(agent.colleagues[0].match).toMatchObject({ tier: "alternative", reasons: ["Нужный район"], tradeoffs: ["На 5% дороже бюджета (+20 000 сомони)"] });
     expect(JSON.stringify(agent.colleagues)).not.toContain("555");
     const boss = await matchingClientsForAssistant(viewer(["clients.viewAll", "clients.viewPhone"]), "p");
     expect(boss.colleagues[0].name).toContain("555 12 34");
