@@ -185,7 +185,7 @@ it("LEGACY account: staff wrote first from the app, the person replies -> 200 an
   expect(io.filter(i => i.kind === "legacy").length).toBeGreaterThan(0); expect(io.filter(i => i.kind === "dm")).toHaveLength(1);
   expect(io.filter(i => i.kind === "core")).toHaveLength(0);
   expect((await errorLogs(o.peer)).filter(row => row.dedupKey?.startsWith("customer-dm-routing-held:"))).toHaveLength(0);
-});
+}, 60_000); // Two signed HTTP turns with background drain; the 20 s default is tight on a busy runner.
 
 it("CORE account: our bot wrote first, the person replies -> 200 and the core plans and sends the answer", async () => {
   const o = await owner(); await config([o], 10_000); wire();
@@ -206,7 +206,7 @@ it("CORE account: our bot wrote first, the person replies -> 200 and the core pl
   expect(await dispatchCustomerOutboxPart(planned.partIds[0])).toEqual({ status: "accepted" });
   expect(io.filter(i => i.kind === "core")).toHaveLength(1); expect(io.filter(i => i.kind === "dm")).toHaveLength(1);
   expect(io.filter(i => i.kind === "legacy")).toHaveLength(0);
-});
+}, 60_000); // Two signed HTTP turns with background drain; the 20 s default is tight on a busy runner.
 
 it("the 12 people trapped on prod (old echo pinned to CORE) are released without SQL", async () => {
   const o = await owner(), coreElsewhere = await owner(); await config([coreElsewhere], 10_000); wire();
@@ -225,7 +225,7 @@ it("the 12 people trapped on prod (old echo pinned to CORE) are released without
   expect(legacySpy).toHaveBeenCalledTimes(1); expect(io.filter(i => i.kind === "dm")).toHaveLength(1);
   const assignment = await prisma.customerAgentRolloutAssignment.findFirst({ where: { endpointScopeId: o.scopeId } });
   expect(assignment?.lane).toBe("LEGACY");
-});
+}, 60_000); // Two signed HTTP turns with background drain; the 20 s default is tight on a busy runner.
 
 it("a permanent hold (CORE person while the core is switched off) is ACKed, answered by nobody and reported", async () => {
   const o = await owner(); await config([o], 10_000); wire();
@@ -242,7 +242,7 @@ it("a permanent hold (CORE person while the core is switched off) is ACKed, answ
   const logged = await waitFor(async () => (await errorLogs(o.peer)).find(row => row.dedupKey === "customer-dm-routing-held:owned_subject_stopped"),
     { label: "строка в журнале ошибок о непереданном сообщении" });
   expect(logged.message).toContain("ответьте человеку вручную");
-});
+}, 60_000); // Two signed HTTP turns with background drain; the 20 s default is tight on a busy runner.
 
 it("a 503 that Meta will retry is never silent any more", async () => {
   const o = await owner(); await config([o], 10_000); wire();
@@ -256,4 +256,4 @@ it("a 503 that Meta will retry is never silent any more", async () => {
   await waitFor(async () => (await prisma.errorLog.count({ where: { source: "meta", dedupKey: { startsWith: "meta-webhook-503:dm:" }, createdAt: { gte: since } } })) > 0,
     { label: "строка в журнале ошибок о 503 для Meta" });
   await prisma.errorLog.deleteMany({ where: { dedupKey: { startsWith: "meta-webhook-503:dm:" }, createdAt: { gte: since } } });
-});
+}, 60_000); // Two signed HTTP turns with background drain; the 20 s default is tight on a busy runner.
