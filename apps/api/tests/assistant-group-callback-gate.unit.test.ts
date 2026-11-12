@@ -51,6 +51,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "./assistantPropertyOffers.js": { handlePropertyOfferCallback: async () => false },
     // Кнопки озвучки (11.11.2026) — не наши, проходят дальше.
     "./assistantNarration.js": { handleNarrationCallback: async () => false },
+    "./staffClip.js": { handleStaffClipCallback: async () => false },
     "../ai/assistant/tools/expenseBatchTool.js": { ADD_EXPENSES_TOOL: "add_expenses" },
     "../lib/telegramModeration.js": { claimCallback: async () => true },
     "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, discardPendingAssistantAction: cancel },

@@ -122,6 +122,8 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     "./assistantPropertyDraft.js": { handleTelegramPropertyDraft: async () => false },
     // «Править текст» озвучки (11.11.2026): ожидания нет — сообщение идёт дальше обычным путём.
     "./assistantNarration.js": { handleNarrationTextReply: async () => false },
+    // Ролик от сотрудника (12.11.2026): ожидания «к какому объекту» нет, видео нет.
+    "./staffClip.js": { handleStaffClipText: async () => false, handleStaffClipMessage: async () => false },
     "./assistantPropertyPages.js": { propertyPageRequest: () => null },
     "./assistantExpenseCard.js": { applyExpenseFixMessage: async () => false },
     "./assistantReadResults.js": f.delivery,
