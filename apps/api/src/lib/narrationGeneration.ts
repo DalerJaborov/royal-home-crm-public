@@ -3,7 +3,7 @@ import { prisma, type TxClient } from "../db.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
 import { localVideoDelete, localVideoUpload } from "./localVideoStorage.js";
-import { generateNarrationAudio, narrationFacts, narrationHash, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
+import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 
 /** Пауза после «кредиты кончились»: раз в час одна проверка, пока владелец не пополнит. */
 export const NARRATION_QUOTA_PAUSE_MS = 60 * 60_000;
@@ -44,13 +44,19 @@ export function narrationProviderReady(config: NarrationConfig, key: string | nu
 export async function narrationBudgetUsage(db: Pick<Tx, "propertyNarrationVersion" | "narrationVoiceSample"> = prisma, now = new Date()) {
   const since = dushanbeStartOfToday(now);
   const [rows, samples] = await Promise.all([
-    db.propertyNarrationVersion.findMany({ where: { generationStartedAt: { gte: since } }, select: { script: true }, take: 5000 }),
+    db.propertyNarrationVersion.findMany({ where: { generationStartedAt: { gte: since } }, select: { script: true, language: true }, take: 5000 }),
     db.narrationVoiceSample.findMany({ where: { generationStartedAt: { gte: since } }, select: { chars: true }, take: 5000 }),
   ]);
   return {
-    usedChars: (rows ?? []).reduce((sum, r) => sum + r.script.length, 0) + (samples ?? []).reduce((sum, r) => sum + r.chars, 0),
+    // Считаем то, что реально ушло в ElevenLabs: таджикские цифры уже словами (ревью 12.11.2026).
+    usedChars: (rows ?? []).reduce((sum, r) => sum + speechChars(r.script, r.language), 0) + (samples ?? []).reduce((sum, r) => sum + r.chars, 0),
     usedGenerations: (rows ?? []).length + (samples ?? []).length,
   };
+}
+
+/** Длина текста, который уйдёт в синтез (цифры словами), — по ней потолок символов. */
+export function speechChars(script: string, language: string | null | undefined): number {
+  return narrationSpeechText(script, language === "tg" || language === "ru" ? language : null).length;
 }
 
 /** Под общим замком: две генерации одновременно не проскочат мимо потолка. */
@@ -84,12 +90,12 @@ export async function generateNarrationVersion(input: {
     const current = await tx.property.findUniqueOrThrow({ where: { id: input.propertyId }, include: { district: true } });
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: input.propertyId }, orderBy: { revision: "desc" } });
     if (current.deletedAt || !latest || latest.id !== input.versionId || latest.revision !== input.expectedRevision
-      || (input.requireApproval && !latest.approvedAt) || latest.factsHash !== narrationHash(narrationFacts(current))) return { kind: "REJECTED" as const };
+      || (input.requireApproval && !latest.approvedAt) || !narrationFactsCurrent(latest, current)) return { kind: "REJECTED" as const };
     if (latest.status !== "DRAFT") return { kind: "ALREADY" as const, current: latest.status };
     if (!input.requireApproval && (!latest.generateAfter || latest.generateAfter > now)) return { kind: "REJECTED" as const };
     if (!latest.voiceId || !config.voices.some((v) => v.id === latest.voiceId) || latest.modelId !== config.modelId) return { kind: "REJECTED" as const };
     if (await tx.propertyNarrationVersion.count({ where: { propertyId: input.propertyId, status: { in: ["GENERATING", "UNKNOWN"] } } })) return { kind: "REJECTED" as const };
-    if (!await budgetAllows(tx, latest.script.length, config, now)) return { kind: "BUDGET" as const };
+    if (!await budgetAllows(tx, speechChars(latest.script, latest.language), config, now)) return { kind: "BUDGET" as const };
     // То же «сейчас», что у потолка и паузы «кредиты кончились»: иначе пауза считалась бы по двум часам сразу.
     const generationStartedAt = now;
     await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data: { status: "GENERATING", generationStartedAt, generationAttempts: { increment: 1 } } });
@@ -169,6 +175,7 @@ export async function generateVoiceSamples(input: {
   const jobs = config.voices.flatMap((voice) => voiceSampleLangs(config).map((lang) => ({ voiceId: voice.id, lang })));
   for (const [index, job] of jobs.entries()) {
     const text = NARRATION_VOICE_SAMPLE_TEXT[job.lang];
+    const spokenChars = speechChars(text, job.lang);
     const textHash = voiceSampleHash(config, job.voiceId, job.lang);
     const where = { voiceId_modelId_textHash: { voiceId: job.voiceId, modelId: config.modelId, textHash } };
     const existing = await prisma.narrationVoiceSample.findUnique({ where });
@@ -177,13 +184,13 @@ export async function generateVoiceSamples(input: {
     if (busy || report.budget || report.quota || Date.now() - started > (input.timeBudgetMs ?? 100_000)) { report.remaining += busy ? 1 : jobs.length - index; if (!busy) break; continue; }
     const now = input.now ?? new Date();
     const claimed = await prisma.$transaction(async (tx) => {
-      if (!await budgetAllows(tx, text.length, config, now)) return "BUDGET" as const;
+      if (!await budgetAllows(tx, spokenChars, config, now)) return "BUDGET" as const;
       if (!existing) {
-        return tx.narrationVoiceSample.create({ data: { voiceId: job.voiceId, modelId: config.modelId, lang: job.lang, textHash, chars: text.length, createdById: input.actorId } });
+        return tx.narrationVoiceSample.create({ data: { voiceId: job.voiceId, modelId: config.modelId, lang: job.lang, textHash, chars: spokenChars, createdById: input.actorId } });
       }
       // Повтор после отказа: символы прибавляются — прошлая попытка тоже могла стоить денег.
       const retried = await tx.narrationVoiceSample.updateMany({ where: { id: existing.id, status: existing.status, generationStartedAt: existing.generationStartedAt },
-        data: { status: "GENERATING", errorCode: null, generationStartedAt: new Date(), chars: { increment: text.length } } });
+        data: { status: "GENERATING", errorCode: null, generationStartedAt: new Date(), chars: { increment: spokenChars } } });
       return retried.count ? tx.narrationVoiceSample.findUniqueOrThrow({ where: { id: existing.id } }) : null;
     }).catch(() => null);
     if (claimed === "BUDGET") { report.budget = true; report.remaining += jobs.length - index; break; }

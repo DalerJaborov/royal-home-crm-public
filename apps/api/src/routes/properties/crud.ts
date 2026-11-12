@@ -650,6 +650,8 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       data: {
         ...rest,
         title,
+        // Заведён мастером CRM или Шабнам: догоняющий проход автоозвучки трогает только такие (12.11.2026).
+        createdInCrmWizard: true,
         // Канонный адрес — считается один раз при сохранении (см. комментарий у
         // normalizePropertyAddress) и используется точным равенством в проверке
         // «этот адрес уже заведён» на шаге «Где» (routes/properties/duplicateCheck.ts).

@@ -54,7 +54,8 @@ describe("образцы голосов", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
     const bodies = fetcher.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).text as string);
     expect(bodies).toContain(NARRATION_VOICE_SAMPLE_TEXT.ru);
-    expect(bodies.some((t) => t.startsWith("Ассалому алайкум! Ин Роял Хом."))).toBe(true);
+    // Фраза владельца 12.11.2026 (NARRATION_VOICE_SAMPLE_TEXT.tg), числа уже словами.
+    expect(bodies.some((t) => t.startsWith("Ассалому алайкум! Хонаи се ҳуҷра"))).toBe(true);
     const after = await narrationBudgetUsage();
     expect(after.usedGenerations - before.usedGenerations).toBeGreaterThanOrEqual(4);
     expect(after.usedChars - before.usedChars).toBeGreaterThanOrEqual(2 * (NARRATION_VOICE_SAMPLE_TEXT.ru.length + NARRATION_VOICE_SAMPLE_TEXT.tg.length));

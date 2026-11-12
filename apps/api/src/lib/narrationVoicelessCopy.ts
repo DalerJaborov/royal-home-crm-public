@@ -58,7 +58,8 @@ export async function voicelessCopyAsk(propertyId: string, now = new Date()): Pr
   };
 }
 
-export type VoicelessTarget = { propertyId: string; shortId: number; via: "button" | "label" };
+/** choice — монтажёр сам подтвердил кнопкой «это версия без голоса» после несовпавшей длины. */
+export type VoicelessTarget = { propertyId: string; shortId: number; via: "button" | "label" | "choice" };
 /** Это файл «без голоса»? По кнопке (вопрос живёт час) или по подписи. null — обычный готовый ролик. */
 export async function voicelessCopyTarget(input: { chatId: string; agentId: string; filename: string; caption: string | null }, now = new Date()): Promise<VoicelessTarget | null> {
   const declared = declaredObjectNumber(input.filename, input.caption);
@@ -102,7 +103,7 @@ async function md5(filePath: string): Promise<string | null> {
 
 /** MISMATCH — файл по длине или содержимому не «тот же без голоса»: вызывающий решает, принять ли его обычным роликом. */
 export type VoicelessStoreResult = { ok: true; shortId: number } | { ok: false; code: "MISMATCH" | "REFUSED"; error: string };
-export async function storeVoicelessCopy(propertyId: string, filePath: string): Promise<VoicelessStoreResult> {
+export async function storeVoicelessCopy(propertyId: string, filePath: string, opts: { ignoreDuration?: boolean } = {}): Promise<VoicelessStoreResult> {
   const p = await prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true, deletedAt: true, narrationOff: true, videoHandoffStatus: true, videoHandoffFinalPath: true, videoMasterStorageKey: true } });
   if (!p || p.deletedAt) return { ok: false, code: "REFUSED", error: "Объект удалён — ролик без голоса не нужен." };
   if (p.narrationOff) return { ok: false, code: "REFUSED", error: `Для №${p.shortId} выбрано «Без озвучки» — ролик без голоса не нужен.` };
@@ -113,7 +114,7 @@ export async function storeVoicelessCopy(propertyId: string, filePath: string): 
   if (!incoming?.hasVideo) return { ok: false, code: "MISMATCH", error: "Файл не читается как видео." };
   const finalDisk = videoHandoffFinalDiskPath(p.videoHandoffFinalPath);
   const final = finalDisk && fs.existsSync(finalDisk) ? await probeMediaInfo(finalDisk) : null;
-  if (final && final.durationSec > 0 && incoming.durationSec > 0 && Math.abs(final.durationSec - incoming.durationSec) > DURATION_TOLERANCE_SEC) {
+  if (!opts.ignoreDuration && final && final.durationSec > 0 && incoming.durationSec > 0 && Math.abs(final.durationSec - incoming.durationSec) > DURATION_TOLERANCE_SEC) {
     return { ok: false, code: "MISMATCH", error: `Ролик без голоса по длине (${incoming.durationSec.toFixed(1)} с) не совпадает с готовым (${final.durationSec.toFixed(1)} с). Пришлите тот же ролик, только без голоса.` };
   }
   if (finalDisk && fs.existsSync(finalDisk) && (await md5(finalDisk)) === (await md5(filePath))) {

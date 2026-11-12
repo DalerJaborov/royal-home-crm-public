@@ -5,7 +5,7 @@ import { prisma } from "../../db.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { hasMarketingRole } from "../marketing.js";
 import { canManageProperty } from "./shared.js";
-import { narrationFacts, narrationHash, suggestedNarration, narrationScriptError } from "../../lib/propertyNarration.js";
+import { narrationFacts, narrationFactsCurrent, narrationHash, suggestedNarration, narrationScriptError } from "../../lib/propertyNarration.js";
 import { localVideoFilePath } from "../../lib/localVideoStorage.js";
 import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
@@ -131,7 +131,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     return { id: r.id, status, period: r.period, lastError: r.lastError };
   });
   res.json({ versions: versions.map((v) => ({ id: v.id, revision: v.revision, script: v.script, voiceId: v.voiceId, status: v.status,
-    approvedAt: v.approvedAt, stale: v.factsHash !== narrationHash(facts), hasAudio: v.status === "READY" && !!v.storageKey, errorCode: v.errorCode, createdAt: v.createdAt,
+    approvedAt: v.approvedAt, stale: !narrationFactsCurrent(v, p), hasAudio: v.status === "READY" && !!v.storageKey, errorCode: v.errorCode, createdAt: v.createdAt,
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
     source: v.source, templateId: v.templateId, language: v.language, generateAfter: v.generateAfter })),
     suggestedScript: suggestedNarration(facts), config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent?.role), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
@@ -220,7 +220,7 @@ narrationRouter.post("/:id/narration/mode", async (req, res) => {
   const { config } = await configuration();
   if (!narrationAutoEnabled(config)) return res.json({ off: false, message: "Озвучка включена. Автоозвучка выключена в настройках, подготовить её можно ниже." });
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision: "desc" }, select: { revision: true, factsHash: true, status: true } });
-  if (latest && latest.factsHash === narrationHash(narrationFacts(p)) && latest.status !== "FAILED") return res.json({ off: false, message: "Озвучка включена." });
+  if (latest && narrationFactsCurrent(latest, p) && latest.status !== "FAILED") return res.json({ off: false, message: "Озвучка включена." });
   const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", expectedRevision: latest?.revision ?? 0, debounceMs: 0 });
   res.json({ off: false, queued: outcome.status === "QUEUED", message: outcome.status === "QUEUED" ? "Озвучка включена. Придёт вам на прослушивание через минуту-две." : "Озвучка включена." });
 });
@@ -292,7 +292,7 @@ narrationRouter.post("/:id/narration/:versionId/handoff-preview", async (req, re
   const p = res.locals.narrationProperty;
   const row = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id, revision: parsed.data.expectedRevision, status: "READY", approvedAt: { not: null } } });
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision: "desc" } });
-  if (!row || latest?.id !== row.id || row.factsHash !== narrationHash(narrationFacts(p))) return res.status(409).json({ error: "Нужна готовая актуальная озвучка" });
+  if (!row || latest?.id !== row.id || !narrationFactsCurrent(row, p)) return res.status(409).json({ error: "Нужна готовая актуальная озвучка" });
   if (parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: "EDITOR", isActive: true } })) return res.status(400).json({ error: "Монтажёр недоступен" });
   const existing = await prisma.propertyNarrationDelivery.findUnique({ where: { requestKey: parsed.data.requestKey } });
   let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;

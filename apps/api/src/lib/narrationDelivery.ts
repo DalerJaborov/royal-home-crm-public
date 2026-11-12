@@ -4,7 +4,7 @@ import { z } from "zod";
 import { narrationConfigSchema, narrationMixByCrm } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { buildMontajerDelivery, EDITOR_HOLDER_WHERE } from "./videoHandoff.js";
-import { narrationFacts, narrationHash } from "./propertyNarration.js";
+import { narrationFactsCurrent, narrationHash } from "./propertyNarration.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
 import { sendDocumentFile, TELEGRAM_BOT_SEND_LIMIT_BYTES } from "../telegram/api.js";
@@ -28,7 +28,7 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
     buildMontajerDelivery(propertyId),
   ]);
   const editorId = requestedEditorId ?? settings?.videoMontajerAgentId;
-  if (!p || p.deletedAt || !sources || !version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || version.factsHash !== narrationHash(narrationFacts(p))) throw new Error("Нужна актуальная озвучка");
+  if (!p || p.deletedAt || !sources || !version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || !narrationFactsCurrent(version, p)) throw new Error("Нужна актуальная озвучка");
   if (p.narrationOff) throw new Error("Для объекта выбрано «Без озвучки»");
   if (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince) throw new Error("Сначала передайте объект в работу монтажёру через существующую очередь монтажа");
   if (!editorId || editorId !== settings?.videoMontajerAgentId) throw new Error("Сначала назначьте монтажёра в существующих настройках монтажа");
@@ -85,7 +85,7 @@ export async function executeNarrationDelivery(id: string) {
         const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
         const editor = await tx.agent.findFirst({ where: { id: row.editorId!, role: "EDITOR", isActive: true } });
         const videos = row.mode === "WITH_SOURCES" ? await tx.propertyVideo.findMany({ where: { propertyId: row.propertyId }, orderBy: [{ uploadedAt: "asc" }, { id: "asc" }] }) : [];
-        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || latest?.id !== row.versionId || latest.status !== "READY" || narrationHash(narrationFacts(p)) !== plan.factsHash || settings?.videoMontajerAgentId !== row.editorId || !editor?.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash || narrationHash(videos.map(v => [v.id, v.storageKey])) !== plan.sourcesHash) return null;
+        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || latest?.id !== row.versionId || latest.status !== "READY" || latest.factsHash !== plan.factsHash || !narrationFactsCurrent(latest, p) || settings?.videoMontajerAgentId !== row.editorId || !editor?.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash || narrationHash(videos.map(v => [v.id, v.storageKey])) !== plan.sourcesHash) return null;
         return { chatId: editor.telegramChatId, shortId: p.shortId };
       });
       if (!target) {

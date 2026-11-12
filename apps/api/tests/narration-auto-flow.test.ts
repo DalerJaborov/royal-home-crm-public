@@ -50,6 +50,7 @@ const deliveryModel = {
   create: vi.fn(async ({ data }: Row) => { s.deliveries.push(data); return data; }),
   // Снятие осиротевших передач (12.11.2026): в этой подделке объект живой, гасить нечего.
   updateMany: vi.fn(async () => ({ count: 0 })),
+  update: vi.fn(async ({ where, data }: Row) => { const row = s.deliveries.find((d) => d.id === where.id)!; Object.assign(row, data); return row; }),
 };
 
 vi.mock("../src/db.js", async (importOriginal) => {
@@ -91,7 +92,8 @@ const later = (ms: number) => new Date(now.getTime() + ms);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  s.versions = []; s.deliveries = []; s.mode = "PREVIEW";
+  // С 12.11.2026 автоозвучка платит только при LIVE (в PREVIEW аудио некуда отдать).
+  s.versions = []; s.deliveries = []; s.mode = "LIVE";
   s.config = baseConfig();
   s.property = { id: propertyId, shortId: 7, deletedAt: null, type: "APARTMENT", rooms: 2, areaSqm: "62", floor: 3, totalFloors: 9, district: { name: "Сино" }, price: "85000", currency: "USD",
     assignedAgentId: "agent", videoHandoffStatus: "NONE", status: "AWAITING_VIDEO", publishedChannels: [], videoHandoffFinalPath: null, instagramUrl: null };
@@ -112,7 +114,7 @@ describe("auto narration after property creation", () => {
     const findMany = vi.mocked(prisma.property.findMany);
     findMany.mockClear();
     await runNarrationAutoFlow({ now });
-    const backfillQuery = (calls: unknown[][]) => calls.some((c) => JSON.stringify(c[0]).includes("SENT_TO_EDITOR") && JSON.stringify(c[0]).includes("\"none\""));
+    const backfillQuery = (calls: unknown[][]) => calls.some((c) => JSON.stringify(c[0]).includes("SENT_TO_EDITOR") && JSON.stringify(c[0]).includes("\"videoHandoffManualSince\":null"));
     expect(backfillQuery(findMany.mock.calls)).toBe(false);
     s.config = { ...baseConfig(), backfillMontageQueue: true };
     await runNarrationAutoFlow({ now });
@@ -224,15 +226,34 @@ describe("approval by the property's agent and hand-over to the editor", () => {
     s.property = { ...s.property, areaSqm: "70" };
     expect(await approveNarrationVersion({ propertyId, versionId: v.id, expectedRevision: 1, actorId: "agent", isManager: false })).toBe("CONFLICT");
   });
-  it("waits for the montage queue, then creates exactly one audio-only delivery (PREVIEW until the server switch)", async () => {
+  it("waits for the montage queue; in PREVIEW nothing is marked as sent, after LIVE exactly one delivery goes", async () => {
     const v = await readyVersion();
     await approveNarrationVersion({ propertyId, versionId: v.id, expectedRevision: 1, actorId: "agent", isManager: false });
     s.prepare.mockRejectedValueOnce(new Error("Сначала передайте объект в работу монтажёру"));
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("WAITING_FOR_MONTAGE");
+    s.mode = "PREVIEW";
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("PREVIEW");
-    expect(await afterNarrationApproved(propertyId, v.id)).toBe("ALREADY");
+    expect(s.deliveries).toHaveLength(0);
+    s.mode = "LIVE";
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("QUEUED");
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("BUSY");
     expect(s.deliveries).toHaveLength(1);
-    expect(s.deliveries[0]).toMatchObject({ mode: "AUDIO_ONLY", status: "PREVIEW", executionMode: "PREVIEW", requestKey: `auto:${v.id}:editor`, createdById: "agent" });
+    expect(s.deliveries[0]).toMatchObject({ mode: "AUDIO_ONLY", status: "QUEUED", executionMode: "LIVE", requestKey: `auto:${v.id}:editor`, createdById: "agent" });
+  });
+  it("a delivery row left in PREVIEW before this fix is sent once LIVE is on, not counted as sent", async () => {
+    const v = await readyVersion();
+    await approveNarrationVersion({ propertyId, versionId: v.id, expectedRevision: 1, actorId: "agent", isManager: false });
+    s.deliveries.push({ id: "old-preview", propertyId, versionId: v.id, editorId: "editor", mode: "AUDIO_ONLY", status: "PREVIEW", executionMode: "PREVIEW", requestKey: `auto:${v.id}:editor` });
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("QUEUED");
+    expect(s.deliveries).toHaveLength(1);
+    expect(s.deliveries[0]).toMatchObject({ status: "QUEUED", executionMode: "LIVE" });
+  });
+  it("PREVIEW: the paid provider is not called at all", async () => {
+    s.mode = "PREVIEW";
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    await runNarrationAutoFlow({ now: later(1000) });
+    expect(s.audio).not.toHaveBeenCalled();
+    expect(s.versions[0]).toMatchObject({ status: "DRAFT" });
   });
   it("LIVE switch queues the delivery for the existing sender; an in-flight delivery makes it wait", async () => {
     s.mode = "LIVE";

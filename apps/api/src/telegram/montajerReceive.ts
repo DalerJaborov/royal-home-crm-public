@@ -426,11 +426,19 @@ async function handleVoicelessCopy(input: MontajerVideoInput, target: VoicelessT
     return true;
   }
   try {
-    const stored = await storeVoicelessCopy(target.propertyId, tmpPath);
+    const stored = await storeVoicelessCopy(target.propertyId, tmpPath, { ignoreDuration: target.via === "choice" });
     if (!stored.ok && stored.code === "MISMATCH" && target.via === "button") {
-      // После кнопки пришёл не тот же ролик — скорее всего готовый ролик другого объекта.
-      await forgetVoicelessQuestion(input.chatId);
-      return false;
+      // После кнопки пришёл не тот же по длине ролик (ревью 12.11.2026): не гадаем — спрашиваем
+      // монтажёра кнопками, иначе ролик без голоса мог бы выйти в сети как готовый.
+      await rememberVoicelessChoice(input, target);
+      await sendToMontajer(input.chatId, `${stored.error}\nЧто это за файл?`, {
+        copy: false,
+        replyMarkup: [[
+          { text: `Это №${target.shortId} без голоса`, callback_data: `mj:nvc:v:${input.updateId}` },
+          { text: "Это новый готовый ролик", callback_data: `mj:nvc:f:${input.updateId}` },
+        ]],
+      }).catch(() => {});
+      return true;
     }
     await forgetVoicelessQuestion(input.chatId);
     const text = stored.ok
@@ -447,8 +455,35 @@ async function handleVoicelessCopy(input: MontajerVideoInput, target: VoicelessT
   }
 }
 
+const VOICELESS_CHOICE_KIND = "montajer_voiceless_choice";
+type VoicelessChoicePayload = { input: MontajerVideoInput; propertyId: string; shortId: number };
+async function rememberVoicelessChoice(input: MontajerVideoInput, target: VoicelessTarget): Promise<void> {
+  const data = { agentId: input.agentId, kind: VOICELESS_CHOICE_KIND, expiresAt: new Date(Date.now() + MONTAJER_RECEIVE_QUESTION_TTL_MS),
+    payload: { input: { ...input, albumGroupId: undefined }, propertyId: target.propertyId, shortId: target.shortId } as unknown as Prisma.InputJsonValue };
+  await prisma.telegramDialogState.upsert({ where: { chatId: input.chatId }, create: { chatId: input.chatId, ...data }, update: data });
+}
+
+/** «Это №N без голоса» / «Это новый готовый ролик» (`mj:nvc:v|f:<updateId>`) — ответ на несовпавшую длину. */
+async function handleVoicelessChoice(chatId: string, agentId: string, kind: "v" | "f", updateId: number): Promise<void> {
+  const row = await prisma.telegramDialogState.findUnique({ where: { chatId } });
+  const payload = row?.kind === VOICELESS_CHOICE_KIND ? (row.payload as unknown as VoicelessChoicePayload) : null;
+  if (!row || !payload || row.agentId !== agentId || row.expiresAt <= new Date() || payload.input.updateId !== updateId) {
+    await sendToMontajer(chatId, "Этот вопрос уже устарел — пришлите файл ещё раз.", { copy: false }).catch(() => {});
+    return;
+  }
+  await prisma.telegramDialogState.deleteMany({ where: { chatId, kind: VOICELESS_CHOICE_KIND } });
+  if (kind === "v") {
+    await handleVoicelessCopy(payload.input, { propertyId: payload.propertyId, shortId: payload.shortId, via: "choice" });
+    return;
+  }
+  // Новый готовый ролик — обычный приём (вопрос «без голоса» уже снят, файл им не станет).
+  await handleMontajerVideo(payload.input);
+}
+
 /** Кнопки «🎵 Пришлю без голоса» (`mj:nv:<номер>`) и «Не сейчас» (`mj:nvx:<номер>`). */
 export async function handleVoicelessCopyCallback(chatId: string, agentId: string, data: string): Promise<void> {
+  const choice = data.match(/^mj:nvc:(v|f):(\d+)$/);
+  if (choice) return handleVoicelessChoice(chatId, agentId, choice[1] as "v" | "f", Number(choice[2]));
   const match = data.match(/^mj:(nv|nvx):(\d{1,7})$/);
   if (!match) return;
   const shortId = Number(match[2]);

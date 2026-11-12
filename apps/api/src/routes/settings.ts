@@ -964,6 +964,8 @@ const settingsUpdateSchema = z.object({
   /** Ручная передача видео монтажёру через Telegram (01.09.2026, lib/videoHandoff.ts) —
    *  единственный путь подготовки ролика после удаления автомонтажа 04.09.2026. */
   videoHandoffEnabled: z.boolean().optional(),
+  /** Ролик от СММщика или другого сотрудника через Шабнам (12.11.2026, telegram/staffClip.ts). */
+  staffClipIntakeEnabled: z.boolean().optional(),
   /** Проверка фото и видео агента перед монтажом (25.09.2026). false — CRM
    *  одобряет сама (lib/propertyReview.ts::autoApproveIfRawReviewOff). */
   rawReviewRequired: z.boolean().optional(),

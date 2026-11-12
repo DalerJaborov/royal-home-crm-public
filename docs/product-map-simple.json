@@ -113,7 +113,7 @@
   "!publicPath.startsWith(\"/uploads/handoff/\")",
   "!publishedSourceCutoff(candidate, now)",
   "!result || typeof result.firstShot !== \"string\"",
-  "!row || latest?.id !== row.id || row.factsHash !== narrationHash(narrationFacts(p))",
+  "!row || latest?.id !== row.id || !narrationFactsCurrent(row, p)",
   "!row || row.propertyId !== p.id || !(row.status === \"UNKNOWN\" || row.status === \"SENDING\" && row.claimStarted…",
   "!row || row.status !== \"PREVIEW\" || !row.plan || narrationHash(row.plan) !== parsed.data.planHash",
   "!row?.startedAt || row.startedAt.toISOString()!==body.data.expectedStartedAt || ![\"EXECUTING\",\"UNKNOWN\"].incl…",
@@ -337,7 +337,7 @@
   "key.startsWith(\"td_\")",
   "lastAlertDay === today",
   "lastRequestedAt !== undefined && Date.now() - lastRequestedAt < RETRANSCRIBE_LIMIT_MS",
-  "latest && latest.factsHash === narrationHash(narrationFacts(p)) && latest.status !== \"FAILED\"",
+  "latest && narrationFactsCurrent(latest, p) && latest.status !== \"FAILED\"",
   "latest?.approvedAt && !manager(req.agent?.role)",
   "leftMs > 5 * 60_000 || leftMs < 0",
   "legacyUrl?.startsWith(\"/uploads/\")",
@@ -351,7 +351,7 @@
   "meta.count + telegram.count === 0",
   "metaIgToken !== undefined && metaIgToken.trim()",
   "narration.some(version => version.status === \"GENERATING\")",
-  "narrationAutoEnabled(config) && key && narrationProviderReady(config, key)",
+  "narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode(\"NARRATION\")…",
   "narrationHash(current.plan) !== parsed.data.planHash",
   "needsReadReceipt(bot)",
   "needsReadReceipt(tg)",
@@ -40333,7 +40333,7 @@
      ]
     },
     {
-     "t": "если !row || latest?.id !== row.id || row.factsHash !== narrationHash(narrationFacts(p))",
+     "t": "если !row || latest?.id !== row.id || !narrationFactsCurrent(row, p)",
      "k": "if",
      "a": [],
      "c": [
@@ -40344,7 +40344,7 @@
        "c": []
       }
      ],
-     "raw": "!row || latest?.id !== row.id || row.factsHash !== narrationHash(narrationFacts(p))"
+     "raw": "!row || latest?.id !== row.id || !narrationFactsCurrent(row, p)"
     },
     {
      "t": "если parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…",
@@ -40832,7 +40832,7 @@
      "raw": "!narrationAutoEnabled(config)"
     },
     {
-     "t": "если latest && latest.factsHash === narrationHash(narrationFacts(p)) && latest.status !== \"FAILED\"",
+     "t": "если latest && narrationFactsCurrent(latest, p) && latest.status !== \"FAILED\"",
      "k": "if",
      "a": [],
      "c": [
@@ -40843,7 +40843,7 @@
        "c": []
       }
      ],
-     "raw": "latest && latest.factsHash === narrationHash(narrationFacts(p)) && latest.status !== \"FAILED\""
+     "raw": "latest && narrationFactsCurrent(latest, p) && latest.status !== \"FAILED\""
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -70181,7 +70181,7 @@
      "a": [],
      "c": [
       {
-       "t": "если narrationAutoEnabled(config) && key && narrationProviderReady(config, key)",
+       "t": "если narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode(\"NARRATION\")…",
        "k": "if",
        "a": [],
        "c": [
@@ -70192,7 +70192,7 @@
          "c": []
         }
        ],
-       "raw": "narrationAutoEnabled(config) && key && narrationProviderReady(config, key)"
+       "raw": "narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode(\"NARRATION\")…"
       },
       {
        "t": "если есть notify сотрудник",

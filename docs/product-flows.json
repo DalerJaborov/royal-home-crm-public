@@ -48401,7 +48401,7 @@
     },
     {
      "k": "if",
-     "t": "!row || latest?.id !== row.id || row.factsHash !== narrationHash(narrationFacts(p))",
+     "t": "!row || latest?.id !== row.id || !narrationFactsCurrent(row, p)",
      "a": [],
      "c": [
       {
@@ -49151,7 +49151,7 @@
     },
     {
      "k": "if",
-     "t": "latest && latest.factsHash === narrationHash(narrationFacts(p)) && latest.status !== \"FAILED\"",
+     "t": "latest && narrationFactsCurrent(latest, p) && latest.status !== \"FAILED\"",
      "a": [],
      "c": [
       {
@@ -100508,7 +100508,7 @@
       },
       {
        "k": "if",
-       "t": "narrationAutoEnabled(config) && key && narrationProviderReady(config, key)",
+       "t": "narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode(\"NARRATION\")…",
        "a": [],
        "c": [
         {
@@ -100525,6 +100525,14 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "report.drafted = await refreshNarrationDrafts(config, now);",
+         "a": [
+          "зовёт refreshNarrationDrafts()"
+         ],
+         "c": []
         }
        ]
       },

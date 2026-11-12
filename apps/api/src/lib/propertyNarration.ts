@@ -9,6 +9,22 @@ export function narrationFacts(p: { type: string; rooms: number | null; areaSqm:
     price: p.price === null || p.price === undefined ? null : p.price.toString(), currency: p.currency ?? null };
 }
 export function narrationHash(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+/**
+ * АКТУАЛЬНА ЛИ ВЕРСИЯ ОЗВУЧКИ ПО ФАКТАМ (12.11.2026, ревью). Цена вошла в факты 11.11.2026; версии,
+ * сделанные раньше (в снимке фактов нет поля price), сравниваются без цены — иначе при включении
+ * все старые ручные озвучки разом стали бы «устаревшими»: волна перегенерации и возвратов монтажёру,
+ * их нельзя было бы одобрить, а поставленные передачи падали бы. Одно место для всех сравнений.
+ */
+export function narrationFactsCurrent(version: { factsHash: string; factsSnapshot?: unknown }, p: Parameters<typeof narrationFacts>[0]): boolean {
+  const facts = narrationFacts(p);
+  if (version.factsHash === narrationHash(facts)) return true;
+  const snapshot = version.factsSnapshot;
+  if (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) && !("price" in snapshot)) {
+    const { price: _price, currency: _currency, ...withoutPrice } = facts;
+    return version.factsHash === narrationHash(withoutPrice);
+  }
+  return false;
+}
 export function narrationScriptError(text: string): string | null {
   if (text.length > 5000) return "Текст длиннее 5000 символов — сократите его перед подтверждением.";
   // Price may be spoken since 11.11.2026 (owner: «Да, говорить цену»); {цена} speaks the card price.

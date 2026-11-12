@@ -10927,7 +10927,7 @@
   · читает в базе: propertyNarrationVersion
 - const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revi…
   · читает в базе: propertyNarrationVersion
-- если !row || latest?.id !== row.id || row.factsHash !== narrationHash(narrationFacts(p))
+- если !row || latest?.id !== row.id || !narrationFactsCurrent(row, p)
   - return res.status(409).json({ error: "Нужна готовая актуальная озвучка" });
     · ответ 409 — «Нужна готовая актуальная озвучка»
 - если parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: "EDITOR", is…
@@ -11104,7 +11104,7 @@
     · ответ 200
 - const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revi…
   · читает в базе: propertyNarrationVersion
-- если latest && latest.factsHash === narrationHash(narrationFacts(p)) && latest.status !== "FAILED"
+- если latest && narrationFactsCurrent(latest, p) && latest.status !== "FAILED"
   - return res.json({ off: false, message: "Озвучка включена." });
     · ответ 200
 - const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", expec…
@@ -22507,10 +22507,12 @@
     · зовёт loadNarrationConfiguration()
   - report.retired = await retireNarrationsOfClosedProperties();
     · зовёт retireNarrationsOfClosedProperties()
-  - если narrationAutoEnabled(config) && key && narrationProviderReady(config, key)
+  - если narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode("NARRATION")…
     - если config.backfillMontageQueue === true
       - report.backfilled = await backfillMontageQueue(config, now);
         · зовёт backfillMontageQueue()
+    - report.drafted = await refreshNarrationDrafts(config, now);
+      · зовёт refreshNarrationDrafts()
   - если options.notifyAgent
     - report.notified = await notifyReadyNarrations(options.notifyAgent);
       · дословно из кода
