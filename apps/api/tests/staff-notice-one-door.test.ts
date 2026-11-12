@@ -34,6 +34,8 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "lib/videoHandoff.ts": { calls: 3, why: "передача исходников монтажёру — рабочий канал монтажа" },
   "lib/videoHandoffStaleAlarm.ts": { calls: 1, why: "копия напоминания монтажа наблюдателям (sendMontageCopies) — рабочий канал монтажа" },
   "lib/narrationDelivery.ts": { calls: 1, why: "файлы озвучки монтажёру — рабочий канал монтажа" },
+  "telegram/assistantNarration.ts": { calls: 13, why: "озвучка агенту на одобрение — рабочая карточка с кнопками, раз на версию без напоминаний (#149, решение владельца 10.11)" },
+  "telegram/staffClip.ts": { calls: 11, why: "ответы сотруднику на присланный им ролик и кнопки выбора объекта (#149)" },
   "lib/somonLeads/sendReserved.ts": { calls: 2, why: "заявка с Somon за агентом: выключить = потерять клиента; отдельное решение владельца" },
   "lib/askCandidatePhone.ts": { calls: 1, why: "кандидат на вакансию, не сотрудник" },
   "lib/conversationDelivery.ts": { calls: 4, why: "ответ клиенту в его переписке" },
