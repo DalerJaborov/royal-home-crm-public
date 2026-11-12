@@ -910,6 +910,27 @@ export async function main(argv = process.argv.slice(2)) {
   return 0;
 }
 
+/**
+ * Довести выкат до конца, не выходя молча (12.11.2026). ship трижды за 11–12.11 выходил
+ * с кодом 0 посреди этапа 9 сразу после «связь с GitHub оборвалась … повтор»: таймеры
+ * ожидания (AbortSignal.timeout, таймеры соединения undici) сняты с якоря (unref), и
+ * пока запрос висит на соединении, у Node не остаётся ни одного держащего дела —
+ * процесс завершается с 0 при незавершённом main(), хотя вливания не было.
+ * Теперь: (1) держащий таймер живёт, пока main() не завершится; (2) выход до
+ * завершения — всегда код 1 и строка «итог не подтверждён», никогда не 0.
+ */
+export function runUntilSettled(run, { proc = process, log = console.error } = {}) {
+  let settled = false;
+  const hold = setInterval(() => {}, 60_000);
+  proc.on("exit", (code) => {
+    if (settled || code !== 0) return;
+    log("\n\x1b[31m✘ ship вышел, не дойдя до конца.\x1b[0m Итог не подтверждён: сверь git log origin/main и PR перед повтором.");
+    proc.exitCode = 1;
+  });
+  const done = () => { settled = true; clearInterval(hold); };
+  return run().then((v) => { done(); return v; }, (e) => { done(); throw e; });
+}
+
 // Запуск как команды (а не импорт из теста).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   // Встроенный fetch Node не читает HTTPS_PROXY без NODE_USE_ENV_PROXY=1 (облачные
@@ -921,7 +942,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     });
     process.exit(again.status ?? 1);
   }
-  main().finally(() => state.cleanup?.()).then(
+  runUntilSettled(() => main().finally(() => state.cleanup?.())).then(
     (code) => process.exit(code),
     (err) => {
       if (err instanceof Stop) {

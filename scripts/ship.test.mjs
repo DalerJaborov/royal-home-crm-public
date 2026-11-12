@@ -724,3 +724,20 @@ test("вливание не повторяется само: второй PUT м
   });
   assert.deepEqual(methods, ["PUT"], "ровно одна попытка вливания");
 });
+
+test("ship не выходит молча с 0, пока выкат не завершён (12.11.2026)", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const shipUrl = new URL("./ship.mjs", import.meta.url).href;
+  // Ожидание только на «снятом с якоря» таймере — так висел этап 9 на обрыве связи GitHub.
+  const script = `import { runUntilSettled } from ${JSON.stringify(shipUrl)};
+    runUntilSettled(() => new Promise((res) => setTimeout(() => res(7), 300).unref())).then((code) => process.exit(code));`;
+  const held = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8" });
+  assert.equal(held.status, 7, "держащий таймер дал main() дойти до конца");
+  // Выход раньше конца (никто не держит, проверка сторожа без таймера) — код 1, не 0.
+  const early = `import { runUntilSettled } from ${JSON.stringify(shipUrl)};
+    const hold = globalThis.setInterval; globalThis.setInterval = () => ({ unref() {} }); globalThis.clearInterval = () => {};
+    runUntilSettled(() => new Promise(() => {}));`;
+  const dropped = spawnSync(process.execPath, ["--input-type=module", "-e", early], { encoding: "utf8" });
+  assert.equal(dropped.status, 1);
+  assert.match(dropped.stderr, /не дойдя до конца/);
+});
