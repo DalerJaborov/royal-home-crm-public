@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
+import { raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
 import { requireModerationAccepted, telegramDeleteOutcome, type ModerationOutcome } from "../messengers/commentModerationOutcome.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -132,6 +133,16 @@ async function call<T>(method: string, body: Record<string, unknown>, timeoutMs 
     if (!singleAttempt && waitMs !== null) {
       await sleep(waitMs);
       continue;
+    }
+    // 401 — ключ бота отозван или заменён в BotFather: молчит весь Telegram (channelKeyAlarm.ts).
+    if (data.error_code === 401) {
+      void raiseChannelKeyAlarm({
+        key: "telegram-bot",
+        label: "Telegram-бот",
+        detail: data.description ?? "Unauthorized",
+        source: "telegram",
+        fix: "Проверьте ключ бота TELEGRAM_BOT_TOKEN на сервере (BotFather → /token).",
+      });
     }
     throw new TelegramApiError(data.error_code, method, data.description ?? "неизвестная ошибка");
   }

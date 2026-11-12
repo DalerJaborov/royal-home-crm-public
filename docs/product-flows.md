@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **741**. Развилок в самих путях: **2460**; вместе с задачами по расписанию и фоновыми заданиями — **3981**. Модулей: **82**.
+Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **3992**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16318,6 +16318,151 @@
     - return res.status(error.status).json({ error: message, code: error.code });
       · ответ (код зависит от условия)
 
+## /api/v1/settings/meta-eternal
+
+### DELETE /api/v1/settings/meta-eternal/accounts/:id/page
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- если !params.success
+  - return res.status(400).json({ error: "Некорректный идентификатор аккаунта" });
+    · ответ 400 — «Некорректный идентификатор аккаунта»
+- пробует
+  - await prisma.messengerAccount.updateMany({ where: { id: params.data.id, channel: "INSTAGRAM" }, data: { pageI…
+    · меняет в базе: messengerAccount
+  - resetAccountsCache();
+    · зовёт resetAccountsCache()
+  - logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", params.data.id, { pageId: null });
+    · зовёт logAudit()
+  - res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
+### POST /api/v1/settings/meta-eternal/accounts/:id/page
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- const body = metaEternalPageInputSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой metaEternalPageInputSchema
+- если !params.success || !body.success
+  - return res.status(400).json({ error: "Некорректные данные Страницы" });
+    · ответ 400 — «Некорректные данные Страницы»
+- пробует
+  - const account = await prisma.messengerAccount.findUnique({ where: { id: params.data.id }, select: { id: true,…
+    · читает в базе: messengerAccount
+  - если !account || account.channel !== "INSTAGRAM"
+    - return res.status(404).json({ error: "Аккаунт Instagram не найден" });
+      · ответ 404 — «Аккаунт Instagram не найден»
+  - если !pageId
+    - const found = await discoverInstagramPage(account.externalId);
+      · зовёт discoverInstagramPage()
+    - если !found.ok
+      - return res.status(409).json({ error: found.error });
+        · ответ 409
+  - const verified = await verifyInstagramPage(pageId, account.externalId);
+    · зовёт verifyInstagramPage()
+  - если !verified.ok
+    - return res.status(409).json({ error: verified.error });
+      · ответ 409
+  - await prisma.messengerAccount.update({ where: { id: account.id }, data: { pageId } });
+    · меняет в базе: messengerAccount
+  - resetAccountsCache();
+    · зовёт resetAccountsCache()
+  - logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", account.id, { pageId });
+    · зовёт logAudit()
+  - res.json({ ok: true, pageId, pageName: verified.pageName ?? pageName });
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
+### PUT /api/v1/settings/meta-eternal/app-review
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- const body = metaEternalAppReviewInputSchema.safeParse(req.body);
+  · проверяет данные схемой metaEternalAppReviewInputSchema
+- если !body.success
+  - return res.status(400).json({ error: "Некорректное значение" });
+    · ответ 400 — «Некорректное значение»
+- пробует
+  - await prisma.settings.update({ where: { id: "singleton" }, data: { metaAppReviewApproved: body.data.approved …
+    · меняет в базе: settings
+  - resetMetaEternalCache();
+    · зовёт resetMetaEternalCache()
+  - logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { metaAppReviewApproved: body.data.approved });
+    · зовёт logAudit()
+  - res.json({ ok: true, approved: body.data.approved });
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
+### POST /api/v1/settings/meta-eternal/pages/:pageId/subscribe
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- если !params.success
+  - return res.status(400).json({ error: "Некорректный идентификатор Страницы" });
+    · ответ 400 — «Некорректный идентификатор Страницы»
+- пробует
+  - const known = await prisma.messengerAccount.findFirst({ where: { pageId: params.data.pageId }, select: { id: …
+    · читает в базе: messengerAccount
+  - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { metaPageId: true } …
+    · читает в базе: settings
+  - const fbAccount = await prisma.messengerAccount.findFirst({ where: { channel: "FACEBOOK", externalId: params.…
+    · читает в базе: messengerAccount
+  - если !known && !fbAccount && settings?.metaPageId !== params.data.pageId
+    - return res.status(404).json({ error: "Эта Страница не подключена в CRM" });
+      · ответ 404 — «Эта Страница не подключена в CRM»
+  - const result = await subscribePageMessaging(params.data.pageId);
+    · зовёт subscribePageMessaging()
+  - если !result.ok
+    - return res.status(409).json({ error: result.error });
+      · ответ 409
+  - logAudit(req, "SETTINGS_UPDATE", "FacebookPageSubscription", params.data.pageId, { fields: result.fields });
+    · зовёт logAudit()
+  - res.json(result);
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
+### PUT /api/v1/settings/meta-eternal/preferred
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- const body = metaEternalPreferredInputSchema.safeParse(req.body);
+  · проверяет данные схемой metaEternalPreferredInputSchema
+- если !body.success
+  - return res.status(400).json({ error: "Некорректное значение" });
+    · ответ 400 — «Некорректное значение»
+- пробует
+  - await prisma.settings.update({ where: { id: "singleton" }, data: { metaSystemTokenPreferred: body.data.enable…
+    · меняет в базе: settings
+  - resetMetaEternalCache();
+    · зовёт resetMetaEternalCache()
+  - logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { metaSystemTokenPreferred: body.data.enabled });
+    · зовёт logAudit()
+  - res.json({ ok: true, enabled: body.data.enabled });
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
+### GET /api/v1/settings/meta-eternal
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- пробует
+  - res.json(await metaEternalStatus());
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
 ## /api/v1/settings/restore-points
 
 ### POST /api/v1/settings/restore-points/:id/restore
@@ -28135,8 +28280,6 @@
   - void enqueueDirectorAlert({ title: "⚠️ Объект разъехался с сайтом", body: `${property?.title ?? "Объект"} — д…
     · зовёт enqueueDirectorAlert()
     - пробует
-      - await prisma.pendingDirectorAlert.create({ data: { title: params.title, body: params.body, url: params.url ??…
-        · создаёт в базе: pendingDirectorAlert
     - если сорвалось
       - console.error("[directorAlertQueue] не удалось поставить аларм в очередь:", err);
         · пишет строку в журнал сервера
