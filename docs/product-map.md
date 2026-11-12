@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 69 |
 | Из них видно в меню | 36 |
 | Модулей сервера | 83 |
-| Адресов сервера всего | 735 |
+| Адресов сервера всего | 741 |
 | Задач по расписанию | 124 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -174,8 +174,8 @@
 | `/api/v1/transcribe` | Диктовка голосом в полях CRM | 1 | да (1 мест) | `apps/api/src/routes/transcribe.ts` |
 | `/api/v1/reports` | Отчёты за период | 20 | да (4 мест) | `apps/api/src/routes/reports.ts` |
 | `/api/v1/telephony/whisper` | Станция забирает подсказки оператору | 2 | нет | `apps/api/src/routes/telephonyWhisper.ts` |
-| `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (10 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
-| `/api/v1/settings` | Настройки CRM и точки возврата | 50 | да (10 мест) | `apps/api/src/routes/settings.ts` |
+| `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (11 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
+| `/api/v1/settings` | Настройки CRM и точки возврата | 56 | да (11 мест) | `apps/api/src/routes/settings.ts` |
 | `/api/v1/ui-shell` | **без подписи** | 3 | да (2 мест) | `apps/api/src/routes/uiShell.ts` |
 | `/api/v1/sms` | **без подписи** | 6 | да (2 мест) | `apps/api/src/routes/sms.ts` |
 | `/api/v1/whatsapp-templates` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/whatsappTemplates.ts` |
@@ -394,13 +394,13 @@
 |---|---|---|
 | Instagram Graph через прокси | 2 | 1 |
 | Telegram | 5 | 8 |
-| WhatsApp, Instagram Direct, Messenger (Meta) | 9 | 12 |
+| WhatsApp, Instagram Direct, Messenger (Meta) | 9 | 13 |
 | Бюджет Google Cloud | 1 | 1 |
 | Голосовой ИИ на звонках (Gemini Live) | 9 | 5 |
 | ИИ Google Gemini | 18 | 11 |
 | Отчёты о резервных копиях | 1 | 1 |
 | Пуш-уведомления | 4 | 2 |
-| Реклама Meta (рекламный кабинет) | 3 | 3 |
+| Реклама Meta (рекламный кабинет) | 3 | 4 |
 | Сайт royalhome.tj | 6 | 18 |
 | Телефония FreePBX / Asterisk | 3 | 2 |
 | Утренний отчёт наружу | 2 | 1 |

@@ -48,9 +48,13 @@ interface EnqueueParams {
 }
 
 /** true — строка в очереди; false — не встала (ошибка уже в журнале). */
-export async function enqueueDirectorAlert(params: EnqueueParams): Promise<boolean> {
+export async function enqueueDirectorAlert(
+  params: EnqueueParams,
+  /** Своя транзакция вызывающего (например, под замком дедупа, lib/channelKeyAlarm.ts). */
+  db: Pick<typeof prisma, "pendingDirectorAlert"> = prisma
+): Promise<boolean> {
   try {
-    await prisma.pendingDirectorAlert.create({
+    await db.pendingDirectorAlert.create({
       data: {
         title: params.title,
         body: params.body,

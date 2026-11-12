@@ -10,6 +10,7 @@ import {
 } from "./meta.js";
 import { logSystemError } from "../lib/systemError.js";
 import { readInstalledCustomerTransport } from "../lib/customerInstalledTransport.js";
+import { resetMetaEternalCache } from "../lib/metaEternalTokens.js";
 
 /**
  * Подключённые аккаунты мессенджеров: какой Instagram (WhatsApp, Facebook) чей.
@@ -132,6 +133,9 @@ export function resetAccountsCache(): void {
   // WhatsApp, см. meta.ts): без сброса только что заведённый аккаунт минуту
   // получал бы 403 на вебхуке — подпись сверялась бы без его секрета.
   resetMetaAccountCredsCache();
+  // Вечные ключи (lib/metaEternalTokens.ts) держат снимок тех же строк — Страница
+  // аккаунта, маркер-удостоверение; без сброса новая Страница ждала бы минуту.
+  resetMetaEternalCache();
   // Заодно снимаем задвижку сверки идентификаторов (reconcileInstagramAccountIds):
   // состав аккаунтов изменился — значит и сверять их можно заново, не выжидая
   // десять минут. Зацикливания не даёт: сверка меняет запись только когда Meta
