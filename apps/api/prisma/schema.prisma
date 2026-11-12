@@ -11059,6 +11059,9 @@ model MarketListing {
   areaSqm        Decimal?
   floor          Int?
   totalFloors    Int?
+  /// Участок в сотках (дома: Somon пишет «3 этажн. 6-комн. дом, 3 соток»). Площади самого
+  /// дома в объявлении Somon обычно нет — тогда areaSqm остаётся null.
+  landSotki      Decimal?
 
   price          Decimal?
   currency       String

@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
+import { catalogRaw } from "./helpers/somonPage.js";
 import { loadMoneyContext, toTjs } from "../src/lib/money.js";
 import { buyerDistance, rankBuyerListings, type BuyerRow, type BuyerWants } from "../src/lib/market/buyerMatch.js";
 import { DEFAULT_MATCH_POLICY } from "../src/lib/matchPolicy.js";
@@ -53,7 +54,7 @@ async function makeListing(key: string, over: Record<string, unknown> = {}) {
       title: `Объявление ${key}`,
       isActive: true,
       lastSeenAt: new Date(),
-      raw: {},
+      raw: catalogRaw(rest),
       ...rest,
     },
   });

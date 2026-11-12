@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **741**. Развилок в самих путях: **2459**; вместе с задачами по расписанию и фоновыми заданиями — **3979**. Модулей: **82**.
+Путей: **741**. Развилок в самих путях: **2459**; вместе с задачами по расписанию и фоновыми заданиями — **3987**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -22158,6 +22158,9 @@
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
+  - если inNightFullCrawlWindow()
+    - return;
+      · дальше не идёт, ничего не меняя
   - await runPaydoIncremental();
     · зовёт runPaydoIncremental()
     - если running
@@ -22171,6 +22174,49 @@
         · дословно из кода
 - если сорвалось
   - markCronTickFailed("Ошибка инкремента Paydo", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
+
+### market-somon-incremental — 7,22,37,52 * * * *
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - если inNightFullCrawlWindow()
+    - return;
+      · дальше не идёт, ничего не меняя
+  - await runSomonIncremental();
+    · зовёт runSomonIncremental()
+    - если running
+      - return null;
+        · дословно из кода
+    - пробует
+      - если await sourceClosed(new Date())
+        - return null;
+          · дословно из кода
+      - const monitorFeeds = await somonMonitorFeedsMarket();
+        · зовёт somonMonitorFeedsMarket()
+      - const locked = await withMarketCrawlLock(async (lock)
+        - для каждого: const section of SECTIONS
+          - если section === APARTMENTS_SECTION && monitorFeeds
+            - continue;
+              · переходит к следующему
+          - const result = await crawlSection(section, { maxPages: options.pages ?? SOMON_INCREMENTAL_PAGES, shouldStop, …
+            - const s = await saveListings(SOMON_SOURCE, listings);
+              · зовёт saveListings()
+          - если stopReason && stopReason !== "wrong_scope"
+            - break;
+              · прекращает перебор
+    - в любом случае
+      - running = false;
+        · дословно из кода
+- если сорвалось
+  - markCronTickFailed("Ошибка инкремента Somon", err);
     · зовёт markCronTickFailed()
     - console.error(`[cron] ${label}:`, reason);
       · пишет строку в журнал сервера

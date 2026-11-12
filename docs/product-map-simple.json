@@ -14,11 +14,11 @@
  "totals": {
   "screens": 53,
   "paths": 741,
-  "cron": 129,
+  "cron": 130,
   "jobs": 32,
-  "conditions": 3963,
-  "untranslatedUnique": 454,
-  "untranslatedTotal": 583,
+  "conditions": 3971,
+  "untranslatedUnique": 456,
+  "untranslatedTotal": 586,
   "partialUnique": 1078,
   "translatedShare": 85
  },
@@ -209,6 +209,7 @@
   "await refreshMetaAdsTokenIfDue()",
   "await removeStationObject(creds, \"bridge\", bridge.id)",
   "await removeStationObject(creds, \"channel\", channel.id)",
+  "await sourceClosed(new Date())",
   "await staleLeadCircleOpen()",
   "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, status: { in: [\"QUEUED\", \"SENDING\", \"UN…",
   "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, versionId: row.versionId, editorId: row…",
@@ -329,6 +330,7 @@
   "id === BUILTIN_COVER_TEMPLATE_ID",
   "id === otherId",
   "ids.length !== existing.size || ids.some((id) => !existing.has(id))",
+  "inNightFullCrawlWindow()",
   "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
@@ -69491,6 +69493,13 @@
      "a": [],
      "c": [
       {
+       "t": "если inNightFullCrawlWindow()",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "inNightFullCrawlWindow()"
+      },
+      {
        "t": "внутри этого шага",
        "k": "do",
        "a": [],
@@ -69506,6 +69515,81 @@
          "k": "try",
          "a": [],
          "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть tick",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "market-somon-incremental",
+   "when": "7,22,37,52 * * * *",
+   "label": "market-somon-incremental",
+   "tree": [
+    {
+     "t": "если market crawl включено не «1»",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "если inNightFullCrawlWindow()",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "inNightFullCrawlWindow()"
+      },
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть идёт сейчас",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если await sourceClosed(new Date())",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "await sourceClosed(new Date())",
+           "more": true
+          }
+         ]
         }
        ]
       }

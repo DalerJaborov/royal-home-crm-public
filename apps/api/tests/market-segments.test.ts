@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
+import { catalogRaw } from "./helpers/somonPage.js";
 import { MIN_SAMPLE } from "../src/lib/market/comps.js";
 import { buildSegments, median, type SegmentRow } from "../src/lib/market/segments.js";
 import { MIN_SALE_PRICE_TJS, trimmedMean } from "../src/lib/market/plausible.js";
@@ -48,7 +49,7 @@ async function add(i: number, over: Record<string, unknown> = {}) {
       title: `Сегмент ${i}`,
       isActive: true,
       lastSeenAt: new Date(),
-      raw: {},
+      raw: catalogRaw(rest),
       ...rest,
     },
   });
@@ -192,6 +193,15 @@ describe("buildSegments (чистая часть)", () => {
     rows.push(row({ source: "paydo.tj", areaSqm: 41, priceTjs: 408_000, pricePerSqmTjs: 9_951 }));
     const [s] = buildSegments(rows, base.getTime());
     expect(s.count).toBe(7);
+    expect(s.enough).toBe(false);
+  });
+
+  it("одна квартира, выложенная на той же площадке трижды, считается один раз (12.11.2026)", () => {
+    const rows = Array.from({ length: 6 }, (_, i) => row({ source: "paydo.tj", areaSqm: 40 + i * 10, priceTjs: 400_000 + i * 60_000, pricePerSqmTjs: 10_000 }));
+    rows.push(row({ source: "paydo.tj", areaSqm: 40, priceTjs: 400_000, pricePerSqmTjs: 10_000 }));
+    rows.push(row({ source: "paydo.tj", areaSqm: 40, priceTjs: 400_000, pricePerSqmTjs: 10_000 }));
+    const [s] = buildSegments(rows, base.getTime());
+    expect(s.count).toBe(6);
     expect(s.enough).toBe(false);
   });
 
