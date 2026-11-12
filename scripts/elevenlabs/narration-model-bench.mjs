@@ -18,7 +18,7 @@
  * с флагом --yes. Ключ берётся из ELEVENLABS_API_KEY и никогда не печатается.
  *
  *   node scripts/elevenlabs/narration-model-bench.mjs --voice <voice_id>            # план и цена
- *   node scripts/elevenlabs/narration-model-bench.mjs --voice <voice_id> --yes      # платно
+ *   node scripts/elevenlabs/narration-model-bench.mjs --voice <voice_id> --yes --budget-credits=N  # платно, только с ELEVENLABS_PAID_TESTS_APPROVED=<сегодня>
  *     [--out <папка вне git>] [--models eleven_v4,eleven_v4_turbo] [--language-code tg] [--texts 3]
  *
  * Пишет mp3 и `results.md` (таблица: модель, текст, задержка, символы, цена) в папку
@@ -28,6 +28,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { openPaidBudget } from "./paid-guard.mjs";
+import { makeClient } from "./lib.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PRICE_PER_1K = { eleven_v4: 0.08, eleven_v4_turbo: 0.04, eleven_multilingual_v2: 0.08, eleven_flash_v2_5: 0.04 };
@@ -42,7 +44,7 @@ const SAMPLES = [
 ];
 
 export function parseArgs(argv) {
-  const args = { yes: false, out: null, voice: process.env.ELEVENLABS_VOICE_ID ?? null, models: [...TAJIK], languageCode: null, texts: 5 };
+  const args = { yes: false, out: null, voice: process.env.ELEVENLABS_VOICE_ID ?? null, models: [...TAJIK], languageCode: null, texts: 5, budgetCredits: undefined };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--yes") args.yes = true;
@@ -50,6 +52,7 @@ export function parseArgs(argv) {
     else if (a === "--voice") args.voice = argv[++i];
     else if (a === "--models") args.models = argv[++i].split(",").map((m) => m.trim()).filter(Boolean);
     else if (a === "--language-code") args.languageCode = argv[++i];
+    else if (a.startsWith("--budget-credits")) args.budgetCredits = a.includes("=") ? a.split("=")[1] : argv[++i];
     else if (a === "--texts") args.texts = Math.max(1, Math.min(SAMPLES.length, Number(argv[++i]) || 5));
     else throw new Error(`Неизвестный флаг ${a}`);
   }
@@ -60,9 +63,8 @@ export async function buildTexts(count) {
   const shared = await import(pathToFileURL(path.join(ROOT, "packages", "shared", "dist", "index.js")).href);
   const migration = (name) => readFileSync(path.join(ROOT, "apps", "api", "prisma", "migrations", name, "migration.sql"), "utf8");
   const first = JSON.parse(migration("20261111120000_narration_flow").split("$json$")[1]);
-  // Стартовые тексты с ценой (решение владельца 11.11): вторая миграция.
-  const priced = new Map(JSON.parse(migration("20261111150000_narration_price").split("$json$")[1]).map((r) => [r.id, r.text]));
-  const templates = first.map((t) => ({ ...t, text: priced.get(t.id) ?? t.text })).filter((t) => t.lang === "tg");
+  // Стартовые шаблоны уже с ценой (отдельной миграции цены нет с 11.11.2026).
+  const templates = first.filter((t) => t.lang === "tg");
   return SAMPLES.slice(0, count).map((facts, i) => {
     const template = templates[i % templates.length];
     return { id: `t${i + 1}`, template: template.id, text: shared.renderNarrationTemplate(template, facts) };
@@ -98,9 +100,13 @@ async function main() {
   if (!args.voice) throw new Error("Нужен --voice <voice_id> (или ELEVENLABS_VOICE_ID)");
   const out = path.resolve(args.out ?? path.join(os.tmpdir(), `narration-bench-${new Date().toISOString().slice(0, 10)}`));
   if (out.startsWith(ROOT + path.sep) || out === ROOT) throw new Error("Папка для mp3 должна быть вне репозитория");
+  // Замок платных проверок (#157): разрешение владельца на сегодня + бюджет кредитов; остаток читается бесплатно.
+  const paid = await openPaidBudget({ env: process.env, values: { "budget-credits": args.budgetCredits }, request: makeClient({ apiKey: key }), say: console.log });
+  if (paid.refused) throw new Error(paid.refused);
   mkdirSync(out, { recursive: true });
   const rows = [];
-  for (const model of args.models) for (const t of texts) {
+  bench: for (const model of args.models) for (const t of texts) {
+    if (await paid.exhausted()) { console.log("Бюджет запуска исчерпан — остальное не озвучиваю."); break bench; }
     try {
       const r = await synthesize({ key, voice: args.voice, model, text: t.text, languageCode: args.languageCode });
       const file = r.ok ? `${model}-${t.id}.mp3` : "";
@@ -114,6 +120,7 @@ async function main() {
   const table = ["| Модель | Текст | Итог | Задержка, мс | Символов | Цена, $ | Файл |", "|---|---|---|---|---|---|---|",
     ...rows.map((r) => `| ${r.model} | ${r.text} | ${r.status} | ${r.ms ?? ""} | ${r.chars} | ${r.usd.toFixed(4)} | ${r.file} |`)].join("\n");
   writeFileSync(path.join(out, "results.md"), `# Замер озвучки ${new Date().toISOString()}\n\nlanguage_code: ${args.languageCode ?? "не передавался"}\n\n${table}\n\n## Тексты\n\n${texts.map((t) => `- ${t.id} [${t.template}]: ${t.text}`).join("\n")}\n`);
+  await paid.finish();
   console.log(`\nГотово: ${out}`);
 }
 
