@@ -420,7 +420,21 @@ describe("автопубликация без ответа", () => {
     await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: new Date(Date.now() - 10 * 3_600_000) } });
     await cr.runClipOwnerAutoPublishTick(dushanbe("2026-11-11 12:00"));
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
+    // Ревью 12.11.2026: срока у такого ролика нет — напоминание модераторам о нём не молчит.
+    await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: dushanbe("2026-11-11 01:00") } });
+    const remind = vi.fn(async () => {});
+    await cr.runClipReviewStaleTick(remind, dushanbe("2026-11-11 12:00"));
+    expect(remind.mock.calls.some((c) => c[0] === p.id)).toBe(true);
     await prisma.settings.update({ where: { id: "singleton" }, data: { clipReviewEnabled: false } });
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE", clipReviewStatus: "NONE" } });
+  });
+
+  it("автопубликация перепроверяет срок в самой записи: срок отодвинули после выборки тика — не одобряет", async () => {
+    const p = await pendingClip("срок отодвинут", owner.id, null);
+    await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: new Date(Date.now() + 15 * 60_000) } });
+    const result = await cr.approveClip(p.id, null, "auto", new Date());
+    expect(result.ok).toBe(false);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
     await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE", clipReviewStatus: "NONE" } });
   });
 

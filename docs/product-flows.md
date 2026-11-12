@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **741**. Развилок в самих путях: **2457**; вместе с задачами по расписанию и фоновыми заданиями — **3965**. Модулей: **82**.
+Путей: **741**. Развилок в самих путях: **2457**; вместе с задачами по расписанию и фоновыми заданиями — **3971**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19961,6 +19961,46 @@
     · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка скоринга", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### clip-owner-autopublish — */5 * * * *
+
+- пробует
+  - const { published } = await runClipOwnerAutoPublishTick();
+    · зовёт runClipOwnerAutoPublishTick()
+    - если isClipOwnerNight(now)
+      - return { published: 0 };
+        · дословно из кода
+    - const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { clipOwnerApproveEnabled: t…
+      · читает в базе: settings
+    - если !s?.clipOwnerApproveEnabled && s?.clipReviewEnabled
+      - return { published: 0 };
+        · дословно из кода
+    - const candidates = await prisma.property.findMany({ where: { ...CLIP_REVIEW_PENDING_WHERE, clipOwnerDueAt: { …
+      · читает в базе: property
+    - если candidates.length === 0
+      - return { published: 0 };
+        · дословно из кода
+    - const dialogs = await prisma.telegramDialogState.findMany({ where: { kind: CLIP_REJECT_DIALOG_KIND, expiresAt…
+      · читает в базе: telegramDialogState
+    - для каждого: const p of candidates
+      - если rejecting.has(p.shortId)
+        - continue;
+          · переходит к следующему
+      - const result = await approveClip(p.id, null, "auto", now);
+        · зовёт approveClip()
+      - если result.ok
+        - published++;
+          · дословно из кода
+  - если published > 0
+    - console.log(`[cron] Автопубликация роликов без ответа хозяина: ${published}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка автопубликации ролика без ответа хозяина", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()

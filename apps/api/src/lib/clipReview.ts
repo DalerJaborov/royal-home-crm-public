@@ -280,7 +280,9 @@ export async function approveClip(
   if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект не найден или удалён." };
   const now = new Date();
   const claimed = await prisma.property.updateMany({
-    where: { id: propertyId, ...CLIP_REVIEW_PENDING_WHERE },
+    // Автопубликация перепроверяет срок в самой записи (ревью 12.11.2026): хозяин мог
+    // нажать «Вернуть» между выборкой тика и этой строкой — срок уже отодвинут.
+    where: { id: propertyId, ...CLIP_REVIEW_PENDING_WHERE, ...(source === "auto" ? { clipOwnerDueAt: { lte: decidedAt ?? new Date() } } : {}) },
     data: { clipReviewStatus: "APPROVED", clipReviewDecidedAt: now, clipReviewDecidedById: byId, clipReviewComment: null, clipOwnerDueAt: null },
   });
   if (claimed.count === 0) return { ok: false, status: 409, error: await clipAlreadyDecidedText(propertyId) };
@@ -398,9 +400,12 @@ export async function runClipReviewStaleTick(
   if (!(await isWithinAlarmHours(now))) return { reminded: 0 };
   // Хозяин подтверждает сам, а молчание закрывает автопубликация — напоминать
   // руководству нечего («не руководству а автоматически поститься»).
-  if ((await getClipOwnerSettings()).enabled) return { reminded: 0 };
+  // Ролик, который ждал решения ещё до включения (срока у него нет), напоминанием
+  // не теряется (ревью 12.11.2026): молчит только тот, чей срок закроет автопубликация.
+  const ownerOn = (await getClipOwnerSettings()).enabled;
   const stale = await prisma.property.findMany({
     where: {
+      ...(ownerOn ? { clipOwnerDueAt: null } : {}),
       deletedAt: null,
       videoHandoffStatus: "RECEIVED",
       clipReviewStatus: "PENDING",
