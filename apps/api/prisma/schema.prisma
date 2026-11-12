@@ -354,6 +354,7 @@ model Agent {
   narrationLastChoice Json?
   /// Ожидания кода Google Authenticator у помощницы (10.11.2026) — уходят вместе с учёткой.
   assistantStepUpChallenges AssistantStepUpChallenge[]
+  staffNotices              StaffNotice[]
   investigationCases InvestigationCase[] @relation("InvestigationSubject")
   recruitmentRecoveries RecruitmentRecovery[]
   oversightAcks OversightAck[]
@@ -11272,6 +11273,37 @@ model PropertyClientOffer {
   @@index([clientId])
 }
 
+
+/// СООБЩЕНИЯ ПОМОЩНИЦЫ СОТРУДНИКУ ПО ЕЁ ПОЧИНУ (10.11.2026, telegram/staffNotice.ts).
+///
+/// Журнал того, что ушло, и под каким ВИДОМ (Agent.pushMuted, PUSH_KINDS):
+/// по нему «не присылай мне такое» ответом на сообщение или сразу после него
+/// выключает именно этот вид. dedupKey — один повод = одно сообщение (повтор
+/// тика по расписанию не шлёт второй раз). remindOn/firedAt — «⏰ Напомнить
+/// завтра»: строка-обещание, которую тик исполняет в нужный день один раз.
+model StaffNotice {
+  id        String    @id @default(uuid())
+  agentId   String
+  /// Журнал рассылок, а не история работы: уходит вместе с сотрудником и
+  /// чистится через 90 дней (telegram/staffNotice.ts::cleanupStaffNotices).
+  agent     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  /// Вид сообщения — ключ из PUSH_KINDS.
+  kind      String
+  /// Ключ повода; null — повод без ключа.
+  dedupKey  String?   @unique
+  chatId    String?
+  messageId Int?
+  /// Предмет напоминания («<recurringId>:<дата>» у оплат) — для повтора.
+  subject   String?
+  /// «Напомнить завтра»: день (ГГГГ-ММ-ДД по Душанбе), когда повторить.
+  remindOn  String?
+  firedAt   DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([chatId, messageId])
+  @@index([remindOn, firedAt])
+}
 
 /// ОТМЕТКА «НЕ ЗВОНИТЬ РОБОТОМ» (П3, 11.11.2026) — единое хранилище запрета.
 /// Читает её одна дверь, lib/robotCallPolicy.ts (robotCallAllowed), которую зовёт

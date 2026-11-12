@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as shared from "@royal-home/shared";
 import { describe, expect, it, vi } from "vitest";
+import { unstubbedModule } from "./helpers/unstubbedModule.js";
 
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: async () => {} } }));
 
@@ -49,6 +50,10 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "./assistantPropertyDraft.js": { handleTelegramPropertyDraftCallback: async () => false },
     // Кнопки «Предложить коллеге» (10.11.2026) — свой обработчик, к кнопкам связок не относится.
     "./assistantPropertyOffers.js": { handlePropertyOfferCallback: async () => false },
+    // «🔕 Не присылать такое» (11.11.2026) — свои кнопки и фразы, к кнопкам связок не относятся.
+    "./staffNotice.js": { handleStaffNoticeCallback: async () => false, handleNoticePreferenceText: async () => false },
+    // Кнопки напоминаний об оплатах (11.11.2026) — свой обработчик.
+    "../lib/paymentReminders.js": { handlePaymentReminderCallback: async () => false },
     // Кнопки озвучки (11.11.2026) — не наши, проходят дальше.
     "./assistantNarration.js": { handleNarrationCallback: async () => false },
     "./staffClip.js": { handleStaffClipCallback: async () => false },
@@ -69,7 +74,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
   const source = readFileSync(new URL("../src/telegram/assistantBot.ts", import.meta.url), "utf8");
   const exports: Record<string, any> = {};
   runInNewContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.CommonJS } }).outputText, { exports, require: (name: string) => dependencies[name] ?? {}, Date, Map, Set, Promise, console });
+    module: ts.ModuleKind.CommonJS } }).outputText, { exports, require: (name: string) => dependencies[name] ?? unstubbedModule("assistant-group-callback-gate", name), Date, Map, Set, Promise, console });
   const query = (verb = "ok", userId = 1) => ({ id: "test-callback", data: `as:${verb}:11111111-1111-4111-8111-111111111111`,
     from: { id: userId }, message: { chat: { id: type === "private" ? 1 : -100, type }, message_id: 50 } });
   const toggle = async (on: boolean) => exports.handleAssistantGroupMessage({
