@@ -164,6 +164,11 @@ services:
       # строки значение из .env.production в контейнер не попадало: на 11.11.2026 каталог был
       # пуст, хотя переключатель описан в журнале 02.11. По умолчанию выключен.
       MARKET_CRAWL_ENABLED: "${MARKET_CRAWL_ENABLED:-0}"
+      # Озвучка роликов и отчёт собственнику (lib/mediaExecution.ts): LIVE — по-настоящему
+      # звать ElevenLabs и слать mp3 монтажёру, иначе PREVIEW. Без этих строк значение из
+      # .env.production в контейнер не попадало (12.11.2026, тот же класс, что MARKET_CRAWL).
+      CRM_NARRATION_EXECUTION_MODE: "${CRM_NARRATION_EXECUTION_MODE:-PREVIEW}"
+      CRM_OWNER_REPORT_EXECUTION_MODE: "${CRM_OWNER_REPORT_EXECUTION_MODE:-PREVIEW}"
       # connection_limit ЯВНО (аудит №4, 27.08): по умолчанию Prisma берёт
       # пул примерно в 5 соединений на процесс. Журнал переходов (db.ts) читает
       # состояние «до» отдельным запросом, и когда правка статуса идёт внутри
