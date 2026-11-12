@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 741,
-  "forks": 3965,
+  "forks": 3973,
   "mounts": 82,
-  "cron": 127,
+  "cron": 128,
   "jobs": 32,
   "hidden": 0
  },
@@ -98866,6 +98866,21 @@
      "a": [],
      "c": [
       {
+       "k": "if",
+       "t": "inNightFullCrawlWindow()",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "await runPaydoIncremental();",
        "a": [
@@ -98930,6 +98945,219 @@
       {
        "k": "do",
        "t": "markCronTickFailed(\"Ошибка инкремента Paydo\", err);",
+       "a": [
+        "зовёт markCronTickFailed()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.error(`[cron] ${label}:`, reason);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "tick",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "market-somon-incremental",
+   "when": "7,22,37,52 * * * *",
+   "tree": [
+    {
+     "k": "if",
+     "t": "process.env.MARKET_CRAWL_ENABLED !== \"1\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "inNightFullCrawlWindow()",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await runSomonIncremental();",
+       "a": [
+        "зовёт runSomonIncremental()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "running",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "await sourceClosed(new Date())",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return null;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const monitorFeeds = await somonMonitorFeedsMarket();",
+           "a": [
+            "зовёт somonMonitorFeedsMarket()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const locked = await withMarketCrawlLock(async (lock)",
+           "a": [],
+           "c": [
+            {
+             "k": "loop",
+             "t": "для каждого: const section of SECTIONS",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "section === APARTMENTS_SECTION && monitorFeeds",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "const result = await crawlSection(section, { maxPages: options.pages ?? SOMON_INCREMENTAL_PAGES, shouldStop, …",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "const s = await saveListings(SOMON_SOURCE, listings);",
+                 "a": [
+                  "зовёт saveListings()"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "stopReason && stopReason !== \"wrong_scope\"",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "break;",
+                 "a": [
+                  "прекращает перебор"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "running = false;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runSomonIncremental() — apps/api/src/lib/market/somonIncremental.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "markCronTickFailed(\"Ошибка инкремента Somon\", err);",
        "a": [
         "зовёт markCronTickFailed()"
        ],

@@ -23,6 +23,7 @@
  */
 
 import { prisma } from "../../db.js";
+import { marketCatalogWhere } from "./somonRubrics.js";
 
 /** Насколько может разойтись площадь одного и того же объекта в двух записях. */
 const AREA_TOLERANCE_SQM = 3;
@@ -72,7 +73,7 @@ export async function findDuplicateListing(query: DedupeQuery): Promise<Duplicat
   // из двух запросов — и самый надёжный, потому он и первый.
   if (query.sellerPhone) {
     const bySeller = await prisma.marketListing.findMany({
-      where: { sellerPhone: query.sellerPhone },
+      where: { sellerPhone: query.sellerPhone, AND: [marketCatalogWhere()] },
       select: { id: true, source: true, sourceUrl: true, firstSeenAt: true, priceTjs: true, areaSqm: true },
       orderBy: { lastSeenAt: "desc" },
       take: CANDIDATE_LIMIT,
@@ -101,6 +102,7 @@ export async function findDuplicateListing(query: DedupeQuery): Promise<Duplicat
           gte: query.priceTjs * (1 - PRICE_TOLERANCE),
           lte: query.priceTjs * (1 + PRICE_TOLERANCE),
         },
+        AND: [marketCatalogWhere()],
       },
       select: { id: true, source: true, sourceUrl: true, firstSeenAt: true, priceTjs: true },
       orderBy: { lastSeenAt: "desc" },

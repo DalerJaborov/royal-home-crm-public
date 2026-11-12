@@ -41,6 +41,27 @@ export function ingestMarketPage(html: string): Promise<void> {
   })();
 }
 
+/**
+ * Пишет ли минутный парсер лидов страницы квартир Somon в рыночный каталог (12.11.2026).
+ *
+ * Отвечает рыночному инкременту (`market/somonIncremental.ts`): когда парсер лидов работает, он сам
+ * отдаёт каталогу первые страницы квартир, и второй запрос тех же страниц — лишний трафик к Somon.
+ * Когда лиды выключены, остановлены или стоят на ПАУЗЕ уведомлений площадок, — не пишет, и квартиры
+ * обновляет инкремент. Условия те же, что у ранних выходов `runSomonMonitorTick` ниже (кроме
+ * секундной паузы бюджета `blockedUntil`: она сама проходит за ~10 с и «не пишет» не означает).
+ */
+export async function somonMonitorFeedsMarket(): Promise<boolean> {
+  if (process.env.MARKET_MONITOR_INGEST === "0") return false;
+  const state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" }, select: { enabled: true, sourceStopped: true, contactKeyFingerprint: true } });
+  if (!state?.enabled || state.sourceStopped) return false;
+  if (await isTelegramPortalAlertsPaused()) return false;
+  try {
+    return !!state.contactKeyFingerprint && state.contactKeyFingerprint === somonKeyFingerprint();
+  } catch {
+    return false;
+  }
+}
+
 async function page(n: number) {
   const response = await fetchSomon(`/nedvizhimost/prodazha-kvartir/dushanbe/${n === 1 ? "" : `?page=${n}`}`);
   const html = await response.text();
@@ -85,6 +106,7 @@ export async function runSomonMonitorTick(pause: (ms: number) => Promise<void> =
   let state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
   if (!state?.enabled || state.sourceStopped || (state.blockedUntil && state.blockedUntil > new Date())) return;
   // Пауза уведомлений площадок: объявления не разбираем и очередь не трогаем — после снятия паузы всё продолжится.
+  // Рыночный каталог при этом не стоит: квартиры обновляет инкремент рынка (somonMonitorFeedsMarket выше).
   if (await isTelegramPortalAlertsPaused()) return;
   try {
     if (!state.contactKeyFingerprint || state.contactKeyFingerprint !== somonKeyFingerprint()) throw new Error("contact identity key changed");

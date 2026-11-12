@@ -1920,10 +1920,40 @@ export function startCronJobs() {
     async () => {
       if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
       try {
+        // 02:15–03:15 по Душанбе — окно ночных полных обходов: инкремент не занимает их замок.
+        const { inNightFullCrawlWindow } = await import("./lib/market/nightly.js");
+        if (inNightFullCrawlWindow()) return;
         const { runPaydoIncremental } = await import("./lib/market/paydoIncremental.js");
         await runPaydoIncremental();
       } catch (err) {
         markCronTickFailed("Ошибка инкремента Paydo", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
+   * ИНКРЕМЕНТ SOMON КАЖДЫЕ 15 МИНУТ (12.11.2026): первые 3 страницы продажи квартир и домов. Пауза
+   * Telegram-уведомлений площадок выключает парсер лидов, а с ним и подпитку каталога квартирами —
+   * каталог Somon стоял с 11.11. Квартиры инкремент читает, только когда парсер лидов сам их не пишет
+   * (без двойного трафика), дома — всегда. Через общий бюджет fetchSomon, общий замок обходов рынка;
+   * исчезнувшими не помечает. Минуты 7/22/37/52 — мимо тиков Paydo (:00, :10, …) и сверки (:00, :30);
+   * в окне ночных полных обходов 02:15–03:15 по Душанбе не стартует (как и инкремент Paydo).
+   * Тот же флаг MARKET_CRAWL_ENABLED=1. Подробно — lib/market/somonIncremental.ts.
+   */
+  scheduleTracked(
+    "market-somon-incremental",
+    "7,22,37,52 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        // 02:15–03:15 по Душанбе — окно ночных полных обходов: инкремент не занимает их замок.
+        const { inNightFullCrawlWindow } = await import("./lib/market/nightly.js");
+        if (inNightFullCrawlWindow()) return;
+        const { runSomonIncremental } = await import("./lib/market/somonIncremental.js");
+        await runSomonIncremental();
+      } catch (err) {
+        markCronTickFailed("Ошибка инкремента Somon", err);
       }
     },
     { timezone: "Asia/Dushanbe" }

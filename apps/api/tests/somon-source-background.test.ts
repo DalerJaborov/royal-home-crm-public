@@ -23,7 +23,7 @@ describe("дверь fetchSomon: пути", () => {
   });
   it("пропускает продажу квартир и домов в Душанбе, фоновый режим доходит до бюджета", async () => {
     const request = vi.fn().mockImplementation(async () => new Response("<html/>"));
-    for (const path of ["/nedvizhimost/prodazha-kvartir/dushanbe/", "/nedvizhimost/prodazha-domov/dushanbe/", "/nedvizhimost/prodazha-domov/dushanbe/?page=7"]) {
+    for (const path of ["/nedvizhimost/prodazha-kvartir/dushanbe/", "/nedvizhimost/prodazha-domov-havli-i-dach/dushanbe/", "/nedvizhimost/prodazha-domov-havli-i-dach/dushanbe/?page=7"]) {
       await fetchSomon(path, new Date(), request, { background: true });
     }
     expect(request).toHaveBeenCalledTimes(3);
@@ -40,7 +40,10 @@ describe("дверь fetchSomon: пути", () => {
   it.each([
     "/nedvizhimost/arenda-kvartir/dushanbe/",
     "/nedvizhimost/prodazha-uchastkov/dushanbe/",
-    "/nedvizhimost/prodazha-domov/dushanbe/?page=1&sort=price",
+    // прежний адрес домов: с 11.2026 это общая лента всего сайта (12.11.2026)
+    "/nedvizhimost/prodazha-domov/dushanbe/",
+    "/nedvizhimost/prodazha-domov/dushanbe/?page=7",
+    "/nedvizhimost/prodazha-domov-havli-i-dach/dushanbe/?page=1&sort=price",
     "/nedvizhimost/prodazha-domov/khujand/",
     "/nedvizhimost/prodazha-domov/dushanbe",
   ])("не пропускает %s и не трогает бюджет", async (path) => {

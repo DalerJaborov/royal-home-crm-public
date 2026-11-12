@@ -1867,6 +1867,11 @@
       "label": null
     },
     {
+      "id": "market-somon-incremental",
+      "expr": "7,22,37,52 * * * *",
+      "label": null
+    },
+    {
       "id": "market-weekly-crawl",
       "expr": "30 2 * * 0",
       "label": null
