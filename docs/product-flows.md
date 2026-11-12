@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **3992**. Модулей: **83**.
+Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **3993**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18594,10 +18594,8 @@
               · зовёт traceResolution()
             - const spamContext = sharedPostSpamContext({ sharedPost: isSharedPost(msg.attachmentType) || recentForeignShar…
               · зовёт sharedPostSpamContext()
-            - const isJobAd = isJobAdRef(adRefLower);
-              · зовёт isJobAdRef()
-            - const dbAdTopic = referralAdTopic === undefined && msg.fromAd && msg.adId ? await adTopicByExternalId(msg.adI…
-              · зовёт adTopicByExternalId()
+            - const adTopic: AdTopic | undefined = vacancyPost ? "job" : msg.fromAd ? await resolveAdTopic({ adId: msg.adId…
+              · зовёт resolveAdTopic()
             - const nothingSaidYet = clientSaidNothingSubstantive(base) && msg.attachmentType !== "audio" && msg.attachment…
               · зовёт clientSaidNothingSubstantive()
             - const adHint = (msg.fromAd || vacancyPost) && nothingSaidYet ? neutralOpenerHint(isSellerAd ? "seller" : unde…
@@ -27000,11 +26998,14 @@
       · всё внутри — одной транзакцией
     - return;
       · дальше не идёт, ничего не меняя
-  - const [bound] = await prisma.$queryRaw<{ present: boolean }[]>`SELECT EXISTS(SELECT 1 FROM "BotConversation" …
+  - const [bound] = await prisma.$queryRaw<{ present: boolean; adPropertyId: string | null; adExternalId: string …
     · обращается к базе своим SQL
   - если !bound?.present
     - throw new Error("Customer intake policy native binding changed");
       · ошибка Error — «Customer intake policy native binding changed»
+  - если bound.adExternalId
+    - await prisma.client.updateMany({ where: { id: client.id, sourceAdId: null }, data: { sourceAdId: bound.adExte…
+      · меняет в базе: client
 - когда попытки кончились
   - await logSystemError("background-jobs", "Новая заявка сохранена, но её правило назначения не завершилось; про…
     · запись в журнал ошибок

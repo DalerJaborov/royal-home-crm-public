@@ -16,10 +16,10 @@
   "paths": 747,
   "cron": 130,
   "jobs": 32,
-  "conditions": 3976,
+  "conditions": 3977,
   "untranslatedUnique": 458,
   "untranslatedTotal": 588,
-  "partialUnique": 1077,
+  "partialUnique": 1078,
   "translatedShare": 85
  },
  "untranslated": [
@@ -79079,6 +79079,19 @@
        "c": [
         {
          "t": "поломка: «Customer intake policy native binding changed»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть ad external",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "меняет: клиент",
          "k": "do",
          "a": [],
          "c": []

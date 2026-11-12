@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 747,
-  "forks": 3992,
+  "forks": 3993,
   "mounts": 83,
   "cron": 130,
   "jobs": 32,
@@ -82257,17 +82257,9 @@
                 },
                 {
                  "k": "do",
-                 "t": "const isJobAd = isJobAdRef(adRefLower);",
+                 "t": "const adTopic: AdTopic | undefined = vacancyPost ? \"job\" : msg.fromAd ? await resolveAdTopic({ adId: msg.adId…",
                  "a": [
-                  "зовёт isJobAdRef()"
-                 ],
-                 "c": []
-                },
-                {
-                 "k": "do",
-                 "t": "const dbAdTopic = referralAdTopic === undefined && msg.fromAd && msg.adId ? await adTopicByExternalId(msg.adI…",
-                 "a": [
-                  "зовёт adTopicByExternalId()"
+                  "зовёт resolveAdTopic()"
                  ],
                  "c": []
                 },
@@ -121501,7 +121493,7 @@
       },
       {
        "k": "do",
-       "t": "const [bound] = await prisma.$queryRaw<{ present: boolean }[]>`SELECT EXISTS(SELECT 1 FROM \"BotConversation\" …",
+       "t": "const [bound] = await prisma.$queryRaw<{ present: boolean; adPropertyId: string | null; adExternalId: string …",
        "a": [
         "обращается к базе своим SQL"
        ],
@@ -121517,6 +121509,21 @@
          "t": "throw new Error(\"Customer intake policy native binding changed\");",
          "a": [
           "ошибка Error — «Customer intake policy native binding changed»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "bound.adExternalId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.client.updateMany({ where: { id: client.id, sourceAdId: null }, data: { sourceAdId: bound.adExte…",
+         "a": [
+          "меняет в базе: client"
          ],
          "c": []
         }
