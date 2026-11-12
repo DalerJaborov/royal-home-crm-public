@@ -22,7 +22,16 @@ import type { CustomerTransportReference } from "../lib/customerConversationScop
 import type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 import type { CustomerPrincipal } from "../lib/customerPrincipal.js";
 import { assertCustomerReplyPost, CustomerReplyHeldError } from "../lib/customerReplyFence.js";
-import { describeMetaToken, facebookPageTokenFor, instagramReadRequest, routeMetaMessagingCall } from "../lib/metaEternalTokens.js";
+import {
+  describeMetaToken,
+  facebookPageTokenFor,
+  forgetPageToken,
+  instagramReadRequest,
+  pageRouteFailed,
+  recordEternalSendSuccess,
+  routeMetaMessagingCall,
+  type RoutedCall,
+} from "../lib/metaEternalTokens.js";
 import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 export { verifyAndRegisterMetaCustomerIssuer as verifyCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
@@ -1850,20 +1859,36 @@ export async function callGraph<T = unknown>(
   // смена пути между попытками (Страница ↔ личный маркер) дала бы другое тело и
   // одно и то же сообщение сошло бы за новое.
   const legacyTarget = method === "POST" ? legacyMetaPhysicalTarget(url, body, legacyTransport) : undefined;
-  if (method === "POST") ({ url, token, body } = await routeMetaMessagingCall(url, token, body));
-  traceKnownSecrets([token]);
-  const req = instagramRequest(url, token);
+  const personal: RoutedCall = { url, token, body, route: "unchanged" };
+  let routed: RoutedCall = method === "POST" ? await routeMetaMessagingCall(url, token, body) : personal;
+  traceKnownSecrets([routed.token]);
+  let req = instagramRequest(routed.url, routed.token);
   for (let attempt = 0; ; attempt++) {
     const res = await fetchWithRetry(req.url, {
       method,
       headers: { "Content-Type": "application/json", ...req.headers },
-      body: method === "DELETE" && body === undefined ? undefined : JSON.stringify(body),
+      body: method === "DELETE" && routed.body === undefined ? undefined : JSON.stringify(routed.body),
     }, CALL_TIMEOUT_MS, beforePost, legacyTarget);
     const text = await res.text();
     if (!res.ok) {
+      /**
+       * ОТКАТ НА ЛИЧНЫЙ КЛЮЧ (ревью #161). Путь Страницы получил ЧЁТКИЙ отказ
+       * Meta (4xx с телом error) — сообщение не принято, поэтому один повтор
+       * личным ключом не задвоит. Таймаут/обрыв бросает fetchWithRetry выше и
+       * сюда не доходит. Учёт физической отправки отметил первую попытку
+       * «отклонено», вторая допускается заново по тому же логическому сообщению.
+       */
+      if (routed.route !== "unchanged" && pageRouteFailed(routed, res.status, text)) {
+        if (isMetaAuthFailure(res.status, text)) forgetPageToken(routed.token);
+        routed = personal;
+        traceKnownSecrets([routed.token]);
+        req = instagramRequest(routed.url, routed.token);
+        continue;
+      }
       // Ключ не принят — тревога директору сразу, а не строка в журнале (channelKeyAlarm.ts).
       if (isMetaAuthFailure(res.status, text)) {
-        const failedToken = token;
+        const failedToken = routed.token;
+        forgetPageToken(failedToken);
         void describeMetaToken(failedToken).then((who) =>
           raiseChannelKeyAlarm({ ...who, detail: `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}` })
         );
@@ -1897,6 +1922,8 @@ export async function callGraph<T = unknown>(
     if (parsed !== null) {
       const response = parsed as { message_id?: unknown; messages?: { id?: unknown }[] } | null;
       const mid = response?.message_id ?? response?.messages?.[0]?.id;
+      // «Работает» на экране вечных ключей — только после настоящей отправки с mid.
+      if (routed.route !== "unchanged" && typeof mid === "string") void recordEternalSendSuccess(routed);
       customerPropertyProviderAccepted(typeof mid === "string" ? mid : null);
       traceProviderAccepted(typeof mid === "string" ? mid : null);
       return parsed;

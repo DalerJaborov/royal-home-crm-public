@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 746,
-  "forks": 3991,
+  "endpoints": 747,
+  "forks": 3992,
   "mounts": 83,
   "cron": 130,
   "jobs": 32,
@@ -71288,6 +71288,103 @@
    ]
   },
   {
+   "method": "PUT",
+   "path": "/app-review",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/app-review",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const body = metaEternalAppReviewInputSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой metaEternalAppReviewInputSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректное значение\" });",
+       "a": [
+        "ответ 400 — «Некорректное значение»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: { metaAppReviewApproved: body.data.approved …",
+       "a": [
+        "меняет в базе: settings"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "resetMetaEternalCache();",
+       "a": [
+        "зовёт resetMetaEternalCache()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { metaAppReviewApproved: body.data.approved });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ ok: true, approved: body.data.approved });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
    "method": "POST",
    "path": "/pages/:pageId/subscribe",
    "mount": "/api/v1/settings/meta-eternal",
@@ -127346,16 +127443,7 @@
          "k": "try",
          "t": "пробует",
          "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await prisma.pendingDirectorAlert.create({ data: { title: params.title, body: params.body, url: params.url ??…",
-           "a": [
-            "создаёт в базе: pendingDirectorAlert"
-           ],
-           "c": []
-          }
-         ]
+         "c": []
         },
         {
          "k": "catch",

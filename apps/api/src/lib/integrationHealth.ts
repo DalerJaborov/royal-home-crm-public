@@ -279,6 +279,18 @@ export async function checkMetaWhatsappTokenHealth(): Promise<IntegrationCheck> 
   }
 }
 
+/** Жив ли личный маркер Instagram (graph.instagram.com/me) — без записи в журнал. */
+async function instagramPersonalKeyAlive(token: string): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me?fields=id`), token);
+    const res = await fetchWithRetry(req.url, { headers: req.headers }, CHECK_TIMEOUT_MS);
+    const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    return { ok: res.ok, detail: res.ok ? `HTTP ${res.status}` : `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}` };
+  } catch (err) {
+    return { ok: false, detail: describeError(err) };
+  }
+}
+
 /**
  * Маркер системного пользователя (Settings.metaIgManageToken, 12.11.2026) — основа
  * вечного пути переписки Instagram/Facebook и рекламы (lib/metaEternalTokens.ts).
@@ -320,9 +332,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * Не настроено (аккаунтов нет вовсе) — одна строка "не настроен", как и у
  * остальных проверок файла.
  */
-export async function checkInstagramAccountsHealth(): Promise<IntegrationCheck[]> {
+export async function checkInstagramAccountsHealth(
+  /** Только эти аккаунты (тесты); по умолчанию — все Instagram. */
+  onlyIds?: string[]
+): Promise<IntegrationCheck[]> {
   const rows = await prisma.messengerAccount.findMany({
-    where: { channel: "INSTAGRAM" },
+    where: { channel: "INSTAGRAM", ...(onlyIds ? { id: { in: onlyIds } } : {}) },
     select: { id: true, title: true, token: true, tokenRefreshedAt: true, updatedAt: true },
   });
   if (rows.length === 0) return [{ name: "Instagram", ok: null, detail: "не настроен" }];
@@ -337,11 +352,22 @@ export async function checkInstagramAccountsHealth(): Promise<IntegrationCheck[]
     }
 
     // ВЕЧНЫЙ КЛЮЧ (12.11.2026): переписка идёт маркером Страницы от системного
-    // пользователя — личный маркер тогда лишь запасной, и его смерть (смена
-    // пароля) клиентов не задевает: не будим директора и не ждём продления.
+    // пользователя — личный маркер тогда запасной (на него откатывается отказ
+    // Страницы). Проверяем и его, но его смерть — ПРЕДУПРЕЖДЕНИЕ, а не тревога.
     const route = await instagramRouteForToken(token);
     if (route.kind === "page") {
-      out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}` });
+      const backup = await instagramPersonalKeyAlive(token);
+      if (backup.ok) {
+        out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}; запасной личный жив` });
+      } else {
+        await logSystemError(
+          "meta",
+          `Предупреждение: запасной личный маркер Instagram «${row.title}» не работает (${backup.detail}). ` +
+            `Переписка идёт ключом компании через Страницу; если она откажет, отвечать будет нечем.`,
+          { dedupKey: `ig-backup-key-dead:${row.id}`, dedupWindowMs: DAY_MS, silent: true }
+        );
+        out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}; предупреждение: запасной личный не работает` });
+      }
       continue;
     }
 

@@ -69,23 +69,35 @@ export async function raiseChannelKeyAlarm(input: ChannelKeyAlarmInput): Promise
       // Директору уходит своя тревога ниже — пуш «Новая проблема» был бы дублем.
       silent: true,
     });
-    const already = await prisma.pendingDirectorAlert.findFirst({
-      where: { tag, createdAt: { gte: new Date(now.getTime() - ALERT_EVERY_MS) } },
-      select: { id: true },
-    });
-    if (already) return { alerted: false };
     // Очередь тревог (а с ней push.ts) — по требованию, а не при загрузке: сторож
     // стоит в транспортах Telegram и Meta, и статический импорт тянул push.ts в
     // каждый модуль, который их импортирует (подмены push.js в тестах падали на
     // порядке инициализации — найдено полным прогоном 12.11).
     const { enqueueDirectorAlert } = await import("./directorAlertQueue.js");
-    const alerted = await enqueueDirectorAlert({
-      title: "Ключ канала перестал работать",
-      body: `${input.label}: ${detail.slice(0, 160)}. ${fix}`,
-      url: "/settings?tab=channels",
-      level: "CRITICAL",
-      tag,
-      recipientRoles: ["DIRECTOR", "ADMIN"],
+    /**
+     * БЕЗ ГОНКИ (ревью #161): десять одновременных отказов одного ключа (бот
+     * отвечает пачкой) иначе все видят «тревоги ещё нет» и ставят десять.
+     * Замок на метку внутри транзакции — проверка и запись идут по очереди и
+     * между процессами (api и worker), не только внутри одного.
+     */
+    const alerted = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tag}))::text AS locked`;
+      const already = await tx.pendingDirectorAlert.findFirst({
+        where: { tag, createdAt: { gte: new Date(now.getTime() - ALERT_EVERY_MS) } },
+        select: { id: true },
+      });
+      if (already) return false;
+      return enqueueDirectorAlert(
+        {
+          title: "Ключ канала перестал работать",
+          body: `${input.label}: ${detail.slice(0, 160)}. ${fix}`,
+          url: "/settings?tab=channels",
+          level: "CRITICAL",
+          tag,
+          recipientRoles: ["DIRECTOR", "ADMIN"],
+        },
+        tx
+      );
     });
     return { alerted };
   } catch (err) {

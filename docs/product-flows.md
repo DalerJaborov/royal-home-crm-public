@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **746**. Развилок в самих путях: **2470**; вместе с задачами по расписанию и фоновыми заданиями — **3991**. Модулей: **83**.
+Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **3992**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16378,6 +16378,28 @@
   - next(err);
     · дословно из кода
 
+### PUT /api/v1/settings/meta-eternal/app-review
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- const body = metaEternalAppReviewInputSchema.safeParse(req.body);
+  · проверяет данные схемой metaEternalAppReviewInputSchema
+- если !body.success
+  - return res.status(400).json({ error: "Некорректное значение" });
+    · ответ 400 — «Некорректное значение»
+- пробует
+  - await prisma.settings.update({ where: { id: "singleton" }, data: { metaAppReviewApproved: body.data.approved …
+    · меняет в базе: settings
+  - resetMetaEternalCache();
+    · зовёт resetMetaEternalCache()
+  - logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { metaAppReviewApproved: body.data.approved });
+    · зовёт logAudit()
+  - res.json({ ok: true, approved: body.data.approved });
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
 ### POST /api/v1/settings/meta-eternal/pages/:pageId/subscribe
 
 `apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
@@ -28258,8 +28280,6 @@
   - void enqueueDirectorAlert({ title: "⚠️ Объект разъехался с сайтом", body: `${property?.title ?? "Объект"} — д…
     · зовёт enqueueDirectorAlert()
     - пробует
-      - await prisma.pendingDirectorAlert.create({ data: { title: params.title, body: params.body, url: params.url ??…
-        · создаёт в базе: pendingDirectorAlert
     - если сорвалось
       - console.error("[directorAlertQueue] не удалось поставить аларм в очередь:", err);
         · пишет строку в журнал сервера

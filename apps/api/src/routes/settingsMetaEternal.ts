@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { metaEternalPageInputSchema, metaEternalPreferredInputSchema } from "@royal-home/shared";
+import { metaEternalAppReviewInputSchema, metaEternalPageInputSchema, metaEternalPreferredInputSchema } from "@royal-home/shared";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { requireElevation } from "../lib/stepUp.js";
 import { prisma } from "../db.js";
@@ -37,6 +37,23 @@ settingsMetaEternalRouter.put("/preferred", requireElevation, async (req, res, n
     resetMetaEternalCache();
     logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { metaSystemTokenPreferred: body.data.enabled });
     res.json({ ok: true, enabled: body.data.enabled });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Отметка директора «App Review одобрен». Проверить уровень доступа приложения
+ * через Graph нельзя надёжно (его отдаёт только панель разработчика), поэтому —
+ * ручная галочка: без неё переписка ключом компании не включается (клиенты без
+ * роли в приложении ответа не получат).
+ */
+settingsMetaEternalRouter.put("/app-review", requireElevation, async (req, res, next) => {
+  const body = metaEternalAppReviewInputSchema.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: "Некорректное значение" });
+  try {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { metaAppReviewApproved: body.data.approved } });
+    resetMetaEternalCache();
+    logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { metaAppReviewApproved: body.data.approved });
+    res.json({ ok: true, approved: body.data.approved });
   } catch (err) { next(err); }
 });
 
