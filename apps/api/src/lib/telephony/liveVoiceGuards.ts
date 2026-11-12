@@ -40,6 +40,7 @@
 import { spokenNumbersToDigits } from "@royal-home/shared";
 import { guardAvailability } from "../../ai/availabilityGuard.js";
 import { findBannedWords } from "../../ai/bannedWordsGuard.js";
+import { findTimePromises, timePromiseCorrectionText } from "../../ai/timePromiseGuard.js";
 import {
   extractAreaClaims,
   extractFloorClaims,
@@ -217,6 +218,8 @@ export function offCatalogCorrectionText(what: {
   bannedWords?: string[];
   /** Реплика дословно повторила предыдущую (тот же признак, что у чата). */
   repeated?: boolean;
+  /** Относительные сроки перезвона, которых никто не обещал. */
+  timePromises?: string[];
 }): string {
   const parts: string[] = [];
   if (what.catalog) {
@@ -235,6 +238,7 @@ export function offCatalogCorrectionText(what: {
   if (what.bannedWords && what.bannedWords.length > 0) {
     parts.push(`слова «${what.bannedWords.join("», «")}» не говори — их в агентстве не используют, говори проще`);
   }
+  if (what.timePromises && what.timePromises.length > 0) parts.push(timePromiseCorrectionText(what.timePromises));
   if (what.repeated) {
     parts.push("ты слово в слово повторил свою прошлую реплику — не повторяйся, ответь на то, что человек сказал сейчас, другими словами");
   }
@@ -272,6 +276,8 @@ export type ReplyGuardFinding =
       bannedWords: string[];
       /** Реплика дословно повторила предыдущую — тот же признак, что у чата (P1-6). */
       repeated: boolean;
+      /** Относительный срок перезвона («через полчаса»), которого никто не обещал (11.11.2026). */
+      timePromises: string[];
       sample: string;
       /** Человеческое описание для журнала и расшифровки. */
       summary: string;
@@ -296,7 +302,7 @@ export interface ReplyGuardOptions {
 
 /** Описание находки «вне подборки» — для журнала и строки расшифровки. */
 function offCatalogSummary(
-  f: Pick<Extract<ReplyGuardFinding, { kind: "off_catalog" }>, "prices" | "streets" | "areas" | "floors" | "noOptionsClaim" | "discounts" | "bannedWords" | "repeated">
+  f: Pick<Extract<ReplyGuardFinding, { kind: "off_catalog" }>, "prices" | "streets" | "areas" | "floors" | "noOptionsClaim" | "discounts" | "bannedWords" | "repeated" | "timePromises">
 ): string {
   return [
     f.prices.length > 0 ? `цены ${f.prices.join(", ")}` : "",
@@ -306,6 +312,7 @@ function offCatalogSummary(
     f.noOptionsClaim ? "«есть варианты» до поиска" : "",
     f.discounts.length > 0 ? `скидка ${f.discounts.join(", ")} %` : "",
     f.bannedWords.length > 0 ? `запрещённые слова ${f.bannedWords.join(", ")}` : "",
+    f.timePromises.length > 0 ? `срок перезвона ${f.timePromises.join(", ")}` : "",
     f.repeated ? "дословный повтор прошлой реплики" : "",
   ]
     .filter(Boolean)
@@ -427,6 +434,7 @@ export class LiveVoiceReplyGuard {
     // Запрещённые слова и дословный повтор — те же признаки, что у чата (ai/bannedWordsGuard.ts,
     // ai/replyRepeatGuard.ts; аудит 10.10.2026, P1-6). Звук уже в линии: только находка и поправка.
     const bannedWords = findBannedWords(this.turnText);
+    const timePromises = findTimePromises(this.turnText);
     const repeated = !this.repeatReported && !this.lastTurnHadFinding && isVerbatimRepeat(this.turnText, this.lastTurnText);
     const fresh = <T>(prefix: string, items: T[]) => items.filter((v) => !this.reportedClaims.has(`${prefix}:${String(v).toLowerCase()}`));
     const found = {
@@ -437,10 +445,11 @@ export class LiveVoiceReplyGuard {
       noOptionsClaim: noOptions && !this.reportedClaims.has("avail"),
       discounts: fresh("d", discounts),
       bannedWords: fresh("b", bannedWords),
+      timePromises: fresh("t", timePromises),
       repeated,
     };
     const catalog = found.prices.length + found.streets.length + found.areas.length + found.floors.length > 0;
-    if (!catalog && !found.noOptionsClaim && found.discounts.length === 0 && found.bannedWords.length === 0 && !found.repeated) return null;
+    if (!catalog && !found.noOptionsClaim && found.discounts.length === 0 && found.bannedWords.length === 0 && found.timePromises.length === 0 && !found.repeated) return null;
     const mark = (prefix: string, items: unknown[]) => items.forEach((v) => this.reportedClaims.add(`${prefix}:${String(v).toLowerCase()}`));
     mark("p", found.prices);
     mark("s", found.streets);
@@ -448,6 +457,7 @@ export class LiveVoiceReplyGuard {
     mark("f", found.floors);
     mark("d", found.discounts);
     mark("b", found.bannedWords);
+    mark("t", found.timePromises);
     this.turnHadFinding = true;
     if (found.repeated) this.repeatReported = true;
     if (found.noOptionsClaim) this.reportedClaims.add("avail");
@@ -461,6 +471,7 @@ export class LiveVoiceReplyGuard {
         noOptions: found.noOptionsClaim,
         discount: found.discounts.length > 0,
         bannedWords: found.bannedWords,
+        timePromises: found.timePromises,
         repeated: found.repeated,
       }),
     };

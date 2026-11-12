@@ -132,6 +132,21 @@ export const CONSULTANT_TOOLS: LiveVoiceFunctionDeclaration[] = [
   ...ESCALATE_AND_END,
 ];
 
+/** Функции показа: без них консультант показ не назначает и не обсуждает (тумблер «показы боту»). */
+const SHOWING_TOOL_NAMES: ReadonlySet<string> = new Set(["showing_slots", "book_showing"]);
+
+/**
+ * Набор функций ЭТОГО звонка. Тумблер показов выключен (`botCanBookShowings`: показ назначает живой
+ * агент) — функций `showing_slots` и `book_showing` в наборе нет вообще, а не только просьба в промте
+ * «не зови» (11.11.2026: в симуляции модель звала book_showing вопреки промту). Перевод на агента — по
+ * рабочему времени, как раньше.
+ */
+export function consultantToolsFor(opts: { transferAvailable: boolean; showingsEnabled: boolean }): LiveVoiceFunctionDeclaration[] {
+  return CONSULTANT_TOOLS.filter(
+    (t) => (opts.transferAvailable || t.name !== TRANSFER_TOOL.name) && (opts.showingsEnabled || !SHOWING_TOOL_NAMES.has(t.name))
+  );
+}
+
 /** Всё, что консультант узнал о звонящем до ответа. */
 export interface IdentifiedCaller {
   phone: string | null;
@@ -435,7 +450,7 @@ export async function resolveConsultantCall(info: LiveVoiceCallInfo): Promise<Li
               pickConsultantGreetingTrigger(false),
               consultantGreetingLanguage(info.settings?.liveVoiceForceRussianOnly ?? true, who.language)
             ),
-    tools: transferAvailable ? CONSULTANT_TOOLS : CONSULTANT_TOOLS.filter((t) => t.name !== TRANSFER_TOOL.name),
+    tools: consultantToolsFor({ transferAvailable, showingsEnabled: abilities.showings }),
     voiceName: consultantVoiceName(info.settings, who.language),
     language: consultantLanguage(info.settings, who.language),
     clientId: who.clientId,

@@ -18,4 +18,8 @@
   collect an owned application and persist it in Vacancies rather than Client
   intake. Existing topic/feature flags alone do not prove this complete path.
 
+- [~] Робозвонок, деньги (11.11, владелец: «надо полностью контролировать это», «чтобы … деньги не пошли в минус»):
+  замок платных скриптов ElevenLabs и потолок минут робота (30/сутки, 250/месяц, тревога 80/100%) — код и тесты в
+  ветке worktree от `claude/elevenlabs-paid-lock-11-11`; ждёт ревью `architect`, подтверждения умолчаний владельцем и
+  `npm run ship`. См. `docs/journal/2026-11-11-voice-spend-ceiling.md`.
 - [~] Помощник в Telegram (П5, 03.11): личка + общая группа по упоминанию, одна карточка на цепочку, подтверждает автор; код и тесты готовы, ship и живая проверка на боте владельца — следом. См. `docs/journal/2026-11-03-помощник-telegram.md`.

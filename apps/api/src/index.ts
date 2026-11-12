@@ -16,6 +16,7 @@ import {
 } from "./lib/telephony/liveVoiceBridge.js";
 import { onConsultantCallEnded, resolveConsultantCall } from "./lib/telephony/liveVoiceConsultant.js";
 import { startLiveVoiceScenarioTicks } from "./lib/telephony/liveVoiceScenarioTicks.js";
+import { startLiveVoiceAgentWarmup } from "./lib/telephony/liveVoiceWarmup.js";
 import { startCallMemoryTicks } from "./lib/telephony/callMemoryTicks.js";
 import { sweepStaleLiveCalls } from "./lib/telephony/callTracker.js";
 import { releaseInterruptedSiteEditClaims } from "./routes/siteNotifications.js";
@@ -125,6 +126,9 @@ const server = app.listen(port, () => {
   // Исходящие звонки робота — здесь же, рядом с мостом: задание разговора
   // живёт в памяти процесса, который слушает станцию (28.09.2026).
   startLiveVoiceScenarioTicks();
+  // Агент ElevenLabs готовится под каждый вид звонка до первого звонка, а не на нём
+  // (П1, 11.11.2026): в фоне, старт не ждёт; без ElevenLabs — ничего не делает.
+  void startLiveVoiceAgentWarmup();
   // Зависшие заготовки звонков и автопрозвон по просьбам — тоже здесь: оба
   // читают или пишут карту живых звонков этого процесса (02.10.2026).
   startCallMemoryTicks();

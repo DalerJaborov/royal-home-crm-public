@@ -9,6 +9,14 @@ vi.mock("../src/lib/telephony/liveVoiceBridge.js", async (importOriginal) => ({
   originateLiveVoiceScenarioCall,
 }));
 
+// П3: окончательный отказ двери не должен писаться в журнал ошибок как «станция не приняла».
+const logSystemErrorSpy = vi.fn();
+vi.mock("../src/lib/systemError.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../src/lib/systemError.js")>();
+  logSystemErrorSpy.mockImplementation(orig.logSystemError);
+  return { ...orig, logSystemError: logSystemErrorSpy };
+});
+
 const parseInterviewInviteCall = vi.fn(async () => null as unknown);
 vi.mock("../src/ai/interviewInviteCallParse.js", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -367,6 +375,38 @@ describe("звонок и итог", () => {
     const call = await prisma.interviewInviteCall.findUniqueOrThrow({ where: { id } });
     expect(call).toMatchObject({ status: "PENDING", attempts: 0 });
     expect(call.scheduledFor.getTime()).toBeGreaterThan(NOW.getTime());
+    await prisma.interviewInviteCall.update({ where: { id }, data: { status: "CANCELLED" } });
+  });
+
+  it("П3: окончательный отказ двери («не беспокойте») — запись закрыта причиной, HR знает, журнал ошибок молчит", async () => {
+    const { id } = await enqueueInterviewInviteCall({ jobApplicationId: tgAppId, interviewAt: INTERVIEW_AT, requestedById: managerId, now: NOW });
+    logSystemErrorSpy.mockClear();
+    originateLiveVoiceScenarioCall.mockResolvedValueOnce({ ok: false, notDialed: true, policyCode: "opted_out", error: "Клиент просил его не беспокоить — робот не звонит" } as never);
+    await runInterviewInviteCallTick(NOW);
+    const call = await prisma.interviewInviteCall.findUniqueOrThrow({ where: { id } });
+    expect(call).toMatchObject({ status: "SKIPPED", skipReason: "do_not_call", attempts: 0 });
+    expect(await waitFor(async () => (await prisma.pendingDirectorAlert.findFirst({ where: { tag: `interview-invite-${id}` } }))?.title ?? null)).toBeTruthy();
+    expect(logSystemErrorSpy.mock.calls.some((c) => String(c[1]).includes("станция не приняла набор"))).toBe(false);
+  });
+
+  it("П3: отказ двери «перенести» со временем — следующая попытка не раньше этого времени", async () => {
+    const { id } = await enqueueInterviewInviteCall({ jobApplicationId: tgAppId, interviewAt: INTERVIEW_AT, requestedById: managerId, now: NOW });
+    const retryAt = new Date(NOW.getTime() + 2 * 3600_000);
+    originateLiveVoiceScenarioCall.mockResolvedValueOnce({ ok: false, busy: true, notDialed: true, policyCode: "daily_limit", retryAt, error: "сегодня уже" } as never);
+    await runInterviewInviteCallTick(NOW);
+    const call = await prisma.interviewInviteCall.findUniqueOrThrow({ where: { id } });
+    expect(call.status).toBe("PENDING");
+    expect(call.scheduledFor.getTime()).toBeGreaterThanOrEqual(retryAt.getTime());
+    await prisma.interviewInviteCall.update({ where: { id }, data: { status: "CANCELLED" } });
+  });
+
+  it("П3: двери уходят диалог и досье кандидата и цель «приглашение»", async () => {
+    const { id } = await enqueueInterviewInviteCall({ jobApplicationId: tgAppId, interviewAt: INTERVIEW_AT, requestedById: managerId, now: NOW });
+    originateLiveVoiceScenarioCall.mockClear();
+    await runInterviewInviteCallTick(NOW);
+    const app = await prisma.jobApplication.findUniqueOrThrow({ where: { id: tgAppId }, select: { conversationId: true, contactProfileId: true } });
+    const task = originateLiveVoiceScenarioCall.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(task).toMatchObject({ purpose: "interview_invite", conversationId: app.conversationId, contactProfileId: app.contactProfileId });
     await prisma.interviewInviteCall.update({ where: { id }, data: { status: "CANCELLED" } });
   });
 

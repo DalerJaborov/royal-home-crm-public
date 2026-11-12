@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **739**. Развилок в самих путях: **2443**; вместе с задачами по расписанию и фоновыми заданиями — **3951**. Модулей: **82**.
+Путей: **741**. Развилок в самих путях: **2457**; вместе с задачами по расписанию и фоновыми заданиями — **3965**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3841,6 +3841,67 @@
   · зовёт publishClientUpdated()
 - res.status(204).send();
   · ответ 204
+
+### GET /api/v1/clients/:id/robot-call-stop
+
+`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !found.ok
+  - return res.status(found.status).json({ error: found.error });
+    · ответ (код зависит от условия)
+- res.json(await robotCallStopState(req, found.client));
+  · ответ 200
+
+### PUT /api/v1/clients/:id/robot-call-stop
+
+`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = robotCallStopUpdateSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой robotCallStopUpdateSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный запрос", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный запрос»
+- если !found.ok
+  - return res.status(found.status).json({ error: found.error });
+    · ответ (код зависит от условия)
+- если !isDialableTajikNumber(client.phone)
+  - return res.status(409).json({ error: "У клиента нет номера, на который робот мог бы позвонить" });
+    · ответ 409 — «У клиента нет номера, на который робот мог бы позвонить»
+- если parsed.data.stopped
+  - const result = await setRobotCallStop({ phone: client.phone, clientId: client.id, source: "STAFF", setByAgent…
+    · зовёт setRobotCallStop()
+  - если result.created
+    - logAudit(req, "ROBOT_CALL_STOP_SET", "Client", client.id, { shortId: client.shortId, stopId: result.id });
+      · зовёт logAudit()
+  - const revoked = await revokeRobotCallAllow(client.id, req.agent!.id);
+    · зовёт revokeRobotCallAllow()
+  - если revoked > 0
+    - logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOW_REVOKED", "Client", client.id, { shortId: client.shortId });
+      · зовёт logAudit()
+- иначе если parsed.data.overrideClientRequest
+  - если !canOverrideClientRequest(req)
+    - return res.status(403).json({ error: "Разрешить звонок вопреки просьбе клиента может только руководитель" });
+      · ответ 403 — «Разрешить звонок вопреки просьбе клиента может только руководитель»
+  - const cleared = await clearRobotCallStop({ phone: client.phone, clientId: client.id, clearedByAgentId: req.ag…
+    · зовёт clearRobotCallStop()
+  - если cleared > 0
+    - logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared, override: t…
+      · зовёт logAudit()
+  - если current.optedOutInChat
+    - await revokeRobotCallAllow(client.id, req.agent!.id);
+      · зовёт revokeRobotCallAllow()
+    - await allowRobotCallDespiteOptOut(client.id, req.agent!.id);
+      · зовёт allowRobotCallDespiteOptOut()
+    - logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOWED", "Client", client.id, { shortId: client.shortId, reasons: current.…
+      · зовёт logAudit()
+- иначе
+  - const cleared = await clearStaffRobotCallStops({ phone: client.phone, clientId: client.id, clearedByAgentId: …
+    · зовёт clearStaffRobotCallStops()
+  - если cleared > 0
+    - logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared });
+      · зовёт logAudit()
+- res.json(await robotCallStopState(req, client));
+  · ответ 200
 
 ### POST /api/v1/clients/:id/security-review
 
@@ -15452,10 +15513,8 @@
 
 `apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
-- const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { elevenLabsApiKey: true, …
-  · читает в базе: settings
-- const apiKey = resolveElevenLabsKey(row?.elevenLabsApiKey);
-  · зовёт resolveElevenLabsKey()
+- const config = await loadElevenLabsProviderConfig();
+  · зовёт loadElevenLabsProviderConfig()
 - если !apiKey
   - return res.status(400).json({ ok: false, error: "Ключ ElevenLabs не задан — сначала сохраните ключ" });
     · ответ 400 — «Ключ ElevenLabs не задан — сначала сохраните ключ»
@@ -15463,9 +15522,17 @@
   - return res.status(400).json({ ok: false, error: "Не указан id агента ElevenLabs" });
     · ответ 400 — «Не указан id агента ElevenLabs»
 - пробует
-  - const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS);
-    · зовёт syncElevenLabsAgent()
-  - res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: tools.size });
+  - const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: config.voic…
+    · зовёт syncElevenLabsAgentDetailed()
+  - const warm = await warmElevenLabsAgent(config, { budgetMs: ELEVENLABS_CHECK_WARMUP_BUDGET_MS });
+    · зовёт warmElevenLabsAgent()
+  - если !outcome.tuned
+    - return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Функции заведены (${outcome.…
+      · ответ 200 — «Функции заведены (${outcome.ids.size}), но агент не принял настройки…»
+  - если warm.failed.length > 0 && !warm.timedOut
+    - return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Агент отвечает, но не подгот…
+      · ответ 200 — «Агент отвечает, но не подготовлен для звонков: ${warm.failed.join(»
+  - res.json({ ok: true, agentName: agent.name ?? null, toolsSynced });
     · ответ 200
 - если сорвалось
   - const detail = describeError(err);
@@ -21871,6 +21938,10 @@
 - в любом случае
   - isOrphanSweepRunning = false;
     · дословно из кода
+
+### live-voice-spend-ceiling — undefined
+
+- тело без развилок и известных действий
 
 ### log-cleanup — 0 3 * * *
 

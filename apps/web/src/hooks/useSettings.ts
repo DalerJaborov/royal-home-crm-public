@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CoverProvider } from "@royal-home/shared";
+import type { CoverProvider, LiveVoiceSpendPeriod } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
 import { FALLBACK_USD_TO_TJS } from "../lib/format";
@@ -456,6 +456,18 @@ export interface Settings {
     rtpHostConfigured: boolean;
     stationDialplan: { ok: boolean | null; detail: string | null; checkedAt: string } | null;
   };
+  /** Потолок минут робота на ElevenLabs за сутки и месяц по Душанбе (П5, 11.11.2026);
+   *  0 — без потолка. */
+  liveVoiceDailyMinutesCap: number;
+  liveVoiceMonthlyMinutesCap: number;
+  /** Сколько робот наговорил против потолка (считает сервер, только чтение); null — не прочиталось. */
+  liveVoiceSpend?: {
+    day: LiveVoiceSpendPeriod;
+    month: LiveVoiceSpendPeriod;
+    held: "day" | "month" | null;
+    retryAt: string | null;
+    provider: string;
+  } | null;
   /** Голосовые ответы бота в переписке (13.09.2026) — озвучивает свой текст, только
    *  если клиент сам прислал голосовое в этом же ходе. По умолчанию false (владелец:
    *  «создай, но выключи, сам протестирую»). Тумблер в BOT_ABILITIES (BotTab.tsx). */

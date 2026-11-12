@@ -204,8 +204,8 @@ describe("задание на звонок", () => {
       "my_status",
       "save_client_request",
       "request_callback",
-      "showing_slots",
-      "book_showing",
+      // showing_slots и book_showing — только при включённом botCanBookShowings (по умолчанию выключен,
+      // 11.11.2026: набор без функций показа, а не просьба в промте; см. consultantToolsFor).
       "send_property_messenger",
       "describe_area",
       "transfer_to_agent",
