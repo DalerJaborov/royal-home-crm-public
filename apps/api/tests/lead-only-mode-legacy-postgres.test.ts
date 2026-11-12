@@ -139,6 +139,15 @@ describe("режим «только заявки», старый путь", () =
     expect(await clientOf(peer)).not.toBeNull();
   });
 
+  it("Instagram: номер в ответ на просьбу — заявка покупателя агенту, а не «прочее обращение»", async () => {
+    const peer = `lead-only-ig-follow-${runId}`;
+    expect((await turn(instagram, peer, "Хочу купить двухкомнатную квартиру")).reply).toContain("Оставьте, пожалуйста, номер");
+    const result = await turn(instagram, peer, "918 33 44 56");
+    expect(result.reply).toBe("Спасибо, номер получил. Агент скоро позвонит.");
+    const client = await clientOf(peer);
+    expect(client?.kind).toBe("BUYER");
+  });
+
   it("вне рабочих часов: честное время звонка, а не «сейчас»", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "23:58", workHoursEnd: "23:59" } });
     const peer = digits();

@@ -47,10 +47,12 @@ export async function planLegacyLeadOnlyTurn(input: {
   draft: LeadDraft;
   propertyId: string | null;
   language: LeadOnlyLanguage;
+  /** Разговор о работе (реклама вакансии и т. п.) — вакансии ведёт Ноза, режим их не трогает. */
+  jobTopic?: boolean;
 }): Promise<LegacyLeadOnlyPlan | null> {
   if (!input.config.enabled || !["WHATSAPP", "INSTAGRAM", "FACEBOOK"].includes(input.channel)) return null;
   const own = clientOwnWords(input.text);
-  const scenario = leadOnlyScenario({ text: own, propertyKnown: !!input.propertyId, jobTopic: input.draft.intent === "job", config: input.config });
+  const scenario = leadOnlyScenario({ text: own, propertyKnown: !!input.propertyId, jobTopic: input.jobTopic || input.draft.intent === "job", config: input.config });
   if (!scenario) return null;
   // Заявка уже есть: «агент позвонит» не повторяем каждый ход; горячие слова — агенту сразу (это делает вызывающий).
   if (input.linked && scenario !== "hot") return null;
@@ -80,4 +82,19 @@ export async function planLegacyLeadOnlyTurn(input: {
     callbackTopic: `${NOTE[scenario]}: «${own.replace(/\s+/g, " ").slice(0, 200)}»`,
     ...(input.propertyId ? { requestedPropertyId: input.propertyId } : {}) };
   return { reply, scenario, phone, whatsappPhone, propertyId: input.propertyId, draft };
+}
+
+/**
+ * Клиент прислал номер в ответ на просьбу: у самого сообщения сценария нет, тема — в прежних
+ * словах. Черновик с намерением нужен приёму, иначе заявка уйдёт «прочим обращением» без агента.
+ */
+export function legacyLeadOnlyDraftForPhone(input: { config: LeadOnlyConfig; history: ChatMessage[]; text: string; draft: LeadDraft;
+  propertyId: string | null; jobTopic?: boolean }): LeadDraft {
+  const words = [...input.history.filter(m => m.role === "user").map(m => clientOwnWords(String(m.content ?? ""))), clientOwnWords(input.text)];
+  const scenario = leadOnlyScenario({ text: words.join("\n"), propertyKnown: !!input.propertyId,
+    jobTopic: input.jobTopic || input.draft.intent === "job", config: input.config });
+  if (!scenario) return input.draft;
+  return { ...input.draft, intent: input.draft.intent ?? (scenario === "seller" ? "sell" : "buy"), confident: true,
+    callbackTopic: input.draft.callbackTopic ?? NOTE[scenario],
+    ...(input.propertyId && !input.draft.requestedPropertyId ? { requestedPropertyId: input.propertyId } : {}) };
 }

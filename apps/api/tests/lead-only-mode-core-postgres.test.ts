@@ -82,7 +82,19 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP") {
     }
     throw new Error("Unqualified synthetic endpoint");
   }));
-  return { eventKey, peer, endpoint, io, bodies, setReplies(value: unknown[][]) { replies = value; generated = 0; } };
+  return { eventKey, peer, endpoint, io, bodies, setReplies(value: unknown[][]) { replies = value; generated = 0; },
+    /** Следующее подписанное сообщение того же собеседника (только Instagram). */
+    async receive(nextText: string): Promise<string> {
+      const nextBody = { object: "instagram", entry: [{ id: externalId, messaging: [{ sender: { id: peer }, recipient: { id: externalId },
+        timestamp: Date.now(), message: { mid: randomUUID(), text: nextText } }] }] };
+      const raw = Buffer.from(JSON.stringify(nextBody));
+      const next = { rawBody: raw, get: () => `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}` };
+      registerAuthenticatedMetaCustomerRequest(next);
+      const saved = await persistVerifiedCustomerIngressBatch(next);
+      if (saved.status !== "persisted") throw new Error("next input not persisted");
+      expect(await verifyAndRegisterMetaCustomerIssuer(next, { channel, accountId: id, accountExternalId: externalId })).toBe(true);
+      events.push(saved.tickets[0].eventKey); return saved.tickets[0].eventKey;
+    } };
 }
 async function plannedText(eventKey: string): Promise<string> {
   const result = await runCustomerDmAgentTurn(eventKey);
@@ -188,6 +200,18 @@ describe("режим «только заявки», ядро", () => {
     // Ход модели ядра всегда начинается с подсчёта токенов: его нет — модель не звалась.
     expect(f.io).not.toContain("count");
     expect(await prisma.backgroundJob.count({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } })).toBe(0);
+  });
+
+  it("Instagram: номер в ответ на просьбу — короткое «номер получил» и заявка по теме прежних слов", async () => {
+    const f = await coreFixture("Нужна двухкомнатная квартира", "INSTAGRAM");
+    expect(await plannedText(f.eventKey)).toContain("Оставьте, пожалуйста, номер телефона");
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date() } });
+    const next = await f.receive("918 22 33 45");
+    const text = await plannedText(next);
+    expect(text).toBe("Спасибо, номер получил. Агент скоро позвонит.");
+    expect(f.io).not.toContain("count");
+    const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${next}` } });
+    expect(job.payload).toMatchObject({ scenario: "buyer", phone: expect.stringContaining("918223345") });
   });
 
   it("прочий вопрос идёт модели без инструмента подборки; «передать сотруднику» — ответ, а не молчание", async () => {

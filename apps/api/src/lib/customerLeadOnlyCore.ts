@@ -16,7 +16,7 @@
 import { z } from "zod";
 import { prisma, type TxClient } from "../db.js";
 import { AGENCY_FACTS } from "../ai/agencyFacts.js";
-import { leadOnlyPhoneAskHistory, leadOnlyReply, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage,
+import { leadOnlyPhoneAskHistory, leadOnlyPhoneLine, leadOnlyReply, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage,
   type LeadOnlyPhoneState, type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
 import { customerSearchContinuation, customerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
@@ -65,10 +65,24 @@ export interface CustomerLeadOnlyTurnPlan { text: string; scenario: LeadOnlyScen
 export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput): Promise<CustomerLeadOnlyTurnPlan | null> {
   if (!input.config.enabled || !["WHATSAPP", "INSTAGRAM", "FACEBOOK"].includes(input.channel)) return null;
   const own = clientOwnWords(input.inputText);
-  const scenario = input.forced ?? leadOnlyScenario({ text: own, propertyKnown: !!input.focusPropertyId, jobTopic: input.jobTopic, config: input.config });
-  if (!scenario) return null;
   const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: { clientId: true } });
   const linked = !!conversation?.clientId;
+  let scenario: LeadOnlyScenario | "escalate" | null = input.forced ?? leadOnlyScenario({ text: own, propertyKnown: !!input.focusPropertyId,
+    jobTopic: input.jobTopic, config: input.config });
+  // Ответ на просьбу номера («918 22 33 44») сам по себе сценария не несёт: заявка по теме прежних слов клиента.
+  const volunteered = !scenario && !linked && !input.jobTopic ? extractVolunteeredPhone(own) : null;
+  if (volunteered) {
+    const asked = leadOnlyPhoneAskHistory(input.turns.filter(t => t.role === "assistant").map(t => t.text)).asksSoFar > 0;
+    const earlier = leadOnlyScenario({ text: input.turns.filter(t => t.role === "user").map(t => clientOwnWords(t.text)).join("\n"),
+      propertyKnown: !!input.focusPropertyId, jobTopic: input.jobTopic, config: input.config });
+    if (earlier || asked) {
+      const intakeScenario = earlier ?? "escalate";
+      return { text: leadOnlyPhoneLine({ kind: "given" }, leadOnlyWhen(input.config), input.language) ?? "", scenario: intakeScenario,
+        intake: customerLeadOnlyIntakeSchema.parse({ version: 1, eventKey: input.eventKey, conversationId: input.conversationId,
+          scenario: intakeScenario, phone: volunteered, whatsappPhone: null, propertyId: input.focusPropertyId, clientText: own.slice(0, 1500) }) };
+    }
+  }
+  if (!scenario) return null;
   // Заявка уже есть: повторять «агент позвонит» каждый ход не нужно. Горячие слова — исключение:
   // агент обязан узнать сразу, что клиент готов ехать.
   if (linked && scenario !== "hot" && scenario !== "escalate") return null;

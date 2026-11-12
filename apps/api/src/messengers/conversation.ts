@@ -59,7 +59,7 @@ import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadabl
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
 import { leadOnlyFilterReply, leadOnlyPhoneLine } from "../ai/leadOnlyMode.js";
-import { planLegacyLeadOnlyTurn } from "./leadOnlyLegacy.js";
+import { legacyLeadOnlyDraftForPhone, planLegacyLeadOnlyTurn } from "./leadOnlyLegacy.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
 import { type ShowcaseAbility } from "../ai/botContract.js";
 import { looksLikeRentRequest, rentRefusalReply } from "../ai/rentGuard.js";
@@ -3157,7 +3157,10 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       // Заявку принимаем в любое время суток, но НАЗНАЧЕНИЕ агента вне рабочих
       // часов откладываем до утренней волны: ночью её всё равно некому взять, а
       // счётчик времени ответа агенту шёл бы, пока тот спит.
-      return await acceptLead(conversation.id, channel, conversation.name ?? name, phoneForLead, draft, history, {
+      // Режим «только заявки»: тема заявки — из прежних слов клиента (номер сам её не несёт).
+      const draftForLead = leadOnlyChannel ? legacyLeadOnlyDraftForPhone({ config: leadOnlyConfig, history, text: saidWithPhone || text, draft,
+        propertyId: input.sharedPropertyId ?? input.adPropertyId ?? draft.requestedPropertyId ?? null, jobTopic: vacancyTopic }) : draft;
+      return await acceptLead(conversation.id, channel, conversation.name ?? name, phoneForLead, draftForLead, history, {
         deferAssignment: !(await isWithinWorkingHours()),
         whatsappPhone: waIdentity?.waPhone,
         attachments: saved,
@@ -3167,7 +3170,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         extraPhones: extractAllPhones(saidWithPhone || text),
         // Режим «только заявки»: короткое «номер получил, агент позвонит» вместо реплики модели.
         ...(leadOnlyChannel ? { fixedReply: leadOnlyPhoneLine({ kind: "given" }, leadOnlyWhen(leadOnlyConfig),
-          detectClientLanguage(saidWithPhone || text) === "ru" ? "ru" : "tg") ?? undefined } : {}),
+          // Голый номер языка не несёт: берём язык прежних слов клиента.
+          ((lang) => (lang === "unknown" ? lastClientLanguage(history) : lang))(detectClientLanguage(saidWithPhone || text)) === "ru"
+            ? "ru" : "tg") ?? undefined } : {}),
       });
     } catch (err) {
       console.error("[messenger] acceptLead", err instanceof Error ? err.message : err);
@@ -3340,7 +3345,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     leadOnlyPropertyId = leadOnlyPropertyId ?? draft.requestedPropertyId ?? (await propertyChatLeadPropertyId(conversation.id)) ??
       (await conversationAdPropertyId(conversation.id)) ?? null;
     const plan = await planLegacyLeadOnlyTurn({ config: leadOnlyConfig, channel, subscriberId, linked: !!conversation.clientId,
-      text: merged, history, draft, propertyId: leadOnlyPropertyId, language: leadOnlyLanguage });
+      text: merged, history, draft, propertyId: leadOnlyPropertyId, language: leadOnlyLanguage, jobTopic: vacancyTopic });
     if (plan) {
       if (plan.phone && !conversation.clientId) {
         // Реплика клиента уже в переписке (saveIncoming выше): приём — тихий и без повторной записи.
@@ -4106,7 +4111,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
           { dedupKey: `lead-only-filtered:${conversation.id}` });
         reply = first.text; reply2 = second.text;
         if (!reply && !reply2) {
-          reply = detectClientLanguage(text) === "ru" ? "Передаю ваш вопрос агенту, он всё расскажет." : "Саволатонро ба агент мерасонам, ӯ ҳамаашро мегӯяд.";
+          const filteredLanguage = detectClientLanguage(text);
+          reply = (filteredLanguage === "unknown" ? lastClientLanguage(history) : filteredLanguage) === "ru" ? "Передаю ваш вопрос агенту, он всё расскажет." : "Саволатонро ба агент мерасонам, ӯ ҳамаашро мегӯяд.";
         }
       }
     }

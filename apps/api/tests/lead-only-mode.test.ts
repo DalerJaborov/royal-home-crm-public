@@ -42,6 +42,10 @@ describe("сценарий хода", () => {
   it("продать квартиру — продавец", () => expect(leadOnlyScenario({ text: "Хочу продать свою квартиру", propertyKnown: false, config })).toBe("seller"));
   it("нужна квартира — покупатель", () => expect(leadOnlyScenario({ text: "Ищу двухкомнатную квартиру в Сино", propertyKnown: false, config })).toBe("buyer"));
   it("объект известен — сценарий объекта", () => expect(leadOnlyScenario({ text: "Интересует", propertyKnown: true, config })).toBe("property"));
+  it("ясное «хочу продать» сильнее объекта в фокусе и слова «адрес»", () => {
+    expect(leadOnlyScenario({ text: "Хочу продать свою квартиру", propertyKnown: true, config })).toBe("seller");
+    expect(leadOnlyScenario({ text: "Продаю квартиру, адрес Сино 12", propertyKnown: false, config })).toBe("seller");
+  });
   it("вакансии остаются как были (Ноза)", () => {
     expect(leadOnlyScenario({ text: "Есть вакансия? Ищу работу", propertyKnown: false, config })).toBeNull();
     expect(leadOnlyScenario({ text: "Хочу купить квартиру", propertyKnown: false, jobTopic: true, config })).toBeNull();

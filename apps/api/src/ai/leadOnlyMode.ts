@@ -108,10 +108,12 @@ export function leadOnlyScenario(input: LeadOnlyScenarioInput): LeadOnlyScenario
   if (!own.trim() || input.jobTopic || customerRecruitmentRequested(own)) return null;
   // Аренды у агентства нет: отказ — дело обычного пути (rentGuard / политика компании).
   if (looksLikeRentRequest(own)) return null;
-  if (input.config.hotIntentHandover && leadOnlyHotIntent(own)) return "hot";
-  if (input.propertyKnown) return "property";
+  // Продавец — первым: «продаю, адрес такой-то» не горячий покупатель, а объект, оставшийся в фокусе
+  // с прошлого разговора, не перебивает ясное «хочу продать свою квартиру».
   const signals = customerRoleSignals(own);
   if ((signals.sell || signals.landlord) && !signals.buyStrong) return "seller";
+  if (input.config.hotIntentHandover && leadOnlyHotIntent(own)) return "hot";
+  if (input.propertyKnown) return "property";
   if (signals.buyStrong || signals.buyWeak || customerSearchIntent(own)) return "buyer";
   return null;
 }
