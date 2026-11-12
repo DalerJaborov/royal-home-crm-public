@@ -1,5 +1,4 @@
 import { prisma } from "../db.js";
-import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { logSystemError, type SystemErrorSource } from "./systemError.js";
 
 /**
@@ -75,6 +74,11 @@ export async function raiseChannelKeyAlarm(input: ChannelKeyAlarmInput): Promise
       select: { id: true },
     });
     if (already) return { alerted: false };
+    // Очередь тревог (а с ней push.ts) — по требованию, а не при загрузке: сторож
+    // стоит в транспортах Telegram и Meta, и статический импорт тянул push.ts в
+    // каждый модуль, который их импортирует (подмены push.js в тестах падали на
+    // порядке инициализации — найдено полным прогоном 12.11).
+    const { enqueueDirectorAlert } = await import("./directorAlertQueue.js");
     const alerted = await enqueueDirectorAlert({
       title: "Ключ канала перестал работать",
       body: `${input.label}: ${detail.slice(0, 160)}. ${fix}`,
