@@ -25,9 +25,10 @@ it("delivers one concise verified introduction through actual inbox/Core/public-
   fixture.script([[reply(["e0"], "job_experience")]]);
   const out = await fixture.deliver(event);
   fixture.assertIoClean();
-  expect(out.text).toContain("Снимать ролики");
-  expect(out.text).toContain("Удалённая работа не предусмотрена");
-  expect(out.text).not.toMatch(/Synthetic street|кофе/u);
-  expect(out.text.match(/резюме/giu)).toHaveLength(1);
+  // Phone-only recruitment (owner 10-11.11.2026): the role and the specialist's phone, no staff conditions, no CV request.
+  expect(out.text).toContain("Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста.");
+  expect(out.text).not.toContain("Снимать ролики");
+  expect(out.text).not.toContain("Удалённая работа не предусмотрена");
+  expect(out.text).not.toMatch(/Synthetic street|кофе|резюме/iu);
   expect(fixture.physical).toEqual([out.text]);
 });

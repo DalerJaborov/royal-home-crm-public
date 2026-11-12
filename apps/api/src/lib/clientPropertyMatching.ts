@@ -274,8 +274,8 @@ function eligible(client: MatchingBuyerCriteria, property: MatchingPropertyFacts
   }
   if ((b.windowMin != null && p.priceTjs < b.windowMin) || (b.windowMax != null && p.priceTjs > b.windowMax)) return false;
   if (client.desiredRooms != null && p.roomsApply && property.rooms != null &&
-    Math.abs(property.rooms - client.desiredRooms) > b.policy.roomsTolerance) return false;
-  if (client.desiredAreaMin != null && p.area != null && p.area < client.desiredAreaMin * (1 - b.policy.areaToleranceRatio)) return false;
+    !roomsWithinTolerance(property.rooms, client.desiredRooms, b.policy)) return false;
+  if (client.desiredAreaMin != null && p.area != null && !areaMeetsMinimum(p.area, client.desiredAreaMin, b.policy)) return false;
   const floor = property.floor;
   // Этаж — жёстко (спецификация владельца 31.07.2026): «не первый» не округляется.
   if (p.floorApplies && floor != null && (
@@ -299,6 +299,16 @@ export interface ClientPropertyMatch extends MatchEvidence {
   distanceM: number | null;
   /** Шкала порога «свой объект — свой клиент» (MATCH_SCORE_WEIGHTS), не процент и не на экран. */
   points: number;
+}
+
+/** Допуск по комнатам: ОДНА формула для подбора наших объектов и объявлений с площадок (lib/market/buyerMatch.ts). */
+export function roomsWithinTolerance(propertyRooms: number, desiredRooms: number, policy: Pick<MatchPolicy, "roomsTolerance">): boolean {
+  return Math.abs(propertyRooms - desiredRooms) <= policy.roomsTolerance;
+}
+
+/** Нижняя граница площади с допуском: ОДНА формула для обоих подборов. */
+export function areaMeetsMinimum(areaSqm: number, desiredAreaMin: number, policy: Pick<MatchPolicy, "areaToleranceRatio">): boolean {
+  return areaSqm >= desiredAreaMin * (1 - policy.areaToleranceRatio);
 }
 
 /**

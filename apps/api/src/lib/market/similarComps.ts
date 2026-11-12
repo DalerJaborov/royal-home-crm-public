@@ -12,17 +12,13 @@
 
 import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
+import { MARKET_REPAIR_LABEL } from "@royal-home/shared";
 import { MIN_SAMPLE, VERDICT_THRESHOLD_PERCENT } from "./comps.js";
 
 export type Repair = "SHELL" | "WHITE" | "PARTIAL" | "RENOVATED" | "DESIGNER";
 
-export const REPAIR_LABEL: Record<Repair, string> = {
-  SHELL: "коробка",
-  WHITE: "предчистовая",
-  PARTIAL: "средний ремонт",
-  RENOVATED: "с ремонтом",
-  DESIGNER: "дизайнерский",
-};
+/** Подписи ремонта — общие с экраном цен по сегментам (packages/shared). */
+export const REPAIR_LABEL: Record<Repair, string> = MARKET_REPAIR_LABEL;
 
 export interface Subject {
   propertyType: "APARTMENT" | "HOUSE";

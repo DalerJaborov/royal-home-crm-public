@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **733**. Развилок в самих путях: **2412**; вместе с задачами по расписанию и фоновыми заданиями — **3906**. Модулей: **82**.
+Путей: **741**. Развилок в самих путях: **2457**; вместе с задачами по расписанию и фоновыми заданиями — **3965**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1095,9 +1095,9 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- res.json(await listStaffDirectory(req.agent!));
+- res.json( await listStaffDirectory(req.agent!, { includeFormer: wantsFormerStaff(req.query[INCLUDE_FORMER_STA…
   · ответ 200
-  - const agents = await prisma.agent.findMany({ select: isAdmin ? ADMIN_DIRECTORY_SELECT : PEER_DIRECTORY_SELECT…
+  - const agents = await prisma.agent.findMany({ ...(includeFormer ? {} : { where: { isActive: true } }), select:…
     · читает в базе: agent
   - если !isAdmin || opts.telephony === false
     - return agents;
@@ -3373,6 +3373,45 @@
 - res.json({ ok: true, channelId: result.channelId });
   · ответ 200
 
+### GET /api/v1/clients/:id/market-listings
+
+`apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = marketBuyerListingsQuerySchema.safeParse(req.query);
+  · проверяет данные схемой marketBuyerListingsQuerySchema
+- если !id.success || !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры подбора с площадок" });
+    · ответ 400 — «Неверные параметры подбора с площадок»
+- const client = await prisma.client.findUnique({ where: { id: id.data }, include: { desiredPlaces: true } });
+  · читает в базе: client
+- если !client || client.deletedAt
+  - return res.status(404).json({ error: "Клиент не найден" });
+    · ответ 404 — «Клиент не найден»
+- если !canAccessAssignedAgent(req, client.assignedAgentId)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- const ownAgentId = scopeToOwnAgent(req);
+  · зовёт scopeToOwnAgent()
+- если ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt
+  - return res.json(empty("pending_acceptance"));
+    · ответ 200
+- если !confirmedClientIntents(client).buys
+  - return res.json(empty("not_buyer"));
+    · ответ 200
+- const wants = await buyerWantsFromCriteria(currentBuyerMatchingCriteria(client));
+  · зовёт buyerWantsFromCriteria()
+- const criteria = describeBuyerCriteria(wants);
+  · зовёт describeBuyerCriteria()
+- если !hasBuyerCriteria(wants)
+  - return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
+    · ответ 200
+- const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);
+  · зовёт findBuyerListings()
+- const body: MarketBuyerListingsResponse = { status: "ok", criteria, total, totalIsLowerBound, budgetMaxTjs: w…
+  · зовёт phoneSafeText()
+- return res.json(body);
+  · ответ 200
+
 ### GET /api/v1/clients/:id/match
 
 `apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -3397,9 +3436,6 @@
     · ответ 200
 - если !confirmedClientIntents(client).buys
   - return res.json(empty("not_buyer"));
-    · ответ 200
-- если clientDoneBuying(client)
-  - return res.json(empty("closed"));
     · ответ 200
 - const result = await clientPropertyMatchingCatalog(client.id, currentBuyerMatchingCriteria(client), { viewerI…
   · зовёт clientPropertyMatchingCatalog()
@@ -3805,6 +3841,67 @@
   · зовёт publishClientUpdated()
 - res.status(204).send();
   · ответ 204
+
+### GET /api/v1/clients/:id/robot-call-stop
+
+`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !found.ok
+  - return res.status(found.status).json({ error: found.error });
+    · ответ (код зависит от условия)
+- res.json(await robotCallStopState(req, found.client));
+  · ответ 200
+
+### PUT /api/v1/clients/:id/robot-call-stop
+
+`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = robotCallStopUpdateSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой robotCallStopUpdateSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный запрос", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный запрос»
+- если !found.ok
+  - return res.status(found.status).json({ error: found.error });
+    · ответ (код зависит от условия)
+- если !isDialableTajikNumber(client.phone)
+  - return res.status(409).json({ error: "У клиента нет номера, на который робот мог бы позвонить" });
+    · ответ 409 — «У клиента нет номера, на который робот мог бы позвонить»
+- если parsed.data.stopped
+  - const result = await setRobotCallStop({ phone: client.phone, clientId: client.id, source: "STAFF", setByAgent…
+    · зовёт setRobotCallStop()
+  - если result.created
+    - logAudit(req, "ROBOT_CALL_STOP_SET", "Client", client.id, { shortId: client.shortId, stopId: result.id });
+      · зовёт logAudit()
+  - const revoked = await revokeRobotCallAllow(client.id, req.agent!.id);
+    · зовёт revokeRobotCallAllow()
+  - если revoked > 0
+    - logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOW_REVOKED", "Client", client.id, { shortId: client.shortId });
+      · зовёт logAudit()
+- иначе если parsed.data.overrideClientRequest
+  - если !canOverrideClientRequest(req)
+    - return res.status(403).json({ error: "Разрешить звонок вопреки просьбе клиента может только руководитель" });
+      · ответ 403 — «Разрешить звонок вопреки просьбе клиента может только руководитель»
+  - const cleared = await clearRobotCallStop({ phone: client.phone, clientId: client.id, clearedByAgentId: req.ag…
+    · зовёт clearRobotCallStop()
+  - если cleared > 0
+    - logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared, override: t…
+      · зовёт logAudit()
+  - если current.optedOutInChat
+    - await revokeRobotCallAllow(client.id, req.agent!.id);
+      · зовёт revokeRobotCallAllow()
+    - await allowRobotCallDespiteOptOut(client.id, req.agent!.id);
+      · зовёт allowRobotCallDespiteOptOut()
+    - logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOWED", "Client", client.id, { shortId: client.shortId, reasons: current.…
+      · зовёт logAudit()
+- иначе
+  - const cleared = await clearStaffRobotCallStops({ phone: client.phone, clientId: client.id, clearedByAgentId: …
+    · зовёт clearStaffRobotCallStops()
+  - если cleared > 0
+    - logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared });
+      · зовёт logAudit()
+- res.json(await robotCallStopState(req, client));
+  · ответ 200
 
 ### POST /api/v1/clients/:id/security-review
 
@@ -4219,13 +4316,13 @@
     - console.error("[clients] firstOpenedAt не записан:", err instanceof Error ? err.message : err);
       · пишет строку в журнал сервера
 - если !client.acceptedAt && client.assignReason === "own_property_match" && client.matchedPropertyId
-  - const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: p…
+  - const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: {…
     · читает в базе: property
   - если matchedProperty
-    - const [money, policy] = await Promise.all([loadMoneyContext(), loadMatchPolicy()]);
+    - const [money, weights] = await Promise.all([loadMoneyContext(), loadMatchWeights()]);
       · зовёт loadMoneyContext()
-    - matchScore = matchClientProperty(client, matchedProperty, money, policy)?.points ?? null;
-      · зовёт matchClientProperty()
+    - matchScore = scoreClientProperty(client, matchedProperty, money, { weights, includeHotBonus: false }).score;
+      · зовёт scoreClientProperty()
 - если client.acceptedAt && client.kind !== "OTHER"
   - const callSettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { leadCallMinutes…
     · читает в базе: settings
@@ -8635,6 +8732,18 @@
 - res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === "ok" ?…
   · ответ 200
 
+### GET /api/v1/market/segments
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = marketSegmentsQuerySchema.safeParse(req.query);
+  · проверяет данные схемой marketSegmentsQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- res.json(await findSegments(parsed.data));
+  · ответ 200
+
 ## /api/v1/market/matches
 
 ### POST /api/v1/market/matches/:matchId/status
@@ -10709,42 +10818,30 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/approve
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
-  - return res.status(403).json({ error: "Текст подтверждает маркетинг или руководство" });
-    · ответ 403 — «Текст подтверждает маркетинг или руководство»
+- если req.agent!.role === "EDITOR"
+  - return res.status(403).json({ error: "Озвучку одобряет агент объекта" });
+    · ответ 403 — «Озвучку одобряет агент объекта»
 - const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…
   · проверяет данные схемой narrationActionSchema
 - если !parsed.success || !versionId.success
   - return res.status(400).json({ error: "Подтвердите текст и номер версии" });
     · ответ 400 — «Подтвердите текст и номер версии»
-- const count = await prisma.$transaction(async (tx)
-  · всё внутри — одной транзакцией
-  · обращается к базе своим SQL
-  · читает в базе: property
-  · читает в базе: propertyNarrationVersion
-  · меняет в базе: propertyNarrationVersion
-  - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${p.id} FOR UPDATE`;
-    · обращается к базе своим SQL
-  - const current = await tx.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });
-    · читает в базе: property
-  - const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision…
-    · читает в базе: propertyNarrationVersion
-  - если current.deletedAt || !latest || latest.id !== versionId.data || latest.revision !== parsed.data.expectedRevis…
-    - return 0;
-      · дословно из кода
-  - return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "DRAFT" }, data: { app…
-    · меняет в базе: propertyNarrationVersion
-- если !count
+- const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision…
+  · зовёт approveNarrationVersion()
+- если outcome === "FORBIDDEN"
+  - return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
+    · ответ 403 — «Эту озвучку одобряет маркетинг, руководство или владелец»
+- если outcome === "CONFLICT"
   - return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
     · ответ 409 — «Факты или версия изменились. Подготовьте и проверьте новый текст.»
-- res.json({ ok: true });
+- res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versio…
   · ответ 200
 
 ### GET /api/v1/properties/:id/narration/:versionId/audio
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const versionId = idSchema.safeParse(req.params.versionId);
   · проверяет данные схемой idSchema
@@ -10766,7 +10863,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/generate
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Генерация доступна маркетингу и руководству" });
@@ -10776,90 +10873,47 @@
 - если !parsed.success || !versionId.success
   - return res.status(400).json({ error: "Подтвердите генерацию выбранной версии" });
     · ответ 400 — «Подтвердите генерацию выбранной версии»
-- если !key || !config.modelId || !config.voices.length
+- если !key || !narrationProviderReady(config, key)
   - return res.status(409).json({ error: "ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках." }…
     · ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»
-- const claimed = await prisma.$transaction(async (tx)
-  · всё внутри — одной транзакцией
-  · обращается к базе своим SQL
-  · читает в базе: property
-  · читает в базе: propertyNarrationVersion
-  · считает в базе: propertyNarrationVersion
-  · меняет в базе: propertyNarrationVersion
-  - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${p.id} FOR UPDATE`;
-    · обращается к базе своим SQL
-  - const current = await tx.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });
-    · читает в базе: property
-  - const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision…
-    · читает в базе: propertyNarrationVersion
-  - если current.deletedAt || !latest || latest.id !== versionId.data || latest.revision !== parsed.data.expectedRevis…
-    - return null;
-      · дословно из кода
-  - если latest.status !== "DRAFT"
-    - return { row: latest, run: false };
-      · дословно из кода
-  - если !latest.voiceId || !config.voices.some((v) => v.id === latest.voiceId) || latest.modelId !== config.modelId
-    - return null;
-      · дословно из кода
-  - если await tx.propertyNarrationVersion.count({ where: { propertyId: p.id, status: { in: ["GENERATING", "UNKNOWN"] …
-    - return null;
-      · дословно из кода
-  - await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data: { status: "GENERATING", generation…
-    · меняет в базе: propertyNarrationVersion
-- если !claimed
-  - return res.status(409).json({ error: "Проверьте актуальность текста и голоса. Предыдущий запрос с неизвестным…
-    · ответ 409 — «Проверьте актуальность текста и голоса. Предыдущий запрос с…»
-- если !claimed.run
-  - return res.status(claimed.row.status === "READY" ? 200 : 409).json({ status: claimed.row.status, error: claim…
-    · ответ (код зависит от условия)
-- const result = await generateNarrationAudio({ script: claimed.row.script, voiceId: claimed.row.voiceId!, conf…
-  · зовёт generateNarrationAudio()
-- если result.status !== "READY"
-  - const saved = await prisma.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: "GENERA…
-    · меняет в базе: propertyNarrationVersion
-  - если !saved.count
-    - return res.status(409).json({ error: "Результат уже проверен руководством. Поздний ответ не изменил решение."…
-      · ответ 409 — «Результат уже проверен руководством. Поздний ответ не изменил решение.»
-  - return res.status(502).json({ status: result.status, error: "Озвучка не получена. Повтор не выполнялся; прове…
-    · ответ 502 — «Озвучка не получена. Повтор не выполнялся; проверьте результат в…»
-- пробует
-  - await localVideoUpload(storageKey, result.audio);
-    · зовёт localVideoUpload()
-  - const saved = await prisma.$transaction(async tx
-    · всё внутри — одной транзакцией
-    · обращается к базе своим SQL
-    · меняет в базе: propertyNarrationVersion
-    - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${p.id} FOR UPDATE`;
-      · обращается к базе своим SQL
-    - const changed = await tx.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: "GENERATI…
-      · меняет в базе: propertyNarrationVersion
-    - если changed.count
-      - return "READY";
-        · дословно из кода
-    - const retained = await tx.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id }, data: { storag…
-      · меняет в базе: propertyNarrationVersion
-  - если saved !== "READY"
-    - если saved === "REMOVED"
-      - await localVideoDelete(storageKey);
-        · зовёт localVideoDelete()
+- const outcome = await generateNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevisio…
+  · зовёт generateNarrationVersion()
+- смотря что в: outcome.status
+  - вариант case "REJECTED"
+    - return res.status(409).json({ error: "Проверьте актуальность текста и голоса. Предыдущий запрос с неизвестным…
+      · ответ 409 — «Проверьте актуальность текста и голоса. Предыдущий запрос с…»
+  - вариант case "BUDGET"
+    - return res.status(429).json({ error: "Дневной предел озвучки исчерпан. Его меняет руководство в настройках оз…
+      · ответ 429 — «Дневной предел озвучки исчерпан. Его меняет руководство в настройках…»
+  - вариант case "ALREADY"
+    - return res.status(outcome.current === "READY" ? 200 : 409).json({ status: outcome.current, error: outcome.cur…
+      · ответ (код зависит от условия)
+  - вариант case "FAILED"
+  - вариант case "UNKNOWN"
+    - если !outcome.recorded
+      - return res.status(409).json({ error: "Результат уже проверен руководством. Поздний ответ не изменил решение."…
+        · ответ 409 — «Результат уже проверен руководством. Поздний ответ не изменил решение.»
+    - если outcome.errorCode === NARRATION_QUOTA_EXCEEDED
+      - return res.status(402).json({ status: outcome.status, error: "Кредиты ElevenLabs закончились. Деньги не списа…
+        · ответ 402 — «Кредиты ElevenLabs закончились. Деньги не списаны; после пополнения…»
+    - return res.status(502).json({ status: outcome.status, error: "Озвучка не получена. Повтор не выполнялся; пров…
+      · ответ 502 — «Озвучка не получена. Повтор не выполнялся; проверьте результат в…»
+  - вариант case "LATE"
     - return res.status(409).json({ error: "Пришёл поздний результат генерации. Решение руководства сохранено; нова…
       · ответ 409 — «Пришёл поздний результат генерации. Решение руководства сохранено;…»
-- если сорвалось
-  - await prisma.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: "GENERATING", generat…
-    · меняет в базе: propertyNarrationVersion
-  - return res.status(503).json({ error: "Провайдер создал аудио, но сохранить его не удалось. Повторная генераци…
-    · ответ 503 — «Провайдер создал аудио, но сохранить его не удалось. Повторная…»
-- const afterGeneration = await prisma.property.findUnique({ where: { id: p.id }, select: { deletedAt: true } }…
-  · читает в базе: property
-- если !afterGeneration
-  - return res.status(409).json({ error: "Объект уже удалён. Озвучка недоступна." });
-    · ответ 409 — «Объект уже удалён. Озвучка недоступна.»
-- res.json({ status: "READY", propertyTrashed: !!afterGeneration.deletedAt, ...(afterGeneration.deletedAt ? { m…
-  · ответ 200
+  - вариант case "PERSIST_FAILED"
+    - return res.status(503).json({ error: "Провайдер создал аудио, но сохранить его не удалось. Повторная генераци…
+      · ответ 503 — «Провайдер создал аудио, но сохранить его не удалось. Повторная…»
+  - вариант case "GONE"
+    - return res.status(409).json({ error: "Объект уже удалён. Озвучка недоступна." });
+      · ответ 409 — «Объект уже удалён. Озвучка недоступна.»
+  - вариант case "READY"
+    - return res.json({ status: "READY", propertyTrashed: outcome.propertyTrashed, ...(outcome.propertyTrashed ? { …
+      · ответ 200
 
 ### POST /api/v1/properties/:id/narration/:versionId/handoff-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Передачу готовит маркетинг или руководство" });
@@ -10873,7 +10927,7 @@
   · читает в базе: propertyNarrationVersion
 - const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revi…
   · читает в базе: propertyNarrationVersion
-- если !row || latest?.id !== row.id || row.factsHash !== narrationHash(narrationFacts(p))
+- если !row || latest?.id !== row.id || !narrationFactsCurrent(row, p)
   - return res.status(409).json({ error: "Нужна готовая актуальная озвучка" });
     · ответ 409 — «Нужна готовая актуальная озвучка»
 - если parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: "EDITOR", is…
@@ -10897,7 +10951,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/reconcile
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Результат проверяет руководство" });
@@ -10935,7 +10989,7 @@
 
 ### POST /api/v1/properties/:id/narration/deliveries/:deliveryId/queue
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -10982,7 +11036,7 @@
 
 ### POST /api/v1/properties/:id/narration/delivery-reconcile
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Сверку сохраняет руководство" });
@@ -11022,9 +11076,45 @@
 - res.json({ status: "FAILED", sent: false, message: "Сверка сохранена. Возможное списание не отменено. Автопов…
   · ответ 200
 
+### POST /api/v1/properties/:id/narration/mode
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- если req.agent!.role === "EDITOR"
+  - return res.status(403).json({ error: "Озвучку объекта выбирает агент" });
+    · ответ 403 — «Озвучку объекта выбирает агент»
+- const parsed = narrationModeSchema.safeParse(req.body);
+  · проверяет данные схемой narrationModeSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Укажите, нужна ли озвучка" });
+    · ответ 400 — «Укажите, нужна ли озвучка»
+- const change = await setPropertyNarrationOff(p.id, parsed.data.off, req.agent!.id);
+  · зовёт setPropertyNarrationOff()
+- если !change
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если parsed.data.off
+  - если change.changed && change.heldByMontajer
+    - void tellMontajerNarrationOff(change.shortId);
+      · дословно из кода
+  - return res.json({ off: true, message: "Озвучка выключена. Монтажёр получит пометку «без озвучки»." });
+    · ответ 200
+- если !narrationAutoEnabled(config)
+  - return res.json({ off: false, message: "Озвучка включена. Автоозвучка выключена в настройках, подготовить её …
+    · ответ 200
+- const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revi…
+  · читает в базе: propertyNarrationVersion
+- если latest && narrationFactsCurrent(latest, p) && latest.status !== "FAILED"
+  - return res.json({ off: false, message: "Озвучка включена." });
+    · ответ 200
+- const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", expec…
+  · зовёт requestAutoNarration()
+- res.json({ off: false, queued: outcome.status === "QUEUED", message: outcome.status === "QUEUED" ? "Озвучка в…
+  · ответ 200
+
 ### POST /api/v1/properties/:id/narration/owner-report-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11041,7 +11131,7 @@
 
 ### POST /api/v1/properties/:id/narration/owner-report-revoke
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11056,7 +11146,7 @@
 
 ### POST /api/v1/properties/:id/narration/publication-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11071,7 +11161,7 @@
 
 ### GET /api/v1/properties/:id/narration
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const facts = narrationFacts(p);
   · зовёт narrationFacts()
@@ -11096,7 +11186,7 @@
 
 ### POST /api/v1/properties/:id/narration
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если req.agent!.role === "EDITOR"
   - return res.status(403).json({ error: "Монтажёр получает подтверждённую озвучку" });
@@ -11109,6 +11199,23 @@
 - если parsed.data.voiceId && !config.voices.some((v) => v.id === parsed.data.voiceId)
   - return res.status(400).json({ error: "Выберите голос из настроек" });
     · ответ 400 — «Выберите голос из настроек»
+- если parsed.data.generate
+  - если !narrationAutoEnabled(config)
+    - return res.status(409).json({ error: "Автоозвучка выключена в настройках. Сохраните текст без генерации." });
+      · ответ 409 — «Автоозвучка выключена в настройках. Сохраните текст без генерации.»
+  - const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", scrip…
+    · зовёт requestAutoNarration()
+  - если outcome.status === "INVALID"
+    - return res.status(400).json({ error: outcome.error });
+      · ответ 400
+  - если outcome.status === "DISABLED"
+    - return res.status(409).json({ error: "Для объекта выбрано «Без озвучки». Сначала включите озвучку." });
+      · ответ 409 — «Для объекта выбрано «Без озвучки». Сначала включите озвучку.»
+  - если outcome.status !== "QUEUED"
+    - return res.status(409).json({ error: outcome.status === "BUSY" ? "Предыдущая озвучка ещё готовится. Попробуйт…
+      · ответ 409
+  - return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true });
+    · ответ 201
 - const facts = narrationFacts(p);
   · зовёт narrationFacts()
 - const error = narrationScriptError(script);
@@ -11230,6 +11337,9 @@
     · ответ 409 — «Объект изменился или озвучка ещё генерируется. Обновите карточку…»
 - await removePurgedNarrationAudio(property.id, purge.narrationIds);
   · зовёт removePurgedNarrationAudio()
+- если property.videoMasterStorageKey && !await localVideoDelete(property.videoMasterStorageKey)
+  - void logSystemError("storage", `Объект ${property.shortId}: ролик без голоса ${property.videoMasterStorageKey…
+    · запись в журнал ошибок
 - для каждого: const d of purge.detached
   - logAudit(req, "UPDATE", "Ad", d.adId, { reason: "property-purged", propertyId: property.id, shortId: property…
     · зовёт logAudit()
@@ -13757,31 +13867,102 @@
 - res.json(response);
   · ответ 200
 
+### GET /api/v1/properties/narration-options
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- const view: NarrationOptionsView = { templates: config.templates ?? [], voices: config.voices.map((v)
+  · зовёт narrationAutoEnabled()
+- res.json(view);
+  · ответ 200
+
 ### GET /api/v1/properties/narration-settings
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent?.role)
   - return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
     · ответ 403 — «Настройки доступны маркетингу и руководству»
-- res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false });
+- res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceede…
   · ответ 200
 
 ### PUT /api/v1/properties/narration-settings
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Голоса настраивает руководство" });
     · ответ 403 — «Голоса настраивает руководство»
-- const parsed = narrationConfigSchema.safeParse(req.body);
+- const patch = narrationConfigPatchSchema.safeParse(req.body);
+  · проверяет данные схемой narrationConfigPatchSchema
+- если !patch.success
+  - return res.status(400).json({ error: "Проверьте модель и список голосов", details: patch.error.flatten() });
+    · ответ 400 — «Проверьте модель и список голосов»
+- const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…
   · проверяет данные схемой narrationConfigSchema
 - если !parsed.success
   - return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
     · ответ 400 — «Проверьте модель и список голосов»
+- если modelProblem
+  - return res.status(400).json({ error: modelProblem });
+    · ответ 400
+- для каждого: const template of parsed.data.templates ?? []
+  - если problem
+    - return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
+      · ответ 400 — «Шаблон «${template.name}»: ${problem}»
+- если spoken(existing) !== spoken(saved) || neverSynced
+  - const sync = await syncPronunciationDictionary(saved, (await configuration()).key);
+    · зовёт syncPronunciationDictionary()
+  - если sync.status === "SYNCED"
+    - saved = { ...saved, pronunciationDictionaries: sync.dictionaries };
+      · дословно из кода
+  - если sync.status === "FAILED"
+    - pronunciationNote = `Словарь произношения сохранён в CRM, но в ElevenLabs не обновился: ${sync.error}`;
+      · дословно из кода
 - await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig…
   · создаёт или меняет в базе: settings
-- res.json({ config: parsed.data, sendsEnabled: false });
+- res.json({ config: saved, sendsEnabled: false, ...(pronunciationNote ? { message: pronunciationNote } : {}) }…
+  · ответ 200
+
+### GET /api/v1/properties/narration-voice-samples/:voiceId/:lang
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- если !params.success
+  - return res.status(400).json({ error: "Некорректный голос" });
+    · ответ 400 — «Некорректный голос»
+- const sample = (await readyVoiceSamples(config)).find((s)
+  · зовёт readyVoiceSamples()
+- const file = sample ? localVideoFilePath(sample.storageKey) : null;
+  · зовёт localVideoFilePath()
+- если !file
+  - return res.status(404).json({ error: "Образец этого голоса ещё не подготовлен" });
+    · ответ 404 — «Образец этого голоса ещё не подготовлен»
+- res.setHeader("Cache-Control", "private, max-age=3600");
+  · ставит заголовок ответа
+- res.type("audio/mpeg").sendFile(file);
+  · ответ 200
+  · ставит заголовок ответа
+
+### POST /api/v1/properties/narration-voice-samples/prepare
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
+  - return res.status(403).json({ error: "Образцы голосов готовит руководство" });
+    · ответ 403 — «Образцы голосов готовит руководство»
+- если !z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success
+  - return res.status(400).json({ error: "Подтвердите подготовку образцов" });
+    · ответ 400 — «Подтвердите подготовку образцов»
+- если !key || !narrationProviderReady(config, key)
+  - return res.status(409).json({ error: "ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках." }…
+    · ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»
+- const report = await generateVoiceSamples({ config, key, actorId: req.agent!.id });
+  · зовёт generateVoiceSamples()
+- если report.failed
+  - parts.push(`не получилось: ${report.failed}`);
+    · дословно из кода
+- res.json({ ...report, message: `${parts.join(", ")}.${tail}` });
   · ответ 200
 
 ### GET /api/v1/properties/needs-help
@@ -15332,10 +15513,8 @@
 
 `apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
-- const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { elevenLabsApiKey: true, …
-  · читает в базе: settings
-- const apiKey = resolveElevenLabsKey(row?.elevenLabsApiKey);
-  · зовёт resolveElevenLabsKey()
+- const config = await loadElevenLabsProviderConfig();
+  · зовёт loadElevenLabsProviderConfig()
 - если !apiKey
   - return res.status(400).json({ ok: false, error: "Ключ ElevenLabs не задан — сначала сохраните ключ" });
     · ответ 400 — «Ключ ElevenLabs не задан — сначала сохраните ключ»
@@ -15343,9 +15522,17 @@
   - return res.status(400).json({ ok: false, error: "Не указан id агента ElevenLabs" });
     · ответ 400 — «Не указан id агента ElevenLabs»
 - пробует
-  - const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS);
-    · зовёт syncElevenLabsAgent()
-  - res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: tools.size });
+  - const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: config.voic…
+    · зовёт syncElevenLabsAgentDetailed()
+  - const warm = await warmElevenLabsAgent(config, { budgetMs: ELEVENLABS_CHECK_WARMUP_BUDGET_MS });
+    · зовёт warmElevenLabsAgent()
+  - если !outcome.tuned
+    - return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Функции заведены (${outcome.…
+      · ответ 200 — «Функции заведены (${outcome.ids.size}), но агент не принял настройки…»
+  - если warm.failed.length > 0 && !warm.timedOut
+    - return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced, error: `Агент отвечает, но не подгот…
+      · ответ 200 — «Агент отвечает, но не подготовлен для звонков: ${warm.failed.join(»
+  - res.json({ ok: true, agentName: agent.name ?? null, toolsSynced });
     · ответ 200
 - если сорвалось
   - const detail = describeError(err);
@@ -16941,7 +17128,7 @@
 
 `apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
-- const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true },…
+- const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, selec…
   · читает в базе: agent
 - если agentIds.length === 0
   - return res.json({ statuses: STAGE_STATUSES, agents: [] });
@@ -16967,7 +17154,7 @@
 
 - const startOfMonth = dushanbeStartOfMonth();
   · зовёт dushanbeStartOfMonth()
-- const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true, f…
+- const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, ...(can(req, "agents.ma…
   · читает в базе: agent
 - const [interactions, deals, clients, pointsTotals, money, loadCounts, limits] = await Promise.all([ prisma.in…
   · читает в базе: interaction
@@ -20163,6 +20350,18 @@
     - для каждого: const row of sessionRows
       - rawRefs.add(row.storageKey);
         · дословно из кода
+    - для каждого: const row of await prisma.propertyNarrationVersion.findMany({ where: { storageKey: { not: null } }, select: {…
+      - если row.storageKey
+        - rawRefs.add(row.storageKey);
+          · дословно из кода
+    - для каждого: const row of await prisma.narrationVoiceSample.findMany({ where: { storageKey: { not: null } }, select: { sto…
+      - если row.storageKey
+        - rawRefs.add(row.storageKey);
+          · дословно из кода
+    - для каждого: const row of await prisma.property.findMany({ where: { videoMasterStorageKey: { not: null } }, select: { vide…
+      - если row.videoMasterStorageKey
+        - rawRefs.add(row.videoMasterStorageKey);
+          · дословно из кода
     - const candidates = planDiskCleanup(files, facts, nowMs);
       · зовёт planDiskCleanup()
     - для каждого: const file of files
@@ -21740,6 +21939,10 @@
   - isOrphanSweepRunning = false;
     · дословно из кода
 
+### live-voice-spend-ceiling — undefined
+
+- тело без развилок и известных действий
+
 ### log-cleanup — 0 3 * * *
 
 - пробует
@@ -22295,6 +22498,29 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### narration-auto-flow — * * * * *
+
+- await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApp…
+  · зовёт runNarrationAutoFlow()
+  - const { config, key } = await loadNarrationConfiguration();
+    · зовёт loadNarrationConfiguration()
+  - report.retired = await retireNarrationsOfClosedProperties();
+    · зовёт retireNarrationsOfClosedProperties()
+  - если narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode("NARRATION")…
+    - если config.backfillMontageQueue === true
+      - report.backfilled = await backfillMontageQueue(config, now);
+        · зовёт backfillMontageQueue()
+    - report.drafted = await refreshNarrationDrafts(config, now);
+      · зовёт refreshNarrationDrafts()
+  - если options.notifyAgent
+    - report.notified = await notifyReadyNarrations(options.notifyAgent);
+      · дословно из кода
+  - если options.remindApprovals
+    - report.reminded = await options.remindApprovals(now).catch((err)
+      · запись в журнал ошибок
+      - void logSystemError("telegram", `Озвучка: напоминания об одобрении не ушли: ${err instanceof Error ? err.mess…
+        · запись в журнал ошибок
 
 ### narration-version-delivery — * * * * *
 
@@ -27063,11 +27289,32 @@
     - return;
       · дальше не идёт, ничего не меняя
   - для каждого: const c of candidates
-    - если !clientPropertyEligible(c, facts, money, policy)
+    - если c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)
       - continue;
         · переходит к следующему
-    - const nearestPlace = hasPoint && c.desiredPlaces.length > 0 ? nearestDesiredPlace(propertyLat!, propertyLng!,…
-      · зовёт nearestDesiredPlace()
+    - если c.desiredFloorMin != null && property.floor != null && property.floor < c.desiredFloorMin
+      - continue;
+        · переходит к следующему
+    - если c.desiredFloorMax != null && property.floor != null && property.floor > c.desiredFloorMax
+      - continue;
+        · переходит к следующему
+    - если c.desiredTotalFloors != null && property.totalFloors != null && property.totalFloors > c.desiredTotalFloors
+      - continue;
+        · переходит к следующему
+    - const window = budgetWindowTjs(bMinTjs, bMaxTjs, policy);
+      · зовёт budgetWindowTjs()
+    - если window.min !== null && window.min > priceTjs
+      - continue;
+        · переходит к следующему
+    - если window.max !== null && window.max < priceTjs
+      - continue;
+        · переходит к следующему
+    - если hasPoint && c.desiredPlaces.length > 0
+      - nearestPlace = nearestDesiredPlace(propertyLat!, propertyLng!, c.desiredPlaces);
+        · зовёт nearestDesiredPlace()
+    - если !districtOk && !nearestPlace?.withinRadius
+      - continue;
+        · переходит к следующему
   - если withDistance.length === 0
     - return;
       · дальше не идёт, ничего не меняя
