@@ -5,9 +5,13 @@ import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { requireElevation } from "../lib/stepUp.js";
 import { prisma } from "../db.js";
 import { logAudit } from "../lib/audit.js";
-import { resetAccountsCache } from "../messengers/accounts.js";
+import { resetAccountsCache, saveAccount } from "../messengers/accounts.js";
+import type { MetaCompanyPage } from "@royal-home/shared";
 import {
   discoverInstagramPage,
+  facebookPageForConnect,
+  listCompanyPages,
+  pageMessagingSubscribed,
   metaEternalStatus,
   resetMetaEternalCache,
   subscribePageMessaging,
@@ -112,5 +116,69 @@ settingsMetaEternalRouter.post("/pages/:pageId/subscribe", requireElevation, asy
     if (!result.ok) return res.status(409).json({ error: result.error });
     logAudit(req, "SETTINGS_UPDATE", "FacebookPageSubscription", params.data.pageId, { fields: result.fields });
     res.json(result);
+  } catch (err) { next(err); }
+});
+
+/** Страницы, выданные ключу компании, и какие из них уже отвечают в CRM. Ничего не меняет. */
+settingsMetaEternalRouter.get("/pages", async (_req, res, next) => {
+  try {
+    const listed = await listCompanyPages();
+    if (!listed.ok) return res.json({ pages: [], error: listed.error });
+    const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { metaPageId: true } });
+    const accounts = await prisma.messengerAccount.findMany({ where: { channel: "FACEBOOK" }, select: { id: true, externalId: true } });
+    const pages: MetaCompanyPage[] = [];
+    for (const p of listed.pages) {
+      const account = accounts.find((a) => a.externalId === p.id);
+      const connected = account ? "account" : settings?.metaPageId === p.id ? "settings" : null;
+      pages.push({
+        id: p.id,
+        name: p.name,
+        canMessage: p.canMessage,
+        connected,
+        ...(account ? { accountId: account.id } : {}),
+        subscribed: connected ? await pageMessagingSubscribed(p.id) : null,
+      });
+    }
+    res.json({ pages });
+  } catch (err) { next(err); }
+});
+
+/**
+ * «Подключить Messenger»: Страница из списка ключа компании становится
+ * аккаунтом FACEBOOK (маркер Страницы от системного пользователя) и сразу
+ * подписывается на сообщения. Имя бренда и свой промт берутся у Instagram той
+ * же Страницы, если он уже подключён (Arvan: бот называет компанию «Арван»).
+ * Повторное нажатие обновляет маркер и подписку, вторую строку не заводит.
+ */
+settingsMetaEternalRouter.post("/pages/:pageId/connect", requireElevation, async (req, res, next) => {
+  const params = pageParams.safeParse(req.params);
+  if (!params.success) return res.status(400).json({ error: "Некорректный идентификатор Страницы" });
+  try {
+    const pageId = params.data.pageId;
+    const page = await facebookPageForConnect(pageId);
+    if (!page.ok) return res.status(page.status).json({ error: page.error });
+    const existing = await prisma.messengerAccount.findFirst({ where: { channel: "FACEBOOK", externalId: pageId }, select: { id: true, isDefault: true } });
+    const twin = page.igId
+      ? await prisma.messengerAccount.findFirst({
+          where: { channel: "INSTAGRAM", externalId: page.igId },
+          select: { brandName: true, systemPrompt: true },
+        })
+      : null;
+    const accountId = await saveAccount({
+      id: existing?.id,
+      channel: "FACEBOOK",
+      externalId: pageId,
+      title: page.pageName,
+      token: page.token,
+      // Явно: иначе единственная строка канала стала бы «по умолчанию» и забрала
+      // у основной Страницы из Настроек незнакомых получателей.
+      isDefault: existing?.isDefault ?? false,
+      ...(existing ? {} : { enabled: true, brandName: twin?.brandName ?? undefined, systemPrompt: twin?.systemPrompt ?? undefined }),
+    });
+    resetAccountsCache();
+    logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", accountId, { channel: "FACEBOOK", pageId, connected: existing ? "token_refreshed" : "created" });
+    const sub = await subscribePageMessaging(pageId);
+    if (sub.ok) logAudit(req, "SETTINGS_UPDATE", "FacebookPageSubscription", pageId, { fields: sub.fields });
+    res.json({ ok: true, accountId, pageName: page.pageName, subscribed: sub.ok, ...(sub.ok ? { fields: sub.fields } : { subscribeError: sub.error }) });
   } catch (err) { next(err); }
 });

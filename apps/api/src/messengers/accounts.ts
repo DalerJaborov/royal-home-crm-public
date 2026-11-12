@@ -281,6 +281,23 @@ export async function resolveIncomingAccount(
     return { id: null, title: "Основной", token: await legacyToken(channel), certain: true };
   }
 
+  /**
+   * ОСНОВНАЯ СТРАНИЦА ИЗ НАСТРОЕК ОСТАЁТСЯ ОСНОВНОЙ (13.11.2026).
+   *
+   * Facebook Royal.home.tj работает через Settings, а вторая Страница (Arvan)
+   * подключена отдельной строкой БЕЗ «по умолчанию». Без этой ветки первая же
+   * такая строка забрала бы всё, что приходит без получателя (старые диалоги
+   * с accountId = null, фоновые сообщения через accountTokenById): клиенту
+   * Royal Home ответили бы маркером Arvan. Незнакомому получателю маркер из
+   * Settings по-прежнему НЕ отдаётся (messenger-settings-accounts.test.ts). Пока строки
+   * «по умолчанию» в канале нет, а Settings настроены — отвечаем как раньше.
+   * Instagram не трогаем: там основной аккаунт — строка «по умолчанию».
+   */
+  if (!externalId && channel !== "INSTAGRAM" && !rows.some((r) => r.isDefault && r.enabled)) {
+    const legacy = await legacyToken(channel);
+    if (legacy) return { id: null, title: "Основной", token: legacy };
+  }
+
   const chosen = exact ?? rows.find((r) => r.isDefault && r.enabled) ?? rows.find((r) => r.enabled) ?? rows[0];
 
   if (externalId && !exact) {

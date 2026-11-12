@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **3992**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **3996**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16400,6 +16400,40 @@
   - next(err);
     · дословно из кода
 
+### POST /api/v1/settings/meta-eternal/pages/:pageId/connect
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- если !params.success
+  - return res.status(400).json({ error: "Некорректный идентификатор Страницы" });
+    · ответ 400 — «Некорректный идентификатор Страницы»
+- пробует
+  - const page = await facebookPageForConnect(pageId);
+    · зовёт facebookPageForConnect()
+  - если !page.ok
+    - return res.status(page.status).json({ error: page.error });
+      · ответ (код зависит от условия)
+  - const existing = await prisma.messengerAccount.findFirst({ where: { channel: "FACEBOOK", externalId: pageId }…
+    · читает в базе: messengerAccount
+  - const twin = page.igId ? await prisma.messengerAccount.findFirst({ where: { channel: "INSTAGRAM", externalId:…
+    · читает в базе: messengerAccount
+  - const accountId = await saveAccount({ id: existing?.id, channel: "FACEBOOK", externalId: pageId, title: page.…
+    · зовёт saveAccount()
+  - resetAccountsCache();
+    · зовёт resetAccountsCache()
+  - logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", accountId, { channel: "FACEBOOK", pageId, connected: exi…
+    · зовёт logAudit()
+  - const sub = await subscribePageMessaging(pageId);
+    · зовёт subscribePageMessaging()
+  - если sub.ok
+    - logAudit(req, "SETTINGS_UPDATE", "FacebookPageSubscription", pageId, { fields: sub.fields });
+      · зовёт logAudit()
+  - res.json({ ok: true, accountId, pageName: page.pageName, subscribed: sub.ok, ...(sub.ok ? { fields: sub.field…
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
 ### POST /api/v1/settings/meta-eternal/pages/:pageId/subscribe
 
 `apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
@@ -16425,6 +16459,31 @@
   - logAudit(req, "SETTINGS_UPDATE", "FacebookPageSubscription", params.data.pageId, { fields: result.fields });
     · зовёт logAudit()
   - res.json(result);
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
+### GET /api/v1/settings/meta-eternal/pages
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- пробует
+  - const listed = await listCompanyPages();
+    · зовёт listCompanyPages()
+  - если !listed.ok
+    - return res.json({ pages: [], error: listed.error });
+      · ответ 200
+  - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { metaPageId: true } …
+    · читает в базе: settings
+  - const accounts = await prisma.messengerAccount.findMany({ where: { channel: "FACEBOOK" }, select: { id: true,…
+    · читает в базе: messengerAccount
+  - для каждого: const p of listed.pages
+    - const account = accounts.find((a) => a.externalId === p.id);
+      · дословно из кода
+    - const connected = account ? "account" : settings?.metaPageId === p.id ? "settings" : null;
+      · дословно из кода
+  - res.json({ pages });
     · ответ 200
 - если сорвалось
   - next(err);
