@@ -4,6 +4,7 @@ import type { CustomerPropertyAdmissionResult } from "@royal-home/shared";
 import { customerPropertyContextEnabled } from "../lib/customerPropertyContextFlag.js";
 import { admitCustomerPropertyInput } from "../lib/customerPropertyAdmission.js";
 import { persistVerifiedCustomerIngressBatch } from "../lib/customerIngressProducer.js";
+import { reportMetaWebhookNotSaved } from "../lib/customerRoutingHold.js";
 import { persistVerifiedMetaPublicCommentBatch } from "../lib/customerPublicCommentProducer.js";
 import { captureAuthenticatedCustomerInput, registerAuthenticatedMetaCustomerRequest,
   registerAuthenticatedWebsiteCustomerRequest, initializeVerifiedCustomerEndpoint, verifyMetaCustomerReferralTarget, type AuthenticatedCustomerInput } from "../lib/customerIngressAuthority.js";
@@ -1666,6 +1667,9 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // is enabled. No model/provider call occurs here. OFF follows legacy intake.
   const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   if (durableIngress.status === "denied" || durableIngress.status === "unavailable") {
+    // Visible every time (deduplicated): a 503 that repeats ~15 min is a lost
+    // message, and until 13.11 it left no trace at all.
+    reportMetaWebhookNotSaved("dm", durableIngress.reason);
     return res.status(503).json({ error: "Входящее событие пока не сохранено" });
   }
   // Public inputs keep their actual publication/thread and immutable original
@@ -1673,6 +1677,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // old post-ACK comment funnel on a provider redelivery.
   const publicIngress = await persistVerifiedMetaPublicCommentBatch(req);
   if (publicIngress.status === "held") {
+    reportMetaWebhookNotSaved("public_comment", publicIngress.reason);
     return res.status(503).json({ error: "Комментарий пока не сохранён" });
   }
   const propertyAdmissions = new Map<(typeof incoming)[number], CustomerPropertyAdmissionResult>();

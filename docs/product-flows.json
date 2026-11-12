@@ -80660,6 +80660,14 @@
      "c": [
       {
        "k": "do",
+       "t": "reportMetaWebhookNotSaved(\"dm\", durableIngress.reason);",
+       "a": [
+        "зовёт reportMetaWebhookNotSaved()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
        "t": "return res.status(503).json({ error: \"Входящее событие пока не сохранено\" });",
        "a": [
         "ответ 503 — «Входящее событие пока не сохранено»"
@@ -80681,6 +80689,14 @@
      "t": "publicIngress.status === \"held\"",
      "a": [],
      "c": [
+      {
+       "k": "do",
+       "t": "reportMetaWebhookNotSaved(\"public_comment\", publicIngress.reason);",
+       "a": [
+        "зовёт reportMetaWebhookNotSaved()"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "return res.status(503).json({ error: \"Комментарий пока не сохранён\" });",
@@ -120043,9 +120059,17 @@
            "c": [
             {
              "k": "do",
-             "t": "decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: row.scopeKey, en…",
+             "t": "const payload = decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: …",
              "a": [
               "зовёт decryptCustomerIngressPayload()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "reason = customerNonInputCode(payload) ?? reason;",
+             "a": [
+              "зовёт customerNonInputCode()"
              ],
              "c": []
             }

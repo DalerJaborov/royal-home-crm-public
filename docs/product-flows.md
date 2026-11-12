@@ -18235,11 +18235,15 @@
 - const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   · зовёт persistVerifiedCustomerIngressBatch()
 - если durableIngress.status === "denied" || durableIngress.status === "unavailable"
+  - reportMetaWebhookNotSaved("dm", durableIngress.reason);
+    · зовёт reportMetaWebhookNotSaved()
   - return res.status(503).json({ error: "Входящее событие пока не сохранено" });
     · ответ 503 — «Входящее событие пока не сохранено»
 - const publicIngress = await persistVerifiedMetaPublicCommentBatch(req);
   · зовёт persistVerifiedMetaPublicCommentBatch()
 - если publicIngress.status === "held"
+  - reportMetaWebhookNotSaved("public_comment", publicIngress.reason);
+    · зовёт reportMetaWebhookNotSaved()
   - return res.status(503).json({ error: "Комментарий пока не сохранён" });
     · ответ 503 — «Комментарий пока не сохранён»
 - res.json({ ok: true });
@@ -26679,8 +26683,10 @@
         · дословно из кода
     - иначе
       - пробует
-        - decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: row.scopeKey, en…
+        - const payload = decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: …
           · зовёт decryptCustomerIngressPayload()
+        - reason = customerNonInputCode(payload) ?? reason;
+          · зовёт customerNonInputCode()
       - если сорвалось
         - reason = "payload_binding_invalid";
           · дословно из кода

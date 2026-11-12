@@ -10,6 +10,7 @@ import { logSystemError } from "./systemError.js";
 import { isActiveTransactionClient } from "./transactionScope.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { customerPropertyScopeKey } from "./customerPropertyScope.js";
+import { customerTicketIsInputSql } from "./customerIngressNonInput.js";
 import { customerAgentRevisionReachable } from "./customerAgentRevisionAdvance.js";
 import { CUSTOMER_AGENT_LEGACY_CUTOVER_REASON, customerAgentLegacyCutoverEnabled, readCustomerLegacyCutoverReadiness,
   readCustomerPublicLegacyCutoverReadiness } from "./customerAgentLegacyCutover.js";
@@ -52,7 +53,7 @@ export async function readCustomerDmSubjectExecution(db: Db, transport: {
   const scopeKey = customerPropertyScopeKey(transport.channel, peer, transport.accountId, transport.endpointScopeId);
   const rows = await db.$queryRaw<Array<{ intakeAgentRevisionId: string }>>`SELECT DISTINCT "intakeAgentRevisionId"
     FROM "CustomerPropertyIngressTicket" WHERE "endpointScopeId"=${transport.endpointScopeId} AND "scopeKey"=${scopeKey}
-    AND "intakeAgentRevisionId" IS NOT NULL LIMIT 2`;
+    AND "intakeAgentRevisionId" IS NOT NULL AND ${customerTicketIsInputSql()} LIMIT 2`; // Our echo owns nobody (13.11).
   return rows.length === 1 ? { lane: "CORE", assignment: null, revisionId: rows[0].intakeAgentRevisionId }
     : rows.length > 1 ? held("historical_brains_conflict") : null;
 }
@@ -211,13 +212,18 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
       FROM "BotConversation" WHERE "channel"=${e.channel} AND "subscriberId"=${s.peer}`;
     if (native.length > 1 || native.some(row => row.endpointScopeId !== e.endpointScopeId)) return held("legacy_native_scope_collision");
     const originalScopeKey = customerPropertyScopeKey(e.channel, s.peer, e.accountId, e.endpointScopeId);
+    // Only what the CUSTOMER sent counts as history. Our own outgoing echo
+    // (bot reply to a comment, staff writing from the Instagram app), a bare
+    // referral and a template echo belong to no engine: before 13.11 such an
+    // echo carried the active CORE revision and held a LEGACY account's first
+    // reply forever (webhook 503 until Meta dropped the message).
     const [history] = await tx.$queryRaw<Array<{ closed: boolean; core: boolean; legacy: boolean }>>`SELECT
       EXISTS(SELECT 1 FROM "CustomerInquiry" WHERE "endpointScopeId"=${e.endpointScopeId} AND "peerId"=${s.peer}
         AND ("conversationId" IS NULL OR "closedAt" IS NOT NULL)) AS closed,
       EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" t WHERE t."endpointScopeId"=${e.endpointScopeId}
-        AND t."scopeKey"=${originalScopeKey} AND t."intakeAgentRevisionId" IS NOT NULL) AS core,
+        AND t."scopeKey"=${originalScopeKey} AND t."intakeAgentRevisionId" IS NOT NULL AND ${customerTicketIsInputSql("t")}) AS core,
       EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" t WHERE t."endpointScopeId"=${e.endpointScopeId}
-        AND t."scopeKey"=${originalScopeKey} AND t."intakeAgentRevisionId" IS NULL) AS legacy`;
+        AND t."scopeKey"=${originalScopeKey} AND t."intakeAgentRevisionId" IS NULL AND ${customerTicketIsInputSql("t")}) AS legacy`;
     if (history?.closed || history?.core) return held("historical_subject_owned_or_closed");
     // An old RAW legacy source can precede native creation. It still prevents
     // fresh B from entering CORE while legacy A is suspended before that row.
