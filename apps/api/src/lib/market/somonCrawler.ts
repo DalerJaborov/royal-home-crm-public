@@ -31,7 +31,7 @@ import { isSomonSourceStopped } from "../somonLeads/sourceBudgetStore.js";
 import { logSystemError } from "../systemError.js";
 import { saveListings, type SaveStats } from "./marketStore.js";
 import type { ParsedListing } from "./somonParser.js";
-import { extractAds, extractNextPayload, toListing } from "./somonParser.js";
+import { extractAds, extractNextPayload, sliceBalancedObject, toListing, type SomonRawAd } from "./somonParser.js";
 import { SOMON_APARTMENT_SALE_RUBRIC_IDS, SOMON_SOURCE, somonRubricId } from "./somonRubrics.js";
 
 /** Сколько ждём свободный слот бюджета на ОДНУ страницу, прежде чем сдаться. */
@@ -143,48 +143,103 @@ async function confirmShrunk(section: CrawlSection, page: number, pause: (ms: nu
   return detectLastPage(outcome.html) < page;
 }
 
-/** Рубрика самой страницы списка из её метаданных (`"next_page":…,"rubric":{"id":216,…}`); нет — null. */
+/**
+ * Рубрика самой страницы списка из её метаданных (`"next_page":…,"rubric":{…,"id":216,…}`); нет — null.
+ * Объект `rubric` вырезается целиком и разбирается как JSON: порядок ключей у сайта не обещан.
+ */
 export function somonPageRubricId(payload: string): number | null {
   const start = payload.indexOf('"next_page":');
   if (start < 0) return null;
   const advertsAt = payload.indexOf('"adverts":[', start);
   const meta = payload.slice(start, advertsAt > start ? advertsAt : start + 8000);
-  const m = /"rubric":\{"id":(\d+)/.exec(meta);
-  return m ? Number(m[1]) : null;
+  const key = /"rubric":\s*\{/.exec(meta);
+  if (!key) return null;
+  const json = sliceBalancedObject(meta, key.index + key[0].length - 1);
+  if (!json) return null;
+  try {
+    const id = (JSON.parse(json) as { id?: unknown }).id;
+    return typeof id === "number" && Number.isSafeInteger(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface ForeignRubric {
+  id: number | null;
+  slug: string | null;
+  count: number;
 }
 
 export interface SomonPage {
   /** Страница — список рубрики раздела (не общая лента, не чужой раздел). */
   inScope: boolean;
+  /** Рубрика самой страницы (для журнала, когда она чужая). */
+  pageRubricId: number | null;
   /** Сколько объявлений вообще было на странице. */
   adsTotal: number;
   /** Объявления рубрик раздела — только они пишутся. */
   listings: ParsedListing[];
+  /** Рубрики объявлений, которых нет в белом списке раздела (не записаны). */
+  foreign: ForeignRubric[];
+}
+
+function foreignRubrics(ads: SomonRawAd[]): ForeignRubric[] {
+  const byKey = new Map<string, ForeignRubric>();
+  for (const ad of ads) {
+    const id = somonRubricId(ad);
+    const key = String(id);
+    const row = byKey.get(key) ?? { id, slug: ad.rubric?.slug ?? null, count: 0 };
+    row.count++;
+    byKey.set(key, row);
+  }
+  return [...byKey.values()];
 }
 
 /** HTML страницы списка → объявления раздела. Чужая рубрика страницы — `inScope: false` и пусто. */
 export function parseSomonPage(html: string, section: CrawlSection = APARTMENTS_SECTION): SomonPage {
   const payload = extractNextPayload(html);
   const ads = extractAds(payload);
-  if (somonPageRubricId(payload) !== section.pageRubricId) return { inScope: false, adsTotal: ads.length, listings: [] };
+  const pageRubricId = somonPageRubricId(payload);
+  if (pageRubricId !== section.pageRubricId) return { inScope: false, pageRubricId, adsTotal: ads.length, listings: [], foreign: [] };
   const allowed = new Set(section.rubricIds);
-  const listings = ads
-    .filter((ad) => {
-      const id = somonRubricId(ad);
-      return id != null && allowed.has(id);
-    })
-    .map(toListing)
-    .filter((l): l is ParsedListing => l !== null);
-  return { inScope: true, adsTotal: ads.length, listings };
+  const own = ads.filter((ad) => {
+    const id = somonRubricId(ad);
+    return id != null && allowed.has(id);
+  });
+  const listings = own.map(toListing).filter((l): l is ParsedListing => l !== null);
+  return { inScope: true, pageRubricId, adsTotal: ads.length, listings, foreign: foreignRubrics(ads.filter((ad) => !own.includes(ad))) };
+}
+
+/**
+ * Чужие рубрики на СВОЕЙ странице — в журнал, по записи на рубрику (dedupKey с её номером): новая
+ * подрубрика недвижимости у Somon (скажем, «7 комнат и больше») не должна пропадать из каталога молча.
+ * Только номер и slug рубрики — ни адресов, ни текстов объявлений.
+ */
+async function reportForeign(section: CrawlSection, foreign: ForeignRubric[]): Promise<void> {
+  for (const f of foreign) {
+    await logSystemError("api", `Сбор Somon: «${section.label}» — объявления рубрики ${f.id ?? "без номера"} (${f.slug ?? "—"}) не из списка раздела, не записаны (${f.count} на странице)`, {
+      dedupKey: `market-somon-foreign-rubric-${section.pageRubricId}-${f.id ?? "none"}`,
+    });
+  }
 }
 
 /**
  * Записывает уже скачанную страницу в рыночный каталог (без второго запроса).
  * Зовёт минутный парсер лидов: html уже получен им через ту же дверь (раздел квартир).
- * Действует то же правило рубрик, что у обхода: чужая страница или чужое объявление не пишутся.
+ * Действует то же правило рубрик, что у обхода: чужая страница или чужое объявление не пишутся —
+ * и то и другое идёт в журнал: пока лиды пишут каталог сами, инкремент квартиры не читает, и
+ * молчаливый отказ здесь означал бы тихий простой каталога квартир.
  */
 export async function saveSomonPageHtml(html: string, section: CrawlSection = APARTMENTS_SECTION): Promise<SaveStats> {
-  return saveListings(SOMON_SOURCE, parseSomonPage(html, section).listings);
+  const page = parseSomonPage(html, section);
+  if (!page.inScope) {
+    await logSystemError("api", `Somon: страница «${section.label}» из парсера лидов — чужой список (рубрика страницы ${page.pageRubricId ?? "нет"}), в каталог не записана`, {
+      dedupKey: `somon-market-ingest-wrong-scope-${section.pageRubricId}`,
+    });
+    return { created: 0, updated: 0, priceChanges: 0, skipped: 0 };
+  }
+  await reportForeign(section, page.foreign);
+  return saveListings(SOMON_SOURCE, page.listings);
 }
 
 export interface CrawlOptions {
@@ -251,10 +306,12 @@ export async function crawlSection(section: CrawlSection, options: CrawlOptions 
     }
     const { listings } = parsed;
     result.foreignSkipped += parsed.adsTotal - listings.length;
+    await reportForeign(section, parsed.foreign);
     if (listings.length === 0) {
-      // Объявления есть, но ни одного своей рубрики: раздел кончился (дальше сайт подмешивает
-      // чужое). На первой странице так не бывает — значит, это не тот список.
-      if (page === 1) return stop("wrong_scope", page);
+      // Объявления есть, но ни одного своей рубрики. На последней известной странице это конец
+      // раздела (дальше сайт подмешивает чужое). Раньше неё — сбой списка, а не конец: обход
+      // неполный, иначе «исчезло» пометило бы всё, что лежит на непрочитанных страницах.
+      if (page === 1 || page < lastPage) return stop("wrong_scope", page);
       console.info(`[market-somon] «${section.label}»: на стр. ${page} нет объявлений своей рубрики — конец раздела`);
       break;
     }

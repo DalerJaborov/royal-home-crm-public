@@ -136,7 +136,7 @@ export function extractAds(payload: string): SomonRawAd[] {
 }
 
 /** Вырезает сбалансированный по скобкам JSON-объект, начиная с позиции `start`. */
-function sliceBalancedObject(text: string, start: number): string | null {
+export function sliceBalancedObject(text: string, start: number): string | null {
   let depth = 0;
   let inStr = false;
   let escaped = false;

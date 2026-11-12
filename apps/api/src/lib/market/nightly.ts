@@ -26,6 +26,7 @@
  */
 
 import { prisma } from "../../db.js";
+import { isWithinDushanbeWindow } from "../dushanbeTime.js";
 import { logSystemError } from "../systemError.js";
 import { DISAPPEAR_AFTER_HOURS, markDisappeared, PAYDO_DISAPPEAR_AFTER_HOURS, saveListings } from "./marketStore.js";
 import { crawlPaydoSection, PAYDO_SECTIONS } from "./paydoCrawler.js";
@@ -42,6 +43,17 @@ const TRUNCATION_RATIO = 0.6;
 /** Малые базы (первый прогон, новый источник) под защиту не попадают: сравнивать не с чем. */
 const TRUNCATION_MIN_PREVIOUS = 100;
 const HEARTBEAT_MS = 60_000;
+
+/**
+ * Окно ночных полных обходов по Душанбе (Somon — воскресенье 02:30, Paydo — каждую ночь 03:00): в нём
+ * инкременты Somon и Paydo не стартуют (cron.ts), чтобы не занять общий замок обходов перед полным
+ * прогоном и не делить с ним бюджет Somon. Полные обходы окна не проверяют.
+ */
+export const NIGHT_FULL_CRAWL_WINDOW = { from: "02:15", to: "03:15" } as const;
+
+export function inNightFullCrawlWindow(at: Date = new Date()): boolean {
+  return isWithinDushanbeWindow(NIGHT_FULL_CRAWL_WINDOW.from, NIGHT_FULL_CRAWL_WINDOW.to, at);
+}
 
 let somonRunning = false;
 let paydoRunning = false;

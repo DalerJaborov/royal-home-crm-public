@@ -15,7 +15,7 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
 }));
 
 import { SomonSourceUnavailable } from "../src/lib/somonLeads/sourceClient.js";
-import { crawlSection, parseSomonPage, SECTIONS } from "../src/lib/market/somonCrawler.js";
+import { crawlSection, parseSomonPage, saveSomonPageHtml, SECTIONS, somonPageRubricId } from "../src/lib/market/somonCrawler.js";
 import { RUBRIC_FOREIGN, RUBRIC_HOUSES, somonListPageHtml } from "./helpers/somonPage.js";
 
 const APARTMENTS = SECTIONS[0];
@@ -236,7 +236,22 @@ describe("своя рубрика — или ничего (12.11.2026: обща�
     expect((onPage.mock.calls[0] as unknown[])[0]).toHaveLength(1);
   });
 
-  it("страница без единого объявления своей рубрики — конец раздела: дальше не идём и не пишем", async () => {
+  it("последняя известная страница без единого объявления своей рубрики — конец раздела, обход полный", async () => {
+    mocks.fetchSomon.mockImplementation(async (path: string) => {
+      const n = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
+      if (n === 1) return ok(pageHtml([11, 12], 2));
+      return ok(somonListPageHtml([{ id: 900 + n, rubricId: RUBRIC_FOREIGN, title: "Автозапчасти" }], { links: 2 }));
+    });
+    const onPage = vi.fn(async () => {});
+    const result = await crawlSection(APARTMENTS, { pause, onPage });
+    expect(result).toMatchObject({ complete: true, pagesFetched: 2, listingCount: 2, foreignSkipped: 1 });
+    expect(onPage).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchSomon).toHaveBeenCalledTimes(2);
+    // в журнале — только запись о чужой рубрике, не об остановке обхода
+    expect(mocks.logError.mock.calls.map((c) => (c[2] as { dedupKey: string }).dedupKey)).toEqual([`market-somon-foreign-rubric-216-${RUBRIC_FOREIGN}`]);
+  });
+
+  it("страница только чужих рубрик РАНЬШЕ известного конца — не конец, а wrong_scope: обход неполный", async () => {
     mocks.fetchSomon.mockImplementation(async (path: string) => {
       const n = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
       if (n === 1) return ok(pageHtml([11, 12], 50));
@@ -244,10 +259,39 @@ describe("своя рубрика — или ничего (12.11.2026: обща�
     });
     const onPage = vi.fn(async () => {});
     const result = await crawlSection(APARTMENTS, { pause, onPage });
-    expect(result).toMatchObject({ complete: true, pagesFetched: 2, listingCount: 2, foreignSkipped: 1 });
-    expect(onPage).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ complete: false, stopReason: "wrong_scope", pagesFetched: 2 });
     expect(mocks.fetchSomon).toHaveBeenCalledTimes(2);
-    expect(mocks.logError).not.toHaveBeenCalled();
+  });
+
+  it("чужая рубрика на своей странице — в журнал, по записи на номер рубрики (новая подрубрика не пропадёт молча)", async () => {
+    const html = somonListPageHtml(
+      [{ id: 1 }, { id: 2, rubricId: 2841, title: "7-комн. квартира, 2 этаж, 300 м², Сино" }, { id: 3, rubricId: 2841, title: "7-комн. квартира" }, { id: 4, rubricId: RUBRIC_FOREIGN }],
+      { links: 1 }
+    );
+    mocks.fetchSomon.mockResolvedValue(ok(html));
+    const result = await crawlSection(APARTMENTS, { pause });
+    expect(result).toMatchObject({ complete: true, listingCount: 1, foreignSkipped: 3 });
+    const keys = mocks.logError.mock.calls.map((c) => (c[2] as { dedupKey: string }).dedupKey).sort();
+    expect(keys).toEqual([`market-somon-foreign-rubric-216-${RUBRIC_FOREIGN}`, "market-somon-foreign-rubric-216-2841"].sort());
+    expect(String(mocks.logError.mock.calls.find((c) => String(c[1]).includes("2841"))![1])).toContain("(2 на странице)");
+  });
+
+  it("рубрика страницы читается при любом порядке ключей в её объекте", () => {
+    const payload = (rubric: object) => JSON.stringify({ next_page: "?cursor=1&page_size=1", rubric, location_ids: [1], adverts: [] });
+    expect(somonPageRubricId(payload({ id: 216, name: "Продажа квартир", slug: "prodazha-kvartir" }))).toBe(216);
+    expect(somonPageRubricId(payload({ name: "Продажа квартир", is_job: false, ancestors: [{ id: 121 }], id: 216 }))).toBe(216);
+    expect(somonPageRubricId(payload({}))).toBeNull();
+    expect(somonPageRubricId(payload({ id: "216" }))).toBeNull();
+    // предок с id не путается с самой рубрикой
+    expect(somonPageRubricId(payload({ ancestors: [{ id: 121 }], slug: "x" }))).toBeNull();
+  });
+
+  it("парсер лидов: чужой список в каталог не пишется, но и не молчит — запись в журнал", async () => {
+    const feed = somonListPageHtml([{ id: 1, rubricId: RUBRIC_FOREIGN }], { pageRubricId: null, links: 9326 });
+    const stats = await saveSomonPageHtml(feed);
+    expect(stats).toEqual({ created: 0, updated: 0, priceChanges: 0, skipped: 0 });
+    expect(mocks.logError).toHaveBeenCalledTimes(1);
+    expect((mocks.logError.mock.calls[0][2] as { dedupKey: string }).dedupKey).toBe("somon-market-ingest-wrong-scope-216");
   });
 
   it("раздел домов читается по новому адресу; дом — HOUSE, этажность и сотки из заголовка", async () => {

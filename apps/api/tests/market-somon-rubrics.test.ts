@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { detectCategory, parseHouseTitle, toListing } from "../src/lib/market/somonParser.js";
 import { isReadableCatalogRow, marketCatalogWhere, somonRubricOf } from "../src/lib/market/somonRubrics.js";
-import { deleteJunk, fixMisclassified, planFromCounts } from "../src/lib/market/purgeSomonJunk.js";
+import { applyVerdict, countByRubric, deleteJunk, fixMisclassified, planFromCounts } from "../src/lib/market/purgeSomonJunk.js";
+import { inNightFullCrawlWindow } from "../src/lib/market/nightly.js";
 import { findSegments } from "../src/lib/market/segments.js";
 
 /**
@@ -125,5 +126,52 @@ describe("правило чтения каталога (одно место — 
     ]);
     expect(plan).toMatchObject({ keep: 3077, junk: 791 });
     expect(plan.byRubric[0]).toMatchObject({ rubricId: "2831", keep: true });
+  });
+
+  it("чистка не удаляет молча то, что похоже на недвижимость: отдельный список и отказ без --force", () => {
+    const plan = planFromCounts([
+      { rubricId: "2831", slug: "2-komnatnyie", count: 3000 },
+      { rubricId: "786", slug: "avtozapchasti", count: 786 },
+      { rubricId: "2841", slug: "7-komnat-i-bolshe", count: 4 },
+      { rubricId: "9001", slug: "garazhi", count: 3, realEstateParent: true },
+      { rubricId: "9002", slug: "arenda-garazhei", count: 2 },
+    ]);
+    expect(plan.suspicious.map((r) => r.rubricId)).toEqual(["2841", "9001", "9002"]);
+    expect(applyVerdict(plan, false)).toEqual({ ok: false, reason: "suspicious" });
+    expect(applyVerdict(plan, true)).toEqual({ ok: true });
+    const clean = planFromCounts([{ rubricId: "2831", slug: "2-komnatnyie", count: 3000 }, { rubricId: "786", slug: "avtozapchasti", count: 786 }]);
+    expect(clean.suspicious).toEqual([]);
+    expect(applyVerdict(clean, false)).toEqual({ ok: true });
+    // своя рубрика с «kvartir» в slug подозрительной не бывает: она остаётся
+    expect(planFromCounts([{ rubricId: "2833", slug: "kvartiry-3", count: 1 }]).suspicious).toEqual([]);
+    expect(applyVerdict(planFromCounts([{ rubricId: "786", slug: "avtozapchasti", count: 5 }]), true)).toEqual({ ok: false, reason: "nothing_kept" });
+  });
+
+  it("предок «Недвижимость» в сырье виден подсчёту по рубрикам (SQL)", async () => {
+    const key = `${runId}re`;
+    const l = await prisma.marketListing.create({
+      data: {
+        source: "somon.tj", sourceId: key, sourceUrl: `https://somon.tj/adv/${key}`, dealType: "SALE", propertyType: "APARTMENT",
+        city: "Душанбе", currency: "TJS", title: "Гараж", raw: { rubric: { id: 987654, slug: `g${runId}`, ancestors: [{ id: 121, slug: "nedvizhimost" }] } },
+      },
+    });
+    try {
+      const row = (await countByRubric()).find((r) => r.rubricId === "987654" && r.slug === `g${runId}`);
+      expect(row).toMatchObject({ count: 1, realEstateParent: true });
+      expect(planFromCounts([row!]).suspicious).toHaveLength(1);
+    } finally {
+      await prisma.marketListing.delete({ where: { id: l.id } });
+    }
+  });
+});
+
+describe("окно ночных полных обходов: инкременты не стартуют 02:15–03:15 по Душанбе", () => {
+  it("границы окна", () => {
+    // Душанбе = UTC+5
+    expect(inNightFullCrawlWindow(new Date("2026-11-15T21:14:59Z"))).toBe(false); // 02:14:59
+    expect(inNightFullCrawlWindow(new Date("2026-11-15T21:15:00Z"))).toBe(true); // 02:15
+    expect(inNightFullCrawlWindow(new Date("2026-11-15T22:00:00Z"))).toBe(true); // 03:00, старт Paydo
+    expect(inNightFullCrawlWindow(new Date("2026-11-15T22:15:00Z"))).toBe(false); // 03:15
+    expect(inNightFullCrawlWindow(new Date("2026-11-16T07:00:00Z"))).toBe(false); // полдень
   });
 });

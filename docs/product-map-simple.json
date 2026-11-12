@@ -16,9 +16,9 @@
   "paths": 741,
   "cron": 128,
   "jobs": 32,
-  "conditions": 3955,
-  "untranslatedUnique": 454,
-  "untranslatedTotal": 583,
+  "conditions": 3957,
+  "untranslatedUnique": 455,
+  "untranslatedTotal": 585,
   "partialUnique": 1076,
   "translatedShare": 85
  },
@@ -330,6 +330,7 @@
   "id === BUILTIN_COVER_TEMPLATE_ID",
   "id === otherId",
   "ids.length !== existing.size || ids.some((id) => !existing.has(id))",
+  "inNightFullCrawlWindow()",
   "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
@@ -69476,6 +69477,13 @@
      "a": [],
      "c": [
       {
+       "t": "если inNightFullCrawlWindow()",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "inNightFullCrawlWindow()"
+      },
+      {
        "t": "внутри этого шага",
        "k": "do",
        "a": [],
@@ -69534,6 +69542,13 @@
      "k": "try",
      "a": [],
      "c": [
+      {
+       "t": "если inNightFullCrawlWindow()",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "inNightFullCrawlWindow()"
+      },
       {
        "t": "внутри этого шага",
        "k": "do",
