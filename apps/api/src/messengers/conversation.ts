@@ -116,7 +116,7 @@ import {
   vacancyTurnHint,
 } from "../ai/adTemplateOpener.js";
 import { clientMeansHousingDeal } from "../ai/housingIntent.js";
-import { botAskedQuestion, isAckOnlyMessage } from "../ai/ackOnly.js";
+import { botAskedQuestion, isAckOnlyMessage, isThanksOnlyMessage } from "../ai/ackOnly.js";
 import { photoAlreadyAcknowledged } from "../ai/photoAckGuard.js";
 import { shouldStaySilentOnBareShare } from "../ai/bareShareRepeat.js";
 import { isWithinWorkingHours } from "../lib/workingHours.js";
@@ -2624,13 +2624,20 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * его разбирает обычный ход.
    */
   const lastBotEntry = [...history].reverse().find((m) => m.role === "assistant");
+  /**
+   * Кандидату на вакансию «спасибо» — тоже только реакция, даже после нашего вопроса
+   * (13.11.2026, живой чат: на каждое «спасибо» модель по подсказке вакансии слала
+   * весь блок вакансии заново). Только благодарность, без «да»/«ок»: «ок» на вопрос
+   * остаётся ответом и идёт обычным ходом.
+   */
+  const jobThanks = (conversation.adTopic === "job" || draft.intent === "job") && isThanksOnlyMessage(text);
   const ackOnly =
     botSpeaks &&
     !!lastBotEntry &&
     images.length === 0 &&
     saved.length === 0 &&
     isAckOnlyMessage(text) &&
-    !botAskedQuestion(lastBotEntry.content);
+    (!botAskedQuestion(lastBotEntry.content) || jobThanks);
   if (ackOnly) {
     guardFired("ack_only");
     await saveIncoming(historyText);

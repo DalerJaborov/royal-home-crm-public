@@ -25,5 +25,23 @@
   (`ai/customerAgentRenderer.ts:192`).
 - Лид из CORE теряет объект рекламы при назначении агента (`adPropertyId` не пишется).
 
-## Состояние
-Код ещё не менялся (только этот файл).
+## Состояние (13.11, ~03:30)
+Два исполнителя architect работают параллельно:
+- A: эта копия, ветка `claude/bot-leadgen-13-11`: метка рекламы в CORE, вакансия по рекламе,
+  объект рекламы → агент, запрет повтора (CORE + LEGACY).
+- B: `D:/PublicWorktrees-20261021/bot-leadonly-mode-13-11`, ветка `claude/bot-leadonly-mode-13-11`:
+  режим «только заявки», переключатели botLeadOnlyMode / botUseWhatsappNumber / botMaxPhoneAsks /
+  botHotIntentHandover (по умолчанию режим выключен), BotTab.
+После обоих: свести ветки, полный precheck, ревью architect без контекста автора, ship (ветку A
+первой), включить режим в Настройках, перечитать живые переписки за сутки.
+Важно: у бота два маршрута (CORE и LEGACY), правка обязана работать в обоих.
+Голосовой робот имеет свой промпт (ai/liveVoicePersona.ts) и в эту правку не входит.
+
+### Ветка A сделана (13.11, исполнитель architect)
+Коммиты на `claude/bot-leadgen-13-11` (не запушены): метка рекламы в CORE + вакансия по рекламе +
+объект рекламы → агент; запрет повтора блоков в CORE и LEGACY. Журнал:
+`docs/journal/2026-11-13-bot-ad-attribution-no-repeats.md`. Общие точки с веткой B при сведении:
+`ai/customerAgentRenderer.ts` (вопросы и защита от повтора), `lib/customerDmAgentTurn.ts` (одна строка
+предварительного поиска), `services/leads/intake.ts` (`processNewCustomerLeadPolicy`),
+`messengers/conversation.ts` (блок атрибуции и «спасибо»), `lib/outboundShield.ts`.
+Не покрыто: маршрут HELD; проверка на живых чатах после выката.

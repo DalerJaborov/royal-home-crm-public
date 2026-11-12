@@ -9,6 +9,7 @@ import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
 import { customerSearchContinuation, customerSearchIntent, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
 import { resolveSearchPlace } from "./searchPlace.js";
+import { customerPreReadWithoutShown } from "./customerSearchHistory.js";
 import { customerAffirmationFollowUp, customerBareAffirmation, customerCheaperRequested, customerCheaperSearchCall } from "../ai/customerAgentFollowUp.js";
 import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
 import { prisma } from "../db.js";
@@ -271,7 +272,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         searchCall = customerSearchPreRead(intent, placeDistrict);
       }
     }
-    const preReadCall = cheaperCall ?? searchCall;
+    const preReadCall = await customerPreReadWithoutShown(cheaperCall ?? searchCall, planningPrincipal);
     // Buyer-guide availability is a server hint only. It is deliberately not
     // exposed on unrelated job/seller turns, and no model marker can mint a
     // file send without the exact current campaign witness below.

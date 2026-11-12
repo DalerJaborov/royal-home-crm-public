@@ -82,6 +82,10 @@ export const customerAgentVerifiedContextSchema = z.object({
     /** Bounded customer words, never verified catalog facts or authority. */
     statements: z.array(z.string().min(1).max(360)).max(6).optional(),
   }).strict().optional(),
+  /** Digests of the lines the bot actually sent in this conversation recently (last bot turns,
+   * 24 hours), wider than `turns`. Used only by the server renderer to never resend a block it
+   * already sent (A, B, A included); never shown to the model, never text or authority. */
+  sentLineDigests: z.array(z.string().regex(/^[a-f0-9]{32}$/)).max(400).optional(),
 }).strict();
 export type CustomerAgentVerifiedContext = z.infer<typeof customerAgentVerifiedContextSchema>;
 
