@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4031,
+  "forks": 4033,
   "mounts": 83,
   "cron": 130,
   "jobs": 33,
@@ -81562,6 +81562,14 @@
      "c": [
       {
        "k": "do",
+       "t": "reportMetaWebhookNotSaved(\"dm\", durableIngress.reason, metaWebhookAccount(req.body));",
+       "a": [
+        "зовёт reportMetaWebhookNotSaved()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
        "t": "return res.status(503).json({ error: \"Входящее событие пока не сохранено\" });",
        "a": [
         "ответ 503 — «Входящее событие пока не сохранено»"
@@ -81583,6 +81591,14 @@
      "t": "publicIngress.status === \"held\"",
      "a": [],
      "c": [
+      {
+       "k": "do",
+       "t": "reportMetaWebhookNotSaved(\"public_comment\", publicIngress.reason, metaWebhookAccount(req.body));",
+       "a": [
+        "зовёт reportMetaWebhookNotSaved()"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "return res.status(503).json({ error: \"Комментарий пока не сохранён\" });",
@@ -81611,6 +81627,21 @@
       "запись в журнал ошибок"
      ],
      "c": [
+      {
+       "k": "if",
+       "t": "(durableIngress.status === \"persisted\" || durableIngress.status === \"bypass\") && durableIngress.held?.length",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await notifyHeldCustomerMessages(durableIngress.held);",
+         "a": [
+          "зовёт notifyHeldCustomerMessages()"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "loop",
        "t": "для каждого: const message of incoming",
@@ -82061,6 +82092,29 @@
                   {
                    "k": "do",
                    "t": "await handleOutgoingEcho(msg);",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  },
+                  {
+                   "k": "do",
+                   "t": "continue;",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "if",
+                 "t": "inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === \"HELD\"",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "traceOutcome(\"blocked\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -120945,9 +120999,17 @@
            "c": [
             {
              "k": "do",
-             "t": "decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: row.scopeKey, en…",
+             "t": "const payload = decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: …",
              "a": [
               "зовёт decryptCustomerIngressPayload()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "reason = customerNonInputCode(payload) ?? reason;",
+             "a": [
+              "зовёт customerNonInputCode()"
              ],
              "c": []
             }
