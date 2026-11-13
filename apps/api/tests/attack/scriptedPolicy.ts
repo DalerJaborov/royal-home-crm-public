@@ -82,7 +82,8 @@ export function scriptedParts(request: Request, context: ScriptedContext, tools:
   const given = (question: string) => question === "location" ? DISTRICTS.some(name => everything.toLowerCase().includes(name.toLowerCase()))
     : question === "rooms" ? /[1-5]\s*[- ]?\s*(?:комн|хона|ҳуҷр)|двушк|однушк|трешк|трёшк|ду\s*хона|двух|трех|трёх/iu.test(everything)
     : question === "budget" ? /\d[\d ]{2,}\s*(?:сомон|сом|\$|usd|tjs)|бюджет|буҷет|до\s*\d{5,}|то\s*\d{5,}/iu.test(everything) : false;
-  const pick = topic === "job" ? (pub ? "job_required" : next(["job_position", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start"]))
+  // A private-chat vacancy is answered with the position and the recruiter's number, no questionnaire (#145, 11.11.2026).
+  const pick = topic === "job" ? (pub ? "job_required" : "none")
     : topic === "seller" ? (pub ? "topic" : next(["seller_details"]))
     : topic === "buyer" ? (pub ? "property" : next(["location", "rooms", "budget", "preferences"], given))
     : PRAISE.test(text) ? "none" : next(["topic"]);
