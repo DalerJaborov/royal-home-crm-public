@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound } from "lucide-react";
-import { META_ETERNAL_STATE_LABEL, metaEternalStatusSchema, type MetaEternalKeyRow, type MetaEternalStatus } from "@royal-home/shared";
+import { KeyRound, MessageCircle } from "lucide-react";
+import {
+  META_ETERNAL_STATE_LABEL,
+  metaCompanyPagesSchema,
+  metaEternalStatusSchema,
+  type MetaCompanyPage,
+  type MetaEternalKeyRow,
+  type MetaEternalStatus,
+} from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { SwitchRow } from "../../components/Switch";
 import { dushanbeDateTime } from "../../lib/date";
@@ -124,6 +131,7 @@ export function MetaEternalKeys() {
               ))}
             </div>
           )}
+          <CompanyPages />
           <div className="wrap" style={{ marginTop: "var(--s3)" }}>
             <button className="pill ghost sm" type="button" disabled={status.isFetching} onClick={refresh}>
               Проверить ещё раз
@@ -179,6 +187,118 @@ function EternalRow({
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+const PAGES_KEY = ["meta-eternal", "pages"];
+
+/**
+ * СТРАНИЦЫ FACEBOOK КЛЮЧА КОМПАНИИ (13.11.2026). Страница другой компании
+ * (Arvan estate), выданная системному пользователю, подключается одной кнопкой:
+ * маркер берёт сервер, человек его не видит и не копирует.
+ */
+function CompanyPages() {
+  const client = useQueryClient();
+  const pages = useQuery({
+    queryKey: PAGES_KEY,
+    queryFn: async () => metaCompanyPagesSchema.parse(await api("/settings/meta-eternal/pages")),
+    staleTime: 60_000,
+  });
+  const done = () => {
+    void client.invalidateQueries({ queryKey: PAGES_KEY });
+    void client.invalidateQueries({ queryKey: QUERY_KEY });
+  };
+  const connect = useMutation({
+    mutationFn: (pageId: string) => api(`/settings/meta-eternal/pages/${pageId}/connect`, { method: "POST", body: {} }),
+    meta: { successText: "Messenger Страницы подключён" },
+    onSettled: done,
+  });
+  const subscribe = useMutation({
+    mutationFn: (pageId: string) => api(`/settings/meta-eternal/pages/${pageId}/subscribe`, { method: "POST", body: {} }),
+    meta: { successText: "Страница подписана на сообщения" },
+    onSettled: done,
+  });
+  const list = pages.data?.pages ?? [];
+  if (pages.isPending) return null;
+  return (
+    <>
+      <div className="sec-t" style={{ marginTop: "var(--s4)" }}>Страницы Facebook ключа компании</div>
+      {pages.data?.error && <p className="quiet">Список не получен: {pages.data.error}</p>}
+      {pages.isError && <p className="quiet" role="alert">Не удалось получить Страницы. Обновите страницу.</p>}
+      {!pages.data?.error && list.length === 0 && pages.isSuccess && (
+        <p className="quiet">Системному пользователю пока не выдана ни одна Страница.</p>
+      )}
+      {list.length > 0 && (
+        <div className="list" style={{ marginTop: "var(--s2)" }}>
+          {list.map((page) => (
+            <CompanyPageRow
+              key={page.id}
+              page={page}
+              busy={connect.isPending || subscribe.isPending}
+              onConnect={() => connect.mutate(page.id)}
+              onSubscribe={() => subscribe.mutate(page.id)}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function CompanyPageRow({
+  page,
+  busy,
+  onConnect,
+  onSubscribe,
+}: {
+  page: MetaCompanyPage;
+  busy: boolean;
+  onConnect: () => void;
+  onSubscribe: () => void;
+}) {
+  const label = page.connected
+    ? page.subscribed === false
+      ? "Подключена, сообщения не приходят"
+      : "Messenger подключён"
+    : page.canMessage
+      ? "Не подключена"
+      : "Нет доступа к сообщениям";
+  const ok = Boolean(page.connected) && page.subscribed !== false;
+  return (
+    <div className="row">
+      <MessageCircle className="i lg" aria-hidden="true" />
+      <div className="t">
+        <b style={{ display: "flex", alignItems: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
+          <span>{page.name}</span>
+          <span className={`chip ${ok ? "ok" : page.canMessage ? "" : "crit"}`}>{label}</span>
+        </b>
+        {/* div, а не span: на телефоне тема режет `.row .t span` до двух строк,
+            и подсказка «что нажать» обрывалась на полуслове. */}
+        <div className="quiet">
+          {page.connected === "settings"
+            ? "Основная Страница: отвечает через настройки Facebook выше."
+            : page.connected === "account"
+              ? "Бот отвечает в Messenger этой Страницы. Имя компании и промт — в списке аккаунтов ниже."
+              : page.canMessage
+                ? "Нажмите «Подключить Messenger» — бот начнёт отвечать в сообщениях этой Страницы."
+                : "Выдайте системному пользователю задачу «Сообщения» на этой Странице (Business Suite → Системные пользователи → Назначить ресурсы)."}
+        </div>
+        {(page.canMessage && page.connected !== "settings") || (page.connected && page.subscribed === false) ? (
+          <div className="wrap" style={{ marginTop: "var(--s2)" }}>
+            {page.canMessage && page.connected !== "settings" && (
+              <button className="pill sm" type="button" disabled={busy} onClick={onConnect}>
+                {page.connected === "account" ? "Обновить ключ" : "Подключить Messenger"}
+              </button>
+            )}
+            {page.connected && page.subscribed === false && (
+              <button className="pill sm" type="button" disabled={busy} onClick={onSubscribe}>
+                Подписать Страницу
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );

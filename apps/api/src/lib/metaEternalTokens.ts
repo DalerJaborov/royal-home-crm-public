@@ -565,7 +565,9 @@ export async function metaEternalStatus(): Promise<MetaEternalStatus> {
   for (const a of fbAccounts) {
     rows.push(await pageRow({ key: `account:${a.id}`, title: `Facebook «${a.title}»`, channel: "FACEBOOK", accountId: a.id, pageId: a.externalId }, FB_PAGE_SCOPES, a.eternalLastSentAt));
   }
-  if (fbAccounts.length === 0 && s.settingsPageId) {
+  // Основная Страница из Настроек показывается, пока её не завели отдельным
+  // аккаунтом: вторая подключённая Страница (Arvan) её не заменяет.
+  if (s.settingsPageId && !fbAccounts.some((a) => a.externalId === s.settingsPageId)) {
     rows.push(await pageRow({ key: "settings:metaPageToken", title: "Страница Facebook (Messenger)", channel: "FACEBOOK", pageId: s.settingsPageId }, FB_PAGE_SCOPES, s.settingsPageLastSentAt));
   }
   const ads = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { metaAdsEnabled: true, metaAdAccountId: true } });
@@ -670,4 +672,98 @@ export async function subscribePageMessaging(pageId: string): Promise<{ ok: true
   });
   if (!r.ok) return { ok: false, error: graphErrorText(r) };
   return { ok: true, fields };
+}
+
+// ──────────────────── Страницы Facebook ключом компании ────────────────────
+
+/**
+ * MESSENGER ВТОРОЙ И СЛЕДУЮЩИХ СТРАНИЦ (13.11.2026, Arvan estate).
+ *
+ * Страница другой компании, выданная партнёру Royal Home и системному
+ * пользователю royalhome-crm, подключается кнопкой: маркер Страницы берётся у
+ * ключа компании (не истекает, смену пароля не замечает) и кладётся в
+ * MessengerAccount канала FACEBOOK. Вставлять маркер руками человеку не нужно —
+ * и нельзя: маркер Страницы в браузере не показывается никому.
+ */
+const MESSAGING_TASKS = ["MESSAGING", "MANAGE"];
+
+export interface CompanyPage {
+  id: string;
+  name: string;
+  /** Задачи системного пользователя на Странице позволяют переписку. */
+  canMessage: boolean;
+  /** Instagram, привязанный к Странице (для «той же компании» — имя бренда). */
+  igId: string | null;
+}
+
+/** Страницы, выданные ключу компании (/me/accounts). Ничего не меняет. */
+export async function listCompanyPages(): Promise<{ ok: true; pages: CompanyPage[] } | { ok: false; error: string }> {
+  const s = await loadSnapshot();
+  if (!s.systemToken) return { ok: false, error: "Нет ключа системного пользователя." };
+  const pages: CompanyPage[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 5; page++) {
+    const r = await graphJson(
+      `${GRAPH}/me/accounts?fields=id,name,tasks,instagram_business_account&limit=100${after ? `&after=${encodeURIComponent(after)}` : ""}`,
+      s.systemToken
+    );
+    if (!r.ok) return { ok: false, error: graphErrorText(r) };
+    const rows = (r.data?.data ?? []) as Array<{ id?: string; name?: string; tasks?: unknown; instagram_business_account?: { id?: string } }>;
+    for (const p of rows) {
+      if (!p.id) continue;
+      const tasks = Array.isArray(p.tasks) ? p.tasks.map(String) : [];
+      pages.push({
+        id: p.id,
+        name: p.name ?? p.id,
+        canMessage: tasks.some((t) => MESSAGING_TASKS.includes(t)),
+        igId: p.instagram_business_account?.id ?? null,
+      });
+    }
+    const paging = r.data?.paging as { next?: string; cursors?: { after?: string } } | undefined;
+    after = paging?.next ? paging.cursors?.after : undefined;
+    if (!after) break;
+  }
+  return { ok: true, pages };
+}
+
+/**
+ * Маркер Страницы для записи в MessengerAccount: только Страница из списка
+ * ключа компании, с задачей «Сообщения», и не та, что уже работает через
+ * основные настройки (Settings.metaPageId) — иначе одна Страница отвечала бы
+ * двумя путями.
+ */
+export async function facebookPageForConnect(
+  pageId: string
+): Promise<{ ok: true; token: string; pageName: string; igId: string | null } | { ok: false; status: 404 | 409; error: string }> {
+  const s = await loadSnapshot();
+  if (!s.systemToken) return { ok: false, status: 409, error: "Нет ключа системного пользователя." };
+  if (s.settingsPageId === pageId) {
+    return { ok: false, status: 409, error: "Эта Страница уже отвечает через основные настройки Facebook." };
+  }
+  const listed = await listCompanyPages();
+  if (!listed.ok) return { ok: false, status: 409, error: listed.error };
+  const page = listed.pages.find((p) => p.id === pageId);
+  if (!page) return { ok: false, status: 404, error: `Страница не выдана системному пользователю. ${SHARE_HINT(`Страницы → ${pageId}`)}` };
+  if (!page.canMessage) {
+    return { ok: false, status: 409, error: `У системного пользователя на Странице нет задачи «Сообщения». ${SHARE_HINT(`Страницы → ${page.name}`)}` };
+  }
+  grants.delete(grantKey(pageId, s.systemToken));
+  const grant = await systemPageGrant(pageId, s.systemToken);
+  if (!grant.ok) return { ok: false, status: 409, error: grant.reason };
+  return { ok: true, token: grant.token, pageName: grant.pageName ?? page.name, igId: grant.igId ?? page.igId };
+}
+
+/** Подписано ли наше приложение на сообщения Страницы (null — не удалось проверить). */
+export async function pageMessagingSubscribed(pageId: string): Promise<boolean | null> {
+  try {
+    const s = await loadSnapshot();
+    if (!s.systemToken) return null;
+    const grant = await systemPageGrant(pageId, s.systemToken);
+    if (!grant.ok) return null;
+    const app = await graphJson(`${GRAPH}/app?fields=id`, s.systemToken);
+    const appId = app.ok && typeof app.data?.id === "string" ? app.data.id : undefined;
+    return await pageSubscribed(pageId, grant.token, appId);
+  } catch {
+    return null;
+  }
 }

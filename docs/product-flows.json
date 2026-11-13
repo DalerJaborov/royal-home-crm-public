@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 747,
-  "forks": 4027,
+  "endpoints": 749,
+  "forks": 4031,
   "mounts": 83,
   "cron": 130,
   "jobs": 33,
@@ -71386,6 +71386,157 @@
   },
   {
    "method": "POST",
+   "path": "/pages/:pageId/connect",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/pages/:pageId/connect",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!params.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный идентификатор Страницы\" });",
+       "a": [
+        "ответ 400 — «Некорректный идентификатор Страницы»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const page = await facebookPageForConnect(pageId);",
+       "a": [
+        "зовёт facebookPageForConnect()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!page.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(page.status).json({ error: page.error });",
+         "a": [
+          "ответ (код зависит от условия)"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const existing = await prisma.messengerAccount.findFirst({ where: { channel: \"FACEBOOK\", externalId: pageId }…",
+       "a": [
+        "читает в базе: messengerAccount"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const twin = page.igId ? await prisma.messengerAccount.findFirst({ where: { channel: \"INSTAGRAM\", externalId:…",
+       "a": [
+        "читает в базе: messengerAccount"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const accountId = await saveAccount({ id: existing?.id, channel: \"FACEBOOK\", externalId: pageId, title: page.…",
+       "a": [
+        "зовёт saveAccount()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "resetAccountsCache();",
+       "a": [
+        "зовёт resetAccountsCache()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SETTINGS_UPDATE\", \"MessengerAccount\", accountId, { channel: \"FACEBOOK\", pageId, connected: exi…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const sub = await subscribePageMessaging(pageId);",
+       "a": [
+        "зовёт subscribePageMessaging()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "sub.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"SETTINGS_UPDATE\", \"FacebookPageSubscription\", pageId, { fields: sub.fields });",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "res.json({ ok: true, accountId, pageName: page.pageName, subscribed: sub.ok, ...(sub.ok ? { fields: sub.field…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/pages/:pageId/subscribe",
    "mount": "/api/v1/settings/meta-eternal",
    "full": "/api/v1/settings/meta-eternal/pages/:pageId/subscribe",
@@ -71495,6 +71646,117 @@
       {
        "k": "do",
        "t": "res.json(result);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/pages",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/pages",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const listed = await listCompanyPages();",
+       "a": [
+        "зовёт listCompanyPages()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!listed.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json({ pages: [], error: listed.error });",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { metaPageId: true } …",
+       "a": [
+        "читает в базе: settings"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const accounts = await prisma.messengerAccount.findMany({ where: { channel: \"FACEBOOK\" }, select: { id: true,…",
+       "a": [
+        "читает в базе: messengerAccount"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const p of listed.pages",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const account = accounts.find((a) => a.externalId === p.id);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const connected = account ? \"account\" : settings?.metaPageId === p.id ? \"settings\" : null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "res.json({ pages });",
        "a": [
         "ответ 200"
        ],

@@ -183,7 +183,16 @@ export async function checkTelegramExtraChatsHealth(): Promise<IntegrationCheck[
 async function pickAccountForHealth(channel: string) {
   const rows = await listAccounts(channel);
   if (rows.length === 0) return null;
-  return rows.find((r) => r.isDefault && r.enabled) ?? rows.find((r) => r.enabled) ?? rows[0];
+  const main = rows.find((r) => r.isDefault && r.enabled);
+  // Тот же порядок, что resolveIncomingAccount (13.11.2026): вторая Страница
+  // Facebook (Arvan) без «по умолчанию» не подменяет основную из Settings —
+  // иначе смерть основного маркера не заметил бы никто.
+  if (!main && channel !== "INSTAGRAM") {
+    const creds = await loadCredentials();
+    if (channel === "FACEBOOK" && creds.pageToken && creds.pageId) return null;
+    if (channel === "WHATSAPP" && creds.waToken && creds.waPhoneId) return null;
+  }
+  return main ?? rows.find((r) => r.enabled) ?? rows[0];
 }
 
 /** Общий read-запрос к Graph API: спрашивает у объекта только его собственный id. */
