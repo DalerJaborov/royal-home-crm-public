@@ -4,6 +4,7 @@ import { CUSTOMER_RECRUITMENT_UPGRADE_V1 as pair, isCustomerRecruitmentUpgradeV1
   CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2 as resume, isCustomerRecruitmentResumeUpgradeV2 } from "../src/lib/customerRecruitmentUpgrade.js";
 import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1 as quality, isCustomerAgentQualityContinuityUpgradeV1,
   CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 as quality2, isCustomerAgentQualityContinuityUpgradeV2,
+  CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V3 as quality3,
   customerAgentQualityContinuityUpgradeVersion } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
 import { CUSTOMER_AGENT_SYSTEM } from "../src/ai/customerAgentPrompt.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../src/ai/customerAgentToolDefinitions.js";
@@ -17,7 +18,9 @@ it("keeps the historical recruitment pair pinned while recognizing the distinct 
   const historicalResumeFrom={promptHash:resume.fromPrompt,toolSchemaHash:resume.fromTools};
   const historicalResumeTo={promptHash:resume.toPrompt,toolSchemaHash:resume.toTools};
   expect(isCustomerRecruitmentResumeUpgradeV2(historicalResumeFrom,historicalResumeTo)).toBe(true);
-  expect(sha(CUSTOMER_AGENT_SYSTEM)).toBe(quality2.toPrompt);
+  expect(sha(CUSTOMER_AGENT_SYSTEM)).toBe(quality3.toPrompt);
+  expect(quality3.fromPrompt).toBe(quality2.toPrompt);
+  expect(quality3.fromKnowledgeSchema).toBe(quality2.toKnowledgeSchema);
   expect(quality2.fromPrompt).toBe(quality.toPrompt);
   expect(quality2.fromKnowledgeSchema).toBe(quality.toKnowledgeSchema);
   expect(quality2.toolSchemaHash).toBe(quality.toolSchemaHash);
@@ -29,7 +32,13 @@ it("keeps the historical recruitment pair pinned while recognizing the distinct 
   expect(currentTools).not.toBe(pair.toTools);
   const v1From={promptHash:quality.fromPrompt,toolSchemaHash:quality.toolSchemaHash,knowledgeSchemaHash:quality.fromKnowledgeSchema};
   const v1To={promptHash:quality.toPrompt,toolSchemaHash:quality.toolSchemaHash,knowledgeSchemaHash:quality.toKnowledgeSchema};
-  const current={promptHash:sha(CUSTOMER_AGENT_SYSTEM),toolSchemaHash:currentTools,knowledgeSchemaHash:quality2.toKnowledgeSchema};
+  const current={promptHash:quality2.toPrompt,toolSchemaHash:currentTools,knowledgeSchemaHash:quality2.toKnowledgeSchema,knowledgeSourceHash:quality3.fromKnowledgeSource};
+  const v3To={promptHash:sha(CUSTOMER_AGENT_SYSTEM),toolSchemaHash:currentTools,knowledgeSchemaHash:quality3.toKnowledgeSchema,knowledgeSourceHash:quality3.toKnowledgeSource};
+  expect(customerAgentQualityContinuityUpgradeVersion(current,v3To)).toBe("v3");
+  // The V3 edge pins the exact knowledge source: any other facts change is not this upgrade.
+  expect(customerAgentQualityContinuityUpgradeVersion(current,{...v3To,knowledgeSourceHash:"f".repeat(64)})).toBeNull();
+  expect(customerAgentQualityContinuityUpgradeVersion({...current,knowledgeSourceHash:"f".repeat(64)},v3To)).toBeNull();
+  expect(customerAgentQualityContinuityUpgradeVersion(v3To,current)).toBeNull();
   expect(isCustomerAgentQualityContinuityUpgradeV1(v1From,v1To)).toBe(true);
   expect(isCustomerAgentQualityContinuityUpgradeV2(v1To,current)).toBe(true);
   expect(isCustomerAgentQualityContinuityUpgradeV1(v1From,current)).toBe(false);

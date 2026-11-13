@@ -14,10 +14,10 @@ afterAll(async () => { await f?.cleanup(); });
 it("Д086 companion: explains a genuinely delivered prior budget question and continues without phone or call promise", async () => {
   const owner = await f.owner(), first = await f.capture(owner, "Здравствуйте, ищу квартиру");
   f.script([[reply([], "budget")]]); const accepted = await f.deliver(first);
-  expect(accepted.text).toBe("Какой бюджет вы рассматриваете?");
+  expect(accepted.text).toBe("На какую сумму примерно рассчитываете?");
   const current = "Что именно?", second = await f.capture(owner, current), bodyStart = f.bodies.length;
   f.script([[reply([], "clarify_previous")]]); const out = await f.deliver(second);
-  expect(out.text).toBe("Я уточнял сумму для покупки. Какой у вас бюджет?");
+  expect(out.text).toBe("Я уточнял сумму для покупки. На какую сумму примерно рассчитываете?");
   expect(out.text.match(/\?/g)).toHaveLength(1); expect(out.text).not.toMatch(/номер телефона|Как к вам обращаться|позвон|запрос создан/iu);
   const request = f.bodies[bodyStart] as { contents: Array<{ role: string; parts: Array<{ text?: string }> }> };
   expect(JSON.stringify(request.contents)).toContain(accepted.text);

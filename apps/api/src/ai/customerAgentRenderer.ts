@@ -15,6 +15,7 @@ import { recruitmentPhoneLine } from "@royal-home/shared";
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
+import { customerAskedPolicyTopic } from "./customerAgentPolicyAsked.js";
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
 import type { CustomerPropertyUnresolvedReason } from "../lib/customerPropertyUnresolvedReason.js";
@@ -161,6 +162,11 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
       (input.surface === "public_comment" && ["phone", "name", "callback_consent"].includes(d.question))) return "none";
   if (input.surface === "dm") {
     const intake = intakeProgress(input);
+    // A commission answer to someone whose role is unknown is the buyer's "free" plus the one question
+    // that decides the rest: buy or sell (SALES_FACTS: the seller's percent is not volunteered to a buyer).
+    if (intake.role === "unknown" && ["none", "phone", "name", "budget", "rooms", "location", "property", "preferences"].includes(d.question) &&
+        input.evidence.some(e => e.value.kind === "company_policy" && e.value.topic === "commission" && d.refs.includes(e.ref)) &&
+        customerAskedPolicyTopic("commission", input.inputText ?? "")) return "role";
     if (intake.role === "seller" && ["role", "rooms", "location", "budget", "seller_details"].includes(d.question)) return "seller_details";
     if (intake.role === "buyer" && intake.buyerKnown.includes(d.question as "rooms" | "budget" | "location")) {
       return (["location", "rooms", "budget"] as const).find(key => !intake.buyerKnown.includes(key)) ?? "preferences";
@@ -173,8 +179,8 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
 const AD_INTEREST_QUESTION = { ru: "Подскажите, пожалуйста, что вас интересует?", tg: "Бигӯед, лутфан, ба шумо чӣ лозим аст?" } as const;
 const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
   none: { ru: "", tg: "" },
-  property: { ru: "Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.", tg: "Шумо кадом объектро дар назар доред? Рақами объект ё пайвандашро фиристед." },
-  budget: { ru: "Какой бюджет вы рассматриваете?", tg: "Шумо чӣ қадар буҷет дар назар доред?" },
+  property: { ru: "Какой объект вы имеете в виду? Пришлите ссылку, скриншот объявления или номер объекта.", tg: "Шумо кадом объектро дар назар доред? Пайванд, сурати эълон ё рақами объектро фиристед." },
+  budget: { ru: "На какую сумму примерно рассчитываете?", tg: "Тахминан ба кадом маблағ ҳисоб мекунед?" },
   location: { ru: "Какой район вам подходит?", tg: "Кадом ноҳия ба шумо мувофиқ аст?" },
   rooms: { ru: "Сколько комнат вам нужно?", tg: "Ба шумо чанд ҳуҷра лозим аст?" },
   name: { ru: "Как к вам обращаться?", tg: "Ба шумо чӣ тавр муроҷиат кунам?" },
@@ -233,7 +239,7 @@ export function customerAgentQuestionCatalog(language: "ru" | "tg"): Array<{ que
 // actor, contact, action, proposal or consent; callers still fence the original IN.
 const repairPurposes = ["budget", "location", "rooms", "property", "topic", "role"] as const;
 const repairs: Record<typeof repairPurposes[number], { ru: string; tg: string }> = {
-  budget: { ru: "Я уточнял сумму для покупки. Какой у вас бюджет?", tg: "Ман буҷети барои харид пешбиникардаи шуморо мепурсидам. Чӣ қадар маблағ дар назар доред?" },
+  budget: { ru: "Я уточнял сумму для покупки. На какую сумму примерно рассчитываете?", tg: "Ман маблағи харидро мепурсидам. Тахминан ба кадом маблағ ҳисоб мекунед?" },
   location: { ru: "Я уточнял район для поиска. Какой район вам подходит?", tg: "Ман ноҳияро барои ҷустуҷӯ мепурсидам. Кадом ноҳия ба шумо мувофиқ аст?" },
   rooms: { ru: "Я уточнял количество комнат. Сколько комнат вам нужно?", tg: "Ман шумораи ҳуҷраҳоро мепурсидам. Чанд ҳуҷра лозим аст?" },
   property: { ru: "Я уточнял, о каком объекте речь. Пришлёте номер объекта или ссылку?", tg: "Ман муайян кардан мехостам, ки сухан дар бораи кадом объект меравад. Рақами объект ё пайвандашро мефиристед?" },
@@ -248,6 +254,10 @@ function repairPreviousQuestion(context: CustomerAgentVerifiedContext | undefine
   const purposes = repairPurposes.filter(purpose => lines.some(line => line === questions[purpose].ru || line === questions[purpose].tg));
   return purposes.length === 1 ? repairs[purposes[0]][language] : null;
 }
+/** "Ассалому алейкум" in any common spelling, in either language. */
+const SALAAM = /(?:^|[\s,.!])(?:ас+ал[оа]м[уу]?\s*[ао]л[еа]йкум|ас+ал[оа]му|салом\s+[ао]л[еа]йкум|ассаламу|as+alom)/iu;
+const SALAAM_REPLY = "Ваалейкум ассалом!";
+const CUSTOMER_GREETING = /(?:^|[\s,.!])(?:привет\p{L}*|здравствуй\p{L}*|добрый\s+(?:день|вечер)|доброе\s+утро|салом|salom|hello|hi)(?=$|[\s,.!?])/iu;
 const social = {
   none: { ru: "", tg: "" }, greet: { ru: "Здравствуйте!", tg: "Салом!" },
   thank: { ru: "Спасибо!", tg: "Ташаккур!" }, acknowledge: { ru: "Понял.", tg: "Фаҳмидам." },
@@ -287,27 +297,56 @@ function factSegments(value: Extract<CustomerAgentObservation, { kind: "facts" }
   return result;
 }
 
-function policySegment(value: CustomerAgentCompanyPolicyObservation, language: "ru" | "tg"): string {
+const capitalize = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
+/** Company terms in the customer's words (SALES_FACTS). The commission is said by role: a buyer hears
+ * that the service is free, a seller hears the percent, when it is paid and what is free before the sale. */
+/** Every wording a company term can take in a DM or comment (by role): the memory of what we already said keeps
+ * our own policy lines, which the single-turn render no longer prints without the customer's question. */
+export function customerAgentPolicyLines(value: CustomerAgentCompanyPolicyObservation, language: "ru" | "tg", knowledgeSourceHash: string): string[] {
+  if (!isPinnedCompanyPolicy(value, knowledgeSourceHash)) return [];
+  return (["buyer", "seller", "unknown", "public"] as const).flatMap(role => policySegment(value, language, role).split("\n"))
+    .map(line => line.trim()).filter(Boolean);
+}
+function policySegment(value: CustomerAgentCompanyPolicyObservation, language: "ru" | "tg", role: "buyer" | "seller" | "unknown" | "public" = "unknown"): string {
   const k = value.knowledge, tg = language === "tg";
-  if (value.topic === "commission") return tg
-    ? `Ҳаққи хизмат барои фурӯшанда ${k.commission.sellerPercent}%, барои харидор ${k.commission.buyerPercent}% аст.`
-    : `Комиссия для продавца — ${k.commission.sellerPercent}%, для покупателя — ${k.commission.buyerPercent}%.`;
+  if (value.topic === "commission") {
+    const c = k.commission;
+    if (role === "seller") {
+      const when = c.paidOnceAfterSale ? tg ? ", ки як бор ва танҳо баъд аз фурӯш пардохт мешавад" : ", она платится один раз и только после продажи" : "";
+      const free = k.sellerFreeServices ? ` ${capitalize(k.sellerFreeServices[language])} ${tg ? "ройгон аст" : "бесплатно"}.` : "";
+      return tg ? `Барои фурӯшанда ҳаққи хизмат ${c.sellerPercent}% аст${when}.${free}` : `Для продавца комиссия ${c.sellerPercent}%${when}.${free}`;
+    }
+    // A public comment is read by buyers and sellers alike: both sides, one sentence each.
+    if (role === "public") return tg
+      ? `Барои фурӯшанда ҳаққи хизмат ${c.sellerPercent}% аст${c.paidOnceAfterSale ? ", баъд аз фурӯш" : ""}. ${c.buyerPercent === 0 ? "Барои харидор ройгон." : `Барои харидор ${c.buyerPercent}%.`}`
+      : `Для продавца комиссия ${c.sellerPercent}%${c.paidOnceAfterSale ? ", после продажи" : ""}. ${c.buyerPercent === 0 ? "Для покупателя бесплатно." : `Для покупателя ${c.buyerPercent}%.`}`;
+    if (c.buyerPercent === 0) return tg ? "Барои харидор хизматрасонии мо ройгон аст." : "Для покупателя наши услуги бесплатны.";
+    return tg ? `Ҳаққи хизмат барои харидор ${c.buyerPercent}% аст.` : `Для покупателя комиссия ${c.buyerPercent}%.`;
+  }
   if (value.topic === "rental") return k.rent
     ? tg ? "Хизматрасонии иҷора дастрас аст; шартҳоро бояд дақиқ кунем." : "Услуги аренды доступны; условия нужно уточнить."
     : tg ? "Ҳоло бо иҷора кор намекунем: на ба иҷора медиҳем ва на меҷӯем." : "Сейчас арендой не занимаемся: не сдаём и не подбираем в аренду.";
-  if (value.topic === "payment") return [
-    k.installments ? tg ? "Шартҳои пардохти қисм-қисмро бояд дақиқ кунем." : "Условия рассрочки нужно уточнить."
-      : tg ? "Пардохти қисм-қисм надорем." : "Рассрочки нет.",
-    k.mortgage ? tg ? "Шартҳои ипотекаро бояд дақиқ кунем." : "Условия ипотеки нужно уточнить."
-      : tg ? "Ипотека надорем." : "Ипотеки нет.",
-  ].join(" ");
-  // No discount percentage or promise that the owner was contacted/agreed.
+  if (value.topic === "payment") {
+    if (!k.installments && !k.mortgage) return tg ? "Мутаассифона, ҳоло на пардохти қисм-қисм ҳаст, на ипотека." : "К сожалению, сейчас нет ни рассрочки, ни ипотеки.";
+    // Owner 13.11.2026: answer as the agents do. The developer's installments and a bank mortgage,
+    // never our own credit or a specific rate/down payment (those are named by the agent per object).
+    return [
+      k.installments ? tg ? "Дар хонаҳои нав баъзе сохтмончиён пардохти қисм-қисм медиҳанд, шартҳояшон гуногун аст."
+          : "В новостройках рассрочку дают некоторые застройщики, условия у каждого свои."
+        : tg ? "Пардохти қисм-қисм ҳоло нест." : "Рассрочки сейчас нет.",
+      k.mortgage ? tg ? "Ипотекаро тавассути бонк гирифтан мумкин аст." : "Ипотеку можно оформить через банк."
+        : tg ? "Ипотека ҳоло нест." : "Ипотеки сейчас нет.",
+      ...(k.installments || k.mortgage ? [tg ? "Шартҳоро барои объекти мушаххас агент мегӯяд." : "Условия по конкретному объекту подскажет агент."] : []),
+    ].join(" ");
+  }
+  // Bargaining exists (SALES_FACTS); the agent leads it. No discount size, no promise the owner agreed.
   if (value.topic === "negotiation") return tg
-    ? "Масъалаи савдоро агент бо соҳибмулк муҳокима мекунад. Андозаи тахфифро ҳоло тасдиқ карда наметавонам."
-    : "Вопрос торга агент обсуждает с собственником. Размер скидки пока не могу подтвердить.";
+    ? "Савдо ҳаст. Онро агент бо соҳибмулк муҳокима мекунад, одатан баъд аз дидани хона. Андозаи тахфифро пешакӣ гуфта наметавонам."
+    : "Торг возможен. Его обсуждает агент с собственником, обычно после просмотра. Размер скидки заранее не называю.";
+  // No "guarantee": what we actually do (SALES_FACTS: notary and MBTI check before the deal).
   if (value.topic === "legal") return k.guarantees
     ? tg ? "Шартҳои кафолати ҳуқуқиро бояд дақиқ кунем." : "Условия юридических гарантий нужно уточнить."
-    : tg ? "Покии ҳуқуқии объектро кафолат дода наметавонам." : "Не могу гарантировать юридическую чистоту объекта.";
+    : tg ? "Ҳуҷҷатҳоро пеш аз аҳд дар нотариус ва МБТИ месанҷем, ин кори мост." : "Документы перед сделкой проверяем у нотариуса и в МБТИ, это наша работа.";
   return tg ? `Барои хариду фурӯши амвол дар ${k.city} кӯмак мекунем.${k.otherCities ? "" : " Дар шаҳрҳои дигар кор намекунем."}`
     : `Помогаем с покупкой и продажей недвижимости в городе ${k.city}.${k.otherCities ? "" : " Другие города не обслуживаем."}`;
 }
@@ -511,14 +550,26 @@ function renderDecisionCore(input: {
     ? validateCustomerAgentSayForDecision({ say: d.say, decision: d, evidence: input.evidence, language: lang, surface: input.surface,
       inputText: input.inputText, verifiedContext: input.verifiedContext }) : null;
   const sayText = sayVerdict?.ok ? sayVerdict.text : null;
+  /** A company term the customer did not ask about was left out (DM). */
+  let unaskedPolicySkipped = false;
+  // No second hello in the middle of a conversation (reviewer notes 10–12.11.2026); a salaam gets its answer.
+  const greetedBefore = input.surface === "dm" && !!input.verifiedContext?.turns.some(turn => turn.role === "assistant");
+  const ownWords = clientOwnWords(input.inputText ?? "");
+  // The customer greets again ("привет" after a pause): a greeting back is natural; on our own we do not repeat it.
+  const customerGreets = SALAAM.test(ownWords) || CUSTOMER_GREETING.test(ownWords);
+  const socialKind = d.social === "greet" && greetedBefore && !customerGreets ? "none" : d.social;
+  const salaam = SALAAM.test(ownWords);
+  const greetLine = salaam ? SALAAM_REPLY : social.greet[lang];
   if (input.surface === "public_comment" && d.social === "thank" && isCustomerPublicAppreciation(input.inputText ?? "")) {
     lines.push(customerPublicThanks(input.inputText!, lang));
   } else if (sayText) {
     // The grounded free phrase replaces the stock acknowledgement; a greeting still opens the message (a continuing recruitment only acknowledges) and the template question still closes it.
-    if (d.social === "greet") lines.push(continuingRecruitment ? social.acknowledge[lang] : social.greet[lang]);
+    if (continuingRecruitment && d.social === "greet") lines.push(social.acknowledge[lang]);
+    else if (socialKind === "greet" || salaam) lines.push(greetLine);
     lines.push(sayText);
   } else if (continuingRecruitment && d.social === "greet") lines.push(social.acknowledge[lang]);
-  else if (social[d.social][lang]) lines.push(social[d.social][lang]);
+  else if (socialKind === "greet" || salaam && socialKind === "none") lines.push(greetLine);
+  else if (social[socialKind][lang]) lines.push(social[socialKind][lang]);
   if (followRequest) lines.push(lang === "tg" ? "Ман худам ба сайт ё аккаунт обуна шуда наметавонам." : "Я не могу сам подписаться на сайт или аккаунт.");
   if (languagePermissionRequested) lines.push(lang === "tg" ? "Бале, албатта. Дар бораи худ ва таҷрибаатон ба тоҷикӣ нақл кунед." : "Да, конечно. Расскажите о себе и своём опыте на таджикском.");
   if (messengerChannelQuestion) lines.push(lang === "tg" ? "Метавонем ҳамин ҷо, дар ҳамин чат, идома диҳем." : "Можем продолжить здесь, в текущем чате.");
@@ -570,7 +621,10 @@ function renderDecisionCore(input: {
     if (item.value.kind === "proposal") lines.push(item.value.summary[lang]);
     if (item.value.kind === "company_policy") {
       if (!isPinnedCompanyPolicy(item.value, input.knowledgeSourceHash)) return null;
-      lines.push(policySegment(item.value, lang));
+      // Voice messages count by their transcript: "рассрочка есть?" said aloud is still the question.
+      const askedText = [input.inputText, perception?.success ? perception.data.transcript : ""].filter(Boolean).join("\n");
+      if (input.surface === "dm" && !customerAskedPolicyTopic(item.value.topic, askedText)) { unaskedPolicySkipped = true; continue; }
+      lines.push(policySegment(item.value, lang, input.surface === "dm" ? intakeProgress(input).role : "public"));
     }
     if (item.value.kind === "company_information") {
       if (!isCustomerCompanyInformation(item.value)) return null;
@@ -685,11 +739,16 @@ function renderDecisionCore(input: {
     : question === "clarify_previous" && input.surface === "dm"
       ? repairPreviousQuestion(input.verifiedContext, lang) ?? questions[question][lang] : questions[question][lang]);
   if (question === "confirmation") lines.push(lang === "tg" ? "Тасдиқ мекунед?" : "Подтверждаете?");
-  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion && !guidePresentation) return null;
+  if (!evidence.length && question === "none" && socialKind === "none" && !salaam && !(continuingRecruitment && d.social === "greet") && !visualSummary && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion && !guidePresentation) return null;
   // A suppressed personal-data request by itself is not a useful completed
   // reply, even if the model attached "Понял" to it.
   if ((publicContactQuestion || (d.kind !== "propose" && d.question === "phone" && input.knownPhoneSource !== "none")) &&
       !evidence.length && question === "none") return null;
+  // Only an unasked company term was "read": silence would leave the customer without an answer, and the term
+  // itself is not what they asked (attack job-unknown-003, 14.11.2026). Ask what they need instead.
+  if (unaskedPolicySkipped && question === "none" && !lines.some(line => line && !Object.values(social).some(kind => kind[lang] === line))) {
+    lines.push(questions.topic[lang]);
+  }
   const text = lines.filter(Boolean).join("\n");
   // Never truncate a monetary value, receipt or critical proposal summary.
   return text && text.length <= input.maxOutputChars ? text : null;
@@ -702,10 +761,11 @@ function renderDecisionCore(input: {
  *  - a fixed question the previous turn already asked is not asked again; what is left of the reply stays;
  *  - nothing left: the buyer's finished questionnaire moves to the next step (an object), anything else gets an
  *    honest "I wrote this above" notice, a different one each time;
- *  - the same facts again are introduced with "Повторю ещё раз".
+ *  - the same facts again are introduced with "Напомню:"; a fact asked for right now is simply said again.
  * Hostile or promotional input is answered by one neutral line before any of this (no company fact for a threat).
  */
-const REPEAT_LEAD = { ru: "Повторю ещё раз:", tg: "Бори дигар такрор мекунам:" };
+// "Повторю ещё раз" read as irritation (four reviewer notes 11–12.11.2026): a calm reminder instead.
+const REPEAT_LEAD = { ru: "Напомню:", tg: "Ёдрас мекунам:" };
 const REPEAT_NOTICES: ReadonlyArray<{ ru: string; tg: string }> = [
   { ru: "Я уже писал об этом выше. Уточните, пожалуйста, что именно непонятно или что вы хотите узнать.",
     tg: "Ман инро дар боло навишта будам. Лутфан бигӯед, кадом қисми он нофаҳмо аст ё чиро донистан мехоҳед." },
@@ -739,7 +799,7 @@ const PREFERENCES_DONE = { ru: "Понял, учту. Если хотите по
 const SOCIAL_FAMILIES: ReadonlyArray<ReadonlyArray<{ ru: string; tg: string }>> = [
   [social.acknowledge, { ru: "Хорошо, принято.", tg: "Хуб, қабул шуд." }, { ru: "Ясно, спасибо.", tg: "Равшан аст, ташаккур." }],
   [social.thank, { ru: "Благодарю!", tg: "Миннатдорам!" }, { ru: "Спасибо вам!", tg: "Сипос!" }],
-  [social.greet, { ru: "Добрый день!", tg: "Ассалому алайкум!" }, { ru: "Здравствуйте, рад вас слышать!", tg: "Салом, хуш омадед!" }],
+  [social.greet, { ru: "Добрый день!", tg: "Хуш омадед!" }, { ru: "Здравствуйте, рад вас слышать!", tg: "Салом, хуш омадед!" }],
 ];
 const lineSet = (...lists: ReadonlyArray<readonly string[]>) => new Set(lists.flat());
 let fixedQuestionLines: Set<string> | undefined;
@@ -827,7 +887,7 @@ function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifi
   // The same facts again: introduce, then say so honestly. Greetings and thanks repeat freely.
   if (lines.every(line => asked.has(line)) && !lines.every(line => socials.has(line))) {
     // The customer asked for exactly this fact right now ("этаж", "район"): it is the answer, said again, never a notice (31.10 live).
-    if (input.requestedFacts?.length) return asked.has(REPEAT_LEAD[lang]) ? text : `${REPEAT_LEAD[lang]}\n${text}`;
+    if (input.requestedFacts?.length) return text;
     return asked.has(REPEAT_LEAD[lang]) ? notice() : `${REPEAT_LEAD[lang]}\n${text}`;
   }
   return text;
@@ -848,6 +908,21 @@ export function renderCustomerAgentDecision(input: Parameters<typeof renderDecis
       return reply.length <= input.maxOutputChars ? reply : null;
     }
   }
+  const emoji = emojiOnlyReply(input);
+  if (emoji) return emoji.length <= input.maxOutputChars ? avoidRepeatedReply(emoji, input) : null;
   const text = renderDecisionCore(input);
   return text ? avoidRepeatedReply(text, input) : text;
+}
+
+/** A DM made only of emoji (137 of 11 314 real messages, 13.11.2026 export): the model used to guess a
+ * purchase, ask for a phone on a 👍 or repeat the rental refusal three times. Server text, no model words:
+ * the first message gets a hello and the one business question; after our reply it is a short "Понял."
+ * (rotated by the repeat guard), never a phone request or the previous answer again. */
+function emojiOnlyReply(input: Parameters<typeof renderDecisionCore>[0]): string | null {
+  const d = input.decision, own = (input.inputText ?? "").trim();
+  if (input.surface !== "dm" || (d.kind !== "reply" && d.kind !== "clarify") || input.attachmentInput || input.mediaPerception) return null;
+  if (!own || !/\p{Extended_Pictographic}/u.test(own) || /[\p{L}\p{N}?？]/u.test(own)) return null;
+  if (input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) return null;
+  const answered = !!input.verifiedContext?.turns.some(turn => turn.role === "assistant");
+  return answered ? social.acknowledge[input.language] : `${social.greet[input.language]}\n${BUSINESS_QUESTION[input.language]}`;
 }

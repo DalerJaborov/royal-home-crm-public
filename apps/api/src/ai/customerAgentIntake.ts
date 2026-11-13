@@ -47,9 +47,9 @@ export function customerSellerIntakeQuestion(known: readonly SellerFactKey[], la
   if (!missing.length) return language === "tg"
     ? "Аксҳо ё видеои хонаи худро дар ҳамин чат фиристода метавонед?"
     : "Можете прислать фото или видео вашей недвижимости в этот чат?";
-  const fields = missing.map(key => labels[key][language]).join(", ");
-  return language === "tg" ? `Барои фурӯш ${fields}-ро нависед. Ҳамаашро дар як паём фиристода метавонед.`
-    : `Для продажи напишите ${fields}. Можно всё одним сообщением.`;
+  // Two facts at a time: the whole list in one message is where sellers went silent (13.11.2026 review).
+  const fields = missing.slice(0, 2).map(key => labels[key][language]).join(language === "tg" ? " ва " : " и ");
+  return language === "tg" ? `Барои фурӯш, лутфан, ${fields}-ро нависед.` : `Для продажи напишите, пожалуйста, ${fields}.`;
 }
 
 /** Every wording customerSellerIntakeQuestion can produce (any subset of known facts), for the read-only memory allow-list. */

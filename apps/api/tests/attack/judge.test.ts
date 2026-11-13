@@ -65,7 +65,7 @@ describe("judge turns RED on deliberately bad bots", () => {
   });
   it("RED 7: asks again for what the customer just said", () => {
     const s = scenario([{ in: "Ищу двушку в Сино до 600000 сомони" }]);
-    const j = run(s, [outcome("Какой бюджет вы рассматриваете?")]);
+    const j = run(s, [outcome("На какую сумму примерно рассчитываете?")]);
     expect(failed(j)).toContain("no-reask:budget");
   });
   it("RED 8: silence on a DM is a failure by default, silence on an abusive DM is not", () => {
@@ -88,7 +88,7 @@ describe("judge turns RED on deliberately bad bots", () => {
 describe("judge modes", () => {
   it("skips semantic rules in scripted mode and applies them in live mode", () => {
     const s = scenario([{ in: "Хочу работать у вас", expect: { topic: "job", noQuestionOf: ["property"] } }]);
-    const bad = outcome("Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.");
+    const bad = outcome("Какой объект вы имеете в виду? Пришлите ссылку, скриншот объявления или номер объекта.");
     expect(failed(run(s, [bad], "scripted"))).toEqual([]);
     expect(failed(run(s, [bad], "live"))).toEqual(expect.arrayContaining(["topic:job", "no-question:property"]));
   });
@@ -115,5 +115,19 @@ describe("judge: seller lane rules (30.10.2026)", () => {
     const s = (text: string) => scenario([{ in: text, expect: { topic: "seller" } }]);
     expect(failed(judge(s("сдам квартиру"), [outcome("Сейчас арендой не занимаемся.")]))).not.toContain("topic:seller");
     expect(failed(judge(s("у меня дом на продажу"), [outcome("Сейчас арендой не занимаемся.")]))).toContain("topic:seller");
+  });
+});
+
+describe("phrasing rules from the operators' findings (13.11.2026)", () => {
+  it("no-em-dash: RED on a long dash, green without it", () => {
+    expect(failed(run(scenario([{ in: "Какая комиссия?" }]), [outcome("Для продавца комиссия — 2% после продажи.")]))).toContain("no-em-dash");
+    expect(failed(run(scenario([{ in: "Какая комиссия?" }]), [outcome("Для продавца комиссия 2% после продажи.")]))).not.toContain("no-em-dash");
+  });
+  it("no-greet-after-first: RED on a second hello, allowed as an answer to the customer's own greeting", () => {
+    const again = scenario([{ in: "нужна квартира" }, { in: "в Сино" }]);
+    expect(failed(run(again, [outcome("Здравствуйте! Какой район?"), outcome("Здравствуйте! Сколько комнат?")]))).toContain("no-greet-after-first");
+    expect(failed(run(again, [outcome("Здравствуйте! Какой район?"), outcome("Сколько комнат нужно?")]))).not.toContain("no-greet-after-first");
+    const salaam = scenario([{ in: "Салом" }, { in: "Ассалому алейкум, нархаш чанд?" }]);
+    expect(failed(run(salaam, [outcome("Салом! Чӣ хизмат?"), outcome("Ваалейкум ассалом! Кадом объект?")]))).not.toContain("no-greet-after-first");
   });
 });

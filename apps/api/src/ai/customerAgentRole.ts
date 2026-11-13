@@ -30,6 +30,9 @@ const SELL_OWN =re(`${BW}хонаи худам${EW}`);
 // Tajik "for sale" without a housing noun (folded alphabet: фурӯши/фурушӣ -> фуруши): "фуруши дорам", "барои фуруш", "фурушӣ ҳаст".
 const SELL_TG = re(`${BW}фуруши?${EW} ${HAVE}${EW}`);
 const FOR_SALE_TG = re(`${BW}барои фуруши?${EW}`);
+// "Хона реклама мекунед?" — an owner asking us to advertise their home (owner's lesson): a seller, not a candidate.
+const ADVERTISE_MINE_TG = [re(`${BW}${HOUSING}${EW}.{0,25}?${BW}реклама (?:мекунед|мекунен|мекнен|мекунетон|мекунит|кардан)${EW}`),
+  re(`${BW}реклама (?:мекунед|мекунен|мекнен)${EW}.{0,25}?${BW}${HOUSING}${EW}`)];
 const LANDLORD_ACTIVE = re(`${BW}(?:сдам|сдаю|сдаем|сдать|сдавать)${EW}`);
 const LANDLORD_PASSIVE = re(`${BW}(?:сдается|сдаются)${EW}`);
 const LANDLORD_TG = re(`${BW}(?:ба )?ичора (?:медихам|медихем|медам|медем)${EW}`);
@@ -69,7 +72,7 @@ export function customerRoleSignals(text: string): CustomerRoleSignals {
   const buyerAsk = plain(norm, BUYER_ASK) || (passive && question) || (question && plain(norm, FOR_SALE));
   const landlord = plain(norm, LANDLORD_TG) ||
     (plain(norm, LANDLORD_ACTIVE) || (plain(norm, LANDLORD_PASSIVE) && !question)) && (RENT_HINT.test(norm) || HOUSING_WORD.test(norm));
-  const sell = plain(norm, SELL_ACTIVE) || (passive && !question && !buyerAsk) || plain(norm, SELL_OWN) || plain(norm, SELL_TG) || (!question && !buyerAsk && plain(norm, FOR_SALE_TG)) || (!question && !buyerAsk && plain(norm, ON_SALE)) || plain(norm, OWN_HOUSING);
+  const sell = plain(norm, SELL_ACTIVE) || (passive && !question && !buyerAsk) || plain(norm, SELL_OWN) || plain(norm, SELL_TG) || (!question && !buyerAsk && plain(norm, FOR_SALE_TG)) || (!question && !buyerAsk && plain(norm, ON_SALE)) || plain(norm, OWN_HOUSING) || plain(norm, ADVERTISE_MINE_TG);
   return { buyStrong: buyerAsk || plain(norm, BUY_STRONG), buyWeak: plain(norm, BUY_WEAK), sell, landlord,
     rent: plain(norm, RENT_TENANT) };
 }

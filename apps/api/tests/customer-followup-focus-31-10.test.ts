@@ -81,7 +81,7 @@ function render(decision: object, inputText: string, turns: Array<{ role: "user"
 describe("the repeat guard never swallows an answer to a fact question", () => {
   const object = "Цена объекта №69: 500 000 сомони.\nРасположение: Сино, Душанбе.\nЭтаж: 5 из 9.";
   it("answers 'этаж' again with the floor line, not with an 'I already wrote' notice", () => {
-    const text = render({ kind: "reply", question: "none" }, "этаж", [user("цена"), bot(`Повторю ещё раз:\n${object}`)],
+    const text = render({ kind: "reply", question: "none" }, "этаж", [user("цена"), bot(`Напомню:\n${object}`)],
       [facts(["characteristics"])], ["characteristics"])!;
     expect(text).toContain("Этаж: 5 из 9");
     expect(text).not.toMatch(/уже писал|своими словами|одним сообщением/u);
@@ -99,7 +99,7 @@ describe("the repeat guard never swallows an answer to a fact question", () => {
     const all = [facts(["price", "address", "characteristics"])];
     const first = render({ kind: "reply", question: "none" }, "расскажите", [user("расскажите")], all)!;
     const second = render({ kind: "reply", question: "none" }, "расскажите", [user("расскажите"), bot(first)], all)!;
-    expect(second).not.toMatch(/Повторю ещё раз/u);
+    expect(second).not.toMatch(/Напомню/u);
     expect(second).not.toContain("500 000");
     expect(second.split(String.fromCharCode(10))).toHaveLength(1);
     const third = render({ kind: "reply", question: "none" }, "расскажите", [user("расскажите"), bot(first), user("расскажите"), bot(second)], all)!;

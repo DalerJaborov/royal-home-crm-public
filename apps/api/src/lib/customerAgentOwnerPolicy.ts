@@ -244,8 +244,12 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string|null,body:Pub
       // Ordinary hotfixes cannot change instructions. The reviewed recruitment
       // v1 pair pins BOTH prompt and tool definitions and still requires the
       // existing catalog acknowledgement and all configuration/idle guards.
+      // The V3 quality edge pins its exact from/to knowledge source (owner decision 13.11.2026);
+      // only its separately confirmed advance may carry a changed AGENCY_FACTS.
+      // Without the confirmation the V3 edge still fails below with quality_continuity_upgrade_confirmation_required.
+      const pinnedKnowledgeEdge=customerAgentQualityContinuityUpgradeVersion(prior,next)==='v3';
       for(const field of ['knowledgeSourceHash','limits'] as const)
-        if(!isDeepStrictEqual(prior[field],next[field])) fail(409,"revision_advance_configuration_changed");
+        if(!(field==='knowledgeSourceHash'&&pinnedKnowledgeEdge)&&!isDeepStrictEqual(prior[field],next[field])) fail(409,"revision_advance_configuration_changed");
       const catalogChanged = prior.knowledgeSchemaHash !== next.knowledgeSchemaHash || prior.toolSchemaHash !== next.toolSchemaHash;
       const resumePair=isCustomerRecruitmentResumeUpgradeV2(prior,next);
       qualityContinuityVersion=customerAgentQualityContinuityUpgradeVersion(prior,next);const qualityContinuityPair=qualityContinuityVersion!==null;

@@ -29,7 +29,7 @@ describe("Факты о вакансии — одно место для чата
 
   it("адрес офиса — Дом печати, Бухоро 49, с ориентирами", () => {
     expect(vacancyOfficeAddress()).toBe(
-      "Душанбе, ул. Бухоро 49, Bukhoro Tower (Дом печати), 2 этаж; ориентиры — Школа №1, Поликлиника №13, Славянский университет (РТСУ), старая София"
+      "Душанбе, ул. Бухоро 49, Bukhoro Tower (Дом печати), 2 этаж. Ориентиры: Школа №1, Поликлиника №13, Славянский университет (РТСУ), старая София"
     );
     expect(SCENARIO_JOB).toContain(vacancyOfficeAddress());
     expect(robotRu).toContain(vacancyOfficeAddress());

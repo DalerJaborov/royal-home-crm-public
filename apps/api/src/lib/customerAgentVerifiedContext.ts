@@ -16,7 +16,7 @@ import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvi
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
-import { renderCustomerAgentDecision, customerAgentFixedLines, customerAgentLineDigest, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
+import { renderCustomerAgentDecision, customerAgentFixedLines, customerAgentPolicyLines, customerAgentLineDigest, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentInput.js";
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
@@ -191,7 +191,10 @@ function safePublicLines(evidence: readonly CustomerAgentEvidence[], revision: R
       render({ kind: "clarify", refs: [], social: "none", question });
     }
     for (const social of ["greet", "thank", "acknowledge", "apologize"] as const) render({ kind: "reply", refs: [], social, question: "none" });
-    for (const e of evidence) render({ kind: "reply", refs: [e.ref], social: "none", question: "none" }, [e]);
+    for (const e of evidence) {
+      render({ kind: "reply", refs: [e.ref], social: "none", question: "none" }, [e]);
+      if (e.value.kind === "company_policy") for (const line of customerAgentPolicyLines(e.value, language, revision.knowledgeSourceHash)) lines.add(line);
+    }
   }
   return lines;
 }

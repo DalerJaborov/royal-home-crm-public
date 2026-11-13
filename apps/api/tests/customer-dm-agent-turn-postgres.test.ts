@@ -450,7 +450,7 @@ describe("actual durable DM common core", () => {
        source."fenceJson",NULL,'[]'::jsonb,source."agentRevisionId",'buyer_guide_follow','SUPPRESSED',0,now(),now()
       FROM "CustomerOutboxPart" source WHERE source."id"=${row.id}`).rejects.toBeTruthy();
     expect(row.partKey).toBe(createHash("sha256").update(JSON.stringify([row.inquiryId, "BOT_TURN", f.eventKey, 0, "LIVE"])).digest("hex"));
-    expect(decodeCustomerOutboxPayload(row)).toEqual({ kind: "text", text: "Здравствуйте!\nКакой бюджет вы рассматриваете?" });
+    expect(decodeCustomerOutboxPayload(row)).toEqual({ kind: "text", text: "Здравствуйте!\nНа какую сумму примерно рассчитываете?" });
     expect(await prisma.backgroundJob.count({ where: { dedupeKey: `customer-outbox-dispatch:${row.id}` } })).toBe(1);
     expect(await consumeCustomerInboxTicket(f.eventKey)).toEqual({ status: "unchanged", reason: "already_planned" });
     expect(f.io.filter(value => value === "count")).toHaveLength(1);
@@ -923,7 +923,7 @@ describe("actual durable DM common core", () => {
     const shadowResult = await runCustomerDmAgentTurn(shadow.eventKey);
     if (shadowResult.status !== "planned") throw Error(JSON.stringify(shadowResult));
     expect(decodeCustomerOutboxPayload(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: shadowResult.partIds[0] } })))
-      .toEqual({ kind: "text", text: "Здравствуйте!\nКакой бюджет вы рассматриваете?" });
+      .toEqual({ kind: "text", text: "Здравствуйте!\nНа какую сумму примерно рассчитываете?" });
     await waitFor(async () => await sayHits("say_dropped_shadow") > shadowBefore);
     vi.stubEnv("CUSTOMER_AGENT_SAY_MODE", "live");
     try {
@@ -933,7 +933,7 @@ describe("actual durable DM common core", () => {
       const liveResult = await runCustomerDmAgentTurn(live.eventKey);
       if (liveResult.status !== "planned") throw Error(JSON.stringify(liveResult));
       expect(decodeCustomerOutboxPayload(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: liveResult.partIds[0] } })))
-        .toEqual({ kind: "text", text: `Здравствуйте!\n${say}\nКакой бюджет вы рассматриваете?` });
+        .toEqual({ kind: "text", text: `Здравствуйте!\n${say}\nНа какую сумму примерно рассчитываете?` });
       await waitFor(async () => await sayHits("say_used") > usedBefore);
       const refusedBefore = await sayHits("say_dropped_number_or_date");
       const refused = await fixture();
@@ -941,7 +941,7 @@ describe("actual durable DM common core", () => {
       const refusedResult = await runCustomerDmAgentTurn(refused.eventKey);
       if (refusedResult.status !== "planned") throw Error(JSON.stringify(refusedResult));
       expect(decodeCustomerOutboxPayload(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: refusedResult.partIds[0] } })))
-        .toEqual({ kind: "text", text: "Здравствуйте!\nКакой бюджет вы рассматриваете?" });
+        .toEqual({ kind: "text", text: "Здравствуйте!\nНа какую сумму примерно рассчитываете?" });
       await waitFor(async () => await sayHits("say_dropped_number_or_date") > refusedBefore);
     } finally { vi.stubEnv("CUSTOMER_AGENT_SAY_MODE", ""); // not unstubAllEnvs: beforeAll stubs the synthetic provider origins with the same API
     }

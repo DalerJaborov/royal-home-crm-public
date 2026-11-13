@@ -66,6 +66,11 @@ describe("real corpus importer (synthetic records)", () => {
     expect(reference.pairs[0]).toMatchObject({ bad: "Нет.", good: expect.stringContaining("подберу"), lesson: "Не отвечайте односложно" });
     expect(reference.stats).toMatchObject({ total: 4, inactive: 1, incomplete: 1, duplicates: 1, written: 1 });
   });
+  it("reads the 13.11.2026 BotLesson export shape (botMessage/humanMessage)", () => {
+    const reference = lessonsToReference([{ kind: "tone", channel: "INSTAGRAM", botMessage: "Повторю ещё раз: цена 500 000.", humanMessage: "Цена 500 000 сомони, торг возможен.", lesson: "Не раздражаться", active: true }]);
+    expect(reference.pairs).toHaveLength(1);
+    expect(reference.pairs[0]).toMatchObject({ bad: expect.stringContaining("Повторю"), good: expect.stringContaining("торг возможен") });
+  });
 });
 
 describe("attack-import-real.mjs CLI", () => {

@@ -22,11 +22,15 @@ it.each(["topic", "role", "rooms", "budget", "phone", "job_position", "job_exper
 const facts = { propertyId: "00000000-0000-4000-8000-000000000101", shortId: 123, price: "110000.00", currency: "TJS" as const,
   availability: "AVAILABLE" as const, publicAddress: "Сино, Душанбе", addressPolicy: "district_city_only" as const,
   builder: null, publicLink: null, updatedAt: "2026-10-15T00:00:00.000Z", signature: "b".repeat(64) };
-function render(value: Parameters<typeof renderCustomerAgentDecision>[0]["evidence"][number]["value"], question: CustomerAgentQuestion = "none", language: "ru" | "tg" = "ru") {
-  return renderCustomerAgentDecision({ evidence: [{ ref: "e0", value }],
+function render(value: Parameters<typeof renderCustomerAgentDecision>[0]["evidence"][number]["value"], question: CustomerAgentQuestion = "none", language: "ru" | "tg" = "ru",
+  inputText = value.kind === "company_policy" ? ASKED[value.topic] : undefined) {
+  return renderCustomerAgentDecision({ evidence: [{ ref: "e0", value }], inputText,
     decision: { kind: "reply", refs: ["e0"], social: "none", question }, language,
     requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 3000, surface: "dm", knowledgeSourceHash: sourceHash });
 }
+/** The customer's own question for each company term: a term is printed only when asked (13.11.2026). */
+const ASKED = { commission: "Сколько стоят ваши услуги?", rental: "Квартиру в аренду сдаёте?", payment: "Рассрочка или ипотека есть?",
+  negotiation: "Торг возможен?", legal: "Документы в порядке, дом не под снос?", service_scope: "В Худжанде работаете?" } as const;
 function search(rooms: number | null = 3): CustomerAgentSearchObservation {
   const query = { type: "APARTMENT" as const, rooms: 2, budget: { max: "100000", currency: "TJS" as const } };
   const data = { type: "APARTMENT" as const, rooms, districtName: "Сино" };
@@ -44,22 +48,39 @@ describe("actual canonical public company source, draft", () => {
   });
   it("answers service commission before asking one useful role question", () => {
     const text = render({ kind: "company_policy", topic: "commission", sourceHash, knowledge }, "role");
-    expect(text).toContain(`для продавца — ${AGENCY_FACTS.commission.sellerPercent}%`);
-    expect(text).toContain(`для покупателя — ${AGENCY_FACTS.commission.buyerPercent}%`);
+    // Unknown role: the buyer's side (free) and the one question that decides the rest.
+    expect(text).toContain("Для покупателя наши услуги бесплатны.");
+    expect(text).not.toContain(`${AGENCY_FACTS.commission.sellerPercent}%`);
     expect(text).toContain("купить или продать"); expect(text?.match(/[?？]/gu)).toHaveLength(1);
     expect(text).not.toMatch(/номер телефона|позвонят|создан|сохран/iu);
   });
   it("honestly answers rental and payment instead of starting the housing questionnaire", () => {
     expect(render({ kind: "company_policy", topic: "rental", sourceHash, knowledge })).toContain("арендой не занимаемся");
     const text = render({ kind: "company_policy", topic: "payment", sourceHash, knowledge });
-    expect(text).toContain("Рассрочки нет."); expect(text).toContain("Ипотеки нет.");
-    expect(text).not.toMatch(/телефон|ипотека доступна|предодобр/iu);
+    // Owner 13.11.2026: as the agents say it. No own credit, no rate, no named bank.
+    expect(text).toContain("рассрочку дают некоторые застройщики"); expect(text).toContain("Ипотеку можно оформить через банк.");
+    expect(text).toContain("подскажет агент");
+    expect(text).not.toMatch(/телефон|предодобр|%|взнос/iu);
   });
   it("TG negotiation is conditional, no invented owner agreement or completed contact", () => {
     const text = render({ kind: "company_policy", topic: "negotiation", sourceHash, knowledge }, "property", "tg");
-    expect(text).toContain("агент бо соҳибмулк"); expect(text).toContain("тасдиқ карда наметавонам");
-    expect(text).toContain("Рақами объект"); expect(text?.match(/[?？]/gu)).toHaveLength(1);
+    expect(text).toContain("агент бо соҳибмулк"); expect(text).toContain("пешакӣ гуфта наметавонам");
+    expect(text).toContain("рақами объектро"); expect(text?.match(/[?？]/gu)).toHaveLength(1);
     expect(text).not.toMatch(/розӣ шуд|занг зад|сабт шуд|%/u);
+  });
+  it("a company term nobody asked about is not printed in a DM (address question got the bargaining rule, 12.11)", () => {
+    for (const topic of ["commission", "rental", "payment", "negotiation", "legal", "service_scope"] as const) {
+      const text = render({ kind: "company_policy", topic, sourceHash, knowledge }, "none", "ru", "Где находится этот дом?");
+      expect(text ?? "").not.toMatch(/комисси|аренд|рассрочк|ипотек|торг|нотариус|город/iu);
+    }
+  });
+  it("the seller hears the percent, when it is paid and what is free", () => {
+    const text = renderCustomerAgentDecision({ evidence: [{ ref: "e0", value: { kind: "company_policy", topic: "commission", sourceHash, knowledge } }],
+      inputText: "Продаю квартиру, сколько берёте?", decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" }, language: "ru",
+      requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 3000, surface: "dm", knowledgeSourceHash: sourceHash });
+    expect(text).toContain(`Для продавца комиссия ${AGENCY_FACTS.commission.sellerPercent}%, она платится один раз и только после продажи.`);
+    expect(text).toContain("Съёмка, видео и реклама бесплатно.");
+    expect(text).not.toMatch(/[—–]/u);
   });
   it("wrong/unpinned knowledge cannot assert a different commission", () => {
     const changed = { ...knowledge, commission: { ...knowledge.commission, sellerPercent: 9 } };

@@ -13,6 +13,7 @@ import { ensurePublicCommentInstallation } from "../../src/lib/customerPublicCom
 import { handleComment } from "../../src/messengers/comments.js";
 import { resetMetaAccountCredsCache } from "../../src/messengers/meta.js";
 import { PUBLIC_AGENCY_CONTACT } from "../../src/lib/publicAgencyContact.js";
+import { LEAD_ONLY_OFFICE_PHONE_TEXT } from "../../src/ai/leadOnlyMode.js";
 import { createCustomerCoreGoldenFixture, type CoreModelWire } from "../helpers/customerCoreGoldenFixture.js";
 import { factNumbersOf } from "./judge.js";
 import { scriptedParts, type ScriptedContext } from "./scriptedPolicy.js";
@@ -119,7 +120,9 @@ export async function createAttackStand(options: AttackStandOptions): Promise<At
   }
   const keyOf = (name: string) => `${tag}-${name}`;
 
-  const facts: JudgeFacts = { numbers: factNumbersOf(cards), allowedPhoneDigits: [PUBLIC_AGENCY_CONTACT.digits, PUBLIC_AGENCY_CONTACT.digits.slice(-9)], allowedHandles: [],
+  const facts: JudgeFacts = { numbers: factNumbersOf(cards), allowedPhoneDigits: [PUBLIC_AGENCY_CONTACT.digits, PUBLIC_AGENCY_CONTACT.digits.slice(-9),
+    // Vacancies go to the recruiter by phone (#145, 11.11.2026): the recruiter's office number is a legitimate fact.
+    LEAD_ONLY_OFFICE_PHONE_TEXT.replace(/\D/g, "")], allowedHandles: [],
     forbidden: [PRIVATE_MARKER, ...cards.map(card => card.id)] };
 
   /** `{{p1.short}}`, `{{p1.ob}}` (the CRM code "ОБ-000088"), `{{p1.ig}}`, `{{p1.ig_url}}`, `{{p1.site}}`, `{{p1.price}}` are expanded in customer inputs. */

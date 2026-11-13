@@ -104,7 +104,7 @@ describe("class 4: a repeated reply is varied, never silenced", () => {
     const line = "Офис Royal Home: Душанбе, ул. Тестовая, 1.\nСотрудники на связи с 09:30 до 18:00 по Душанбе. Выходные: воскресенье.";
     const asked = render("none", "где ваш офис?", context([user("где ваш офис?"), bot(line)]), [{ ref: "e0", value: company }],
       { decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" } });
-    expect(asked).toMatch(/^Повторю ещё раз:\n/u);
+    expect(asked).toMatch(/^Напомню:\n/u);
     expect(asked).toContain("ул. Тестовая, 1");
   });
   it("words a bare acknowledgement differently the third time instead of letting the shield swallow it", () => {
@@ -126,7 +126,7 @@ describe("class 4: a repeated reply is varied, never silenced", () => {
   it("lets the fixed wording into conversation memory", () => {
     const lines = customerAgentFixedLines();
     for (const line of ["Что ещё важно при выборе: например, этаж или состояние ремонта?", "Какая должность вас интересует?",
-      "Расскажите о недвижимости, которую хотите продать.", "Повторю ещё раз:", "Хорошо, принято."]) expect(lines.has(line)).toBe(true);
+      "Расскажите о недвижимости, которую хотите продать.", "Напомню:", "Хорошо, принято."]) expect(lines.has(line)).toBe(true);
   });
 });
 
