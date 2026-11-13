@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Star, Power, Instagram, MessageSquareText, KeyRound, Tag } from "lucide-react";
+import { Trash2, Star, Power, Instagram, MessageCircle, MessageSquareText, KeyRound, Tag } from "lucide-react";
 import { api } from "../../lib/api";
 import { InstagramAppBinding } from "./InstagramAppBinding";
 
@@ -24,6 +24,12 @@ import { InstagramAppBinding } from "./InstagramAppBinding";
  * ИМЯ КОМПАНИИ У АККАУНТА (08.11.2026). Второй бренд на тех же фактах (дочерняя
  * компания) просит, чтобы бот называл компанию иначе: пусто — «Royal Home», как везде.
  *
+ * ВТОРОЙ НОМЕР WHATSAPP (12.11.2026). Дочерней компании («Арван») нужен свой номер
+ * WhatsApp рядом с основным. Основной вписан в Настройках (поля выше), а здесь заводятся
+ * дополнительные: у каждого свой идентификатор номера, свой маркер и своё имя компании.
+ * Сервер сам проверяет маркер и номер у Meta и не принимает маркер, уже занятый другим
+ * номером (messengers/accounts.ts::findTokenCollision).
+ *
  * Разметка — эталон темы «Royal Home 2026»: заголовок секции `.sec-h.stack`,
  * аккаунты — строки списка `.row`, форма подключения — поля `.fld`.
  */
@@ -39,6 +45,12 @@ interface AccountRow {
   brandName: string | null;
 }
 
+/** Какой канал сейчас подключают: пусто — форма закрыта. */
+type AddingChannel = "INSTAGRAM" | "WHATSAPP" | null;
+
+/** Идентификатор номера (Phone number ID) — только цифры; телефон с плюсом сюда не годится. */
+export const PHONE_NUMBER_ID = /^\d{5,30}$/;
+
 const CHANNEL_TITLES: Record<string, string> = {
   INSTAGRAM: "Instagram",
   FACEBOOK: "Facebook",
@@ -53,9 +65,11 @@ export function MessengerAccounts() {
   });
   const items = data?.items ?? [];
 
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<AddingChannel>(null);
   const [title, setTitle] = useState("");
   const [token, setToken] = useState("");
+  /** Идентификатор номера WhatsApp (Phone number ID) — только в форме WhatsApp. */
+  const [phoneId, setPhoneId] = useState("");
   /** Имя компании для нового аккаунта; пусто — «Royal Home». */
   const [brand, setBrand] = useState("");
   /** Какому аккаунту правят имя компании, и черновик до сохранения. */
@@ -84,9 +98,10 @@ export function MessengerAccounts() {
       api("/settings/messenger-accounts", { method: "POST", body }),
     onSuccess: () => {
       refresh();
-      setAdding(false);
+      setAdding(null);
       setTitle("");
       setToken("");
+      setPhoneId("");
       setBrand("");
       setBrandFor(null);
       setPromptFor(null);
@@ -108,15 +123,27 @@ export function MessengerAccounts() {
   return (
     <div style={{ marginTop: "var(--s4)" }}>
       <div className="sec-h stack">
-        <h2>Аккаунты Instagram</h2>
+        <h2>Аккаунты Instagram и номера WhatsApp</h2>
         <span className="note">
-          Можно подключить несколько: основной для продаж и, например, информационный. Каждый отвечает от
-          своего имени, переписка не смешивается
+          Можно подключить несколько: основной для продаж и, например, информационный или номер дочерней
+          компании. Каждый отвечает от своего имени, переписка не смешивается. Основной номер WhatsApp
+          вписан в полях выше, здесь добавляются дополнительные
         </span>
       </div>
       <div className="wrap">
-        <button className="pill ghost sm" type="button" onClick={() => setAdding((v) => !v)}>
-          Добавить аккаунт
+        <button
+          className="pill ghost sm"
+          type="button"
+          onClick={() => setAdding((v) => (v === "INSTAGRAM" ? null : "INSTAGRAM"))}
+        >
+          Добавить Instagram
+        </button>
+        <button
+          className="pill ghost sm"
+          type="button"
+          onClick={() => setAdding((v) => (v === "WHATSAPP" ? null : "WHATSAPP"))}
+        >
+          Добавить номер WhatsApp
         </button>
       </div>
 
@@ -125,17 +152,22 @@ export function MessengerAccounts() {
           {items.map((a) => (
             <div key={a.id}>
               <div className="row">
-                <Instagram className="i lg" aria-hidden="true" style={{ opacity: a.enabled ? 1 : 0.45 }} />
+                {a.channel === "WHATSAPP" ? (
+                  <MessageCircle className="i lg" aria-hidden="true" style={{ opacity: a.enabled ? 1 : 0.45 }} />
+                ) : (
+                  <Instagram className="i lg" aria-hidden="true" style={{ opacity: a.enabled ? 1 : 0.45 }} />
+                )}
                 <div className="t">
                   <b style={{ display: "flex", alignItems: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
                     <span style={{ opacity: a.enabled ? 1 : 0.55 }}>{a.title}</span>
-                    {a.isDefault && <span className="chip">основной</span>}
+                    {a.isDefault && a.channel !== "WHATSAPP" && <span className="chip">основной</span>}
                     {!a.hasToken && <span className="chip crit">нет маркера</span>}
                     {a.systemPrompt && <span className="chip ok">свой промт</span>}
                     {a.brandName && <span className="chip ok">зовётся «{a.brandName}»</span>}
                   </b>
                   <span>
-                    {CHANNEL_TITLES[a.channel] ?? a.channel} · {a.externalId}
+                    {CHANNEL_TITLES[a.channel] ?? a.channel} · {a.channel === "WHATSAPP" ? "номер " : ""}
+                    {a.externalId}
                   </span>
                 </div>
                 <div className="act">
@@ -175,7 +207,7 @@ export function MessengerAccounts() {
                     <Tag className="i" aria-hidden="true" />
                   </button>
 
-                  {!a.isDefault && (
+                  {!a.isDefault && a.channel !== "WHATSAPP" && (
                     <button
                       className="pill ghost sm"
                       type="button"
@@ -257,7 +289,11 @@ export function MessengerAccounts() {
                   </div>
                   <label className="fld" style={{ marginTop: "var(--s3)" }}>
                     <span className="lab">Новый маркер доступа</span>
-                    <input value={draftToken} onChange={(e) => setDraftToken(e.target.value)} placeholder="IGAA…" />
+                    <input
+                      value={draftToken}
+                      onChange={(e) => setDraftToken(e.target.value)}
+                      placeholder={a.channel === "WHATSAPP" ? "EAA…" : "IGAA…"}
+                    />
                   </label>
                   <div className="wrap" style={{ marginTop: "var(--s3)" }}>
                     <button
@@ -378,7 +414,7 @@ export function MessengerAccounts() {
         </div>
       )}
 
-      {adding && (
+      {adding === "INSTAGRAM" && (
         <div className="fgrid" style={{ marginTop: "var(--s4)" }}>
           <label className="fld">
             <span className="lab">Название для сотрудников</span>
@@ -409,14 +445,85 @@ export function MessengerAccounts() {
             >
               {save.isPending ? "Подключаю…" : "Подключить"}
             </button>
-            <button className="pill ghost" type="button" onClick={() => setAdding(false)}>
+            <button className="pill ghost" type="button" onClick={() => setAdding(null)}>
               Отмена
             </button>
           </div>
         </div>
       )}
 
-      {items.length === 0 && !adding && (
+      {adding === "WHATSAPP" && (
+        <div className="fgrid" style={{ marginTop: "var(--s4)" }}>
+          <div className="wide quiet">
+            <span className="dot" />
+            <span className="txt">
+              Номер подключается к тому же приложению Meta, что и основной: вебхук и секрет приложения общие.
+              Маркер нужен отдельный, не тот, что у основного номера, — иначе CRM не сможет отличить номера
+              при отправке.
+            </span>
+          </div>
+          <label className="fld">
+            <span className="lab">Название для сотрудников</span>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Арван, WhatsApp" />
+          </label>
+          <label className="fld">
+            <span className="lab">Идентификатор номера (Phone number ID)</span>
+            <input
+              value={phoneId}
+              inputMode="numeric"
+              onChange={(e) => setPhoneId(e.target.value.trim())}
+              placeholder="1129773893562843"
+              aria-invalid={phoneId !== "" && !PHONE_NUMBER_ID.test(phoneId)}
+            />
+            <span className="msg" style={{ color: "var(--faint)" }}>
+              Meta → WhatsApp Manager → «Номера телефонов» → нужный номер → «Идентификатор номера телефона»
+              (или в кабинете разработчика: WhatsApp → «Настройка API»). Это длинное число из цифр, а не сам
+              телефон.
+            </span>
+          </label>
+          <label className="fld">
+            <span className="lab">Маркер доступа этого номера</span>
+            <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="EAA…" />
+            <span className="msg" style={{ color: "var(--faint)" }}>
+              Meta → Бизнес-настройки → Системные пользователи → «Создать маркер», права
+              whatsapp_business_messaging и whatsapp_business_management. Показывается один раз. CRM сверит
+              маркер и номер с Meta и не примет нерабочий.
+            </span>
+          </label>
+          <label className="fld">
+            <span className="lab">Как бот называет компанию (если не Royal Home)</span>
+            <input value={brand} maxLength={20} onChange={(e) => setBrand(e.target.value)} placeholder="Арван" />
+            <span className="msg" style={{ color: "var(--faint)" }}>
+              Для номера дочерней компании на тех же фактах. Пусто — бот говорит «Royal Home».
+            </span>
+          </label>
+          <div className="wide wrap">
+            <button
+              className="pill"
+              type="button"
+              disabled={save.isPending || !title.trim() || !PHONE_NUMBER_ID.test(phoneId) || !token.trim()}
+              onClick={() =>
+                save.mutate({
+                  channel: "WHATSAPP",
+                  title,
+                  externalId: phoneId,
+                  token,
+                  brandName: brand.trim(),
+                  // Основной номер живёт в Настройках; этот — дополнительный, «по умолчанию» ему быть незачем.
+                  isDefault: false,
+                })
+              }
+            >
+              {save.isPending ? "Проверяю у Meta…" : "Подключить номер"}
+            </button>
+            <button className="pill ghost" type="button" onClick={() => setAdding(null)}>
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
+      {items.length === 0 && adding === null && (
         <div className="quiet" style={{ marginTop: "var(--s2)" }}>
           <span className="dot" />
           <span className="txt">

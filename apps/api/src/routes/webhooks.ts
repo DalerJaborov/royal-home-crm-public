@@ -79,6 +79,7 @@ import {
   foreignWhatsAppPhoneIds as foreignMetaWaPhoneIds,
   getWaPhoneId as getMetaWaPhoneId,
   isMetaEnabled,
+  loadCredentials as loadMetaCredentials,
   parseIncoming as parseMetaIncoming,
   parseStatusUpdates as parseMetaStatusUpdates,
   sendMessage as sendMetaMessage,
@@ -1786,7 +1787,11 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // без `value.messages`. Раньше это поле было типа unknown и терялось молча.
       // Кабинет WhatsApp (для одобренных текстов первого сообщения) узнаётся сам
       // из вебхука — владельцу не нужно искать его в панели Meta.
-      void rememberBusinessAccountFromWebhook(req.body, waPhoneId);
+      // Кабинет для шаблонов первого сообщения — кабинет ОСНОВНОГО номера из Настроек.
+      // Вебхук второго номера (другая компания, свой кабинет) приходит сюда же, и если
+      // он придёт первым, чужой кабинет запомнился бы вместо нашего (12.11.2026).
+      const mainWaPhoneId = (await loadMetaCredentials()).waPhoneId;
+      void rememberBusinessAccountFromWebhook(req.body, mainWaPhoneId ? [mainWaPhoneId] : waPhoneId);
 
       for (const s of parseMetaStatusUpdates(req.body)) {
         void withBotTurnTrace({ channel: "WHATSAPP", account: s.accountExternalId, source: "delivery_status", event: null }, async () => {
@@ -2137,7 +2142,8 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       const attachments: AttachmentSource[] = [];
       if (DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")) {
         if (msg.channel === "WHATSAPP") {
-          const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId) : null;
+          // Маркер аккаунта, в который написал клиент: у второго номера он свой (см. whatsAppMediaSource).
+          const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account.token) : null;
           if (source) attachments.push({ ...source, declaredKind: msg.attachmentType });
         } else if (msg.attachmentUrl) {
           // "ig_reel" — единственный тип с двойным смыслом (см. комментарий у

@@ -522,10 +522,61 @@ export async function reconcileInstagramAccountIds(): Promise<boolean> {
  * глобальный, и клиент получил бы сообщение от чужого аккаунта.
  */
 export async function accountTokenById(accountId: string | null | undefined, channel: string) {
+  /**
+   * ДИАЛОГ БЕЗ АККАУНТА В WHATSAPP/MESSENGER — ЭТО ОСНОВНОЙ НОМЕР ИЗ НАСТРОЕК (12.11.2026).
+   *
+   * Основной номер WhatsApp (и Страница Facebook) живёт в Настройках, а не в таблице
+   * аккаунтов, и его диалоги записаны с `accountId = null`. Пока в таблице не было ни
+   * одной строки канала, `resolveIncomingAccount(channel, undefined)` отдавала маркер
+   * Настроек — верно. Но стоило завести ВТОРОЙ номер (строку WHATSAPP), как та же
+   * функция начала возвращать маркер ЭТОГО второго номера как «аккаунта по умолчанию»:
+   * напоминания, повтор зависших диалогов и просьба о номере для диалога основного
+   * номера уходили с чужим маркером, и отправка отбивалась как account_mismatch
+   * (customerMetaTransport.ts). Поэтому для таких диалогов маркер берём из Настроек.
+   * Instagram не трогаем: там маркер основного аккаунта всегда был в таблице.
+   */
+  if (!accountId && (channel === "WHATSAPP" || channel === "FACEBOOK")) {
+    const legacy = await legacyToken(channel);
+    if (legacy) return { id: null as string | null, title: "Основной", token: legacy as string | undefined, disabled: false };
+  }
   if (!accountId) return { ...(await resolveIncomingAccount(channel, undefined)), disabled: false };
   const row = (await loadAccounts()).find((r) => r.id === accountId);
   if (!row) return { ...(await resolveIncomingAccount(channel, undefined)), disabled: false };
   return { id: row.id, title: row.title, token: decryptSecretSafe(row.token) || undefined, disabled: !row.enabled };
+}
+
+/**
+ * ЗАНЯТ ЛИ МАРКЕР ДРУГИМ НОМЕРОМ ТОГО ЖЕ КАНАЛА (12.11.2026).
+ *
+ * Отправка по маркеру (resolveLegacyMetaSendTransport в lib/customerMetaTransport.ts)
+ * выбирает аккаунт по совпадению маркера. Если у второго номера WhatsApp маркер тот же,
+ * что у основного (один системный пользователь, один выпуск), выбор неоднозначен, и
+ * отправка отбивается как account_mismatch — причём у ОБОИХ номеров, включая основной,
+ * который до подключения второго работал. Лечится не кодом выбора (у отправки нет
+ * ничего, кроме маркера), а тем, что в Meta выпускают отдельный маркер: каждый выпуск
+ * — новая строка, права те же. Поэтому такой маркер не принимаем при сохранении.
+ *
+ * Касается каналов, у которых основной аккаунт лежит в Настройках: WhatsApp и Facebook.
+ *
+ * @param excludeAccountId правится существующий аккаунт — себя с собой не сравниваем.
+ * @returns null — маркер свободен; иначе, чем он занят («основной в Настройках» или
+ *   название другого аккаунта).
+ */
+export async function findTokenCollision(
+  channel: string,
+  token: string,
+  excludeAccountId?: string
+): Promise<{ with: "settings" } | { with: "account"; title: string } | null> {
+  if (channel !== "WHATSAPP" && channel !== "FACEBOOK") return null;
+  const candidate = token.trim();
+  if (!candidate) return null;
+  if ((await legacyToken(channel)) === candidate) return { with: "settings" };
+  const rows = await prisma.messengerAccount.findMany({
+    where: { channel, ...(excludeAccountId ? { id: { not: excludeAccountId } } : {}) },
+    select: { title: true, token: true },
+  });
+  const hit = rows.find((r) => decryptSecretSafe(r.token) === candidate);
+  return hit ? { with: "account", title: hit.title } : null;
 }
 
 /** Маркер из старых одиночных полей Settings — путь совместимости. */

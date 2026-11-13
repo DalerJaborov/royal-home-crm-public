@@ -260,18 +260,52 @@ export async function checkMetaPageTokenHealth(): Promise<IntegrationCheck> {
  */
 export async function checkMetaWhatsappTokenHealth(): Promise<IntegrationCheck> {
   const name = "WhatsApp";
-  const account = await pickAccountForHealth("WHATSAPP");
-  const creds = await loadCredentials();
-  const phoneId = account?.externalId || creds.waPhoneId;
-  const waToken = account ? (await accountTokenById(account.id, "WHATSAPP")).token : creds.waToken;
+  const { account, phoneId, waToken } = await pickWhatsappMainTarget();
   if (!waToken || !phoneId) return { name, ok: null, detail: "не настроен" };
+  return checkWhatsappNumber(name, account?.title, phoneId, waToken, account);
+}
 
+/**
+ * ОСНОВНОЙ НОМЕР WHATSAPP ДЛЯ ПРОВЕРОК (12.11.2026, второй номер для «Арван»).
+ *
+ * Раньше при наличии ХОТЬ ОДНОЙ строки в таблице аккаунтов проверка смотрела только
+ * на неё, а Настройки считала запасным путём «пока аккаунтов нет». Для WhatsApp это
+ * неверно с тех пор, как рядом с основным номером из Настроек завели второй:
+ * проверка «жив ли WhatsApp» начинала смотреть только на второй номер, и смерть
+ * маркера ОСНОВНОГО — основного канала продаж — «Здоровье системы» не заметило бы
+ * вовсе, оставаясь зелёным. Теперь основной номер — тот, что в Настройках; аккаунт из
+ * таблицы выбирается, только когда в Настройках номера нет (установка целиком на
+ * таблице аккаунтов — прежнее поведение). Остальные номера проверяет
+ * checkWhatsappAccountsHealth.
+ */
+async function pickWhatsappMainTarget(): Promise<{
+  account: Awaited<ReturnType<typeof pickAccountForHealth>>;
+  phoneId: string | undefined;
+  waToken: string | undefined;
+}> {
+  const creds = await loadCredentials();
+  if (creds.waToken && creds.waPhoneId) return { account: null, phoneId: creds.waPhoneId, waToken: creds.waToken };
+  const account = await pickAccountForHealth("WHATSAPP");
+  return {
+    account,
+    phoneId: account?.externalId || creds.waPhoneId,
+    waToken: account ? (await accountTokenById(account.id, "WHATSAPP")).token : creds.waToken,
+  };
+}
+
+async function checkWhatsappNumber(
+  name: string,
+  title: string | undefined,
+  phoneId: string,
+  waToken: string,
+  account?: { id: string; title: string } | null
+): Promise<IntegrationCheck> {
   try {
     const r = await graphIdReadable(phoneId, waToken);
     if (r.ok) return { name, ok: true, detail: r.detail };
     await report(
       "meta",
-      `Токен WhatsApp${account ? ` «${account.title}»` : ""} не работает — бот не сможет отвечать клиентам в ` +
+      `Токен WhatsApp${title ? ` «${title}»` : ""} не работает — бот не сможет отвечать клиентам в ` +
         `WhatsApp: ${r.detail}. Заменить маркер в Настройках → Каналы.`
     );
     if (isMetaAuthFailureText(r.detail)) {
@@ -283,7 +317,7 @@ export async function checkMetaWhatsappTokenHealth(): Promise<IntegrationCheck> 
     }
     return { name, ok: false, detail: r.detail };
   } catch (err) {
-    await report("meta", `Проверка токена WhatsApp не удалась: ${describeError(err)}`);
+    await report("meta", `Проверка токена WhatsApp${title ? ` «${title}»` : ""} не удалась: ${describeError(err)}`);
     return { name, ok: false, detail: describeError(err) };
   }
 }
@@ -323,6 +357,30 @@ export async function checkMetaSystemTokenHealth(): Promise<IntegrationCheck> {
     await report("meta", `Проверка вечного ключа Meta не удалась: ${describeError(err)}`);
     return { name, ok: false, detail: describeError(err) };
   }
+}
+
+/**
+ * Остальные номера WhatsApp из таблицы аккаунтов — по одной строке на номер, как у
+ * Instagram (checkInstagramAccountsHealth). Основной номер (см. pickWhatsappMainTarget)
+ * здесь не повторяется. Выключенный номер не проверяем: он молчит намеренно, а тревога
+ * о нём была бы ложной. Нет ни одного лишнего — пустой список, строк не добавляем.
+ */
+export async function checkWhatsappAccountsHealth(): Promise<IntegrationCheck[]> {
+  const main = await pickWhatsappMainTarget();
+  const rows = (await listAccounts("WHATSAPP")).filter(
+    (r) => r.enabled && r.id !== main.account?.id && r.externalId !== main.phoneId
+  );
+  const out: IntegrationCheck[] = [];
+  for (const row of rows) {
+    const name = `WhatsApp «${row.title}»`;
+    const token = (await accountTokenById(row.id, "WHATSAPP")).token;
+    if (!token) {
+      out.push({ name, ok: null, detail: "маркер не задан" });
+      continue;
+    }
+    out.push(await checkWhatsappNumber(name, row.title, row.externalId, token, row));
+  }
+  return out;
 }
 
 /** До смерти маркера Instagram (60 дней) остаётся запас — предупреждаем заранее,
@@ -672,8 +730,8 @@ export async function checkTokenScopesHealth(): Promise<IntegrationCheck[]> {
   const pageToken = page ? (await accountTokenById(page.id, "FACEBOOK")).token : creds.pageToken;
   push(await metaScopeRow("FACEBOOK_PAGE", TOKEN_SCOPE_CATALOG.FACEBOOK_PAGE.title, pageToken));
 
-  const wa = await pickAccountForHealth("WHATSAPP");
-  const waToken = wa ? (await accountTokenById(wa.id, "WHATSAPP")).token : creds.waToken;
+  // Основной номер — из Настроек, а не «первая строка таблицы» (см. pickWhatsappMainTarget).
+  const { waToken } = await pickWhatsappMainTarget();
   push(await metaScopeRow("WHATSAPP", TOKEN_SCOPE_CATALOG.WHATSAPP.title, waToken));
 
   const s = await prisma.settings.findUnique({
@@ -847,6 +905,16 @@ export async function runIntegrationHealthChecks(): Promise<IntegrationCheck[]> 
     const reason = describeError(err);
     void logSystemError("cron", `Проверка доступа «Instagram» не выполнена: ${reason}`);
     results.push({ name: "Instagram", ok: false, detail: reason });
+  }
+
+  // Остальные номера WhatsApp (12.11.2026) — тот же приём: строка на номер, сбой
+  // обёртки не должен прятать основной номер выше.
+  try {
+    results.push(...(await checkWhatsappAccountsHealth()));
+  } catch (err) {
+    const reason = describeError(err);
+    void logSystemError("cron", `Проверка доступа «WhatsApp (доп. номера)» не выполнена: ${reason}`);
+    results.push({ name: "WhatsApp (доп. номера)", ok: false, detail: reason });
   }
 
   // Дополнительные чаты Telegram (26.09.2026) — тот же приём, что у Instagram

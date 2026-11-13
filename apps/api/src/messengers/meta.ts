@@ -1483,6 +1483,57 @@ export async function instagramTokenIdentity(
 }
 
 /**
+ * КАКОЙ НОМЕР WHATSAPP ОТКРЫВАЕТ МАРКЕР (12.11.2026, второй номер для «Арван»).
+ *
+ * Тот же приём, что instagramTokenIdentity: при подключении номера спрашиваем у Meta,
+ * а не верим форме. «Идентификатор номера» (Phone number ID) легко перепутать с
+ * самим телефоном или с идентификатором кабинета WhatsApp (WABA) — в панели они
+ * лежат рядом, — и тогда все ответы молча уходят в никуда. Запрос
+ * `GET /{phone_number_id}` читает номер ЭТИМ маркером: ответит только если номер
+ * существует и маркеру выдан доступ к его кабинету.
+ *
+ * `kind` нужен маршруту, чтобы сказать человеку, что именно чинить: маркер
+ * (`token`), идентификатор (`number`) или это сбой сети (`network`), при котором
+ * винить форму нельзя.
+ */
+export async function whatsappNumberIdentity(
+  token: string,
+  phoneNumberId: string,
+  timeoutMs: number = CALL_TIMEOUT_MS
+): Promise<
+  | { ok: true; id: string; displayPhoneNumber?: string; verifiedName?: string }
+  | { ok: false; kind: "token" | "number" | "network"; error: string }
+> {
+  try {
+    const url =
+      `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(phoneNumberId)}` +
+      `?fields=id,display_phone_number,verified_name`;
+    const res = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${token}` } }, timeoutMs);
+    const text = await res.text();
+    if (!res.ok) {
+      let meta: { message?: string; code?: number } = {};
+      try {
+        meta = (JSON.parse(text) as { error?: { message?: string; code?: number } }).error ?? {};
+      } catch {
+        /* тело не JSON — ниже пойдёт обрезок текста */
+      }
+      const detail = (meta.message || text).slice(0, 200);
+      // 190 — маркер недействителен или отозван; 401 — то же на уровне HTTP.
+      if (res.status === 401 || meta.code === 190) return { ok: false, kind: "token", error: detail };
+      // 5xx и 429 — Meta, а не форма: не обвиняем ни маркер, ни номер.
+      if (res.status >= 500 || res.status === 429) return { ok: false, kind: "network", error: `Meta ответила ${res.status}` };
+      // Остальные 4xx: номера нет или маркеру к нему не выдан доступ (код 100 / 10 / 200).
+      return { ok: false, kind: "number", error: detail };
+    }
+    const data = JSON.parse(text) as { id?: string; display_phone_number?: string; verified_name?: string };
+    if (!data.id) return { ok: false, kind: "number", error: "Meta не вернула идентификатор номера" };
+    return { ok: true, id: data.id, displayPhoneNumber: data.display_phone_number, verifiedName: data.verified_name };
+  } catch (err) {
+    return { ok: false, kind: "network", error: describeError(err) };
+  }
+}
+
+/**
  * Видит ли маркер этого собеседника (02.10.2026, см. learnRecipientBySender в
  * messengers/accounts.ts).
  *
@@ -1651,15 +1702,25 @@ export async function fetchMessengerName(psid: string, tokenOverride?: string): 
  *
  * Ссылка живёт минуты, так что кэшировать её нельзя.
  */
-export async function whatsAppMediaSource(mediaId: string): Promise<AttachmentSource | null> {
+export async function whatsAppMediaSource(
+  mediaId: string,
+  /**
+   * Маркер аккаунта, в который пришло сообщение (12.11.2026). Файл клиента лежит в
+   * кабинете того номера, которому он писал, и читается только маркером с доступом к
+   * этому кабинету: у второго номера (другая компания, свой маркер) общий маркер из
+   * Настроек отвечал бы отказом, и фото с голосовыми клиента второго номера не доходили
+   * бы до бота. Пусто — прежнее поведение: маркер из Настроек.
+   */
+  accountToken?: string
+): Promise<AttachmentSource | null> {
   try {
     // Чтение ключей — тоже внутри `try` (правка 22.09.2026, тот же класс, что у
     // showReadAndTyping ниже): функция обещает `null` на любом отказе, а отказ
     // базы на Настройках улетал наружу и ронял разбор входящего целиком.
-    const c = await loadCredentials();
-    if (!c.waToken) return null;
+    const waToken = accountToken || (await loadCredentials()).waToken;
+    if (!waToken) return null;
     const res = await fetchWithRetry(`https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`, {
-      headers: { Authorization: `Bearer ${c.waToken}` },
+      headers: { Authorization: `Bearer ${waToken}` },
     });
     if (!res.ok) {
       void logSystemError("meta", `Файл WhatsApp ${mediaId} не получен: Meta ответила ${res.status}`);
@@ -1667,7 +1728,7 @@ export async function whatsAppMediaSource(mediaId: string): Promise<AttachmentSo
     }
     const data = (await res.json()) as { url?: string };
     if (!data.url) return null;
-    return { url: data.url, headers: { Authorization: `Bearer ${c.waToken}` } };
+    return { url: data.url, headers: { Authorization: `Bearer ${waToken}` } };
   } catch (err) {
     void logSystemError("meta", `Файл WhatsApp ${mediaId} не получен: ${describeError(err)}`);
     return null;
