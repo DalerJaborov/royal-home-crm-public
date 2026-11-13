@@ -15,6 +15,8 @@ import { resolveSearchPlace } from "./searchPlace.js";
 import { clampMaxPhoneAsks, leadOnlyCallbackWhen, LEAD_ONLY_DEFAULTS, type LeadOnlyConfig,
   type LeadOnlyMarketSummary } from "../ai/leadOnlyMode.js";
 import type { CustomerSearchIntent } from "../ai/customerAgentSearchIntent.js";
+import { clientOwnWords } from "../ai/untrustedContent.js";
+import { classifyCustomerPropertyFactIntent } from "./customerPropertyFactIntent.js";
 
 export async function loadLeadOnlyConfig(): Promise<LeadOnlyConfig> {
   try {
@@ -30,6 +32,15 @@ export async function loadLeadOnlyConfig(): Promise<LeadOnlyConfig> {
     // Настройки недоступны — режим считаем выключенным: прежнее поведение безопаснее молчания.
     return LEAD_ONLY_DEFAULTS;
   }
+}
+
+/**
+ * Клиент спрашивает о самом объекте, который уже в разговоре (цена, адрес, площадь, «подробнее»): тот же
+ * узкий классификатор вопросов об объекте, что у ядра (lib/customerPropertyFactIntent.ts). Без этого
+ * объект, оставшийся в фокусе, отвечался бы на любое «спасибо» и «где офис?» (ревью 13.11.2026).
+ */
+export function leadOnlyPropertyAsked(text: string): boolean {
+  return classifyCustomerPropertyFactIntent(clientOwnWords(text), { hasPropertyContext: true }) !== null;
 }
 
 /** Когда агент позвонит, по Душанбе (lib/dushanbeTime.ts), по окну Настроек. */
@@ -74,3 +85,17 @@ export async function leadOnlyMarketSummary(intent: CustomerSearchIntent | null)
     return null;
   }
 }
+
+/** Тот же классификатор, что у приёма заявки (services/leads/intakePolicy.ts): «прочее» — честный текст без обещания звонка. */
+export async function leadOnlyOtherInquiryReply(intent: "buy" | "sell" | undefined, clientText: string, language: "ru" | "tg"): Promise<string | null> {
+  try {
+    const [{ classifyInbound }, { isOtherCityReason }, replies] = await Promise.all([import("../services/leads/intakePolicy.js"),
+      import("../ai/leadKind.js"), import("../messengers/leadAcceptedReply.js")]);
+    const decision = classifyInbound({ intent, confident: !!intent, clientText, channel: "chat" });
+    if (decision.kind !== "OTHER") return null;
+    return isOtherCityReason(decision.reason) ? replies.otherCityAcceptedReply(language) : replies.otherInquiryAcceptedReply(language);
+  } catch {
+    return null;
+  }
+}
+

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { leadOnlyCallbackWhen, leadOnlyFilterReply, leadOnlyHotIntent, leadOnlyPhoneAskHistory, leadOnlyPhoneLine, leadOnlyReply,
-  leadOnlyScenario, clampMaxPhoneAsks, LEAD_ONLY_OFFICE_PHONE_TEXT } from "../src/ai/leadOnlyMode.js";
+import { leadOnlyAppliesTo, leadOnlyCallbackWhen, leadOnlyFilterReply, leadOnlyHotIntent, leadOnlyPhoneAskHistory, leadOnlyPhoneLine, leadOnlyReply,
+  leadOnlyReplyAvoidingRepeat, leadOnlyScenario, clampMaxPhoneAsks, LEAD_ONLY_OFFICE_PHONE_TEXT } from "../src/ai/leadOnlyMode.js";
+import { leadOnlyPropertyAsked } from "../src/lib/leadOnlySettings.js";
 
 /**
  * Режим «только заявки» (владелец 12–13.11.2026): одна дверь решений и текстов
@@ -110,7 +111,8 @@ describe("тексты", () => {
   it("никаких длинных тире, ссылок и списков ни в одном тексте", () => {
     for (const scenario of ["hot", "property", "seller", "buyer", "escalate"] as const) {
       for (const language of ["ru", "tg"] as const) {
-        for (const phone of [{ kind: "whatsapp" as const }, { kind: "given" as const }, { kind: "ask" as const, asksSoFar: 0, maxAsks: 2, officeAlreadyOffered: false }]) {
+        for (const phone of [{ kind: "whatsapp" as const }, { kind: "given" as const }, { kind: "card" as const },
+          { kind: "ask" as const, asksSoFar: 0, maxAsks: 2, officeAlreadyOffered: false }, { kind: "ask" as const, asksSoFar: 2, maxAsks: 2, officeAlreadyOffered: false }]) {
           const text = leadOnlyReply({ ...base, scenario, language, phone, property: { shortId: 7, price: "100", currency: "USD", sold: false },
             market: { districtName: null, minPrice: "100", currency: "USD" } });
           expect(text).not.toContain("—");
@@ -136,5 +138,77 @@ describe("второй слой запрета: фильтр ответа", () =
   it("обычный короткий ответ и один объект по вопросу не трогает", () => {
     expect(leadOnlyFilterReply("Цена объекта №12: 45 000 USD.")).toEqual({ text: "Цена объекта №12: 45 000 USD.", changed: false });
     expect(leadOnlyFilterReply("Мы работаем с 9:30.").changed).toBe(false);
+  });
+});
+
+// ── Ревью 13.11.2026: каждая правка — тест, который падает без неё ─────────────
+describe("ревью 13.11: горячие слова не ловят отрицание и «посмотреть фото» (№13b)", () => {
+  it.each(["Мы пока не готовы купить", "не готовы брать", "Нет, не хотим посмотреть", "Можно посмотреть фото?", "можно посмотреть видео квартиры",
+    "Хотим посмотреть ещё фото"])("«%s» — не горячие", text => expect(leadOnlyHotIntent(text)).toBe(false));
+  it.each(["Готовы купить, куда ехать?", "Можно её посмотреть завтра?"])("«%s» — по-прежнему горячие", text =>
+    expect(leadOnlyHotIntent(text)).toBe(true));
+});
+
+describe("ревью 13.11: объект, оставшийся в фокусе, не «залипает» (№2)", () => {
+  it.each(["Где ваш офис?", "Спасибо", "Здравствуйте", "А вы работаете в субботу?"])(
+    "«%s» при старом объекте — не сценарий объекта", text =>
+      expect(leadOnlyScenario({ text, propertyKnown: true, propertyInMessage: false, propertyAsked: leadOnlyPropertyAsked(text), config }))
+        .not.toBe("property"));
+  it("объект из этого сообщения или вопрос о нём — сценарий объекта", () => {
+    expect(leadOnlyScenario({ text: "Салом", propertyKnown: true, propertyInMessage: true, config })).toBe("property");
+    expect(leadOnlyScenario({ text: "Сколько стоит?", propertyKnown: true, propertyAsked: leadOnlyPropertyAsked("Сколько стоит?"), config })).toBe("property");
+    expect(leadOnlyScenario({ text: "Эта квартира ещё продаётся?", propertyKnown: true, config })).toBe("property");
+  });
+  it("покупатель с новым запросом при старом объекте — покупатель, а не объект", () =>
+    expect(leadOnlyScenario({ text: "Хочу купить квартиру в Сино", propertyKnown: true, config })).toBe("buyer"));
+});
+
+describe("ревью 13.11: правда в текстах (№3, №6)", () => {
+  const base = { sellerCommissionPercent: 2, when: soon };
+  const noPhone = (asksSoFar: number) => ({ kind: "ask" as const, asksSoFar, maxAsks: 2, officeAlreadyOffered: asksSoFar > 2 });
+  it("без номера звонок не обещаем: покупатель и проданный объект", () => {
+    const buyer = leadOnlyReply({ ...base, scenario: "buyer", language: "ru", phone: noPhone(3), market: { districtName: null, minPrice: "100", currency: "USD" } });
+    expect(buyer).not.toMatch(/агент подберёт|позвонит|расскажет/i);
+    const sold = leadOnlyReply({ ...base, scenario: "property", language: "ru", phone: noPhone(3), property: { shortId: 5, price: null, currency: "USD", sold: true } });
+    expect(sold).toBe("Объект №5 уже продан.");
+  });
+  it("горячие слова без номера после всех просьб: «ответит здесь», а не «позвонит»", () => {
+    const text = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "ask", asksSoFar: 2, maxAsks: 2, officeAlreadyOffered: false } });
+    expect(text).toContain("ответит вам здесь");
+    expect(text).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
+    expect(text).not.toMatch(/Хорошо.*Хорошо/u);
+  });
+  it("вопрос к сотруднику без номера — «ответит здесь», с номером — «свяжется»; «номер получил» не звучит", () => {
+    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(0) })).toBe("Передаю ваш вопрос агенту, он ответит вам здесь.");
+    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "tg", phone: { kind: "whatsapp" } })).toContain("тамос мегирад");
+  });
+  it("карточка есть, номер в этом ходе не давали — без «номер получил» (№6)", () => {
+    const text = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "card" } });
+    expect(text).not.toMatch(/номер получил/i);
+    expect(text).toContain("Агент скоро позвонит вам.");
+  });
+});
+
+describe("ревью 13.11: ответ не повторяется дословно и не бывает пустым", () => {
+  const input = { sellerCommissionPercent: 2, when: soon, scenario: "hot" as const, language: "ru" as const, phone: { kind: "whatsapp" as const } };
+  it("второй раз — другая строка, и так до короткого «понял»; пустым не бывает", () => {
+    const sent: string[] = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < 6; i++) {
+      const text = leadOnlyReplyAvoidingRepeat(input, sent);
+      expect(text.trim()).not.toBe("");
+      if (i < 5) expect(seen.has(text)).toBe(false);
+      seen.add(text); sent.push(text);
+    }
+  });
+});
+
+describe("ревью 13.11: фильтр и каналы", () => {
+  it("схлопнутые пустые строки — не изменение (№13c)", () => {
+    expect(leadOnlyFilterReply("Здравствуйте!\n\n\n\nЧем помочь?").changed).toBe(false);
+  });
+  it("режим только для WhatsApp, Instagram и Facebook: сайт и Telegram — прежние (№11)", () => {
+    expect(["WHATSAPP", "INSTAGRAM", "FACEBOOK"].every(leadOnlyAppliesTo)).toBe(true);
+    expect(["WEBSITE", "TELEGRAM", undefined, null, ""].some(channel => leadOnlyAppliesTo(channel))).toBe(false);
   });
 });
