@@ -15,5 +15,8 @@ export const customerInboxConsumeJob: JobHandler<z.infer<typeof schema>> = {
     await logSystemError("background-jobs", "Сохранённое входящее сообщение требует проверки обработки", {
       dedupKey: `customer-inbox-consume:${payload.eventKey}`,
     });
+    // The customer is still unanswered: say so to a person, not only to the journal.
+    const { reportUnansweredCustomerTurn } = await import("../lib/customerTurnSilence.js");
+    await reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up");
   },
 };

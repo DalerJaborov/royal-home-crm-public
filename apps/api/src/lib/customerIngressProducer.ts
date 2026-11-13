@@ -197,6 +197,9 @@ export async function consumeCustomerInboxTicket(eventKey: string): Promise<
         const { resumeDeferredCustomerInbox } = await import("./customerDeferredInput.js");
         await resumeDeferredCustomerInbox(eventKey);
       }
+      // Silence without a stated reason is an incident: unless it is an intended silence, a person gets the text and a push.
+      const { reportUnansweredCustomerTurn } = await import("./customerTurnSilence.js");
+      await reportUnansweredCustomerTurn(eventKey, result.reason);
     }
     return result;
   }
