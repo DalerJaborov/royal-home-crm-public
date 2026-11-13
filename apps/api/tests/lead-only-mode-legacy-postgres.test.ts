@@ -149,7 +149,7 @@ describe("режим «только заявки», старый путь", () =
   });
 
   it("вне рабочих часов: честное время звонка, а не «сейчас»", async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "23:58", workHoursEnd: "23:59" } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "23:58", workHoursEnd: "23:58" } });
     const peer = digits();
     const result = await turn(whatsapp, peer, "Хочу продать квартиру");
     expect(result.reply).toMatch(/с 23:58/);

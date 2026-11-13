@@ -265,7 +265,7 @@ describe("режим «только заявки», ядро", () => {
   });
 
   it("сценарий 2: заявка с объектом из ядра уходит агенту объекта, даже ночью", async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "23:58", workHoursEnd: "23:59" } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "23:58", workHoursEnd: "23:58" } });
     try {
       const peer = `992916${String(Math.floor(Math.random() * 1e6)).padStart(6, "0")}`;
       const seed = await coreFixture("Салом", "WHATSAPP");
