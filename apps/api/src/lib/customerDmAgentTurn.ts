@@ -58,6 +58,7 @@ import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
 import { enqueueCustomerLeadOnlyIntakeTx, planCustomerLeadOnlyTurn, readCustomerLeadOnlySentTexts,
   type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
 import { leadOnlyAppliesTo, leadOnlyFilterReply } from "../ai/leadOnlyMode.js";
+import { applyLeadOnlyPending } from "./leadOnlyPending.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -265,6 +266,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         const ids = await createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
           parts: [{ payload: { kind: "text" as const, text: plan.text } }] });
         if (plan.intake) await enqueueCustomerLeadOnlyIntakeTx(tx, plan.intake);
+        // О чём попросили номер — в той же транзакции, что и сама просьба (lib/leadOnlyPending.ts).
+        await applyLeadOnlyPending(tx, lane.ticket.conversationId, plan);
         return ids;
       });
       return { status: "planned", partIds };
@@ -277,6 +280,12 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       const plan = await leadOnlyTurn();
       if (plan) return await planLeadOnly(plan);
     }
+    // WhatsApp с рубильником «номер WhatsApp»: номер отправителя и есть номер для звонка (владелец 12–13.11), ядро номер
+    // не спрашивает: шаблон вопроса «оставьте номер» гасится так же, как при уже известном номере (второе ревью 13.11, №6).
+    // Анкета кандидата на вакансию — прежняя: там номер нужен рекрутеру.
+    const leadOnlyWhatsappNumber = leadOnly.enabled && leadOnly.useWhatsappNumber && planningPrincipal.scope.channel === "WHATSAPP" &&
+      remembered.context.publicState.topic !== "job";
+    const knownPhoneSource = leadOnlyWhatsappNumber && lane.context.knownPhoneSource === "none" ? "scoped_contact" as const : lane.context.knownPhoneSource;
     const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(fullInput(), { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
       (!text.trim() && prepared.attachmentInput && (prepared.attachmentPropertyReference || mediaReferenceResolved) && focus?.snapshot.focus.status === "resolved"
         ? ["price" as const, "address" as const] : []);
@@ -389,7 +398,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput,
       unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
-      knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
+      knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState, ...(followUp ? { followUp } : {}), ...(preReadCall ? { preReads: [preReadCall] } : {}),
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
       // В режиме «только заявки» подборки нет вовсе: инструмент не предлагается модели (первый слой запрета).
@@ -462,8 +471,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await releaseHeldClaim(claim, "handover_committed_ack_unavailable");
       return { status: "held", reason: "handover_committed_ack_unavailable" };
     }
-    // Режим «только заявки»: «передать сотруднику» — это ответ клиенту и заявка, а не молчание.
-    if (leadOnly.enabled && result.status === "ready" && result.decision.kind === "escalate") {
+    // Режим «только заявки»: «передать сотруднику» — это ответ клиенту и заявка, а не молчание. В WhatsApp ответ, который
+    // состоял из одной просьбы номера (её погасил номер WhatsApp), — то же самое: модель хотела передать клиента агенту.
+    if (leadOnly.enabled && (result.status === "ready" && result.decision.kind === "escalate" ||
+        leadOnlyWhatsappNumber && result.status === "held" && result.reason === "unsupported_decision_evidence")) {
       const plan = await leadOnlyTurn("escalate");
       if (plan) return await planLeadOnly(plan);
     }
@@ -475,7 +486,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const principal = mutations.principal;
     const sealed = await sealDmCustomerAgentDeliveryEvidence({ principal, claim, serverWitnesses: witnesses, render: {
       decision: result.decision, evidence: result.evidence, language, requestedFacts,
-      knownPhoneSource: lane.context.knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: fullInput(),
+      knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: fullInput(),
       attachmentInput, approvedFileState,
       mediaPerception,
     } });

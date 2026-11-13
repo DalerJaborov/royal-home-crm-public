@@ -16,10 +16,10 @@
   "paths": 749,
   "cron": 130,
   "jobs": 33,
-  "conditions": 4015,
-  "untranslatedUnique": 460,
-  "untranslatedTotal": 591,
-  "partialUnique": 1084,
+  "conditions": 4010,
+  "untranslatedUnique": 459,
+  "untranslatedTotal": 590,
+  "partialUnique": 1083,
   "translatedShare": 85
  },
  "untranslated": [
@@ -135,7 +135,6 @@
   "!text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
-  "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
   "!verifyState(state)",
   "!verifyTotpCode(agent.phone, secret, parsed.data.code)",
   "!video || video.propertyId !== req.params.id",
@@ -79748,15 +79747,13 @@
          "t": "если есть заявка",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "если scenario — «hot»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
+         "c": []
+        },
+        {
+         "t": "если нет: сводка",
+         "k": "if",
+         "a": [],
+         "c": []
         }
        ]
       },
@@ -79929,29 +79926,7 @@
          "a": [],
          "c": [
           {
-           "t": "если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
-           "more": true
-          },
-          {
-           "t": "если нет: переписка",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть назначен сотрудник (клиент)",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть объект",
+           "t": "если есть владелец",
            "k": "if",
            "a": [],
            "c": [],

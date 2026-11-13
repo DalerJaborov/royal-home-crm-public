@@ -12,6 +12,7 @@ import { loadCustomerTransportForConversation, resolveCustomerEndpoint, type Cus
 import { lockCustomerNative } from "./customerNativeLock.js";
 import { closeOwnershipSatellites } from "./ownershipSatellites.js";
 import { runClientAutopilotInBackground } from "./clientAutopilot.js";
+import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
 
 /** Local relation witness, NOT customer identity or a private ACL. By-ID callers
  * already select an authorized native resource; public ASIDs must not mint it. */
@@ -278,6 +279,8 @@ export async function noticeOwnerOfConversationInterest(input: {
     const client = conv.client && !conv.client.deletedAt ? conv.client : null;
     if (client?.assignedAgentId === ownerId) return; // клиент уже у хозяина объекта
     if (!client?.assignedAgentId && conv.propertyChatAgentId === ownerId) return; // агент уже отвечает, новые сообщения уведомляются отдельно
+    // Режим «только заявки»: пока клиент не оставил номер (карточки нет), «по вашему объекту пишут» не шлём (13.11.2026).
+    if (!client && await leadOnlyQuietBeforeLead(conv.channel)) return;
 
     const owner = await prisma.agent.findUnique({ where: { id: ownerId }, select: { isActive: true, role: true } });
     const ownerActive = !!owner?.isActive;

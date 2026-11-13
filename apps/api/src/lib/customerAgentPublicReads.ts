@@ -43,7 +43,10 @@ async function current(principal: CustomerPrincipal): Promise<boolean> {
   return (await revalidateCustomerPrincipal(principal)).status === "current";
 }
 async function searchPolicy(args: CustomerAgentPropertySearchArgs) {
-  const [policy, money, features] = await Promise.all([loadMatchPolicy(), loadMoneyContext(), loadCustomerAgentFeaturePolicy()]);
+  // Channel-free on purpose: this public data service and its stored-witness freshness check have no messenger channel,
+  // and the policy hash must be the same at read and at re-check. Lead-only DM turns never offer the search tool
+  // (lib/customerDmAgentTurn.ts) and their reply passes leadOnlyFilterReply, so links here cannot reach such a customer.
+  const [policy, money, features] = await Promise.all([loadMatchPolicy(), loadMoneyContext(), loadCustomerAgentFeaturePolicy(null)]);
   const exact = args.districtName ? await prisma.district.findFirst({ where: { name: { equals: args.districtName, mode: "insensitive" } }, select: { name: true } }) : null;
   const place = args.districtName && !exact ? await resolveSearchPlace(args.districtName) : null;
   const requestedDistrict = place?.suburban ? null : place?.districtName ?? place?.placeDistrictName;

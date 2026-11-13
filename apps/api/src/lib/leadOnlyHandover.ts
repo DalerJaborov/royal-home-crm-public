@@ -1,110 +1,92 @@
 /**
- * РЕЖИМ «ТОЛЬКО ЗАЯВКИ»: «ПЕРЕДАЮ АГЕНТУ» ЗНАЧИТ, ЧТО ЧЕЛОВЕК ПРАВДА УЗНАЛ (ревью 13.11.2026).
+ * РЕЖИМ «ТОЛЬКО ЗАЯВКИ»: ЛЮДЕЙ ЗОВЁТ ТОЛЬКО ЗАЯВКА (решение владельца 13.11.2026).
  *
- * Бот говорит клиенту «передаю агенту» в трёх случаях: горячие слова («хотим посмотреть»,
- * «куда ехать»), вопрос, который модель решила отдать сотруднику, и ответ, из которого фильтр
- * вырезал подборку или ссылку. До этой двери заявка заводилась только при известном номере,
- * поэтому в Instagram/Facebook без номера и у клиента с готовой карточкой (в ядре) не узнавал
- * никто, а прежний «передать сотруднику» ядра, ждавший человека молча, закрывался ответом бота.
+ * Владелец дословно: «никаких уведомлений не надо никому высылать пока он не станет лидом, так же
+ * правильнее, зачем шум и гам». Лид — это номер: в WhatsApp номер отправителя, в Instagram/Facebook —
+ * номер, который прислал клиент. Поэтому в режиме:
+ *  - без номера (интерес, понравившийся объект, горячие слова, вопрос к сотруднику) — ни пушей, ни записей
+ *    в ленте: бот просит номер не больше заданного числа раз и даёт номер офиса;
+ *  - номер есть — заявка штатным приёмом (acceptLead), агента выбирает обычная лесенка назначения CRM,
+ *    и уведомляет его она же; режим своих пушей не добавляет;
+ *  - карточка уже есть — агенту приходит обычное уведомление о сообщении (lib/clientMessageAlert.ts);
+ *    режим только оставляет пометку в карточке, когда клиент назвал время звонка, просит не звонить
+ *    или дал другой номер (`noteLeadOnlyOnCard`).
  *
- * Здесь одна дверь на оба маршрута бота (ядро — из задания lib/customerLeadOnlyCore.ts, старый путь —
- * из messengers/conversation.ts). Кому:
- *  1. карточка есть и у неё агент — ему: пуш, запись в хронологии и метка «просит агента»
- *     (Client.agentAttentionRequestedAt) — список «Чаты» держит такой диалог первым и красным,
- *     пока агент не ответит сам или не дозвонится (гасит lib/conversationDelivery.ts);
- *  2. иначе агент объекта (объект этого хода, иначе объекты переписки) — пуш со ссылкой на чат;
- *  3. иначе руководители, раздающие заявки (право clients.assign), — пуш со ссылкой на чат.
- * Никого нет — тревога в журнал ошибок: обещание клиенту без адресата должно быть видно.
- *
- * Не дёргать людей на каждое «адрес?» (владелец 10.11: «редко беспокоить людей»): по одному
- * диалогу не чаще раза в LEAD_ONLY_HANDOVER_INTERVAL_MS — тем же shouldAlert, что у тревог.
- * В тексте пуша нет ни номера, ни слов клиента: экран открывается по правам сотрудника.
+ * Единственное, что зовёт людей отсюда, — сбой заявки, у которой номер уже есть (`alarmLeadOnlyIntake`):
+ * клиент оставил номер и ждёт звонка, а карточки нет или её агент не назначен. Это тревога, а не «кто-то
+ * интересуется»: хозяину объекта разговора, иначе руководителям, раздающим заявки.
  */
 import { prisma } from "../db.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
-import { shouldAlert } from "./notifications.js";
 import { logTimeline } from "./timeline.js";
 import { propertyInterestChatAgentIds } from "./ownBotConversationScope.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
 
-export const LEAD_ONLY_HANDOVER_INTERVAL_MS = 6 * 60 * 60_000;
-
-export type LeadOnlyHandoverReason = "hot" | "escalate" | "filtered" | "intake_failed" | "no_agent";
-export type LeadOnlyHandoverResult =
-  | { status: "notified"; to: "assigned" | "property" | "supervisors"; recipients: number }
-  | { status: "deduped" }
+export type LeadOnlyAlarmReason = "intake_failed" | "no_agent";
+export type LeadOnlyAlarmResult =
+  | { status: "notified"; to: "property" | "supervisors"; recipients: number }
   | { status: "nobody" };
 
-const TITLES: Record<LeadOnlyHandoverReason, string> = {
-  hot: "🔥 Клиент готов смотреть, бот передал вам",
-  escalate: "Клиент ждёт ответа сотрудника",
-  filtered: "Клиент ждёт ответа сотрудника",
+const TITLES: Record<LeadOnlyAlarmReason, string> = {
   intake_failed: "⚠️ Заявка из переписки не оформилась",
   no_agent: "⚠️ Бот обещал звонок, а агента у заявки нет",
 };
 
-export function leadOnlyHandoverTag(conversationId: string): string {
-  return `lead-only-handover-${conversationId}`;
+/** Метка тревог режима по диалогу (лента уведомлений; для поиска и уборки). */
+export function leadOnlyAlarmTag(conversationId: string): string {
+  return `lead-only-alarm-${conversationId}`;
 }
 
 /**
- * Позвать человека к диалогу. `summary` — суть для хронологии карточки (там права карточки),
- * в пуш она не попадает. Бросает только при сбое базы; отказ доставки пуша глотается в журнал.
+ * Номер есть, а заявка не оформилась (или ушла без агента при обещанном звонке): позвать человека к переписке.
+ * Без окна тишины: это не повтор повода, а новая беда. В тексте пуша нет ни номера, ни слов клиента: экран
+ * открывается по правам сотрудника, суть — в журнале ошибок. Бросает только при сбое базы.
  */
-export async function notifyLeadOnlyHandover(input: { conversationId: string; propertyId: string | null;
-  reason: LeadOnlyHandoverReason; summary: string; force?: boolean }): Promise<LeadOnlyHandoverResult> {
-  const tag = leadOnlyHandoverTag(input.conversationId);
-  // Сбой заявки — всегда: это не повтор того же повода, а новая беда.
-  const urgent = input.reason === "intake_failed" || input.reason === "no_agent" || input.force === true;
-  if (!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))) return { status: "deduped" };
-  const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId },
-    select: { id: true, channel: true, client: { select: { id: true, shortId: true, fullName: true, assignedAgentId: true,
-      agentAttentionRequestedAt: true, deletedAt: true } } } });
-  if (!conversation) return { status: "nobody" };
-  const title = TITLES[input.reason];
-  const chatUrl = `/messages?open=${conversation.id}`;
-  const client = conversation.client && !conversation.client.deletedAt ? conversation.client : null;
-
-  if (client?.assignedAgentId) {
-    const agentId = client.assignedAgentId;
-    if (!client.agentAttentionRequestedAt) {
-      await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAttentionRequestedAt: new Date() } });
-    }
-    await logTimeline({ clientId: client.id, actor: { kind: "client", source: "lead-only-handover", subjectAgentId: agentId },
-      type: "SYSTEM", notes: `Бот передал клиента агенту: ${input.summary}` })
-      .catch((err) => console.error("[режим только заявки] хронология:", describeError(err)));
-    await deliver([agentId], { kind: "message", level: "CRITICAL", title, body: `${client.fullName}: клиент ждёт вас. Откройте карточку.`,
-      url: `/clients/${client.shortId}`, tag });
-    return { status: "notified", to: "assigned", recipients: 1 };
-  }
-
+export async function alarmLeadOnlyIntake(input: { conversationId: string; propertyId: string | null;
+  reason: LeadOnlyAlarmReason }): Promise<LeadOnlyAlarmResult> {
+  const tag = `${leadOnlyAlarmTag(input.conversationId)}:${input.reason}`;
+  const property = input.propertyId ? await prisma.property.findUnique({ where: { id: input.propertyId },
+    select: { shortId: true, intakeAgentId: true, assignedAgentId: true, createdById: true, deletedAt: true } }) : null;
   const owners = new Set<string>();
-  if (input.propertyId) {
-    const property = await prisma.property.findUnique({ where: { id: input.propertyId },
-      select: { intakeAgentId: true, assignedAgentId: true, createdById: true, deletedAt: true } });
-    const owner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;
-    if (owner) owners.add(owner);
-  }
-  if (!owners.size) for (const id of await propertyInterestChatAgentIds(conversation.id)) owners.add(id);
+  const owner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;
+  if (owner) owners.add(owner);
+  if (!owners.size) for (const id of await propertyInterestChatAgentIds(input.conversationId)) owners.add(id);
   const activeOwners = owners.size
     ? (await prisma.agent.findMany({ where: { id: { in: [...owners] }, isActive: true }, select: { id: true } })).map(a => a.id)
     : [];
-  const body = "Клиент написал боту и ждёт ответа сотрудника. Откройте переписку.";
+  const payload = { kind: "message" as const, level: "CRITICAL" as const, title: TITLES[input.reason],
+    body: property ? `Клиент оставил номер по объекту №${property.shortId}, а заявка не дошла до агента. Откройте переписку.`
+      : "Клиент оставил номер, а заявка не дошла до агента. Откройте переписку.",
+    url: `/messages?open=${input.conversationId}`, tag };
   if (activeOwners.length) {
-    await deliver(activeOwners, { kind: "message", level: "CRITICAL", title, body, url: chatUrl, tag });
+    await deliver(activeOwners, payload);
     return { status: "notified", to: "property", recipients: activeOwners.length };
   }
   const supervisors = await findAgentsWithPermission("clients.assign");
   if (supervisors.length) {
-    await deliver(supervisors, { kind: "message", level: "CRITICAL", title, body, url: chatUrl, tag });
+    await deliver(supervisors, payload);
     return { status: "notified", to: "supervisors", recipients: supervisors.length };
   }
-  void logSystemError("ai", `[alarm] Режим «только заявки»: бот передал клиента человеку, но звать некого (диалог ${conversation.id}). ` +
-    "Откройте переписку и ответьте клиенту.", { dedupKey: `lead-only-handover-nobody:${conversation.id}` });
+  void logSystemError("ai", `[alarm] Режим «только заявки»: заявка с номером не дошла до агента, а звать некого ` +
+    `(диалог ${input.conversationId}). Откройте переписку и ответьте клиенту.`, { dedupKey: `lead-only-alarm-nobody:${input.conversationId}` });
   return { status: "nobody" };
+}
+
+/**
+ * Пометка в карточке клиента, который уже лид (время звонка, «не звоните», другой номер). Без пуша: агенту
+ * и так приходит обычное уведомление о сообщении клиента. false — карточки нет или она удалена.
+ */
+export async function noteLeadOnlyOnCard(input: { conversationId: string; summary: string }): Promise<boolean> {
+  const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId },
+    select: { client: { select: { id: true, assignedAgentId: true, deletedAt: true } } } });
+  const client = conversation?.client && !conversation.client.deletedAt ? conversation.client : null;
+  if (!client) return false;
+  await logTimeline({ clientId: client.id, type: "SYSTEM", notes: input.summary,
+    actor: { kind: "client", source: "lead-only-mode", ...(client.assignedAgentId ? { subjectAgentId: client.assignedAgentId } : {}) } });
+  return true;
 }
 
 async function deliver(agentIds: string[], payload: Parameters<typeof sendPushToAgents>[1]): Promise<void> {
@@ -113,7 +95,7 @@ async function deliver(agentIds: string[], payload: Parameters<typeof sendPushTo
     else await sendPushToAgents(agentIds, payload);
   } catch (err) {
     // Запись в ленте пишется до доставки на устройство; отказ доставки виден в журнале.
-    void logSystemError("api", `Режим «только заявки»: пуш о передаче клиента не доставлен: ${describeError(err)}`,
-      { dedupKey: "lead-only-handover-push" });
+    void logSystemError("api", `Режим «только заявки»: пуш о сбое заявки не доставлен: ${describeError(err)}`,
+      { dedupKey: "lead-only-alarm-push" });
   }
 }
