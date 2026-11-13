@@ -69,3 +69,23 @@ export const META_ETERNAL_STATE_LABEL: Record<MetaEternalState, string> = {
   mismatch: "Не та Страница",
   error: "Ошибка проверки",
 };
+
+/** Страница Facebook, выданная ключу компании, — для кнопки «Подключить Messenger». */
+export const metaCompanyPageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** У системного пользователя есть задача «Сообщения» на этой Странице. */
+  canMessage: z.boolean(),
+  /** "settings" — основная Страница из Настроек; "account" — подключена кнопкой; null — не подключена. */
+  connected: z.enum(["settings", "account"]).nullable(),
+  accountId: z.string().optional(),
+  /** Наше приложение подписано на сообщения Страницы (null — не удалось проверить). */
+  subscribed: z.boolean().nullable().optional(),
+});
+export type MetaCompanyPage = z.infer<typeof metaCompanyPageSchema>;
+
+export const metaCompanyPagesSchema = z.object({
+  pages: z.array(metaCompanyPageSchema),
+  error: z.string().optional(),
+});
+export type MetaCompanyPages = z.infer<typeof metaCompanyPagesSchema>;

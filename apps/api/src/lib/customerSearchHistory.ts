@@ -48,6 +48,16 @@ export async function readCustomerShownSearchProperties(principal: CustomerPrinc
     part.observations.flatMap(observation => observation.cards.map(card => card.facts.shortId))))];
 }
 
+/** A server-forced catalogue read (a search the customer's words started, "дешевле есть?") never re-shows
+ * an object this inquiry was already sent (13.11.2026, live: the same three objects 3-4 times in one chat).
+ * It becomes the "next page" read: the accepted presentation ledger above is excluded at read time. */
+export async function customerPreReadWithoutShown<T extends { name: "search_public_properties"; args: Record<string, unknown> }>(
+  call: T | null, principal: CustomerPrincipal): Promise<T | null> {
+  if (!call || call.args.nextPage === true) return call;
+  const shown = await readCustomerShownSearchProperties(principal).catch(() => [] as number[]);
+  return shown.length ? { ...call, args: { ...call.args, nextPage: true } } as T : call;
+}
+
 /** Same public author + exact post + verified account. Never joins a public
  * author to a private recipient or another post/account via a name/phone. */
 export async function readCustomerPublicShownProperties(principal: PublicCommentPrincipal): Promise<number[]> {

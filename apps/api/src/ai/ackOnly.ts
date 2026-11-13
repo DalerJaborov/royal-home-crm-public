@@ -71,6 +71,24 @@ export function isAckOnlyMessage(text: string | null | undefined): boolean {
   return hasAck;
 }
 
+/** Слова благодарности: «спасибо» — это не ответ «да» на вопрос бота. */
+const THANKS_WORDS = new Set(["спасибо", "спс", "благодарю", "мерси", "рахмат", "раҳмат", "рахмет", "ташаккур", "ташакур",
+  "сипос", "сипосгузорам", "thanks", "thank", "thx"]);
+/** Слова согласия, которыми отвечают на вопрос («да», «ок»): с ними сообщение — не только благодарность. */
+const YES_WORDS = new Set(["да", "ага", "бале", "ҳа", "ха", "хо", "ҳо", "ок", "окей", "окэй", "оке", "ok", "okay", "okey", "k",
+  "хорошо", "ладно", "ладна", "добро", "майлаш", "майли", "мешавад", "мешава", "хоп", "хуп", "хуб", "хоб"]);
+
+/**
+ * Сообщение — ТОЛЬКО благодарность («спасибо», «рахмат брат», «ташаккур 🙏»), без «да»/«ок».
+ * Даже если бот перед этим о чём-то спросил, это не ответ на вопрос (13.11.2026: кандидату на
+ * вакансию в ответ на «спасибо» бот слал весь блок вакансии заново).
+ */
+export function isThanksOnlyMessage(text: string | null | undefined): boolean {
+  if (!isAckOnlyMessage(text)) return false;
+  const words = (text ?? "").toLowerCase().replace(/ё/g, "е").replace(/[^\p{L}\s]/gu, " ").split(/\s+/).filter(Boolean);
+  return words.some((w) => THANKS_WORDS.has(w)) && !words.some((w) => YES_WORDS.has(w));
+}
+
 /** Бот своим последним сообщением о чём-то спросил — тогда «ок»/«да» это ответ. */
 export function botAskedQuestion(lastBotText: string | null | undefined): boolean {
   return /[?？]/.test(lastBotText ?? "");
