@@ -62,7 +62,9 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       "./customerOutbox.js", "./customerPublicOrigin.js", "./customerPublicModeration.js", "./customerPublicModerationPolicy.js",
       "./customerPublicOutreachMemory.js", "../ai/customerSpamMute.js", "./customerSpamMuteStore.js",
       // Режим «только заявки» (13.11.2026): решает, что ядро ответит и кому уйдёт заявка.
-      "./customerLeadOnlyCore.js", "./leadOnlySettings.js", "../ai/leadOnlyMode.js"].map(apiFile)),
+      "./customerLeadOnlyCore.js", "./leadOnlySettings.js", "../ai/leadOnlyMode.js", "./leadOnlyHandover.js",
+      // Метка рекламы решает тему разговора ядра (вакансия, продавец, объект) — 13.11.2026.
+      "./adAttribution.js", "../ai/adTemplateOpener.js"].map(apiFile)),
     fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentSay.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
       "./customerPropertyFacts.js"].map(apiFile).concat(["customerPropertyPresentation.js", "propertyFinish.js", "propertyTypeFields.js"].map(path => new URL(path, sharedEntry)))),
     fileGroup(["customerAgent.js", "customerAgentDeliveryEvidence.js", "customerMutation.js", "customerState.js", "customerTools.js", "customerHandoverAck.js", "botTurnTrace.js", "customerAgentRollout.js", "customerAgentOwnerControls.js"].map(path => new URL(path, sharedEntry))),

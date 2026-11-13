@@ -10,7 +10,9 @@ import { persistVerifiedCustomerIngressBatch } from "../src/lib/customerIngressP
 import { runCustomerDmAgentTurn } from "../src/lib/customerDmAgentTurn.js";
 import { decodeCustomerOutboxPayload } from "../src/lib/customerOutbox.js";
 import { ensureCustomerEndpoint } from "../src/lib/customerConversationScope.js";
-import { CUSTOMER_LEAD_ONLY_INTAKE_JOB, runCustomerLeadOnlyIntake } from "../src/lib/customerLeadOnlyCore.js";
+import { CUSTOMER_LEAD_ONLY_INTAKE_JOB, runCustomerLeadOnlyIntake, sealCustomerLeadOnlyIntake } from "../src/lib/customerLeadOnlyCore.js";
+import { customerLeadOnlyIntakeJob } from "../src/jobs/customerLeadOnlyIntake.js";
+import { decryptSecret } from "../src/crypto.js";
 import { ensureScopedBotConversation } from "../src/lib/customerConversationScope.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 
@@ -170,6 +172,29 @@ afterAll(async () => {
 });
 
 describe("режим «только заявки», ядро", () => {
+  it("ревью №1: Instagram — вторая просьба другая, третьим ходом номер офиса (счёт по отправленному)", async () => {
+    const f = await coreFixture("Нужна двухкомнатная квартира", "INSTAGRAM");
+    expect(await plannedText(f.eventKey)).toContain("Оставьте, пожалуйста, номер телефона");
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date(), acceptedAt: new Date() } });
+    const second = await f.receive("Хочу купить квартиру");
+    expect(await plannedText(second)).toContain("Если удобно, напишите номер");
+    await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: second }, data: { status: "ACCEPTED", projectionRecordedAt: new Date(), acceptedAt: new Date() } });
+    const third = await f.receive("Ищу квартиру");
+    expect(await plannedText(third)).toContain("777 070 100");
+    expect(f.io).not.toContain("count");
+  });
+
+  it("ревью №9: ответ так и не ушёл (площадка лежит) — последняя попытка всё равно заводит заявку", async () => {
+    const f = await coreFixture("Хочу продать квартиру", "WHATSAPP");
+    await plannedText(f.eventKey);
+    const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } });
+    expect(await runCustomerLeadOnlyIntake(job.payload)).toEqual({ status: "wait", reason: "turn_not_settled" });
+    await customerLeadOnlyIntakeJob.onGiveUp(customerLeadOnlyIntakeJob.schema.parse(job.payload));
+    const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey }, select: { conversationId: true } });
+    const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id: ticket.conversationId! }, select: { clientId: true } });
+    expect(conv.clientId).not.toBeNull();
+  });
+
   it("WhatsApp, продавец: короткий ответ без модели, номер не спрашиваем, заявка после хода на номер отправителя", async () => {
     const f = await coreFixture("Здравствуйте, хочу продать свою квартиру", "WHATSAPP");
     const text = await plannedText(f.eventKey);
@@ -178,7 +203,10 @@ describe("режим «только заявки», ядро", () => {
     // Ход модели ядра всегда начинается с подсчёта токенов: его нет — модель не звалась.
     expect(f.io).not.toContain("count");
     const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } });
-    expect(job.payload).toMatchObject({ scenario: "seller", phone: expect.stringContaining(f.peer.slice(-9)), propertyId: null });
+    expect(job.payload).toMatchObject({ scenario: "seller", propertyId: null });
+    // Номер — только в зашифрованной части задания (ревью 13.11, №8).
+    expect(JSON.stringify(job.payload)).not.toContain(f.peer.slice(-9));
+    expect(JSON.parse(decryptSecret((job.payload as { sealed: string }).sealed)).phone).toContain(f.peer.slice(-9));
     // Ответ хода ещё не отправлен — заявку не трогаем (привязка карточки отменила бы ответ).
     expect(await runCustomerLeadOnlyIntake(job.payload)).toEqual({ status: "wait", reason: "turn_not_settled" });
     await prisma.customerOutboxPart.updateMany({ where: { ticketEventKey: f.eventKey }, data: { status: "ACCEPTED", projectionRecordedAt: new Date() } });
@@ -188,8 +216,8 @@ describe("режим «только заявки», ядро", () => {
     const client = await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! } });
     expect(client.phone.replace(/\D/g, "")).toBe(f.peer);
     expect(client.kind).toBe("SELLER");
-    // Повтор задания безопасен: карточка уже есть — агенту уходит пометка, второй карточки нет.
-    expect(await runCustomerLeadOnlyIntake(job.payload)).toEqual({ status: "notified" });
+    // Повтор задания безопасен: карточка уже есть — второй карточки и второго уведомления нет.
+    expect(await runCustomerLeadOnlyIntake(job.payload)).toEqual({ status: "accepted", reason: "card_exists" });
   });
 
   it("Instagram, «нужна квартира»: без модели и подборки, номер просим, заявки без номера нет", async () => {
@@ -211,14 +239,17 @@ describe("режим «только заявки», ядро", () => {
     expect(text).toBe("Спасибо, номер получил. Агент скоро позвонит.");
     expect(f.io).not.toContain("count");
     const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${next}` } });
-    expect(job.payload).toMatchObject({ scenario: "buyer", phone: expect.stringContaining("918223345") });
+    expect(job.payload).toMatchObject({ scenario: "buyer" });
+    expect(JSON.parse(decryptSecret((job.payload as { sealed: string }).sealed)).phone).toContain("918223345");
   });
 
   it("прочий вопрос идёт модели без инструмента подборки; «передать сотруднику» — ответ, а не молчание", async () => {
     const f = await coreFixture("У меня вопрос по документам на собственность", "INSTAGRAM");
     f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
     const text = await plannedText(f.eventKey);
-    expect(text.startsWith("Передаю ваш вопрос агенту.")).toBe(true);
+    // Без номера звонок не обещаем; человек зовётся заданием (ревью 13.11, №3).
+    expect(text).toBe("Передаю ваш вопрос агенту, он ответит вам здесь.");
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } })).toBe(1);
     expect(f.io).toContain("generate");
     const names = f.bodies.flatMap(body => body.tools?.flatMap(tool => tool.functionDeclarations?.map(d => d.name) ?? []) ?? []);
     expect(names.length).toBeGreaterThan(0);
@@ -241,8 +272,9 @@ describe("режим «только заявки», ядро", () => {
       const { subscriberId: _peer, ...transport } = seed.endpoint;
       const conversation = await prisma.$transaction(tx => ensureScopedBotConversation(tx, { channel: "WHATSAPP", subscriberId: peer, transport }));
       nativeExtra.push(conversation.id);
-      const result = await runCustomerLeadOnlyIntake({ version: 1, eventKey: "f".repeat(64), conversationId: conversation.id,
-        scenario: "property", phone: `+${peer}`, whatsappPhone: `+${peer}`, propertyId, clientText: `Интересует объект №${propertyShortId}` });
+      const result = await runCustomerLeadOnlyIntake(sealCustomerLeadOnlyIntake({ eventKey: "f".repeat(64), conversationId: conversation.id,
+        scenario: "property", propertyId }, { phone: `+${peer}`, whatsappPhone: `+${peer}`, clientText: `Интересует объект №${propertyShortId}`,
+        promised: "call", lead: true }));
       expect(result).toEqual({ status: "accepted" });
       const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id: conversation.id }, select: { clientId: true } });
       clientIds.push(conv.clientId!);

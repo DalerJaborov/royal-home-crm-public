@@ -55,8 +55,9 @@ import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { fetchInstagramProfile, loadCredentials } from "../messengers/meta.js";
 import { bindCustomerMetaSendCredentials } from "./customerMetaTransport.js";
 import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
-import { enqueueCustomerLeadOnlyIntakeTx, planCustomerLeadOnlyTurn, type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
-import { leadOnlyFilterReply } from "../ai/leadOnlyMode.js";
+import { enqueueCustomerLeadOnlyIntakeTx, planCustomerLeadOnlyTurn, readCustomerLeadOnlySentTexts,
+  type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
+import { leadOnlyAppliesTo, leadOnlyFilterReply } from "../ai/leadOnlyMode.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -251,8 +252,14 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // Режим «только заявки» (13.11.2026): заявка, продажа, понравившийся объект и горячие слова —
     // короткий ответ сервера и заявка агенту, без модели. Остальные ходы — обычное ядро, но без
     // подборки, фото, памятки и ссылок (ai/leadOnlyMode.ts — одна дверь решений для обоих маршрутов).
-    const leadOnly = await loadLeadOnlyConfig();
+    // Режим действует только в WhatsApp, Instagram и Facebook: чат сайта остаётся прежним (решение 13.11 после ревью).
+    const leadOnlyConfig = await loadLeadOnlyConfig();
+    const leadOnly = { ...leadOnlyConfig, enabled: leadOnlyConfig.enabled && leadOnlyAppliesTo(planningPrincipal.scope.channel) };
     const leadOnlyFocusId = focus?.snapshot.focus.status === "resolved" ? focus.snapshot.focus.propertyId ?? null : null;
+    // Объект определён именно этим сообщением, а не остался в фокусе с прошлых ходов (ревью: «залипший» объект).
+    const leadOnlyFocusFresh = !!leadOnlyFocusId && focus?.snapshot.focus.eventKey === lane.ticket.eventKey;
+    const leadOnlySent = leadOnly.enabled && lane.ticket.conversationId ? await readCustomerLeadOnlySentTexts({
+      conversationId: lane.ticket.conversationId, endpointScopeId: planningPrincipal.scope.endpointScopeId, before: new Date(claim.pin.receivedAt) }) : [];
     const planLeadOnly = async (plan: CustomerLeadOnlyTurnPlan): Promise<CustomerDmAgentTurnResult> => {
       const partIds = await prisma.$transaction(async tx => {
         const ids = await createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
@@ -264,8 +271,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     };
     const leadOnlyTurn = (forced?: "escalate") => planCustomerLeadOnlyTurn({ config: leadOnly,
       channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer, conversationId: lane.ticket.conversationId,
-      eventKey: claim.eventKey, language, inputText: fullInput(), focusPropertyId: leadOnlyFocusId,
-      turns: remembered.context.turns, jobTopic: remembered.context.publicState.topic === "job", ...(forced ? { forced } : {}) });
+      eventKey: claim.eventKey, language, inputText: fullInput(), focusPropertyId: leadOnlyFocusId, focusFromThisMessage: leadOnlyFocusFresh,
+      turns: remembered.context.turns, sentTexts: leadOnlySent, jobTopic: remembered.context.publicState.topic === "job", ...(forced ? { forced } : {}) });
     if (leadOnly.enabled) {
       const plan = await leadOnlyTurn();
       if (plan) return await planLeadOnly(plan);
@@ -498,7 +505,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       const currentFocus = focus?.snapshot.focus;
       const focusedProperty = currentFocus?.status === "resolved" && currentFocus.propertyId &&
         currentFocus.eventKey === lane.ticket.eventKey && currentFocus.scopeKey === lane.ticket.scopeKey ? currentFocus : null;
-      const policy = await loadCustomerAgentFeaturePolicy();
+      const policy = await loadCustomerAgentFeaturePolicy(mutations.principal.scope.channel);
       if (focusedProperty && policy.photos && policy.photosPerOffer > 0 &&
           ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(mutations.principal.scope.channel)) {
         const currentPrincipal = await revalidateCustomerPrincipal(mutations.principal);
