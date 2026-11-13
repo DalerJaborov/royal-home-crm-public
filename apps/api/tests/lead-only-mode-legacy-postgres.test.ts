@@ -76,9 +76,9 @@ async function turn(fixture: CustomerMessengerFixture, peer: string, text: strin
   if (!peers.includes(peer)) peers.push(peer);
   return processMessengerTurn({ ...fixture.turnInput(peer), text, ...extra });
 }
-/** Ходы модели-ответчика. Фоновые разбор и оценка карточки после заявки (card-fill, score-client) — не ответ клиенту. */
+/** Ходы модели-ответчика. Фоновые разбор и оценка карточки после заявки (card-fill, score-client, client-current-intents) — не ответ клиенту. */
 function replyModelCalls(): string[] {
-  return callAi.mock.calls.map((call) => String((call[0] as { endpoint?: string })?.endpoint ?? "?")).filter((e) => !["card-fill", "score-client"].includes(e));
+  return callAi.mock.calls.map((call) => String((call[0] as { endpoint?: string })?.endpoint ?? "?")).filter((e) => !["card-fill", "score-client", "client-current-intents"].includes(e));
 }
 async function clientOf(peer: string) {
   const conv = await prisma.botConversation.findFirst({ where: { subscriberId: peer }, select: { clientId: true } });
@@ -182,7 +182,7 @@ describe("режим «только заявки», старый путь", () =
     expect(result.reply).toContain("передаю агенту");
     await new Promise((resolve) => setTimeout(resolve, 300));
     const conv = await prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { id: true } });
-    expect(await prisma.notification.count({ where: { tag: `lead-only-handover-${conv.id}` } })).toBeGreaterThan(0);
+    expect(await prisma.notification.count({ where: { tag: { startsWith: `lead-only-handover-${conv.id}:` } } })).toBeGreaterThan(0);
   });
 
   it("ревью №3: вырезанная подборка — короткое «передаю агенту», и человек позван", async () => {
@@ -193,7 +193,7 @@ describe("режим «только заявки», старый путь", () =
     expect(result.reply).toBe("Передаю ваш вопрос агенту, он ответит вам здесь.");
     await new Promise((resolve) => setTimeout(resolve, 300));
     const conv = await prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { id: true } });
-    expect(await prisma.notification.count({ where: { tag: `lead-only-handover-${conv.id}` } })).toBeGreaterThan(0);
+    expect(await prisma.notification.count({ where: { tag: { startsWith: `lead-only-handover-${conv.id}:` } } })).toBeGreaterThan(0);
   });
 
   it("ревью №5: «другой город» с номером — без обещания звонка", async () => {
@@ -215,5 +215,61 @@ describe("режим «только заявки», старый путь", () =
     const result = await turn(instagram, peer, "Хотим посмотреть, куда ехать?");
     expect(result.reply).not.toMatch(/номер получил/i);
     expect((await prisma.client.findUniqueOrThrow({ where: { id: card!.id } })).agentAttentionRequestedAt).not.toBeNull();
+  });
+});
+
+// ── Второе ревью 13.11.2026: каждый тест падает на коде до правки ──
+describe("второе ревью, старый путь", () => {
+  const igPhone = () => `93${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`.replace(/(\d{3})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4");
+
+  it("№1 сквозной: пост объекта → просьба номера → номер → заявка агенту объекта, даже ночью", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "23:58", workHoursEnd: "23:59" } });
+    const peer = `lead-only-ig-post-${runId}`;
+    const first = await turn(instagram, peer, "Здравствуйте", { sharedPropertyId: propertyId });
+    expect(first.reply).toContain(`№${propertyShortId}`);
+    expect(first.reply).toContain("номер");
+    const second = await turn(instagram, peer, igPhone());
+    expect(second.reply).toMatch(/номер получил|Записал номер/);
+    const client = await clientOf(peer);
+    expect(client?.assignedAgentId).toBe(ownerId);
+    expect(client?.assignReason).toBe("own_property_explicit");
+  });
+
+  it("№2: объект без номера — агент объекта позван сразу, фраза об объекте один раз, «без проблем» только после отказа", async () => {
+    const peer = `lead-only-ig-prop-${runId}`;
+    const replies = [(await turn(instagram, peer, "Здравствуйте", { sharedPropertyId: propertyId })).reply];
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const conv = await prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { id: true } });
+    const owner = await prisma.notification.findFirst({ where: { tag: { startsWith: `lead-only-handover-${conv.id}:property` }, agentId: ownerId } });
+    expect(owner?.url).toBe(`/messages?open=${conv.id}`);
+    for (const text of ["Интересует эта квартира", "Интересует эта квартира", "Интересует эта квартира"]) replies.push((await turn(instagram, peer, text)).reply);
+    expect(replies.filter((reply) => reply.includes(`№${propertyShortId}`)).length).toBe(1);
+    expect(new Set(replies).size).toBe(replies.length);
+    expect(replies.join(" ")).not.toContain("без проблем");
+    const refused = await turn(instagram, `lead-only-ig-refuse-${runId}`, "Здравствуйте", { sharedPropertyId: propertyId });
+    expect(refused.reply).toContain("номер");
+    const after = await turn(instagram, `lead-only-ig-refuse-${runId}`, "Не хочу давать номер");
+    expect(after.reply).toContain("Хорошо, без проблем");
+    expect(after.reply).toContain("777 070 100");
+    expect(replyModelCalls()).toEqual([]);
+  });
+
+  it("№3: продавец с рекламы квартиры не уезжает агенту той квартиры", async () => {
+    const peer = `lead-only-ig-adseller-${runId}`;
+    await turn(instagram, peer, `Хочу продать свою квартиру, мой номер ${igPhone()}`, { adPropertyId: propertyId, adExternalId: `ad-seller-${runId}` });
+    const client = await clientOf(peer);
+    expect(client?.kind).toBe("SELLER");
+    expect(client?.assignReason).not.toBe("own_property_explicit");
+  });
+
+  it("№6: WhatsApp — правило промпта без просьбы номера и фильтр вырезает просьбу из ответа", async () => {
+    callAi.mockResolvedValue({ reply: ["Офис на Рудаки, 1. Оставьте, пожалуйста, ваш номер телефона, агент перезвонит."], intent: "other",
+      confident: false, ready: false, topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false });
+    const peer = digits();
+    const result = await turn(whatsapp, peer, "Где ваш офис?");
+    expect(result.reply).toContain("Офис на Рудаки");
+    expect(result.reply).not.toMatch(/номер/i);
+    const prompt = JSON.stringify(callAi.mock.calls.find((call) => !["card-fill", "score-client"].includes(String((call[0] as { endpoint?: string })?.endpoint)))?.[0] ?? {});
+    expect(prompt).toContain("НОМЕР ТЕЛЕФОНА НЕ СПРАШИВАЙ");
   });
 });
