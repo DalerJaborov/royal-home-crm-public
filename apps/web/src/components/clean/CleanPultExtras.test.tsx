@@ -1,27 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-
-const trainer = vi.hoisted(() => vi.fn(() => <div>Trainer mounted</div>));
-vi.mock("../trainer/BotTrainer", () => ({ BotTrainer: trainer }));
 
 import { CleanCandidateSummary, CleanPultExtras } from "./CleanPultExtras";
 
 describe("clean pult existing extra tools", () => {
   it("hides tools and counts without their actual permission gates", () => {
-    expect(renderToStaticMarkup(<CleanPultExtras canTrainer={false} canVacancies={false} canSettings={false} newApplications={19} />)).toBe("");
-  });
-
-  it("keeps trainer closed and unmounted until explicitly opened", () => {
-    trainer.mockClear();
-    const html = renderToStaticMarkup(<CleanPultExtras canTrainer canVacancies={false} canSettings={false} />);
-    expect(html).toContain("Тренажёр бота");
-    expect(trainer).not.toHaveBeenCalled();
-    expect(html).not.toContain('role="dialog"');
+    expect(renderToStaticMarkup(<CleanPultExtras canVacancies={false} canSettings={false} newApplications={19} />)).toBe("");
   });
 
   it("distinguishes unavailable candidate data from a real zero and uses the actual settings tab", () => {
-    const props = { canTrainer: false, canVacancies: true, canSettings: true };
+    const props = { canVacancies: true, canSettings: true };
     const unavailable = renderToStaticMarkup(<MemoryRouter><CleanPultExtras {...props} /></MemoryRouter>);
     expect(unavailable).not.toContain("Кандидаты");
     expect(unavailable).toContain('href="/settings?tab=system&amp;task=workspace"');
@@ -33,7 +22,7 @@ describe("clean pult existing extra tools", () => {
   });
 
   it("кнопка «Кандидаты» ведёт сразу на /vacancies, без пустой шторки", () => {
-    const html = renderToStaticMarkup(<MemoryRouter><CleanPultExtras canTrainer={false} canVacancies canSettings={false} newApplications={4} /></MemoryRouter>);
+    const html = renderToStaticMarkup(<MemoryRouter><CleanPultExtras canVacancies canSettings={false} newApplications={4} /></MemoryRouter>);
     expect(html).toMatch(/<a[^>]*href="[/]vacancies"[^>]*>.*Кандидаты · 4/s);
     expect(html).not.toContain("<button");
   });

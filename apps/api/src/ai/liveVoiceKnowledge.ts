@@ -1,5 +1,4 @@
 import { logSystemError } from "../lib/systemError.js";
-import { learnedRulesBlock } from "../lib/botLessons.js";
 import { dushanbeWallClock } from "../lib/dushanbeTime.js";
 import { loadMoneyContext } from "../lib/money.js";
 import { nowBlock } from "./conversationTime.js";
@@ -66,7 +65,6 @@ export const VOICE_SELLER_INTAKE = `
 export interface LiveVoiceKnowledgeParts {
   folkGeography: string;
   sellerRules: string;
-  learnedRules: string;
   /** null — курс не прочитался (отказ базы): строки о курсе нет вовсе. */
   usdToTjs: number | null;
   /** Настенное время Душанбе (dushanbeWallClock). */
@@ -94,7 +92,6 @@ export function buildLiveVoiceKnowledge(parts: LiveVoiceKnowledgeParts): string 
     parts.sellerRules +
     LEGAL_FAQ_BLOCK +
     INSPECTION_CHECKLIST_BLOCK +
-    parts.learnedRules +
     agencyHoursBlock(parts.workHours) +
     nowBlock(parts.wallClock) +
     (parts.usdToTjs
@@ -106,7 +103,7 @@ export function buildLiveVoiceKnowledge(parts: LiveVoiceKnowledgeParts): string 
 /**
  * Прочитать всё и собрать. Не бросает: отказ любого источника — пустой блок и строка
  * в журнале у самого источника, звонок идёт с тем, что есть. Лучше консультант без
- * выученных правил, чем трубка, которую никто не взял.
+ * справочника, чем трубка, которую никто не взял.
  */
 export async function loadLiveVoiceKnowledge(now: Date = new Date()): Promise<string> {
   const safe = <T>(p: Promise<T>, fallback: T, what: string): Promise<T> =>
@@ -116,10 +113,9 @@ export async function loadLiveVoiceKnowledge(now: Date = new Date()): Promise<st
       });
       return fallback;
     });
-  const [folkGeography, sellerRules, learnedRules, money, hours] = await Promise.all([
+  const [folkGeography, sellerRules, money, hours] = await Promise.all([
     safe(folkGeographyBlock({ voice: true }), "", "справочник народных названий"),
     safe(resolveSellerRules({ questionLimit: false }), "", "блок «про нас»"),
-    safe(learnedRulesBlock("voice"), "", "список выученных правил"),
     safe(loadMoneyContext(), null, "курс доллара"),
     safe(
       prisma.settings.findUnique({
@@ -133,7 +129,6 @@ export async function loadLiveVoiceKnowledge(now: Date = new Date()): Promise<st
   return buildLiveVoiceKnowledge({
     folkGeography,
     sellerRules,
-    learnedRules,
     // loadMoneyContext сам откатывается на запасной курс; null здесь — только отказ базы.
     usdToTjs: money?.usdToTjs ?? null,
     wallClock: dushanbeWallClock(now),

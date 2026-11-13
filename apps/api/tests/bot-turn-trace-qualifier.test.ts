@@ -5,7 +5,7 @@ const db = vi.hoisted(() => ({
   street: { findMany: vi.fn(async () => []) }, landmark: { findMany: vi.fn(async () => []) },
   district: { findMany: vi.fn(async () => []) },
   microdistrict: { findMany: vi.fn(async () => []) }, livingArea: { findMany: vi.fn(async () => []) }, geoAlias: { findMany: vi.fn(async () => []) },
-  styleExample: { findMany: vi.fn(async () => []) }, botLesson: { findMany: vi.fn(async () => []) }, guardHit: { upsert: vi.fn() },
+  guardHit: { upsert: vi.fn() },
 }));
 const fake = vi.hoisted(() => ({ raw: {} as unknown, callAi: vi.fn(), logError: vi.fn() }));
 // Complete DB/dotenv replacements intentionally avoid pools and local keys.

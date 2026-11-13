@@ -4,8 +4,6 @@ import type {
   DealStage,
   ExpenseCategory,
   InactiveReason,
-  LostReason,
-  LostStage,
   MarketType,
   PropertyCondition,
   PropertyDetailKey,
@@ -129,18 +127,3 @@ export const DEAL_STAGE_LABELS: Record<DealStage, string> = {
   CANCELLED: "Отменена",
 };
 
-export const LOST_STAGE_LABELS: Record<LostStage, string> = {
-  greeting: "Поздоровались, до сути не дошло",
-  needs: "Выясняли, что человек ищет",
-  budget: "Разговор про бюджет",
-  district: "Разговор про район",
-  properties: "Бот прислал объекты",
-  phone: "Бот попросил номер",
-  other: "Другое",
-};
-
-export const LOST_REASON_LABELS: Record<LostReason, string> = {
-  opted_out: "Попросил больше не писать",
-  follow_ups_exhausted: "Напоминания кончились, не вернулся",
-  silent: "Замолчал и не вернулся",
-};

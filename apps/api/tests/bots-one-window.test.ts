@@ -1,6 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { prisma } from "../src/db.js";
-import { learnedRulesBlock } from "../src/lib/botLessons.js";
+import { describe, expect, it } from "vitest";
 import {
   AGENCY_FACTS,
   callbackPromise,
@@ -10,7 +8,6 @@ import {
   companyInfoBlock,
   resolveClientHours,
 } from "../src/ai/agencyFacts.js";
-import { lessonConflict, lessonFitsSurface, type LessonConflictReason } from "../src/ai/agencyFactsLessons.js";
 import { callbackAsLeadPromptRule, callbackPromptRule } from "../src/ai/callbackRequest.js";
 import { findOffCatalogClaims } from "../src/ai/catalogClaimsGuard.js";
 import { MANDATORY_BOT_RULES } from "../src/ai/dushanbeGeography.js";
@@ -47,7 +44,6 @@ function voiceKnowledge(): string {
   return buildLiveVoiceKnowledge({
     folkGeography: "\n<карта>Профсоюз — Сино</карта>",
     sellerRules: "",
-    learnedRules: "",
     usdToTjs: 10.9,
     wallClock: new Date("2026-10-06T12:00:00Z"),
     workHours: HOURS,
@@ -174,71 +170,6 @@ describe("3. тумблер показов — одинаково в чате и
   });
 });
 
-describe("4. выученные правила не спорят с фактами компании", () => {
-  /** 27 синтетических противоречий (по образцу находок аудита 10.10, без реальных текстов). */
-  const CONFLICTS: Array<[string, LessonConflictReason]> = [
-    ["Сообщайте клиенту о рассрочке от застройщиков на 12 месяцев.", "installments"],
-    ["Если клиент спрашивает о способах оплаты, подтверди возможность рассрочки.", "installments"],
-    ["Укажите на плюсы объекта: рассрочка, trade-in и хороший ремонт.", "installments"],
-    ["Предлагай рассрочку, если бюджета не хватает.", "installments"],
-    ["Скажи, что застройщик даёт рассрочку без процентов.", "installments"],
-    ["Расскажи о помощи с ипотекой через банки-партнёры.", "mortgage"],
-    ["Предложи оформить ипотеку, если денег не хватает.", "mortgage"],
-    ["Подскажи, что банки-партнёры одобряют кредит быстро.", "mortgage"],
-    ["Помогаем с ипотечным кредитом — так и говори.", "mortgage"],
-    ["Клиенту без накоплений предложи кредит через банк.", "mortgage"],
-    ["Если клиент ищет жильё на месяц, посоветуй Somon.tj.", "rent"],
-    ["Предложи варианты аренды в Сино.", "rent"],
-    ["Посоветуй Telegram-каналы с арендой квартир.", "rent"],
-    ["Помоги собственнику сдать квартиру в аренду.", "rent"],
-    ["Скажи, что через нас можно снять квартиру на месяц.", "rent"],
-    ["Гарантируйте клиенту проверку документов и отсутствие «красных линий».", "guarantee"],
-    ["Скажи, что мы гарантируем юридическую чистоту сделки.", "guarantee"],
-    ["Даём гарантию, что квартира без долгов, — так и отвечай.", "guarantee"],
-    ["Предложите встречу с собственником на объекте для торга.", "owner_bargaining"],
-    ["Чтобы снизить цену, сведи клиента с хозяином квартиры напрямую.", "owner_bargaining"],
-    ["Скажи, что скидка может быть до 5%.", "discount_size"],
-    ["Обещай 3% скидки при быстрой сделке.", "discount_size"],
-    ["Комиссия агентства для покупателя — 1%.", "commission"],
-    ["Говори, что комиссия продавца 3 процента.", "commission"],
-    ["Принимаем объекты и в Худжанде — бери номер.", "other_city"],
-    ["Указывай срок готовности ролика 1–2 дня.", "unbacked_promise"],
-    ["} his", "garbage"],
-  ];
-
-  it("ровно 27 примеров, и каждый пойман со своей причиной", () => {
-    expect(CONFLICTS).toHaveLength(27);
-    for (const [text, reason] of CONFLICTS) expect(lessonConflict(text), text).toBe(reason);
-  });
-
-  it("правила, повторяющие факт (с отрицанием), и обычные советы проходят", () => {
-    const OK = [
-      "Рассрочки нет — так и говори, не обещай её.",
-      "Не обещай ипотеку: её у нас нет.",
-      "Аренды у нас нет — скажи честно одной фразой.",
-      "Не гарантируй, что всё чисто: проверку делает нотариус.",
-      "Комиссия 2% платит продавец, с покупателя не берём.",
-      "Отвечай коротко и по делу, без длинных абзацев.",
-      "Если клиент назвал район, сразу предложи два-три варианта из подборки.",
-      "Торг есть всегда, размер обсуждает агент с собственником после просмотра.",
-    ];
-    for (const text of OK) expect(lessonConflict(text), text).toBeNull();
-  });
-
-  it("отрицание из соседнего предложения не засчитывается", () => {
-    expect(lessonConflict("У клиента нет денег сразу. Предложи рассрочку.")).toBe("installments");
-  });
-
-  it("канал: голосу — звонки и общие, публичным комментариям — без сценариев звонка", () => {
-    expect(lessonFitsSurface("PHONE", "voice")).toBe(true);
-    expect(lessonFitsSurface("ALL", "voice")).toBe(true);
-    expect(lessonFitsSurface("WHATSAPP", "voice")).toBe(false);
-    expect(lessonFitsSurface("PHONE", "comments")).toBe(false);
-    expect(lessonFitsSurface("INSTAGRAM", "comments")).toBe(true);
-    expect(lessonFitsSurface("PHONE", "chat")).toBe(true);
-  });
-});
-
 describe("5. честность на прямой вопрос — свой текст роли её не отменяет", () => {
   /** Старая копия роли 12–13.09 (как сохранена на проде): «ЗВУЧИ КАК ЖИВОЙ…» + запрет признаваться. */
   const OLD_ROLE =
@@ -302,48 +233,3 @@ describe("6. сторожа — общие для чата и голоса", () 
   });
 });
 
-describe("4б. отбор в промт: противоречащее фактам и чужой канал не подмешиваются (база не меняется)", () => {
-  const runId = `${Date.now()}`;
-  const ids: string[] = [];
-  const texts = {
-    conflict: `Подтверди клиенту рассрочку от застройщика ${runId}.`,
-    whatsapp: `Пиши клиенту коротко и кириллицей ${runId}.`,
-    phone: `Спроси, на какой этаж клиент рассчитывает ${runId}.`,
-  };
-
-  beforeAll(async () => {
-    for (const [channel, lesson] of [
-      ["PHONE", texts.conflict],
-      ["WHATSAPP", texts.whatsapp],
-      ["PHONE", texts.phone],
-    ] as const) {
-      const row = await prisma.botLesson.create({
-        data: { kind: "call_answer", channel, botMessage: `вопрос ${runId} ${channel} ${lesson.length}`, humanMessage: "ответ", lesson, active: true },
-      });
-      ids.push(row.id);
-    }
-  });
-
-  afterAll(async () => {
-    await prisma.botLesson.deleteMany({ where: { id: { in: ids } } });
-  });
-
-  it("правило про рассрочку остаётся в базе активным, но ни в чат, ни в голос не идёт", async () => {
-    const chat = await learnedRulesBlock("chat");
-    const voice = await learnedRulesBlock("voice");
-    expect(chat).not.toContain(texts.conflict);
-    expect(voice).not.toContain(texts.conflict);
-    expect((await prisma.botLesson.findUnique({ where: { id: ids[0] } }))?.active).toBe(true);
-  });
-
-  it("правило переписки — в чат, не в голос; правило звонка — в оба", async () => {
-    const chat = await learnedRulesBlock("chat");
-    const voice = await learnedRulesBlock("voice");
-    const comments = await learnedRulesBlock("comments");
-    expect(chat).toContain(texts.whatsapp);
-    expect(voice).not.toContain(texts.whatsapp);
-    expect(chat).toContain(texts.phone);
-    expect(voice).toContain(texts.phone);
-    expect(comments).not.toContain(texts.phone);
-  });
-});

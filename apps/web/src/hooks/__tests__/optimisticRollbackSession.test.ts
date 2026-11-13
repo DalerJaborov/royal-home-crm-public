@@ -36,7 +36,6 @@ import { useUpdateClient, useAcceptLead } from "../useClients";
 import { useUpdateDeal } from "../useDeals";
 import { useUpdateSettings } from "../useSettings";
 import { useReplyToConversation } from "../useConversations";
-import { useUpdateBotLesson } from "../useBotLearning";
 
 const A = { id: "agent-A", fullName: "А", phone: "+992900000001", role: "AGENT" as const };
 const B = { id: "agent-B", fullName: "Б", phone: "+992900000002", role: "AGENT" as const };
@@ -114,15 +113,6 @@ describe("откат оптимистичного апдейта привяза�
     switchToB();
     o.onError(new ApiError("сбой", 500, {}), {}, ctx);
     expect(qc.getQueryData(["conversations", "conv1"])).toBeUndefined();
-  });
-
-  it("useUpdateBotLesson: то же", async () => {
-    const o = useUpdateBotLesson() as unknown as Opts;
-    qc.setQueryData(["bot-learning"], { items: [{ id: "l1", active: true }] });
-    const ctx = await o.onMutate({ id: "l1", active: false });
-    switchToB();
-    o.onError(new ApiError("сбой", 500, {}), {}, ctx);
-    expect(qc.getQueryData(["bot-learning"])).toBeUndefined();
   });
 
   it("useUpdateSettings: поздний УСПЕХ прежней сессии не пишет ответ в чужой кэш", async () => {

@@ -93,7 +93,6 @@ communicationsRouter.post("/:id/message", requireAuth, async (req, res) => {
   }
 
   const delivery = await deliverToConversation(target, parsed.data.text, undefined, {
-    learnFromOverride: true,
     sender: await agentSender(req.agent!.id),
   });
   if (!delivery.ok) {

@@ -205,7 +205,7 @@ describe("queryPersist: автосохранение с дебаунсом 1с �
 
   it("ключ вне белого списка не сохраняется", async () => {
     setUser("agent-1");
-    queryClient.setQueryData(["bot-learning"], { foo: 1 });
+    queryClient.setQueryData(["not-whitelisted"], { foo: 1 });
     await vi.advanceTimersByTimeAsync(1_000);
     expect(localStorage.getItem(LS_KEY)).toBeNull();
   });

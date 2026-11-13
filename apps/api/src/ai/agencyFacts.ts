@@ -36,7 +36,6 @@ import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
  *  - обещание звонка агента: callbackPromise() — ОДНО решение «сегодня / завтра /
  *    в понедельник» для чата, голоса и задачи агенту;
  *  - BOT_NAMES_ASSIGNED_AGENT — флаг «называть ли клиенту имя агента».
- * Сверка выученных правил с этими фактами — agencyFactsLessons.ts.
  */
 
 export const AGENCY_FACTS = {

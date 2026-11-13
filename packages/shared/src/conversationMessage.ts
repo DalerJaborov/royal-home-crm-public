@@ -4,7 +4,7 @@
  * До 10.08.2026 одно и то же было описано шесть раз: `PresentedMessage`/
  * `PresentedAttachment` в lib/messageAttachments.ts, `ConversationMessage`/
  * `MessageAttachment` в веб-типах и четыре локальных `StoredMessage` (cardFill,
- * cron, lostConversations, conversations) — причём один из четырёх уже знал про
+ * cron, разбор оборванных переписок, conversations) — причём один из четырёх уже знал про
  * поле `at`, а три остальных нет.
  *
  * Так и расходятся копии: место, где реплики только читают, не замечает нового
@@ -129,7 +129,7 @@ export interface ConversationMessage {
    */
   replyToMid?: string;
   /** Present only in the grouped CRM timeline; points back to the underlying
-   * conversation for source-aware translation, quoting, feedback and replies. */
+   * conversation for source-aware translation, quoting and replies. */
   sourceConversationId?: string;
   /** Original zero-based array position inside sourceConversationId's history. */
   sourceMessageIndex?: number;
@@ -158,23 +158,4 @@ export interface ConversationMessage {
    * либо сервер решил, что перевод не нужен (реплика и так по-русски).
    */
   translatedRu?: string;
-  /**
-   * Оценка ОТВЕТА БОТА прямо в чате (17.09.2026, POST /conversations/:id/reply-feedback).
-   * Только у role="assistant" с `by.kind === "bot"`. Живёт в самой реплике —
-   * повторная оценка обновляет это поле, а не плодит записи (идемпотентность),
-   * и состояние переживает перезагрузку страницы без отдельного запроса.
-   */
-  feedback?: {
-    verdict: "good" | "bad";
-    note?: string;
-    by: string;
-    at: string;
-    /** BotLesson.id — у verdict="bad" (правило создаётся всегда, активно оно или
-     *  ждёт ночного разбора, см. lib/botLessons.ts). Храним, чтобы повторный клик
-     *  ОБНОВЛЯЛ ту же запись, а не плодил новые, и чтобы смена вердикта знала, что
-     *  выключить. */
-    lessonId?: string;
-    /** StyleExample.id — у verdict="good". Та же причина, что у lessonId выше. */
-    styleExampleId?: string;
-  };
 }

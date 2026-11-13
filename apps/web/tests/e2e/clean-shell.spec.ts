@@ -535,23 +535,6 @@ test("Clean phone calls use the shared daily and monthly summary", async ({ page
   await expect.poll(() => page.evaluate(() => Math.max(innerWidth, document.documentElement.scrollWidth))).toBe(390);
 });
 
-for (const width of [1440, 390]) test(`Clean link hit targets do not cover adjacent tabs at ${width}px`, async ({ page }) => {
-  await login(page);
-  await page.route("**/api/v1/settings", async (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    const response = await route.fetch();
-    await route.fulfill({ response, json: { ...await response.json(), botTrainingScreenEnabled: false } });
-  });
-  await page.setViewportSize({ width, height: 1000 });
-  await page.goto("/ai-learning?tab=manner");
-  const link = page.getByRole("link", { name: "Включить в настройках", exact: true });
-  await expect(link).toBeVisible();
-  await expect.poll(() => link.evaluate((node) => getComputedStyle(node).position)).toBe("relative");
-  const tab = page.getByRole("tab", { name: "Куда уходят клиенты", exact: true });
-  await tab.click();
-  await expect(tab).toHaveAttribute("aria-selected", "true");
-});
-
 for (const width of [1440, 390]) test(`Clean calendar retains date views and one header at ${width}px`, async ({ page }) => {
   await login(page);
   await page.setViewportSize({ width, height: 1000 });
@@ -1199,7 +1182,7 @@ test("clean: work queues reveal real snapshot details and preserve section navig
   expect(response.ok()).toBe(true);
   const zones = await response.json();
   zones.modulesOff = zones.modulesOff.filter((id: string) => id !== "bot" && id !== "calls");
-  zones.bot = { ai: { requestsToday: 0, errorsToday: 0, errorRatePercent: 0, costUsdToday: null, avgMs: 0 }, guardHitsToday: 0, outboundShieldToday: 0, unresolvedFindings: null,
+  zones.bot = { ai: { requestsToday: 0, errorsToday: 0, errorRatePercent: 0, costUsdToday: null, avgMs: 0 }, guardHitsToday: 0, outboundShieldToday: 0,
     attention: { liveCount: 7, silent: { count: 0, items: [], reason: null }, waitingHuman: { count: 7, reason: null, items: [{ id: "queue-dialog", kind: "TELEGRAM", channel: "TELEGRAM", title: "Диалог ждёт человека", clientId: null, lastMessageAt: "2026-10-09T04:00:00Z", waitingMinutes: 15 }] } } };
   await page.route("**/api/v1/dashboard/mission-control/zones", (route) => route.fulfill({ json: zones }));
   await liveFixture(page, (data) => {

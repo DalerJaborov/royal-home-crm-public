@@ -51,18 +51,6 @@
       "nav": null
     },
     {
-      "path": "/ai-learning",
-      "component": "AiLearning",
-      "file": "apps/web/src/pages/AiLearning.tsx",
-      "redirect": null,
-      "nav": {
-        "to": "/ai-learning",
-        "label": "Обучение бота",
-        "group": "system",
-        "gate": ""
-      }
-    },
-    {
       "path": "/archive",
       "component": "Archive",
       "file": "apps/web/src/pages/Archive.tsx",
@@ -85,13 +73,6 @@
         "group": "system",
         "gate": ""
       }
-    },
-    {
-      "path": "/bot-training",
-      "component": "Navigate",
-      "file": "",
-      "redirect": "/ai-learning?tab=manner",
-      "nav": null
     },
     {
       "path": "/calendar",
@@ -864,12 +845,6 @@
       "gate": ""
     },
     {
-      "to": "/ai-learning",
-      "label": "Обучение бота",
-      "group": "system",
-      "gate": ""
-    },
-    {
       "to": "/archive",
       "label": "Архив",
       "group": "system",
@@ -1363,7 +1338,7 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 11,
+      "endpoints": 10,
       "label": "Переписка по всем каналам",
       "usedBy": 3
     },
@@ -1424,43 +1399,11 @@
       "usedBy": 0
     },
     {
-      "mount": "/api/v1/bot-audit",
-      "router": "botAuditRouter",
-      "file": "apps/api/src/routes/botAudit.ts",
-      "endpoints": 6,
-      "label": "Находки ночного судьи диалогов",
-      "usedBy": 2
-    },
-    {
-      "mount": "/api/v1/bot-learning",
-      "router": "botLearningRouter",
-      "file": "apps/api/src/routes/botLearning.ts",
-      "endpoints": 8,
-      "label": "Уроки, извлечённые из ошибок бота",
-      "usedBy": 2
-    },
-    {
-      "mount": "/api/v1/bot-trainer",
-      "router": "botTrainerRouter",
-      "file": "apps/api/src/routes/botTrainer.ts",
-      "endpoints": 3,
-      "label": "Ручная тренировка бота",
-      "usedBy": 1
-    },
-    {
       "mount": "/api/v1/bot-scenarios",
       "router": "botScenariosRouter",
       "file": "apps/api/src/routes/botScenarios.ts",
       "endpoints": 1,
       "label": "Сценарии продаж для бота",
-      "usedBy": 1
-    },
-    {
-      "mount": "/api/v1/bot-training",
-      "router": "botTrainingRouter",
-      "file": "apps/api/src/routes/botTraining.ts",
-      "endpoints": 6,
-      "label": "Экран «Манера» — закрыт тумблером",
       "usedBy": 1
     },
     {
@@ -1605,16 +1548,6 @@
       "id": "background-jobs",
       "expr": "* * * * *",
       "label": "Тик очереди фоновых заданий"
-    },
-    {
-      "id": "bot-audit",
-      "expr": "15 3 * * *",
-      "label": "Ночной судья диалогов: сверяет переписки с правилами и копит нарушения"
-    },
-    {
-      "id": "bot-lessons",
-      "expr": "30 */2 * * *",
-      "label": "Превращает ошибки бота в короткие правила и подмешивает их в его инструкцию"
     },
     {
       "id": "bot-pause-watch",
@@ -1840,11 +1773,6 @@
       "id": "log-cleanup",
       "expr": "0 3 * * *",
       "label": "Ночная уборка технических журналов и уведомлений"
-    },
-    {
-      "id": "lost-conversations",
-      "expr": "45 2 * * *",
-      "label": "Разбирает переписки, кончившиеся ничем: на каком шаге теряются люди"
     },
     {
       "id": "lost-inactive-trash-sweep",
@@ -2140,11 +2068,6 @@
       "id": "webhook-dedupe-cleanup",
       "expr": "40 3 * * *",
       "label": "Чистит отметки обработанных входящих сообщений"
-    },
-    {
-      "id": "weekly-lost-digest",
-      "expr": "0 9 * * 1",
-      "label": "Понедельничная сводка «куда уходят клиенты»"
     },
     {
       "id": "weekly-marketing-insights",

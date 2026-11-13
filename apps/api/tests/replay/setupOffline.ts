@@ -26,7 +26,7 @@ export async function assertOfflineDrained(): Promise<void> {
 // doMock is intentional: register before dynamic runtime import without ever
 // evaluating loadEnv/db. No read/write ORM emulation or production connection.
 vi.doMock("../../src/loadEnv.js", () => ({}));
-const emptyReads = new Set(["property.findMany", "botLesson.findMany", "styleExample.findMany", "street.findMany", "landmark.findMany", "microdistrict.findMany", "livingArea.findMany", "geoAlias.findMany", "district.findMany"]);
+const emptyReads = new Set(["property.findMany", "street.findMany", "landmark.findMany", "microdistrict.findMany", "livingArea.findMany", "geoAlias.findMany", "district.findMany"]);
 const prisma = offlineDatabase(offlineLedger, { ...Object.fromEntries([...emptyReads].map((operation) => [operation, () => []])),
   "settings.findUnique": () => ({ usdToTjsRate: 11, botSystemPrompt: null, workHoursStart: "09:30", workHoursEnd: "18:00", companyDaysOff: [], sellerMaxQuestions: 3, sellerNotSelling: [], sellerAdvantages: [] }) });
 vi.doMock("../../src/db.js", () => ({ prisma }));

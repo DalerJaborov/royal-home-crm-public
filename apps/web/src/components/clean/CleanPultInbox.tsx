@@ -71,11 +71,6 @@ function simpleActions(item: InboxItem, a: PultInboxActions, wrap: (fn: () => Pr
       return [act("Повторить", "POST /api/v1/social-videos/:id/retry", () => a.retryVideo(item.videoId), "Публикация запущена снова")];
     case "stuckWork":
       return [act("Повторить", "POST /api/v1/stuck-work/:id/retry", () => a.retryStuckWork(item.jobId), "Поставлено на повтор")];
-    case "audit":
-      return [
-        act("Бот прав", "POST /api/v1/bot-audit/:id/resolve", () => a.resolveAudit(item.findingId, "bot_right"), "Находка закрыта"),
-        act("Бот ошибся", "POST /api/v1/bot-audit/:id/resolve", () => a.resolveAudit(item.findingId, "bot_error"), "Учтено как ошибка бота"),
-      ];
     case "site":
       return [act("Принято", "POST /api/v1/site-notifications/:id/resolve", () => a.acceptSiteChange(item.notificationId), "Принято")];
     default:

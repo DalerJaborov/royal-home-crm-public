@@ -7,8 +7,6 @@ import { callbackPromise, chatHoursBlock, loadClientHours } from "./agencyFacts.
 import { findOffCatalogClaims } from "./catalogClaimsGuard.js";
 import { callAiText, type ChatMessage, type ImageInput } from "./client.js";
 import { traceFilterDelta, traceModelValidation } from "../lib/botTurnTrace.js";
-import { learnedRulesBlock } from "../lib/botLessons.js";
-import { buildStyleBlock } from "./styleLearning.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { guardDiscounts, guardPrices } from "./priceGuard.js";
@@ -1840,7 +1838,7 @@ export async function runQualifyTurn(
     .slice(-3)
     .map((m) => m.content)
     .join("\n");
-  const [propsBlock, learnedBlock, styleBlock, clientHours, money, geoBlock] = await Promise.all([
+  const [propsBlock, clientHours, money, geoBlock] = await Promise.all([
     // Подборка — по черновику, ДОПОЛНЕННОМУ разбором этой реплики (аудит поиска P0-2):
     // черновик модель обновит только в ответе, а «ищу двушку в Сино» в первом же
     // сообщении обязано дать варианты в этом же ходе. Разбор не удался — черновик как был.
@@ -1857,14 +1855,6 @@ export async function runQualifyTurn(
           scopedCustomer
         )
       ),
-    // Legacy learned text/examples can contain another customer's names or
-    // exact addresses. Scoped input uses static rules until curated projection.
-    scopedCustomer ? Promise.resolve("") : learnedRulesBlock(),
-    // Образцы манеры живых агентов (просьба владельца 22.08.2026, см.
-    // ai/styleLearning.ts). Отбираются по близости к тому, что клиент спросил
-    // СЕЙЧАС, — поэтому блок переменный и уходит в изменяемую часть промта рядом
-    // с выученными правилами, а не в кэшируемый префикс.
-    scopedCustomer ? Promise.resolve("") : buildStyleBlock(lastClientText),
     // Часы для клиентов — один источник с голосом (ai/agencyFacts.ts::CLIENT_HOURS): по
     // ним и строка «часы работы», и срок обещанного звонка (callbackPromise).
     loadClientHours(),
@@ -2004,16 +1994,10 @@ export async function runQualifyTurn(
     (abilities.vacancies ? "" : VACANCIES_DISABLED_RULE) +
     (abilities.links ? "" : LINKS_DISABLED_RULE) +
     (abilities.leadOnly ? LEAD_ONLY_MODE_RULE : "") +
-    // Выводы из случаев, где бот уже ошибался (см. lib/botLessons.ts). Идут в
-    // изменяемую часть промта, а не в кэшируемую: список пополняется каждую ночь,
-    // и внутри кэш-блока он ломал бы побайтовое совпадение префикса.
-    // Карта города про место из последней реплики — ВЫШЕ образцов манеры и
-    // правил тона: это факты, и спорить с ними тону не о чем.
+    // Карта города про место из последней реплики — факты, ниже правил режима.
+    // Выученные правила и образцы манеры старого обучения бота удалены
+    // 13.11.2026 вместе с функцией «Обучение бота».
     geoBlock +
-    learnedBlock +
-    // Образцы живых агентов — сразу за выученными правилами и ДО режима запуска:
-    // это тон, а не правило, и всё, что читается ниже, остаётся сильнее его.
-    styleBlock +
     // Живой сотрудник уже отвечал в этом разговоре — бот обязан это видеть
     // (владелец 22.08.2026, см. HUMAN_REPLY_AWARENESS_RULE). Печатается только
     // когда такие реплики в истории есть.

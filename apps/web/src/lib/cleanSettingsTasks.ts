@@ -33,7 +33,7 @@ export const CLEAN_SETTINGS_TASKS: readonly CleanSettingsTask[] = [
   { tab: "bot", id: "operation", title: "Работа помощника", hint: "Включение, каналы, время ответов и паузы", topics: topics("bot", 2, 5) },
   { tab: "bot", id: "answers", title: "Ответы и тексты", hint: "Правила продажи, инструкции, комментарии и подписи", topics: [...topics("bot", 5, 9), ...topics("bot", 10, 11)] },
   { tab: "bot", id: "voice", title: "Голосовой помощник", hint: "Голос, язык и работа по телефону", topics: [...topics("bot", 9, 10), ...topics("bot", 11, 12)] },
-  { tab: "bot", id: "learning", title: "Обучение и проверка ответов", hint: "Тренировка, вопросы и разбор потерянных клиентов", topics: topics("bot", 12) },
+  { tab: "bot", id: "learning", title: "Проверка манеры продажи", hint: "Какая манера бота приносит больше заявок", topics: topics("bot", 12) },
   { tab: "bot", id: "models", title: "Модели и ключи подключения", hint: "Техническая настройка поставщиков ИИ", topics: topics("bot", 0, 2) },
   { tab: "bot", id: "rollout", title: "Внедрение нового помощника", hint: "Управление этапами запуска клиентского помощника", topics: ["Текстовый агент клиентов", "Клиентский ИИ-агент", "Развёртывание помощника"] },
   { tab: "system", id: "monitoring", title: "Состояние и диагностика", hint: "Здоровье системы, журналы и проблемы в работе", topics: [...topics("system", 0, 2), ...topics("system", 3, 5)] },

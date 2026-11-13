@@ -17,7 +17,7 @@ function snapshot(over: Partial<PultSnapshot> = {}): PultSnapshot {
     },
     team: { agents: [{ pendingAccept: 0 }, { pendingAccept: 2 }] },
     calls: { live: { incoming: [1], outgoing: [] }, today: { incoming: 27, missed: 0, unqualified: 0 } },
-    bot: { ai: { requestsToday: 312, errorRatePercent: 1 }, unresolvedFindings: 0 },
+    bot: { ai: { requestsToday: 312, errorRatePercent: 1 } },
     marketing: { instagramCommentsWaiting: 0, funnel: [{ label: "Instagram", leadsToday: 6, anomalyLeadsDown: false }] },
     video: { pipeline: { overdue: 0 } },
     properties: { available: 212, newThisWeek: 5, reserved: 3 },

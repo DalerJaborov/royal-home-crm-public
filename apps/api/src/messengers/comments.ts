@@ -18,7 +18,6 @@ import { cleanOutgoingReply, isReactionOnly, stripMachineTypography } from "../a
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgents } from "../push.js";
 import { callAiText } from "../ai/client.js";
-import { learnedRulesBlock } from "../lib/botLessons.js";
 import { screenIncomingText } from "../ai/inboundScreen.js";
 import { siteListingUrl } from "../lib/siteListingUrl.js";
 import { captionShortId, describeProperty, healInstagramUrl, instagramShortcode, recordClientInterest } from "./sharedMedia.js";
@@ -1091,13 +1090,7 @@ async function decideOnComment(input: CommentPromptInput, context: MediaContext)
       AGENCY_COMPANY_INFO + SALES_FACTS + (await folkGeographyBlock()) + MANDATORY_BOT_RULES + COMMENT_SCENARIO_RULES + (await propertyGeographyBlock()),
       input.brand
     ),
-    // Выводы из случаев, где бот уже ошибался (lib/botLessons.ts) — та же функция,
-    // что и в личной переписке (ai/leadQualifier.ts). В ИЗМЕНЯЕМУЮ часть промта, а
-    // прямо в чате, см. routes/conversations.ts POST /:id/reply-feedback) чаще, чем
-    // живёт кэш, и внутри кэшируемого блока новое правило не пробилось бы в промт,
-    // пока не сменится что-то ещё в стабильной части (см. тот же приём и комментарий
-    // в leadQualifier.ts).
-    system: brandize(buildCommentSystem(input, context, await loadCommentPrompt()) + (await learnedRulesBlock("comments")), input.brand),
+    system: brandize(buildCommentSystem(input, context, await loadCommentPrompt()), input.brand),
     user: `Комментарий от ${author}: «${input.text}»`,
     maxTokens: 400,
     // Комментарий читают посторонние — это лицо компании на публике, и экономить

@@ -22,7 +22,7 @@ const hero: McHero = {
 const system: McSystem = { crons: [], jobsRunning: 2, jobsGivenUp: 3, jobsGivenUpLast24h: 1, newApplications: 0, errorsToday: 4 };
 const bot: McBot = {
   ai: { requestsToday: 12, errorsToday: 1, errorRatePercent: 8, costUsdToday: 0.75, avgMs: 1300 },
-  guardHitsToday: 3, outboundShieldToday: 1, unresolvedFindings: null,
+  guardHitsToday: 3, outboundShieldToday: 1,
 };
 
 describe("Clean operational dashboard", () => {
@@ -50,13 +50,14 @@ describe("Clean operational dashboard", () => {
   });
 
   it("does not turn absent health checks or failed bot audit into a healthy zero", () => {
-    const html = render(<CleanSystemBotDetails system={system} bot={bot} canHealth canMessages canBotLearning canSeeMoney={false} />);
+    const html = render(<CleanSystemBotDetails system={system} bot={bot} canHealth canMessages canSeeMoney={false} />);
     expect(html).toContain("Нет данных");
-    expect(html).toContain("Проверка недоступна");
+    expect(html).not.toContain("Неразобранных замечаний");
+    expect(html).not.toContain("Обучение бота");
     expect(html).not.toContain("Расход на ИИ");
     expect(html).toContain("Брошено за 24 часа");
     expect(html).toContain('href="/messages"');
-    expect(render(<CleanSystemBotDetails system={system} bot={null} canHealth={false} canMessages={false} canBotLearning={false} canSeeMoney={false} />)).toBe("");
+    expect(render(<CleanSystemBotDetails system={system} bot={null} canHealth={false} canMessages={false} canSeeMoney={false} />)).toBe("");
   });
 
   it("uses a compact property card when no photo exists, preserving the actual destination", () => {

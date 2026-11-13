@@ -3,7 +3,7 @@ import { stripBannedWords } from "../src/ai/bannedWordsGuard.js";
 
 /**
  * СЛОВА, ЗАПРЕЩЁННЫЕ В <language_and_slang> (ai/leadQualifier.ts, AGENCY_VOICE),
- * НО ВСЁ РАВНО ПРОСКОЧИВШИЕ В ЖИВЫХ НАХОДКАХ СУДЬИ 30.08.2026 (BotAuditFinding,
+ * НО ВСЁ РАВНО ПРОСКОЧИВШИЕ В ЖИВЫХ НАХОДКАХ СУДЬИ 30.08.2026 (находки ночного судьи,
  * тип tone): «лутфан» и «мутахассис». См. ai/bannedWordsGuard.ts — файл нарочно
  * не покрывает весь список правил языка, только эти два безопасных случая.
  */

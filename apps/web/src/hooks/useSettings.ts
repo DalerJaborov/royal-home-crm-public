@@ -217,8 +217,6 @@ export interface Settings {
   /** Экономия промта: подробности сценария — только своему намерению. */
   botPromptIntentEconomy: boolean;
   contactLinkSweepEnabled: boolean;
-  /** Экран «Тренировка» (/bot-training): доступен владельцу только пока включено. */
-  botTrainingScreenEnabled: boolean;
   /** Действующий промт чат-бота (кастомный или дефолтный). */
   botSystemPrompt: string;
   /** true — промт переопределён админом (не дефолт из кода). */

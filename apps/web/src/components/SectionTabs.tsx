@@ -163,12 +163,7 @@ export function MarketingTabs() {
   );
 }
 
-/**
- * Настройки и служебное. «Тренировка» больше не отдельная вкладка-экран
- * (слияние 15.09.2026) — она живёт вкладкой «Манера» ВНУТРИ «Обучения бота»
- * (pages/AiLearning.tsx, query-параметр ?tab=), поэтому здесь у неё больше
- * нет отдельной строки.
- */
+/** Настройки и служебное. «Обучение бота» удалено 13.11.2026. */
 export function SettingsTabs() {
   return (
     <ScreenTabs
@@ -180,7 +175,6 @@ export function SettingsTabs() {
         // «Что не доехало» (владелец 21.09.2026) — задания фоновой очереди,
         // исчерпавшие попытки или зависшие, см. pages/StuckWork.tsx.
         { to: "/stuck-work", label: "Что не доехало", permission: "auditLog.view" },
-        { to: "/ai-learning", label: "Обучение бота", permission: "settings.view" },
         { to: "/archive", label: "Архив", permission: "archive.view" },
       ]}
     />

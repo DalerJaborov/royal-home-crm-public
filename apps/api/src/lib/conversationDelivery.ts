@@ -35,7 +35,6 @@ import {
   isTelegramEnabled,
   TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES,
 } from "../telegram/api.js";
-import { recordLesson } from "./botLessons.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
 import { guardBackgroundFailure, trackBackgroundTask } from "./shutdownState.js";
@@ -54,7 +53,6 @@ import { closeAutoTasks } from "./autoTasks.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { closeLeadPushNotifications } from "../push.js";
 import { detectOperatorShowingAgreement } from "./operatorShowingDetector.js";
-import { rememberAgentReply } from "../ai/styleLearning.js";
 
 /** Capture before ASR/uploads/pause; the provider revalidates this exact revision before POST. */
 async function captureDeliveryTransport(target: DeliveryTarget): Promise<CustomerTransportReference | null> {
@@ -369,9 +367,6 @@ export async function deliverToConversation(
   /** Оператор может задать свой срок паузы (инбокс это умеет); по умолчанию — бессрочно (см. OPERATOR_REPLY_PAUSE_MS). */
   pausedUntilOverride?: Date,
   options?: {
-    /** Живой человек отвечает ВМЕСТО бота — записать случай на обучение. Не ставится
-     *  для служебных отправок (ссылки на объекты): там бот не ошибался. */
-    learnFromOverride?: boolean;
     /** Кто в самом деле пишет — для подписи в переписке (см. MessageSender). Не
      *  задано — «system»: большинство служебных отправок (просьба подтвердить
      *  показ, напоминание) без человека за штурвалом, и «system» честнее, чем
@@ -407,10 +402,6 @@ export async function deliverToConversation(
           : `Канал ${target.kind === "bot" ? target.channel : ""} больше не поддерживается: отвечать можно в WhatsApp, Instagram, Messenger и Telegram.`,
     };
   }
-
-  // Снимок последней реплики бота — ДО того, как допишем ответ оператора: после
-  // дописывания последним окажется сам оператор, и учиться будет не на чем.
-  const lastBotMessage = options?.learnFromOverride ? await lastAssistantMessage(target) : null;
 
   /**
    * СЛУЖЕБНАЯ ОТПРАВКА («system») ПАУЗУ НЕ СТАВИТ (24.09.2026, ночная проверка).
@@ -535,27 +526,6 @@ export async function deliverToConversation(
   void detectOperatorShowingAgreement(target, outgoing, options?.sender).catch((err) =>
     void logSystemError("ai", `Разбор договорённости о показе (ручной ответ): ${describeError(err)}`)
   );
-
-  // Живой сотрудник вмешался в разговор — значит бот ответил не так, а человек
-  // показал, как надо. Запоминаем пару «вопрос клиента → его ответ» образцом
-  // манеры (просьба владельца 22.08.2026, см. ai/styleLearning.ts). Фоново и тем
-  // же способом, что разбор договорённости о показе выше: обучение не имеет права
-  // задерживать ответ клиенту и не имеет права его сорвать.
-  void rememberAgentStyleExample(target, outgoing, options?.sender).catch((err) =>
-    console.error("[переписка] образец манеры не сохранён:", err instanceof Error ? err.message : err)
-  );
-
-  // Человек ответил вместо бота — значит бот не справился, а этот ответ и есть
-  // правильный. Учимся на паре. Не ждём: обучение не должно задерживать ответ в UI.
-  if (lastBotMessage) {
-    void recordLesson({
-      kind: "operator_override",
-      channel: isTelegram ? "TELEGRAM" : target.channel,
-      conversationId: target.id,
-      botMessage: lastBotMessage,
-      humanMessage: outgoing,
-    });
-  }
 
   // Детектор «агент спросил номер» (требование 11 аудита 02.09.2026).
   // Проверяем ИСХОДНЫЙ текст агента (до маскировки), потому что маска заменяет
@@ -1195,80 +1165,12 @@ export async function deliverMediaToConversation(
 }
 
 /**
- * Последняя реплика ИМЕННО БОТА — то, на что оператор сейчас возразит своим ответом.
- *
- * Ручной ответ агента тоже хранится как role=assistant (leadQualifier.ts об этом
- * прямо пишет), и до 26.08.2026 два сообщения агента подряд рождали ЛОЖНЫЙ урок:
- * второй вызов записывал в BotLesson «репликой бота» предыдущее сообщение самого
- * агента, а ночной разбор выводил правило из несуществующей ошибки бота. Учимся
- * только когда последний assistant — реально бот (by отсутствует или kind=bot).
- */
-async function lastAssistantMessage(target: DeliveryTarget): Promise<string | null> {
-  try {
-    const row =
-      target.kind === "telegram"
-        ? await prisma.telegramConversation.findUnique({ where: { id: target.id }, select: { messages: true } })
-        : await prisma.botConversation.findUnique({ where: { id: target.id }, select: { messages: true } });
-    const messages = (Array.isArray(row?.messages) ? row.messages : []) as {
-      role?: string;
-      content?: string;
-      by?: { kind?: string };
-    }[];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role !== "assistant") continue;
-      const byKind = messages[i]?.by?.kind;
-      // Человеческая реплика (agent/manual) — урока нет: бот тут ни при чём.
-      if (byKind && byKind !== "bot" && byKind !== "system") return null;
-      return messages[i].content ?? null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Последняя реплика КЛИЕНТА — по ней определяется язык, на котором ему писать
  * (см. lib/propertyOfferText.ts). Того же источника держится и бот: язык считается
  * по последнему сообщению человека, а не по карточке.
  */
 export async function lastClientMessage(target: DeliveryTarget): Promise<string | null> {
   return lastMessageOfRole(target, "user");
-}
-
-/**
- * ОБРАЗЕЦ МАНЕРЫ ИЗ РУЧНОГО ОТВЕТА (22.08.2026, просьба владельца «чтобы бот умнел
- * с каждой перепиской», как в боте Ширин Свитс).
- *
- * Точка врезки та же, что у detectOperatorShowingAgreement: ручной ответ уже ушёл
- * клиенту. Отбор тоже тот же — учимся только у ЖИВОГО человека:
- *  - "agent" — сотрудник ответил из CRM, знаем кто именно;
- *  - "manual" — ответили руками из самого мессенджера, автор неизвестен (Meta
- *    называет только аккаунт страницы), но манера всё равно человеческая;
- *  - "bot"/"system"/подпись не задана — это сам бот или служебная рассылка CRM
- *    (напоминание о показе, пересланный ответ собственника). Учиться на своих же
- *    словах бессмысленно, а на шаблоне рассылки — вредно.
- *
- * Вопрос клиента берётся ИЗ ИСТОРИИ, а не передаётся аргументом: ответ агента уже
- * дописан выше, но он `assistant`, и последняя реплика `user` — по-прежнему та, на
- * которую сотрудник отвечал.
- *
- * Телефоны из пары вычищает сам styleLearning (sanitizeStyleText) — образец уходит
- * в промт ЧУЖИХ разговоров, и чужому номеру там не место.
- */
-async function rememberAgentStyleExample(
-  target: DeliveryTarget,
-  agentText: string,
-  sender?: MessageSender
-): Promise<void> {
-  if (!sender || (sender.kind !== "agent" && sender.kind !== "manual")) return;
-  await rememberAgentReply({
-    clientText: (await lastClientMessage(target)) ?? "",
-    agentText,
-    agentId: sender.kind === "agent" ? sender.agentId : null,
-    source: "TAKEOVER",
-    channel: target.kind === "telegram" ? "TELEGRAM" : target.channel,
-  });
 }
 
 /**

@@ -146,7 +146,6 @@ export interface McBot {
   /** Сколько раз щит исходящих не выпустил сообщение бота за сегодня
    *  (apps/api/src/lib/outboundShield.ts). */
   outboundShieldToday: number;
-  unresolvedFindings: number | null;
   attention?: McBotAttention;
 }
 

@@ -1,5 +1,5 @@
 import { investigationViewerRole } from "../auth/investigations.js";
-import { visibleAuditWhere, publicAuditMeta, privateLessonAuditIds } from "../lib/investigationAudit.js";
+import { visibleAuditWhere, publicAuditMeta } from "../lib/investigationAudit.js";
 import { Router, type Request } from "express";
 import { pageQuerySchema, DEAL_STAGES } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -63,9 +63,8 @@ auditLogRouter.get("/", async (req, res) => {
     }
   }
 
-  const privateLessonIds = await privateLessonAuditIds(investigationViewerRole(req));
   const propertyHistory = entityType === "Property" && !!entityId;
-  const visibility = visibleAuditWhere(investigationViewerRole(req), privateLessonIds);
+  const visibility = visibleAuditWhere(investigationViewerRole(req));
   // Deal lifecycle transitions also change the property's availability. Read the
   // existing evidence, including older deals, without duplicating audit records.
   const where = propertyHistory ? { AND: [visibility, { OR: [

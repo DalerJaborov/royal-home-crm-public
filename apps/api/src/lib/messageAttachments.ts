@@ -105,7 +105,7 @@ export function presentMessages(
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { role, content, attachments, by, at, mid, mid2, replyToMid, deliveryStatus, translatedRu, feedback } = entry as {
+    const { role, content, attachments, by, at, mid, mid2, replyToMid, deliveryStatus, translatedRu } = entry as {
       role?: unknown;
       content?: unknown;
       attachments?: unknown;
@@ -116,7 +116,6 @@ export function presentMessages(
       replyToMid?: unknown;
       deliveryStatus?: unknown;
       translatedRu?: unknown;
-      feedback?: unknown;
     };
     const DELIVERY_STATUSES = ["sent", "delivered", "read", "failed"];
     if (role !== "user" && role !== "assistant") return [];
@@ -162,38 +161,9 @@ export function presentMessages(
               ? translatedRu
               : maskPhonesForReader(translatedRu).text
             : undefined,
-        // Оценка ответа бота (17.09.2026, POST /conversations/:id/reply-feedback) —
-        // тот же белый список: без явного разбора здесь кнопки «Верно»/«Неверно»
-        // не увидят состояние после перезагрузки страницы (см. комментарий класса
-        // выше про `at` и вложения «video»/«file»).
-        feedback: presentFeedback(feedback, phonesAllowed),
       },
     ];
   });
-}
-
-function presentFeedback(raw: unknown, phonesAllowed: boolean): PresentedMessage["feedback"] {
-  if (!raw || typeof raw !== "object") return undefined;
-  const { verdict, note, by, at, lessonId, styleExampleId } = raw as {
-    verdict?: unknown;
-    note?: unknown;
-    by?: unknown;
-    at?: unknown;
-    lessonId?: unknown;
-    styleExampleId?: unknown;
-  };
-  if (verdict !== "good" && verdict !== "bad") return undefined;
-  if (typeof by !== "string" || typeof at !== "string") return undefined;
-  return {
-    verdict,
-    // Заметку правки пишет руководитель, и клиентский номер в ней — тот же номер
-    // в свободном тексте: без права на него читателю он закрыт (ACCESS-02).
-    note: typeof note === "string" ? (phonesAllowed ? note : maskPhonesForReader(note).text) : undefined,
-    by,
-    at,
-    lessonId: typeof lessonId === "string" ? lessonId : undefined,
-    styleExampleId: typeof styleExampleId === "string" ? styleExampleId : undefined,
-  };
 }
 
 /**

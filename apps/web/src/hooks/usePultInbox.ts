@@ -5,7 +5,6 @@ import { api } from "../lib/api";
 import { SAFETY_REFETCH_MS } from "../lib/refetchIntervals";
 import { useCan } from "../lib/permissions";
 import { useAuthStore } from "../store/auth";
-import type { AuditList } from "./useBotAudit";
 import type { ConversationListItem } from "./useConversations";
 import type { DuplicateReviewItem, ReactivationOffer } from "./useClients";
 import type { EditorQueue } from "./useMarketing";
@@ -26,7 +25,7 @@ import type { SiteNotificationsResponse } from "./useSiteNotifications";
  * Остальные (комментарии, ролики, система, правки сайта) живых событий не имеют:
  * их держит запасной опрос SAFETY_REFETCH_MS, а действия на этом экране гасят
  * префикс своей страницы (["instagram-comments"], ["social-videos"],
- * ["site-notifications"], ["bot-audit"]).
+ * ["site-notifications"]).
  */
 
 export type InboxGroup = "violations" | "clients" | "video" | "social" | "system";
@@ -52,7 +51,6 @@ export type InboxQueueId =
   | "videos"
   | "stuckConversations"
   | "stuckWork"
-  | "botAudit"
   | "siteChanges";
 
 interface InboxBase {
@@ -78,7 +76,6 @@ export type InboxItem = InboxBase &
     | { type: "video"; videoId: string }
     | { type: "stuckConversations"; count: number }
     | { type: "stuckWork"; jobId: string }
-    | { type: "audit"; findingId: string }
     | { type: "site"; notificationId: string }
     | { type: "flag"; sliceKey: string; subjectId: string; href: string }
   );
@@ -120,7 +117,6 @@ export const INBOX_QUEUES: InboxQueueMeta[] = [
   { id: "videos", group: "social", label: "Ролик не вышел в соцсети", href: "/social-videos" },
   { id: "stuckConversations", group: "system", label: "Диалоги без ответа бота", href: "/health" },
   { id: "stuckWork", group: "system", label: "Что не доехало", href: "/stuck-work" },
-  { id: "botAudit", group: "system", label: "Находки судьи бота", href: "/ai-learning" },
   { id: "siteChanges", group: "system", label: "Изменения на сайте", href: "/site-changes" },
 ];
 
@@ -376,21 +372,6 @@ export async function loadStuckWork(): Promise<InboxQueueResult> {
   return { items, total: Math.max(items.length, r.counts.givenUp + r.counts.hanging) };
 }
 
-export async function loadBotAudit(): Promise<InboxQueueResult> {
-  const r = await api<AuditList>("/bot-audit");
-  const items: InboxItem[] = r.groups.filter((g) => g.examples.length > 0).map((g) => ({
-    id: `botAudit:${g.examples[0].id}`,
-    queue: "botAudit",
-    group: "system",
-    type: "audit",
-    findingId: g.examples[0].id,
-    title: g.why.slice(0, 90),
-    detail: `${g.count > 1 ? `ещё ${g.count - 1} такого же · ` : ""}«${g.examples[0].quote.slice(0, 80)}»`,
-    at: g.examples[0].createdAt,
-  }));
-  return { items, total: r.groupsTotal };
-}
-
 export async function loadSiteChanges(): Promise<InboxQueueResult> {
   const r = await api<SiteNotificationsResponse>("/site-notifications?page=1&pageSize=50");
   const verb = { CREATED: "добавлен на сайте", UPDATED: "изменён на сайте", DELETED: "удалён на сайте" } as const;
@@ -450,7 +431,6 @@ const LOADERS: Record<InboxQueueId, { key: unknown[]; load: () => Promise<InboxQ
   videos: { key: ["social-videos", "pult-inbox"], load: loadVideos },
   stuckConversations: { key: ["conversations", "pult-inbox", "stuck"], load: loadStuckConversations },
   stuckWork: { key: ["pult-inbox", "stuck-work"], load: loadStuckWork },
-  botAudit: { key: ["bot-audit", "pult-inbox"], load: loadBotAudit },
   siteChanges: { key: ["site-notifications", "pult-inbox"], load: loadSiteChanges },
 };
 
@@ -473,7 +453,7 @@ export function enabledInboxQueues(has: (p: PermissionId) => boolean, role: stri
   if (has("clients.assign")) { out.add("unassigned"); out.add("reactivation"); out.add("duplicates"); }
   if (marketing) { out.add("editor"); out.add("videos"); }
   if (has("properties.moderate")) out.add("clips");
-  if (has("auditLog.view")) { out.add("stuckConversations"); out.add("stuckWork"); out.add("botAudit"); }
+  if (has("auditLog.view")) { out.add("stuckConversations"); out.add("stuckWork"); }
   if (has("siteChanges.view") && has("siteChanges.resolve")) out.add("siteChanges");
   return out;
 }
@@ -579,10 +559,6 @@ export function usePultInboxActions() {
     retryStuckWork: async (id: string) => {
       await api(`/stuck-work/${id}/retry`, { method: "POST" });
       settle(qc, [["pult-inbox", "stuck-work"], ["stuck-work"]]);
-    },
-    resolveAudit: async (id: string, verdict: "bot_right" | "bot_error") => {
-      await api(`/bot-audit/${id}/resolve`, { method: "POST", body: { verdict } });
-      settle(qc, [["bot-audit"]]);
     },
     ackFlag: async (sliceKey: string, subjectId: string, note?: string) => {
       await api("/oversight/ack", { method: "POST", body: { sliceKey, subjectId, ...(note?.trim() ? { note: note.trim() } : {}) } });
