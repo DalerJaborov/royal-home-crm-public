@@ -2,7 +2,7 @@ import { prisma } from "../db.js";
 import { decryptSecretSafe, encryptSecret } from "../crypto.js";
 import { logSystemError } from "../lib/systemError.js";
 import { fetchWithRetry, GRAPH_VERSION, instagramApiUrl, instagramRequest, loadCredentials } from "./meta.js";
-import { instagramQueryTokenRequest } from "./metaGraph.js";
+import { instagramQueryTokenRequest, isFacebookLoginToken } from "./metaGraph.js";
 import { describeError } from "../lib/describeError.js";
 
 /**
@@ -355,6 +355,10 @@ export async function refreshInstagramTokenIfDue(): Promise<{ refreshed: number;
     try {
       const igToken = decryptSecretSafe(row.token);
       if (!igToken) continue;
+      // Маркер Страницы (аккаунт подключён «Войти через Facebook», 13.11.2026)
+      // этим адресом не продлевается и срока в 60 дней у него нет — пропуск, а
+      // не «не продлён» в журнал каждую неделю.
+      if (isFacebookLoginToken(igToken)) continue;
       const newToken = await requestRefreshedInstagramToken(igToken);
       await prisma.messengerAccount.update({
         where: { id: row.id },

@@ -10,7 +10,7 @@ import {
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";
-import { logAudit } from "../lib/audit.js";
+import { logAgentAudit, logAudit } from "../lib/audit.js";
 import { buildAdSpendReport, currentMonth } from "../lib/ads/adSpendReport.js";
 import { adSpendToTjsCents, centsToTjs, fromCents, loadMoneyContext, toCents } from "../lib/money.js";
 import {
@@ -24,7 +24,9 @@ import { textHasPrice, textHasRooms } from "../lib/ads/adMatching.js";
 import { EW } from "../ai/wordBoundary.js";
 import { dushanbeDateString } from "../lib/dushanbeTime.js";
 import { syncMetaAds, syncMetaAdsQuietly, FULL_SYNC_DAYS } from "../lib/ads/syncMetaAds.js";
-import { buildConnectUrl, completeConnect, MetaAdsConnectError } from "../lib/ads/metaAdsOAuth.js";
+import { buildConnectUrl, MetaAdsConnectError, saveAdsLoginToken } from "../lib/ads/metaAdsOAuth.js";
+import { consumeMetaLoginCode, dropMetaLoginState, MetaLoginError } from "../lib/metaLogin.js";
+import { openMetaLoginSession } from "../lib/metaLoginAssets.js";
 import { agentAccessCanWriteAds } from "../lib/ads/adsWriteAccess.js";
 import { buildAdInsights } from "../lib/ads/adInsights.js";
 import {
@@ -1172,17 +1174,37 @@ adsCallbackRouter.get("/", async (req, res) => {
   const code = typeof req.query.code === "string" ? req.query.code : null;
   const state = typeof req.query.state === "string" ? req.query.state : null;
 
+  /**
+   * С 13.11.2026 этот адрес — общий возврат входа через Facebook (lib/metaLogin.ts):
+   * сюда же возвращается «Войти через Facebook» из Каналов (цель "assets"). Цель
+   * лежит в state, по ней и решаем, к какой кнопке вернуть человека. Незнакомый
+   * state — прежний ответ рекламной кнопки.
+   */
   // Человек нажал «Отмена» в окне Facebook — это не ошибка, просто передумал.
   if (!code || !state) {
     const denied = typeof req.query.error === "string" ? req.query.error : "cancelled";
+    if (dropMetaLoginState(state) === "assets") {
+      return res.redirect(back({ metaLogin: "error", message: "Вход отменён — в окне Facebook не дали доступ." }));
+    }
     return res.redirect(back({ ads: "cancelled", reason: denied }));
   }
 
   try {
-    await completeConnect(code, state);
+    const login = await consumeMetaLoginCode(code, state);
+    if (login.purpose === "assets") {
+      const sessionId = openMetaLoginSession(login.agentId, login.token);
+      logAgentAudit(login.agentId, "CONNECT_CALLBACK", "MetaLogin", "assets", { ok: true });
+      return res.redirect(back({ metaLogin: sessionId }));
+    }
+    await saveAdsLoginToken(login.token);
     res.redirect(back({ ads: "connected" }));
   } catch (err) {
-    const message = err instanceof MetaAdsConnectError ? err.message : "Не удалось подключить кабинет";
+    const isLogin = err instanceof MetaLoginError;
+    const purpose = err instanceof MetaLoginError ? err.purpose : undefined;
+    if (purpose === "assets") {
+      return res.redirect(back({ metaLogin: "error", message: isLogin ? (err as Error).message : "Не удалось войти через Facebook" }));
+    }
+    const message = isLogin ? (err as Error).message : "Не удалось подключить кабинет";
     res.redirect(back({ ads: "error", message }));
   }
 });

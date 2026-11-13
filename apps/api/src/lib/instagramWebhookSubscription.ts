@@ -1,6 +1,6 @@
 import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
-import { describeError, GRAPH_VERSION, instagramApiUrl, instagramRequest } from "../messengers/meta.js";
+import { describeError, GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "../messengers/meta.js";
 import { logSystemError } from "./systemError.js";
 
 /**
@@ -131,6 +131,11 @@ export async function checkInstagramSubscriptions(): Promise<{ ok: number; resto
   for (const row of rows) {
     const token = decryptSecretSafe(row.token);
     if (!token) continue;
+    // Маркер Страницы (вход через Facebook, 13.11.2026): сообщения такого
+    // аккаунта приходят по подписке СТРАНИЦЫ (её ставит подключение), а
+    // `/me/subscribed_apps` на graph.instagram.com этот маркер не примет —
+    // проверка здесь дала бы ложное «не удалось проверить подписку».
+    if (isFacebookLoginToken(token)) continue;
     const outcome = await ensureInstagramSubscription(token);
     if (outcome.status !== "failed") appsByAccount.push({ id: row.id, title: row.title, appIds: outcome.appIds });
     if (outcome.status === "ok") {

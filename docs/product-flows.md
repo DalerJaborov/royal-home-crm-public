@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4031**. Модулей: **83**.
+Путей: **752**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4041**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -502,14 +502,29 @@
 - const base = crmPublicBase() ?? "";
   · зовёт crmPublicBase()
 - если !code || !state
+  - если dropMetaLoginState(state) === "assets"
+    - return res.redirect(back({ metaLogin: "error", message: "Вход отменён — в окне Facebook не дали доступ." }));
+      · ответ 302
   - return res.redirect(back({ ads: "cancelled", reason: denied }));
     · ответ 302
 - пробует
-  - await completeConnect(code, state);
-    · зовёт completeConnect()
+  - const login = await consumeMetaLoginCode(code, state);
+    · зовёт consumeMetaLoginCode()
+  - если login.purpose === "assets"
+    - const sessionId = openMetaLoginSession(login.agentId, login.token);
+      · зовёт openMetaLoginSession()
+    - logAgentAudit(login.agentId, "CONNECT_CALLBACK", "MetaLogin", "assets", { ok: true });
+      · зовёт logAgentAudit()
+    - return res.redirect(back({ metaLogin: sessionId }));
+      · ответ 302
+  - await saveAdsLoginToken(login.token);
+    · зовёт saveAdsLoginToken()
   - res.redirect(back({ ads: "connected" }));
     · ответ 302
 - если сорвалось
+  - если purpose === "assets"
+    - return res.redirect(back({ metaLogin: "error", message: isLogin ? (err as Error).message : "Не удалось войти …
+      · ответ 302
   - res.redirect(back({ ads: "error", message }));
     · ответ 302
 
@@ -16400,6 +16415,65 @@
   - next(err);
     · дословно из кода
 
+### POST /api/v1/settings/meta-eternal/login/:id/connect
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- если !params.success
+  - return res.status(404).json({ error: "Вход не найден — войдите через Facebook заново" });
+    · ответ 404 — «Вход не найден — войдите через Facebook заново»
+- const body = metaLoginConnectInputSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой metaLoginConnectInputSchema
+- если !body.success
+  - return res.status(400).json({ error: "Некорректный выбор" });
+    · ответ 400 — «Некорректный выбор»
+- пробует
+  - const result = await connectMetaLoginAssets(params.data.id, req.agent!.id, body.data);
+    · зовёт connectMetaLoginAssets()
+  - если !result
+    - return res.status(404).json({ error: "Вход не найден или устарел — войдите через Facebook заново" });
+      · ответ 404 — «Вход не найден или устарел — войдите через Facebook заново»
+  - res.json(result);
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
+### GET /api/v1/settings/meta-eternal/login/:id
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- если !params.success
+  - return res.status(404).json({ error: "Вход не найден — войдите через Facebook заново" });
+    · ответ 404 — «Вход не найден — войдите через Facebook заново»
+- пробует
+  - const assets = await metaLoginAssets(params.data.id, req.agent!.id);
+    · зовёт metaLoginAssets()
+  - если !assets
+    - return res.status(404).json({ error: "Вход не найден или устарел — войдите через Facebook заново" });
+      · ответ 404 — «Вход не найден или устарел — войдите через Facebook заново»
+  - res.json(assets);
+    · ответ 200
+- если сорвалось
+  - next(err);
+    · дословно из кода
+
+### POST /api/v1/settings/meta-eternal/login
+
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- пробует
+  - const url = await buildMetaLoginUrl(req.agent!.id, "assets");
+    · зовёт buildMetaLoginUrl()
+  - logAudit(req, "CONNECT_START", "MetaLogin", "assets", {});
+    · зовёт logAudit()
+  - res.json({ url });
+    · ответ 200
+- если сорвалось
+  - если err instanceof MetaLoginError
+    - return res.status(400).json({ error: err.message });
+      · ответ 400
+
 ### POST /api/v1/settings/meta-eternal/pages/:pageId/connect
 
 `apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
@@ -16413,22 +16487,12 @@
   - если !page.ok
     - return res.status(page.status).json({ error: page.error });
       · ответ (код зависит от условия)
-  - const existing = await prisma.messengerAccount.findFirst({ where: { channel: "FACEBOOK", externalId: pageId }…
-    · читает в базе: messengerAccount
-  - const twin = page.igId ? await prisma.messengerAccount.findFirst({ where: { channel: "INSTAGRAM", externalId:…
-    · читает в базе: messengerAccount
-  - const accountId = await saveAccount({ id: existing?.id, channel: "FACEBOOK", externalId: pageId, title: page.…
-    · зовёт saveAccount()
-  - resetAccountsCache();
-    · зовёт resetAccountsCache()
-  - logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", accountId, { channel: "FACEBOOK", pageId, connected: exi…
-    · зовёт logAudit()
-  - const sub = await subscribePageMessaging(pageId);
-    · зовёт subscribePageMessaging()
-  - если sub.ok
-    - logAudit(req, "SETTINGS_UPDATE", "FacebookPageSubscription", pageId, { fields: sub.fields });
-      · зовёт logAudit()
-  - res.json({ ok: true, accountId, pageName: page.pageName, subscribed: sub.ok, ...(sub.ok ? { fields: sub.field…
+  - const done = await connectFacebookPage({ pageId, pageName: page.pageName, pageToken: page.token, igId: page.i…
+    · зовёт connectFacebookPage()
+  - если !done.ok
+    - return res.status(done.status).json({ error: done.error });
+      · ответ (код зависит от условия)
+  - res.json({ ok: true, accountId: done.accountId, pageName: page.pageName, subscribed: sub.ok, ...(sub.ok ? { f…
     · ответ 200
 - если сорвалось
   - next(err);
@@ -24943,6 +25007,9 @@
         - const igToken = decryptSecretSafe(row.token);
           · зовёт decryptSecretSafe()
         - если !igToken
+          - continue;
+            · переходит к следующему
+        - если isFacebookLoginToken(igToken)
           - continue;
             · переходит к следующему
         - await prisma.messengerAccount.update({ where: { id: row.id }, data: { token: encryptSecret(newToken), tokenRe…

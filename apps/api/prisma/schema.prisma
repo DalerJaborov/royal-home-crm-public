@@ -6001,6 +6001,11 @@ model Settings {
   /// требует пары «приложение + секрет» (см. lib/ads/metaAdsToken.ts). Для
   /// переписки не используется: там маркеры выдаются иначе.
   metaAppId                         String?
+  /// Номер конфигурации входа через Facebook (Facebook Login for Business →
+  /// «Конфигурации», 13.11.2026). Не секрет. Задан — кнопка «Войти через
+  /// Facebook» в Настройках → Каналы открывает окно с этим набором прав и
+  /// ресурсов (config_id); пусто — окно со списком прав из lib/tokenScopes.ts.
+  metaLoginConfigId                 String?
   metaVerifyToken                   String?
   metaWaToken                       String?
   /// Идентификатор номера-отправителя в WhatsApp. Не секрет — хранится как есть.

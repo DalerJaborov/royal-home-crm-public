@@ -5,7 +5,7 @@ import { resolveGeminiRuntime } from "../ai/geminiSettings.js";
 import { checkGeminiModel } from "../ai/geminiCheck.js";
 import { getChatTitle, getChatMemberStatus, isTelegramEnabled, canBotWriteToChat } from "../telegram/api.js";
 import { parseTelegramChatIds } from "./telegramChats.js";
-import { loadCredentials, GRAPH_VERSION, instagramApiUrl, instagramRequest, fetchWithRetry } from "../messengers/meta.js";
+import { loadCredentials, GRAPH_VERSION, instagramApiUrl, instagramRequest, fetchWithRetry, isFacebookLoginToken } from "../messengers/meta.js";
 import { facebookPageTokenFor, instagramRouteForToken } from "./metaEternalTokens.js";
 import { isMetaAuthFailure, isMetaAuthFailureText, raiseChannelKeyAlarm } from "./channelKeyAlarm.js";
 import { decryptSecretSafe } from "../crypto.js";
@@ -364,6 +364,34 @@ export async function checkInstagramAccountsHealth(
     // пользователя — личный маркер тогда запасной (на него откатывается отказ
     // Страницы). Проверяем и его, но его смерть — ПРЕДУПРЕЖДЕНИЕ, а не тревога.
     const route = await instagramRouteForToken(token);
+    if (route.kind === "page" && route.pageOnly) {
+      // Аккаунт подключён «Войти через Facebook» (13.11.2026): маркер — самой
+      // Страницы, запасного личного нет, и graph.instagram.com его не примет.
+      // Проверяем то, чем аккаунт реально отвечает: Страницу этим маркером.
+      try {
+        const r = await graphIdReadable(route.pageId, token);
+        if (r.ok) {
+          out.push({ name, ok: true, detail: `через Страницу ${route.pageId}` });
+        } else {
+          await report("meta", `Ключ Страницы у Instagram «${row.title}» не работает — аккаунт не сможет отвечать клиентам: ${r.detail}. Войдите через Facebook заново в Настройках → Каналы.`);
+          if (isMetaAuthFailureText(r.detail)) {
+            await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (ключ Страницы)`, detail: r.detail });
+          }
+          out.push({ name, ok: false, detail: r.detail });
+        }
+      } catch (err) {
+        await report("meta", `Проверка ключа Страницы у Instagram «${row.title}» не удалась: ${describeError(err)}`);
+        out.push({ name, ok: false, detail: describeError(err) });
+      }
+      continue;
+    }
+    if (isFacebookLoginToken(token)) {
+      // Маркер Страницы, но Страница не задана — отвечать нечем, и это не «личный
+      // маркер умер»: так и пишем.
+      await report("meta", `Instagram «${row.title}»: ключ Страницы есть, а Страница не выбрана — аккаунт не сможет отвечать. Подключите его заново кнопкой «Войти через Facebook» в Настройках → Каналы.`);
+      out.push({ name, ok: false, detail: "ключ Страницы без Страницы" });
+      continue;
+    }
     if (route.kind === "page") {
       const backup = await instagramPersonalKeyAlive(token);
       if (backup.ok) {
@@ -707,7 +735,10 @@ export async function checkTokenScopesHealth(): Promise<IntegrationCheck[]> {
   });
   const igTokens: { label: string; token: string }[] = igRows
     .map((r) => ({ label: `Instagram «${r.title}»`, token: decryptSecretSafe(r.token) || "" }))
-    .filter((r) => r.token);
+    // Маркер Страницы (вход через Facebook, 13.11.2026) — не маркер входа через
+    // Instagram: пробы graph.instagram.com дали бы ему «нет всех прав». Его права
+    // просит сам вход (META_LOGIN), жив ли он — проверка аккаунтов выше.
+    .filter((r) => r.token && !isFacebookLoginToken(r.token));
   if (igTokens.length === 0 && creds.igToken) igTokens.push({ label: "Instagram", token: creds.igToken });
   for (const ig of igTokens) {
     const probes = await instagramLoginScopeProbes(ig.token);
