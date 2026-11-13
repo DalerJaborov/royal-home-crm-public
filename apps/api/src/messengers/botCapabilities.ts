@@ -1,5 +1,6 @@
 import { prisma } from "../db.js";
 import { DEFAULT_PHOTOS_PER_OFFER } from "../ai/photoOffer.js";
+import { leadOnlyAppliesTo } from "../ai/leadOnlyMode.js";
 
 /**
  * ЧТО БОТ УМЕЕТ — ползунки в Настройках, а не удалённый код.
@@ -52,6 +53,8 @@ export interface BotCapabilities {
    *  (см. messengers/conversation.ts::finishQualifyTurn). Владелец 13.09.2026:
    *  «создай, но выключи — сам протестирую». */
   voiceReplies: boolean;
+  /** Режим «только заявки» (13.11.2026): подборок, фото, ссылок нет; см. ai/leadOnlyMode.ts. */
+  leadOnly: boolean;
 }
 
 /** Всё включено — то, как система работала до появления ползунков.
@@ -90,6 +93,8 @@ const ALL_ENABLED: BotCapabilities = {
   // не значит «включить то, чего раньше не было и что владелец явно попросил
   // держать выключенным».
   voiceReplies: false,
+  // Сбой базы не включает новый режим: прежнее поведение бота.
+  leadOnly: false,
 };
 
 /**
@@ -99,7 +104,7 @@ const ALL_ENABLED: BotCapabilities = {
  * молча онемевший бот страшнее лишнего действия, и разбираться в тишине сложнее,
  * чем в лишнем сообщении.
  */
-export async function loadBotCapabilities(): Promise<BotCapabilities> {
+export async function loadBotCapabilities(channel?: string): Promise<BotCapabilities> {
   try {
     const s = await prisma.settings.findUnique({
       where: { id: "singleton" },
@@ -117,11 +122,16 @@ export async function loadBotCapabilities(): Promise<BotCapabilities> {
         botCautiousMode: true,
         botPromptIntentEconomy: true,
         botCanSendVoiceReplies: true,
+        botLeadOnlyMode: true,
       },
     });
     if (!s) return ALL_ENABLED;
+    // Режим «только заявки» гасит фото и ссылки при любых прочих ползунках: возможность
+    // исчезает из промта и из действий (первый слой), фильтр ответа — второй (conversation.ts).
+    // Только WhatsApp/Instagram/Facebook: чат сайта, Telegram и вызовы без канала — прежние (решение 13.11 после ревью).
+    const leadOnly = s.botLeadOnlyMode === true && leadOnlyAppliesTo(channel);
     return {
-      photos: s.botCanSendPhotos,
+      photos: s.botCanSendPhotos && !leadOnly,
       photosPerOffer: s.botPhotosPerOffer,
       showings: s.botCanBookShowings,
       // Подтверждение встречи без самой встречи бессмысленно: если показы
@@ -132,12 +142,13 @@ export async function loadBotCapabilities(): Promise<BotCapabilities> {
       callback: s.botCanRequestCallback,
       askOwner: s.botCanAskOwner,
       vacancies: s.botCanHandleVacancies,
-      links: s.botCanSendLinks,
+      links: s.botCanSendLinks && !leadOnly,
       // Отказ базы даёт ALL_ENABLED, где cautious=false: осторожность — намеренный
       // выбор владельца, а не поведение при сбое.
       cautious: s.botCautiousMode,
       promptEconomy: s.botPromptIntentEconomy,
       voiceReplies: s.botCanSendVoiceReplies,
+      leadOnly,
     };
   } catch {
     return ALL_ENABLED;
@@ -161,6 +172,7 @@ export function botAbilitiesOf(c: BotCapabilities): {
   links: boolean;
   cautious: boolean;
   promptEconomy: boolean;
+  leadOnly: boolean;
 } {
   return {
     showings: c.showings,
@@ -170,6 +182,7 @@ export function botAbilitiesOf(c: BotCapabilities): {
     links: c.links,
     cautious: c.cautious,
     promptEconomy: c.promptEconomy,
+    leadOnly: c.leadOnly,
   };
 }
 
@@ -248,3 +261,21 @@ export const CAUTIOUS_MODE_RULE =
   "4. Номер телефона проси не раньше, чем ответил на вопрос клиента по существу, и не чаще одного раза за разговор.\n" +
   "5. Ничего не рассылай сам: ни подборок, ни «а ещё у нас есть», ни напоминаний в этом же диалоге.\n" +
   "</режим_запуска>";
+
+/**
+ * РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (владелец 12–13.11.2026) — первый слой запрета для старого
+ * пути. Заявку, продажу, понравившийся объект и горячие слова отвечает сам код
+ * (ai/leadOnlyMode.ts) ещё до модели; модели остаются прочие вопросы. Подборка
+ * объектов в промт в этом режиме не попадает вовсе (leadQualifier.ts), ссылки и
+ * фото выключены в loadBotCapabilities, а готовый ответ дополнительно чистит фильтр
+ * leadOnlyFilterReply (второй слой).
+ */
+export const LEAD_ONLY_MODE_RULE =
+  "\n\n<только_заявки>\n" +
+  "ТЫ ВЕЖЛИВЫЙ АДМИНИСТРАТОР, А НЕ ПРОДАВЕЦ. Отвечай коротко, одной-двумя фразами, как живой человек, без нажима.\n" +
+  "Запрещено: присылать подборки и списки объектов, фото, видео, ссылки и карточки, обещать их прислать, " +
+  "перечислять варианты. Цены, районы и наличие называй только из данных в этом промте, ничего не придумывай.\n" +
+  "Если человек хочет купить, продать или его заинтересовал объект: скажи, что агент позвонит и всё расскажет, " +
+  "и возьми номер. Номер проси одной короткой фразой и не повторяй просьбу в каждом сообщении; если отказался, назови номер офиса 777 070 100 и не настаивай.\n" +
+  "Вопрос о работе отвечай как обычно, коротко и по существу.\n" +
+  "</только_заявки>";

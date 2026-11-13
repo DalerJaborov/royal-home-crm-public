@@ -525,3 +525,26 @@ describe("F03 (23.10.2026): живой человек снимает паузу 
     expect(asCron).toMatchObject({ allowed: true, kind: "initiative" });
   });
 });
+
+describe("13.11.2026: a multi-line block is not repeated even once in a reply (preflight only)", () => {
+  it("the reply chain is told to replace the second copy of a block; the transport keeps its old threshold", async () => {
+    const subscriberId = nextSubscriber();
+    await makeConversation(subscriberId);
+    const t0 = new Date("2026-11-13T09:00:00Z");
+    const block = ["Можно рассмотреть эти варианты:", "1. Объект №69", "Цена: 500 000 сомони.", "2. Объект №70", "Цена: 610 000 сомони."]
+      .join(String.fromCharCode(10));
+    const short = "Эта квартира ещё свободна";
+    await noteRealInbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, providerId: "mid.block.0", now: t0 });
+    for (const text of [block, short]) {
+      expect(await admitOutbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, text, now: new Date(t0.getTime() + 1000) }))
+        .toMatchObject({ allowed: true, kind: "reply" });
+    }
+    await noteRealInbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, providerId: "mid.block.1", now: new Date(t0.getTime() + 5 * MINUTE) });
+    const at = new Date(t0.getTime() + 5 * MINUTE + 1000);
+    // A short reply may still be said a second time; the block may not.
+    expect(await repeatBlockedTexts(CHANNEL, subscriberId, [block, short], at, fixture.transport)).toEqual([block]);
+    // The physical send itself is not made stricter: a CORE reply blocked there would be silence.
+    expect(await admitOutbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, text: block, now: at }))
+      .toMatchObject({ allowed: true, kind: "reply" });
+  });
+});

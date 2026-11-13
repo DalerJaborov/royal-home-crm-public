@@ -2,10 +2,10 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 3996,
+  "forks": 4031,
   "mounts": 83,
   "cron": 130,
-  "jobs": 32,
+  "jobs": 33,
   "hidden": 0
  },
  "hidden": [],
@@ -82519,17 +82519,9 @@
                 },
                 {
                  "k": "do",
-                 "t": "const isJobAd = isJobAdRef(adRefLower);",
+                 "t": "const adTopic: AdTopic | undefined = vacancyPost ? \"job\" : msg.fromAd ? await resolveAdTopic({ adId: msg.adId…",
                  "a": [
-                  "зовёт isJobAdRef()"
-                 ],
-                 "c": []
-                },
-                {
-                 "k": "do",
-                 "t": "const dbAdTopic = referralAdTopic === undefined && msg.fromAd && msg.adId ? await adTopicByExternalId(msg.adI…",
-                 "a": [
-                  "зовёт adTopicByExternalId()"
+                  "зовёт resolveAdTopic()"
                  ],
                  "c": []
                 },
@@ -87679,6 +87671,14 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "const leadOnly = s.botLeadOnlyMode === true && leadOnlyAppliesTo(channel);",
+         "a": [
+          "зовёт leadOnlyAppliesTo()"
+         ],
+         "c": []
         }
        ]
       },
@@ -121763,7 +121763,7 @@
       },
       {
        "k": "do",
-       "t": "const [bound] = await prisma.$queryRaw<{ present: boolean }[]>`SELECT EXISTS(SELECT 1 FROM \"BotConversation\" …",
+       "t": "const [bound] = await prisma.$queryRaw<{ present: boolean; adPropertyId: string | null; adExternalId: string …",
        "a": [
         "обращается к базе своим SQL"
        ],
@@ -121779,6 +121779,21 @@
          "t": "throw new Error(\"Customer intake policy native binding changed\");",
          "a": [
           "ошибка Error — «Customer intake policy native binding changed»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "bound.adExternalId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.client.updateMany({ where: { id: client.id, sourceAdId: null }, data: { sourceAdId: bound.adExte…",
+         "a": [
+          "меняет в базе: client"
          ],
          "c": []
         }
@@ -122883,6 +122898,801 @@
         }
        ],
        "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "customerLeadOnlyIntakeJob",
+   "file": "apps/api/src/jobs/customerLeadOnlyIntake.ts",
+   "tree": [
+    {
+     "k": "do",
+     "t": "const result = await runCustomerLeadOnlyIntake(payload);",
+     "a": [
+      "зовёт runCustomerLeadOnlyIntake()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const intake = customerLeadOnlyIntakeSchema.parse(raw);",
+       "a": [
+        "проверяет данные схемой customerLeadOnlyIntakeSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!options.force && !await turnSettled(intake.eventKey)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"wait\", reason: \"turn_not_settled\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const conversation = await prisma.botConversation.findUnique({ where: { id: intake.conversationId }, select: …",
+       "a": [
+        "читает в базе: botConversation"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!conversation",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"skipped\", reason: \"conversation_missing\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!sealed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"background-jobs\", `[alarm] Режим «только заявки»: данные заявки не читаются (диалог ${co…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intak…",
+         "a": [
+          "зовёт notifyLeadOnlyHandover()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "conversation.clientId",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "sealed.lead",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "intake.scenario === \"hot\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+             "a": [
+              "зовёт notifyLeadOnlyHandover()"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+         "a": [
+          "зовёт notifyLeadOnlyHandover()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!sealed.lead || !sealed.phone",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+         "a": [
+          "зовёт notifyLeadOnlyHandover()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…",
+       "a": [
+        "зовёт acceptLead()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …",
+       "a": [
+        "читает в базе: botConversation"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!linked?.client",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"ai\", `[alarm] Режим «только заявки»: заявка из ядра не оформлена (диалог ${conversation.…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intak…",
+         "a": [
+          "зовёт notifyLeadOnlyHandover()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "linked.client.kind === \"OTHER\" && sealed.promised === \"call\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"ai\", `[alarm] Режим «только заявки»: бот обещал звонок, а заявка ушла в «Прочие обращени…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"no_ag…",
+         "a": [
+          "зовёт notifyLeadOnlyHandover()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runCustomerLeadOnlyIntake() — apps/api/src/lib/customerLeadOnlyCore.ts"
+    },
+    {
+     "k": "if",
+     "t": "result.status === \"wait\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(result.reason);",
+       "a": [
+        "ошибка Error — «result.reason»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await runCustomerLeadOnlyIntake(payload, { force: true });",
+         "a": [
+          "зовёт runCustomerLeadOnlyIntake()"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "const intake = customerLeadOnlyIntakeSchema.parse(raw);",
+           "a": [
+            "проверяет данные схемой customerLeadOnlyIntakeSchema"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!options.force && !await turnSettled(intake.eventKey)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"wait\", reason: \"turn_not_settled\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const conversation = await prisma.botConversation.findUnique({ where: { id: intake.conversationId }, select: …",
+           "a": [
+            "читает в базе: botConversation"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!conversation",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"skipped\", reason: \"conversation_missing\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!sealed",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"background-jobs\", `[alarm] Режим «только заявки»: данные заявки не читаются (диалог ${co…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intak…",
+             "a": [
+              "зовёт notifyLeadOnlyHandover()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "conversation.clientId",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "sealed.lead",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "intake.scenario === \"hot\"",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+                 "a": [
+                  "зовёт notifyLeadOnlyHandover()"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+             "a": [
+              "зовёт notifyLeadOnlyHandover()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!sealed.lead || !sealed.phone",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+             "a": [
+              "зовёт notifyLeadOnlyHandover()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…",
+           "a": [
+            "зовёт acceptLead()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …",
+           "a": [
+            "читает в базе: botConversation"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!linked?.client",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"ai\", `[alarm] Режим «только заявки»: заявка из ядра не оформлена (диалог ${conversation.…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intak…",
+             "a": [
+              "зовёт notifyLeadOnlyHandover()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "linked.client.kind === \"OTHER\" && sealed.promised === \"call\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"ai\", `[alarm] Режим «только заявки»: бот обещал звонок, а заявка ушла в «Прочие обращени…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"no_ag…",
+             "a": [
+              "зовёт notifyLeadOnlyHandover()"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ],
+         "from": "runCustomerLeadOnlyIntake() — apps/api/src/lib/customerLeadOnlyCore.ts"
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logSystemError(\"background-jobs\", `[alarm] Режим «только заявки»: заявка из переписки не оформлена (диа…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": [
+          {
+           "k": "if",
+           "t": "isPrivateOperation()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "source = \"investigation\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "source === \"investigation\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, silent: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "isShuttingDown()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+             "a": [
+              "читает в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "recent",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return;",
+               "a": [
+                "дальше не идёт, ничего не меняя"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+             "a": [
+              "читает в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+             "a": [
+              "создаёт в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!context?.quietPult",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "requestPultSnapshot();",
+               "a": [
+                "зовёт requestPultSnapshot()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!everSeen && !context?.silent",
+             "a": [],
+             "c": [
+              {
+               "k": "try",
+               "t": "пробует",
+               "a": [],
+               "c": []
+              },
+              {
+               "k": "catch",
+               "t": "если сорвалось",
+               "a": [],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ],
+         "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+        },
+        {
+         "k": "do",
+         "t": "await notifyLeadOnlyHandover({ conversationId: payload.conversationId, propertyId: payload.propertyId, reason…",
+         "a": [
+          "зовёт notifyLeadOnlyHandover()"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "const tag = leadOnlyHandoverTag(input.conversationId);",
+           "a": [
+            "зовёт leadOnlyHandoverTag()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"deduped\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: {…",
+           "a": [
+            "читает в базе: botConversation"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!conversation",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"nobody\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "client?.assignedAgentId",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!client.agentAttentionRequestedAt",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…",
+               "a": [
+                "меняет в базе: client"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await logTimeline({ clientId: client.id, actor: { kind: \"client\", source: \"lead-only-handover\", subjectAgentI…",
+             "a": [
+              "зовёт logTimeline()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "input.propertyId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const property = await prisma.property.findUnique({ where: { id: input.propertyId }, select: { intakeAgentId:…",
+             "a": [
+              "читает в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "const owner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;",
+             "a": [
+              "зовёт propertyOwnerAgentId()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "owner",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "owners.add(owner);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!owners.size",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "for (const id of await propertyInterestChatAgentIds(conversation.id)) owners.add(id);",
+             "a": [
+              "зовёт propertyInterestChatAgentIds()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const activeOwners = owners.size ? (await prisma.agent.findMany({ where: { id: { in: [...owners] }, isActive:…",
+           "a": [
+            "читает в базе: agent"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "activeOwners.length",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await deliver(activeOwners, { kind: \"message\", level: \"CRITICAL\", title, body, url: chatUrl, tag });",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return { status: \"notified\", to: \"property\", recipients: activeOwners.length };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const supervisors = await findAgentsWithPermission(\"clients.assign\");",
+           "a": [
+            "зовёт findAgentsWithPermission()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "supervisors.length",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await deliver(supervisors, { kind: \"message\", level: \"CRITICAL\", title, body, url: chatUrl, tag });",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return { status: \"notified\", to: \"supervisors\", recipients: supervisors.length };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "void logSystemError(\"ai\", `[alarm] Режим «только заявки»: бот передал клиента человеку, но звать некого (диал…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ],
+         "from": "notifyLeadOnlyHandover() — apps/api/src/lib/leadOnlyHandover.ts"
+        }
+       ]
       }
      ]
     }
@@ -128583,6 +129393,14 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "const leadOnly = s.botLeadOnlyMode === true && leadOnlyAppliesTo(channel);",
+         "a": [
+          "зовёт leadOnlyAppliesTo()"
+         ],
+         "c": []
         }
        ]
       },
@@ -128689,14 +129507,6 @@
        "t": "const selfName = clientSelfStatedName(history);",
        "a": [
         "зовёт clientSelfStatedName()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const [propsBlock, learnedBlock, styleBlock, clientHours, money, geoBlock] = await Promise.all([ buyerQueryFo…",
-       "a": [
-        "зовёт buyerQueryForTurn()"
        ],
        "c": []
       },
@@ -129384,6 +130194,14 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "const leadOnly = s.botLeadOnlyMode === true && leadOnlyAppliesTo(channel);",
+         "a": [
+          "зовёт leadOnlyAppliesTo()"
+         ],
+         "c": []
         }
        ]
       },
@@ -129490,14 +130308,6 @@
        "t": "const selfName = clientSelfStatedName(history);",
        "a": [
         "зовёт clientSelfStatedName()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const [propsBlock, learnedBlock, styleBlock, clientHours, money, geoBlock] = await Promise.all([ buyerQueryFo…",
-       "a": [
-        "зовёт buyerQueryForTurn()"
        ],
        "c": []
       },

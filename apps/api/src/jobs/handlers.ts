@@ -32,6 +32,7 @@ import { customerShowingNotifyJob } from "./customerShowingNotify.js";
 import { customerInboxConsumeJob } from "./customerInboxConsume.js";
 import { customerOutboxDispatchJob } from "./customerOutboxDispatch.js";
 import { customerContactIntakeJob } from "./customerContactIntake.js";
+import { customerLeadOnlyIntakeJob } from "./customerLeadOnlyIntake.js";
 
 /**
  * Все обработчики очереди — одним списком. Импортируется ТОЛЬКО runner'ом
@@ -88,3 +89,4 @@ registerJobHandler(customerShowingNotifyJob);
 registerJobHandler(customerInboxConsumeJob);
 registerJobHandler(customerOutboxDispatchJob);
 registerJobHandler(customerContactIntakeJob);
+registerJobHandler(customerLeadOnlyIntakeJob);

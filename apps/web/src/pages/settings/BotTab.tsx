@@ -908,6 +908,8 @@ function BotPowerSection() {
         </div>
       </div>
 
+      <LeadOnlyModeFields onToggle={toggle} />
+
       <div className="grp-lab">Что бот умеет</div>
       <div className="quiet">
         <span className="dot" />
@@ -931,7 +933,14 @@ function BotPowerSection() {
         // Напоминания молчащим держат два тумблера и число (cron.ts::sendFollowUps).
         const followUpBlock =
           field === "botCanFollowUp" && on && settings ? followUpBlockedBy(settings, "ability") : null;
-        const idle = showingBlock ? (
+        // Режим «только заявки» гасит фото и ссылки на сервере при любом положении этих тумблеров.
+        const leadOnlyBlock =
+          (field === "botCanSendPhotos" || field === "botCanSendLinks") && on && settings?.botLeadOnlyMode
+            ? "Сейчас не действует: включён режим «только заявки»."
+            : null;
+        const idle = leadOnlyBlock ? (
+          leadOnlyBlock
+        ) : showingBlock ? (
           <>
             {showingBlock}{" "}
             <Link className="lnk" to="/settings?tab=leads">
@@ -973,6 +982,94 @@ function BotPowerSection() {
         </div>
       )}
     </SettingsSection>
+  );
+}
+
+/**
+ * РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (владелец 12–13.11.2026). Один главный тумблер; три
+ * уточнения показываются только при включённом режиме — без него они ни на что не
+ * влияют. Поведение — apps/api/src/ai/leadOnlyMode.ts (ядро и старый путь бота).
+ */
+function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: boolean) => void }) {
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const on = settings?.botLeadOnlyMode ?? false;
+  const useWhatsapp = settings?.botUseWhatsappNumber ?? true;
+  const hot = settings?.botHotIntentHandover ?? true;
+  const asks = settings?.botMaxPhoneAsks ?? 2;
+  const [askError, setAskError] = useState<string | null>(null);
+  return (
+    <>
+      <div className="grp-lab">Режим: только заявки</div>
+      <SwitchRow
+        title="Бот только принимает заявки"
+        on={on}
+        hint={
+          on
+            ? "WhatsApp, Instagram и Facebook: бот отвечает коротко, берёт номер и передаёт клиента агенту. Подборки, фото и ссылки не отправляет, цены называет только из базы. Чат сайта работает как раньше."
+            : "Обычный режим: бот сам подбирает варианты, присылает фото и ссылки."
+        }
+        onToggle={() => onToggle("botLeadOnlyMode", !on)}
+      />
+      {on && (
+        <>
+          <SwitchRow
+            title="В WhatsApp звонить на номер, с которого пишут"
+            on={useWhatsapp}
+            hint={
+              useWhatsapp
+                ? "Номер не спрашиваем: «Агент позвонит вам на этот номер, удобно?»"
+                : "Бот просит номер для звонка и в WhatsApp, как в Instagram."
+            }
+            onToggle={() => onToggle("botUseWhatsappNumber", !useWhatsapp)}
+          />
+          <SwitchRow
+            title="«Хотим посмотреть» — сразу агенту"
+            on={hot}
+            hint={
+              hot
+                ? "Слова «хотим посмотреть», «куда ехать», «адрес» и такие же по-таджикски сразу передают клиента агенту объекта, а без номера зовут сотрудника в переписку."
+                : "Такие слова бот отвечает как обычный вопрос."
+            }
+            onToggle={() => onToggle("botHotIntentHandover", !hot)}
+          />
+          <div className="mod">
+            <div className="t">
+              <b>Сколько раз просить номер</b>
+              <span style={{ whiteSpace: "normal" }}>
+                Instagram и Facebook. Потом бот даёт номер офиса и больше не настаивает.
+              </span>
+            </div>
+            <div className="acts">
+              <div className="seg" role="group" aria-label="Сколько раз просить номер">
+                {[1, 2, 3].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    // aria-pressed — смысл для экранного диктора (кнопка-переключатель); aria-selected — крючок стиля .seg на экране настроек.
+                    aria-pressed={asks === n}
+                    aria-selected={asks === n}
+                    onClick={() => {
+                      setAskError(null);
+                      updateSettings.mutate({ botMaxPhoneAsks: n }, {
+                        onError: (err) => setAskError(err instanceof Error ? err.message : "Не удалось сохранить настройку"),
+                      });
+                    }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {askError && (
+            <p className="msg" role="alert">
+              {askError}
+            </p>
+          )}
+        </>
+      )}
+    </>
   );
 }
 

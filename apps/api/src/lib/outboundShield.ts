@@ -834,6 +834,25 @@ function repeatLimitFor(isReply: boolean, text: string): number {
 }
 
 /**
+ * ЗАРАНЕЕ — СТРОЖЕ, НА ТРАНСПОРТЕ — КАК БЫЛО (13.11.2026, живой чат: список из трёх
+ * объектов и блок вакансии уходили одному человеку по 3-4 раза).
+ *
+ * Многострочный блок (список вариантов, условия, вакансия) второй раз за сутки
+ * дословно не повторяем даже в ответе: цепочка ответа (replyChain.ts) спрашивает
+ * щит ДО записи и отправки и вместо повтора берёт другую реплику, так что строгость
+ * здесь не делает бота немым. Сам транспорт (admitOutbound) оставлен с прежним
+ * порогом: там отказ — это уже молчание, а ядро (CORE) сверяет повтор своим
+ * рендером (ai/customerAgentRenderer.ts) раньше щита.
+ */
+function repeatPreflightLimitFor(isReply: boolean, text: string): number {
+  return isMultiLineBlock(text) ? 0 : repeatLimitFor(isReply, text);
+}
+
+function isMultiLineBlock(text: string): boolean {
+  return text.split(/\r?\n/).filter((line) => line.trim()).length >= 3;
+}
+
+/**
  * КАКИЕ ИЗ ЭТИХ ТЕКСТОВ ЩИТ НЕ ВЫПУСТИТ КАК ПОВТОР — ЗАРАНЕЕ, БЕЗ ПОБОЧНЫХ
  * ДЕЙСТВИЙ (аудит ботов 10.10.2026, P0-1).
  *
@@ -857,7 +876,7 @@ export async function repeatBlockedTexts(
     if (!state) return [];
     const isReply = !!state.lastInboundAt && now.getTime() - state.lastInboundAt.getTime() <= REPLY_WINDOW_MS;
     const prints = readPrints(state.recentTexts, now.getTime());
-    return texts.filter((t) => countedPrint(prints, fingerprint(t)) > repeatLimitFor(isReply, t));
+    return texts.filter((t) => countedPrint(prints, fingerprint(t)) > repeatPreflightLimitFor(isReply, t));
   } catch (err) {
     console.error("[щит] проверка повтора заранее не выполнена:", err instanceof Error ? err.message : err);
     return [];

@@ -15,11 +15,11 @@
   "screens": 53,
   "paths": 749,
   "cron": 130,
-  "jobs": 32,
-  "conditions": 3980,
-  "untranslatedUnique": 458,
-  "untranslatedTotal": 588,
-  "partialUnique": 1077,
+  "jobs": 33,
+  "conditions": 4015,
+  "untranslatedUnique": 460,
+  "untranslatedTotal": 591,
+  "partialUnique": 1084,
   "translatedShare": 85
  },
  "untranslated": [
@@ -102,6 +102,7 @@
   "!narrationAutoEnabled(config)",
   "!needsReadReceipt(source)",
   "!options.allowLive || newOwnerProbeMode() !== 'LIVE'",
+  "!options.force && !await turnSettled(intake.eventKey)",
   "!outcome.agentId || client.assignedAgentId !== outcome.agentId",
   "!ownerId || ownerId === req.agent!.id",
   "!pageToken || items.length === 0 || !pageHasFreshThread(items, cutoffMs)",
@@ -134,6 +135,7 @@
   "!text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
+  "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
   "!verifyState(state)",
   "!verifyTotpCode(agent.phone, secret, parsed.data.code)",
   "!video || video.propertyId !== req.params.id",
@@ -79212,6 +79214,19 @@
          "c": []
         }
        ]
+      },
+      {
+       "t": "если есть ad external",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "меняет: клиент",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -79683,6 +79698,293 @@
          "k": "catch",
          "a": [],
          "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "customerLeadOnlyIntakeJob",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если !options.force && !await turnSettled(intake.eventKey)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "!options.force && !await turnSettled(intake.eventKey)"
+      },
+      {
+       "t": "если нет: переписка",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: sealed",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть клиент (переписка)",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть заявка",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если scenario — «hot»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если нет: заявка или нет: телефон",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: клиент",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если вид (клиент) — «OTHER» и promised — «call»",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если статус (ответ) — «wait»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "поломка: «result.reason»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "внутри этого шага",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если !options.force && !await turnSettled(intake.eventKey)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!options.force && !await turnSettled(intake.eventKey)",
+           "more": true
+          },
+          {
+           "t": "если нет: переписка",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: sealed",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть клиент (переписка)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: заявка или нет: телефон",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: клиент",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид (клиент) — «OTHER» и promised — «call»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если это private operation",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если source — «investigation»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если сервер сейчас выключается",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "внутри этого шага",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "more": true
+          },
+          {
+           "t": "если нет: переписка",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть назначен сотрудник (клиент)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть объект",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: size",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть активен owners количество",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть supervisors количество",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
         }
        ]
       }
