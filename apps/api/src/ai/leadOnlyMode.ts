@@ -347,9 +347,12 @@ export type LeadOnlyPhoneState =
 export const LEAD_ONLY_OFFICE_PHONE_TEXT = "777 070 100";
 
 /**
- * Тексты. Два набора там, где это важно для правды:
+ * Тексты. Три случая там, где это важно для правды:
  *  - `call` — у агента есть номер (WhatsApp, клиент дал номер, карточка уже есть): можно обещать звонок;
- *  - `chat` — номера нет (Instagram/Facebook): звонок обещать нельзя, только «ответит здесь» или просьба номера.
+ *  - `chat` — заявка или карточка есть, но звонить нельзя (клиент просил не звонить): «агент ответит здесь»;
+ *  - `ask` — заявки нет (Instagram/Facebook без номера): человека никто не зовёт (решение владельца 13.11.2026:
+ *    «никаких уведомлений, пока он не станет лидом»), поэтому ни «передаю агенту», ни «ответит здесь» —
+ *    только честное «оставьте номер, агент позвонит» или номер офиса.
  * Ревью 13.11.2026: «агент подберёт и расскажет» без номера и без уведомления агента было обещанием, которого
  * никто не выполнит.
  */
@@ -361,6 +364,9 @@ const LINES = {
     ru: (id: number) => `Хорошо, передаю агенту по объекту №${id}, он ответит вам здесь.`,
     tg: (id: number) => `Хуб, оид ба объекти №${id} ба агент мерасонам, ӯ ҳамин ҷо ба шумо ҷавоб медиҳад.`,
   },
+  /** Заявки нет (номера нет): «передаю агенту» было бы неправдой, никого не зовём. Дальше — просьба номера или офис. */
+  hotAsk: { ru: "Хорошо, покажем.", tg: "Хуб, нишон медиҳем." },
+  hotPropertyAsk: { ru: (id: number) => `Хорошо, покажем объект №${id}.`, tg: (id: number) => `Хуб, объекти №${id}-ро нишон медиҳем.` },
   seller: {
     ru: (pct: number) => `Да, поможем продать. Комиссия агентства ${pct}%, работаем по Душанбе.`,
     tg: (pct: number) => `Бале, дар фурӯш кӯмак мекунем. Комиссияи агентӣ ${pct}%, дар Душанбе кор мекунем.`,
@@ -396,8 +402,9 @@ const LINES = {
   buyerNoneChat: { ru: "Понял вас.", tg: "Фаҳмидам." },
   escalate: { ru: "Передаю ваш вопрос агенту, он свяжется с вами.", tg: "Саволатонро ба агент мерасонам, ӯ бо шумо тамос мегирад." },
   escalateChat: { ru: "Передаю ваш вопрос агенту, он ответит вам здесь.", tg: "Саволатонро ба агент мерасонам, ӯ ҳамин ҷо ба шумо ҷавоб медиҳад." },
-  /** Человек уже позван (агент объекта, горячие слова, вопрос к сотруднику), а всё прочее уже звучало. */
-  waitingChat: { ru: "Агент уже в курсе и ответит вам здесь.", tg: "Агент аллакай огоҳ аст ва ҳамин ҷо ба шумо ҷавоб медиҳад." },
+  /** Заявки нет: вопрос не «передаётся» никому, дальше — просьба номера или номер офиса. */
+  escalateAsk: { ru: "С этим вопросом поможет агент.", tg: "Дар ин савол агент ба шумо кӯмак мекунад." },
+  /** Заявка или карточка есть (агент узнал заявкой или обычным сообщением), а всё прочее уже звучало. */
   waitingCall: { ru: "Агент уже в курсе и свяжется с вами.", tg: "Агент аллакай огоҳ аст ва бо шумо тамос мегирад." },
 } as const;
 
@@ -416,8 +423,13 @@ const GIVEN_VARIANTS = {
 const ESCALATE_VARIANTS = {
   call: { ru: [LINES.escalate.ru, "Передал ваш вопрос агенту, он свяжется с вами.", "Вопрос уже у агента, он свяжется с вами."],
     tg: [LINES.escalate.tg, "Саволатонро ба агент расондам, ӯ бо шумо тамос мегирад.", "Савол аллакай дар назди агент аст, ӯ бо шумо тамос мегирад."] },
-  chat: { ru: [LINES.escalateChat.ru, "Передал ваш вопрос агенту, он ответит вам здесь.", "Вопрос уже у агента, он ответит вам здесь."],
-    tg: [LINES.escalateChat.tg, "Саволатонро ба агент расондам, ӯ ҳамин ҷо ҷавоб медиҳад.", "Савол аллакай дар назди агент аст, ӯ ҳамин ҷо ҷавоб медиҳад."] },
+  // Заявки нет, человека не зовём (решение владельца 13.11.2026): честно — номер офиса.
+  office: { ru: [`С этим вопросом поможет агент. Позвоните нам, пожалуйста: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
+    `Подробнее подскажет агент по телефону ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
+    `Этот вопрос лучше обсудить с агентом, наш номер: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`],
+  tg: [`Дар ин савол агент ба шумо кӯмак мекунад. Лутфан, ба мо занг занед: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
+    `Агент бо телефони ${LEAD_ONLY_OFFICE_PHONE_TEXT} муфассал мегӯяд.`,
+    `Ин саволро беҳтар аст бо агент гап занед, рақами мо: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`] },
 } as const;
 
 /** Клиент с карточкой назвал удобное время звонка (третье ревью 13.11, №4): агенту передано, без дословного повтора. */
@@ -519,6 +531,12 @@ export interface LeadOnlyReplyInput {
   market?: LeadOnlyMarketSummary | null;
   /** Комиссия продавца из фактов агентства (ai/agencyFacts.ts). */
   sellerCommissionPercent: number;
+  /**
+   * Агент узнаёт о клиенте: заявка заводится (номер есть) или карточка уже есть (агенту приходит обычное
+   * уведомление о сообщении). Без этого «передаю агенту» и «ответит здесь» — неправда: до заявки людей
+   * не зовём (решение владельца 13.11.2026). По умолчанию — когда номер у агента есть.
+   */
+  agentInformed?: boolean;
 }
 
 /** Части ответа: фраза по сути и строка про звонок/номер (её может не быть). */
@@ -526,13 +544,15 @@ export function leadOnlyReplyParts(input: LeadOnlyReplyInput): { intro: string; 
   const lang = input.language, p = input.property;
   // Звонок обещать можно, только если у агента есть номер: WhatsApp, номер от клиента или карточка.
   const call = input.phone.kind !== "ask";
-  let phoneLine = input.scenario === "escalate" ? null : leadOnlyPhoneLine(input.phone, input.when, lang);
-  // Номер больше не просим: звонка не будет, «передаю агенту» значит «ответит здесь».
-  const chatOnly = !call && input.phone.kind === "ask" && (input.phone.refused === true || input.phone.asksSoFar >= input.phone.maxAsks);
+  const informed = input.agentInformed ?? call;
+  // Вопрос к сотруднику при заявке или карточке — только «передаю»; без заявки — та же просьба номера, что везде.
+  let phoneLine = input.scenario === "escalate" && informed ? null : leadOnlyPhoneLine(input.phone, input.when, lang);
   let intro: string;
   switch (input.scenario) {
     case "hot":
-      intro = chatOnly ? (p ? LINES.hotPropertyChat[lang](p.shortId) : LINES.hotChat[lang]) : p ? LINES.hotProperty[lang](p.shortId) : LINES.hot[lang];
+      intro = call ? (p ? LINES.hotProperty[lang](p.shortId) : LINES.hot[lang])
+        : informed ? (p ? LINES.hotPropertyChat[lang](p.shortId) : LINES.hotChat[lang])
+        : p ? LINES.hotPropertyAsk[lang](p.shortId) : LINES.hotAsk[lang];
       break;
     case "seller": intro = LINES.seller[lang](input.sellerCommissionPercent); break;
     case "property":
@@ -548,7 +568,7 @@ export function leadOnlyReplyParts(input: LeadOnlyReplyInput): { intro: string; 
         : call ? LINES.buyerNone[lang] : LINES.buyerNoneChat[lang];
       break;
     }
-    default: intro = call ? LINES.escalate[lang] : LINES.escalateChat[lang];
+    default: intro = call ? LINES.escalate[lang] : informed ? LINES.escalateChat[lang] : LINES.escalateAsk[lang];
   }
   // «Хорошо, передаю агенту… Хорошо, без проблем…» — второе «хорошо» лишнее.
   if (phoneLine && /^(?:Хорошо|Хуб)/u.test(intro)) phoneLine = phoneLine.replace(OFFICE_LEAD[lang], "");
@@ -567,25 +587,29 @@ function normalizeSent(text: string): string { return text.normalize("NFKC").rep
  * Тот же ответ, но без повтора уже сказанного в этом разговоре (второе ревью 13.11, №2: «Это объект №112,
  * цена 520 000 сомони» звучало четыре раза подряд). Фраза по сути (объект, условия продавцу, «есть варианты
  * от…») говорится ОДИН раз: если она уже есть в отправленном, остаётся только строка про номер или звонок.
- * Всё уже звучало — «агент уже в курсе» (если человек позван), затем короткое «понял вас». Щит исходящих
- * (lib/outboundShield.ts) не выпускает одинаковый текст в третий раз, а на транспорте его отказ означает
- * молчание, поэтому пустым или дословно повторённым ответ не бывает.
- * `humanNotified` — человек по этому разговору позван (агент объекта, горячие слова, вопрос сотруднику).
+ * Всё уже звучало — «агент уже в курсе и свяжется» (только когда у агента есть номер: заявка или карточка),
+ * затем короткое «понял вас». Без заявки «агент уже в курсе» не говорим: людей до заявки не зовут (решение
+ * владельца 13.11.2026). Щит исходящих (lib/outboundShield.ts) не выпускает одинаковый текст в третий раз,
+ * а на транспорте его отказ означает молчание, поэтому пустым или дословно повторённым ответ не бывает.
  */
-export function leadOnlyReplyAvoidingRepeat(input: LeadOnlyReplyInput, sentTexts: readonly string[], humanNotified = false): string {
+export function leadOnlyReplyAvoidingRepeat(input: LeadOnlyReplyInput, sentTexts: readonly string[]): string {
   const sentList = sentTexts.map(normalizeSent), sent = new Set(sentList);
   const parts = leadOnlyReplyParts(input);
   const introSaid = sentList.some(text => text.includes(normalizeSent(parts.intro)));
-  const waiting = humanNotified ? [(input.phone.kind === "ask" ? LINES.waitingChat : LINES.waitingCall)[input.language]] : [];
+  const waiting = input.phone.kind !== "ask" && (input.agentInformed ?? true) ? [LINES.waitingCall[input.language]] : [];
   const candidates = [introSaid ? "" : [parts.intro, parts.phoneLine].filter(Boolean).join(" "), parts.phoneLine ?? "",
     introSaid ? "" : parts.intro, ...waiting, ...SHORT_ACKS[input.language]].filter(Boolean);
   return candidates.find(text => !sent.has(normalizeSent(text))) ?? SHORT_ACKS[input.language][SHORT_ACKS[input.language].length - 1];
 }
 
-/** Короткий ответ вместо вырезанной фильтром подборки или ссылки (старый путь); тот же смысл, что «escalate». Без дословного повтора. */
-export function leadOnlyEscalateLine(language: LeadOnlyLanguage, call: boolean, sentTexts: readonly string[] = []): string {
+/**
+ * Запасной короткий ответ вместо вырезанной фильтром подборки или ссылки (старый путь), когда сценарий режима
+ * хода не нашёлся (вакансия). `informed` — у клиента есть карточка: агент видит переписку. Иначе никого не зовём
+ * и не обещаем, а даём номер офиса. Без дословного повтора.
+ */
+export function leadOnlyEscalateLine(language: LeadOnlyLanguage, informed: boolean, sentTexts: readonly string[] = []): string {
   const sent = new Set(sentTexts.map(normalizeSent));
-  const variants = ESCALATE_VARIANTS[call ? "call" : "chat"][language];
+  const variants = ESCALATE_VARIANTS[informed ? "call" : "office"][language];
   return variants.find(line => !sent.has(normalizeSent(line))) ?? variants[variants.length - 1];
 }
 
@@ -624,11 +648,12 @@ function leadOnlyServerLinePattern(): RegExp {
     // Каждый шаблон явно; новый шаблон без строки здесь ловит тест «всё, что говорит режим, узнаётся памятью».
     const L = LINES;
     for (const line of [L.hot[language], L.hotProperty[language](SLOT.id), L.hotChat[language], L.hotPropertyChat[language](SLOT.id),
+      L.hotAsk[language], L.hotPropertyAsk[language](SLOT.id), L.escalateAsk[language],
       L.seller[language](SLOT.pct), L.propertyPrice[language](SLOT.id, SLOT.price), L.propertyNoPrice[language](SLOT.id),
       L.propertySold[language](SLOT.id), L.propertySoldChat[language](SLOT.id), L.propertyUnknown[language],
       L.buyerDistrict[language](SLOT.place, SLOT.price), L.buyerDistrictChat[language](SLOT.place, SLOT.price),
       L.buyerAny[language](SLOT.price), L.buyerAnyChat[language](SLOT.price), L.buyerNone[language], L.buyerNoneChat[language],
-      L.escalate[language], L.escalateChat[language], L.waitingChat[language], L.waitingCall[language]]) texts.add(line);
+      L.escalate[language], L.escalateChat[language], L.waitingCall[language]]) texts.add(line);
     for (const when of whens) {
       for (const phone of [{ kind: "whatsapp" }, { kind: "given" }, { kind: "card" }] as const) {
         const line = leadOnlyPhoneLine(phone, when, language); if (line) texts.add(line);
@@ -639,7 +664,7 @@ function leadOnlyServerLinePattern(): RegExp {
       const line = leadOnlyPhoneLine({ kind: "ask", asksSoFar, maxAsks: 2, officeAlreadyOffered: false, refused }, { kind: "soon" }, language);
       if (line) { texts.add(line); texts.add(line.replace(OFFICE_LEAD[language], "")); }
     }
-    for (const line of [...SHORT_ACKS[language], ...ESCALATE_VARIANTS.call[language], ...ESCALATE_VARIANTS.chat[language],
+    for (const line of [...SHORT_ACKS[language], ...ESCALATE_VARIANTS.call[language], ...ESCALATE_VARIANTS.office[language],
       ...CALLBACK_NOTED_VARIANTS[language], ...NO_CALL_NOTED_VARIANTS[language]]) texts.add(line);
   }
   const alternatives = [...texts].sort((a, b) => b.length - a.length).map(templateSource).join("|");

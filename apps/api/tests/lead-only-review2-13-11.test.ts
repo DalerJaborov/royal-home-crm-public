@@ -21,15 +21,16 @@ describe("№2: фраза об объекте звучит один раз, «�
       const history = { asksSoFar: sent.filter(t => /номер/.test(t) && !t.includes(LEAD_ONLY_OFFICE_PHONE_TEXT)).length,
         office: sent.some(t => t.includes(LEAD_ONLY_OFFICE_PHONE_TEXT)) };
       const reply = leadOnlyReplyAvoidingRepeat({ scenario: "property", language: "ru", phone: ask(history.asksSoFar, { officeAlreadyOffered: history.office }),
-        when: soon, property, sellerCommissionPercent: 2 }, sent, true);
+        when: soon, property, sellerCommissionPercent: 2 }, sent);
       replies.push(reply); sent.push(reply);
     }
     expect(replies.filter(r => r.includes("Это объект №112")).length).toBe(1);
     expect(new Set(replies).size).toBe(4);
     expect(replies.join(" ")).not.toContain("без проблем");
     expect(replies[2]).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
-    // Человек позван — последний ответ правдиво говорит, что агент в курсе, а не «понял вас, спасибо».
-    expect(replies[3]).toBe("Агент уже в курсе и ответит вам здесь.");
+    // Номера нет — людей не звали (решение владельца 13.11.2026): ни «агент в курсе», ни «ответит здесь».
+    expect(replies[3]).toBe("Понял вас, спасибо.");
+    expect(replies.join(" ")).not.toMatch(/в курсе|ответит вам здесь|передаю/iu);
   });
   it("отказ дать номер: больше не просим, «хорошо, без проблем» и номер офиса", () => {
     expect(leadOnlyPhoneLine(ask(1, { refused: true }), soon, "ru")).toBe(`Хорошо, без проблем. Если захотите, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);

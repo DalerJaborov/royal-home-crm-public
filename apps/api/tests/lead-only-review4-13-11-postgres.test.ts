@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { planCustomerLeadOnlyTurn, runCustomerLeadOnlyIntake, type CustomerLeadOnlyTurnInput } from "../src/lib/customerLeadOnlyCore.js";
-import { leadOnlyHandoverTag, leadOnlyHumanNotifiedRecently, notifyLeadOnlyHandover } from "../src/lib/leadOnlyHandover.js";
+import { leadOnlyAlarmTag } from "../src/lib/leadOnlyHandover.js";
+import { leadOnlyNotificationsSince } from "./helpers/leadOnlyQuiet.js";
 import { appendConversationMessages } from "../src/messengers/appendMessages.js";
 import { LEAD_ONLY_DEFAULTS } from "../src/ai/leadOnlyMode.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
@@ -11,13 +12,13 @@ import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
  * ЧЕТВЁРТОЕ РЕВЬЮ РЕЖИМА «ТОЛЬКО ЗАЯВКИ» (13.11.2026): ядро, дверь передачи и запись ответа на настоящей базе.
  * Слова (отказ / время / горячее) — таблица tests/lead-only-phrases.test.ts. Номер находки — в имени теста;
  * каждый тест проверен внесённой поломкой (журнал docs/journal/2026-11-13-bot-lead-only-mode.md).
+ * С вечера 13.11 (решение владельца): до номера — ни одного уведомления, у карточки — только пометка в ней.
  */
 const runId = Date.now().toString(36);
 const config = { ...LEAD_ONLY_DEFAULTS, enabled: true, workHoursStart: "00:00", workHoursEnd: "24:00" };
 const conversations: string[] = [], clients: string[] = [], agents: string[] = [], properties: string[] = [];
 let ownerA: string, ownerB: string, propertyA: string, propertyB: string;
 const waPeer = () => `99293${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`;
-const settle = () => new Promise(resolve => setTimeout(resolve, 300)); // запись в ленту идёт в отрыве
 
 function input(over: Partial<CustomerLeadOnlyTurnInput>): CustomerLeadOnlyTurnInput {
   return { config, channel: "INSTAGRAM", peer: `review4-${runId}-${randomUUID()}`, conversationId: randomUUID(), eventKey: randomUUID().replaceAll("-", "").padEnd(64, "0"),
@@ -38,8 +39,6 @@ async function requirementsOf(conversationId: string): Promise<string> {
   expect(row.client).not.toBeNull();
   return row.client?.requirementsNotes ?? "";
 }
-const notes = (id: string) => prisma.notification.findMany({ where: { tag: { startsWith: `${leadOnlyHandoverTag(id)}:` } },
-  select: { agentId: true, tag: true } });
 
 beforeAll(async () => {
   for (const suffix of ["A", "B"]) {
@@ -56,7 +55,7 @@ afterAll(async () => {
   await drainBackgroundTasks(3000);
   const linked = await prisma.botConversation.findMany({ where: { id: { in: conversations } }, select: { clientId: true } });
   clients.push(...linked.flatMap(row => (row.clientId ? [row.clientId] : [])));
-  await prisma.notification.deleteMany({ where: { OR: conversations.map(id => ({ tag: { startsWith: leadOnlyHandoverTag(id) } })) } });
+  await prisma.notification.deleteMany({ where: { OR: conversations.map(id => ({ tag: { startsWith: leadOnlyAlarmTag(id) } })) } });
   await prisma.botConversation.deleteMany({ where: { id: { in: conversations } } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: clients } } });
   await prisma.client.deleteMany({ where: { id: { in: clients } } });
@@ -66,27 +65,30 @@ afterAll(async () => {
 });
 
 describe("№1: отказ от звонка со словом времени", () => {
-  it("клиент с карточкой «Не звоните мне, я сейчас на работе, пишите здесь» — без обещания звонка, агенту пометка «писать в чат»", async () => {
+  it("клиент с карточкой «Не звоните мне, я сейчас на работе, пишите здесь» — без обещания звонка, пометка «писать в чат» в карточке, без пуша", async () => {
     const clientId = await client(ownerA);
     const id = await conversation("INSTAGRAM", `review4-nocall-${runId}`, clientId);
     const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Не звоните мне, я сейчас на работе, пишите здесь" }));
     expect(plan?.scenario).toBe("no_call");
     expect(plan?.text).toContain("ответит вам здесь");
     expect(plan?.text).not.toMatch(/позвон|удобное вам время/iu);
-    expect(await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).toEqual({ status: "notified" });
-    await settle();
-    expect((await notes(id)).find(n => n.agentId === ownerA)?.tag).toMatch(/:no_call$/u);
+    const since = new Date();
+    expect(await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).toEqual({ status: "noted" });
     expect(await prisma.interaction.findFirst({ where: { clientId, notes: { contains: "не звонить" } } })).not.toBeNull();
+    expect(await leadOnlyNotificationsSince(id, since, [ownerA])).toBe(0);
   });
 
-  it("Instagram без карточки «Хотим посмотреть, куда ехать? Звонить не надо, пишите потом» — номер не просим, звонок не обещаем", async () => {
+  it("Instagram без карточки «Хотим посмотреть, куда ехать? Звонить не надо, пишите потом» — номер не просим, звонок не обещаем, людей не зовём", async () => {
+    const since = new Date();
     const id = await conversation("INSTAGRAM", `review4-ig-${runId}`);
     const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Хотим посмотреть, куда ехать? Звонить не надо, пишите потом",
       focusPropertyId: propertyA }));
     expect(plan?.scenario).toBe("hot");
-    expect(plan?.text).toContain("ответит вам здесь");
-    // Номер офиса — можно («позвоните нам сами»); просьба номера и «агент позвонит» — нет.
-    expect(plan?.text).not.toMatch(/оставьте|напишите номер|агент[^.]*позвонит/iu);
+    // Заявки нет — «ответит здесь» было бы неправдой; номер офиса — можно («позвоните нам сами»).
+    expect(plan?.text).toContain("777 070 100");
+    expect(plan?.text).not.toMatch(/ответит вам здесь|передаю|оставьте|напишите номер|агент[^.]*позвонит/iu);
+    expect(plan?.intake).toBeNull();
+    expect(await leadOnlyNotificationsSince(id, since, [ownerA])).toBe(0);
   });
 
   it("WhatsApp без карточки: «Хочу продать квартиру. Не звоните, пишите здесь» — звонок не обещан, заявка с пометкой «писать в чат»", async () => {
@@ -101,19 +103,18 @@ describe("№1: отказ от звонка со словом времени", 
   });
 });
 
-describe("№2: окно горячего — на разговор и объект", () => {
-  it("горячее по объекту B после A доходит до хозяина B; повтор по A гасится; «агент в курсе» видит горячее по объекту", async () => {
+describe("№2 (переписан 13.11 вечером): горячее по A, затем по B без номера", () => {
+  it("ни хозяин A, ни хозяин B не получают уведомлений, пока нет номера", async () => {
+    const since = new Date();
     const id = await conversation("INSTAGRAM", `review4-hot-${runId}`);
-    expect(await leadOnlyHumanNotifiedRecently(id, new Date(), [propertyA])).toBe(false);
-    expect((await notifyLeadOnlyHandover({ conversationId: id, propertyId: propertyA, reason: "hot", summary: "хотим посмотреть A" })).status).toBe("notified");
-    await settle();
-    expect((await notifyLeadOnlyHandover({ conversationId: id, propertyId: propertyB, reason: "hot", summary: "хотим посмотреть B" })).status).toBe("notified");
-    await settle();
-    expect((await notifyLeadOnlyHandover({ conversationId: id, propertyId: propertyA, reason: "hot", summary: "куда ехать к A?" })).status).toBe("deduped");
-    const sent = await notes(id);
-    expect(sent.some(n => n.agentId === ownerA)).toBe(true);
-    expect(sent.some(n => n.agentId === ownerB)).toBe(true);
-    expect(await leadOnlyHumanNotifiedRecently(id, new Date(), [propertyB])).toBe(true);
+    const sent: string[] = [];
+    for (const [inputText, focusPropertyId] of [["Хотим посмотреть", propertyA], ["А этот тоже хотим посмотреть", propertyB]] as const) {
+      const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText, focusPropertyId, focusFromThisMessage: true, sentTexts: [...sent] }));
+      expect(plan?.scenario).toBe("hot");
+      expect(plan?.intake).toBeNull();
+      sent.push(plan!.text);
+    }
+    expect(await leadOnlyNotificationsSince(id, since, [ownerA, ownerB])).toBe(0);
   });
 });
 

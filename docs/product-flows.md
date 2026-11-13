@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4027**. Модулей: **83**.
+Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4022**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -27263,22 +27263,24 @@
   - если !sealed
     - void logSystemError("background-jobs", `[alarm] Режим «только заявки»: данные заявки не читаются (диалог ${co…
       · запись в журнал ошибок
-    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
-      · зовёт notifyLeadOnlyHandover()
+    - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
+      · зовёт alarmLeadOnlyIntake()
   - const note = leadOnlyNoteWithCallbackTime(`${SCENARIO_NOTE[intake.scenario]}${promise}: «${sealed.clientText.…
     · зовёт leadOnlyNoteWithCallbackTime()
   - если conversation.clientId
     - если sealed.lead
-      - если intake.scenario === "hot"
-        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
-          · зовёт notifyLeadOnlyHandover()
+      - return { status: "accepted", reason: "card_exists" };
+        · дословно из кода
     - const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …
       · читает в базе: client
-    - await notifyLeadOnlyHandover(newNumber ? { conversationId: conversation.id, propertyId: intake.propertyId, re…
-      · зовёт notifyLeadOnlyHandover()
+    - если !summary
+      - return { status: "skipped", reason: "card_exists" };
+        · дословно из кода
+    - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: "noted" } : { statu…
+      · зовёт noteLeadOnlyOnCard()
   - если !sealed.lead || !sealed.phone
-    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
-      · зовёт notifyLeadOnlyHandover()
+    - return { status: "skipped", reason: "no_phone" };
+      · дословно из кода
   - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
     · зовёт acceptLead()
   - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
@@ -27286,13 +27288,13 @@
   - если !linked?.client
     - void logSystemError("ai", `[alarm] Режим «только заявки»: заявка из ядра не оформлена (диалог ${conversation.…
       · запись в журнал ошибок
-    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
-      · зовёт notifyLeadOnlyHandover()
+    - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
+      · зовёт alarmLeadOnlyIntake()
   - если linked.client.kind === "OTHER" && sealed.promised === "call"
     - void logSystemError("ai", `[alarm] Режим «только заявки»: бот обещал звонок, а заявка ушла в «Прочие обращени…
       · запись в журнал ошибок
-    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "no_ag…
-      · зовёт notifyLeadOnlyHandover()
+    - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "no_agent…
+      · зовёт alarmLeadOnlyIntake()
 - если result.status === "wait"
   - throw new Error(result.reason);
     · ошибка Error — «result.reason»
@@ -27313,22 +27315,24 @@
       - если !sealed
         - void logSystemError("background-jobs", `[alarm] Режим «только заявки»: данные заявки не читаются (диалог ${co…
           · запись в журнал ошибок
-        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
-          · зовёт notifyLeadOnlyHandover()
+        - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
+          · зовёт alarmLeadOnlyIntake()
       - const note = leadOnlyNoteWithCallbackTime(`${SCENARIO_NOTE[intake.scenario]}${promise}: «${sealed.clientText.…
         · зовёт leadOnlyNoteWithCallbackTime()
       - если conversation.clientId
         - если sealed.lead
-          - если intake.scenario === "hot"
-            - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
-              · зовёт notifyLeadOnlyHandover()
+          - return { status: "accepted", reason: "card_exists" };
+            · дословно из кода
         - const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …
           · читает в базе: client
-        - await notifyLeadOnlyHandover(newNumber ? { conversationId: conversation.id, propertyId: intake.propertyId, re…
-          · зовёт notifyLeadOnlyHandover()
+        - если !summary
+          - return { status: "skipped", reason: "card_exists" };
+            · дословно из кода
+        - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: "noted" } : { statu…
+          · зовёт noteLeadOnlyOnCard()
       - если !sealed.lead || !sealed.phone
-        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
-          · зовёт notifyLeadOnlyHandover()
+        - return { status: "skipped", reason: "no_phone" };
+          · дословно из кода
       - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
         · зовёт acceptLead()
       - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
@@ -27336,13 +27340,13 @@
       - если !linked?.client
         - void logSystemError("ai", `[alarm] Режим «только заявки»: заявка из ядра не оформлена (диалог ${conversation.…
           · запись в журнал ошибок
-        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
-          · зовёт notifyLeadOnlyHandover()
+        - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_f…
+          · зовёт alarmLeadOnlyIntake()
       - если linked.client.kind === "OTHER" && sealed.promised === "call"
         - void logSystemError("ai", `[alarm] Режим «только заявки»: бот обещал звонок, а заявка ушла в «Прочие обращени…
           · запись в журнал ошибок
-        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "no_ag…
-          · зовёт notifyLeadOnlyHandover()
+        - await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "no_agent…
+          · зовёт alarmLeadOnlyIntake()
   - если сорвалось
     - await logSystemError("background-jobs", `[alarm] Режим «только заявки»: заявка из переписки не оформлена (диа…
       · запись в журнал ошибок
@@ -27376,52 +27380,35 @@
       - если сорвалось
         - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
           · пишет строку в журнал сервера
-    - await notifyLeadOnlyHandover({ conversationId: payload.conversationId, propertyId: payload.propertyId, reason…
-      · зовёт notifyLeadOnlyHandover()
-      - если !urgent && !(await shouldAlert(tag, window))
-        - return { status: "deduped" };
-          · дословно из кода
-      - const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: {…
-        · читает в базе: botConversation
-      - если !conversation
-        - return { status: "nobody" };
-          · дословно из кода
+    - await alarmLeadOnlyIntake({ conversationId: payload.conversationId, propertyId: payload.propertyId, reason: "…
+      · зовёт alarmLeadOnlyIntake()
+      - const tag = `${leadOnlyAlarmTag(input.conversationId)}:${input.reason}`;
+        · зовёт leadOnlyAlarmTag()
       - const property = input.propertyId ? await prisma.property.findUnique({ where: { id: input.propertyId }, selec…
         · читает в базе: property
-      - const propertyOwner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;
+      - const owner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;
         · зовёт propertyOwnerAgentId()
-      - const cardAgent = client?.assignedAgentId ? await prisma.agent.findFirst({ where: { id: client.assignedAgentI…
-        · читает в базе: agent
-      - если client && cardAgent
-        - если !client.agentAttentionRequestedAt
-          - await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…
-            · меняет в базе: client
-        - await logTimeline({ clientId: client.id, actor: { kind: "client", source: "lead-only-handover", subjectAgentI…
-          · зовёт logTimeline()
-        - если property && propertyOwner && propertyOwner !== cardAgent.id && await prisma.agent.count({ where: { id: proper…
-          - await deliver([propertyOwner], { kind: "message", level: "OTHER", title: `Клиент интересуется вашим объектом …
-            · дословно из кода
-      - если propertyOwner
-        - owners.add(propertyOwner);
+      - если owner
+        - owners.add(owner);
           · дословно из кода
       - если !owners.size
-        - for (const id of await propertyInterestChatAgentIds(conversation.id)) owners.add(id);
+        - for (const id of await propertyInterestChatAgentIds(input.conversationId)) owners.add(id);
           · зовёт propertyInterestChatAgentIds()
       - const activeOwners = owners.size ? (await prisma.agent.findMany({ where: { id: { in: [...owners] }, isActive:…
         · читает в базе: agent
       - если activeOwners.length
-        - await deliver(activeOwners, { kind: "message", level: "CRITICAL", title, body, url: chatUrl, tag });
+        - await deliver(activeOwners, payload);
           · дословно из кода
         - return { status: "notified", to: "property", recipients: activeOwners.length };
           · дословно из кода
       - const supervisors = await findAgentsWithPermission("clients.assign");
         · зовёт findAgentsWithPermission()
       - если supervisors.length
-        - await deliver(supervisors, { kind: "message", level: "CRITICAL", title, body, url: chatUrl, tag });
+        - await deliver(supervisors, payload);
           · дословно из кода
         - return { status: "notified", to: "supervisors", recipients: supervisors.length };
           · дословно из кода
-      - void logSystemError("ai", `[alarm] Режим «только заявки»: бот передал клиента человеку, но звать некого (диал…
+      - void logSystemError("ai", `[alarm] Режим «только заявки»: заявка с номером не дошла до агента, а звать некого…
         · запись в журнал ошибок
 
 ### customer_owner_question_notify

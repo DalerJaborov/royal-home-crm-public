@@ -14,9 +14,11 @@
  *     заводится последней попыткой: заявка важнее ответа (jobs/customerLeadOnlyIntake.ts).
  *
  * Правки ревью 13.11.2026: счётчик просьб номера — по отправленному, а не по памяти модели;
- * «передаю агенту» всегда зовёт человека (lib/leadOnlyHandover.ts); вакансии сюда не попадают;
- * «прочее обращение» не получает обещания звонка; номер и слова клиента в задании только
- * зашифрованы.
+ * вакансии сюда не попадают; «прочее обращение» не получает обещания звонка; номер и слова
+ * клиента в задании только зашифрованы.
+ *
+ * Решение владельца 13.11.2026 (вечер): до заявки людей не зовём вовсе. Задание ставится только
+ * для заявки (номер есть) или для пометки в карточке, которая уже есть (lib/leadOnlyHandover.ts).
  */
 import { z } from "zod";
 import { prisma, type TxClient } from "../db.js";
@@ -34,7 +36,7 @@ import { resolveWhatsAppLeadIdentity } from "./whatsappPhone.js";
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { decodeCustomerOutboxPayload } from "./customerOutboxCodec.js";
 import { leadOnlyMarketSummary, leadOnlyOtherInquiryReply, leadOnlyPropertyAsked, leadOnlyWhen } from "./leadOnlySettings.js";
-import { leadOnlyHumanNotifiedRecently, notifyLeadOnlyHandover, type LeadOnlyHandoverReason } from "./leadOnlyHandover.js";
+import { alarmLeadOnlyIntake, noteLeadOnlyOnCard } from "./leadOnlyHandover.js";
 import { leadOnlyPendingOf, leadOnlyPendingOfRow, type LeadOnlyPending } from "./leadOnlyPending.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
@@ -49,7 +51,7 @@ const sealedSchema = z.object({
   clientText: z.string().max(1500),
   /** Что бот сказал клиенту: обещал звонок, обещал ответ в чате или ничего. */
   promised: z.enum(["call", "chat"]),
-  /** Завести заявку (номер есть, карточки нет). Иначе — только позвать человека. */
+  /** Завести заявку (номер есть, карточки нет). Иначе — только пометка в карточке, которая уже есть. */
   lead: z.boolean(),
   /** Когда клиент просит звонить — его слова (третье ревью 13.11, №4). Старые задания без поля читаются. */
   callbackWhen: z.string().max(200).nullable().optional(),
@@ -93,7 +95,7 @@ export interface CustomerLeadOnlyTurnInput {
   /** Тексты, реально ушедшие клиенту в этом разговоре (readCustomerLeadOnlySentTexts). */
   sentTexts: readonly string[];
   jobTopic: boolean;
-  /** Модель решила «передать сотруднику» или фильтр вырезал подборку — в этом режиме это ответ и человек, а не молчание. */
+  /** Модель решила «передать сотруднику» или фильтр вырезал подборку — в этом режиме это ответ (и заявка, если номер есть), а не молчание. */
   forced?: "escalate";
 }
 
@@ -194,8 +196,8 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
     else if (!volunteered && (pending || earlier)) scenario = pending?.scenario ?? earlier;
   }
   if (!scenario) return null;
-  // Карточка уже есть: «агент позвонит» не повторяем каждый ход. Горячие слова, вопрос к сотруднику и
-  // новый номер — исключения: агент обязан узнать сразу.
+  // Карточка уже есть: «агент позвонит» не повторяем каждый ход. Горячие слова и вопрос к сотруднику получают
+  // короткий ответ (агенту приходит обычное уведомление о сообщении), новый номер — пометку в карточке.
   if (linked && scenario !== "hot" && scenario !== "escalate" && !volunteered) return null;
 
   let phone: string | null = null, whatsappPhone: string | null = null, phoneState: LeadOnlyPhoneState;
@@ -230,16 +232,16 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
   const market = scenario === "buyer"
     ? await leadOnlyMarketSummary(customerSearchIntent(own, input.language) ?? customerSearchContinuation(own, input.turns))
     : null;
-  // Вопрос к сотруднику — не заявка покупателя (ревью №4); но номер в ответ на просьбу — заявка, тема из прежнего черновика.
-  const newLead = !!phone && !linked && (scenario !== "escalate" || numberOnly);
-  // Без номера и без карточки обычный сценарий заявки человека не зовёт: бот просит номер, а не обещает. Понравившийся
-  // объект — исключение (второе ревью, №2): агент объекта узнаёт сразу и может ответить в переписке, даже без номера.
-  const needsHuman = scenario === "hot" || scenario === "escalate" || linked || scenario === "property" && !newLead;
-  const humanNotified = needsHuman || await leadOnlyHumanNotifiedRecently(input.conversationId, now, [knownPropertyId]).catch(() => false);
+  // Номер есть — это заявка (решение владельца 13.11.2026: лид = номер), в том числе вопрос к сотруднику в WhatsApp:
+  // намерение тогда решает классификатор приёма (вопрос не становится покупателем силой, ревью №4). Номера нет —
+  // людей не зовём: бот просит номер, потом даёт номер офиса.
+  const newLead = !!phone && !linked;
+  // Агент узнает: заявкой или (карточка есть) обычным уведомлением о сообщении. Иначе «передаю агенту» — неправда.
+  const agentInformed = newLead || linked;
   let text = numberOnly
     ? leadOnlyGivenLineAvoidingRepeat(leadOnlyWhen(input.config), input.language, sent)
     : leadOnlyReplyAvoidingRepeat({ scenario, language: input.language, phone: phoneState, when: leadOnlyWhen(input.config),
-      property, market, sellerCommissionPercent: AGENCY_FACTS.commission.sellerPercent }, sent, humanNotified);
+      property, market, sellerCommissionPercent: AGENCY_FACTS.commission.sellerPercent, agentInformed }, sent);
   // «Прочее обращение» (другой город, услуги, земля…) агенту не назначается: обещать звонок нельзя (правило 17.09.2026).
   let otherInquiry = false;
   if (newLead) {
@@ -249,7 +251,8 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
   // Объект уходит в заявку, только если разговор о нём: покупатель «ищу в Сино» при старом объекте в фокусе
   // не должен уехать агенту того объекта (тот же класс, что объект рекламы в чужой заявке, ревью №10).
   const intakePropertyId = scenario === "property" || scenario === "hot" ? propertyId : null;
-  const intake = newLead || needsHuman ? sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId,
+  // Задание — только для заявки или для нового номера у карточки (пометка). Без номера никого не зовём.
+  const intake = newLead || linked && !!volunteered ? sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId,
     scenario, propertyId: intakePropertyId },
   { phone: linked ? volunteered : phone, whatsappPhone, clientText: own.slice(0, 1500), promised: phoneState.kind === "ask" || otherInquiry ? "chat" : "call",
     lead: newLead, callbackWhen: refused ? null : callbackWhen, ...(refused && !volunteered ? { noCall: true } : {}) }) : null;
@@ -267,7 +270,7 @@ export async function enqueueCustomerLeadOnlyIntakeTx(tx: TxClient, intake: Cust
 /** С лесенкой задания (10, 20, затем по 30 с) это около 11 минут: дольше всех повторов отправки (≈2,5 мин). */
 export const CUSTOMER_LEAD_ONLY_INTAKE_ATTEMPTS = 24;
 
-export type CustomerLeadOnlyIntakeResult = { status: "accepted" | "notified" | "skipped"; reason?: string } |
+export type CustomerLeadOnlyIntakeResult = { status: "accepted" | "noted" | "notified" | "skipped"; reason?: string } |
   { status: "wait"; reason: "turn_not_settled" };
 
 /** Ход ещё держит ответ (план, отправка) — заявку не трогаем, задание повторится. */
@@ -292,15 +295,12 @@ const SCENARIO_NOTE: Record<CustomerLeadOnlyIntake["scenario"], string> = {
   no_call: LEAD_ONLY_NO_CALL_NOTE,
 };
 const PROMISE_NOTE = { call: ", бот обещал звонок агента", chat: ", номера нет: ответьте в переписке" } as const;
-const HANDOVER_REASON: Record<CustomerLeadOnlyIntake["scenario"], LeadOnlyHandoverReason> = {
-  hot: "hot", property: "property", seller: "escalate", buyer: "escalate", escalate: "escalate", callback: "callback_time", no_call: "no_call",
-};
 const phoneDigits = (value: string | null | undefined) => (value ?? "").replace(/\D/g, "").slice(-9);
 
 /**
- * Фоновая часть: заявка или человек. Повтор задания безопасен: приём захватывает диалог атомарно,
- * уведомление о передаче не чаще раза в несколько часов на диалог. `force` — последняя попытка:
- * ответ хода так и не ушёл (площадка лежит), а заявка и человек важнее ответа.
+ * Фоновая часть: заявка или пометка в карточке. Повтор задания безопасен: приём захватывает диалог
+ * атомарно. `force` — последняя попытка: ответ хода так и не ушёл (площадка лежит), а заявка важнее ответа.
+ * Людей отсюда зовёт только сбой заявки с номером (lib/leadOnlyHandover.ts, решение владельца 13.11.2026).
  */
 export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?: boolean } = {}): Promise<CustomerLeadOnlyIntakeResult> {
   const intake = customerLeadOnlyIntakeSchema.parse(raw);
@@ -312,8 +312,8 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
   if (!sealed) {
     void logSystemError("background-jobs", `[alarm] Режим «только заявки»: данные заявки не читаются (диалог ${conversation.id}). Откройте переписку.`,
       { dedupKey: `lead-only-unsealed:${conversation.id}` });
-    await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_failed",
-      summary: "данные заявки не прочитались" });
+    // Номер мог быть внутри: заявку, возможно, потеряли — это сбой, а не «кто-то интересуется».
+    await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_failed" });
     return { status: "notified", reason: "unsealed" };
   }
   const noCall = sealed.noCall === true && intake.scenario !== "no_call";
@@ -321,31 +321,22 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
     : noCall ? `. ${LEAD_ONLY_NO_CALL_NOTE}` : PROMISE_NOTE[sealed.promised];
   const note = leadOnlyNoteWithCallbackTime(`${SCENARIO_NOTE[intake.scenario]}${promise}: «${sealed.clientText.replace(/\s+/g, " ").slice(0, 200)}»`,
     sealed.callbackWhen);
-  const reason = HANDOVER_REASON[intake.scenario];
   if (conversation.clientId) {
-    // Заявку уже завела прошлая попытка этого же задания (или параллельный приём): агента позвал сам приём,
-    // второй раз не зовём. Горячим словам — пометка (тот же горячий повод гасится окном в несколько минут).
-    if (sealed.lead) {
-      if (intake.scenario === "hot") await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summary: note });
-      return { status: "accepted", reason: "card_exists" };
-    }
-    // Карточка была до хода: агенту сразу. Новый номер («звоните на 900…») — отдельным поводом на этот номер; тот же
-    // номер, что уже в карточке, новым не считается (второе ревью, №9: срочный пуш на каждый повтор того же номера).
+    // Заявку уже завела прошлая попытка этого же задания (или параллельный приём): агента уведомил сам приём.
+    if (sealed.lead) return { status: "accepted", reason: "card_exists" };
+    // Карточка была до хода: клиент уже лид, агенту приходит обычное уведомление о сообщении. Режим оставляет только
+    // пометку: время звонка, «не звоните» или другой номер. Тот же номер, что уже в карточке, новым не считается.
     const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { phone: true, extraPhones: true } }) : null;
     const known = new Set([card?.phone, ...(card?.extraPhones ?? [])].map(phoneDigits).filter(Boolean));
     const newNumber = !!sealed.phone && !known.has(phoneDigits(sealed.phone));
-    await notifyLeadOnlyHandover(newNumber
-      ? { conversationId: conversation.id, propertyId: intake.propertyId, reason: "new_phone", key: phoneDigits(sealed.phone),
-        summary: `${note}. Клиент просит звонить на ${sealed.phone}` }
-      : { conversationId: conversation.id, propertyId: intake.propertyId, reason, summary: note,
-        ...(intake.scenario === "callback" && sealed.callbackWhen ? { key: sealed.callbackWhen } : {}) });
-    return { status: "notified" };
+    const summary = newNumber ? `${note}. Клиент просит звонить на ${sealed.phone}`
+      : intake.scenario === "callback" || intake.scenario === "no_call" ? note : null;
+    if (!summary) return { status: "skipped", reason: "card_exists" };
+    return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: "noted" } : { status: "skipped", reason: "card_missing" };
   }
-  // Вопрос к сотруднику или номера нет: человек отвечает в переписке, карточки без номера не бывает.
-  if (!sealed.lead || !sealed.phone) {
-    await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summary: note });
-    return { status: "notified" };
-  }
+  // Номера нет — заявки нет и звать некого (решение владельца 13.11.2026). Сюда доходят только задания, поставленные
+  // прежней версией до выката (тогда объект без номера звал агента объекта).
+  if (!sealed.lead || !sealed.phone) return { status: "skipped", reason: "no_phone" };
   // lib → messengers → lib: цикл импортов, поэтому приём берём динамически (как lib/phoneLeadWatchdog.ts).
   const { acceptLead } = await import("../messengers/conversation.js");
   const prior = (conversation.leadDraft ?? { stage: "chatting" }) as Record<string, unknown>;
@@ -367,14 +358,14 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
     void logSystemError("ai", `[alarm] Режим «только заявки»: заявка из ядра не оформлена (диалог ${conversation.id}, ` +
       `${result.accepted ? "принята без карточки" : "приём отказал"}). Откройте переписку и заведите карточку руками.`,
       { dedupKey: `lead-only-no-card:${conversation.id}` });
-    await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_failed", summary: note });
+    await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intake_failed" });
     return { status: "skipped", reason: result.accepted ? "accepted_without_card" : "declined" };
   }
   // Ответ обещал звонок, а приём счёл обращение «прочим» (агенту не назначается): обещание не должно повиснуть.
   if (linked.client.kind === "OTHER" && sealed.promised === "call") {
     void logSystemError("ai", `[alarm] Режим «только заявки»: бот обещал звонок, а заявка ушла в «Прочие обращения» без агента ` +
       `(диалог ${conversation.id}). Позвоните клиенту или напишите ему.`, { dedupKey: `lead-only-other-promised:${conversation.id}` });
-    await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "no_agent", summary: note });
+    await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "no_agent" });
   }
   return { status: "accepted" };
 }

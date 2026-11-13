@@ -4,35 +4,21 @@
  * требует базы: рубильники экрана «Бот», «сейчас» по Душанбе и минимальная цена
  * вариантов (сценарий «нужна квартира»: число только из базы, никогда из модели).
  *
- * Обоим маршрутам бота (ядро и старый путь) настройки режима отдаёт ТОЛЬКО эта
- * функция — второго места, где читается botLeadOnlyMode, быть не должно.
+ * Настройки режима читает ТОЛЬКО lib/leadOnlyConfig.ts (вынесено 13.11.2026: его зовут и общие
+ * уведомления CRM, а этот файл тянет поиск объектов и приём заявок — круг импортов).
  */
 import { prisma } from "../db.js";
 import { dushanbeTimeString } from "./dushanbeTime.js";
 import { findMatchingProperties } from "./propertyMatch.js";
 import { loadMoneyContext } from "./money.js";
 import { resolveSearchPlace } from "./searchPlace.js";
-import { clampMaxPhoneAsks, leadOnlyCallbackWhen, LEAD_ONLY_DEFAULTS, type LeadOnlyConfig,
+import { leadOnlyCallbackWhen, type LeadOnlyConfig,
   type LeadOnlyMarketSummary } from "../ai/leadOnlyMode.js";
 import type { CustomerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
 import { classifyCustomerPropertyFactIntent } from "./customerPropertyFactIntent.js";
+export { leadOnlyQuietBeforeLead, loadLeadOnlyConfig } from "./leadOnlyConfig.js";
 
-export async function loadLeadOnlyConfig(): Promise<LeadOnlyConfig> {
-  try {
-    const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: {
-      botLeadOnlyMode: true, botUseWhatsappNumber: true, botMaxPhoneAsks: true, botHotIntentHandover: true,
-      workHoursStart: true, workHoursEnd: true,
-    } });
-    if (!row) return LEAD_ONLY_DEFAULTS;
-    return { enabled: row.botLeadOnlyMode === true, useWhatsappNumber: row.botUseWhatsappNumber !== false,
-      maxPhoneAsks: clampMaxPhoneAsks(row.botMaxPhoneAsks), hotIntentHandover: row.botHotIntentHandover !== false,
-      workHoursStart: row.workHoursStart || LEAD_ONLY_DEFAULTS.workHoursStart, workHoursEnd: row.workHoursEnd || LEAD_ONLY_DEFAULTS.workHoursEnd };
-  } catch {
-    // Настройки недоступны — режим считаем выключенным: прежнее поведение безопаснее молчания.
-    return LEAD_ONLY_DEFAULTS;
-  }
-}
 
 /**
  * Клиент спрашивает о самом объекте, который уже в разговоре (цена, адрес, площадь, «подробнее»): тот же

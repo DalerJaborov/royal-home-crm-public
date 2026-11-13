@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { planCustomerLeadOnlyTurn, runCustomerLeadOnlyIntake, sealCustomerLeadOnlyIntake, type CustomerLeadOnlyTurnInput } from "../src/lib/customerLeadOnlyCore.js";
-import { leadOnlyHandoverTag, leadOnlyHumanNotifiedRecently, notifyLeadOnlyHandover } from "../src/lib/leadOnlyHandover.js";
+import { alarmLeadOnlyIntake, leadOnlyAlarmTag } from "../src/lib/leadOnlyHandover.js";
+import { leadOnlyModeNotifications, leadOnlyNotificationsSince } from "./helpers/leadOnlyQuiet.js";
 import { loadCustomerAgentFeaturePolicy } from "../src/lib/customerAgentFeaturePolicy.js";
 import { loadBotCapabilities } from "../src/messengers/botCapabilities.js";
 import { LEAD_ONLY_DEFAULTS } from "../src/ai/leadOnlyMode.js";
@@ -11,6 +12,7 @@ import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 /**
  * РЕЖИМ «ТОЛЬКО ЗАЯВКИ» — ПРАВКИ ПО РЕВЬЮ 13.11.2026 (решения ядра и задание заявки на настоящей базе).
  * Каждый тест здесь падает на коде до правки: номер находки ревью — в имени теста.
+ * С вечера 13.11 (решение владельца): до номера — ни одного уведомления; проверка — лента уведомлений пуста.
  */
 const runId = Date.now().toString(36);
 const config = { ...LEAD_ONLY_DEFAULTS, enabled: true, workHoursStart: "00:00", workHoursEnd: "24:00" };
@@ -45,7 +47,7 @@ afterAll(async () => {
   await drainBackgroundTasks(3000);
   const linked = await prisma.botConversation.findMany({ where: { id: { in: conversations } }, select: { clientId: true } });
   clients.push(...linked.flatMap(row => (row.clientId ? [row.clientId] : [])));
-  await prisma.notification.deleteMany({ where: { OR: conversations.map(id => ({ tag: { startsWith: leadOnlyHandoverTag(id) } })) } });
+  await prisma.notification.deleteMany({ where: { OR: [...conversations.map(id => ({ tag: { startsWith: leadOnlyAlarmTag(id) } })), { agentId: { in: agents } }] } });
   await prisma.botConversation.deleteMany({ where: { id: { in: conversations } } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: clients } } });
   await prisma.client.deleteMany({ where: { id: { in: clients } } });
@@ -80,11 +82,13 @@ describe("ядро: решения хода", () => {
     expect(plan?.text).not.toMatch(/позвонит/);
   });
 
-  it("№6: карточка есть, номера в этом ходе нет — без «номер получил»; человек зовётся", async () => {
-    const id = await conversation("INSTAGRAM", `review-card-${runId}`, await client());
+  it("№6: карточка есть, номера в этом ходе нет — без «номер получил»; срочного пуша от режима нет (обычное уведомление о сообщении)", async () => {
+    const clientId = await client();
+    const id = await conversation("INSTAGRAM", `review-card-${runId}`, clientId);
     const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Хотим посмотреть, куда ехать?" }));
     expect(plan?.text).not.toMatch(/номер получил/i);
-    expect(plan?.intake).not.toBeNull();
+    expect(plan?.intake).toBeNull();
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: clientId } })).agentAttentionRequestedAt).toBeNull();
   });
 
   it("№13a: WhatsApp с карточкой «нет, звоните на 900…» — номер принят и уходит агенту", async () => {
@@ -105,46 +109,63 @@ describe("ядро: решения хода", () => {
   });
 });
 
-describe("задание заявки: человек узнаёт всегда", () => {
-  it("№3: Instagram без номера, горячие слова — уведомление человеку и ответ без «позвонит» после всех просьб", async () => {
+describe("до номера — ни одного уведомления; сбой заявки с номером — тревога", () => {
+  it("Instagram без номера, горячие слова после двух просьб — номер офиса, без «передаю»/«ответит здесь», ни задания, ни уведомлений", async () => {
+    const since = new Date();
     const id = await conversation("INSTAGRAM", `review-hot-${runId}`);
     const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Хотим посмотреть, куда ехать?", focusPropertyId: propertyId,
       sentTexts: ["Понял вас. Оставьте, пожалуйста, номер телефона, агент перезвонит.", "Если удобно, напишите номер, и агент позвонит сам."] }));
-    expect(plan?.text).toContain("ответит вам здесь");
-    expect(plan?.intake).not.toBeNull();
-    expect(await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).toEqual({ status: "notified" });
-    await new Promise(resolve => setTimeout(resolve, 300)); // запись в ленту идёт в отрыве
-    // Агент объекта получил запись в ленте с переходом в переписку.
-    const note = await prisma.notification.findFirst({ where: { tag: { startsWith: `${leadOnlyHandoverTag(id)}:` }, agentId: ownerId } });
-    expect(note?.url).toBe(`/messages?open=${id}`);
+    expect(plan?.scenario).toBe("hot");
+    expect(plan?.text).toContain("777 070 100");
+    expect(plan?.text).not.toMatch(/передаю|ответит вам здесь|в курсе/iu);
+    expect(plan?.intake).toBeNull();
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
   });
 
-  it("№13d: повтор «адрес?» в том же диалоге не будит людей снова", async () => {
-    const id = await conversation("INSTAGRAM", `review-dedupe-${runId}`);
-    const first = await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "тест" });
-    expect(first.status).toBe("notified");
-    await new Promise(resolve => setTimeout(resolve, 300)); // запись в ленту идёт в отрыве
-    expect(await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "тест" })).toEqual({ status: "deduped" });
+  it("горячие слова без номера — сразу просьба номера (первый ход), ни задания, ни уведомлений", async () => {
+    const since = new Date();
+    const id = await conversation("INSTAGRAM", `review-hot-first-${runId}`);
+    const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Хотим посмотреть", focusPropertyId: propertyId, focusFromThisMessage: true }));
+    expect(plan?.text).toMatch(/^Хорошо, покажем объект №\d+\. Оставьте, пожалуйста, номер телефона, агент перезвонит\.$/u);
+    expect(plan?.intake).toBeNull();
+    expect(plan?.remember).toMatchObject({ scenario: "hot", propertyId });
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
   });
 
-  it("№3: карточка без агента — зовутся руководители, у карточки с агентом ставится метка «просит агента»", async () => {
-    const withAgent = await client();
-    const id = await conversation("INSTAGRAM", `review-attn-${runId}`, withAgent);
-    expect(await notifyLeadOnlyHandover({ conversationId: id, propertyId: null, reason: "hot", summary: "тест" }))
-      .toMatchObject({ status: "notified", to: "assigned" });
-    expect((await prisma.client.findUniqueOrThrow({ where: { id: withAgent } })).agentAttentionRequestedAt).not.toBeNull();
-    const orphan = await conversation("INSTAGRAM", `review-orphan-${runId}`, await client(null));
-    expect(await notifyLeadOnlyHandover({ conversationId: orphan, propertyId: null, reason: "escalate", summary: "тест" }))
-      .toMatchObject({ status: "notified", to: "supervisors" });
+  it("WhatsApp: горячие слова — заявка сразу (номер отправителя), ответ «передаю агенту»", async () => {
+    const peer = waPeer(), id = await conversation("WHATSAPP", peer);
+    const plan = await planCustomerLeadOnlyTurn(input({ channel: "WHATSAPP", peer, conversationId: id, inputText: "Хотим посмотреть, куда ехать?",
+      focusPropertyId: propertyId, focusFromThisMessage: true }));
+    expect(plan?.scenario).toBe("hot");
+    expect(plan?.text).toMatch(/передаю агенту/iu);
+    expect(plan?.intake).toMatchObject({ scenario: "hot", propertyId });
   });
 
-  it("№7: приём отказал (аренда) — не тихий пропуск, а человек", async () => {
+  it("тревога о сбое заявки: агенту объекта; без объекта и хозяина — руководителям", async () => {
+    const id = await conversation("INSTAGRAM", `review-alarm-${runId}`);
+    expect(await alarmLeadOnlyIntake({ conversationId: id, propertyId, reason: "intake_failed" })).toMatchObject({ status: "notified", to: "property" });
+    const orphan = await conversation("INSTAGRAM", `review-orphan-${runId}`);
+    expect(await alarmLeadOnlyIntake({ conversationId: orphan, propertyId: null, reason: "no_agent" })).toMatchObject({ status: "notified", to: "supervisors" });
+    const own = await leadOnlyModeNotifications(id);
+    expect(own.map(n => n.agentId)).toEqual([ownerId]);
+    expect(own[0]?.url).toBe(`/messages?open=${id}`);
+  });
+
+  it("№7: приём отказал (аренда) — не тихий пропуск, а тревога", async () => {
     const id = await conversation("INSTAGRAM", `review-declined-${runId}`);
     const intake = sealCustomerLeadOnlyIntake({ eventKey: "b".repeat(64), conversationId: id, scenario: "buyer", propertyId: null },
       { phone: "+992918223399", whatsappPhone: null, clientText: "Сдаёте квартиру в аренду? 918 22 33 99", promised: "call", lead: true });
     expect(await runCustomerLeadOnlyIntake(intake, { force: true })).toMatchObject({ status: "skipped", reason: "declined" });
-    await new Promise(resolve => setTimeout(resolve, 300));
-    expect(await prisma.notification.count({ where: { tag: { startsWith: `${leadOnlyHandoverTag(id)}:` } } })).toBeGreaterThan(0);
+    expect((await leadOnlyModeNotifications(id)).length).toBeGreaterThan(0);
+  });
+
+  it("задание без номера (поставлено прежней версией) — пропуск без уведомлений", async () => {
+    const since = new Date();
+    const id = await conversation("INSTAGRAM", `review-oldjob-${runId}`);
+    const intake = sealCustomerLeadOnlyIntake({ eventKey: "c".repeat(64), conversationId: id, scenario: "property", propertyId },
+      { phone: null, whatsappPhone: null, clientText: "интересует", promised: "chat", lead: false });
+    expect(await runCustomerLeadOnlyIntake(intake, { force: true })).toEqual({ status: "skipped", reason: "no_phone" });
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
   });
 });
 
@@ -158,79 +179,59 @@ describe("№11: режим только для WhatsApp, Instagram и Facebook"
   });
 });
 
-// ── Второе ревью 13.11.2026: каждый тест падает на коде до правки (номер находки — в имени) ──
-describe("второе ревью: кого и когда зовёт дверь передачи", () => {
-  const notes = (id: string) => prisma.notification.findMany({ where: { tag: { startsWith: `${leadOnlyHandoverTag(id)}:` } },
-    select: { agentId: true, title: true, body: true, url: true, tag: true } });
+// ── Второе и третье ревью 13.11.2026, переписаны под решение владельца (вечер 13.11): до номера никого не зовём ──
+describe("клиент без номера и клиент с карточкой: режим не шлёт уведомлений", () => {
+  const cardNotes = (clientId: string) => prisma.interaction.findMany({ where: { clientId, type: "SYSTEM" }, select: { notes: true } });
 
-  it("№4: заметка о вопросе к сотруднику не глушит горячие слова; тот же горячий повод — один раз", async () => {
-    const id = await conversation("INSTAGRAM", `review2-hot-${runId}`);
-    expect((await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "escalate", summary: "вопрос по документам" })).status).toBe("notified");
-    await new Promise(resolve => setTimeout(resolve, 300));
-    expect((await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "хотим посмотреть завтра" })).status).toBe("notified");
-    await new Promise(resolve => setTimeout(resolve, 300));
-    expect(await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "хотим посмотреть завтра" })).toEqual({ status: "deduped" });
-    // Третье ревью 13.11, №5: окно горячих слов — на разговор, а не на текст; другие горячие слова в те же 15 минут не будят снова.
-    expect(await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "куда ехать прямо сейчас?" })).toEqual({ status: "deduped" });
-  });
-
-  it("№5: агент карточки уволен — зовётся агент объекта, а не пустота", async () => {
-    const fired = (await prisma.agent.create({ data: { fullName: `Уволенный ${runId}`, phone: `+992905${String(Date.now()).slice(-6)}`, role: "AGENT",
-      passwordHash: "x", isActive: false } })).id;
-    agents.push(fired);
-    const id = await conversation("INSTAGRAM", `review2-fired-${runId}`, await client(fired));
-    expect(await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "хотим посмотреть" }))
-      .toMatchObject({ status: "notified", to: "property" });
-    await new Promise(resolve => setTimeout(resolve, 300));
-    expect((await notes(id)).map(n => n.agentId)).toEqual([ownerId]);
-  });
-
-  it("владение: у клиента свой агент — ему карточка, хозяину объекта короткая заметка без контактов клиента", async () => {
-    const own = (await prisma.agent.create({ data: { fullName: `Свой агент ${runId}`, phone: `+992904${String(Date.now()).slice(-6)}`, role: "AGENT",
-      passwordHash: "x" } })).id;
-    agents.push(own);
-    const clientId = await client(own);
-    const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
-    const id = await conversation("INSTAGRAM", `review2-owner-${runId}`, clientId);
-    expect(await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "property", summary: "интересует объект" }))
-      .toMatchObject({ status: "notified", to: "assigned" });
-    await new Promise(resolve => setTimeout(resolve, 300));
-    const all = await notes(id);
-    expect(all.find(n => n.agentId === own)?.url).toBe(`/clients/${card.shortId}`);
-    const owner = all.find(n => n.agentId === ownerId);
-    expect(owner?.title).toMatch(/Клиент интересуется вашим объектом №\d+/);
-    expect(owner?.body).toContain(`Свой агент ${runId}`);
-    expect(`${owner?.title} ${owner?.body} ${owner?.url}`).not.toContain(card.fullName);
-    expect(`${owner?.title} ${owner?.body}`).not.toContain(card.phone.slice(-7));
-  });
-
-  it("№9: тот же номер, что уже в карточке, не будит людей мимо окна; новый номер — один раз на номер", async () => {
-    const clientId = await client();
-    const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
-    const id = await conversation("INSTAGRAM", `review2-samephone-${runId}`, clientId);
-    const run = (phone: string, key: string) => runCustomerLeadOnlyIntake(sealCustomerLeadOnlyIntake({ eventKey: key.repeat(64), conversationId: id,
-      scenario: "escalate", propertyId: null }, { phone, whatsappPhone: null, clientText: `звоните на ${phone}`, promised: "call", lead: false }), { force: true });
-    await run(card.phone, "1"); await new Promise(resolve => setTimeout(resolve, 300));
-    await run(card.phone, "2"); await new Promise(resolve => setTimeout(resolve, 300));
-    expect((await notes(id)).filter(n => n.tag?.includes(":new_phone")).length).toBe(0);
-    expect((await notes(id)).filter(n => n.tag?.endsWith(":escalate")).length).toBe(1);
-    await run("+992900112233", "3"); await new Promise(resolve => setTimeout(resolve, 300));
-    await run("+992900112233", "4"); await new Promise(resolve => setTimeout(resolve, 300));
-    expect((await notes(id)).filter(n => n.tag?.includes(":new_phone")).length).toBe(1);
-  });
-
-  it("№2: объект без номера — агент объекта узнаёт сразу (задание заводится и зовёт его)", async () => {
+  it("№2: объект без номера — фраза об объекте и просьба номера; ни задания, ни уведомления хозяину объекта", async () => {
+    const since = new Date();
     const id = await conversation("INSTAGRAM", `review2-prop-${runId}`);
     const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Салом", focusPropertyId: propertyId, focusFromThisMessage: true }));
     expect(plan?.text).toMatch(/№\d+/);
     expect(plan?.text).toContain("Оставьте, пожалуйста, номер");
-    expect(plan?.intake).not.toBeNull();
+    expect(plan?.intake).toBeNull();
     expect(plan?.remember).toMatchObject({ scenario: "property", propertyId });
-    expect(await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).toEqual({ status: "notified" });
-    await new Promise(resolve => setTimeout(resolve, 300));
-    const owner = (await notes(id)).find(n => n.agentId === ownerId);
-    expect(owner?.url).toBe(`/messages?open=${id}`);
-    expect(owner?.tag).toContain(":property");
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
+  });
+
+  it("№5 третьего ревью: четыре горячих сообщения подряд без номера — ни одного уведомления", async () => {
+    const since = new Date();
+    const id = await conversation("INSTAGRAM", `review3-hot-${runId}`);
+    const sent: string[] = [];
+    for (const inputText of ["какой адрес? хотим приехать", "куда ехать?", "хотим посмотреть сегодня", "можно приехать сейчас?"]) {
+      const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText, focusPropertyId: propertyId, sentTexts: [...sent] }));
+      expect(plan?.intake ?? null).toBeNull();
+      if (plan) sent.push(plan.text);
+    }
+    expect(new Set(sent).size).toBe(sent.length);
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
+  });
+
+  it("владение: у клиента свой агент, разговор об объекте другого — хозяину объекта ни заметки, ни пуша", async () => {
+    const own = (await prisma.agent.create({ data: { fullName: `Свой агент ${runId}`, phone: `+992904${String(Date.now()).slice(-6)}`, role: "AGENT",
+      passwordHash: "x" } })).id;
+    agents.push(own);
+    const since = new Date();
+    const id = await conversation("INSTAGRAM", `review2-owner-${runId}`, await client(own));
+    for (const inputText of ["Интересует эта квартира", "Хотим посмотреть"]) {
+      const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText, focusPropertyId: propertyId, focusFromThisMessage: true }));
+      expect(plan?.intake ?? null).toBeNull();
+    }
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId, own])).toBe(0);
+  });
+
+  it("№9: тот же номер, что уже в карточке, — ничего; новый номер — пометка в карточке, без пуша", async () => {
+    const clientId = await client();
+    const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+    const since = new Date();
+    const id = await conversation("INSTAGRAM", `review2-samephone-${runId}`, clientId);
+    const run = (phone: string, key: string) => runCustomerLeadOnlyIntake(sealCustomerLeadOnlyIntake({ eventKey: key.repeat(64), conversationId: id,
+      scenario: "escalate", propertyId: null }, { phone, whatsappPhone: null, clientText: `звоните на ${phone}`, promised: "call", lead: false }), { force: true });
+    expect(await run(card.phone, "1")).toEqual({ status: "skipped", reason: "card_exists" });
+    expect((await cardNotes(clientId)).length).toBe(0);
+    expect(await run("+992900112233", "3")).toEqual({ status: "noted" });
+    expect((await cardNotes(clientId)).some(n => n.notes?.includes("Клиент просит звонить на +992900112233"))).toBe(true);
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
   });
 
   it("№1: номер одним сообщением после просьбы — сценарий и объект из памяти просьбы, а не «вопрос к агенту»", async () => {
@@ -244,15 +245,11 @@ describe("второе ревью: кого и когда зовёт дверь 
   });
 });
 
-// ── Третье ревью 13.11.2026: каждый тест проверен внесённой поломкой (номер находки — в имени) ──
-describe("третье ревью: ядро и дверь передачи", () => {
-  const notes = (id: string) => prisma.notification.findMany({ where: { tag: { startsWith: `${leadOnlyHandoverTag(id)}:` } },
-    select: { agentId: true, title: true, tag: true } });
+describe("третье ревью: ядро и память просьбы", () => {
   const pendingOf = (id: string) => prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { leadOnlyPending: true } }).then(r => r.leadOnlyPending);
   const remembered = (id: string) => prisma.botConversation.update({ where: { id }, data: { leadOnlyPending: { version: 1, scenario: "property", propertyId,
     askedAt: new Date().toISOString() } } });
   const asked = ["Это объект №1, цена 400 000 сомони. Оставьте, пожалуйста, номер телефона, агент перезвонит."];
-
   it("№1: память о посте не перебивает «хочу продать свою квартиру, 93…» этого сообщения", async () => {
     const id = await conversation("INSTAGRAM", `review3-sell-${runId}`);
     await remembered(id);
@@ -286,42 +283,18 @@ describe("третье ревью: ядро и дверь передачи", () 
     expect(await pendingOf(id)).toBeNull();
   });
 
-  it("№4: клиент с карточкой «не звоните сейчас, позвоните завтра» — не отказ: агенту время звонка в карточку", async () => {
+  it("№4: клиент с карточкой «не звоните сейчас, позвоните завтра» — не отказ: время звонка пометкой в карточке, без пуша", async () => {
     const clientId = await client();
     const id = await conversation("INSTAGRAM", `review3-callback-${runId}`, clientId);
     const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Не звоните сейчас, позвоните завтра" }));
     expect(plan?.scenario).toBe("callback");
     expect(plan?.text).toContain("в удобное вам время");
     expect(plan?.text).not.toContain("без проблем");
-    expect(await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).toEqual({ status: "notified" });
-    await new Promise(resolve => setTimeout(resolve, 300));
-    expect((await notes(id)).find(n => n.agentId === ownerId)?.tag).toContain(":callback_time");
+    const since = new Date();
+    expect(await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).toEqual({ status: "noted" });
     expect(await prisma.interaction.findFirst({ where: { clientId, notes: { contains: "позвоните завтра" } } })).not.toBeNull();
+    // Пометка в карточке, без отдельного пуша режима: агенту и так приходит обычное уведомление о сообщении.
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
   });
 
-  it("№5: четыре горячих сообщения подряд — одно срочное уведомление на разговор", async () => {
-    const id = await conversation("INSTAGRAM", `review3-hot-${runId}`);
-    const statuses: string[] = [];
-    for (const summary of ["какой адрес? хотим приехать", "куда ехать?", "хотим посмотреть сегодня", "можно приехать сейчас?"]) {
-      statuses.push((await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary })).status);
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-    expect(statuses).toEqual(["notified", "deduped", "deduped", "deduped"]);
-    expect((await notes(id)).filter(n => n.tag?.includes(":hot")).length).toBe(1);
-  });
-
-  it("№6: «позван ли человек» — по точным меткам; в метке нового номера нет подбираемого отпечатка", async () => {
-    const id = await conversation("INSTAGRAM", `review3-notified-${runId}`), other = await conversation("INSTAGRAM", `review3-quiet-${runId}`);
-    expect(await leadOnlyHumanNotifiedRecently(id)).toBe(false);
-    await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "property", summary: "интересует объект" });
-    await new Promise(resolve => setTimeout(resolve, 300));
-    expect(await leadOnlyHumanNotifiedRecently(id)).toBe(true);
-    expect(await leadOnlyHumanNotifiedRecently(other)).toBe(false);
-    const cardId = await conversation("INSTAGRAM", `review3-newphone-${runId}`, await client());
-    await notifyLeadOnlyHandover({ conversationId: cardId, propertyId: null, reason: "new_phone", key: "900112233", summary: "новый номер" });
-    await new Promise(resolve => setTimeout(resolve, 300));
-    const tag = (await notes(cardId)).find(n => n.tag?.includes(":new_phone"))?.tag ?? "";
-    expect(tag).toMatch(/:new_phone:[0-9a-f]{16}$/);
-    expect(tag).not.toContain(createHash("sha256").update("900112233").digest("hex").slice(0, 12));
-  });
 });

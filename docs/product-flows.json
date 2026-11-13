@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 747,
-  "forks": 4027,
+  "forks": 4022,
   "mounts": 83,
   "cron": 130,
   "jobs": 33,
@@ -122721,9 +122721,9 @@
         },
         {
          "k": "do",
-         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intak…",
+         "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intake_f…",
          "a": [
-          "зовёт notifyLeadOnlyHandover()"
+          "зовёт alarmLeadOnlyIntake()"
          ],
          "c": []
         }
@@ -122748,19 +122748,12 @@
          "a": [],
          "c": [
           {
-           "k": "if",
-           "t": "intake.scenario === \"hot\"",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
-             "a": [
-              "зовёт notifyLeadOnlyHandover()"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "return { status: \"accepted\", reason: \"card_exists\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
           }
          ]
         },
@@ -122773,10 +122766,25 @@
          "c": []
         },
         {
+         "k": "if",
+         "t": "!summary",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"skipped\", reason: \"card_exists\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
-         "t": "await notifyLeadOnlyHandover(newNumber ? { conversationId: conversation.id, propertyId: intake.propertyId, re…",
+         "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: \"noted\" } : { statu…",
          "a": [
-          "зовёт notifyLeadOnlyHandover()"
+          "зовёт noteLeadOnlyOnCard()"
          ],
          "c": []
         }
@@ -122789,9 +122797,9 @@
        "c": [
         {
          "k": "do",
-         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+         "t": "return { status: \"skipped\", reason: \"no_phone\" };",
          "a": [
-          "зовёт notifyLeadOnlyHandover()"
+          "дословно из кода"
          ],
          "c": []
         }
@@ -122828,9 +122836,9 @@
         },
         {
          "k": "do",
-         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intak…",
+         "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intake_f…",
          "a": [
-          "зовёт notifyLeadOnlyHandover()"
+          "зовёт alarmLeadOnlyIntake()"
          ],
          "c": []
         }
@@ -122851,9 +122859,9 @@
         },
         {
          "k": "do",
-         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"no_ag…",
+         "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"no_agent…",
          "a": [
-          "зовёт notifyLeadOnlyHandover()"
+          "зовёт alarmLeadOnlyIntake()"
          ],
          "c": []
         }
@@ -122955,9 +122963,9 @@
             },
             {
              "k": "do",
-             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intak…",
+             "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intake_f…",
              "a": [
-              "зовёт notifyLeadOnlyHandover()"
+              "зовёт alarmLeadOnlyIntake()"
              ],
              "c": []
             }
@@ -122982,19 +122990,12 @@
              "a": [],
              "c": [
               {
-               "k": "if",
-               "t": "intake.scenario === \"hot\"",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
-                 "a": [
-                  "зовёт notifyLeadOnlyHandover()"
-                 ],
-                 "c": []
-                }
-               ]
+               "k": "do",
+               "t": "return { status: \"accepted\", reason: \"card_exists\" };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
               }
              ]
             },
@@ -123007,10 +123008,25 @@
              "c": []
             },
             {
+             "k": "if",
+             "t": "!summary",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return { status: \"skipped\", reason: \"card_exists\" };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
-             "t": "await notifyLeadOnlyHandover(newNumber ? { conversationId: conversation.id, propertyId: intake.propertyId, re…",
+             "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: \"noted\" } : { statu…",
              "a": [
-              "зовёт notifyLeadOnlyHandover()"
+              "зовёт noteLeadOnlyOnCard()"
              ],
              "c": []
             }
@@ -123023,9 +123039,9 @@
            "c": [
             {
              "k": "do",
-             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+             "t": "return { status: \"skipped\", reason: \"no_phone\" };",
              "a": [
-              "зовёт notifyLeadOnlyHandover()"
+              "дословно из кода"
              ],
              "c": []
             }
@@ -123062,9 +123078,9 @@
             },
             {
              "k": "do",
-             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intak…",
+             "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"intake_f…",
              "a": [
-              "зовёт notifyLeadOnlyHandover()"
+              "зовёт alarmLeadOnlyIntake()"
              ],
              "c": []
             }
@@ -123085,9 +123101,9 @@
             },
             {
              "k": "do",
-             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"no_ag…",
+             "t": "await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: intake.propertyId, reason: \"no_agent…",
              "a": [
-              "зовёт notifyLeadOnlyHandover()"
+              "зовёт alarmLeadOnlyIntake()"
              ],
              "c": []
             }
@@ -123263,48 +123279,18 @@
         },
         {
          "k": "do",
-         "t": "await notifyLeadOnlyHandover({ conversationId: payload.conversationId, propertyId: payload.propertyId, reason…",
+         "t": "await alarmLeadOnlyIntake({ conversationId: payload.conversationId, propertyId: payload.propertyId, reason: \"…",
          "a": [
-          "зовёт notifyLeadOnlyHandover()"
+          "зовёт alarmLeadOnlyIntake()"
          ],
          "c": [
           {
-           "k": "if",
-           "t": "!urgent && !(await shouldAlert(tag, window))",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return { status: \"deduped\" };",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
            "k": "do",
-           "t": "const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: {…",
+           "t": "const tag = `${leadOnlyAlarmTag(input.conversationId)}:${input.reason}`;",
            "a": [
-            "читает в базе: botConversation"
+            "зовёт leadOnlyAlarmTag()"
            ],
            "c": []
-          },
-          {
-           "k": "if",
-           "t": "!conversation",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return { status: \"nobody\" };",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
           },
           {
            "k": "do",
@@ -123316,73 +123302,20 @@
           },
           {
            "k": "do",
-           "t": "const propertyOwner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;",
+           "t": "const owner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;",
            "a": [
             "зовёт propertyOwnerAgentId()"
            ],
            "c": []
           },
           {
-           "k": "do",
-           "t": "const cardAgent = client?.assignedAgentId ? await prisma.agent.findFirst({ where: { id: client.assignedAgentI…",
-           "a": [
-            "читает в базе: agent"
-           ],
-           "c": []
-          },
-          {
            "k": "if",
-           "t": "client && cardAgent",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "!client.agentAttentionRequestedAt",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…",
-               "a": [
-                "меняет в базе: client"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "await logTimeline({ clientId: client.id, actor: { kind: \"client\", source: \"lead-only-handover\", subjectAgentI…",
-             "a": [
-              "зовёт logTimeline()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "property && propertyOwner && propertyOwner !== cardAgent.id && await prisma.agent.count({ where: { id: proper…",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "await deliver([propertyOwner], { kind: \"message\", level: \"OTHER\", title: `Клиент интересуется вашим объектом …",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "propertyOwner",
+           "t": "owner",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "owners.add(propertyOwner);",
+             "t": "owners.add(owner);",
              "a": [
               "дословно из кода"
              ],
@@ -123397,7 +123330,7 @@
            "c": [
             {
              "k": "do",
-             "t": "for (const id of await propertyInterestChatAgentIds(conversation.id)) owners.add(id);",
+             "t": "for (const id of await propertyInterestChatAgentIds(input.conversationId)) owners.add(id);",
              "a": [
               "зовёт propertyInterestChatAgentIds()"
              ],
@@ -123420,7 +123353,7 @@
            "c": [
             {
              "k": "do",
-             "t": "await deliver(activeOwners, { kind: \"message\", level: \"CRITICAL\", title, body, url: chatUrl, tag });",
+             "t": "await deliver(activeOwners, payload);",
              "a": [
               "дословно из кода"
              ],
@@ -123451,7 +123384,7 @@
            "c": [
             {
              "k": "do",
-             "t": "await deliver(supervisors, { kind: \"message\", level: \"CRITICAL\", title, body, url: chatUrl, tag });",
+             "t": "await deliver(supervisors, payload);",
              "a": [
               "дословно из кода"
              ],
@@ -123469,14 +123402,14 @@
           },
           {
            "k": "do",
-           "t": "void logSystemError(\"ai\", `[alarm] Режим «только заявки»: бот передал клиента человеку, но звать некого (диал…",
+           "t": "void logSystemError(\"ai\", `[alarm] Режим «только заявки»: заявка с номером не дошла до агента, а звать некого…",
            "a": [
             "запись в журнал ошибок"
            ],
            "c": []
           }
          ],
-         "from": "notifyLeadOnlyHandover() — apps/api/src/lib/leadOnlyHandover.ts"
+         "from": "alarmLeadOnlyIntake() — apps/api/src/lib/leadOnlyHandover.ts"
         }
        ]
       }
