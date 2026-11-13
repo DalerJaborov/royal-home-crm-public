@@ -437,3 +437,87 @@ describe("actual accepted callback question → real next signed IN", () => {
     expect(await prisma.customerAction.count({ where: { inquiryId: preparedB.inquiry.id, kind: "callback" } })).toBe(1);
   }, 60_000);
 });
+
+/** 13.11.2026: the lead created by the new core used to lose the object of the ad that brought the customer. */
+describe("a CORE lead from an ad of one object", () => {
+  it("goes to the agent of that object and the card remembers the ad", async () => {
+    const hours = vi.spyOn(workingHours, "isWithinWorkingHours").mockResolvedValue(true);
+    await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+      publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: true,
+    } } });
+    const owner = await prisma.agent.create({ data: { fullName: "Synthetic ad object owner", phone: phone(), role: "AGENT", passwordHash: "synthetic-not-a-hash" } });
+    const property = await prisma.property.create({ data: { title: `synthetic-ad-lead-${randomUUID()}`, type: "APARTMENT", areaSqm: 60, price: 960000,
+      currency: "TJS", condition: "GOOD", status: "AVAILABLE", publishedOnSite: true, address: "Synthetic private address", intakeAgentId: owner.id } });
+    const adExternalId = `synthetic-ad-lead-${randomUUID()}`;
+    let clientId: string | null = null;
+    try {
+      const f = await fixture(), a = await f.questionA("ru", phone(), "name");
+      expect(await dispatchCustomerOutboxPart(a.part.id)).toMatchObject({ status: "accepted" });
+      const b = await f.intake("Далер");
+      const part = await f.run(b, [[{ functionCall: { name: "save_contact", args: { name: "Далер" }, id: "ad-object-name" } }], decision("none", ["e0"])]);
+      // First-touch attribution the intake wrote for this conversation (lib/adAttribution.ts).
+      await prisma.botConversation.update({ where: { id: part.originalNativeId }, data: { adExternalId, adTopic: "property", adPropertyId: property.id } });
+      const source = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "contact", status: "COMMITTED" }, orderBy: { generation: "desc" } });
+      expect(await dispatchCustomerOutboxPart(part.id)).toMatchObject({ status: "accepted" });
+      expect((await createCustomerLeadAfterContactAction(source.id)).status).toBe("created");
+      const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "new_lead", status: "COMMITTED" } });
+      clientId = action.resourceId;
+      await processNewCustomerLeadPolicy(action.id);
+      const client = await prisma.client.findUniqueOrThrow({ where: { id: action.resourceId! } });
+      expect(client.assignedAgentId).toBe(owner.id);
+      expect(client.sourceAdId).toBe(adExternalId);
+    } finally {
+      hours.mockRestore();
+      await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+        publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: false,
+      } } });
+      if (clientId) await prisma.client.updateMany({ where: { id: clientId }, data: { assignedAgentId: null } });
+      await prisma.property.delete({ where: { id: property.id } }).catch(() => undefined);
+      await prisma.agent.delete({ where: { id: owner.id } })
+        .catch(() => prisma.agent.update({ where: { id: owner.id }, data: { isActive: false } }));
+    }
+    // The full signed intake, two core turns and the lead policy: about 19 s on the owner's laptop alone.
+  }, 60_000);
+
+  it("review 13.11 #10: a SELLER from an apartment ad does not go to the agent of that apartment", async () => {
+    const hours = vi.spyOn(workingHours, "isWithinWorkingHours").mockResolvedValue(true);
+    await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+      publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: true,
+    } } });
+    const owner = await prisma.agent.create({ data: { fullName: "Synthetic ad object owner", phone: phone(), role: "AGENT", passwordHash: "synthetic-not-a-hash" } });
+    const property = await prisma.property.create({ data: { title: `synthetic-ad-lead-${randomUUID()}`, type: "APARTMENT", areaSqm: 60, price: 960000,
+      currency: "TJS", condition: "GOOD", status: "AVAILABLE", publishedOnSite: true, address: "Synthetic private address", intakeAgentId: owner.id } });
+    const adExternalId = `synthetic-ad-lead-${randomUUID()}`;
+    let clientId: string | null = null;
+    try {
+      const f = await fixture(), a = await f.questionA("ru", phone(), "name");
+      expect(await dispatchCustomerOutboxPart(a.part.id)).toMatchObject({ status: "accepted" });
+      const b = await f.intake("Далер");
+      const part = await f.run(b, [[{ functionCall: { name: "save_contact", args: { name: "Далер" }, id: "ad-object-seller-name" } }], decision("none", ["e0"])]);
+      // First-touch attribution the intake wrote for this conversation (lib/adAttribution.ts).
+      await prisma.botConversation.update({ where: { id: part.originalNativeId }, data: { adExternalId, adTopic: "property", adPropertyId: property.id } });
+      const source = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "contact", status: "COMMITTED" }, orderBy: { generation: "desc" } });
+      expect(await dispatchCustomerOutboxPart(part.id)).toMatchObject({ status: "accepted" });
+      expect((await createCustomerLeadAfterContactAction(source.id)).status).toBe("created");
+      const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "new_lead", status: "COMMITTED" } });
+      clientId = action.resourceId;
+      // The same customer turns out to be a seller: the ad object must not route his card.
+      await prisma.client.update({ where: { id: action.resourceId! }, data: { kind: "SELLER" } });
+      await processNewCustomerLeadPolicy(action.id);
+      const client = await prisma.client.findUniqueOrThrow({ where: { id: action.resourceId! } });
+      // A fresh agent may still win the ordinary queue; what must not happen is routing BY the ad object.
+      expect(client.assignReason).not.toBe("own_property_explicit");
+      expect(client.sourceAdId).toBe(adExternalId);
+    } finally {
+      hours.mockRestore();
+      await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+        publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: false,
+      } } });
+      if (clientId) await prisma.client.updateMany({ where: { id: clientId }, data: { assignedAgentId: null } });
+      await prisma.property.delete({ where: { id: property.id } }).catch(() => undefined);
+      await prisma.agent.delete({ where: { id: owner.id } })
+        .catch(() => prisma.agent.update({ where: { id: owner.id }, data: { isActive: false } }));
+    }
+    // The full signed intake, two core turns and the lead policy: about 19 s on the owner's laptop alone.
+  }, 60_000);
+});

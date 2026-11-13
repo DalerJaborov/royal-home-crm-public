@@ -95,13 +95,16 @@ describe("the repeat guard never swallows an answer to a fact question", () => {
     const first = render({ kind: "reply", question: "none" }, "район", [bot("Расположение: Сино, Душанбе.")], [facts(["address"])], ["address"])!;
     expect(first).toContain("Сино, Душанбе");
   });
-  it("without a fact question the old behaviour stays: a notice instead of a third copy", () => {
+  it("without a fact question the same block is never sent twice: one short line instead (13.11.2026)", () => {
     const all = [facts(["price", "address", "characteristics"])];
     const first = render({ kind: "reply", question: "none" }, "расскажите", [user("расскажите")], all)!;
     const second = render({ kind: "reply", question: "none" }, "расскажите", [user("расскажите"), bot(first)], all)!;
-    expect(second).toMatch(/^Повторю ещё раз:/u);
+    expect(second).not.toMatch(/Повторю ещё раз/u);
+    expect(second).not.toContain("500 000");
+    expect(second.split(String.fromCharCode(10))).toHaveLength(1);
     const third = render({ kind: "reply", question: "none" }, "расскажите", [user("расскажите"), bot(first), user("расскажите"), bot(second)], all)!;
-    expect(third).toMatch(/уже писал|своими словами|одним сообщением/u);
+    expect(third).not.toBe(second);
+    expect(third).not.toContain("500 000");
   });
   it("asks which object once more with the 'I asked' wording, not with a notice", () => {
     const unresolved: CustomerAgentEvidence = { ref: "e0", value: { kind: "property_unresolved", status: "missing", reason: "no_reference" } };

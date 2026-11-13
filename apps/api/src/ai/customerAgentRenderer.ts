@@ -46,6 +46,24 @@ export interface CustomerAgentEvidence { ref: string; value: CustomerAgentObserv
 export function isCanonicalAgencyContact(value: Extract<CustomerAgentObservation, { kind: "agency_contact" }>): boolean {
   return value.contact.channel === "telephone" && value.contact.phone === PUBLIC_AGENCY_CONTACT.phone && value.contact.digits === PUBLIC_AGENCY_CONTACT.digits;
 }
+/** Digest of one sent line for the repeat memory (CustomerAgentVerifiedContext.sentLineDigests).
+ * Whitespace-insensitive and case-insensitive; the text itself never leaves the loader. */
+export function customerAgentLineDigest(line: string): string {
+  return createHash("sha256").update(line.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase()).digest("hex").slice(0, 32);
+}
+/** The bot already sent this exact line in this conversation: the bounded memory turns or the wider digest memory. */
+function lineSentBefore(context: CustomerAgentVerifiedContext | undefined, line: string): boolean {
+  if (!context || context.surface !== "dm") return false;
+  const digest = customerAgentLineDigest(line);
+  return !!context.sentLineDigests?.includes(digest) ||
+    context.turns.some(turn => turn.role === "assistant" && splitLines(turn.text).some(sent => customerAgentLineDigest(sent) === digest));
+}
+const VACANCY_LIST_HEADERS = ["Сейчас открыты вакансии:", "Открыта вакансия:", "Ҷойҳои кори кушода:", "Ҷойи кори кушода:"];
+/** The vacancy list (its header and at least one of the current titles) was already sent in this conversation. */
+function vacancyListSentBefore(context: CustomerAgentVerifiedContext | undefined, positions: readonly { titleRu: string; titleTg: string }[]): boolean {
+  return VACANCY_LIST_HEADERS.some(header => lineSentBefore(context, header)) &&
+    positions.some(position => lineSentBefore(context, position.titleRu) || lineSentBefore(context, position.titleTg));
+}
 export type CustomerAgentRenderedQuestion = CustomerAgentQuestion | "confirmation";
 /** What the candidate's CURRENT message carried beyond its caption: the readable text of a
  * document/photo (OCR is untrusted candidate material, used only to see which facts are
@@ -151,6 +169,8 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
   return d.question;
 }
 
+/** A customer from our ad that names no single object: one short human question instead of "which object?". */
+const AD_INTEREST_QUESTION = { ru: "Подскажите, пожалуйста, что вас интересует?", tg: "Бигӯед, лутфан, ба шумо чӣ лозим аст?" } as const;
 const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
   none: { ru: "", tg: "" },
   property: { ru: "Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.", tg: "Шумо кадом объектро дар назар доред? Рақами объект ё пайвандашро фиристед." },
@@ -189,7 +209,9 @@ const unresolvedReasons: Record<CustomerPropertyUnresolvedReason, { ru: string; 
   unsupported: null,
   untrusted_origin: null,
   not_found: { ru: "По этой ссылке или номеру объект не нашёлся.", tg: "Аз рӯи ин пайванд ё рақам объект ёфт нашуд." },
-  ad_unmapped: { ru: "По этой рекламе объект не определился.", tg: "Аз рӯи ин реклама объект муайян нашуд." },
+  // The customer came from our ad that is not tied to one object: no "the object was not determined"
+  // line (13.11.2026, read as a robot); the question below asks what they are interested in, once.
+  ad_unmapped: null,
   lookup_unavailable: null,
 };
 function unresolvedPropertyLine(value: Extract<CustomerAgentObservation, { kind: "property_unresolved" }>, language: "ru" | "tg"): string | null {
@@ -344,6 +366,10 @@ function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | 
   const cards = customerCheaperVisibleCards(value);
   if (!cards.length) return [isCheaperThanSearch(value.query)
     ? tg ? "Вариантҳои арзонтар ҳоло ёфт нашуданд." : "Вариантов дешевле сейчас не нашлось."
+    // Everything that fits was already sent in this inquiry (the read excluded it): no "nothing found".
+    : value.query.nextPage
+      ? tg ? "Вариантҳои нав аз рӯи ин дархост ҳоло нестанд. Агар хоҳед, корманд занг мезанад ва дастӣ интихоб мекунад."
+        : "Новых вариантов по этому запросу сейчас нет. Если хотите, сотрудник позвонит и подберёт вручную."
     : tg ? "Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд." : "В текущей подборке подходящих вариантов не найдено."];
   const lines = [tg ? "Ин вариантҳоро дида баромадан мумкин аст:" : "Можно рассмотреть эти варианты:"];
   if (value.districtWasNormalized && value.resolvedDistrictName) lines.push(tg
@@ -566,6 +592,14 @@ function renderDecisionCore(input: {
         if (item.value.collecting && item.value.positions.length) lines.push(recruitmentPhoneLine(lang));
         continue;
       }
+      // The list was already sent in this conversation (13.11.2026, live: the same vacancy block 3-4 times
+      // in one chat on "?", "сколько", "как"). A follow-up question about the job is answered, not the
+      // list again: conditions are not discussed in the chat, so the answer is the specialist's phone.
+      if (input.surface === "dm" && d.kind !== "propose" && item.value.collecting && item.value.positions.length &&
+          vacancyListSentBefore(input.verifiedContext, currentPosition ? [currentPosition] : item.value.positions)) {
+        lines.push(recruitmentPhoneLine(lang));
+        continue;
+      }
       if (!item.value.collecting) {
         // The switch is off: a different fact from an empty catalog, and it says so.
         lines.push(lang === "tg" ? "Қабули дархостҳои кор тавассути ин чат ҳоло ба роҳ монда нашудааст." : "Приём откликов через этот чат сейчас не ведётся.");
@@ -635,6 +669,8 @@ function renderDecisionCore(input: {
     // A link to somebody else's site is not mentioned at all: the question is about what the customer wants.
     : question === "property" && evidence.some(e => e?.value.kind === "property_unresolved" && (e.value.reason === "untrusted_origin" || e.value.reason === "unsupported"))
       ? BUSINESS_QUESTION[lang]
+    : question === "property" && input.surface === "dm" && evidence.some(e => e?.value.kind === "property_unresolved" && e.value.reason === "ad_unmapped")
+      ? AD_INTEREST_QUESTION[lang]
     : question === "property" && input.surface === "dm" && evidence.some(e => e?.value.kind === "property_unresolved") && shownObjectQuestion(input.verifiedContext, lang)
       ? shownObjectQuestion(input.verifiedContext, lang)!
     : input.surface === "public_comment" && question.startsWith("job_")
@@ -674,6 +710,25 @@ const REPEAT_NOTICES: ReadonlyArray<{ ru: string; tg: string }> = [
   { ru: "Чтобы помочь точнее, напишите одним сообщением, что вас интересует: покупка, продажа недвижимости или работа.",
     tg: "Барои дақиқтар кӯмак расондан дар як паём нависед, ки шуморо чӣ ҷалб мекунад: харид, фурӯши амвол ё кор." },
 ];
+/**
+ * A block the bot already sent in this conversation (a property list, the vacancy list, any reply of three or
+ * more content lines) is never sent again (13.11.2026, live: the same three objects and the same vacancy block
+ * 3-4 times in one WhatsApp chat). One short line instead; the second time, the other wording.
+ */
+const BLOCK_SENT_NOTICES = {
+  list: [
+    { ru: "Эти варианты я уже отправил выше. Если хотите, сотрудник позвонит и подберёт другие.",
+      tg: "Ин вариантҳоро дар боло фиристодам. Агар хоҳед, корманд занг мезанад ва вариантҳои дигар интихоб мекунад." },
+    { ru: "Подходящие варианты есть в сообщении выше. Напишите, какой из них вам ближе, или что поменять в поиске.",
+      tg: "Вариантҳои мувофиқ дар паёми боло ҳастанд. Нависед, кадомаш ба шумо писанд аст ё дар ҷустуҷӯ чиро иваз кунем." },
+  ],
+  other: [
+    { ru: "Я уже написал об этом выше. Если что-то осталось непонятным, напишите, что именно уточнить.",
+      tg: "Инро дар боло навиштам. Агар чизе номафҳум монд, нависед, чиро аниқ кунам." },
+    { ru: "Всё, что есть по этому вопросу, есть в сообщении выше. Если удобнее, сотрудник позвонит и расскажет подробнее.",
+      tg: "Ҳамаи маълумот дар ин бора дар паёми боло ҳаст. Агар хоҳед, корманд занг мезанад ва муфассал мегӯяд." },
+  ],
+} as const;
 const PREFERENCES_DONE = { ru: "Понял, учту. Если хотите посмотреть конкретный вариант, пришлите номер объекта или ссылку на него.",
   tg: "Фаҳмидам, ба назар мегирам. Агар хоҳед вариантро аз наздик бинед, рақам ё пайванди объектро фиристед." };
 /** Same meaning, different words: a bare greeting/thanks/acknowledgement is not sent twice in a row. */
@@ -687,10 +742,12 @@ let fixedQuestionLines: Set<string> | undefined;
 /** Fixed question sentences (templates, "я уточнял" repairs, résumé/seller questions): the only lines the repeat check may drop. */
 function questionLineSet(): Set<string> {
   return fixedQuestionLines ??= lineSet(Object.values(questions).flatMap(line => [line.ru, line.tg]).filter(Boolean),
-    Object.values(repairs).flatMap(line => [line.ru, line.tg]), recruitmentFactQuestionLines(), customerSellerIntakeQuestionLines(), customerAgentAttachmentLines());
+    Object.values(repairs).flatMap(line => [line.ru, line.tg]), recruitmentFactQuestionLines(), customerSellerIntakeQuestionLines(), customerAgentAttachmentLines(),
+    [AD_INTEREST_QUESTION.ru, AD_INTEREST_QUESTION.tg]);
 }
 const socialLineSet = () => lineSet(SOCIAL_FAMILIES.flat().flatMap(line => [line.ru, line.tg]));
-const noticeLineSet = () => lineSet(REPEAT_NOTICES.flatMap(line => [line.ru, line.tg]), [REPEAT_LEAD.ru, REPEAT_LEAD.tg]);
+const noticeLineSet = () => lineSet(REPEAT_NOTICES.flatMap(line => [line.ru, line.tg]), [REPEAT_LEAD.ru, REPEAT_LEAD.tg],
+  [...BLOCK_SENT_NOTICES.list, ...BLOCK_SENT_NOTICES.other].flatMap(line => [line.ru, line.tg]));
 /** Every fixed line the renderer can produce on its own, for the read-only conversation-memory allow-list
  * (an assistant turn made only of such lines is kept in the model's and the renderer's history). */
 export function customerAgentFixedLines(): Set<string> {
@@ -708,8 +765,29 @@ function shownObjectQuestion(context: CustomerAgentVerifiedContext | undefined, 
 }
 const splitLines = (text: string) => text.split("\n").map(line => line.trim()).filter(Boolean);
 
+/** The reply is a block whose every content line was already sent in this conversation: the one short line that replaces it. */
+function repeatedBlockNotice(text: string, input: { language: "ru" | "tg"; verifiedContext?: CustomerAgentVerifiedContext; requestedFacts?: readonly unknown[] }): string | null {
+  const context = input.verifiedContext, lang = input.language;
+  if (context?.surface !== "dm") return null;
+  const notices = noticeLineSet(), questionLines = questionLineSet(), socials = socialLineSet();
+  const lines = splitLines(text);
+  const content = lines.filter(line => !socials.has(line) && !notices.has(line) && !questionLines.has(line));
+  const listLike = content.some(line => /^\d+\.\s/u.test(line) || VACANCY_LIST_HEADERS.includes(line));
+  // A fact the customer asks for right now is the answer, said again; a list or a long block is not.
+  if (!(content.length >= 3 || listLike && content.length >= 2) || input.requestedFacts?.length && !listLike) return null;
+  if (!content.every(line => lineSentBefore(context, line))) return null;
+  const variants = BLOCK_SENT_NOTICES[content.some(line => /^\d+\.\s/u.test(line)) ? "list" : "other"];
+  const notice = (variants.find(variant => !lineSentBefore(context, variant[lang])) ?? variants[variants.length - 1])[lang];
+  // A question this reply still asks and the previous bot turn did not is kept after the notice.
+  const previous = new Set(splitLines(context.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? ""));
+  const questionsLeft = lines.filter(line => questionLines.has(line) && !previous.has(line));
+  return [notice, ...questionsLeft].join(String.fromCharCode(10));
+}
+
 function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifiedContext?: CustomerAgentVerifiedContext; requestedFacts?: readonly unknown[] }): string {
   const turns = input.verifiedContext?.turns ?? [];
+  const blockNotice = repeatedBlockNotice(text, input);
+  if (blockNotice) return blockNotice;
   if (input.verifiedContext?.surface !== "dm" || turns.at(-1)?.role !== "assistant") return text;
   const notices = noticeLineSet(), questionLines = questionLineSet(), socials = socialLineSet(), lang = input.language;
   const assistant = turns.filter(turn => turn.role === "assistant");

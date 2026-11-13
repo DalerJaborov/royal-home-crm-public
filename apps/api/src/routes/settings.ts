@@ -1062,6 +1062,12 @@ const settingsUpdateSchema = z.object({
    *  способностей бота) — включить можно было только прямым запросом к базе.
    *  Добавлен сюда явно, а не забыт вторым по счёту разом с liveVoiceEnabled.*/
   botCanSendVoiceReplies: z.boolean().optional(),
+  /** РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (13.11.2026, ai/leadOnlyMode.ts): бот берёт заявку и передаёт
+   *  агенту, без подборок, фото и ссылок. Остальные три поля действуют только внутри режима. */
+  botLeadOnlyMode: z.boolean().optional(),
+  botUseWhatsappNumber: z.boolean().optional(),
+  botMaxPhoneAsks: z.number().int().min(1).max(3).optional(),
+  botHotIntentHandover: z.boolean().optional(),
   /** Робозвонок покупателю после показа (13.09.2026, см. lib/postShowingCalls.ts и
    *  docs/buyer-antifraud-funnel-13-09-2026.md). Работает только поверх включённого
    *  живого голоса выше: свой канал звонка он не заводит, а пользуется тем же мостом. */

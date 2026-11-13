@@ -36,15 +36,14 @@ import { createLeadFromChannel } from "../leads.js";
 import { resolvePropertyFromPageUrl } from "../lib/resolvePropertyFromPageUrl.js";
 import { classifyInbound } from "../services/leads/intakePolicy.js";
 import {
-  adTopicByExternalId,
   type AdTopic,
   clientSaidNothingSubstantive,
-  isJobAdRef,
   neutralOpenerHint,
   sellerTurnHint,
   vacancyTurnHint,
 } from "../ai/adTemplateOpener.js";
 import { isVacancyPostCode } from "../lib/vacancyPosts.js";
+import { resolveAdTopic } from "../lib/adAttribution.js";
 import { appendConversationMessages } from "../messengers/appendMessages.js";
 import { markLastReplyUndelivered, markMessageDeliveryStatus, stampOutgoingMid } from "../messengers/conversationStore.js";
 import { processMessengerTurn } from "../messengers/conversation.js";
@@ -2411,22 +2410,18 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // Регулярка переехала в ai/adTemplateOpener.ts: тот же вопрос задаётся при
       // разборе пересланного ролика вакансии и при восстановлении признака
       // вакансии на следующих ходах — две копии разошлись бы на первой правке.
-      const isJobAd = isJobAdRef(adRefLower);
-      /** О чём реклама/публикация по referral — переживает первое сообщение (BotConversation.adTopic). */
-      const referralAdTopic: "job" | "property" | undefined =
-        isJobAd || vacancyPost ? "job" : msg.fromAd && adRefLower ? "property" : undefined;
       /**
-       * REFERRAL НЕ ОПОЗНАЛ ТИП — СПРОСИТЬ НАШУ ТАБЛИЦУ Ad (25.09.2026, аудит
-       * «кто вообще кандидат»). У WhatsApp click-to-message метки часто нет
-       * вовсе, хотя сама реклама (кампания «приемка ...») однозначно говорит,
-       * что это реклама ДЛЯ СОБСТВЕННИКОВ — а бот из-за этого спрашивал
-       * продавцов «вам квартира или вакансия?». `msg.adId` — тот же
-       * `adExternalId`, что уходит в processMessengerTurn ниже.
+       * О ЧЁМ РЕКЛАМА — ОДНИМ ПРАВИЛОМ С НОВЫМ ЯДРОМ (lib/adAttribution.ts, 13.11.2026).
+       * Таблица Ad (кампания «приемка …», «вакансия …») старше текста объявления, текст
+       * объявления (referral.ref / headline+body у WhatsApp) — старше «просто реклама».
+       * Раньше при любом тексте объявления таблицу не спрашивали вовсе, и у WhatsApp
+       * (headline есть почти всегда) реклама для собственников читалась как реклама
+       * квартиры. Пересланный пост вакансии — по-прежнему вакансия.
        */
-      const dbAdTopic =
-        referralAdTopic === undefined && msg.fromAd && msg.adId ? await adTopicByExternalId(msg.adId) : undefined;
-      /** Итоговый тип рекламы: своё мнение референсной метки старше, таблица Ad — только когда та промолчала. */
-      const adTopic: AdTopic | undefined = referralAdTopic ?? dbAdTopic;
+      const adTopic: AdTopic | undefined = vacancyPost
+        ? "job"
+        : msg.fromAd ? await resolveAdTopic({ adId: msg.adId, adRef: msg.adRef }) : undefined;
+      const isJobAd = adTopic === "job";
       const isSellerAd = adTopic === "seller";
       /**
        * ЧЕЛОВЕК НЕ НАПИСАЛ НИЧЕГО СВОЕГО — СПРАШИВАЕМ, ЧЕМ ПОМОЧЬ (владелец
