@@ -13,7 +13,7 @@ import { encryptCustomerIngressPayload, customerIngressPayloadHash, type Custome
 import { customerPropertyEventKey, customerPropertyScopeKey } from "../src/lib/customerPropertyScope.js";
 import { createCustomerAgentProviderSnapshot } from "../src/ai/customerAgentProviderConfig.js";
 import { registerCurrentCustomerAgentRevision } from "../src/lib/customerAgentRegistration.js";
-import { relabelHistoricalEchoTickets, restoreHistoricalEchoTickets } from "../scripts/relabel-historical-echo-tickets-13-11.js";
+import { relabelHistoricalEchoTickets, restoreHistoricalEchoTickets } from "../src/ops/relabelHistoricalEchoTickets.js";
 
 const tag = `echo-relabel-${randomUUID()}`, accountId = randomUUID(), externalId = `${tag}-installation`, peer = `${tag}-peer`;
 let scopeId = "", revisionId = "";
@@ -58,13 +58,20 @@ afterAll(async () => {
 
 it("dry run reports only the old echo, apply backs up first and relabels it, restore undoes it", async () => {
   const dry = await relabelHistoricalEchoTickets({ apply: false });
+  expect(dry.truncated).toBe(false);
+  // A cap below the table size stops early and says so instead of loading everything.
+  const capped = await relabelHistoricalEchoTickets({ apply: false, maxRows: 1 });
+  expect(capped).toMatchObject({ scanned: 1, truncated: true });
+  // ...and the next run continues after the reported cursor instead of rescanning.
+  const next = await relabelHistoricalEchoTickets({ apply: false, maxRows: 1, afterOrder: BigInt(capped.lastOrder!) });
+  expect(BigInt(next.lastOrder ?? "0")).toBeGreaterThan(BigInt(capped.lastOrder!));
   const mine = dry.matched.filter(entry => Object.values(keys).includes(entry.eventKey));
   expect(mine).toEqual([{ eventKey: keys.echo, processingState: "HELD", errorCode: "pending_verifier_or_age_stale", to: "provider_echo" }]);
   expect((await state("echo")).errorCode).toBe("pending_verifier_or_age_stale"); // dry run wrote nothing
   await expect(relabelHistoricalEchoTickets({ apply: true })).rejects.toThrow(/backup/);
 
   const backupPath = path.join(mkdtempSync(path.join(tmpdir(), "echo-relabel-")), "backup.json");
-  const applied = await relabelHistoricalEchoTickets({ apply: true, backupPath });
+  const applied = await relabelHistoricalEchoTickets({ apply: true, backup: backupPath });
   expect(JSON.parse(readFileSync(backupPath, "utf8")).rows).toEqual(expect.arrayContaining(mine));
   expect(await state("echo")).toEqual({ errorCode: "provider_echo", processingState: "HELD", intakeAgentRevisionId: revisionId });
   expect((await state("customer")).errorCode).toBe("pending_verifier_or_age_stale"); // a real customer turn is never relabelled
@@ -73,6 +80,6 @@ it("dry run reports only the old echo, apply backs up first and relabels it, res
   // Second run finds nothing of ours: already labelled rows are not selected.
   expect((await relabelHistoricalEchoTickets({ apply: false })).matched.filter(entry => Object.values(keys).includes(entry.eventKey))).toEqual([]);
 
-  expect(await restoreHistoricalEchoTickets(backupPath)).toBeGreaterThanOrEqual(1);
+  expect(await restoreHistoricalEchoTickets(readFileSync(backupPath, "utf8"))).toBeGreaterThanOrEqual(1);
   expect((await state("echo")).errorCode).toBe("pending_verifier_or_age_stale");
 }, 60_000);

@@ -64,6 +64,7 @@ afterAll(async () => {
     await prisma.customerInquiry.deleteMany({ where: { endpointScopeId: scopeId } });
     await prisma.botConversation.deleteMany({ where: { endpointScopeId: scopeId } });
     await prisma.customerAgentRolloutAssignment.deleteMany({ where: { endpointScopeId: scopeId } });
+    await prisma.outboundShieldState.deleteMany({ where: { endpointScopeId: scopeId } });
     await prisma.customerEndpointScope.deleteMany({ where: { id: scopeId } });
     await prisma.messengerAccount.deleteMany({ where: { id } });
     await prisma.errorLog.deleteMany({ where: { message: { contains: tag } } });

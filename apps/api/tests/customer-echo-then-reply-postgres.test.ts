@@ -23,7 +23,9 @@ import { createCustomerAgentProviderSnapshot } from "../src/ai/customerAgentProv
 import { registerCurrentCustomerAgentRevision } from "../src/lib/customerAgentRegistration.js";
 import { readCustomerDmSubjectExecution } from "../src/lib/customerAgentEnrollment.js";
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
-import { recordHeldCustomerMessage } from "../src/lib/customerHeldMessage.js";
+import { notifyHeldCustomerMessages, recordHeldCustomerMessage } from "../src/lib/customerHeldMessage.js";
+import { findStuckConversations, retryStuckConversation } from "../src/lib/stuckConversations.js";
+import { ensureScopedBotConversation } from "../src/lib/customerConversationScope.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 import { resetAccountsCache } from "../src/messengers/accounts.js";
@@ -37,7 +39,7 @@ type Owner = { id: string; channel: "INSTAGRAM" | "WHATSAPP"; externalId: string
   transport: Awaited<ReturnType<typeof ensureCustomerEndpoint>> };
 const owners: Owner[] = [];
 const io: Array<{ kind: "core" | "legacy" | "count" | "dm" | "profile"; peer?: string }> = [];
-const eventIds: string[] = [], providerMids: string[] = [];
+const eventIds: string[] = [], providerMids: string[] = [], extraAgents: string[] = [], extraClients: string[] = [];
 let settings: Awaited<ReturnType<typeof readSettings>>, policy: Awaited<ReturnType<typeof readPolicy>>, revisionId = "";
 const readSettings = () => prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
   botEnabled: true, metaEnabled: true, botInstagramEnabled: true, botCanAnswerComments: true, metaVerifyToken: true,
@@ -174,10 +176,15 @@ afterAll(async () => {
     await prisma.customerAgentRolloutAssignment.deleteMany({ where: { endpointScopeId: { in: scopeIds } } });
     await prisma.customerEndpointScope.deleteMany({ where: { id: { in: scopeIds } } });
     await prisma.messengerAccount.deleteMany({ where: { id: { in: ids } } });
+    await prisma.notification.deleteMany({ where: { agentId: { in: extraAgents } } });
+    await prisma.client.deleteMany({ where: { id: { in: extraClients } } });
+    await prisma.agent.deleteMany({ where: { id: { in: extraAgents } } });
     await prisma.processedMessage.deleteMany({ where: { channel: "INSTAGRAM", messageId: { in: eventIds } } });
     await prisma.processedMessage.deleteMany({ where: { channel: "out:meta", messageId: { in: [...providerMids, ...eventIds] } } });
     await prisma.aiBudgetCounter.deleteMany({ where: { channel: { in: ["INSTAGRAM", "WHATSAPP"] }, peerId: { in: owners.map(o => o.peer) } } });
     await prisma.errorLog.deleteMany({ where: { message: { contains: tag } } });
+    await prisma.processedMessage.deleteMany({ where: { channel: "customer-held-notify", messageId: { in: native.map(n => n.id).flatMap(id => [0, 1, 2].map(k => `${id}:${Math.floor(Date.now() / 21_600_000) - k}`)) } } });
+    await prisma.botConversation.updateMany({ where: { clientId: { in: extraClients } }, data: { clientId: null } });
     await prisma.notification.deleteMany({ where: { tag: { in: native.map(n => `customer-held-${n.id}`) } } });
     await prisma.processedMessage.deleteMany({ where: { channel: "WHATSAPP", messageId: { in: eventIds } } });
     const identity = { kind: "IG_ID" as const, value: { in: owners.map(o => o.peer) } };
@@ -287,6 +294,14 @@ it("core switched off: the CORE person's message is in their CRM chat, no bot an
   expect((await chatWith(o, racedMid)).held).toHaveLength(1);
   await waitForSettled(() => heldNotices(chat.id!));
   expect((await heldNotices(chat.id!)).map(row => row.count)).toEqual(notices.map(row => row.count));
+  // Five minutes later the "stuck chats" repair must not hand the held line to the old bot.
+  await prisma.botConversation.update({ where: { id: chat.id! }, data: { lastMessageAt: new Date(Date.now() - 10 * 60_000) } });
+  expect((await findStuckConversations()).map(row => row.id)).not.toContain(chat.id);
+  const stored = await prisma.botConversation.findUniqueOrThrow({ where: { id: chat.id! } });
+  const lastUser = [...(stored.messages as Array<{ role: string; content: string; mid?: string }>)].reverse().find(m => m.role === "user")!;
+  expect(await retryStuckConversation({ id: stored.id, channel: stored.channel, subscriberId: stored.subscriberId, name: stored.name,
+    accountId: stored.accountId, lastText: lastUser.content, lastMessageAt: stored.lastMessageAt!, lastMid: lastUser.mid ?? null })).toBe("no-reply");
+  expect(legacySpy).not.toHaveBeenCalled(); expect(io.filter(i => i.kind === "dm")).toEqual([]);
 }, 90_000);
 
 it("one body with a held CORE person and a LEGACY person: the held one is recorded, the other is answered", async () => {
@@ -338,4 +353,50 @@ it("a 503 that Meta will retry is never silent any more", async () => {
   // Scoped to this account: only this test's own line can satisfy the check (and afterAll removes it by tag).
   await waitFor(async () => (await prisma.errorLog.count({ where: { source: "meta", dedupKey: { startsWith: "meta-webhook-503:dm:" },
     message: { contains: o.externalId } } })) > 0, { label: "строка в журнале ошибок о 503 для Meta" });
+}, 60_000);
+
+it("a chat deleted by staff is not resurrected: no new chat, one journal line naming the person", async () => {
+  const o = await owner(), coreElsewhere = await owner(); await config([coreElsewhere], 10_000); wire();
+  const native = await prisma.$transaction(tx => ensureScopedBotConversation(tx, { channel: "INSTAGRAM", subscriberId: o.peer, transport: o.transport }));
+  await prisma.botConversation.delete({ where: { id: native.id } }); // the inquiry keeps conversationId = NULL
+  const legacySpy = vi.spyOn(legacy, "processMessengerTurn");
+  const reply = await post(o, rawDm(o));
+  expect(reply.status, JSON.stringify(reply.body)).toBe(200); await drain();
+  expect(legacySpy).not.toHaveBeenCalled();
+  expect(await prisma.botConversation.count({ where: { endpointScopeId: o.scopeId, subscriberId: o.peer } })).toBe(0);
+  const line = await waitFor(async () => prisma.errorLog.findFirst({ where: { message: { contains: o.peer } } }), { label: "строка журнала", timeoutMs: 5000 });
+  expect(line?.message).toContain("удалён сотрудником");
+}, 90_000);
+
+it("an inactive responsible agent is not called; everyone who reads all chats is", async () => {
+  const o = await owner(), coreElsewhere = await owner(); await config([coreElsewhere], 10_000); wire();
+  await pinnedHistoryRow(o, "pending_verifier_or_age_stale");
+  const gone = await prisma.agent.create({ data: { fullName: `Уволенный ${tag}`, phone: `+9929${randomInt(10_000_000, 99_999_999)}`, role: "AGENT",
+    passwordHash: "x", isActive: false } });
+  extraAgents.push(gone.id);
+  const client = await prisma.client.create({ data: { fullName: `Клиент ${tag}`, phone: `+9927${randomInt(10_000_000, 99_999_999)}`, source: "WEBSITE",
+    assignedAgentId: gone.id, acceptedAt: new Date() } as never });
+  extraClients.push(client.id);
+  const native = await prisma.$transaction(tx => ensureScopedBotConversation(tx, { channel: "INSTAGRAM", subscriberId: o.peer, transport: o.transport }));
+  await prisma.botConversation.update({ where: { id: native.id }, data: { clientId: client.id } });
+  const reply = await post(o, rawDm(o));
+  expect(reply.status, JSON.stringify(reply.body)).toBe(200); await drain();
+  await waitFor(async () => (await heldNotices(native.id)).length > 0, { label: "уведомление", timeoutMs: 5000 });
+  const rows = await waitForSettled(() => heldNotices(native.id));
+  expect(rows.map(row => row.agentId)).not.toContain(gone.id);
+  expect(rows[0].title).toContain(`Клиент ${tag}`);
+}, 90_000);
+
+it("two near-simultaneous batches call each agent once", async () => {
+  const o = await owner(), coreElsewhere = await owner(); await config([coreElsewhere], 10_000);
+  const mid = randomUUID(); eventIds.push(mid);
+  const input = { version: 1 as const, channel: "INSTAGRAM" as const, peer: o.peer, accountExternalId: o.externalId, eventKind: "message" as const,
+    eventId: mid, inputText: "Две пачки разом", source: { path: "$.entry[0].messaging[0]", frameHash: createHmac("sha256", tag).update(mid).digest("hex") },
+    observations: { providerEcho: false, referralOnly: false, classifier: { version: 1 as const, bareTemplateEcho: false } }, media: [], propertyEvidence: [] };
+  const hold = await recordHeldCustomerMessage({ reason: "historical_subject_owned_or_closed", input, transport: o.transport });
+  await Promise.all([notifyHeldCustomerMessages([hold]), notifyHeldCustomerMessages([hold])]);
+  await waitFor(async () => (await heldNotices(hold.conversationId!)).length > 0, { label: "уведомление", timeoutMs: 5000 });
+  const rows = await waitForSettled(() => heldNotices(hold.conversationId!));
+  expect(rows.every(row => row.count === 1)).toBe(true);
+  expect(new Set(rows.map(row => row.agentId)).size).toBe(rows.length);
 }, 60_000);

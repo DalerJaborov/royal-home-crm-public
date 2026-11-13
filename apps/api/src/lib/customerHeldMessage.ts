@@ -9,11 +9,13 @@
 // with the client's name and a link to the chat, at most once per chat per
 // window. Failing to write is transient (the webhook answers 503 and Meta
 // retries); a scope denial is permanent and is reported without the text.
+import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { sendPushToAgents } from "../push.js";
 import { appendConversationMessagesInTransaction } from "../messengers/appendMessages.js";
 import type { ChatMessage } from "../ai/client.js";
-import { CustomerScopeDenied, ensureScopedBotConversation, type CustomerTransportReference } from "./customerConversationScope.js";
+import { CustomerScopeDenied, ensureScopedBotConversation, findScopedBotConversation, type CustomerTransportReference } from "./customerConversationScope.js";
+import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
 import { scrubMentionedClientPhonesInText } from "./clientPhoneMasking.js";
 import { publishMessageNew } from "./livePublish.js";
@@ -22,8 +24,10 @@ import { logSystemError } from "./systemError.js";
 
 export type CustomerHeldMessage = {
   reason: string; channel: string; peer: string; accountExternalId: string | null;
-  /** Null when the text could not be placed into a CRM chat (scope denied / no MID). */
+  /** Null when the text could not be placed into a CRM chat. */
   conversationId: string | null; excerpt: string;
+  /** Why the text is not in a chat: scope denied, no MID, or the chat was deleted by staff. */
+  unrecorded?: "scope_denied" | "no_mid" | "chat_deleted";
 };
 
 const NOTIFY_WINDOW_MS = 6 * 60 * 60 * 1000;
@@ -50,6 +54,17 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
   const raw = contentOf(input);
   try {
     const recorded = await prisma.$transaction(async tx => {
+      // A chat staff deleted is not resurrected by a held message (13.11.2026):
+      // its inquiry/ticket keep the tombstone (conversationId set to NULL).
+      if (!await findScopedBotConversation({ channel: input.channel, subscriberId: input.peer, transport }, tx)) {
+        const scopeKey = customerPropertyScopeKey(input.channel, input.peer, transport.accountId, transport.endpointScopeId);
+        const [gone] = await tx.$queryRaw<Array<{ deleted: boolean }>>`SELECT
+          EXISTS(SELECT 1 FROM "CustomerInquiry" WHERE "endpointScopeId"=${transport.endpointScopeId} AND "peerId"=${input.peer}
+            AND "conversationId" IS NULL) OR
+          EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" WHERE "endpointScopeId"=${transport.endpointScopeId} AND "scopeKey"=${scopeKey}
+            AND "originalConversationId" IS NOT NULL AND "conversationId" IS NULL) AS "deleted"`;
+        if (gone?.deleted) return null;
+      }
       const native = await ensureScopedBotConversation(tx, { channel: input.channel, subscriberId: input.peer, transport });
       // Row lock: two deliveries of the same MID must not both append.
       const [row] = await tx.$queryRaw<Array<{ clientId: string | null; present: boolean }>>`SELECT "clientId",
@@ -58,7 +73,7 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
       if (!row) throw new Error("Held customer chat disappeared");
       const content = (await scrubMentionedClientPhonesInText(raw, row.clientId)).text;
       if (!row.present) {
-        const message: ChatMessage = { role: "user", content, mid: input.eventId,
+        const message: ChatMessage = { role: "user", content, mid: input.eventId, heldRouting: true,
           ...(input.providerOccurredAt ? { at: new Date(input.providerOccurredAt).toISOString() } : {}) };
         await appendConversationMessagesInTransaction(tx, native.id, [message]);
         // Unread for staff, same guard as the legacy controller: never wake a
@@ -68,10 +83,11 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
       }
       return { conversationId: native.id, fresh: !row.present, content };
     }, { maxWait: 5000, timeout: 10000 });
+    if (!recorded) return { ...base, conversationId: null, excerpt: "", unrecorded: "chat_deleted" };
     if (recorded.fresh) void publishMessageNew("bot", recorded.conversationId, "IN");
     return { ...base, conversationId: recorded.conversationId, excerpt: recorded.content.slice(0, 160) };
   } catch (error) {
-    if (error instanceof CustomerScopeDenied) return { ...base, conversationId: null, excerpt: "" };
+    if (error instanceof CustomerScopeDenied) return { ...base, conversationId: null, excerpt: "", unrecorded: "scope_denied" };
     throw error;
   }
 }
@@ -91,8 +107,10 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
     try {
       if (!hold.conversationId) {
         // Text could not reach a chat: the journal is the only trace, so name the person.
+        const why = hold.unrecorded === "chat_deleted" ? "чат этого человека удалён сотрудником, новый не заводится"
+          : `причина «${hold.reason}»`;
         void logSystemError("meta", `Сообщение клиента в ${CHANNEL_NAME[hold.channel] ?? hold.channel} не записано в чат CRM ` +
-          `(причина «${hold.reason}», собеседник ${hold.peer}). Найдите его в приложении и ответьте вручную.`,
+          `(${why}, собеседник ${hold.peer}). Если нужно, найдите его в приложении и ответьте вручную.`,
           { dedupKey: `customer-dm-routing-held-unrecorded:${hold.reason}`, dedupScope: `${hold.channel}:${hold.peer}`, quietPult: true });
         continue;
       }
@@ -103,11 +121,20 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
         select: { id: true } });
       if (recent) continue; // one call per chat per window, the chat itself shows every message
       const chat = await prisma.botConversation.findUnique({ where: { id: hold.conversationId },
-        select: { name: true, client: { select: { fullName: true, assignedAgentId: true } } } });
-      const name = chat?.client?.fullName?.trim() || chat?.name?.trim() || `клиент из ${CHANNEL_NAME[hold.channel] ?? hold.channel}`;
-      const owner = chat?.client?.assignedAgentId ?? null;
+        select: { name: true, client: { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } } });
+      // The client is in the trash: the text is kept in the hidden chat, nobody is called.
+      if (!chat || chat.client?.deletedAt) continue;
+      const name = chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[hold.channel] ?? hold.channel}`;
+      // An inactive (dismissed) responsible agent gets no push: fall back to everyone who reads all chats.
+      const owner = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
       const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
       if (!recipients.length) continue;
+      // Atomic claim per chat and window: two near-simultaneous batches must not
+      // both pass the "recent" check above (the feed row is written asynchronously).
+      const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt")
+        VALUES (${randomUUID()},'customer-held-notify',${`${hold.conversationId}:${Math.floor(Date.now() / NOTIFY_WINDOW_MS)}`},now())
+        ON CONFLICT ("channel","messageId") DO NOTHING`;
+      if (claimed !== 1) continue;
       await sendPushToAgents(recipients, { kind: "message", title: `Ответьте вручную: ${name}`,
         body: `«${hold.excerpt}». Бот не ответит: ${plainReason(hold.reason)}.`,
         url: `/messages?open=${hold.conversationId}`, tag });
