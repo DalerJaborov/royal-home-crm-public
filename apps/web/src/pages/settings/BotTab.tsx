@@ -997,6 +997,7 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
   const useWhatsapp = settings?.botUseWhatsappNumber ?? true;
   const hot = settings?.botHotIntentHandover ?? true;
   const asks = settings?.botMaxPhoneAsks ?? 2;
+  const [askError, setAskError] = useState<string | null>(null);
   return (
     <>
       <div className="grp-lab">Режим: только заявки</div>
@@ -1005,7 +1006,7 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
         on={on}
         hint={
           on
-            ? "Бот отвечает коротко, берёт номер и передаёт клиента агенту. Подборки, фото и ссылки не отправляет, цены называет только из базы."
+            ? "WhatsApp, Instagram и Facebook: бот отвечает коротко, берёт номер и передаёт клиента агенту. Подборки, фото и ссылки не отправляет, цены называет только из базы. Чат сайта работает как раньше."
             : "Обычный режим: бот сам подбирает варианты, присылает фото и ссылки."
         }
         onToggle={() => onToggle("botLeadOnlyMode", !on)}
@@ -1027,7 +1028,7 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
             on={hot}
             hint={
               hot
-                ? "Слова «хотим посмотреть», «куда ехать», «адрес» и такие же по-таджикски сразу создают заявку агенту объекта."
+                ? "Слова «хотим посмотреть», «куда ехать», «адрес» и такие же по-таджикски сразу передают клиента агенту объекта, а без номера зовут сотрудника в переписку."
                 : "Такие слова бот отвечает как обычный вопрос."
             }
             onToggle={() => onToggle("botHotIntentHandover", !hot)}
@@ -1045,8 +1046,15 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
                   <button
                     key={n}
                     type="button"
+                    // aria-pressed — смысл для экранного диктора (кнопка-переключатель); aria-selected — крючок стиля .seg на экране настроек.
+                    aria-pressed={asks === n}
                     aria-selected={asks === n}
-                    onClick={() => updateSettings.mutate({ botMaxPhoneAsks: n })}
+                    onClick={() => {
+                      setAskError(null);
+                      updateSettings.mutate({ botMaxPhoneAsks: n }, {
+                        onError: (err) => setAskError(err instanceof Error ? err.message : "Не удалось сохранить настройку"),
+                      });
+                    }}
                   >
                     {n}
                   </button>
@@ -1054,6 +1062,11 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
               </div>
             </div>
           </div>
+          {askError && (
+            <p className="msg" role="alert">
+              {askError}
+            </p>
+          )}
         </>
       )}
     </>
