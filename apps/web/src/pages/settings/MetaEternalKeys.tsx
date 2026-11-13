@@ -274,7 +274,9 @@ function CompanyPageRow({
           <span>{page.name}</span>
           <span className={`chip ${ok ? "ok" : page.canMessage ? "" : "crit"}`}>{label}</span>
         </b>
-        <span className="quiet">
+        {/* div, а не span: на телефоне тема режет `.row .t span` до двух строк,
+            и подсказка «что нажать» обрывалась на полуслове. */}
+        <div className="quiet">
           {page.connected === "settings"
             ? "Основная Страница: отвечает через настройки Facebook выше."
             : page.connected === "account"
@@ -282,7 +284,7 @@ function CompanyPageRow({
               : page.canMessage
                 ? "Нажмите «Подключить Messenger» — бот начнёт отвечать в сообщениях этой Страницы."
                 : "Выдайте системному пользователю задачу «Сообщения» на этой Странице (Business Suite → Системные пользователи → Назначить ресурсы)."}
-        </span>
+        </div>
         {(page.canMessage && page.connected !== "settings") || (page.connected && page.subscribed === false) ? (
           <div className="wrap" style={{ marginTop: "var(--s2)" }}>
             {page.canMessage && page.connected !== "settings" && (
