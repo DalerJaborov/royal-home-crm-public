@@ -32,37 +32,6 @@ import { resetMetaEternalCache } from "../lib/metaEternalTokens.js";
  * переписка встанет», ломает работу агентства в момент установки.
  */
 
-/**
- * Имя компании нельзя задать аккаунту, который уже работает через клиентское ядро
- * или стоит в списке его раскатки: ядро имя подменять не умеет (хеши промта), и
- * клиенты продолжили бы слышать «Royal Home». Ловим при сохранении, а не молча
- * на каждом сообщении. Маршрут отвечает на это 409.
- */
-export class BrandNameCoreConflictError extends Error {
-  constructor() {
-    super(
-      "Этот аккаунт уже отвечает через новое клиентское ядро, а оно пока не умеет называть компанию другим именем. " +
-        "Сначала уберите аккаунт из раскатки ядра, потом задайте имя."
-    );
-    this.name = "BrandNameCoreConflictError";
-  }
-}
-
-/** Есть ли у аккаунта переписки в ядре или место в списке раскатки. */
-export async function accountIsInCustomerCore(accountId: string): Promise<boolean> {
-  const scopes = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT "id" FROM "CustomerEndpointScope" WHERE "messengerAccountId"=${accountId}`;
-  if (scopes.length === 0) return false;
-  const ids = scopes.map((r) => r.id);
-  const [core] = await prisma.$queryRaw<Array<{ found: boolean }>>`
-    SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" WHERE "lane"='CORE' AND "endpointScopeId"=ANY(${ids})) AS found`;
-  if (core?.found) return true;
-  const [policy] = await prisma.$queryRaw<Array<{ rolloutConfig: unknown }>>`
-    SELECT "rolloutConfig" FROM "CustomerRuntimePolicy" WHERE "id"='singleton'`;
-  const allowed = (policy?.rolloutConfig as { allowed?: Array<{ endpointScopeId?: string }> } | null)?.allowed;
-  return Array.isArray(allowed) && allowed.some((row) => row.endpointScopeId && ids.includes(row.endpointScopeId));
-}
-
 export interface MessengerAccountView {
   id: string;
   channel: string;
@@ -195,6 +164,19 @@ export async function accountPersona(accountId: string | null | undefined): Prom
  * Тот же приём, что у accountPersona: нужен на каждом ходе, отказ базы — null
  * (прежнее имя лучше упавшего хода).
  */
+/**
+ * Все имена компаний, заданные аккаунтам (без пустых), — для проверки, что имя в
+ * сохранённом ответе ядра взято из настроек, а не придумано. Отказ базы — пустой
+ * список: тогда своё имя не подтверждается и ответ ядра честно задерживается.
+ */
+export async function configuredBrandNames(): Promise<string[]> {
+  try {
+    return [...new Set((await loadAccounts()).map((r) => r.brandName?.trim() ?? "").filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
 export async function accountBrandName(accountId: string | null | undefined): Promise<string | null> {
   if (!accountId) return null;
   try {
@@ -613,11 +595,7 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
   // Имя, содержащее «Royal Home», заменяло бы слово само собой и шумело бы в журнале утечек.
   const brandError = brandNameError(brand);
   if (brandError) throw new Error(brandError);
-  if (brand && input.id && (await accountIsInCustomerCore(input.id))) {
-    const current = (await prisma.messengerAccount.findUnique({ where: { id: input.id }, select: { brandName: true } }))?.brandName;
-    // Тот же самый имя повторно (например, форма пересохранила) ничего не меняет.
-    if (current?.trim() !== brand) throw new BrandNameCoreConflictError();
-  }
+
   // Чистим и убираем дубликаты/пустые строки — форма присылает то, что человек
   // напечатал построчно или через запятую (см. routes/settings.ts).
   const extraIds =
