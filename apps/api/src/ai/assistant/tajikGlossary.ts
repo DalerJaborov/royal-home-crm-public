@@ -1,5 +1,11 @@
 /** Reviewed with Gemini in Chrome, 03.11.2026. Candidates for simple wording, not mechanical replacements. */
-export const TAJIK_GLOSSARY_VERSION = "2026-11-04.2";
+// 14.11.2026: из словаря убраны три готовых отказа — «Голос сейчас недоступен → Ҳоло овоз кор
+// намекунад», «У вас нет доступа → …нишон дода наметавонам», «Не удалось → Ҳоло нашуд…». Словарь
+// идёт в промпт подсказкой, а пары подбирались по ПОДСТРОКЕ слова: «овоз», «ҳоло», «нишон»,
+// «кунед» есть почти в любой просьбе, и модель повторяла отказ, которого не было («голос не
+// работает», хотя голос работал). Отказы говорит программа по факту, а не модель по словарю.
+// Подбор теперь по целому слову (границы \p{L}), см. tajikGlossaryFor.
+export const TAJIK_GLOSSARY_VERSION = "2026-11-14.1";
 export const TAJIK_GLOSSARY = [
   {
     "ru": "Привет, чем помочь?",
@@ -114,18 +120,6 @@ export const TAJIK_GLOSSARY = [
     "tg": "Дигар шуд. Боз як бор бинед"
   },
   {
-    "ru": "У вас нет доступа",
-    "tg": "Инро ба шумо нишон дода наметавонам"
-  },
-  {
-    "ru": "Не удалось выполнить, попробуйте ещё раз",
-    "tg": "Ҳоло нашуд. Боз як бор кӯшиш кунед"
-  },
-  {
-    "ru": "Голос сейчас недоступен, отвечу текстом",
-    "tg": "Ҳоло овоз кор намекунад. Менависам"
-  },
-  {
     "ru": "Подробности ниже",
     "tg": "Боқимондааш дар поён"
   },
@@ -147,9 +141,10 @@ export const TAJIK_GLOSSARY = [
   }
 ] as const;
 export function tajikGlossaryFor(question: string): string {
-  const normalized = question.toLocaleLowerCase();
+  // Целое слово, а не подстрока: «нархашро» не тянет «Нарх», «овозатро» — ничего лишнего.
+  const words = new Set(question.toLocaleLowerCase().split(/[^\p{L}]+/u).filter(Boolean));
   const selected = TAJIK_GLOSSARY.filter((row) => [row.ru, row.tg].some((phrase) =>
-    phrase.toLocaleLowerCase().split(/[^\p{L}]+/u).filter((word) => word.length >= 4).some((word) => normalized.includes(word)))).slice(0, 8);
+    phrase.toLocaleLowerCase().split(/[^\p{L}]+/u).filter((word) => word.length >= 4).some((word) => words.has(word)))).slice(0, 8);
   const examples = selected.length ? selected : TAJIK_GLOSSARY.filter((row) => ["Нашла клиента", "Уточните имя или номер карточки", "Подтвердить", "Изменение выполнено"].includes(row.ru));
   return `\nПРОСТОЙ ТАДЖИКСКИЙ (только если отвечаешь по-таджикски): как в чате коллег в Душанбе. Короткие фразы, обычная орфография, простые глаголы. Избегай книжных арабизмов и русских кальк, если есть лёгкий привычный оборот. Имена и названия сохраняй.\n` +
     `Примеры интонации: «Нархаш шуд 810 000 сомонӣ», «Навор ҳоло дар навбат аст», «Навор ду рӯз боз назди монтажёр аст», «Худи ҳамин хона? Рақамашро нависед».\n` +
