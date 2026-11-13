@@ -216,7 +216,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
 
         <SecretKeyEditor
           title="Маркер Instagram"
-          description="ЗАПАСНОЙ путь: пока в списке «Аккаунты Instagram» выше есть основной аккаунт с маркером, работа идёт по ЕГО маркеру, а это поле не используется — перевыпущенный маркер вписывать в аккаунт, кнопкой с ключом. Само поле: Instagram → «Настройка API для входа в Instagram» → «Сгенерировать маркер». Показывается один раз."
+          description="ЗАПАСНОЙ путь: пока в списке «Аккаунты Instagram и номера WhatsApp» выше есть основной аккаунт с маркером, работа идёт по ЕГО маркеру, а это поле не используется — перевыпущенный маркер вписывать в аккаунт, кнопкой с ключом. Само поле: Instagram → «Настройка API для входа в Instagram» → «Сгенерировать маркер». Показывается один раз."
           placeholder="Маркер доступа Instagram"
           configured={settings ? !!settings.metaIgTokenMasked : undefined}
           masked={settings?.metaIgTokenMasked}

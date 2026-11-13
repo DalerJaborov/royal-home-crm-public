@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4033,
+  "forks": 4041,
   "mounts": 83,
   "cron": 130,
   "jobs": 33,
@@ -70834,9 +70834,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: \"Укажите идентификатор аккаунта\" });",
+       "t": "return res.status(400).json({ error: channel === \"WHATSAPP\" ? \"Укажите идентификатор номера (Phone number ID)…",
        "a": [
-        "ответ 400 — «Укажите идентификатор аккаунта»"
+        "ответ 400"
        ],
        "c": []
       }
@@ -70854,6 +70854,104 @@
         "ответ 400 — «Укажите маркер доступа»"
        ],
        "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "channel === \"WHATSAPP\"",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!/^\\d{5,30}$/.test(externalId)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Идентификатор номера (Phone number ID) — это только цифры. Не телефон: …",
+         "a": [
+          "ответ 400 — «Идентификатор номера (Phone number ID) — это только цифры. Не…»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const current = await loadCredentials();",
+       "a": [
+        "зовёт loadCredentials()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "current.waPhoneId && current.waPhoneId === externalId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Этот номер уже подключён как основной в Настройках → Meta\" });",
+         "a": [
+          "ответ 409 — «Этот номер уже подключён как основной в Настройках → Meta»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "token",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const collision = await findTokenCollision(channel, token, body.id);",
+         "a": [
+          "зовёт findTokenCollision()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "collision",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(400).json({ error: collision.with === \"settings\" ? \"Этот маркер уже используется для основн…",
+           "a": [
+            "ответ 400"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const number = await whatsappNumberIdentity(token, externalId);",
+         "a": [
+          "зовёт whatsappNumberIdentity()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!number.ok",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(400).json({ error: text });",
+           "a": [
+            "ответ 400"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
       }
      ]
     },
@@ -74229,6 +74327,51 @@
            "c": []
           }
          ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const [channel, value, label] of [ [\"WHATSAPP\", metaWaToken, \"WhatsApp\"], [\"FACEBOOK\", metaPageToken, \"Страни…",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!value",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "continue;",
+         "a": [
+          "переходит к следующему"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const collision = await findTokenCollision(channel, value);",
+       "a": [
+        "зовёт findTokenCollision()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "collision?.with === \"account\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: `Этот маркер ${label} уже стоит у аккаунта «${collision.title}» в списке…",
+         "a": [
+          "ответ 400 — «Этот маркер ${label} уже стоит у аккаунта «${collision.title}» в…»"
+         ],
+         "c": []
         }
        ]
       }
@@ -81884,7 +82027,7 @@
       },
       {
        "k": "do",
-       "t": "void rememberBusinessAccountFromWebhook(req.body, waPhoneId);",
+       "t": "void rememberBusinessAccountFromWebhook(req.body, mainWaPhoneId ? [mainWaPhoneId] : waPhoneId);",
        "a": [
         "зовёт rememberBusinessAccountFromWebhook()"
        ],
@@ -82315,7 +82458,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "if (msg.channel === \"WHATSAPP\") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId) : null;…",
+                   "t": "if (msg.channel === \"WHATSAPP\") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…",
                    "a": [
                     "дословно из кода"
                    ],
@@ -112309,6 +112452,35 @@
           {
            "k": "do",
            "t": "void logSystemError(\"cron\", `Проверка доступа «Instagram» не выполнена: ${reason}`);",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": []
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const reason = describeError(err);",
+           "a": [
+            "зовёт describeError()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void logSystemError(\"cron\", `Проверка доступа «WhatsApp (доп. номера)» не выполнена: ${reason}`);",
            "a": [
             "запись в журнал ошибок"
            ],

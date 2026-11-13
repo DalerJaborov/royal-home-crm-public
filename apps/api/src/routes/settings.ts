@@ -40,6 +40,7 @@ import {
   loadCredentials,
   loadMetaReadiness,
   resetMetaAccountCredsCache,
+  whatsappNumberIdentity,
   type MetaReadiness,
 } from "../messengers/meta.js";
 import { DEFAULT_KPI_WEIGHTS, type KpiMetricKey } from "../kpi.js";
@@ -78,7 +79,14 @@ import { buildWhisperText, WHISPER_PARTS } from "../lib/telephony/whisperText.js
 import { previewWhisperSpeech } from "../lib/telephony/whisperAudio.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
-import { BrandNameCoreConflictError, deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
+import {
+  BrandNameCoreConflictError,
+  deleteAccount,
+  findTokenCollision,
+  listAccounts,
+  saveAccount,
+  resetAccountsCache,
+} from "../messengers/accounts.js";
 import { brandNameError } from "../ai/brandPattern.js";
 import { dispatchInBackground, EDITOR_HOLDER_WHERE } from "../lib/videoHandoff.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
@@ -1648,6 +1656,25 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     geminiExtraKeysData = next;
   }
 
+  /**
+   * МАРКЕР ОСНОВНОГО НОМЕРА НЕ ДОЛЖЕН СОВПАДАТЬ С МАРКЕРОМ ПОДКЛЮЧЁННОГО АККАУНТА
+   * (12.11.2026). Зеркало проверки при подключении аккаунта (findTokenCollision): иначе
+   * маркер можно занять с другой стороны — вписать в Настройки тот, что уже стоит у
+   * второго номера, — и отправка перестанет отличать номера.
+   */
+  for (const [channel, value, label] of [
+    ["WHATSAPP", metaWaToken, "WhatsApp"],
+    ["FACEBOOK", metaPageToken, "Страницы Facebook"],
+  ] as const) {
+    if (!value) continue;
+    const collision = await findTokenCollision(channel, value);
+    if (collision?.with === "account") {
+      return res.status(400).json({
+        error: `Этот маркер ${label} уже стоит у аккаунта «${collision.title}» в списке подключённых. Для каждого нужен свой маркер: создайте в Meta новый`,
+      });
+    }
+  }
+
   const data = {
     ...rest,
     // Ключа Claude здесь больше нет (владелец 20.08.2026): второго поставщика в CRM
@@ -2837,10 +2864,62 @@ settingsRouter.post(
     if (!externalId && body.id) {
       externalId = (await listAccounts()).find((a) => a.id === body.id)?.externalId;
     }
-    if (!externalId) return res.status(400).json({ error: "Укажите идентификатор аккаунта" });
+    if (!externalId) {
+      return res.status(400).json({
+        error: channel === "WHATSAPP" ? "Укажите идентификатор номера (Phone number ID)" : "Укажите идентификатор аккаунта",
+      });
+    }
     // Маркер обязателен только при создании: при правке пустое поле означает
     // «не менять», иначе редактирование названия стирало бы доступ.
     if (!body.id && !body.token?.trim()) return res.status(400).json({ error: "Укажите маркер доступа" });
+
+    /**
+     * НОМЕР WHATSAPP: ПРОВЕРЯЕМ У META И НЕ ДАЁМ ЗАНЯТЬ МАРКЕР ОСНОВНОГО (12.11.2026).
+     *
+     * Второй номер (дочерняя компания) заводится здесь же, где Instagram. Идентификатор
+     * номера, в отличие от Instagram, у Meta не выяснить по одному маркеру — его вписывает
+     * человек из кабинета WhatsApp, и перепутать его с телефоном или с идентификатором
+     * кабинета легко. Поэтому, когда маркер дан, читаем номер этим маркером: ответ Meta —
+     * и проверка, что маркер живой, и подтверждение, что идентификатор указывает на номер,
+     * к которому у маркера есть доступ.
+     *
+     * Остальное — защита от тихой поломки основного номера: тот же номер дважды (две
+     * «правды» о получателе) и тот же маркер (отправка не отличит номера, см.
+     * findTokenCollision).
+     */
+    if (channel === "WHATSAPP") {
+      if (!/^\d{5,30}$/.test(externalId)) {
+        return res.status(400).json({
+          error: "Идентификатор номера (Phone number ID) — это только цифры. Не телефон: он указан в кабинете Meta рядом с номером",
+        });
+      }
+      const current = await loadCredentials();
+      if (current.waPhoneId && current.waPhoneId === externalId) {
+        return res.status(409).json({ error: "Этот номер уже подключён как основной в Настройках → Meta" });
+      }
+      const token = body.token?.trim();
+      if (token) {
+        const collision = await findTokenCollision(channel, token, body.id);
+        if (collision) {
+          return res.status(400).json({
+            error:
+              collision.with === "settings"
+                ? "Этот маркер уже используется для основного номера WhatsApp. Для второго номера создайте в Meta новый маркер (Системный пользователь → Создать маркер) и вставьте его"
+                : `Этот маркер уже используется для номера «${collision.title}». Для каждого номера нужен свой маркер: создайте в Meta новый (Системный пользователь → Создать маркер)`,
+          });
+        }
+        const number = await whatsappNumberIdentity(token, externalId);
+        if (!number.ok) {
+          const text =
+            number.kind === "token"
+              ? `Маркер не принят: ${number.error}`
+              : number.kind === "number"
+                ? `Номер не найден или у маркера нет к нему доступа. Проверьте идентификатор номера и права маркера (whatsapp_business_messaging): ${number.error}`
+                : `Не удалось проверить номер у Meta, попробуйте ещё раз: ${number.error}`;
+          return res.status(400).json({ error: text });
+        }
+      }
+    }
     // Тот же предел, что у общего промта в Настройках (botSystemPrompt).
     if (typeof body.systemPrompt === "string" && body.systemPrompt.length > 30000) {
       return res.status(400).json({ error: "Промт слишком длинный" });

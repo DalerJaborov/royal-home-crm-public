@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4033**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2485**; вместе с задачами по расписанию и фоновыми заданиями — **4041**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -15672,11 +15672,31 @@
   - externalId = (await listAccounts()).find((a)
     · зовёт listAccounts()
 - если !externalId
-  - return res.status(400).json({ error: "Укажите идентификатор аккаунта" });
-    · ответ 400 — «Укажите идентификатор аккаунта»
+  - return res.status(400).json({ error: channel === "WHATSAPP" ? "Укажите идентификатор номера (Phone number ID)…
+    · ответ 400
 - если !body.id && !body.token?.trim()
   - return res.status(400).json({ error: "Укажите маркер доступа" });
     · ответ 400 — «Укажите маркер доступа»
+- если channel === "WHATSAPP"
+  - если !/^\d{5,30}$/.test(externalId)
+    - return res.status(400).json({ error: "Идентификатор номера (Phone number ID) — это только цифры. Не телефон: …
+      · ответ 400 — «Идентификатор номера (Phone number ID) — это только цифры. Не…»
+  - const current = await loadCredentials();
+    · зовёт loadCredentials()
+  - если current.waPhoneId && current.waPhoneId === externalId
+    - return res.status(409).json({ error: "Этот номер уже подключён как основной в Настройках → Meta" });
+      · ответ 409 — «Этот номер уже подключён как основной в Настройках → Meta»
+  - если token
+    - const collision = await findTokenCollision(channel, token, body.id);
+      · зовёт findTokenCollision()
+    - если collision
+      - return res.status(400).json({ error: collision.with === "settings" ? "Этот маркер уже используется для основн…
+        · ответ 400
+    - const number = await whatsappNumberIdentity(token, externalId);
+      · зовёт whatsappNumberIdentity()
+    - если !number.ok
+      - return res.status(400).json({ error: text });
+        · ответ 400
 - если typeof body.systemPrompt === "string" && body.systemPrompt.length > 30000
   - return res.status(400).json({ error: "Промт слишком длинный" });
     · ответ 400 — «Промт слишком длинный»
@@ -15933,6 +15953,15 @@
     - если value.startsWith("••••")
       - return res.status(400).json({ error: "В списке дополнительных ключей пришла маска вместо самого ключа" });
         · ответ 400 — «В списке дополнительных ключей пришла маска вместо самого ключа»
+- для каждого: const [channel, value, label] of [ ["WHATSAPP", metaWaToken, "WhatsApp"], ["FACEBOOK", metaPageToken, "Страни…
+  - если !value
+    - continue;
+      · переходит к следующему
+  - const collision = await findTokenCollision(channel, value);
+    · зовёт findTokenCollision()
+  - если collision?.with === "account"
+    - return res.status(400).json({ error: `Этот маркер ${label} уже стоит у аккаунта «${collision.title}» в списке…
+      · ответ 400 — «Этот маркер ${label} уже стоит у аккаунта «${collision.title}» в…»
 - const data = { ...rest, ...(geminiApiKey !== undefined ? { geminiApiKey: geminiApiKey ? encryptSecret(geminiA…
   · зовёт encryptSecret()
 - const actor = await prisma.agent.findUnique({ where: { id: req.agent?.id ?? "" }, select: { fullName: true },…
@@ -18508,7 +18537,7 @@
   - если publicIngress.status !== "persisted"
     - void ingestInstagramComments(req.body);
       · зовёт ingestInstagramComments()
-  - void rememberBusinessAccountFromWebhook(req.body, waPhoneId);
+  - void rememberBusinessAccountFromWebhook(req.body, mainWaPhoneId ? [mainWaPhoneId] : waPhoneId);
     · зовёт rememberBusinessAccountFromWebhook()
   - для каждого: const s of parseMetaStatusUpdates(req.body)
     - void withBotTurnTrace({ channel: "WHATSAPP", account: s.accountExternalId, source: "delivery_status", event: …
@@ -18607,7 +18636,7 @@
               - if (written) { await processMessengerTurn({ channel: msg.channel, subscriberId: msg.senderId, text: written, …
                 · дословно из кода
             - если DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")
-              - if (msg.channel === "WHATSAPP") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId) : null;…
+              - if (msg.channel === "WHATSAPP") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…
                 · дословно из кода
             - если (msg.attachmentType === "share" || msg.attachmentType === "ig_post") && msg.channel !== "WHATSAPP" && isMetaC…
               - attachments.push({ url: msg.attachmentUrl!, declaredKind: "image" });
@@ -25037,6 +25066,12 @@
       - const reason = describeError(err);
         · зовёт describeError()
       - void logSystemError("cron", `Проверка доступа «Instagram» не выполнена: ${reason}`);
+        · запись в журнал ошибок
+    - пробует
+    - если сорвалось
+      - const reason = describeError(err);
+        · зовёт describeError()
+      - void logSystemError("cron", `Проверка доступа «WhatsApp (доп. номера)» не выполнена: ${reason}`);
         · запись в журнал ошибок
     - пробует
     - если сорвалось

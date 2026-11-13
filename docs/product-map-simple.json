@@ -16,10 +16,10 @@
   "paths": 749,
   "cron": 130,
   "jobs": 33,
-  "conditions": 4017,
-  "untranslatedUnique": 460,
-  "untranslatedTotal": 591,
-  "partialUnique": 1085,
+  "conditions": 4025,
+  "untranslatedUnique": 462,
+  "untranslatedTotal": 593,
+  "partialUnique": 1087,
   "translatedShare": 85
  },
  "untranslated": [
@@ -36,6 +36,7 @@
   "!(await shouldAlert(tag, DISAPPROVED_WINDOW_MS, now))",
   "!/^[a-f0-9]{64}$/.test(eventKey)",
   "!/^[a-z0-9-]{8,64}$/.test(req.params.campaign)",
+  "!/^\\d{5,30}$/.test(externalId)",
   "!OVERRIDABLE_KINDS.includes(event.kind as (typeof OVERRIDABLE_KINDS)[number])",
   "![\"month\", \"from\", \"to\", \"status\", \"categoryId\", \"rootCategory\", \"counterparty\", \"paymentMethod\", \"q\", \"recur…",
   "!access.all && access.own && interaction.agentId !== access.viewerId && interaction.clientId",
@@ -249,6 +250,7 @@
   "creatorInfoCache && Date.now() - creatorInfoCache.at < CREATOR_INFO_CACHE_MS",
   "current && !current.closedAt && current.id === sessionId",
   "current && upToDate && (await whisperFilesExist(current.fileName))",
+  "current.waPhoneId && current.waPhoneId === externalId",
   "currentCount + activeSessions + 1 > maxCount",
   "currentCount + incomingCount > maxCount",
   "currentCount + toProcess.length > MAX_PROPERTY_PHOTOS",
@@ -55467,7 +55469,7 @@
      "a": [],
      "c": [
       {
-       "t": "отказ: данные неверные: «Укажите идентификатор аккаунта»",
+       "t": "отказ: данные неверные",
        "k": "do",
        "a": [],
        "c": []
@@ -55487,6 +55489,74 @@
       }
      ],
      "raw": "!body.id && !body.token?.trim()"
+    },
+    {
+     "t": "если канал — «WHATSAPP»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "если !/^\\d{5,30}$/.test(externalId)",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: данные неверные: «Идентификатор номера (Phone number ID) — это только цифры. Не…»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "!/^\\d{5,30}$/.test(externalId)"
+      },
+      {
+       "t": "если current.waPhoneId && current.waPhoneId === externalId",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: такое уже есть: «Этот номер уже подключён как основной в Настройках → Meta»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "current.waPhoneId && current.waPhoneId === externalId"
+      },
+      {
+       "t": "если есть ключ доступа",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть collision",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "отказ: данные неверные",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если нет: получилось (номер)",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "отказ: данные неверные",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
     },
     {
      "t": "если typeof body.systemPrompt === \"string\" && body.systemPrompt.length > 30000",
@@ -57663,6 +57733,32 @@
           }
          ],
          "raw": "value.startsWith(\"••••\")"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "и так по каждому",
+     "k": "loop",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: value",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если with — «account»",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: данные неверные: «Этот маркер … уже стоит у аккаунта «…» в…»",
+         "k": "do",
+         "a": [],
+         "c": []
         }
        ]
       }
@@ -75083,6 +75179,25 @@
            "a": [],
            "c": [],
            "more": true
+          }
+         ]
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
           }
          ]
         },
