@@ -364,9 +364,13 @@ const LINES = {
     ru: (id: number) => `Хорошо, передаю агенту по объекту №${id}, он ответит вам здесь.`,
     tg: (id: number) => `Хуб, оид ба объекти №${id} ба агент мерасонам, ӯ ҳамин ҷо ба шумо ҷавоб медиҳад.`,
   },
-  /** Заявки нет (номера нет): «передаю агенту» было бы неправдой, никого не зовём. Дальше — просьба номера или офис. */
-  hotAsk: { ru: "Хорошо, покажем.", tg: "Хуб, нишон медиҳем." },
-  hotPropertyAsk: { ru: (id: number) => `Хорошо, покажем объект №${id}.`, tg: (id: number) => `Хуб, объекти №${id}-ро нишон медиҳем.` },
+  /** Заявки нет (номера нет): «передаю агенту» было бы неправдой, никого не зовём, и показ без заявки не обещаем
+   * (пятое ревью 13.11, №3): показ назначает агент, дальше — просьба номера или номер офиса. */
+  hotAsk: { ru: "Показ назначает агент.", tg: "Вақти намоишро агент таъин мекунад." },
+  hotPropertyAsk: {
+    ru: (id: number) => `Показ объекта №${id} назначает агент.`,
+    tg: (id: number) => `Вақти намоиши объекти №${id}-ро агент таъин мекунад.`,
+  },
   seller: {
     ru: (pct: number) => `Да, поможем продать. Комиссия агентства ${pct}%, работаем по Душанбе.`,
     tg: (pct: number) => `Бале, дар фурӯш кӯмак мекунем. Комиссияи агентӣ ${pct}%, дар Душанбе кор мекунем.`,
@@ -430,6 +434,27 @@ const ESCALATE_VARIANTS = {
   tg: [`Дар ин савол агент ба шумо кӯмак мекунад. Лутфан, ба мо занг занед: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
     `Агент бо телефони ${LEAD_ONLY_OFFICE_PHONE_TEXT} муфассал мегӯяд.`,
     `Ин саволро беҳтар аст бо агент гап занед, рақами мо: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`] },
+} as const;
+
+/**
+ * Горячие слова без номера, когда просьбы номера исчерпаны и офис уже называли (пятое ревью 13.11, №3): одно «Показ
+ * назначает агент.» оставляло клиента без пути к показу. Номер офиса повторяется, показ не обещается.
+ */
+const HOT_OFFICE_VARIANTS = {
+  ru: [`Договориться о показе можно по телефону ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`, `Чтобы назначить показ, позвоните нам: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
+    `Время показа подскажет агент по телефону ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`],
+  tg: [`Барои намоиш ба мо занг занед: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`, `Вақти намоишро бо телефони ${LEAD_ONLY_OFFICE_PHONE_TEXT} муайян мекунем.`,
+    `Агент бо телефони ${LEAD_ONLY_OFFICE_PHONE_TEXT} вақти намоишро мегӯяд.`],
+} as const;
+
+/**
+ * Карточка есть, а агента у неё нет («Прочие обращения», ночная раздача ещё не прошла — пятое ревью 13.11, №2):
+ * «передаю агенту», «скоро позвонит», «уже в курсе» — неправда. Честно: записали, свяжутся в рабочее время.
+ * `when` — срок словами из lib/handoffPromise.ts (с выходными из Настроек).
+ */
+const NO_AGENT_VARIANTS = {
+  ru: [(when: string) => `Записали, с вами свяжутся ${when}.`, (when: string) => `Ваш вопрос записан, с вами свяжутся ${when}.`],
+  tg: [(when: string) => `Навиштем, ${when} бо шумо тамос мегиранд.`, (when: string) => `Саволатон сабт шуд, ${when} бо шумо тамос мегиранд.`],
 } as const;
 
 /** Клиент с карточкой назвал удобное время звонка (третье ревью 13.11, №4): агенту передано, без дословного повтора. */
@@ -539,6 +564,11 @@ export interface LeadOnlyReplyInput {
   agentInformed?: boolean;
 }
 
+/** Номера нет, агент не знает о клиенте, просить номер больше нельзя и офис уже называли: строки про номер нет. */
+function leadOnlyOfficeRepeatNeeded(input: LeadOnlyReplyInput, phoneLine: string | null): boolean {
+  return input.phone.kind === "ask" && !(input.agentInformed ?? false) && phoneLine === null;
+}
+
 /** Части ответа: фраза по сути и строка про звонок/номер (её может не быть). */
 export function leadOnlyReplyParts(input: LeadOnlyReplyInput): { intro: string; phoneLine: string | null } {
   const lang = input.language, p = input.property;
@@ -570,8 +600,19 @@ export function leadOnlyReplyParts(input: LeadOnlyReplyInput): { intro: string; 
     }
     default: intro = call ? LINES.escalate[lang] : informed ? LINES.escalateChat[lang] : LINES.escalateAsk[lang];
   }
+  // Показ или вопрос к агенту без номера, просьбы исчерпаны и офис уже называли (пятое ревью 13.11, №3): одна фраза
+  // «Показ назначает агент.» не даёт клиенту пути к агенту — номер офиса повторяется, показ не обещается.
+  const agentNeeded = input.scenario === "hot" || input.scenario === "escalate";
+  if (agentNeeded && leadOnlyOfficeRepeatNeeded(input, phoneLine)) {
+    return { intro: (input.scenario === "hot" ? HOT_OFFICE_VARIANTS : ESCALATE_VARIANTS.office)[lang][0], phoneLine: null };
+  }
   // «Хорошо, передаю агенту… Хорошо, без проблем…» — второе «хорошо» лишнее.
   if (phoneLine && /^(?:Хорошо|Хуб)/u.test(intro)) phoneLine = phoneLine.replace(OFFICE_LEAD[lang], "");
+  // Отказ дать номер: «Хорошо, без проблем» — первым, а не после «Показ назначает агент.» (пятое ревью 13.11, №3).
+  else if (phoneLine?.startsWith(OFFICE_LEAD[lang]) && agentNeeded) {
+    intro = `${OFFICE_LEAD[lang]}${intro}`;
+    phoneLine = phoneLine.slice(OFFICE_LEAD[lang].length);
+  }
   return { intro: intro.replaceAll("—", ","), phoneLine: phoneLine?.replaceAll("—", ",") ?? null };
 }
 
@@ -594,6 +635,18 @@ function normalizeSent(text: string): string { return text.normalize("NFKC").rep
  */
 export function leadOnlyReplyAvoidingRepeat(input: LeadOnlyReplyInput, sentTexts: readonly string[]): string {
   const sentList = sentTexts.map(normalizeSent), sent = new Set(sentList);
+  if ((input.scenario === "hot" || input.scenario === "escalate") &&
+      leadOnlyOfficeRepeatNeeded(input, leadOnlyPhoneLine(input.phone, input.when, input.language))) {
+    // Номер офиса — каждый раз, но другими словами: щит не выпустит третий одинаковый текст (пятое ревью 13.11, №3).
+    // Сначала ещё не звучавшие варианты, затем звучавшие один раз — давно звучавший первым.
+    const variants: readonly string[] = (input.scenario === "hot" ? HOT_OFFICE_VARIANTS : ESCALATE_VARIANTS.office)[input.language];
+    const times = (line: string) => sentList.filter(text => text === normalizeSent(line)).length;
+    const lastAt = (line: string) => sentList.lastIndexOf(normalizeSent(line));
+    const fresh = variants.filter(line => times(line) === 0);
+    const once = variants.filter(line => times(line) === 1).sort((a, b) => lastAt(a) - lastAt(b));
+    return fresh[0] ?? once[0] ?? SHORT_ACKS[input.language].find(text => !sent.has(normalizeSent(text))) ??
+      SHORT_ACKS[input.language][SHORT_ACKS[input.language].length - 1];
+  }
   const parts = leadOnlyReplyParts(input);
   const introSaid = sentList.some(text => text.includes(normalizeSent(parts.intro)));
   const waiting = input.phone.kind !== "ask" && (input.agentInformed ?? true) ? [LINES.waitingCall[input.language]] : [];
@@ -627,17 +680,35 @@ export function leadOnlyNoCallNotedLine(language: LeadOnlyLanguage, sentTexts: r
   return variants.find(line => !sent.has(normalizeSent(line))) ?? variants[variants.length - 1];
 }
 
+/** Карточка без агента: «Записали, с вами свяжутся {срок}» — без обещаний агента и без дословного повтора. */
+export function leadOnlyNoAgentLine(when: { ru: string; tg: string }, language: LeadOnlyLanguage, sentTexts: readonly string[] = []): string {
+  const sent = new Set(sentTexts.map(normalizeSent));
+  const variants = [...NO_AGENT_VARIANTS[language].map(line => line(when[language])), ...SHORT_ACKS[language]];
+  return (variants.find(line => !sent.has(normalizeSent(line))) ?? variants[variants.length - 1]).replaceAll("—", ",");
+}
+
+// ── Действия ядра, которых в режиме нет ─────────────────────────────────────
+/**
+ * Записи ядра, которые зовут людей сами (пуш агенту, дежурному или собственнику): передача сотруднику, звонок,
+ * вопрос собственнику, показ (пятое ревью 13.11, №1). В режиме их нет ни в наборе модели, ни в исполнении:
+ * людей зовёт только заявка (номер), а «соедините с человеком» без номера — просьба номера или номер офиса.
+ */
+export const LEAD_ONLY_WITHHELD_CUSTOMER_WRITES: readonly string[] = Object.freeze(["request_handover", "request_callback", "ask_owner", "book_showing"]);
+export function leadOnlyWithholdsCustomerWrite(name: string): boolean {
+  return LEAD_ONLY_WITHHELD_CUSTOMER_WRITES.includes(name);
+}
+
 // ── Память ядра: ответы этого режима — текст сервера ────────────────────────
 // Ядро кладёт в память модели только строки, которые сервер мог сказать сам (lib/customerAgentVerifiedContext.ts).
 // Ответы этого режима собираются из шаблонов ниже и туда не попадали: модель следующим ходом не знала, что бот уже
 // просил номер или назвал объект, и отвечала невпопад («зачем номер?», второе ревью 13.11, №7). Здесь — проверка
 // «строка целиком собрана из шаблонов режима»: подстановки только из базы (номер объекта, цена, район, время).
-const SLOT = { id: 987654321, pct: 77, price: "\u0001", place: "\u0002", time: "\u0003" } as const;
+const SLOT = { id: 987654321, pct: 77, price: "\u0001", place: "\u0002", time: "\u0003", when: "\u0004" } as const;
 const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function templateSource(text: string): string {
   return escapeRe(text).replaceAll(String(SLOT.id), "\\d{1,9}").replaceAll(`${SLOT.pct}%`, "\\d{1,2}(?:[.,]\\d{1,2})?%")
     .replaceAll(SLOT.price, "\\d[\\d\\u00a0 ]{0,14} (?:USD|сомони|сомонӣ)").replaceAll(SLOT.place, "[\\p{L}\\p{N} .'-]{1,60}")
-    .replaceAll(SLOT.time, "\\d{1,2}:\\d{2}");
+    .replaceAll(SLOT.time, "\\d{1,2}:\\d{2}").replaceAll(SLOT.when, "[\\p{L}\\p{N} :.-]{1,40}");
 }
 let serverLinePattern: RegExp | null = null;
 function leadOnlyServerLinePattern(): RegExp {
@@ -665,7 +736,8 @@ function leadOnlyServerLinePattern(): RegExp {
       if (line) { texts.add(line); texts.add(line.replace(OFFICE_LEAD[language], "")); }
     }
     for (const line of [...SHORT_ACKS[language], ...ESCALATE_VARIANTS.call[language], ...ESCALATE_VARIANTS.office[language],
-      ...CALLBACK_NOTED_VARIANTS[language], ...NO_CALL_NOTED_VARIANTS[language]]) texts.add(line);
+      ...CALLBACK_NOTED_VARIANTS[language], ...NO_CALL_NOTED_VARIANTS[language], ...HOT_OFFICE_VARIANTS[language],
+      ...NO_AGENT_VARIANTS[language].map(line => line(SLOT.when)), OFFICE_LEAD[language].trim()]) texts.add(line);
   }
   const alternatives = [...texts].sort((a, b) => b.length - a.length).map(templateSource).join("|");
   serverLinePattern = new RegExp(`^(?:(?:${alternatives})(?: |$))+$`, "u");

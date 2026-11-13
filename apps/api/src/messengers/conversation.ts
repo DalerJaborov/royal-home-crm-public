@@ -59,7 +59,8 @@ import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadabl
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
 import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyGivenLineAvoidingRepeat, leadOnlyStripPhoneAsk } from "../ai/leadOnlyMode.js";
-import { alarmLeadOnlyIntake, noteLeadOnlyOnCard } from "../lib/leadOnlyHandover.js";
+import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "../lib/leadOnlyHandover.js";
+import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
 import { applyLeadOnlyPending, readLeadOnlyPending } from "../lib/leadOnlyPending.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { adPropertyForLead } from "../lib/adPropertyRule.js";
@@ -2739,7 +2740,13 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * кнопка «Вернуть боту» в интерфейсе возвращает всё одним нажатием — и
      * зовём живого человека пушем, а не строкой в журнале раз в сутки.
      */
-    if (hitCount >= OFF_TOPIC_HANDOVER_AFTER) {
+    /**
+     * Режим «только заявки» без номера (карточки нет): тревога «бот трижды не по теме» — тоже уведомление людям до
+     * заявки (решение владельца 13.11.2026, пятое ревью №5). Бот не снимается с диалога (иначе молчал бы и на
+     * следующее сообщение по делу, а позвать человека нельзя), счётчик растёт как при обычной отсечке.
+     */
+    const offTopicQuiet = !conversation.clientId && (await leadOnlyQuietBeforeLead(channel));
+    if (hitCount >= OFF_TOPIC_HANDOVER_AFTER && !offTopicQuiet) {
       await prisma.botConversation
         .update({
           where: { id: conversation.id },
@@ -3341,6 +3348,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     leadOnlyPropertyId = leadOnlyPropertyId ?? turnDraft.requestedPropertyId ?? leadOnlyPending?.propertyId ?? (await propertyChatLeadPropertyId(conversation.id)) ??
       (await conversationAdPropertyId(conversation.id)) ?? null;
     return planLegacyLeadOnlyTurn({ config: leadOnlyConfig, channel, subscriberId, linked: !!conversation.clientId,
+      cardAgent: conversation.clientId ? await leadOnlyCardAgentActive(conversation.clientId).catch(() => true) : false,
       text: merged, history, draft: turnDraft, propertyId: leadOnlyPropertyId, propertyInMessage: leadOnlyPropertyFresh, language: leadOnlyLanguage,
       jobTopic: vacancyTopic, pending: leadOnlyPending, ...(forced ? { forced } : {}) });
   };
@@ -3376,6 +3384,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         await alarmLeadOnlyIntake({ conversationId: conversation.id, propertyId: plan.propertyId, reason: "no_agent" })
           .catch((err) => console.error("[messenger] тревога о заявке:", err));
       }
+    } else if (plan.notePhone && conversation.clientId) {
+      // Клиент с карточкой прислал другой номер: пометка «просит звонить на …», как в ядре (пятое ревью 13.11, №5). Без пуша.
+      await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: plan.notePhone,
+        note: `Клиент прислал номер: «${merged.replace(/\s+/g, " ").slice(0, 200)}»` })
+        .catch((err) => console.error("[messenger] режим «только заявки» → новый номер:", err));
     } else if (plan.scenario === "callback" || plan.scenario === "no_call") {
       // Клиент с карточкой назвал время звонка или просит не звонить: пометка в карточке. Пуш агенту не нужен — обычное
       // уведомление о сообщении клиента уже ушло (lib/clientMessageAlert.ts).
@@ -3815,8 +3828,13 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
           channel,
           topic: callbackTopic,
         }));
+      // Режим «только заявки» без номера (карточки нет): до заявки людей не зовём (решение владельца 13.11.2026,
+      // пятое ревью №1). Ответ режима — просьба номера или номер офиса; тема остаётся в черновике будущей заявки.
+      const quietBeforeLead = !conversation.clientId && leadOnlyChannel;
       if (!routedToAgent) {
         mergedDraft.callbackTopic = callbackTopic;
+      }
+      if (!routedToAgent && !quietBeforeLead) {
         // Прямая просьба о живом человеке не теряется и без плашки: один пуш
         // агенту клиента или дежурному (владелец 24.09.2026, lib/callbackRequests.ts).
         void notifyHumanAsk({

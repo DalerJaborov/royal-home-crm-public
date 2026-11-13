@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4026,
+  "forks": 4032,
   "mounts": 83,
   "cron": 130,
   "jobs": 33,
@@ -123020,16 +123020,53 @@
          ]
         },
         {
-         "k": "do",
-         "t": "const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
+         "k": "if",
+         "t": "sealed.phone",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });",
+           "a": [
+            "зовёт noteLeadOnlyNewPhone()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "phoneNote === \"noted\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"noted\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "phoneNote === \"no_card\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"skipped\", reason: \"card_missing\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
         },
         {
          "k": "if",
-         "t": "!summary",
+         "t": "intake.scenario !== \"callback\" && intake.scenario !== \"no_call\"",
          "a": [],
          "c": [
           {
@@ -123044,7 +123081,7 @@
         },
         {
          "k": "do",
-         "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: \"noted\" } : { statu…",
+         "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: \"noted\" } : {…",
          "a": [
           "зовёт noteLeadOnlyOnCard()"
          ],
@@ -123262,16 +123299,53 @@
              ]
             },
             {
-             "k": "do",
-             "t": "const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …",
-             "a": [
-              "читает в базе: client"
-             ],
-             "c": []
+             "k": "if",
+             "t": "sealed.phone",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });",
+               "a": [
+                "зовёт noteLeadOnlyNewPhone()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "phoneNote === \"noted\"",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "return { status: \"noted\" };",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "phoneNote === \"no_card\"",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "return { status: \"skipped\", reason: \"card_missing\" };",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
             },
             {
              "k": "if",
-             "t": "!summary",
+             "t": "intake.scenario !== \"callback\" && intake.scenario !== \"no_call\"",
              "a": [],
              "c": [
               {
@@ -123286,7 +123360,7 @@
             },
             {
              "k": "do",
-             "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: \"noted\" } : { statu…",
+             "t": "return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: \"noted\" } : {…",
              "a": [
               "зовёт noteLeadOnlyOnCard()"
              ],

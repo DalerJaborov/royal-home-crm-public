@@ -58,7 +58,7 @@ import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
 import { enqueueCustomerLeadOnlyIntakeTx, planCustomerLeadOnlyTurn, readCustomerLeadOnlySentTexts,
   type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
 import { leadOnlyAppliesTo, leadOnlyFilterReply } from "../ai/leadOnlyMode.js";
-import { applyLeadOnlyPending } from "./leadOnlyPending.js";
+import { applyLeadOnlyPendingIsolatedTx } from "./leadOnlyPending.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -262,14 +262,20 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const leadOnlySent = leadOnly.enabled && lane.ticket.conversationId ? await readCustomerLeadOnlySentTexts({
       conversationId: lane.ticket.conversationId, endpointScopeId: planningPrincipal.scope.endpointScopeId, before: new Date(claim.pin.receivedAt) }) : [];
     const planLeadOnly = async (plan: CustomerLeadOnlyTurnPlan): Promise<CustomerDmAgentTurnResult> => {
+      let pendingError: unknown = null;
       const partIds = await prisma.$transaction(async tx => {
         const ids = await createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
           parts: [{ payload: { kind: "text" as const, text: plan.text } }] });
         if (plan.intake) await enqueueCustomerLeadOnlyIntakeTx(tx, plan.intake);
-        // О чём попросили номер — в той же транзакции, что и сама просьба (lib/leadOnlyPending.ts).
-        await applyLeadOnlyPending(tx, lane.ticket.conversationId, plan);
+        // О чём попросили номер — в той же транзакции, что и сама просьба (lib/leadOnlyPending.ts), но за точкой сохранения:
+        // сбой памяти не откатывает ответ клиенту (пятое ревью 13.11, №5; так же в старом пути).
+        pendingError = await applyLeadOnlyPendingIsolatedTx(tx, lane.ticket.conversationId, plan);
         return ids;
       });
+      if (pendingError) {
+        void logSystemError("ai", `Режим «только заявки» (ядро): память просьбы номера не записана (диалог ${lane.ticket.conversationId}): ` +
+          `${pendingError instanceof Error ? pendingError.message : String(pendingError)}`.slice(0, 500), { dedupKey: "lead-only-pending-write" });
+      }
       return { status: "planned", partIds };
     };
     const leadOnlyTurn = (forced?: "escalate") => planCustomerLeadOnlyTurn({ config: leadOnly,
@@ -473,8 +479,13 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     // Режим «только заявки»: «передать сотруднику» — это ответ клиенту и заявка, а не молчание. В WhatsApp ответ, который
     // состоял из одной просьбы номера (её погасил номер WhatsApp), — то же самое: модель хотела передать клиента агенту.
-    if (leadOnly.enabled && (result.status === "ready" && result.decision.kind === "escalate" ||
-        leadOnlyWhatsappNumber && result.status === "held" && result.reason === "unsupported_decision_evidence")) {
+    // Только когда ответ опустел ИМЕННО из-за погашенной просьбы номера, как в старом пути (пятое ревью 13.11, №4): любой
+    // другой пустой ответ остаётся обычным held, а не заявкой. Модель всё же позвала убранное действие (передача, звонок,
+    // вопрос собственнику, показ) — тоже ответ режима, а не молчание (пятое ревью 13.11, №1).
+    const phoneAskEmptied = leadOnlyWhatsappNumber && result.status === "held" &&
+      result.reason === "unsupported_decision_evidence" && result.phoneAskSuppressed === true;
+    if (leadOnly.enabled && (result.status === "ready" && result.decision.kind === "escalate" || phoneAskEmptied ||
+        result.status === "held" && result.reason === "unavailable_tool")) {
       const plan = await leadOnlyTurn("escalate");
       if (plan) return await planLeadOnly(plan);
     }

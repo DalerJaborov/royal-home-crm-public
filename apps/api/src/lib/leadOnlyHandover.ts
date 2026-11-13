@@ -89,6 +89,36 @@ export async function noteLeadOnlyOnCard(input: { conversationId: string; summar
   return true;
 }
 
+/**
+ * У карточки есть живой агент: назначен и не отключён. Иначе («Прочие обращения», ночная раздача ещё не прошла,
+ * агент уволен) бот не говорит «передаю агенту», «скоро позвонит», «уже в курсе» (пятое ревью 13.11, №2).
+ */
+export async function leadOnlyCardAgentActive(clientId: string): Promise<boolean> {
+  const client = await prisma.client.findUnique({ where: { id: clientId },
+    select: { deletedAt: true, assignedAgent: { select: { isActive: true } } } });
+  return !!client && !client.deletedAt && client.assignedAgent?.isActive === true;
+}
+
+const phoneDigits = (value: string | null | undefined) => (value ?? "").replace(/\D/g, "").slice(-9);
+
+/**
+ * Клиент с карточкой прислал номер: если он не тот, по которому агент звонит (основной или WhatsApp), — пометка в
+ * карточке «клиент просит звонить на …». Одна дверь для ядра и старого пути (пятое ревью 13.11, №5). Запасные номера
+ * карточки не считаются «тем же»: приём номера из переписки (lib/clientPhoneCapture.ts) кладёт новый номер в запасные
+ * ещё до этой проверки, и агент, звонящий на основной, о просьбе не узнал бы. Без пуша.
+ */
+export async function noteLeadOnlyNewPhone(input: { conversationId: string; phone: string; note: string }):
+  Promise<"noted" | "known" | "no_card"> {
+  const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId },
+    select: { client: { select: { phone: true, whatsappPhone: true, deletedAt: true } } } });
+  const card = conversation?.client && !conversation.client.deletedAt ? conversation.client : null;
+  if (!card) return "no_card";
+  const dialed = new Set([card.phone, card.whatsappPhone].map(phoneDigits).filter(Boolean));
+  if (dialed.has(phoneDigits(input.phone))) return "known";
+  return await noteLeadOnlyOnCard({ conversationId: input.conversationId,
+    summary: `${input.note}. Клиент просит звонить на ${input.phone}` }) ? "noted" : "no_card";
+}
+
 async function deliver(agentIds: string[], payload: Parameters<typeof sendPushToAgents>[1]): Promise<void> {
   try {
     if (agentIds.length === 1) await sendPushToAgent(agentIds[0], payload);

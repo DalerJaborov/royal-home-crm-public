@@ -74,6 +74,25 @@ export async function applyLeadOnlyPending(db: TxClient | typeof prisma, convers
   else if (plan.forget) await forgetLeadOnlyAsk(db, conversationId);
 }
 
+/**
+ * То же внутри транзакции ответа, но за точкой сохранения: сбой записи памяти откатывает только её, ответ бота остаётся
+ * (как в старом пути — messengers/appendMessages.ts, пятое ревью 13.11, №5). Возвращает ошибку для журнала или null.
+ * Без точки сохранения ошибка Postgres обрывает всю транзакцию, и клиент остаётся без ответа.
+ */
+export async function applyLeadOnlyPendingIsolatedTx(tx: TxClient, conversationId: string,
+  plan: { remember: LeadOnlyPending | null; forget?: boolean }): Promise<unknown> {
+  if (!plan.remember && !plan.forget) return null;
+  await tx.$executeRaw`SAVEPOINT lead_only_pending`;
+  try {
+    await applyLeadOnlyPending(tx, conversationId, plan);
+    await tx.$executeRaw`RELEASE SAVEPOINT lead_only_pending`;
+    return null;
+  } catch (err) {
+    await tx.$executeRaw`ROLLBACK TO SAVEPOINT lead_only_pending`;
+    return err ?? new Error("lead-only pending write failed");
+  }
+}
+
 export async function readLeadOnlyPending(conversationId: string, now: Date = new Date()): Promise<LeadOnlyPending | null> {
   const row = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { clientId: true, leadOnlyPending: true } })
     .catch(() => null);

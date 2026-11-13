@@ -16,10 +16,10 @@
   "paths": 749,
   "cron": 130,
   "jobs": 33,
-  "conditions": 4010,
+  "conditions": 4016,
   "untranslatedUnique": 459,
   "untranslatedTotal": 590,
-  "partialUnique": 1083,
+  "partialUnique": 1084,
   "translatedShare": 85
  },
  "untranslated": [
@@ -79750,7 +79750,28 @@
          "c": []
         },
         {
-         "t": "если нет: сводка",
+         "t": "если есть телефон",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если телефон заметка — «noted»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если телефон заметка — «no_card»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если scenario не «callback» и scenario не «no_call»",
          "k": "if",
          "a": [],
          "c": []

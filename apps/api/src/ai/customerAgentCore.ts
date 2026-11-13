@@ -79,7 +79,10 @@ export type CustomerCoreResult =
       cause?: string;
       /** Present only when a schema-validated decision was rejected by the surface guard. */
       rejectedDecisionKind?: CustomerAgentDecision["kind"];
-      skipReason?: Extract<CustomerAgentDecision, { kind: "skip" }>["reason"] };
+      skipReason?: Extract<CustomerAgentDecision, { kind: "skip" }>["reason"];
+      /** Nothing was left to render only because the decision's phone question is suppressed by an already known number.
+       * The lead-only adapter (WhatsApp number) turns exactly this case into its own reply; any other empty render stays held. */
+      phoneAskSuppressed?: true };
 
 function clone<T>(value: T): T { return structuredClone(value); }
 /** Splits the optional `say` off a raw model decision object. Anything that is not a plain object is returned untouched for the strict parse to judge. */
@@ -616,7 +619,11 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         else { say = { status: "used" }; planned = { ...d, say: verdict.text }; }
       }
       const text = renderDecision(planned);
-      if (text === null) return await confirmCommitted("unsupported_decision_evidence");
+      if (text === null) {
+        const unrendered = await confirmCommitted("unsupported_decision_evidence");
+        const phoneAskSuppressed = planned.kind !== "propose" && "question" in planned && planned.question === "phone" && frame.knownPhoneSource !== "none";
+        return unrendered.status === "held" && phoneAskSuppressed ? { ...unrendered, phoneAskSuppressed: true } : unrendered;
+      }
       // Seller guard repairs win over shape repairs; trace cause codes must not contain ":" (botTurnTrace drops them).
       const cause = sellerRepair ? sellerRepair.cause.replace(/:/g, "_") : fallbackCause;
       return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), ...(cause ? { fallbackCause: cause } : {}), say });

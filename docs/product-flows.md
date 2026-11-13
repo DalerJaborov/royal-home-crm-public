@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4026**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4032**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -27330,12 +27330,19 @@
     - если sealed.lead
       - return { status: "accepted", reason: "card_exists" };
         · дословно из кода
-    - const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …
-      · читает в базе: client
-    - если !summary
+    - если sealed.phone
+      - const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });
+        · зовёт noteLeadOnlyNewPhone()
+      - если phoneNote === "noted"
+        - return { status: "noted" };
+          · дословно из кода
+      - если phoneNote === "no_card"
+        - return { status: "skipped", reason: "card_missing" };
+          · дословно из кода
+    - если intake.scenario !== "callback" && intake.scenario !== "no_call"
       - return { status: "skipped", reason: "card_exists" };
         · дословно из кода
-    - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: "noted" } : { statu…
+    - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
       · зовёт noteLeadOnlyOnCard()
   - если !sealed.lead || !sealed.phone
     - return { status: "skipped", reason: "no_phone" };
@@ -27382,12 +27389,19 @@
         - если sealed.lead
           - return { status: "accepted", reason: "card_exists" };
             · дословно из кода
-        - const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …
-          · читает в базе: client
-        - если !summary
+        - если sealed.phone
+          - const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });
+            · зовёт noteLeadOnlyNewPhone()
+          - если phoneNote === "noted"
+            - return { status: "noted" };
+              · дословно из кода
+          - если phoneNote === "no_card"
+            - return { status: "skipped", reason: "card_missing" };
+              · дословно из кода
+        - если intake.scenario !== "callback" && intake.scenario !== "no_call"
           - return { status: "skipped", reason: "card_exists" };
             · дословно из кода
-        - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: "noted" } : { statu…
+        - return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : {…
           · зовёт noteLeadOnlyOnCard()
       - если !sealed.lead || !sealed.phone
         - return { status: "skipped", reason: "no_phone" };

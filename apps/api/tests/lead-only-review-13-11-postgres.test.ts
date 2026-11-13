@@ -126,7 +126,7 @@ describe("до номера — ни одного уведомления; сбо
     const since = new Date();
     const id = await conversation("INSTAGRAM", `review-hot-first-${runId}`);
     const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Хотим посмотреть", focusPropertyId: propertyId, focusFromThisMessage: true }));
-    expect(plan?.text).toMatch(/^Хорошо, покажем объект №\d+\. Оставьте, пожалуйста, номер телефона, агент перезвонит\.$/u);
+    expect(plan?.text).toMatch(/^Показ объекта №\d+ назначает агент\. Оставьте, пожалуйста, номер телефона, агент перезвонит\.$/u);
     expect(plan?.intake).toBeNull();
     expect(plan?.remember).toMatchObject({ scenario: "hot", propertyId });
     expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);

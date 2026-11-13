@@ -63,6 +63,8 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP") {
   const eventKey = stored.tickets[0].eventKey; events.push(eventKey);
   const io: string[] = [], bodies: Array<{ tools?: Array<{ functionDeclarations?: Array<{ name: string }> }> }> = [];
   let replies: unknown[][] = [[{ text: JSON.stringify({ kind: "reply", refs: [], social: "greet", question: "budget" }) }]], generated = 0;
+  // Пятое ревью: действие посреди хода (например, режим включили, пока модель думала) — перед ответом модели номер N.
+  let beforeGenerate: ((round: number) => Promise<void>) | null = null;
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(url));
     // Ядро читает ник отправителя Instagram (защита от собственного аккаунта).
@@ -78,6 +80,7 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP") {
         return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ text: "{}" }] }, finishReason: "STOP" }] }));
       }
       io.push("generate"); bodies.push(JSON.parse(String(init.body)));
+      if (beforeGenerate) await beforeGenerate(generated);
       const parts = replies[generated++];
       if (!parts) throw new Error("Unexpected extra model round");
       return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts }, finishReason: "STOP" }],
@@ -86,6 +89,7 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP") {
     throw new Error("Unqualified synthetic endpoint");
   }));
   return { eventKey, peer, endpoint, io, bodies, setReplies(value: unknown[][]) { replies = value; generated = 0; },
+    onGenerate(hook: (round: number) => Promise<void>) { beforeGenerate = hook; },
     /** Следующее подписанное сообщение того же собеседника (только Instagram). */
     async receive(nextText: string): Promise<string> {
       const nextBody = { object: "instagram", entry: [{ id: externalId, messaging: [{ sender: { id: peer }, recipient: { id: externalId },
@@ -114,7 +118,7 @@ beforeAll(async () => {
   settingsBefore = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botEnabled: true, metaEnabled: true,
     botInstagramEnabled: true, botWhatsappEnabled: true, geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
     botLeadOnlyMode: true, botUseWhatsappNumber: true, botMaxPhoneAsks: true, botHotIntentHandover: true,
-    workHoursStart: true, workHoursEnd: true } });
+    workHoursStart: true, workHoursEnd: true, botCanRequestCallback: true, botCanAskOwner: true, botCanBookShowings: true } });
   policyBefore = await prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" } });
   const [row] = await prisma.$queryRaw<Array<{ rolloutConfig: unknown }>>`SELECT "rolloutConfig" FROM "CustomerRuntimePolicy" WHERE "id"='singleton'`;
   savedRollout = row.rolloutConfig;
@@ -340,5 +344,91 @@ describe("второе ревью, ядро", () => {
     const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } });
     expect(job.payload).toMatchObject({ scenario: "escalate" });
     expect(JSON.parse(decryptSecret((job.payload as { sealed: string }).sealed))).toMatchObject({ lead: true });
+  });
+});
+
+// ── Пятое ревью 13.11.2026 (сквозные ходы ядра) ──
+describe("пятое ревью, ядро", () => {
+  const conversationOf = async (eventKey: string) => (await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey },
+    select: { conversationId: true } })).conversationId!;
+  const declared = (f: { bodies: Array<{ tools?: Array<{ functionDeclarations?: Array<{ name: string }> }> }> }) =>
+    f.bodies.flatMap(body => body.tools?.flatMap(tool => tool.functionDeclarations?.map(d => d.name) ?? []) ?? []);
+  const handovers = async (conversationId: string) => Number((await prisma.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n
+    FROM "CustomerAction" a JOIN "CustomerInquiry" i ON i."id"=a."inquiryId" WHERE i."conversationId"=${conversationId}
+    AND a."kind" IN ('handover','callback','owner_question','book_showing')`)[0].n);
+  const withheld = ["request_handover", "request_callback", "ask_owner", "book_showing"];
+  // Записи ядра включены, как могли бы быть на сайте: иначе убирать из набора нечего и тест ничего не доказывает.
+  const writesOn = () => prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: { publicRead: true,
+    contactWrite: true, callbackWrite: true, handoverWrite: true, showingWrite: true, ownerQuestionWrite: true } } });
+  const writesOff = () => prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: { publicRead: true } } });
+  beforeEach(async () => {
+    await writesOn();
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botCanRequestCallback: true, botCanAskOwner: true, botCanBookShowings: true } });
+  });
+  afterAll(async () => { await writesOff(); });
+
+  it("№1: «Соедините меня с менеджером» без номера — ответ сервера без модели: просьба номера, передачи и уведомлений нет", async () => {
+    const since = new Date();
+    const f = await coreFixture("Соедините меня с менеджером, пожалуйста", "INSTAGRAM");
+    expect(await plannedText(f.eventKey)).toBe("С этим вопросом поможет агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
+    expect(f.io).not.toContain("count");
+    const id = await conversationOf(f.eventKey);
+    expect(await handovers(id)).toBe(0);
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
+  });
+
+  it("№1 первый слой: в режиме модель не видит передачи, звонка, вопроса собственнику и показа (без режима — видит передачу)", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false } });
+    const off = await coreFixture("У меня вопрос по документам на собственность", "INSTAGRAM");
+    off.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    await runCustomerDmAgentTurn(off.eventKey);
+    expect(declared(off)).toContain("request_handover");
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: true } });
+    const on = await coreFixture("У меня вопрос по документам на собственность", "INSTAGRAM");
+    on.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    await plannedText(on.eventKey);
+    expect(declared(on).length).toBeGreaterThan(0);
+    for (const name of withheld) expect(declared(on)).not.toContain(name);
+  });
+
+  it("№1 второй слой: режим включили посреди хода, модель всё же зовёт передачу — исполнение отказывает, людей не зовём", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: false } });
+    const since = new Date();
+    const text = "Соедините меня с менеджером, пожалуйста";
+    const f = await coreFixture(text, "INSTAGRAM");
+    f.onGenerate(async round => { if (round === 0) await prisma.settings.update({ where: { id: "singleton" }, data: { botLeadOnlyMode: true } }); });
+    f.setReplies([[{ functionCall: { name: "request_handover", args: { topic: text }, id: "review5-handover" } }],
+      [{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    await runCustomerDmAgentTurn(f.eventKey);
+    expect(declared(f)).toContain("request_handover");
+    const id = await conversationOf(f.eventKey);
+    expect(await handovers(id)).toBe(0);
+    expect(await leadOnlyNotificationsSince(id, since, [ownerId])).toBe(0);
+  });
+
+  it("№4: WhatsApp — пустой ответ модели не из-за просьбы номера остаётся обычным held, заявки нет", async () => {
+    const f = await coreFixture("У меня вопрос по документам на собственность", "WHATSAPP");
+    f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none" }) }]]);
+    const result = await runCustomerDmAgentTurn(f.eventKey);
+    expect(result.status).toBe("held");
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${f.eventKey}` } })).toBe(0);
+  });
+
+  it("№5: сбой записи памяти просьбы номера не откатывает ответ клиенту (точка сохранения)", async () => {
+    const f = await coreFixture("Нужна двухкомнатная квартира", "INSTAGRAM");
+    // Диалог заводит сам ход: запись памяти ломается по собеседнику этого теста (и только по нему).
+    expect(f.peer).toMatch(/^[\w-]+$/);
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION review5_fail_pending() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW."leadOnlyPending" IS DISTINCT FROM OLD."leadOnlyPending" AND NEW."subscriberId" = '${f.peer}' THEN RAISE EXCEPTION 'synthetic pending failure'; END IF;
+      RETURN NEW; END $$`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER review5_fail_pending BEFORE UPDATE ON "BotConversation" FOR EACH ROW EXECUTE FUNCTION review5_fail_pending()`);
+    try {
+      expect(await plannedText(f.eventKey)).toContain("Оставьте, пожалуйста, номер телефона");
+      const row = await prisma.botConversation.findUniqueOrThrow({ where: { id: await conversationOf(f.eventKey) }, select: { leadOnlyPending: true } });
+      expect(row.leadOnlyPending).toBeNull();
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS review5_fail_pending ON "BotConversation"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS review5_fail_pending()`);
+    }
   });
 });

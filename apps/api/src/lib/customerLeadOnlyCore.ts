@@ -26,7 +26,7 @@ import { encryptSecret, decryptSecret } from "../crypto.js";
 import { AGENCY_FACTS } from "../ai/agencyFacts.js";
 import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyAppliesTo, leadOnlyCallbackNotedLine, leadOnlyCallbackTime, leadOnlyCallDeclined,
   leadOnlyGivenLineAvoidingRepeat, leadOnlyNoCallNotedLine, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused,
-  leadOnlyRecentCallbackTime, leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
+  leadOnlyNoAgentLine, leadOnlyRecentCallbackTime, leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
   type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
 import { customerSearchContinuation, customerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { customerRecruitmentRequested } from "../ai/customerAgentRecruitmentProtocol.js";
@@ -36,7 +36,9 @@ import { resolveWhatsAppLeadIdentity } from "./whatsappPhone.js";
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { decodeCustomerOutboxPayload } from "./customerOutboxCodec.js";
 import { leadOnlyMarketSummary, leadOnlyOtherInquiryReply, leadOnlyPropertyAsked, leadOnlyWhen } from "./leadOnlySettings.js";
-import { alarmLeadOnlyIntake, noteLeadOnlyOnCard } from "./leadOnlyHandover.js";
+import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "./leadOnlyHandover.js";
+import { customerAsksForStaff } from "./customerMutationIntent.js";
+import { contactWhenWithoutAgent } from "./handoffPromise.js";
 import { leadOnlyPendingOf, leadOnlyPendingOfRow, type LeadOnlyPending } from "./leadOnlyPending.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
@@ -151,6 +153,9 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
   const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId },
     select: { clientId: true, leadOnlyPending: true, messages: true } });
   const linked = !!conversation?.clientId;
+  // Карточка без живого агента: ни «передаю агенту», ни «позвонит», только честное «записали, свяжутся» (пятое ревью 13.11, №2).
+  const noAgent = linked && !await leadOnlyCardAgentActive(conversation!.clientId!);
+  const noAgentLine = async (sent: readonly string[]) => leadOnlyNoAgentLine(await contactWhenWithoutAgent(now), input.language, sent);
   // О чём бот попросил номер прошлым ходом (второе ревью 13.11, №1): номер одним сообщением темы не несёт.
   // У диалога с карточкой памяти нет: просить номер было не у кого (третье ревью 13.11, №2).
   const pending = leadOnlyPendingOfRow(conversation);
@@ -169,9 +174,12 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
   let scenario: LeadOnlyScenario | "escalate" | null = input.forced ?? leadOnlyScenario({ text: own, ...propertyInput });
   // Тема пришла словами ЭТОГО сообщения: память о прежней просьбе номера больше не о том (если номер больше не просим).
   const topicNow = !!scenario && !input.forced;
+  // «Соедините с человеком» (пятое ревью 13.11, №1): передачи сотруднику в режиме нет. Ответ сервера тот же, что у вопроса
+  // к сотруднику: без номера — просьба номера, потом номер офиса; с номером — заявка. Тему прежней просьбы номера не стирает.
+  if (!scenario && !input.forced && customerAsksForStaff(own)) scenario = "escalate";
   // Клиент с карточкой назвал, когда ему звонить: короткое «передам агенту» и пометка агенту, а не ответ модели невпопад.
   if (linked && scenario !== "hot" && !input.forced && !volunteered && leadOnlyCallbackTime(own)) {
-    return { text: leadOnlyCallbackNotedLine(input.language, sent), scenario: "callback", remember: null, forget: false,
+    return { text: noAgent ? await noAgentLine(sent) : leadOnlyCallbackNotedLine(input.language, sent), scenario: "callback", remember: null, forget: false,
       intake: sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId, scenario: "callback", propertyId: null },
         { phone: null, whatsappPhone: null, clientText: own.slice(0, 1500), promised: "call", lead: false, callbackWhen }) };
   }
@@ -181,7 +189,7 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
   const refused = leadOnlyCallDeclined(own, userTexts);
   // Клиент с карточкой просит не звонить: «агент ответит вам здесь», агенту — пометка «писать в чат» (четвёртое ревью, №1).
   if (linked && refusedNow && scenario !== "hot" && !input.forced && !volunteered) {
-    return { text: leadOnlyNoCallNotedLine(input.language, sent), scenario: "no_call", remember: null, forget: false,
+    return { text: noAgent ? await noAgentLine(sent) : leadOnlyNoCallNotedLine(input.language, sent), scenario: "no_call", remember: null, forget: false,
       intake: sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId, scenario: "no_call", propertyId: null },
         { phone: null, whatsappPhone: null, clientText: own.slice(0, 1500), promised: "chat", lead: false, callbackWhen: null, noCall: true }) };
   }
@@ -242,6 +250,7 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
     ? leadOnlyGivenLineAvoidingRepeat(leadOnlyWhen(input.config), input.language, sent)
     : leadOnlyReplyAvoidingRepeat({ scenario, language: input.language, phone: phoneState, when: leadOnlyWhen(input.config),
       property, market, sellerCommissionPercent: AGENCY_FACTS.commission.sellerPercent, agentInformed }, sent);
+  if (noAgent) text = await noAgentLine(sent);
   // «Прочее обращение» (другой город, услуги, земля…) агенту не назначается: обещать звонок нельзя (правило 17.09.2026).
   let otherInquiry = false;
   if (newLead) {
@@ -295,7 +304,6 @@ const SCENARIO_NOTE: Record<CustomerLeadOnlyIntake["scenario"], string> = {
   no_call: LEAD_ONLY_NO_CALL_NOTE,
 };
 const PROMISE_NOTE = { call: ", бот обещал звонок агента", chat: ", номера нет: ответьте в переписке" } as const;
-const phoneDigits = (value: string | null | undefined) => (value ?? "").replace(/\D/g, "").slice(-9);
 
 /**
  * Фоновая часть: заявка или пометка в карточке. Повтор задания безопасен: приём захватывает диалог
@@ -325,14 +333,15 @@ export async function runCustomerLeadOnlyIntake(raw: unknown, options: { force?:
     // Заявку уже завела прошлая попытка этого же задания (или параллельный приём): агента уведомил сам приём.
     if (sealed.lead) return { status: "accepted", reason: "card_exists" };
     // Карточка была до хода: клиент уже лид, агенту приходит обычное уведомление о сообщении. Режим оставляет только
-    // пометку: время звонка, «не звоните» или другой номер. Тот же номер, что уже в карточке, новым не считается.
-    const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { phone: true, extraPhones: true } }) : null;
-    const known = new Set([card?.phone, ...(card?.extraPhones ?? [])].map(phoneDigits).filter(Boolean));
-    const newNumber = !!sealed.phone && !known.has(phoneDigits(sealed.phone));
-    const summary = newNumber ? `${note}. Клиент просит звонить на ${sealed.phone}`
-      : intake.scenario === "callback" || intake.scenario === "no_call" ? note : null;
-    if (!summary) return { status: "skipped", reason: "card_exists" };
-    return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary }) ? { status: "noted" } : { status: "skipped", reason: "card_missing" };
+    // пометку: время звонка, «не звоните» или другой номер. Номер, на который агент и так звонит, новым не считается
+    // (одна дверь со старым путём — lib/leadOnlyHandover.ts, пятое ревью 13.11, №5).
+    if (sealed.phone) {
+      const phoneNote = await noteLeadOnlyNewPhone({ conversationId: conversation.id, phone: sealed.phone, note });
+      if (phoneNote === "noted") return { status: "noted" };
+      if (phoneNote === "no_card") return { status: "skipped", reason: "card_missing" };
+    }
+    if (intake.scenario !== "callback" && intake.scenario !== "no_call") return { status: "skipped", reason: "card_exists" };
+    return await noteLeadOnlyOnCard({ conversationId: conversation.id, summary: note }) ? { status: "noted" } : { status: "skipped", reason: "card_missing" };
   }
   // Номера нет — заявки нет и звать некого (решение владельца 13.11.2026). Сюда доходят только задания, поставленные
   // прежней версией до выката (тогда объект без номера звал агента объекта).

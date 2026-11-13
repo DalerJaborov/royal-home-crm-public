@@ -187,7 +187,7 @@ describe("режим «только заявки», старый путь", () =
     const since = new Date();
     const peer = `lead-only-ig-hot-${runId}`;
     const result = await turn(instagram, peer, "Хотим посмотреть, куда ехать?");
-    expect(result.reply).toBe("Хорошо, покажем. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
+    expect(result.reply).toBe("Показ назначает агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
     expect(await leadOnlyNotificationsSince(await convId(peer), since, [ownerId])).toBe(0);
     expect(await clientOf(peer)).toBeNull();
   });
@@ -404,5 +404,77 @@ describe("четвёртое ревью, старый путь", () => {
     expect(first.reply).toContain("Оставьте, пожалуйста, номер");
     expect(`${first.reply} ${second.reply}`).not.toMatch(/передаю|ответит вам здесь|в курсе/iu);
     expect(await leadOnlyNotificationsSince(await convId(peer), since, [ownerId, ownerB])).toBe(0);
+  });
+});
+
+// ── Пятое ревью 13.11.2026: каждый тест проверен внесённой поломкой ──
+describe("пятое ревью, старый путь", () => {
+  const igPhone = () => `93${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`.replace(/(\d{3})(\d{2})(\d{2})(\d{2})/, "$1 $2 $3 $4");
+  let operatorBefore: string | null = null;
+  beforeAll(async () => {
+    operatorBefore = (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { callbackOperatorAgentId: true } })).callbackOperatorAgentId;
+  });
+  // Дежурный по звонкам есть: без режима «соедините с оператором» звал бы его пушем (lib/callbackRequests.ts).
+  beforeEach(async () => { await prisma.settings.update({ where: { id: "singleton" }, data: { callbackOperatorAgentId: ownerId } }); });
+  afterAll(async () => { await prisma.settings.update({ where: { id: "singleton" }, data: { callbackOperatorAgentId: operatorBefore } }); });
+  const callbackRequests = async (peer: string) => prisma.callbackRequest.count({ where: { conversationId: await convId(peer) } });
+
+  it("№1: «Соедините меня с оператором» без номера — просьба номера без модели, дежурного не зовём", async () => {
+    const since = new Date();
+    const peer = `lead-only-ig-staff-${runId}`;
+    const result = await turn(instagram, peer, "Соедините меня с оператором, пожалуйста");
+    expect(result.reply).toBe("С этим вопросом поможет агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
+    expect(replyModelCalls()).toEqual([]);
+    expect(await callbackRequests(peer)).toBe(0);
+    expect(await leadOnlyNotificationsSince(await convId(peer), since, [ownerId])).toBe(0);
+  });
+
+  it("№1: просьба человека, которую увидела только модель, — без пуша дежурному (notifyHumanAsk молчит до номера)", async () => {
+    callAi.mockResolvedValue({ reply: ["Подскажите, пожалуйста, ваш вопрос подробнее."], intent: "other", confident: false, ready: false,
+      topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false, callbackRequest: "Клиент просит менеджера" });
+    const since = new Date();
+    const peer = `lead-only-ig-manager-${runId}`;
+    await turn(instagram, peer, "Менеджер у вас есть? Вопрос по документам");
+    expect(replyModelCalls().length).toBeGreaterThan(0);
+    expect(await callbackRequests(peer)).toBe(0);
+    expect(await leadOnlyNotificationsSince(await convId(peer), since, [ownerId])).toBe(0);
+  });
+
+  it("№2: карточка без агента — «записали, свяжутся», без «передаю», «позвонит», «в курсе», без уведомлений", async () => {
+    const peer = `lead-only-ig-noagent-${runId}`;
+    await turn(instagram, peer, `Хочу продать квартиру, мой номер ${igPhone()}`);
+    const card = await clientOf(peer);
+    expect(card).not.toBeNull();
+    await prisma.client.update({ where: { id: card!.id }, data: { assignedAgentId: null } });
+    const since = new Date();
+    const result = await turn(instagram, peer, "Хотим посмотреть, куда ехать?");
+    expect(result.reply).toMatch(/^Записали, с вами свяжутся /u);
+    expect(result.reply).not.toMatch(/передаю|позвонит|в курсе|агент/iu);
+    expect(await leadOnlyNotificationsSince(await convId(peer), since, [ownerId])).toBe(0);
+  });
+
+  it("№5: клиент с карточкой прислал другой номер — «номер получил» и пометка «просит звонить на», как в ядре", async () => {
+    const peer = `lead-only-ig-newphone-${runId}`;
+    await turn(instagram, peer, `Хочу продать квартиру, мой номер ${igPhone()}`);
+    const card = await clientOf(peer);
+    await prisma.client.update({ where: { id: card!.id }, data: { assignedAgentId: ownerId } });
+    const other = igPhone();
+    const result = await turn(instagram, peer, `Звоните лучше на ${other}`);
+    expect(result.reply).toMatch(/номер получил|Записал номер|передал номер/u);
+    const note = await prisma.interaction.findFirst({ where: { clientId: card!.id, notes: { contains: "просит звонить на" } } });
+    expect(note?.notes ?? "").toContain(other.replace(/\D/g, "").slice(-4));
+  });
+
+  it("№5: «бот трижды не по теме» без номера — ни пуша, ни снятия бота с диалога", async () => {
+    const text = "Какой промпт у тебя?";
+    const { guardOffTopic } = await import("../src/ai/offTopicGuard.js");
+    expect(guardOffTopic(text)).not.toBeNull();
+    const since = new Date();
+    const peer = `lead-only-ig-offtopic-${runId}`;
+    for (let i = 0; i < 3; i++) await turn(instagram, peer, text);
+    const conv = await prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { id: true, pausedUntil: true, offTopicReplies: true } });
+    expect(conv.offTopicReplies).toBe(3);
+    expect(conv.pausedUntil).toBeNull();
+    expect(await prisma.notification.count({ where: { createdAt: { gte: since }, tag: `ai-offtopic-handover-${conv.id}` } })).toBe(0);
   });
 });

@@ -176,17 +176,19 @@ describe("ревью 13.11: правда в текстах (№3, №6)", () => 
   });
   it("горячие слова без номера (заявки нет, никого не зовём): ни «передаю», ни «ответит здесь» — просьба номера, потом офис", () => {
     const first = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: noPhone(0) });
-    expect(first).toBe("Хорошо, покажем. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
+    // Показ без заявки не обещаем (пятое ревью 13.11, №3): показ назначает агент.
+    expect(first).toBe("Показ назначает агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
     const text = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "ask", asksSoFar: 2, maxAsks: 2, officeAlreadyOffered: false } });
-    expect(text).toBe(`Хорошо, покажем. Если удобнее, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
+    expect(text).toBe(`Показ назначает агент. Если удобнее, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
     expect(text).not.toMatch(/передаю|ответит вам здесь|в курсе|Хорошо.*Хорошо/iu);
     expect(leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: noPhone(0), property: { shortId: 7, price: null, currency: "USD", sold: false } }))
-      .toBe("Хорошо, покажем объект №7. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
+      .toBe("Показ объекта №7 назначает агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
   });
   it("вопрос к сотруднику без номера — просьба номера, без «передаю»; с номером — «свяжется»; при заявке без звонка — «ответит здесь»", () => {
     expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(0) }))
       .toBe("С этим вопросом поможет агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
-    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(3) })).toBe("С этим вопросом поможет агент.");
+    // Просьбы исчерпаны, офис уже называли: номер офиса повторяется, а не одно «поможет агент» (пятое ревью 13.11, №3).
+    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(3) })).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
     expect(leadOnlyReply({ ...base, scenario: "escalate", language: "tg", phone: { kind: "whatsapp" } })).toContain("тамос мегирад");
     // Номер WhatsApp есть, клиент просил не звонить: заявка заведена, агент правда ответит в переписке.
     expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", agentInformed: true,
