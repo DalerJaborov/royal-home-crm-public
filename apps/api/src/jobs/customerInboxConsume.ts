@@ -17,6 +17,6 @@ export const customerInboxConsumeJob: JobHandler<z.infer<typeof schema>> = {
     });
     // The customer is still unanswered: say so to a person, not only to the journal.
     const { reportUnansweredCustomerTurn } = await import("../lib/customerTurnSilence.js");
-    await reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up");
+    void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up");
   },
 };

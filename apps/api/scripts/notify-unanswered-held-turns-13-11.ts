@@ -17,14 +17,15 @@ import { prisma } from "../src/db.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE, reportUnansweredCustomerTurn } from "../src/lib/customerTurnSilence.js";
 
 const apply = process.argv.includes("--apply");
-const hours = Number(process.argv.find(arg => arg.startsWith("--hours="))?.split("=")[1] ?? 24);
+const hours = Math.trunc(Number(process.argv.find(arg => arg.startsWith("--hours="))?.split("=")[1] ?? 24));
+if (!Number.isFinite(hours) || hours < 1 || hours > 168) { console.error("--hours: целое число от 1 до 168"); process.exit(1); }
 
 async function main() {
   const rows = await prisma.$queryRaw<Array<{ eventKey: string; errorCode: string; receivedAt: Date; conversationId: string | null }>>`
     SELECT DISTINCT ON (t."conversationId") t."eventKey", t."errorCode", t."receivedAt", t."conversationId"
     FROM "CustomerPropertyIngressTicket" t
     WHERE t."processingState"='HELD' AND t."tombstonedAt" IS NULL AND t."intakeAgentRevisionId" IS NOT NULL AND t."conversationId" IS NOT NULL
-      AND t."receivedAt" > now() - make_interval(hours => ${hours})
+      AND t."receivedAt" > now() - make_interval(hours => ${hours}::int)
       AND t."errorCode" IS NOT NULL AND t."errorCode" NOT IN (${prismaList(CUSTOMER_TURN_INTENDED_SILENCE)})
       AND NOT EXISTS (SELECT 1 FROM "CustomerPropertyIngressTicket" x WHERE x."scopeKey"=t."scopeKey" AND x."endpointScopeId"=t."endpointScopeId"
         AND x."order">t."order" AND x."processingState" IN ('PLANNED','RECEIVED','CLAIMED'))

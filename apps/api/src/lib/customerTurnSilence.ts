@@ -30,6 +30,8 @@ export const CUSTOMER_TURN_INTENDED_SILENCE: readonly string[] = [
   "attachment_question_repeat_no_reply", // the same attachment question is never asked twice
   NEWER_INPUT_PENDING, NEWER_INPUT_RESUMED, // put aside for a newer input, which carries its words
   "already_planned", // not a failure: the answer exists
+  "staff_sender", "outgoing_mid", // our own staff or our own message coming back: the customer said nothing
+  "turn_already_owned", // another worker is running this very turn
 ];
 
 export function customerTurnSilenceIsIntended(reason: string): boolean {
@@ -43,10 +45,19 @@ export async function reportUnansweredCustomerTurn(eventKey: string, reason: str
     const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: string | null; excerpt: string | null;
       answered: boolean }>>`
       SELECT t."conversationId", c."channel", c."subscriberId" AS "peer",
-        (SELECT left(m.elem ->> 'content', 160) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages")='array' THEN c."messages" ELSE '[]'::jsonb END)
+        (SELECT left(CASE WHEN jsonb_typeof(m.elem -> 'content')='string' THEN m.elem ->> 'content' ELSE '' END, 160)
+          FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages")='array' THEN c."messages" ELSE '[]'::jsonb END)
           WITH ORDINALITY AS m(elem, ord) WHERE m.elem ->> 'role'='user' ORDER BY m.ord DESC LIMIT 1) AS "excerpt",
+        -- "answered" = nobody needs to be alarmed: an answer exists or is coming, the ticket is not HELD any more or a worker holds it,
+        -- or a person already runs this chat (pause, opt-out, own agent, the last message is not the customer's).
         (EXISTS (SELECT 1 FROM "CustomerOutboxPart" p WHERE p."ticketEventKey"=t."eventKey") OR EXISTS (SELECT 1 FROM "CustomerPropertyIngressTicket" x
-          WHERE x."scopeKey"=t."scopeKey" AND x."endpointScopeId"=t."endpointScopeId" AND x."order">t."order" AND x."processingState" IN ('PLANNED','RECEIVED','CLAIMED'))) AS "answered"
+          WHERE x."scopeKey"=t."scopeKey" AND x."endpointScopeId"=t."endpointScopeId" AND x."order">t."order" AND x."processingState" IN ('PLANNED','RECEIVED','CLAIMED'))
+          OR t."processingState" IS DISTINCT FROM 'HELD' OR (t."leaseOwner" IS NOT NULL AND t."leaseUntil" > now())
+          OR (c."id" IS NOT NULL AND (
+            (c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()) OR c."optedOutAt" IS NOT NULL OR c."propertyChatAgentId" IS NOT NULL
+            OR (c."messages" -> -1 ->> 'role') IS DISTINCT FROM 'user'
+            OR EXISTS (SELECT 1 FROM "Client" cl JOIN "Agent" ag ON ag."id"=cl."assignedAgentId"
+              WHERE cl."id"=c."clientId" AND ag."isActive" AND cl."status" NOT IN ('LOST','ARCHIVED') AND cl."workStatus" <> 'INACTIVE')))) AS "answered"
       FROM "CustomerPropertyIngressTicket" t LEFT JOIN "BotConversation" c ON c."id"=t."conversationId"
       WHERE t."eventKey"=${eventKey} AND t."tombstonedAt" IS NULL`;
     if (!row || row.answered) return; // gone, or the customer already got an answer to this or a newer input

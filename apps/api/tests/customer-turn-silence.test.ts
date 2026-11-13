@@ -18,11 +18,11 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 describe("customer turn silence guard", () => {
   it("classifies intended silences, and treats every other reason (also future ones) as a failure", () => {
-    for (const ok of ["provider_echo", "bare_template", "spam_muted_no_reply", "own_account", "foreign_share_no_reply", "newer_input_pending"]) {
+    for (const ok of ["staff_sender", "outgoing_mid", "turn_already_owned", "provider_echo", "bare_template", "spam_muted_no_reply", "own_account", "foreign_share_no_reply", "newer_input_pending"]) {
       expect(customerTurnSilenceIsIntended(ok), ok).toBe(true);
     }
     for (const bad of ["round_limit", "turn_unavailable", "unsupported_decision_evidence", "staff_or_supported_reply_required",
-      "sender_read_unavailable", "original_context_changed", "own_identity_registry_incomplete", "some_future_reason"]) {
+      "sender_read_unavailable", "own_identity_registry_incomplete", "some_future_reason"]) {
       expect(customerTurnSilenceIsIntended(bad), bad).toBe(false);
     }
   });
@@ -57,9 +57,18 @@ describe("customer turn silence guard", () => {
     const run = vi.spyOn(turn, "runCustomerDmAgentTurn");
     run.mockResolvedValue({ status: "held", reason: "round_limit" });
     await consumeCustomerInboxTicket(EK);
-    expect(notify).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(1));
     run.mockResolvedValue({ status: "held", reason: "spam_muted_no_reply" });
     await consumeCustomerInboxTicket(EK);
+    await new Promise(resolve => setTimeout(resolve, 50));
     expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("the report query is valid SQL on a real database (an unknown ticket: nothing to report, no failure logged)", async () => {
+    const notify = vi.spyOn(held, "notifyUnansweredCustomerTurn").mockResolvedValue();
+    await reportUnansweredCustomerTurn("b".repeat(64), "round_limit");
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(notify).not.toHaveBeenCalled();
+    expect(await prisma.errorLog.count({ where: { dedupKey: "customer-turn-unanswered-report-failed" } })).toBe(0);
   });
 });

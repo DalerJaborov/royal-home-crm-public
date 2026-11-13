@@ -193,13 +193,18 @@ export async function consumeCustomerInboxTicket(eventKey: string): Promise<
         AND "processingState" IN ('RECEIVED','HELD') AND "leaseOwner" IS NULL`;
       // This input ended WITHOUT an answer. An older one it had put aside
       // (`newer_input_pending`) must not be left unanswered with it (F12).
+      let rearmed: string | null = null;
       if (result.reason !== NEWER_INPUT_PENDING) {
         const { resumeDeferredCustomerInbox } = await import("./customerDeferredInput.js");
-        await resumeDeferredCustomerInbox(eventKey);
+        rearmed = await resumeDeferredCustomerInbox(eventKey);
       }
       // Silence without a stated reason is an incident: unless it is an intended silence, a person gets the text and a push.
-      const { reportUnansweredCustomerTurn } = await import("./customerTurnSilence.js");
-      await reportUnansweredCustomerTurn(eventKey, result.reason);
+      // A re-armed run answers (or ends HELD and is reported itself) in a moment: no alarm now. Not awaited: a push must
+      // never hold the single slot of the inbox queue.
+      if (!rearmed) {
+        const { reportUnansweredCustomerTurn } = await import("./customerTurnSilence.js");
+        void reportUnansweredCustomerTurn(eventKey, result.reason);
+      }
     }
     return result;
   }

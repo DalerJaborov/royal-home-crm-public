@@ -139,7 +139,7 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
 /** One push "answer by hand" to the responsible agent (or everyone who reads all chats), at most once per chat and window.
  * Shared by the routing hold and the unanswered-turn guard. Throws only on a database failure (callers log it). */
 async function pushManualReply(args: { conversationId: string; channel: string; excerpt: string; why: string; tag: string;
-  windowMs: number; claimChannel: string }): Promise<void> {
+  windowMs: number; claimChannel: string; alarm?: boolean }): Promise<void> {
   const { conversationId, windowMs } = args;
   const recent = await prisma.notification.findFirst({ where: { tag: args.tag, createdAt: { gte: new Date(Date.now() - windowMs) } },
     select: { id: true } });
@@ -159,7 +159,9 @@ async function pushManualReply(args: { conversationId: string; channel: string; 
     VALUES (${randomUUID()},${args.claimChannel},${`${conversationId}:${Math.floor(Date.now() / windowMs)}`},now())
     ON CONFLICT ("channel","messageId") DO NOTHING`;
   if (claimed !== 1) return;
-  await sendPushToAgents(recipients, { kind: "message", title: `Ответьте вручную: ${name}`,
+  // The routing hold keeps its "message" kind (a person may mute it); the unanswered-turn alarm has no kind, so a muted
+  // message category never silences it (like the AI budget alarm).
+  await sendPushToAgents(recipients, { ...(args.alarm ? {} : { kind: "message" as const }), title: `Ответьте вручную: ${name}`,
     body: `«${args.excerpt}». Бот не ответит: ${args.why}.`, url: `/messages?open=${conversationId}`, tag: args.tag });
 }
 
@@ -168,14 +170,16 @@ async function pushManualReply(args: { conversationId: string; channel: string; 
  * reason. Never throws. */
 export async function notifyUnansweredCustomerTurn(hold: { reason: string; channel: string; peer: string; conversationId: string | null;
   excerpt: string }): Promise<void> {
-  const why = UNANSWERED_REASON_TEXT[hold.reason] ?? `бот не ответил (служебная причина «${hold.reason}»)`;
-  void logSystemError("meta",
-    `Бот не ответил клиенту (причина «${hold.reason}»): ${why}. Текст в чате CRM, ответственный получил уведомление; ответить нужно вручную.`,
+  const why = UNANSWERED_REASON_TEXT[hold.reason] ?? "бот не смог подготовить ответ"; // staff never see service codes
+  void logSystemError("meta", hold.conversationId
+    ? `Бот не ответил клиенту (причина «${hold.reason}»): ${why}. Текст в чате CRM, ответственный получил уведомление; ответить нужно вручную.`
+    : `Бот не ответил клиенту (причина «${hold.reason}», собеседник ${hold.peer || "неизвестен"}): текст не попал в чат CRM, уведомить некого. ` +
+      `Найдите человека в приложении и ответьте вручную.`,
     { dedupKey: `customer-turn-unanswered:${hold.reason}`, dedupWindowMs: NOTIFY_WINDOW_MS, quietPult: true });
   try {
     if (!hold.conversationId) return;
     await pushManualReply({ conversationId: hold.conversationId, channel: hold.channel, excerpt: hold.excerpt, why,
-      tag: `customer-turn-unanswered-${hold.conversationId}`, windowMs: TURN_NOTIFY_WINDOW_MS, claimChannel: "customer-turn-notify" });
+      tag: `customer-turn-unanswered-${hold.conversationId}`, windowMs: TURN_NOTIFY_WINDOW_MS, claimChannel: "customer-turn-notify", alarm: true });
   } catch (error) {
     void logSystemError("meta", `Уведомление о неотвеченном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
       { dedupKey: "customer-turn-unanswered-notify-failed", quietPult: true });
