@@ -1,6 +1,6 @@
 import { CUSTOMER_LEAD_ONLY_INTAKE_JOB, customerLeadOnlyIntakeSchema, runCustomerLeadOnlyIntake,
   type CustomerLeadOnlyIntake } from "../lib/customerLeadOnlyCore.js";
-import { notifyLeadOnlyHandover } from "../lib/leadOnlyHandover.js";
+import { alarmLeadOnlyIntake } from "../lib/leadOnlyHandover.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import type { JobHandler } from "./registry.js";
@@ -24,8 +24,9 @@ export const customerLeadOnlyIntakeJob: JobHandler<CustomerLeadOnlyIntake> = {
     } catch (err) {
       await logSystemError("background-jobs", `[alarm] Режим «только заявки»: заявка из переписки не оформлена (диалог ${payload.conversationId}): ` +
         `${describeError(err)}. Откройте переписку и заведите карточку руками.`, { dedupKey: `${CUSTOMER_LEAD_ONLY_INTAKE_JOB}:${payload.eventKey}` });
-      await notifyLeadOnlyHandover({ conversationId: payload.conversationId, propertyId: payload.propertyId, reason: "intake_failed",
-        summary: "заявка из переписки не оформилась автоматически" }).catch(() => undefined);
+      // Задание ставится только для заявки с номером или пометки в карточке: сбой — тревога, а не «кто-то интересуется».
+      await alarmLeadOnlyIntake({ conversationId: payload.conversationId, propertyId: payload.propertyId, reason: "intake_failed" })
+        .catch(() => undefined);
     }
   },
 };

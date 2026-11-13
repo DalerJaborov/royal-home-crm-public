@@ -30,6 +30,17 @@ function exactStatedDate(text: string, at: string): boolean {
  * backed proposal/confirmation adapter is installed, date-changing actions
  * accept only a single fully stated date/time from this authenticated IN.
  * Ambiguous/relative dates stay clarification, never a guessed booking. */
+/**
+ * Клиент своими словами просит сотрудника («соедините с менеджером», «оператор», «бо корманд гап задан мехоҳам») или
+ * жалуется, что ему не позвонили — тот же признак, что разрешает передачу сотруднику (request_handover ниже).
+ * Режим «только заявки» отвечает на это сам, без передачи: просьба номера или номер офиса (пятое ревью 13.11, №1).
+ */
+export function customerAsksForStaff(text: string): boolean {
+  const own = stripUntrusted(text, ["document", "video", "crm_note"]).normalize("NFKC").trim();
+  if (!own || own.length > 8000 || REPORTED_OR_NEGATED.test(own) || HANDOVER_NOT_REQUEST.test(own)) return false;
+  return HANDOVER_REQUEST.test(own) || BARE_HANDOVER.test(own) || HANDOVER_TG.test(own) || NO_CALL_COMPLAINT.test(own);
+}
+
 export function currentInputAuthorizesCustomerCommand(text: string, command: CustomerMutationCommand): boolean {
   const own = stripUntrusted(text, ["document", "video", "crm_note"]).normalize("NFKC").trim();
   // This command only appends the genuine current input to the caller's own

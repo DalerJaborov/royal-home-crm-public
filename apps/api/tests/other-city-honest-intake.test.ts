@@ -67,7 +67,7 @@ describe("isOtherCityReason — распознаёт оба источника �
 describe("otherCityAcceptedReply — честный ответ без обещания звонка", () => {
   it("русский вариант — точная формулировка владельца, без обещаний", () => {
     const text = otherCityAcceptedReply("ru");
-    expect(text).toBe("Записали, спасибо. Пока работаем только по Душанбе; если начнём работать в вашем городе — напишем.");
+    expect(text).toBe("Записали, спасибо. Пока работаем только по Душанбе; если начнём работать в вашем городе, напишем.");
     expect(text).not.toMatch(PROMISE_WORDS);
   });
 
@@ -92,7 +92,7 @@ describe("otherCityAcceptedReply — честный ответ без обеща
 describe("otherInquiryAcceptedReply — общий нейтральный ответ для ЛЮБОГО kind=OTHER", () => {
   it("русский вариант — нейтральная формулировка владельца, без обещаний", () => {
     const text = otherInquiryAcceptedReply("ru");
-    expect(text).toBe("Записали, спасибо. Если сможем помочь — напишем.");
+    expect(text).toBe("Записали, спасибо. Если сможем помочь, напишем.");
     expect(text).not.toMatch(PROMISE_WORDS);
   });
 

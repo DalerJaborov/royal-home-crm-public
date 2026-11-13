@@ -22,7 +22,8 @@ export async function readRecruitmentPositions(db: ReadDb = prisma, options: { o
 }
 /** Actual current public facts only. No application, phone, score or HR notes. */
 export async function readCustomerOpenVacancies(): Promise<CustomerAgentVacanciesObservation> {
-  const features = await loadCustomerAgentFeaturePolicy();
+  // Vacancies do not depend on the lead-only mode (recruiter keeps her path), so no channel is needed here.
+  const features = await loadCustomerAgentFeaturePolicy(null);
   const rows = features.vacancies ? await readRecruitmentPositions(prisma, { openOnly: true }) : [];
   const facts = { collecting: features.vacancies, positions: features.vacancies ? rows.filter(row => row.isOpen) : [] };
   return customerAgentVacanciesObservationSchema.parse({ kind: "open_vacancies", ...facts, sourceHash: recruitmentCatalogHash(facts) });

@@ -17,7 +17,7 @@ describe("горячие слова → агенту сразу", () => {
     "мы хотели бы её посмотреть",
     "Можно посмотреть?",
     "Куда ехать?",
-    "Скажите адрес",
+    "Скажите адрес, хотим завтра приехать",
     "Когда можно приехать?",
     "Мы реальные покупатели",
     "готовы купить",
@@ -26,13 +26,15 @@ describe("горячие слова → агенту сразу", () => {
     "Куҷо биёем?",
     "кучо биём",
     "Кай омада метавонем?",
-    "Суроғаш куҷо аст?",
+    "Суроғаш куҷо, пагоҳ биёем?",
     "Мо харидори воқеӣ ҳастем",
   ])("«%s» — горячие", text => {
     expect(leadOnlyHotIntent(text)).toBe(true);
     expect(leadOnlyScenario({ text, propertyKnown: false, config })).toBe("hot");
   });
-  it.each(["Здравствуйте", "Сколько стоит?", "Адрес вашего офиса?", "Где ваш офис находится, адрес?", "Нархаш чанд?"])(
+  // Второе ревью 13.11: голый вопрос об адресе — вопрос об объекте, «другие варианты» — просьба о подборке.
+  it.each(["Здравствуйте", "Сколько стоит?", "Адрес вашего офиса?", "Где ваш офис находится, адрес?", "Нархаш чанд?",
+    "Скажите адрес", "Какой адрес?", "Суроғаш куҷо аст?", "Можно посмотреть другие варианты?", "Можно посмотреть ещё варианты?"])(
     "«%s» — не горячие", text => expect(leadOnlyHotIntent(text)).toBe(false));
   it("рубильник горячих слов выключен — сценарий не «hot»", () => {
     expect(leadOnlyScenario({ text: "Хотим посмотреть", propertyKnown: true, config: { hotIntentHandover: false } })).toBe("property");
@@ -172,15 +174,25 @@ describe("ревью 13.11: правда в текстах (№3, №6)", () => 
     const sold = leadOnlyReply({ ...base, scenario: "property", language: "ru", phone: noPhone(3), property: { shortId: 5, price: null, currency: "USD", sold: true } });
     expect(sold).toBe("Объект №5 уже продан.");
   });
-  it("горячие слова без номера после всех просьб: «ответит здесь», а не «позвонит»", () => {
+  it("горячие слова без номера (заявки нет, никого не зовём): ни «передаю», ни «ответит здесь» — просьба номера, потом офис", () => {
+    const first = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: noPhone(0) });
+    // Показ без заявки не обещаем (пятое ревью 13.11, №3): показ назначает агент.
+    expect(first).toBe("Показ назначает агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
     const text = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "ask", asksSoFar: 2, maxAsks: 2, officeAlreadyOffered: false } });
-    expect(text).toContain("ответит вам здесь");
-    expect(text).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
-    expect(text).not.toMatch(/Хорошо.*Хорошо/u);
+    expect(text).toBe(`Показ назначает агент. Если удобнее, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`);
+    expect(text).not.toMatch(/передаю|ответит вам здесь|в курсе|Хорошо.*Хорошо/iu);
+    expect(leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: noPhone(0), property: { shortId: 7, price: null, currency: "USD", sold: false } }))
+      .toBe("Показ объекта №7 назначает агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
   });
-  it("вопрос к сотруднику без номера — «ответит здесь», с номером — «свяжется»; «номер получил» не звучит", () => {
-    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(0) })).toBe("Передаю ваш вопрос агенту, он ответит вам здесь.");
+  it("вопрос к сотруднику без номера — просьба номера, без «передаю»; с номером — «свяжется»; при заявке без звонка — «ответит здесь»", () => {
+    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(0) }))
+      .toBe("С этим вопросом поможет агент. Оставьте, пожалуйста, номер телефона, агент перезвонит.");
+    // Просьбы исчерпаны, офис уже называли: номер офиса повторяется, а не одно «поможет агент» (пятое ревью 13.11, №3).
+    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", phone: noPhone(3) })).toContain(LEAD_ONLY_OFFICE_PHONE_TEXT);
     expect(leadOnlyReply({ ...base, scenario: "escalate", language: "tg", phone: { kind: "whatsapp" } })).toContain("тамос мегирад");
+    // Номер WhatsApp есть, клиент просил не звонить: заявка заведена, агент правда ответит в переписке.
+    expect(leadOnlyReply({ ...base, scenario: "escalate", language: "ru", agentInformed: true,
+      phone: { kind: "ask", asksSoFar: 0, maxAsks: 2, officeAlreadyOffered: false, refused: true } })).toBe("Передаю ваш вопрос агенту, он ответит вам здесь.");
   });
   it("карточка есть, номер в этом ходе не давали — без «номер получил» (№6)", () => {
     const text = leadOnlyReply({ ...base, scenario: "hot", language: "ru", phone: { kind: "card" } });

@@ -10,8 +10,10 @@ export function customerAgentSayMode(env: Readonly<Record<string, string | undef
 }
 
 /** Existing feature switches restrict implemented customer capabilities; a
- * legacy switch never grants a new tool, transport, identity or staff right. */
-export async function loadCustomerAgentFeaturePolicy(channel?: string) {
+ * legacy switch never grants a new tool, transport, identity or staff right.
+ * `channel` is REQUIRED (second review 13.11.2026, №8): the lead-only mode depends on it, and an omitted channel used
+ * to mean "mode off" silently. A caller that genuinely has no messenger channel passes `null` and says why. */
+export async function loadCustomerAgentFeaturePolicy(channel: string | null) {
   const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: {
     botCanSendLinks: true, botCanSendPhotos: true, botPhotosPerOffer: true, botCanBookShowings: true, botCanHandleVacancies: true,
     botCanRequestCallback: true, botCanAskOwner: true, botLeadOnlyMode: true,

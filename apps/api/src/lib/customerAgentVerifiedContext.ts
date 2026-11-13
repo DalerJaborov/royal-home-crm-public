@@ -17,6 +17,7 @@ import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { renderCustomerAgentDecision, customerAgentFixedLines, customerAgentLineDigest, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
+import { leadOnlyServerLine } from "../ai/leadOnlyMode.js";
 import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentInput.js";
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
@@ -307,7 +308,9 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
             }
           }
           const allowed = safePublicLines(evidence, revision);
-          const text = payload.text.split("\n").map(line => line.trim()).filter(line => allowed.has(line)).join("\n");
+          // Короткие ответы режима «только заявки» собираются сервером из шаблонов (ai/leadOnlyMode.ts): без них модель
+          // следующим ходом не знала, что бот уже просил номер или назвал объект (второе ревью 13.11, №7).
+          const text = payload.text.split("\n").map(line => line.trim()).filter(line => allowed.has(line) || leadOnlyServerLine(line)).join("\n");
           if (text) candidates.push({ role: "assistant", text, observedAt: part.acceptedAt.getTime(), stableKey: `out:${part.id}` });
         } catch { /* Corrupt or non-public historical part is omitted, never a grant. */ }
       }
