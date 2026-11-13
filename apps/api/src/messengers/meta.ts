@@ -110,7 +110,11 @@ async function loadDefaultInstagramAccountToken(): Promise<string | undefined> {
     const row = await prisma.messengerAccount.findFirst({
       where: { channel: "INSTAGRAM", isDefault: true, enabled: true },
     });
-    return decryptSecretSafe(row?.token ?? null) || undefined;
+    const token = decryptSecretSafe(row?.token ?? null) || undefined;
+    // Маркер Страницы (13.11.2026) не годится для ленты, публикации и прочего,
+    // что идёт через `/me` на graph.instagram.com: такой аккаунт отвечает только
+    // через Страницу. Тогда — запасной путь из Настроек, как без аккаунтов.
+    return isFacebookLoginToken(token) ? undefined : token;
   } catch {
     // Отказ базы — не повод падать здесь: вызывающий откатится на Settings/env,
     // как и раньше.
@@ -221,8 +225,8 @@ export async function loadAccountCredentials(): Promise<MetaAccountCredentials[]
   }
 }
 
-import { GRAPH_VERSION, instagramApiUrl, instagramRequest } from "./metaGraph.js";
-export { GRAPH_VERSION, instagramApiUrl, instagramRequest } from "./metaGraph.js";
+import { GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "./metaGraph.js";
+export { GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "./metaGraph.js";
 
 const CALL_TIMEOUT_MS = 15_000;
 
@@ -1456,7 +1460,11 @@ export async function instagramTokenIdentity(
    * сообщение заново, — там срок задаётся короче (messengers/accounts.ts).
    */
   timeoutMs: number = CALL_TIMEOUT_MS
-): Promise<{ ok: true; id: string; messagingId?: string; username?: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: string; messagingId?: string; username?: string; pageId?: string } | { ok: false; error: string }> {
+  // Маркер Страницы (аккаунт подключён «Войти через Facebook», 13.11.2026):
+  // `/me` такого маркера — сама Страница, а Instagram — её поле. graph.instagram.com
+  // его не примет вовсе, поэтому спрашиваем Страницу на graph.facebook.com.
+  if (isFacebookLoginToken(token)) return pageTokenInstagramIdentity(token, timeoutMs);
   try {
     const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me?fields=id,user_id,username`), token);
     const res = await fetchWithRetry(req.url, { headers: req.headers }, timeoutMs);
@@ -1477,6 +1485,28 @@ export async function instagramTokenIdentity(
      * вызов, потому что идентификатор собеседника выдан другим аккаунтом.
      */
     return { ok: true, id: webhookId, messagingId: data.id, username: data.username };
+  } catch (err) {
+    return { ok: false, error: describeError(err) };
+  }
+}
+
+/** Чей Instagram за маркером Страницы: поле instagram_business_account самой Страницы. */
+async function pageTokenInstagramIdentity(
+  token: string,
+  timeoutMs: number
+): Promise<{ ok: true; id: string; username?: string; pageId?: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetchWithRetry(
+      `https://graph.facebook.com/${GRAPH_VERSION}/me?fields=id,instagram_business_account%7Bid,username%7D`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      timeoutMs
+    );
+    const body = await res.text();
+    if (!res.ok) return { ok: false, error: `Meta ответила ${res.status}: ${body.slice(0, 200)}` };
+    const data = JSON.parse(body) as { id?: string; instagram_business_account?: { id?: string; username?: string } };
+    const ig = data.instagram_business_account;
+    if (!ig?.id) return { ok: false, error: "К Странице этого ключа не привязан Instagram" };
+    return { ok: true, id: ig.id, username: ig.username, pageId: data.id };
   } catch (err) {
     return { ok: false, error: describeError(err) };
   }

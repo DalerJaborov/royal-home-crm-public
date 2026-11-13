@@ -876,6 +876,8 @@ const settingsUpdateSchema = z.object({
   metaAppSecret: secretField(500),
   /** Номер приложения Meta — нужен, чтобы обменять маркер рекламы на 60-дневный. */
   metaAppId: z.string().trim().max(100).optional(),
+  /** Номер конфигурации входа через Facebook (13.11.2026, lib/metaLogin.ts) — только цифры; пусто — без конфигурации. */
+  metaLoginConfigId: z.string().trim().regex(/^\d{0,30}$/, "Номер конфигурации — только цифры").optional(),
   metaVerifyToken: secretField(500),
   metaWaToken: secretField(1000),
   metaWaPhoneId: z.string().trim().max(100).optional(),
@@ -894,7 +896,9 @@ const settingsUpdateSchema = z.object({
   /** Рекламный кабинет (Marketing API): рубильник, маркер с ads_read и номер кабинета. */
   metaAdsEnabled: z.boolean().optional(),
   metaAdsToken: secretField(1000),
-  metaAdAccountId: z.string().trim().max(100).optional(),
+  // 1000, а не 100: вход через Facebook дописывает кабинеты списком (13.11.2026),
+  // и после пятого кабинета поле перестало бы сохраняться на экране.
+  metaAdAccountId: z.string().trim().max(1000).optional(),
   /** Секрет для приёма бюджетных оповещений Google Cloud (не ключ доступа — просто
    *  строка в адресе подписки Pub/Sub, поэтому не шифруется). Пустая строка —
    *  «секрет не задан», а не короткий секрет, и должна проходить как раньше.
@@ -2800,7 +2804,7 @@ settingsRouter.post(
       return res.status(400).json({ error: "Неизвестный канал" });
     }
     let externalId = body.externalId?.trim();
-    let instagramIdentity: { username: string; messagingId?: string } | undefined;
+    let instagramIdentity: { username: string; messagingId?: string; pageId?: string } | undefined;
     const title = body.title?.trim();
     if (!title) return res.status(400).json({ error: "Укажите название аккаунта" });
 
@@ -2830,7 +2834,9 @@ settingsRouter.post(
       if (!identity.username?.trim()) {
         return res.status(400).json({ error: "Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан входом через Instagram, и попробуйте снова" });
       }
-      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId };
+      // Маркер Страницы (EAA…) вместо маркера Instagram: такой аккаунт говорит
+      // только через эту Страницу — запоминаем её вместе с маркером (13.11.2026).
+      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId, pageId: identity.pageId };
     }
     // Правка одного поля (промт, «сделать основным», выключить) не обязана
     // пересылать всю запись: недостающее берём из той, что уже есть.

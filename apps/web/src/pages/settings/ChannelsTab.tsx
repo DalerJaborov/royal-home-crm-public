@@ -211,8 +211,18 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
             для тех, кто ещё не завёл аккаунты списком. */}
         <MessengerAccounts />
 
-        {/* Вечные ключи (12.11.2026): какой канал уже работает ключом компании. */}
+        {/* Вечные ключи (12.11.2026): какой канал уже работает ключом компании.
+            Сверху — «Войти через Facebook» (13.11.2026). */}
         <MetaEternalKeys />
+
+        <PlainSetting
+          title="Номер конфигурации входа (config_id)"
+          description="Необязательно. Из Meta: приложение → «Вход через Facebook для бизнеса» → «Конфигурации». Пусто — кнопка «Войти через Facebook» просит нужные разрешения списком."
+          placeholder="1234567890123456"
+          value={settings?.metaLoginConfigId ?? ""}
+          pending={updateSettings.isPending}
+          onSave={(v) => updateSettings.mutate({ metaLoginConfigId: v })}
+        />
 
         <SecretKeyEditor
           title="Маркер Instagram"

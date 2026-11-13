@@ -290,6 +290,8 @@ export interface Settings {
   metaAdAccountId: string | null;
   /** Номер приложения Meta — нужен для обмена маркера на 60-дневный. */
   metaAppId: string | null;
+  /** Номер конфигурации входа через Facebook (не секрет). */
+  metaLoginConfigId: string | null;
   metaAdsSyncedAt: string | null;
   /** Секрет в адресе push-подписки Pub/Sub для бюджетных оповещений Google Cloud.
    *  Значение наружу не отдаётся (аудит №4) — только признак «задан». */
