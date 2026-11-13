@@ -226,7 +226,8 @@ describe("genuine reads persist exact public data through actual P12 delivery", 
   it("a witness from another real account/claim cannot seal identical public facts for the current controller", async () => {
     const first = await fixture(), data = await read(first, policyCall), second = await fixture();
     const render: CustomerAgentDeliveryRender = { decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" },
-      evidence: [{ ref: "e0", value: data.observation }], language: "ru", requestedFacts: [], knownPhoneSource: "none", text: "" };
+      evidence: [{ ref: "e0", value: data.observation }], language: "ru", requestedFacts: [], knownPhoneSource: "none", text: "",
+      inputText: "Какая комиссия?" };
     render.text = renderCustomerAgentDecision({ ...render, surface: "dm", maxOutputChars: 3000, knowledgeSourceHash: manifest.knowledgeSourceHash })!;
     expect(await sealDmCustomerAgentDeliveryEvidence({ principal: second.lane.principal, claim: second.claim, render,
       serverWitnesses: [data.serverWitness] })).toEqual({ status: "held", reason: "server_read_witness_required" });

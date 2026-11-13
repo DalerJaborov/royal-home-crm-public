@@ -299,7 +299,7 @@ it("the observed cheaper-buying comment has current-post context before the firs
   const body = JSON.parse(w.modelBodies[0]) as { contents: Array<{ parts: Array<{ text?: string }> }> };
   const hint = body.contents.flatMap(value => value.parts.map(part => part.text ?? "")).find(text => text.includes('"serverPublication"'));
   expect(hint).toBeTruthy(); expect(JSON.parse(hint!)).toMatchObject({ serverPublication: { catalogCardCount: 1 } });
-  expect(w.posts[0].text).toContain("678 000"); expect(w.posts[0].text).toContain("Какой бюджет");
+  expect(w.posts[0].text).toContain("678 000"); expect(w.posts[0].text).toContain("На какую сумму");
   expect(w.posts[0].text).not.toMatch(/Какой объект|Пришлите номер|телефон|собственник соглас/iu);
 });
 it.each(["wrong_id", "external_link"] as const)("manual post %s cannot become verified CRM facts or an external request", async fault => {
@@ -357,10 +357,10 @@ it("public continuation reads only a genuine same-author ancestor with accepted 
   const stored = await prisma.instagramComment.findUniqueOrThrow({ where: { id: parent.ref.id } });
   const child = await fixture("Поясните", "INSTAGRAM", { ...parent, authorId: parent.row.authorId, parentId: stored.replyCommentId! });
   const w = wire(child, commission);
-  expect(await handle(child)).toBe("replied"); expect(w.modelBodies[0]).toContain("Какая комиссия?"); expect(w.modelBodies[0]).toContain("Комиссия для продавца");
+  expect(await handle(child)).toBe("replied"); expect(w.modelBodies[0]).toContain("Какая комиссия?"); expect(w.modelBodies[0]).toContain("Для продавца комиссия");
   const stranger = await fixture("Поясните", "INSTAGRAM", { ...parent, authorId: `${tag}-stranger`, parentId: stored.replyCommentId! });
   const otherWire = wire(stranger, commission); expect(await handle(stranger)).toBe("replied");
-  expect(otherWire.modelBodies[0]).not.toContain("Какая комиссия?"); expect(otherWire.modelBodies[0]).not.toContain("Комиссия для продавца");
+  expect(otherWire.modelBodies[0]).not.toContain("Какая комиссия?"); expect(otherWire.modelBodies[0]).not.toContain("Для продавца комиссия");
   await prisma.instagramComment.update({ where: { id: parent.ref.id }, data: { text: "Edited parent must not be memory" } });
   const edited = await fixture("Поясните", "INSTAGRAM", { ...parent, authorId: parent.row.authorId, parentId: stored.replyCommentId! });
   const editedWire = wire(edited, commission); expect(await handle(edited)).toBe("replied");

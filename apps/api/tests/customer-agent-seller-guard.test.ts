@@ -41,7 +41,7 @@ describe("seller is not answered with an unasked rental refusal or commission (3
     expect(result.decision).toMatchObject({ kind: "clarify", question: "seller_details", refs: [] });
     expect(result.fallbackReason).toBe("invalid_model_decision");
     expect(result.fallbackCause).toBe("repair_seller_policy_mismatch");
-    expect(result.text).not.toMatch(/арендой не занимаемся|Комиссия для продавца/u);
+    expect(result.text).not.toMatch(/арендой не занимаемся|Комиссия для продавца|Для продавца комиссия/u);
   });
   it("a bare topic question to a TG seller becomes the seller intake", async () => {
     const result = await run("хонаи фуруши дорам", "tg", null, { question: "topic" });

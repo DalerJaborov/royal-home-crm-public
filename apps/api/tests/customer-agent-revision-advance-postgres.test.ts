@@ -134,7 +134,7 @@ it("requires separate quality/continuity consent and retains percentage, scopes 
     expect(response.status,JSON.stringify(response.body)).toBe(200);
     expect((await readPolicy()).rolloutConfig).toMatchObject({candidateRevisionId:newId,percentBasisPoints:10000,allowed:oldRollout.allowed});
     const audit=await prisma.auditLog.findFirstOrThrow({where:{agentId:actorId,action:"CUSTOMER_AGENT_PUBLISH"},orderBy:{createdAt:"desc"}});
-    expect(audit.meta).toMatchObject({authority:"step_up",qualityContinuityUpgradeVersion:"v2",recruitmentResumeUpgradeVersion:null,percentBasisPoints:10000});
+    expect(audit.meta).toMatchObject({authority:"step_up",qualityContinuityUpgradeVersion:"v3",recruitmentResumeUpgradeVersion:null,percentBasisPoints:10000});
   }finally{
     await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "activeAgentRevisionId"=${baseline.activeAgentRevisionId},
       "rolloutConfig"=${JSON.stringify(baseline.rolloutConfig)}::jsonb,"capabilities"=${JSON.stringify(baseline.capabilities)}::jsonb WHERE "id"='singleton'`;
