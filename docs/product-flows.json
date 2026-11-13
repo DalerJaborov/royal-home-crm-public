@@ -121536,6 +121536,14 @@
          "c": []
         }
        ]
+      },
+      {
+       "k": "do",
+       "t": "const adProperty = progress.intakeContext.propertyId ? null : adPropertyForLead({ kind: client.kind, adProper…",
+       "a": [
+        "зовёт adPropertyForLead()"
+       ],
+       "c": []
       }
      ],
      "from": "processNewCustomerLeadPolicy() — apps/api/src/services/leads/intake.ts"
@@ -122750,7 +122758,15 @@
         },
         {
          "k": "do",
-         "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+         "t": "const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …",
+         "a": [
+          "читает в базе: client"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await notifyLeadOnlyHandover(newNumber ? { conversationId: conversation.id, propertyId: intake.propertyId, re…",
          "a": [
           "зовёт notifyLeadOnlyHandover()"
          ],
@@ -122968,7 +122984,15 @@
             },
             {
              "k": "do",
-             "t": "await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…",
+             "t": "const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …",
+             "a": [
+              "читает в базе: client"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "await notifyLeadOnlyHandover(newNumber ? { conversationId: conversation.id, propertyId: intake.propertyId, re…",
              "a": [
               "зовёт notifyLeadOnlyHandover()"
              ],
@@ -123229,16 +123253,8 @@
          ],
          "c": [
           {
-           "k": "do",
-           "t": "const tag = leadOnlyHandoverTag(input.conversationId);",
-           "a": [
-            "зовёт leadOnlyHandoverTag()"
-           ],
-           "c": []
-          },
-          {
            "k": "if",
-           "t": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "t": "!urgent && !(await shouldAlert(tag, window))",
            "a": [],
            "c": [
             {
@@ -123275,8 +123291,32 @@
            ]
           },
           {
+           "k": "do",
+           "t": "const property = input.propertyId ? await prisma.property.findUnique({ where: { id: input.propertyId }, selec…",
+           "a": [
+            "читает в базе: property"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const propertyOwner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;",
+           "a": [
+            "зовёт propertyOwnerAgentId()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const cardAgent = client?.assignedAgentId ? await prisma.agent.findFirst({ where: { id: client.assignedAgentI…",
+           "a": [
+            "читает в базе: agent"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
-           "t": "client?.assignedAgentId",
+           "t": "client && cardAgent",
            "a": [],
            "c": [
             {
@@ -123301,44 +123341,36 @@
               "зовёт logTimeline()"
              ],
              "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "input.propertyId",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const property = await prisma.property.findUnique({ where: { id: input.propertyId }, select: { intakeAgentId:…",
-             "a": [
-              "читает в базе: property"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "const owner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;",
-             "a": [
-              "зовёт propertyOwnerAgentId()"
-             ],
-             "c": []
             },
             {
              "k": "if",
-             "t": "owner",
+             "t": "property && propertyOwner && propertyOwner !== cardAgent.id && await prisma.agent.count({ where: { id: proper…",
              "a": [],
              "c": [
               {
                "k": "do",
-               "t": "owners.add(owner);",
+               "t": "await deliver([propertyOwner], { kind: \"message\", level: \"OTHER\", title: `Клиент интересуется вашим объектом …",
                "a": [
                 "дословно из кода"
                ],
                "c": []
               }
              ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "propertyOwner",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "owners.add(propertyOwner);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
             }
            ]
           },

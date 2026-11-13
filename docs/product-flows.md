@@ -27008,6 +27008,8 @@
   - если bound.adExternalId
     - await prisma.client.updateMany({ where: { id: client.id, sourceAdId: null }, data: { sourceAdId: bound.adExte…
       · меняет в базе: client
+  - const adProperty = progress.intakeContext.propertyId ? null : adPropertyForLead({ kind: client.kind, adProper…
+    · зовёт adPropertyForLead()
 - когда попытки кончились
   - await logSystemError("background-jobs", "Новая заявка сохранена, но её правило назначения не завершилось; про…
     · запись в журнал ошибок
@@ -27268,7 +27270,9 @@
       - если intake.scenario === "hot"
         - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
           · зовёт notifyLeadOnlyHandover()
-    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
+    - const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …
+      · читает в базе: client
+    - await notifyLeadOnlyHandover(newNumber ? { conversationId: conversation.id, propertyId: intake.propertyId, re…
       · зовёт notifyLeadOnlyHandover()
   - если !sealed.lead || !sealed.phone
     - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
@@ -27314,7 +27318,9 @@
           - если intake.scenario === "hot"
             - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
               · зовёт notifyLeadOnlyHandover()
-        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
+        - const card = sealed.phone ? await prisma.client.findUnique({ where: { id: conversation.clientId }, select: { …
+          · читает в базе: client
+        - await notifyLeadOnlyHandover(newNumber ? { conversationId: conversation.id, propertyId: intake.propertyId, re…
           · зовёт notifyLeadOnlyHandover()
       - если !sealed.lead || !sealed.phone
         - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
@@ -27368,9 +27374,7 @@
           · пишет строку в журнал сервера
     - await notifyLeadOnlyHandover({ conversationId: payload.conversationId, propertyId: payload.propertyId, reason…
       · зовёт notifyLeadOnlyHandover()
-      - const tag = leadOnlyHandoverTag(input.conversationId);
-        · зовёт leadOnlyHandoverTag()
-      - если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))
+      - если !urgent && !(await shouldAlert(tag, window))
         - return { status: "deduped" };
           · дословно из кода
       - const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: {…
@@ -27378,20 +27382,24 @@
       - если !conversation
         - return { status: "nobody" };
           · дословно из кода
-      - если client?.assignedAgentId
+      - const property = input.propertyId ? await prisma.property.findUnique({ where: { id: input.propertyId }, selec…
+        · читает в базе: property
+      - const propertyOwner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;
+        · зовёт propertyOwnerAgentId()
+      - const cardAgent = client?.assignedAgentId ? await prisma.agent.findFirst({ where: { id: client.assignedAgentI…
+        · читает в базе: agent
+      - если client && cardAgent
         - если !client.agentAttentionRequestedAt
           - await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…
             · меняет в базе: client
         - await logTimeline({ clientId: client.id, actor: { kind: "client", source: "lead-only-handover", subjectAgentI…
           · зовёт logTimeline()
-      - если input.propertyId
-        - const property = await prisma.property.findUnique({ where: { id: input.propertyId }, select: { intakeAgentId:…
-          · читает в базе: property
-        - const owner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;
-          · зовёт propertyOwnerAgentId()
-        - если owner
-          - owners.add(owner);
+        - если property && propertyOwner && propertyOwner !== cardAgent.id && await prisma.agent.count({ where: { id: proper…
+          - await deliver([propertyOwner], { kind: "message", level: "OTHER", title: `Клиент интересуется вашим объектом …
             · дословно из кода
+      - если propertyOwner
+        - owners.add(propertyOwner);
+          · дословно из кода
       - если !owners.size
         - for (const id of await propertyInterestChatAgentIds(conversation.id)) owners.add(id);
           · зовёт propertyInterestChatAgentIds()

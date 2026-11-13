@@ -135,7 +135,7 @@
   "!text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
-  "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+  "!urgent && !(await shouldAlert(tag, window))",
   "!verifyState(state)",
   "!verifyTotpCode(agent.phone, secret, parsed.data.code)",
   "!video || video.propertyId !== req.params.id",
@@ -79801,11 +79801,11 @@
          "a": [],
          "c": [
           {
-           "t": "если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "t": "если !urgent && !(await shouldAlert(tag, window))",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "raw": "!urgent && !(await shouldAlert(tag, window))",
            "more": true
           },
           {
@@ -79816,14 +79816,14 @@
            "more": true
           },
           {
-           "t": "если есть назначен сотрудник (клиент)",
+           "t": "если есть клиент и есть карточка сотрудник",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если есть объект",
+           "t": "если есть объект владелец",
            "k": "if",
            "a": [],
            "c": [],
