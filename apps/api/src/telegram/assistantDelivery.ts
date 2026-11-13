@@ -16,6 +16,17 @@ import { GROUP_REMAKE_REASON_QUESTION } from "./assistantGroupParticipation.js";
 
 const MAX_CARD_BUTTONS = 5;
 const TEXT_LAYOUT = /\p{N}|^\s*[-•▪*]\s|\n\s*\n/mu;
+/**
+ * Абзацы беседы — это реплики, а не вёрстка (владелец, 14.11.2026): на голосовое «Салом!» модель
+ * ответила двумя абзацами приветствия, пустая строка посчиталась списком, и голоса не было.
+ * Пустая строка без цифр, пунктов и ссылок превращается в разделитель реплик `|||`; данные
+ * (цифры, пункты, ссылки) остаются текстом, как и прежде.
+ */
+const DATA_LAYOUT = /\p{N}|^\s*[-•▪*]\s|\]\(|(?:https?:\/\/|www\.)/imu;
+const CONVERSATION_PARAGRAPH = /[ \t]*\n[ \t]*\n\s*/gu;
+export function conversationParagraphsAsReplies(text: string): string {
+  return DATA_LAYOUT.test(text) ? text : text.replace(CONVERSATION_PARAGRAPH, "\n|||\n");
+}
 const CRM_CODES = new Set<string>([
   ...ASSISTANT_ACTION_STATUSES, ...CLIENT_STATUSES, ...PROPERTY_CHANGE_KINDS, ...PROPERTY_CHANGE_STATUSES,
   ...PROPERTY_CONDITIONS, ...PROPERTY_DELETE_REQUEST_REASONS, ...PROPERTY_STATUSES, ...PROPERTY_TYPES, ...VIDEO_REMAKE_REASONS,
@@ -85,17 +96,20 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
 }): Promise<boolean> {
   const maskPhones = ctx.scope === "group";
   const clarification = maskPhones ? assistantGroupClarification(text, ctx.requestLanguage) : null;
-  const plan = prepareAssistantReply(clarification ?? text, maskPhones);
+  const voiceRequested = ctx.mode === "voice" || (ctx.mode !== "text" && ctx.fromVoice === true
+    && (ctx.scope === "private" || ctx.addressedGroupVoice === true));
+  const plan = prepareAssistantReply(clarification ?? (voiceRequested ? conversationParagraphsAsReplies(text) : text), maskPhones);
   const needsWrittenDetails = Boolean(ctx.structured || plan.needsWrittenDetails || ctx.written.length || TEXT_LAYOUT.test(plan.text));
   const explicitConversation = ctx.mode === "voice" && !needsWrittenDetails && !clarification;
   const parts = splitHumanMessages(plan.text, explicitConversation ? ASSISTANT_VOICE_PART_CHARS : undefined);
   if (!parts.length) parts.push("");
-  const structured = needsWrittenDetails || plan.truncated || plan.text.length > ASSISTANT_VOICE_PART_CHARS || parts.length > 2;
+  // Длина — у каждой реплики: две короткие реплики беседы озвучиваются, одна длинная — нет.
+  const structured = needsWrittenDetails || plan.truncated || parts.length > 2
+    || parts.some(part => part.length > ASSISTANT_VOICE_PART_CHARS);
   const requestVoiceLanguage = ctx.requestLanguage === "mixed" ? undefined
     : ctx.requestLanguage === "ru" || ctx.requestLanguage === "tg" ? ctx.requestLanguage : ctx.voiceLanguage;
   const conversationLanguage = plan.language === "text-only" ? requestVoiceLanguage : plan.language;
-  let canSpeak = !clarification && !plan.ambiguousLanguage && (ctx.mode === "voice" || (ctx.mode !== "text" && ctx.fromVoice
-    && (ctx.scope === "private" || ctx.addressedGroupVoice === true) && !structured));
+  let canSpeak = !clarification && !plan.ambiguousLanguage && voiceRequested && (ctx.mode === "voice" || !structured);
   const buttonPaths = new Set<string>();
 
   for (const [i, textPart] of parts.entries()) {
