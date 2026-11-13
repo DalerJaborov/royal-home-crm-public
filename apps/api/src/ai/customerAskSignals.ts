@@ -49,7 +49,8 @@ export function withoutQuotes(text: string): string {
   return text.replace(QUOTED, " ");
 }
 
-const HUMAN_NOUN = `(?:человек${TAIL}|оператор${TAIL}|менеджер${TAIL}|агент${TAIL}|сотрудник${TAIL}|руководител${TAIL}|начальник${TAIL}|специалист${TAIL}|консультант${TAIL}|администратор${TAIL}|риелтор${TAIL}|риэлтор${TAIL}|мудир${TAIL})`;
+// Частые опечатки: «аператор», «менеджир», «минеджер», «чилавек».
+const HUMAN_NOUN = `(?:человек${TAIL}|чилавек${TAIL}|оператор${TAIL}|аператор${TAIL}|менеджер${TAIL}|менеджир${TAIL}|минеджер${TAIL}|менеджор${TAIL}|агент${TAIL}|сотрудник${TAIL}|руководител${TAIL}|начальник${TAIL}|специалист${TAIL}|консультант${TAIL}|администратор${TAIL}|риелтор${TAIL}|риэлтор${TAIL}|мудир${TAIL})`;
 const HUMAN_TARGET = `(?:(?:жив|реальн|настоящ|нормальн)${TAIL}\\s+)?${HUMAN_NOUN}`;
 
 /** «Я работаю оператором», «у меня оператор Билайн», «я менеджер по продажам». */
@@ -66,7 +67,7 @@ const ROLE_MENTION = rx([
 
 /** «Не звоните», «звонить не надо», «занг назанед», «don't call». */
 const CALL_REFUSAL = rx([
-  `${BW}не\\s+(?:надо\\s+|нужно\\s+|стоит\\s+)?(?:мне\\s+|нам\\s+|меня\\s+)?(?:больше\\s+)?(?:пере|по)?звон(?:и|ите|ить)${EW}`,
+  `${BW}не\\s+(?:надо\\s+|нужно\\s+|стоит\\s+)?(?:мне\\s+|нам\\s+|меня\\s+)?(?:больше\\s+)?(?:пере|пери|пире|по|па)?зв[оа]н(?:и|ите|ить)${EW}`,
   `${BW}(?:пере|по)?звонить\\s+(?:мне\\s+)?не\\s+(?:надо|нужно|стоит)${EW}`,
   `${BW}без\\s+звонк${TAIL}`,
   `${BW}не\\s+(?:набирайте|беспокойте|связывайтесь)${EW}`,
@@ -85,7 +86,8 @@ const HUMAN_REFUSAL = rx([
 
 /** Явная просьба о звонке. Тестируется ПОСЛЕ вырезания отрицаний и цитат. */
 const CALL_ASK = rx([
-  `${BW}(?:пере|по)?звони(?:те)?${EW}`,
+  // С опечатками: «пазвоните», «перизвоните», «пазвани».
+  `${BW}(?:пере|пери|пире|по|па)?зв[оа]ни(?:те)?${EW}`,
   `${BW}(?:можете|можно|могли\\s+бы|сможете|можешь)\\s+(?:ли\\s+)?(?:вы\\s+)?(?:мне\\s+|нам\\s+)?(?:пере|по)звонить${EW}`,
   `${BW}(?:пусть|попросите|скажите)\\s+(?:\\p{L}+\\s+){0,2}?(?:пере|по)звон${TAIL}`,
   `${BW}(?:жду|ждем|буду\\s+ждать)\\s+(?:вашего\\s+)?звонк${TAIL}`,
@@ -164,9 +166,12 @@ export function customerAskText(text: string): string {
 }
 
 /** customerAskText без отказов от звонка и от человека — для старых списков
- * слов, которые сами отрицания не различают (ai/operatorHandoff.ts). */
+ * слов, которые сами отрицания не различают (ai/operatorHandoff.ts). Вопрос о
+ * роли или вакансии («кто такой оператор?», «вам нужен менеджер?») — пустая строка. */
 export function customerAskTextWithoutRefusals(text: string): string {
-  return customerAskText(text).replace(new RegExp(HUMAN_REFUSAL.source, "giu"), " ")
+  const own = customerAskText(text);
+  if (HUMAN_NOT_REQUEST.test(own)) return "";
+  return own.replace(new RegExp(HUMAN_REFUSAL.source, "giu"), " ")
     .replace(new RegExp(CALL_REFUSAL.source, "giu"), " ").replace(/\s+/gu, " ").trim();
 }
 
@@ -191,7 +196,8 @@ export function customerAsksForHuman(text: string): boolean {
   const own = customerAskText(text);
   if (!own || HUMAN_NOT_REQUEST.test(own)) return false;
   const kept = own.replace(new RegExp(HUMAN_REFUSAL.source, "giu"), " ").trim();
-  return HUMAN_ASK.test(kept) || BARE_HUMAN.test(kept);
+  // Голое слово — только когда отказа не было: «корманд намехоҳам» без отказа стало бы «корманд».
+  return HUMAN_ASK.test(kept) || (BARE_HUMAN.test(own) && !HUMAN_REFUSAL.test(own));
 }
 
 /** Жалоба «со мной никто не связался». Обычное «позвоните мне» сюда не попадает. */
@@ -208,16 +214,17 @@ export function customerComplainsNoContact(text: string): boolean {
  */
 const CONTACT_ANCHOR = rx([
   HUMAN_NOUN,
-  `${BW}(?:пере|по|до)?звон${TAIL}`, `${BW}связ${TAIL}`, `${BW}свяж${TAIL}`,
+  // «Связь» само по себе — не о людях («связь плохая»): только «связаться», «свяжитесь», «на связь».
+  `${BW}(?:пере|по|до)?звон${TAIL}`, `${BW}связал${TAIL}`, `${BW}связать${TAIL}`, `${BW}свяж${TAIL}`, `${BW}на\\s+связь${EW}`,
   `${BW}(?:корманд|одам|занг|тамос|мутахассис)${TAIL}`,
   `${BW}(?:human|person|operator|manager|agent|zang|tamos|odam|kormand)${TAIL}`,
 ]);
 export function customerTalksAboutContact(text: string): boolean {
   const own = customerAskText(text);
-  if (!own || HUMAN_NOT_REQUEST.test(own)) return false;
-  const kept = own.replace(new RegExp(HUMAN_REFUSAL.source, "giu"), " ")
-    .replace(new RegExp(CALL_REFUSAL.source, "giu"), " ");
-  return CONTACT_ANCHOR.test(kept);
+  // Любой отказ («оператор не нужен», «корманд намехоҳам», «не звоните») снимает
+  // свободу модели: тогда передать можно только по явной просьбе выше.
+  if (!own || HUMAN_NOT_REQUEST.test(own) || HUMAN_REFUSAL.test(own) || CALL_REFUSAL.test(own)) return false;
+  return CONTACT_ANCHOR.test(own);
 }
 
 /**
