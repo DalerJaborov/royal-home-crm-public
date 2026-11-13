@@ -354,3 +354,49 @@ describe("третье ревью, старый путь", () => {
     expect(await handovers(peer, "hot")).toBe(0);
   });
 });
+
+// ── Четвёртое ревью 13.11.2026: каждый тест проверен внесённой поломкой (номер находки — в имени) ──
+describe("четвёртое ревью, старый путь", () => {
+  let ownerB: string, propertyB: string;
+  const conv = (peer: string) => prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { id: true } });
+  const sentTo = async (peer: string, reason: string) => prisma.notification.findMany({
+    where: { tag: { startsWith: `lead-only-handover-${(await conv(peer)).id}:${reason}` } }, select: { agentId: true } });
+  beforeAll(async () => {
+    ownerB = (await prisma.agent.create({ data: { fullName: `Хозяин Б4 ${runId}`, phone: `+992904${runId}`.slice(0, 16), role: "AGENT", passwordHash: "x" } })).id;
+    propertyB = (await prisma.property.create({ data: { title: `Объект Б4 ${runId}`, type: "APARTMENT", areaSqm: 70, rooms: 3, price: 600_000, currency: "TJS",
+      districtId, address: "Тестовая, 4", condition: "GOOD", status: "AVAILABLE", assignedAgentId: ownerB, publishedOnSite: true } })).id;
+    extraAgents.push(ownerB); extraProperties.push(propertyB);
+  });
+
+  it("№1: WhatsApp с карточкой — «Не звоните мне, я сейчас на работе, пишите здесь»: без обещания звонка, агенту пометка «писать в чат»", async () => {
+    const peer = digits();
+    await turn(whatsapp, peer, "Хочу продать свою квартиру");
+    const card = await clientOf(peer);
+    expect(card).not.toBeNull();
+    await prisma.client.update({ where: { id: card!.id }, data: { assignedAgentId: ownerId } });
+    const result = await turn(whatsapp, peer, "Не звоните мне, я сейчас на работе, пишите здесь");
+    expect(result.reply).toContain("ответит вам здесь");
+    expect(result.reply).not.toMatch(/агент[^.]*позвонит|удобное вам время/iu);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect((await sentTo(peer, "no_call")).map(n => n.agentId)).toEqual([ownerId]);
+    expect(await prisma.interaction.findFirst({ where: { clientId: card!.id, notes: { contains: "не звонить" } } })).not.toBeNull();
+  });
+
+  it("№1: WhatsApp без карточки — «Хочу продать квартиру. Звонить не надо, пишите потом»: звонок не обещан, в заявке «писать в чат»", async () => {
+    const peer = digits();
+    const result = await turn(whatsapp, peer, "Хочу продать квартиру. Звонить не надо, пишите потом");
+    expect(result.reply).not.toMatch(/агент[^.]*позвонит|этот номер/iu);
+    expect((await clientOf(peer))?.requirementsNotes).toContain("Просит не звонить");
+  });
+
+  it("№2: Instagram — горячее по объекту A, затем по объекту B: хозяин B тоже узнаёт", async () => {
+    const peer = `lead-only-ig-r4-hot-${runId}`;
+    await turn(instagram, peer, "Хотим посмотреть, куда ехать?", { sharedPropertyId: propertyId });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await turn(instagram, peer, "И эту тоже хотим посмотреть, куда ехать?", { sharedPropertyId: propertyB });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const agents = (await sentTo(peer, "hot")).map(n => n.agentId);
+    expect(agents).toContain(ownerId);
+    expect(agents).toContain(ownerB);
+  });
+});
