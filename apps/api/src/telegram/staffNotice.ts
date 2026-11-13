@@ -181,7 +181,7 @@ export function kindFromWords(text: string): PushKind | null {
 /** Слово, которое называет вид (одно слово, без контекста). */
 const KIND_TOKEN = /^(?:оплат|подписк|платеж|платёж|пардохт|обуна|публикац|пост|нашр|заявк|лид|дархост|переписк|паём|мизоҷ|показ|встреч|намоиш|задач|просрочк|сводк|вазифа|royal|score|балл|скор|рейтинг|контрол|разбор|потерянн|подбор|подходящ|мувофиқ|загорел|просмотр|площадк|somon|сомон|paydo|пайдо|безопасност|бехатар|неверн|код|вход|изменени|прав)\p{L}*$/iu;
 /** Слово, которое показывает на уведомления, а не на дело. */
-const FILLER_TOKEN = /^(?:мне|больше|такое|такие|такого|это|эти|этого|подобное|подобные|об|о|про|по|их|все|всё|уведомлени\p{L}*|сообщени\p{L}*|напоминани\p{L}*|ба|ман|инро|инҳоро|ин|инҳо|дигар|огоҳ\p{L}*|паёмҳо)$/iu;
+const FILLER_TOKEN = /^(?:мне|меня|больше|такое|такие|такого|это|эти|этого|подобное|подобные|об|о|про|по|насчёт|насчет|их|все|всё|уведомлени\p{L}*|сообщени\p{L}*|напоминани\p{L}*|ба|ман|маро|инро|инҳоро|ин|инҳо|дигар|огоҳ\p{L}*|паёмҳо|паёмҳоро)$/iu;
 /** Слова из подписей видов («Объект на площадках»), допустимые рядом с названием вида. */
 const LABEL_TOKEN = /^(?:объект\p{L}*|на|в|сетях|сайте)$/iu;
 const NOTIF_WORD = /уведомлени|сообщени|напоминани|огоҳ|паёмҳо/iu;
@@ -192,13 +192,22 @@ const POLITE = String.raw`(?:(?:пожалуйста|пж|илтимос)[,\s]+)
 const MUTE_RE = new RegExp(
   "^" + POLITE + String.raw`(?:больше\s+|дигар\s+)?(?:` +
     String.raw`не\s+(?:присылай(?:те)?|отправляй(?:те)?|пиши(?:те)?|шли(?:те)?|надо\s+(?:присылать|отправлять|слать|писать))` +
-    String.raw`|хватит\s+(?:присылать|слать|отправлять|писать)` +
+    String.raw`|(?:хватит|перестань(?:те)?|прекрати(?:те)?)\s+(?:присылать|слать|отправлять|писать)` +
+    String.raw`|не\s+беспокой(?:те)?` +
+    String.raw`|(?:инро\s+|инҳоро\s+)?хомӯш\s+кун(?:ед)?` +
     String.raw`|отключи(?:те)?|выключи(?:те)?` +
     String.raw`|(?:ба\s+ман\s+)?(?:инро\s+|инҳоро\s+)?нафирист(?:ед)?` +
     String.raw`)(?<rest>[^\n]*)$`,
   "iu",
 );
 const NOT_NEEDED_RE = /^(?:мне\s+)?(?:это|такое|такие|эти|подобное)\s+(?:мне\s+)?не\s+нужн\p{L}*[.!]*$|^(?:ба\s+ман\s+)?(?:ин|инҳо)\s+(?:ба\s+ман\s+)?лозим\s+нест[.!]*$/iu;
+/**
+ * «Эти уведомления мне не нужны», «оплаты мне больше не нужны», «ин паёмҳо ба ман
+ * даркор нест», «пардохтро хомӯш кун» — сказуемое В КОНЦЕ (14.11.2026). Хвост перед
+ * ним обязан состоять только из слов про уведомления (onlyNoticeWords).
+ */
+const NOT_NEEDED_TAIL_RE = /^(?<rest>.{1,80}?)\s+(?:(?:мне\s+)?(?:больше\s+)?не\s+нужн\p{L}*|(?:ба\s+ман\s+)?(?:лозим|даркор)\s+нест)[.!]*$/iu;
+const TAJIK_MUTE_TAIL_RE = /^(?<rest>.{1,80}?)\s+(?:хомӯш\s+кун(?:ед)?|нафирист(?:ед)?)[.!]*$/iu;
 const LIST_RE = /^(?:что|какие\s+(?:уведомления|сообщения))\s+(?:у\s+меня\s+)?(?:сейчас\s+)?(?:выключен\p{L}*|отключен\p{L}*)\s*\??$|^что\s+я\s+(?:выключил|отключил)\p{L}*\s*\??$|^(?:чӣ|кадом\s+огоҳиҳо)\s+(?:ба\s+ман\s+)?хомӯш(?:\s+аст)?\s*\??$/iu;
 const ENABLE_RE = new RegExp(
   "^" + POLITE + String.raw`(?<verb>` +
@@ -233,6 +242,14 @@ export function parseNoticeIntent(raw: string): NoticeIntent | null {
   if (!text || text.length > 120) return null;
   if (LIST_RE.test(text)) return { type: "list" };
   if (NOT_NEEDED_RE.test(text)) return { type: "mute", kind: null, explicit: false };
+  const tail = NOT_NEEDED_TAIL_RE.exec(text) ?? TAJIK_MUTE_TAIL_RE.exec(text);
+  if (tail) {
+    const rest = (tail.groups?.rest ?? "").replace(/сообщени\p{L}*\s+клиент\p{L}*/giu, "переписка");
+    if (THIRD_PARTY.test(rest) || !onlyNoticeWords(rest)) return null;
+    // Хвост из одних служебных слов («мне это») без вида и без слова «уведомления» — не наш.
+    if (!kindFromWords(rest) && !NOTIF_WORD.test(rest) && !/(?<!\p{L})(?:эти|это|такие|такое|ин|инҳо|инро|инҳоро)(?!\p{L})/iu.test(rest)) return null;
+    return { type: "mute", kind: kindFromWords(rest), explicit: SELF_WORD.test(text) || NOTIF_WORD.test(rest) };
+  }
   const enable = ENABLE_RE.exec(text);
   if (enable) {
     const rest = enable.groups?.rest ?? "";
@@ -254,7 +271,8 @@ export function parseNoticeIntent(raw: string): NoticeIntent | null {
     // «выключи/отключи …» — только со словом «уведомления/напоминания».
     if (/(?:отключи|выключи)/iu.test(verb) && !NOTIF_WORD.test(rest)) return null;
     const kind = kindFromWords(rest.replace(/сообщени\p{L}*\s+клиент\p{L}*/giu, "переписка"));
-    return { type: "mute", kind, explicit: SELF_WORD.test(text) || NOTIF_WORD.test(rest) };
+    // «Перестань присылать», «не беспокой» — сами про сообщения мне, слово «мне» не обязательно.
+    return { type: "mute", kind, explicit: SELF_WORD.test(text) || NOTIF_WORD.test(rest) || /перестан|прекрат|беспоко/iu.test(verb) };
   }
   return null;
 }
