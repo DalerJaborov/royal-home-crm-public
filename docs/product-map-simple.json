@@ -16,9 +16,9 @@
   "paths": 749,
   "cron": 130,
   "jobs": 33,
-  "conditions": 4015,
-  "untranslatedUnique": 460,
-  "untranslatedTotal": 591,
+  "conditions": 4014,
+  "untranslatedUnique": 459,
+  "untranslatedTotal": 590,
   "partialUnique": 1084,
   "translatedShare": 85
  },
@@ -282,7 +282,6 @@
   "dispatchLikelyInProgress(p.videoHandoffDispatchStartedAt, now)",
   "eligible(agent) !== expected",
   "err instanceof AssistantActionError",
-  "err instanceof BrandNameCoreConflictError",
   "err instanceof ClientMergeOpenDealError",
   "err instanceof ClientMergeTrashedError",
   "err instanceof ConversationClientLinkError",
@@ -55533,20 +55532,6 @@
      "k": "catch",
      "a": [],
      "c": [
-      {
-       "t": "если err instanceof BrandNameCoreConflictError",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof BrandNameCoreConflictError"
-      },
       {
        "t": "если (err as { code?: string }).code === \"P2002\"",
        "k": "if",
