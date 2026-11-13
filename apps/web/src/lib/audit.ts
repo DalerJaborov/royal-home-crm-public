@@ -38,7 +38,9 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   PUBLISH: "Публикация",
   UNPUBLISH: "Снятие с публикации",
   SYNC: "Синхронизация",
-  CONNECT_START: "Подключение кабинета",
+  CONNECT_START: "Начало подключения",
+  CONNECT_CALLBACK: "Вход через Facebook подтверждён",
+  META_LOGIN_CONNECT: "Подключение выбранного после входа через Facebook",
   DISCONNECT: "Отключение кабинета",
 
   // Сотрудники и доступ.
@@ -289,6 +291,7 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   LostConversation: "Потерянный разговор",
   MessengerAccount: "Аккаунт мессенджера",
   FacebookPageSubscription: "Подписка Страницы Facebook на сообщения",
+  MetaLogin: "Вход через Facebook",
   CoverTemplate: "Шаблон обложки",
   OwnerQuestion: "Вопрос собственника",
   BotConversation: "Разговор с ботом",
