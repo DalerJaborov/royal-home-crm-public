@@ -5,7 +5,9 @@ import type {
   MetaLoginConnectInput,
   MetaLoginConnectResult,
   MetaLoginInstagram,
+  MetaLoginKeyKind,
   MetaLoginPage,
+  MetaLoginWhatsapp,
 } from "@royal-home/shared";
 import { encryptSecret } from "../crypto.js";
 import { prisma } from "../db.js";
@@ -15,6 +17,14 @@ import { logAgentAudit } from "./audit.js";
 import { describeError } from "./describeError.js";
 import { metaGraphGet } from "./metaEternalTokens.js";
 import { connectFacebookPage, connectInstagramViaPage } from "./metaPageConnect.js";
+import {
+  connectWhatsappNumber,
+  loginKeyKind,
+  readWhatsappNumbers,
+  settingsWaPhoneId,
+  type LoginWaNumber,
+  type WabaSubscribeResult,
+} from "./metaWhatsappConnect.js";
 import { logSystemError } from "./systemError.js";
 
 /**
@@ -28,11 +38,13 @@ import { logSystemError } from "./systemError.js";
  *     (KIND_CONNECTORS ниже), а Страница и Instagram — общей дверью
  *     lib/metaPageConnect.ts, той же, что у кнопки «Подключить Messenger».
  *
- * ТОЧКА РАСШИРЕНИЯ. Новый вид (номера WhatsApp Business) = поле в схемах
+ * ТОЧКА РАСШИРЕНИЯ. Новый вид = поле в схемах
  * packages/shared/src/metaEternal.ts (metaLoginAssetsSchema,
  * metaLoginConnectInputSchema, metaLoginAssetKindSchema) + чтение в
  * readLoginAssets + своя функция в KIND_CONNECTORS + права в
  * lib/tokenScopes.ts (META_LOGIN). Существующие виды при этом не трогаются.
+ * Так добавлены номера WhatsApp Business (пачка 2, 13.11.2026): чтение и
+ * подключение — lib/metaWhatsappConnect.ts.
  */
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
@@ -60,6 +72,8 @@ interface Session {
   expiresAt: number;
   pages?: LoginPageRow[];
   adAccounts?: LoginAdAccountRow[];
+  whatsapp?: LoginWaNumber[];
+  keyKind?: MetaLoginKeyKind;
   warnings?: string[];
 }
 
@@ -145,6 +159,16 @@ async function readLoginAssets(session: Session): Promise<void> {
     // Без права ads_read Meta отказывает — это не авария, просто кабинетов не покажем.
     warnings.push(`Рекламные кабинеты не прочитаны: ${ads.error}`);
   }
+
+  // Номера WhatsApp Business. Чей ключ — спрашиваем один раз: от этого зависит
+  // предупреждение «ключ личный» (для WhatsApp оно важнее всего).
+  session.keyKind = await loginKeyKind(session.token);
+  const wa = await readWhatsappNumbers(session.token, await loadAppCredentials(), session.keyKind);
+  session.whatsapp = wa.numbers;
+  if (wa.numbers.length === 0 && wa.errors.length > 0) {
+    // Без права whatsapp_business_management Meta отказывает — не авария.
+    warnings.push(`Номера WhatsApp не прочитаны: ${wa.errors[0]}`);
+  }
   session.warnings = warnings;
 }
 
@@ -154,12 +178,13 @@ export async function metaLoginAssets(sessionId: string, agentId: string): Promi
   if (!session) return null;
   await readLoginAssets(session);
 
-  const [settings, accounts] = await Promise.all([
+  const [settings, accounts, mainWaPhone] = await Promise.all([
     prisma.settings.findUnique({ where: { id: "singleton" }, select: { metaPageId: true, metaAdAccountId: true } }),
     prisma.messengerAccount.findMany({
-      where: { channel: { in: ["FACEBOOK", "INSTAGRAM"] } },
+      where: { channel: { in: ["FACEBOOK", "INSTAGRAM", "WHATSAPP"] } },
       select: { channel: true, externalId: true, pageId: true },
     }),
+    settingsWaPhoneId(),
   ]);
   const mainPage = settings?.metaPageId?.trim() || process.env.META_PAGE_ID || null;
   const adIds = new Set(parseAdAccountIds(settings?.metaAdAccountId ?? null));
@@ -184,7 +209,11 @@ export async function metaLoginAssets(sessionId: string, agentId: string): Promi
       };
     });
   const adAccounts: MetaLoginAdAccount[] = (session.adAccounts ?? []).map((a) => ({ ...a, connected: adIds.has(a.id) }));
-  return { pages, instagram, adAccounts, warnings: session.warnings ?? [] };
+  const whatsapp: MetaLoginWhatsapp[] = (session.whatsapp ?? []).map((n) => ({
+    ...n,
+    connected: mainWaPhone === n.id ? "settings" : accounts.some((a) => a.channel === "WHATSAPP" && a.externalId === n.id) ? "account" : null,
+  }));
+  return { pages, instagram, adAccounts, whatsapp, keyKind: session.keyKind ?? "unknown", warnings: session.warnings ?? [] };
 }
 
 type ResultRow = MetaLoginConnectResult["results"][number];
@@ -193,6 +222,8 @@ interface ConnectContext {
   session: Session;
   agentId: string;
   appId: string | undefined;
+  /** Подписка аккаунта WhatsApp Business — один запрос на аккаунт за подключение. */
+  waSubscriptions: Map<string, Promise<WabaSubscribeResult>>;
 }
 
 /** Страницы → Messenger. Каждая — через общую дверь подключения Страницы. */
@@ -302,23 +333,44 @@ async function connectAdAccounts(ids: string[], ctx: ConnectContext): Promise<Re
   );
 }
 
+/** Номера WhatsApp Business → переписка в CRM. Каждый — через общую дверь lib/metaWhatsappConnect.ts. */
+async function connectWhatsapp(ids: string[], ctx: ConnectContext): Promise<ResultRow[]> {
+  const out: ResultRow[] = [];
+  for (const id of ids) {
+    const number = ctx.session.whatsapp?.find((n) => n.id === id);
+    const name = number ? [number.name, number.phone].filter(Boolean).join(" · ") || id : id;
+    const say = (ok: boolean, message: string): ResultRow => ({ kind: "whatsapp", id, name, ok, message });
+    if (!number) { out.push(say(false, "Этого номера нет среди найденных при входе")); continue; }
+    const r = await connectWhatsappNumber({
+      number,
+      token: ctx.session.token,
+      keyKind: ctx.session.keyKind ?? "unknown",
+      agentId: ctx.agentId,
+      subscriptions: ctx.waSubscriptions,
+    });
+    out.push(r.ok ? say(true, r.message) : say(false, r.error));
+  }
+  return out;
+}
+
 /**
  * ВИДЫ И ИХ ПОДКЛЮЧЕНИЕ — порядок важен: Страницы до Instagram (новому
  * Instagram достаются имя компании и промт только что подключённой Страницы).
- * Следующий вид (WhatsApp) — новой строкой здесь.
+ * Новый вид — новой строкой здесь.
  */
 const KIND_CONNECTORS: Array<{ pick: (input: MetaLoginConnectInput) => string[]; run: (ids: string[], ctx: ConnectContext) => Promise<ResultRow[]> }> = [
   { pick: (i) => i.pageIds, run: connectPages },
   { pick: (i) => i.instagramIds, run: connectInstagram },
   { pick: (i) => i.adAccountIds, run: connectAdAccounts },
+  { pick: (i) => i.whatsappIds, run: connectWhatsapp },
 ];
 
 /** Подключить выбранное. null — сессии нет (или она чужая). */
 export async function connectMetaLoginAssets(sessionId: string, agentId: string, input: MetaLoginConnectInput): Promise<MetaLoginConnectResult | null> {
   const session = sessionFor(sessionId, agentId);
   if (!session) return null;
-  if (!session.pages || !session.adAccounts) await readLoginAssets(session);
-  const ctx: ConnectContext = { session, agentId, appId: (await loadAppCredentials())?.appId };
+  if (!session.pages || !session.adAccounts || !session.whatsapp) await readLoginAssets(session);
+  const ctx: ConnectContext = { session, agentId, appId: (await loadAppCredentials())?.appId, waSubscriptions: new Map() };
   const results: ResultRow[] = [];
   for (const kind of KIND_CONNECTORS) {
     const ids = Array.from(new Set(kind.pick(input)));
@@ -328,6 +380,7 @@ export async function connectMetaLoginAssets(sessionId: string, agentId: string,
     pages: input.pageIds,
     instagram: input.instagramIds,
     adAccounts: input.adAccountIds,
+    whatsapp: input.whatsappIds,
     ok: results.filter((r) => r.ok).length,
     failed: results.filter((r) => !r.ok).length,
   });

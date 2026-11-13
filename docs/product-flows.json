@@ -82561,7 +82561,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "if (msg.channel === \"WHATSAPP\") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId) : null;…",
+                   "t": "if (msg.channel === \"WHATSAPP\") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…",
                    "a": [
                     "дословно из кода"
                    ],

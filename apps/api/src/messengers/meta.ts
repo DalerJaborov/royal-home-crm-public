@@ -1680,16 +1680,24 @@ export async function fetchMessengerName(psid: string, tokenOverride?: string): 
  * общий загрузчик вложений (messengers/attachments.ts).
  *
  * Ссылка живёт минуты, так что кэшировать её нельзя.
+ *
+ * КЛЮЧ ТОГО НОМЕРА, В КОТОРЫЙ ПРИШЛО СООБЩЕНИЕ (13.11.2026). Файл принадлежит
+ * аккаунту WhatsApp Business номера-получателя, и чужой ключ его не видит. До
+ * этого здесь всегда брался ключ из Настроек: у номера, подключённого отдельной
+ * строкой (Настройки → Каналы, вход через Facebook), фото и голосовые клиента не
+ * скачивались. `accountToken`: строка — ключ аккаунта; null — аккаунт известен,
+ * но ключа нет (выключен) — Настройки НЕ подставляем; undefined — основной номер
+ * из Настроек, как раньше.
  */
-export async function whatsAppMediaSource(mediaId: string): Promise<AttachmentSource | null> {
+export async function whatsAppMediaSource(mediaId: string, accountToken?: string | null): Promise<AttachmentSource | null> {
   try {
     // Чтение ключей — тоже внутри `try` (правка 22.09.2026, тот же класс, что у
     // showReadAndTyping ниже): функция обещает `null` на любом отказе, а отказ
     // базы на Настройках улетал наружу и ронял разбор входящего целиком.
-    const c = await loadCredentials();
-    if (!c.waToken) return null;
+    const token = accountToken === undefined ? (await loadCredentials()).waToken : accountToken;
+    if (!token) return null;
     const res = await fetchWithRetry(`https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`, {
-      headers: { Authorization: `Bearer ${c.waToken}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
       void logSystemError("meta", `Файл WhatsApp ${mediaId} не получен: Meta ответила ${res.status}`);
@@ -1697,7 +1705,7 @@ export async function whatsAppMediaSource(mediaId: string): Promise<AttachmentSo
     }
     const data = (await res.json()) as { url?: string };
     if (!data.url) return null;
-    return { url: data.url, headers: { Authorization: `Bearer ${c.waToken}` } };
+    return { url: data.url, headers: { Authorization: `Bearer ${token}` } };
   } catch (err) {
     void logSystemError("meta", `Файл WhatsApp ${mediaId} не получен: ${describeError(err)}`);
     return null;

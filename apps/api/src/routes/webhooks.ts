@@ -2117,7 +2117,10 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       const attachments: AttachmentSource[] = [];
       if (DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")) {
         if (msg.channel === "WHATSAPP") {
-          const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId) : null;
+          // Ключ номера-получателя: файл чужого аккаунта WhatsApp Business ключ
+          // Настроек не видит (см. whatsAppMediaSource). account.id = null — основной
+          // номер из Настроек.
+          const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account.id ? (account.token ?? null) : undefined) : null;
           if (source) attachments.push({ ...source, declaredKind: msg.attachmentType });
         } else if (msg.attachmentUrl) {
           // "ig_reel" — единственный тип с двойным смыслом (см. комментарий у

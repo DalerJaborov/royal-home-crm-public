@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
@@ -16,7 +18,10 @@ import request from "supertest";
  *    строки, без основной Страницы из Настроек, подписка не снимает feed;
  *  - новый Instagram с маркером Страницы говорит только через Страницу — без
  *    рубильников — и не роняет проверки, которые ходят на graph.instagram.com;
- *  - кабинеты дописываются, маркер рекламы не меняется, если вход не видит старые.
+ *  - кабинеты дописываются, маркер рекламы не меняется, если вход не видит старые;
+ *  - (пачка 2) номера WhatsApp Business: перечисление, подключение через
+ *    saveAccount без второй строки, подписка аккаунта WhatsApp, ответ и файлы
+ *    клиента — ключом и номером ЭТОГО аккаунта, предупреждение о личном ключе.
  * Meta подменена целиком (fetch), сеть не нужна.
  */
 
@@ -32,7 +37,9 @@ const { ADS_GRAPH_VERSION } = await import("../src/lib/ads/adsGraphVersion.js");
 const { GRAPH_VERSION, instagramApiUrl, instagramRequest, instagramTokenIdentity } = await import("../src/messengers/meta.js");
 const { checkInstagramAccountsHealth } = await import("../src/lib/integrationHealth.js");
 const { checkInstagramSubscriptions } = await import("../src/lib/instagramWebhookSubscription.js");
-const { resetAccountsCache } = await import("../src/messengers/accounts.js");
+const { resetAccountsCache, resolveIncomingAccount } = await import("../src/messengers/accounts.js");
+const { sendMessage, whatsAppMediaSource, resetMetaAccountCredsCache } = await import("../src/messengers/meta.js");
+const { ensureCustomerEndpoint } = await import("../src/lib/customerConversationScope.js");
 
 const run = randomUUID().slice(0, 8);
 const stamp = Date.now().toString().slice(-9);
@@ -55,7 +62,13 @@ const AD_1 = "1111111";
 const AD_2 = "2222222";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
 const ADS_GRAPH = `https://graph.facebook.com/${ADS_GRAPH_VERSION}`;
-const SECRETS = [SHORT, LONG, PT_A, PT_C, PT_MAIN, OLD_ADS, IGAA_C, `app-secret-${run}`];
+const BIZ = `55${stamp}`;
+const WABA_A = `66${stamp}1`;
+const WA_1 = `10${stamp}1`;
+const WA_2 = `10${stamp}2`;
+const MAIN_WA = `10${stamp}9`;
+const WA_SETTINGS_TOKEN = `EAAwa-settings-${run}`;
+const SECRETS = [SHORT, LONG, PT_A, PT_C, PT_MAIN, OLD_ADS, IGAA_C, `app-secret-${run}`, WA_SETTINGS_TOKEN];
 
 let adminId = "";
 let adminToken = "";
@@ -77,6 +90,8 @@ const TOUCHED = [
   "metaIgManageToken",
   "metaSystemTokenPreferred",
   "metaAppReviewApproved",
+  "metaWaPhoneId",
+  "metaWaToken",
 ] as const;
 const savedEnv: Record<string, string | undefined> = {};
 
@@ -85,6 +100,11 @@ const meta = {
   visibleAds: new Set([AD_1, AD_2]),
   subscribed: [{ id: APP_ID, subscribed_fields: ["feed"] }] as Array<{ id: string; subscribed_fields: string[] }>,
   subscribePosts: [] as string[],
+  /** Вход дал ключ компании (у /me есть client_business_id). */
+  businessKey: false,
+  wabaSubscribes: [] as string[],
+  wabaSubscribeFails: false,
+  waSends: [] as Array<{ url: string; auth: string | undefined }>,
 };
 const fetchMock = vi.fn();
 const authOf = (init?: RequestInit) => (init?.headers as Record<string, string> | undefined)?.Authorization;
@@ -150,7 +170,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.messengerAccount.deleteMany({ where: { OR: [{ id: { in: accountIds } }, { externalId: { in: [PAGE_A, PAGE_C, IG_A, IG_C] } }] } });
+  const touched = await prisma.messengerAccount.findMany({
+    where: { OR: [{ id: { in: accountIds } }, { externalId: { in: [PAGE_A, PAGE_C, IG_A, IG_C, WA_1, WA_2] } }] },
+    select: { id: true },
+  });
+  const ids = touched.map((a) => a.id);
+  if (ids.length) await prisma.$executeRawUnsafe(`DELETE FROM "CustomerEndpointScope" WHERE "messengerAccountId" = ANY($1::text[])`, ids);
+  await prisma.messengerAccount.deleteMany({ where: { id: { in: ids } } });
   if (savedSettings) await prisma.settings.update({ where: { id: "singleton" }, data: savedSettings });
   await prisma.agent.deleteMany({ where: { id: { in: agentIds } } });
   for (const [k, v] of Object.entries(savedEnv)) {
@@ -164,6 +190,10 @@ beforeEach(async () => {
   meta.visibleAds = new Set([AD_1, AD_2]);
   meta.subscribed = [{ id: APP_ID, subscribed_fields: ["feed"] }];
   meta.subscribePosts = [];
+  meta.businessKey = false;
+  meta.wabaSubscribes = [];
+  meta.wabaSubscribeFails = false;
+  meta.waSends = [];
   resetMetaLoginStates();
   resetMetaLoginSessions();
   await prisma.settings.update({
@@ -181,10 +211,14 @@ beforeEach(async () => {
       metaIgManageToken: null,
       metaSystemTokenPreferred: false,
       metaAppReviewApproved: false,
+      // Основной номер WhatsApp — в Настройках, своим ключом.
+      metaWaPhoneId: MAIN_WA,
+      metaWaToken: encryptSecret(WA_SETTINGS_TOKEN),
     },
   });
   eternal.resetMetaEternalCache();
   resetAccountsCache();
+  resetMetaAccountCredsCache();
 
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (input: string | URL, init?: RequestInit) => {
@@ -212,6 +246,42 @@ beforeEach(async () => {
     }
     if (url.startsWith(`${GRAPH}/me/adaccounts?`)) {
       return json({ data: [{ account_id: AD_1, name: "Кабинет один", account_status: 1 }, { account_id: AD_2, name: "Кабинет два", account_status: 1 }] });
+    }
+    // ── WhatsApp Business (пачка 2) ──
+    if (url.startsWith(`${GRAPH}/me?fields=id,client_business_id`) || url.startsWith(`${GRAPH}/me?fields=client_business_id`)) {
+      if (auth !== `Bearer ${LONG}`) return json({ error: { code: 190, message: "bad" } }, 400);
+      return meta.businessKey
+        ? json({ id: "bisu-1", client_business_id: BIZ })
+        : json({ error: { code: 100, message: "(#100) Tried accessing nonexisting field (client_business_id)" } }, 400);
+    }
+    if (url.startsWith(`${GRAPH}/debug_token?`)) {
+      if (auth !== `Bearer ${APP_ID}|app-secret-${run}`) return json({ error: { code: 190, message: "bad app token" } }, 400);
+      return json({ data: { is_valid: true, granular_scopes: [{ scope: "whatsapp_business_management", target_ids: [WABA_A] }, { scope: "pages_show_list" }] } });
+    }
+    if (url.startsWith(`${GRAPH}/me/businesses?`)) return json({ data: [{ id: BIZ, name: "Arvan Estate" }] });
+    if (url.startsWith(`${GRAPH}/${BIZ}/owned_whatsapp_business_accounts?`)) return json({ data: [{ id: WABA_A, name: "Arvan WhatsApp" }] });
+    if (url.startsWith(`${GRAPH}/${BIZ}/client_whatsapp_business_accounts?`)) return json({ error: { code: 200, message: "Permissions error" } }, 400);
+    if (url.startsWith(`${GRAPH}/${WABA_A}/phone_numbers?`)) {
+      if (auth !== `Bearer ${LONG}`) return json({ error: { code: 190, message: "bad" } }, 400);
+      return json({
+        data: [
+          { id: WA_1, display_phone_number: "+992 90 000 0001", verified_name: "Arvan", code_verification_status: "VERIFIED", platform_type: "CLOUD_API" },
+          { id: WA_2, display_phone_number: "+992 90 000 0002", verified_name: "Arvan 2", code_verification_status: "NOT_VERIFIED", platform_type: "NOT_APPLICABLE" },
+          { id: MAIN_WA, display_phone_number: "+992 90 000 0009", verified_name: "Royal Home", code_verification_status: "VERIFIED", platform_type: "CLOUD_API" },
+        ],
+      });
+    }
+    if (url === `${GRAPH}/${WABA_A}/subscribed_apps` && init?.method === "POST") {
+      if (auth !== `Bearer ${LONG}`) return json({ error: { code: 190, message: "bad" } }, 400);
+      meta.wabaSubscribes.push(WABA_A);
+      return meta.wabaSubscribeFails ? json({ error: { code: 200, message: "Permissions error" } }, 400) : json({ success: true });
+    }
+    if (url === `${GRAPH}/${WA_1}/messages` || url === `${GRAPH}/${MAIN_WA}/messages`) {
+      meta.waSends.push({ url, auth });
+      return json({ messaging_product: "whatsapp", messages: [{ id: `wamid.${randomUUID()}` }] });
+    }
+    if (url === `${GRAPH}/wa-media-1`) {
+      return auth === `Bearer ${LONG}` ? json({ url: "https://lookaside.fbsbx.com/whatsapp_business/x" }) : json({ error: { code: 10, message: "not yours" } }, 400);
     }
     const act = /\/act_(\d+)\?fields=id$/.exec(url);
     if (act) return meta.visibleAds.has(act[1]) && auth === `Bearer ${LONG}` ? json({ id: `act_${act[1]}` }) : json({ error: { code: 100, message: "no access" } }, 400);
@@ -511,5 +581,124 @@ describe("рекламные кабинеты", () => {
     const s = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { metaAdAccountId: true, metaAdsToken: true } });
     expect(s.metaAdAccountId).toBe("act_9999999");
     expect(decryptSecretSafe(s.metaAdsToken)).toBe(OLD_ADS);
+  });
+});
+
+describe("WhatsApp Business (пачка 2)", () => {
+  async function connectWa(ids: string[]) {
+    const id = await loginSession();
+    grantElevation(adminId);
+    return as(adminToken).post(`/api/v1/settings/meta-eternal/login/${id}/connect`, { whatsappIds: ids });
+  }
+
+  it("находит номера: основной из Настроек помечен, незарегистрированный виден, ключ — личный; маркеров в ответе нет", async () => {
+    const id = await loginSession();
+    const res = await as(adminToken).get(`/api/v1/settings/meta-eternal/login/${id}`);
+    expect(res.status).toBe(200);
+    noSecretsIn(res.body);
+    expect(res.body.keyKind).toBe("personal");
+    const byId = Object.fromEntries((res.body.whatsapp as Array<{ id: string }>).map((n) => [n.id, n]));
+    expect(byId[WA_1]).toMatchObject({
+      phone: "+992 90 000 0001",
+      name: "Arvan",
+      wabaId: WABA_A,
+      wabaName: "Arvan WhatsApp",
+      registered: true,
+      verified: true,
+      connected: null,
+    });
+    expect(byId[WA_2]).toMatchObject({ registered: false, verified: false, connected: null });
+    expect(byId[MAIN_WA]).toMatchObject({ connected: "settings" });
+    // Отказ «клиентских» аккаунтов (нет расширенного доступа) не мешает: номера нашлись, тревоги нет.
+    expect(res.body.warnings.join(" ")).not.toContain("WhatsApp");
+  });
+
+  it("подключение: строка через saveAccount, не «по умолчанию», ключ входа; подписка — одна на аккаунт; повтор без второй строки", async () => {
+    const first = await connectWa([WA_1, WA_2]);
+    expect(first.status).toBe(200);
+    noSecretsIn(first.body);
+    const [r1, r2] = first.body.results;
+    expect(r1).toMatchObject({ kind: "whatsapp", id: WA_1, ok: true, message: expect.stringContaining("Подключён") });
+    expect(r1.message).toContain("Ключ личный");
+    expect(r2).toMatchObject({ ok: true, message: expect.stringContaining("не зарегистрирован") });
+    const rows = await prisma.messengerAccount.findMany({ where: { channel: "WHATSAPP", externalId: { in: [WA_1, WA_2] } } });
+    accountIds.push(...rows.map((r) => r.id));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.isDefault).toBe(false);
+      expect(row.enabled).toBe(true);
+      expect(decryptSecretSafe(row.token)).toBe(LONG);
+    }
+    expect(rows.find((r) => r.externalId === WA_1)?.title).toBe("Arvan · +992 90 000 0001");
+    expect(meta.wabaSubscribes).toEqual([WABA_A]);
+
+    await prisma.messengerAccount.update({ where: { id: rows.find((r) => r.externalId === WA_1)!.id }, data: { title: "Arvan продажи" } });
+    const again = await connectWa([WA_1]);
+    expect(again.body.results[0]).toMatchObject({ ok: true, message: expect.stringContaining("Ключ обновлён") });
+    expect(await prisma.messengerAccount.count({ where: { channel: "WHATSAPP", externalId: WA_1 } })).toBe(1);
+    // Название, данное человеком, не перетёрто.
+    expect((await prisma.messengerAccount.findFirstOrThrow({ where: { channel: "WHATSAPP", externalId: WA_1 } })).title).toBe("Arvan продажи");
+  });
+
+  it("основной номер из Настроек второй раз не подключить; не найденный входом номер — отказ", async () => {
+    const res = await connectWa([MAIN_WA, "9999999999"]);
+    expect(res.body.results[0]).toMatchObject({ ok: false, message: expect.stringContaining("основные настройки") });
+    expect(res.body.results[1]).toMatchObject({ ok: false, message: expect.stringContaining("нет среди найденных") });
+    expect(await prisma.messengerAccount.count({ where: { channel: "WHATSAPP", externalId: MAIN_WA } })).toBe(0);
+  });
+
+  it("подписка не удалась — номер подключён, итог говорит, что сообщения не придут", async () => {
+    meta.wabaSubscribeFails = true;
+    const res = await connectWa([WA_1]);
+    expect(res.body.results[0]).toMatchObject({ ok: true, message: expect.stringContaining("сообщения не придут") });
+    noSecretsIn(res.body);
+  });
+
+  it("ключ компании (client_business_id) — без предупреждения о личном ключе", async () => {
+    meta.businessKey = true;
+    const id = await loginSession();
+    expect((await as(adminToken).get(`/api/v1/settings/meta-eternal/login/${id}`)).body.keyKind).toBe("business");
+    grantElevation(adminId);
+    const res = await as(adminToken).post(`/api/v1/settings/meta-eternal/login/${id}/connect`, { whatsappIds: [WA_1] });
+    expect(res.body.results[0].ok).toBe(true);
+    expect(res.body.results[0].message).not.toContain("Ключ личный");
+  });
+
+  it("ответ на входящее в подключённый номер уходит ЕГО ключом и с ЕГО номера, не из Настроек", async () => {
+    await connectWa([WA_1]);
+    const row = await prisma.messengerAccount.findFirstOrThrow({ where: { channel: "WHATSAPP", externalId: WA_1 } });
+    accountIds.push(row.id);
+    resetAccountsCache();
+    resetMetaAccountCredsCache();
+
+    // Вебхук: получатель — phone_number_id подключённого номера.
+    const account = await resolveIncomingAccount("WHATSAPP", WA_1, "992900000111");
+    expect(account).toMatchObject({ id: row.id, token: LONG, certain: true });
+
+    const peer = `99290${stamp.slice(-7)}`;
+    const transport = await prisma.$transaction((tx) =>
+      ensureCustomerEndpoint(tx, { channel: "WHATSAPP", subscriberId: peer, accountId: row.id, accountExternalId: WA_1 })
+    );
+    await sendMessage("WHATSAPP", peer, "Салом", account.token, { origin: "staff", transport });
+    expect(meta.waSends).toEqual([{ url: `${GRAPH}/${WA_1}/messages`, auth: `Bearer ${LONG}` }]);
+
+    // Фото/голосовое клиента — тоже ключом номера-получателя: ключ Настроек чужой файл не видит.
+    const media = await whatsAppMediaSource("wa-media-1", account.token ?? null);
+    expect(media).toMatchObject({ headers: { Authorization: `Bearer ${LONG}` } });
+    // Аккаунт известен, но ключа нет (выключен) — ключ Настроек не подставляется.
+    expect(await whatsAppMediaSource("wa-media-1", null)).toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([u, i]) => String(u).includes("wa-media-1") && authOf(i as RequestInit) === `Bearer ${WA_SETTINGS_TOKEN}`)
+    ).toBe(false);
+
+    // Вебхук передаёт ключ номера-получателя (а не молчит и не берёт Настройки):
+    // без второго аргумента файлы клиента подключённого номера снова не скачаются.
+    const webhookSrc = readFileSync(fileURLToPath(new URL("../src/routes/webhooks.ts", import.meta.url)), "utf8");
+    const mediaCalls = webhookSrc.match(/whatsAppMediaSource\([^)]*\)/g) ?? [];
+    expect(mediaCalls.length).toBeGreaterThan(0);
+    for (const call of mediaCalls) expect(call).toMatch(/whatsAppMediaSource\(msg\.mediaId, account\./);
+
+    // Старый диалог основного номера (получатель не указан) по-прежнему отвечает ключом Настроек.
+    expect((await resolveIncomingAccount("WHATSAPP", undefined)).token).toBe(WA_SETTINGS_TOKEN);
   });
 });

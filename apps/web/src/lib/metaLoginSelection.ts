@@ -9,20 +9,24 @@ export interface MetaLoginSelection {
   pages: string[];
   instagram: string[];
   adAccounts: string[];
+  /** Номера WhatsApp Business (phone_number_id), пачка 2 13.11.2026. */
+  whatsapp: string[];
 }
 
-export const EMPTY_SELECTION: MetaLoginSelection = { pages: [], instagram: [], adAccounts: [] };
+export const EMPTY_SELECTION: MetaLoginSelection = { pages: [], instagram: [], adAccounts: [], whatsapp: [] };
 
 /**
  * Что отмечено сразу: всё новое, что можно подключить. Уже подключённое не
  * отмечаем (его можно отметить руками — это обновит ключ), основную Страницу из
- * Настроек отметить нельзя вовсе, закрытые кабинеты — не отмечаем.
+ * Настроек (и основной номер WhatsApp) отметить нельзя вовсе, закрытые кабинеты —
+ * не отмечаем.
  */
 export function defaultMetaLoginSelection(assets: MetaLoginAssets): MetaLoginSelection {
   return {
     pages: assets.pages.filter((p) => !p.connected && p.canMessage).map((p) => p.id),
     instagram: assets.instagram.filter((i) => !i.connected).map((i) => i.id),
     adAccounts: assets.adAccounts.filter((a) => !a.connected && a.status === 1).map((a) => a.id),
+    whatsapp: assets.whatsapp.filter((n) => !n.connected).map((n) => n.id),
   };
 }
 
@@ -32,11 +36,20 @@ export function toggleInSelection(selection: MetaLoginSelection, kind: keyof Met
 }
 
 export function selectionToInput(selection: MetaLoginSelection): MetaLoginConnectInput {
-  return { pageIds: selection.pages, instagramIds: selection.instagram, adAccountIds: selection.adAccounts };
+  return { pageIds: selection.pages, instagramIds: selection.instagram, adAccountIds: selection.adAccounts, whatsappIds: selection.whatsapp };
 }
 
 export function selectionSize(selection: MetaLoginSelection): number {
-  return selection.pages.length + selection.instagram.length + selection.adAccounts.length;
+  return selection.pages.length + selection.instagram.length + selection.adAccounts.length + selection.whatsapp.length;
+}
+
+/** Подпись состояния номера WhatsApp — бытовыми словами, одно место для экрана. */
+export function whatsappNumberHint(n: MetaLoginAssets["whatsapp"][number]): string {
+  if (n.connected === "settings") return "Основной номер — уже отвечает через настройки WhatsApp.";
+  const where = n.wabaName ? `Аккаунт WhatsApp «${n.wabaName}». ` : "";
+  if (n.registered === false) return `${where}Номер не готов к отправке: его надо зарегистрировать в WhatsApp Manager. Подключить можно — ответы пойдут после регистрации.`;
+  if (n.verified === false) return `${where}Номер не подтверждён кодом — подтвердите его в WhatsApp Manager.`;
+  return `${where}Клиенты пишут на этот номер — бот и сотрудники отвечают с него же.`;
 }
 
 /** Что принёс адрес после возврата из Facebook: сессия выбора, ошибка или ничего. */

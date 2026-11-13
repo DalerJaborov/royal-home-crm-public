@@ -217,7 +217,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
 
         <PlainSetting
           title="Номер конфигурации входа (config_id)"
-          description="Необязательно. Из Meta: приложение → «Вход через Facebook для бизнеса» → «Конфигурации». Пусто — кнопка «Войти через Facebook» просит нужные разрешения списком."
+          description="Необязательно. Из Meta: приложение → «Вход через Facebook для бизнеса» → «Конфигурации». Пусто — кнопка «Войти через Facebook» просит нужные разрешения списком, а ключ получается личный. Чтобы WhatsApp не замолчал после смены пароля, в конфигурации выберите ключ системного пользователя и отметьте те же разрешения."
           placeholder="1234567890123456"
           value={settings?.metaLoginConfigId ?? ""}
           pending={updateSettings.isPending}

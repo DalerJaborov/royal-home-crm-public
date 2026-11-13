@@ -292,6 +292,7 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   MessengerAccount: "Аккаунт мессенджера",
   FacebookPageSubscription: "Подписка Страницы Facebook на сообщения",
   MetaLogin: "Вход через Facebook",
+  WhatsappBusinessSubscription: "Подписка WhatsApp Business на сообщения",
   CoverTemplate: "Шаблон обложки",
   OwnerQuestion: "Вопрос собственника",
   BotConversation: "Разговор с ботом",

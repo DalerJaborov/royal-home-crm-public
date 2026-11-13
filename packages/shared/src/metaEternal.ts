@@ -103,6 +103,8 @@ export type MetaCompanyPages = z.infer<typeof metaCompanyPagesSchema>;
 const pageIdField = z.string().trim().regex(/^\d{5,30}$/);
 const igIdField = z.string().trim().regex(/^\d{5,30}$/);
 const adAccountIdField = z.string().trim().regex(/^(act_)?\d{5,30}$/);
+/** phone_number_id номера WhatsApp Business — цифры, как у остальных id Meta. */
+const waPhoneIdField = z.string().trim().regex(/^\d{5,30}$/);
 
 /** Страница Facebook, найденная входом. */
 export const metaLoginPageSchema = z.object({
@@ -138,10 +140,45 @@ export const metaLoginAdAccountSchema = z.object({
 });
 export type MetaLoginAdAccount = z.infer<typeof metaLoginAdAccountSchema>;
 
+/**
+ * Номер WhatsApp Business, видный входу (пачка 2, 13.11.2026). id — phone_number_id:
+ * им адресуется отправка и его же Meta кладёт во входящие (metadata.phone_number_id).
+ */
+export const metaLoginWhatsappSchema = z.object({
+  id: z.string(),
+  /** Номер, как его показывает WhatsApp (display_phone_number). */
+  phone: z.string().nullable(),
+  /** Имя компании в WhatsApp (verified_name). */
+  name: z.string().nullable(),
+  wabaId: z.string(),
+  wabaName: z.string().nullable(),
+  /**
+   * Номер готов к отправке через облако WhatsApp: true — да, false — нет
+   * (не зарегистрирован), null — Meta не сказала.
+   */
+  registered: z.boolean().nullable(),
+  /** Номер подтверждён кодом (code_verification_status). null — неизвестно. */
+  verified: z.boolean().nullable(),
+  /** "settings" — основной номер из Настроек; "account" — уже подключён; null — нет. */
+  connected: z.enum(["settings", "account"]).nullable(),
+});
+export type MetaLoginWhatsapp = z.infer<typeof metaLoginWhatsappSchema>;
+
+/**
+ * Чей ключ дал вход: "business" — ключ компании из конфигурации входа (не
+ * зависит от пароля человека), "personal" — личный ключ человека (умирает при
+ * смене пароля Facebook), "unknown" — проверить не удалось.
+ */
+export const metaLoginKeyKindSchema = z.enum(["business", "personal", "unknown"]);
+export type MetaLoginKeyKind = z.infer<typeof metaLoginKeyKindSchema>;
+
 export const metaLoginAssetsSchema = z.object({
   pages: z.array(metaLoginPageSchema),
   instagram: z.array(metaLoginInstagramSchema),
   adAccounts: z.array(metaLoginAdAccountSchema),
+  /** Старый сервер поля не знает — пустой список, экран просто не покажет раздел. */
+  whatsapp: z.array(metaLoginWhatsappSchema).default([]),
+  keyKind: metaLoginKeyKindSchema.default("unknown"),
   /** Что прочитать не удалось (например, кабинеты без права ads_read) — словами. */
   warnings: z.array(z.string()),
 });
@@ -153,11 +190,12 @@ export const metaLoginConnectInputSchema = z
     pageIds: z.array(pageIdField).max(100).default([]),
     instagramIds: z.array(igIdField).max(100).default([]),
     adAccountIds: z.array(adAccountIdField).max(50).default([]),
+    whatsappIds: z.array(waPhoneIdField).max(50).default([]),
   })
   .strict();
 export type MetaLoginConnectInput = z.infer<typeof metaLoginConnectInputSchema>;
 
-export const metaLoginAssetKindSchema = z.enum(["page", "instagram", "adAccount"]);
+export const metaLoginAssetKindSchema = z.enum(["page", "instagram", "adAccount", "whatsapp"]);
 export type MetaLoginAssetKind = z.infer<typeof metaLoginAssetKindSchema>;
 
 /** Итог по каждой выбранной строке — словами, для экрана. */

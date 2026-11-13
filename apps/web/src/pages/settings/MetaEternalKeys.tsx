@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { KeyRound, Megaphone, MessageCircle } from "lucide-react";
+import { KeyRound, Megaphone, MessageCircle, Phone } from "lucide-react";
 import {
   META_ETERNAL_STATE_LABEL,
   metaCompanyPagesSchema,
@@ -24,6 +24,7 @@ import {
   selectionSize,
   selectionToInput,
   toggleInSelection,
+  whatsappNumberHint,
   withoutMetaLoginParams,
   type MetaLoginSelection,
 } from "../../lib/metaLoginSelection";
@@ -352,7 +353,11 @@ function FacebookLogin() {
     <>
       <div className="sec-h stack">
         <h2>Подключить через Facebook</h2>
-        <span className="note">Войдите своим Facebook — CRM сама найдёт Страницы, Instagram и рекламные кабинеты</span>
+        <span className="note">Войдите своим Facebook — CRM сама найдёт Страницы, Instagram, номера WhatsApp и рекламные кабинеты</span>
+      </div>
+      <div className="quiet" style={{ marginBottom: "var(--s2)" }}>
+        Свои Страницы, Instagram и WhatsApp заработают сразу. Чтобы бот отвечал клиентам чужих компаний, Meta должна одобрить
+        приложение — до этого ответы доходят только людям с ролью в приложении.
       </div>
       <div className="wrap">
         <button className="pill" type="button" disabled={start.isPending} onClick={() => start.mutate()}>
@@ -411,14 +416,14 @@ function LoginChoice({ sessionId, onDone }: { sessionId: string; onDone: (r: Met
   }
   const data = assets.data;
   const pick = (kind: keyof MetaLoginSelection, id: string) => (on: boolean) => setSelection((s) => toggleInSelection(s, kind, id, on));
-  const nothing = data.pages.length === 0 && data.adAccounts.length === 0;
+  const nothing = data.pages.length === 0 && data.adAccounts.length === 0 && data.whatsapp.length === 0;
 
   return (
     <div style={{ marginTop: "var(--s3)" }}>
       {data.warnings.map((w) => (
         <div key={w} className="quiet">{w}</div>
       ))}
-      {nothing && <p className="quiet">Facebook не выдал ни одной Страницы и ни одного кабинета. Войдите ещё раз и отметьте их в окне Facebook.</p>}
+      {nothing && <p className="quiet">Facebook не выдал ни одной Страницы, номера WhatsApp и кабинета. Войдите ещё раз и отметьте их в окне Facebook.</p>}
       <LoginSection title="Страницы Facebook" empty={data.pages.length === 0}>
         {data.pages.map((p) => (
           <ChoiceRow
@@ -430,9 +435,7 @@ function LoginChoice({ sessionId, onDone }: { sessionId: string; onDone: (r: Met
                 ? "Основная Страница — уже отвечает через настройки Facebook."
                 : !p.canMessage
                   ? "У вас нет доступа к сообщениям этой Страницы."
-                  : p.ig
-                    ? `Messenger этой Страницы. Instagram: ${p.ig.username ? `@${p.ig.username}` : "привязан"}`
-                    : "Messenger этой Страницы."
+                  : `Messenger этой Страницы.${p.ig ? ` Instagram: ${p.ig.username ? `@${p.ig.username}` : "привязан"}.` : ""} Ролики на Facebook пока публикуются только на основную Страницу.`
             }
             connected={Boolean(p.connected)}
             disabled={p.connected === "settings" || !p.canMessage}
@@ -450,11 +453,37 @@ function LoginChoice({ sessionId, onDone }: { sessionId: string; onDone: (r: Met
             hint={
               i.connected === "account"
                 ? `Уже в CRM со своим ключом. Отметьте, чтобы привязать к Странице «${i.pageName}».`
-                : `Отвечает через Страницу «${i.pageName}».`
+                : `Отвечает через Страницу «${i.pageName}». Ролики объектов идут в основной Instagram, этот можно выбрать для свободных роликов.`
             }
             connected={i.connected === "page"}
             checked={selection.instagram.includes(i.id)}
             onChange={pick("instagram", i.id)}
+          />
+        ))}
+      </LoginSection>
+      <LoginSection title="WhatsApp" empty={data.whatsapp.length === 0}>
+        {data.keyKind !== "business" && (
+          <div className="row">
+            <div className="t">
+              <div className="quiet">
+                {data.keyKind === "personal"
+                  ? "Ключ личный: WhatsApp перестанет отвечать, если сменить пароль Facebook."
+                  : "Не удалось проверить, чей ключ: если он личный, WhatsApp перестанет отвечать после смены пароля Facebook."}{" "}
+                Для постоянной работы впишите ниже номер конфигурации входа с ключом компании и войдите заново.
+              </div>
+            </div>
+          </div>
+        )}
+        {data.whatsapp.map((n) => (
+          <ChoiceRow
+            key={n.id}
+            icon="whatsapp"
+            title={[n.name, n.phone].filter(Boolean).join(" · ") || `Номер ${n.id}`}
+            hint={whatsappNumberHint(n)}
+            connected={Boolean(n.connected)}
+            disabled={n.connected === "settings"}
+            checked={selection.whatsapp.includes(n.id)}
+            onChange={pick("whatsapp", n.id)}
           />
         ))}
       </LoginSection>
@@ -506,7 +535,7 @@ function ChoiceRow({
   checked,
   onChange,
 }: {
-  icon: "page" | "ads";
+  icon: "page" | "ads" | "whatsapp";
   title: string;
   hint: string;
   connected: boolean;
@@ -514,7 +543,7 @@ function ChoiceRow({
   checked: boolean;
   onChange: (on: boolean) => void;
 }) {
-  const Icon = icon === "ads" ? Megaphone : MessageCircle;
+  const Icon = icon === "ads" ? Megaphone : icon === "whatsapp" ? Phone : MessageCircle;
   return (
     <label className="row" style={{ cursor: disabled ? "default" : "pointer" }}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} aria-label={title} />
@@ -534,6 +563,7 @@ const KIND_TITLE: Record<MetaLoginConnectResult["results"][number]["kind"], stri
   page: "Страница",
   instagram: "Instagram",
   adAccount: "Кабинет",
+  whatsapp: "WhatsApp",
 };
 
 function LoginResults({ results, onClose }: { results: MetaLoginConnectResult; onClose: () => void }) {

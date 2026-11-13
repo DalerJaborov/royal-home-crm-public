@@ -7,6 +7,7 @@ import {
   readMetaLoginParam,
   selectionToInput,
   toggleInSelection,
+  whatsappNumberHint,
   withoutMetaLoginParams,
 } from "../../../lib/metaLoginSelection";
 
@@ -27,12 +28,25 @@ const assets: MetaLoginAssets = {
     { id: "act_2", name: "Закрытый", status: 2, connected: false },
     { id: "act_3", name: "Уже в отчёте", status: 1, connected: true },
   ],
+  whatsapp: [
+    { id: "50001", phone: "+992 90 000 0001", name: "Arvan", wabaId: "60001", wabaName: "Arvan WA", registered: true, verified: true, connected: null },
+    { id: "50002", phone: "+992 90 000 0002", name: "Arvan 2", wabaId: "60001", wabaName: null, registered: false, verified: false, connected: null },
+    { id: "50009", phone: "+992 90 000 0009", name: "Royal Home", wabaId: "60002", wabaName: null, registered: true, verified: true, connected: "settings" },
+    { id: "50003", phone: null, name: null, wabaId: "60001", wabaName: null, registered: true, verified: true, connected: "account" },
+  ],
+  keyKind: "personal",
   warnings: [],
 };
 
 describe("выбор после входа", () => {
   it("сразу отмечено только новое и доступное", () => {
-    expect(defaultMetaLoginSelection(assets)).toEqual({ pages: ["1001"], instagram: ["17841"], adAccounts: ["act_1"] });
+    expect(defaultMetaLoginSelection(assets)).toEqual({
+      pages: ["1001"],
+      instagram: ["17841"],
+      adAccounts: ["act_1"],
+      // Основной номер из Настроек и уже подключённый — не отмечены; незарегистрированный — отмечен (подключить можно).
+      whatsapp: ["50001", "50002"],
+    });
   });
 
   it("галочка ставится и снимается без дублей", () => {
@@ -43,7 +57,18 @@ describe("выбор после входа", () => {
   });
 
   it("в запрос уходят виды по своим полям", () => {
-    expect(selectionToInput({ pages: ["1"], instagram: ["2"], adAccounts: ["act_3"] })).toEqual({ pageIds: ["1"], instagramIds: ["2"], adAccountIds: ["act_3"] });
+    expect(selectionToInput({ pages: ["1"], instagram: ["2"], adAccounts: ["act_3"], whatsapp: ["4"] })).toEqual({
+      pageIds: ["1"],
+      instagramIds: ["2"],
+      adAccountIds: ["act_3"],
+      whatsappIds: ["4"],
+    });
+  });
+
+  it("подпись номера WhatsApp говорит, что мешает, бытовыми словами", () => {
+    expect(whatsappNumberHint(assets.whatsapp[0])).toContain("Arvan WA");
+    expect(whatsappNumberHint(assets.whatsapp[1])).toContain("зарегистрировать");
+    expect(whatsappNumberHint(assets.whatsapp[2])).toContain("Основной номер");
   });
 });
 
@@ -67,6 +92,15 @@ describe("экран MetaEternalKeys", () => {
     expect(src).toContain("Войти через Facebook");
     expect(src).toContain('api("/settings/meta-eternal/login"');
     expect(src).toContain("window.location.assign(url)");
+  });
+
+  it("секция WhatsApp: номера галочками, предупреждение о личном ключе, честная строка про одобрение Meta", () => {
+    const block = src.slice(src.indexOf("function FacebookLogin()"));
+    expect(block).toContain('title="WhatsApp"');
+    expect(block).toContain('pick("whatsapp", n.id)');
+    expect(block).toContain('data.keyKind !== "business"');
+    expect(block).toContain("Meta должна одобрить");
+    expect(block).toContain("пока публикуются только на основную Страницу");
   });
 
   it("без слов «токен» и «OAuth» на экране входа", () => {
