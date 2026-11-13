@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4005**. Модулей: **83**.
+Путей: **747**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4027**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19726,6 +19726,8 @@
     - если !s
       - return ALL_ENABLED;
         · дословно из кода
+    - const leadOnly = s.botLeadOnlyMode === true && leadOnlyAppliesTo(channel);
+      · зовёт leadOnlyAppliesTo()
   - если сорвалось
     - return ALL_ENABLED;
       · дословно из кода
@@ -27248,7 +27250,7 @@
   · зовёт runCustomerLeadOnlyIntake()
   - const intake = customerLeadOnlyIntakeSchema.parse(raw);
     · проверяет данные схемой customerLeadOnlyIntakeSchema
-  - если !await turnSettled(intake.eventKey)
+  - если !options.force && !await turnSettled(intake.eventKey)
     - return { status: "wait", reason: "turn_not_settled" };
       · дословно из кода
   - const conversation = await prisma.botConversation.findUnique({ where: { id: intake.conversationId }, select: …
@@ -27256,53 +27258,159 @@
   - если !conversation
     - return { status: "skipped", reason: "conversation_missing" };
       · дословно из кода
+  - если !sealed
+    - void logSystemError("background-jobs", `[alarm] Режим «только заявки»: данные заявки не читаются (диалог ${co…
+      · запись в журнал ошибок
+    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
+      · зовёт notifyLeadOnlyHandover()
   - если conversation.clientId
-    - await notifyRepeatInquiry(conversation.clientId, note);
-      · зовёт notifyRepeatInquiry()
+    - если sealed.lead
+      - если intake.scenario === "hot"
+        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
+          · зовёт notifyLeadOnlyHandover()
+    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
+      · зовёт notifyLeadOnlyHandover()
+  - если !sealed.lead || !sealed.phone
+    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
+      · зовёт notifyLeadOnlyHandover()
   - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
     · зовёт acceptLead()
-  - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { clientId: …
+  - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
     · читает в базе: botConversation
-  - если !linked?.clientId
-    - если result.accepted
-      - void logSystemError("ai", `[alarm] Режим «только заявки»: заявка из ядра (диалог ${conversation.id}) принята …
-        · запись в журнал ошибок
+  - если !linked?.client
+    - void logSystemError("ai", `[alarm] Режим «только заявки»: заявка из ядра не оформлена (диалог ${conversation.…
+      · запись в журнал ошибок
+    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
+      · зовёт notifyLeadOnlyHandover()
+  - если linked.client.kind === "OTHER" && sealed.promised === "call"
+    - void logSystemError("ai", `[alarm] Режим «только заявки»: бот обещал звонок, а заявка ушла в «Прочие обращени…
+      · запись в журнал ошибок
+    - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "no_ag…
+      · зовёт notifyLeadOnlyHandover()
 - если result.status === "wait"
   - throw new Error(result.reason);
     · ошибка Error — «result.reason»
 - когда попытки кончились
-  - await logSystemError("background-jobs", `[alarm] Режим «только заявки»: заявка из переписки не оформлена (диа…
-    · запись в журнал ошибок
-    - если isPrivateOperation()
-      - source = "investigation";
-        · дословно из кода
-    - если source === "investigation"
-      - context = { ...context, silent: true };
-        · дословно из кода
-    - если isShuttingDown()
-      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
-        · пишет строку в журнал сервера
-      - return;
-        · дальше не идёт, ничего не меняя
-    - пробует
-      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
-        · читает в базе: errorLog
-      - если recent
+  - пробует
+    - await runCustomerLeadOnlyIntake(payload, { force: true });
+      · зовёт runCustomerLeadOnlyIntake()
+      - const intake = customerLeadOnlyIntakeSchema.parse(raw);
+        · проверяет данные схемой customerLeadOnlyIntakeSchema
+      - если !options.force && !await turnSettled(intake.eventKey)
+        - return { status: "wait", reason: "turn_not_settled" };
+          · дословно из кода
+      - const conversation = await prisma.botConversation.findUnique({ where: { id: intake.conversationId }, select: …
+        · читает в базе: botConversation
+      - если !conversation
+        - return { status: "skipped", reason: "conversation_missing" };
+          · дословно из кода
+      - если !sealed
+        - void logSystemError("background-jobs", `[alarm] Режим «только заявки»: данные заявки не читаются (диалог ${co…
+          · запись в журнал ошибок
+        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
+          · зовёт notifyLeadOnlyHandover()
+      - если conversation.clientId
+        - если sealed.lead
+          - если intake.scenario === "hot"
+            - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
+              · зовёт notifyLeadOnlyHandover()
+        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
+          · зовёт notifyLeadOnlyHandover()
+      - если !sealed.lead || !sealed.phone
+        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason, summar…
+          · зовёт notifyLeadOnlyHandover()
+      - const result = await acceptLead(conversation.id, conversation.channel as never, conversation.name ?? undefine…
+        · зовёт acceptLead()
+      - const linked = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { client: { …
+        · читает в базе: botConversation
+      - если !linked?.client
+        - void logSystemError("ai", `[alarm] Режим «только заявки»: заявка из ядра не оформлена (диалог ${conversation.…
+          · запись в журнал ошибок
+        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
+          · зовёт notifyLeadOnlyHandover()
+      - если linked.client.kind === "OTHER" && sealed.promised === "call"
+        - void logSystemError("ai", `[alarm] Режим «только заявки»: бот обещал звонок, а заявка ушла в «Прочие обращени…
+          · запись в журнал ошибок
+        - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "no_ag…
+          · зовёт notifyLeadOnlyHandover()
+  - если сорвалось
+    - await logSystemError("background-jobs", `[alarm] Режим «только заявки»: заявка из переписки не оформлена (диа…
+      · запись в журнал ошибок
+      - если isPrivateOperation()
+        - source = "investigation";
+          · дословно из кода
+      - если source === "investigation"
+        - context = { ...context, silent: true };
+          · дословно из кода
+      - если isShuttingDown()
+        - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+          · пишет строку в журнал сервера
         - return;
           · дальше не идёт, ничего не меняя
-      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
-        · читает в базе: errorLog
-      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
-        · создаёт в базе: errorLog
-      - если !context?.quietPult
-        - requestPultSnapshot();
-          · зовёт requestPultSnapshot()
-      - если !everSeen && !context?.silent
-        - пробует
-        - если сорвалось
-    - если сорвалось
-      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
-        · пишет строку в журнал сервера
+      - пробует
+        - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+          · читает в базе: errorLog
+        - если recent
+          - return;
+            · дальше не идёт, ничего не меняя
+        - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+          · читает в базе: errorLog
+        - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+          · создаёт в базе: errorLog
+        - если !context?.quietPult
+          - requestPultSnapshot();
+            · зовёт requestPultSnapshot()
+        - если !everSeen && !context?.silent
+          - пробует
+          - если сорвалось
+      - если сорвалось
+        - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+          · пишет строку в журнал сервера
+    - await notifyLeadOnlyHandover({ conversationId: payload.conversationId, propertyId: payload.propertyId, reason…
+      · зовёт notifyLeadOnlyHandover()
+      - const tag = leadOnlyHandoverTag(input.conversationId);
+        · зовёт leadOnlyHandoverTag()
+      - если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))
+        - return { status: "deduped" };
+          · дословно из кода
+      - const conversation = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: {…
+        · читает в базе: botConversation
+      - если !conversation
+        - return { status: "nobody" };
+          · дословно из кода
+      - если client?.assignedAgentId
+        - если !client.agentAttentionRequestedAt
+          - await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…
+            · меняет в базе: client
+        - await logTimeline({ clientId: client.id, actor: { kind: "client", source: "lead-only-handover", subjectAgentI…
+          · зовёт logTimeline()
+      - если input.propertyId
+        - const property = await prisma.property.findUnique({ where: { id: input.propertyId }, select: { intakeAgentId:…
+          · читает в базе: property
+        - const owner = property && !property.deletedAt ? propertyOwnerAgentId(property) : null;
+          · зовёт propertyOwnerAgentId()
+        - если owner
+          - owners.add(owner);
+            · дословно из кода
+      - если !owners.size
+        - for (const id of await propertyInterestChatAgentIds(conversation.id)) owners.add(id);
+          · зовёт propertyInterestChatAgentIds()
+      - const activeOwners = owners.size ? (await prisma.agent.findMany({ where: { id: { in: [...owners] }, isActive:…
+        · читает в базе: agent
+      - если activeOwners.length
+        - await deliver(activeOwners, { kind: "message", level: "CRITICAL", title, body, url: chatUrl, tag });
+          · дословно из кода
+        - return { status: "notified", to: "property", recipients: activeOwners.length };
+          · дословно из кода
+      - const supervisors = await findAgentsWithPermission("clients.assign");
+        · зовёт findAgentsWithPermission()
+      - если supervisors.length
+        - await deliver(supervisors, { kind: "message", level: "CRITICAL", title, body, url: chatUrl, tag });
+          · дословно из кода
+        - return { status: "notified", to: "supervisors", recipients: supervisors.length };
+          · дословно из кода
+      - void logSystemError("ai", `[alarm] Режим «только заявки»: бот передал клиента человеку, но звать некого (диал…
+        · запись в журнал ошибок
 
 ### customer_owner_question_notify
 
@@ -28536,6 +28644,8 @@
     - если !s
       - return ALL_ENABLED;
         · дословно из кода
+    - const leadOnly = s.botLeadOnlyMode === true && leadOnlyAppliesTo(channel);
+      · зовёт leadOnlyAppliesTo()
   - если сорвалось
     - return ALL_ENABLED;
       · дословно из кода
@@ -28709,6 +28819,8 @@
     - если !s
       - return ALL_ENABLED;
         · дословно из кода
+    - const leadOnly = s.botLeadOnlyMode === true && leadOnlyAppliesTo(channel);
+      · зовёт leadOnlyAppliesTo()
   - если сорвалось
     - return ALL_ENABLED;
       · дословно из кода

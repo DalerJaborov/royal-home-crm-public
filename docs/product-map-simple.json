@@ -16,10 +16,10 @@
   "paths": 747,
   "cron": 130,
   "jobs": 33,
-  "conditions": 3989,
-  "untranslatedUnique": 459,
-  "untranslatedTotal": 589,
-  "partialUnique": 1078,
+  "conditions": 4011,
+  "untranslatedUnique": 460,
+  "untranslatedTotal": 591,
+  "partialUnique": 1084,
   "translatedShare": 85
  },
  "untranslated": [
@@ -49,7 +49,6 @@
   "!availabilityOf(agent).pausedUntil",
   "!await assignmentSourceEpochIsCurrent(prisma, { clientId: row.clientId, subjectAgentId: row.agentId, assignme…",
   "!await current(row, true)",
-  "!await turnSettled(intake.eventKey)",
   "!beginOrigination(req.agent!.id)",
   "!body.id && !body.token?.trim()",
   "!byId.get(pair.videoMontajerAgentId)?.telegramChatId",
@@ -103,6 +102,7 @@
   "!narrationAutoEnabled(config)",
   "!needsReadReceipt(source)",
   "!options.allowLive || newOwnerProbeMode() !== 'LIVE'",
+  "!options.force && !await turnSettled(intake.eventKey)",
   "!outcome.agentId || client.assignedAgentId !== outcome.agentId",
   "!ownerId || ownerId === req.agent!.id",
   "!pageToken || items.length === 0 || !pageHasFreshThread(items, cutoffMs)",
@@ -135,6 +135,7 @@
   "!text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
+  "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
   "!verifyState(state)",
   "!verifyTotpCode(agent.phone, secret, parsed.data.code)",
   "!video || video.propertyId !== req.params.id",
@@ -79585,11 +79586,11 @@
      "a": [],
      "c": [
       {
-       "t": "если !await turnSettled(intake.eventKey)",
+       "t": "если !options.force && !await turnSettled(intake.eventKey)",
        "k": "if",
        "a": [],
        "c": [],
-       "raw": "!await turnSettled(intake.eventKey)"
+       "raw": "!options.force && !await turnSettled(intake.eventKey)"
       },
       {
        "t": "если нет: переписка",
@@ -79598,7 +79599,41 @@
        "c": []
       },
       {
+       "t": "если нет: sealed",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
        "t": "если есть клиент (переписка)",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть заявка",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если scenario — «hot»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если нет: заявка или нет: телефон",
        "k": "if",
        "a": [],
        "c": []
@@ -79609,17 +79644,23 @@
        "a": [],
        "c": [
         {
-         "t": "если есть принят (ответ)",
-         "k": "if",
+         "t": "запись в журнал ошибок",
+         "k": "do",
          "a": [],
-         "c": [
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если вид (клиент) — «OTHER» и promised — «call»",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
         }
        ]
       }
@@ -79644,56 +79685,110 @@
      "a": [],
      "c": [
       {
-       "t": "запись в журнал ошибок",
-       "k": "do",
+       "t": "пробует сделать",
+       "k": "try",
        "a": [],
        "c": [
         {
-         "t": "если это private operation",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если source — «investigation»",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если сервер сейчас выключается",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "пробует сделать",
-         "k": "try",
+         "t": "внутри этого шага",
+         "k": "do",
          "a": [],
          "c": [
           {
-           "t": "если есть недавняя запись",
+           "t": "если !options.force && !await turnSettled(intake.eventKey)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!options.force && !await turnSettled(intake.eventKey)",
+           "more": true
+          },
+          {
+           "t": "если нет: переписка",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "заводит: запись в журнале ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          },
-          {
-           "t": "если нет: quiet пульт",
+           "t": "если нет: sealed",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если нет: ever просмотрено и нет: молчащие",
+           "t": "если есть клиент (переписка)",
            "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: заявка или нет: телефон",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: клиент",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если вид (клиент) — «OTHER» и promised — «call»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если это private operation",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если source — «investigation»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если сервер сейчас выключается",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
            "a": [],
            "c": [],
            "more": true
@@ -79701,10 +79796,67 @@
          ]
         },
         {
-         "t": "если не получилось",
-         "k": "catch",
+         "t": "внутри этого шага",
+         "k": "do",
          "a": [],
-         "c": []
+         "c": [
+          {
+           "t": "если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "more": true
+          },
+          {
+           "t": "если нет: переписка",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть назначен сотрудник (клиент)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть объект",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: size",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть активен owners количество",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть supervisors количество",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
         }
        ]
       }
