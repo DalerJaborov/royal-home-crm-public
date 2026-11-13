@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { customerAgentVerifiedContextSchema, type CustomerAgentCompanyPolicyTopic } from "@royal-home/shared";
-import { renderCustomerAgentDecision, customerAgentFixedLines } from "../src/ai/customerAgentRenderer.js";
+import { renderCustomerAgentDecision, customerAgentFixedLines, customerAgentPolicyLines } from "../src/ai/customerAgentRenderer.js";
 import { readCustomerAgentCompanyKnowledge, currentCustomerAgentKnowledgeHash } from "../src/lib/customerAgentPublicReads.js";
 import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V3 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
 import { customerAgentCompanyKnowledgeHash } from "../src/ai/customerAgentPublicProtocol.js";
@@ -56,11 +56,11 @@ describe("no dash in anything the core says on its own (owner rule: no AI signs)
 });
 
 describe("a company term is printed only for the customer's own question about it", () => {
-  it.each(TOPICS)("%s: asked → printed, not asked → silently dropped", topic => {
+  it.each(TOPICS)("%s: asked → printed, not asked → dropped (a topic question instead of silence)", topic => {
     expect(policy(topic, ASKED[topic].ru)).toBeTruthy();
     expect(customerAskedPolicyTopic(topic, ASKED[topic].ru)).toBe(true);
     expect(customerAskedPolicyTopic(topic, "Где находится этот дом?")).toBe(false);
-    expect(policy(topic, "Где находится этот дом?")).toBeNull();
+    expect(policy(topic, "Где находится этот дом?")).toBe("Вы хотите узнать о недвижимости или о работе?");
   });
   it("Tajik questions are recognised in the folded alphabet", () => {
     for (const topic of TOPICS) expect(customerAskedPolicyTopic(topic, ASKED[topic].tg), topic).toBe(true);
@@ -130,3 +130,22 @@ describe("the changed company facts ride only the pinned V3 edge", () => {
     expect(knowledge.installments && knowledge.mortgage).toBe(true);
   });
 });
+
+describe("an unasked company term is neither printed nor forgotten (attack 14.11.2026)", () => {
+  it("only an unasked term read: the customer gets a topic question, not silence", () => {
+    const text = policy("legal", "сколько заработаю за месяц агентом, гарантируете 10000?");
+    expect(text).toBe("Вы хотите узнать о недвижимости или о работе?");
+  });
+  it("every policy line we actually sent stays known to the dialogue memory (otherwise the bot greets again)", () => {
+    for (const language of ["ru", "tg"] as const) for (const topic of TOPICS) {
+      const sent = policy(topic, ASKED[topic][language], language);
+      expect(sent, `${topic}/${language}`).toBeTruthy();
+      const known = new Set(customerAgentPolicyLines({ kind: "company_policy", topic, knowledge, sourceHash }, language, sourceHash));
+      for (const line of sent!.split("\n").map(value => value.trim()).filter(Boolean)) expect(known.has(line), `${topic}/${language}: ${line}`).toBe(true);
+    }
+  });
+  it("a policy line from another knowledge source is not trusted into memory", () => {
+    expect(customerAgentPolicyLines({ kind: "company_policy", topic: "rental", knowledge, sourceHash }, "ru", "b".repeat(64))).toEqual([]);
+  });
+});
+

@@ -300,6 +300,13 @@ function factSegments(value: Extract<CustomerAgentObservation, { kind: "facts" }
 const capitalize = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
 /** Company terms in the customer's words (SALES_FACTS). The commission is said by role: a buyer hears
  * that the service is free, a seller hears the percent, when it is paid and what is free before the sale. */
+/** Every wording a company term can take in a DM or comment (by role): the memory of what we already said keeps
+ * our own policy lines, which the single-turn render no longer prints without the customer's question. */
+export function customerAgentPolicyLines(value: CustomerAgentCompanyPolicyObservation, language: "ru" | "tg", knowledgeSourceHash: string): string[] {
+  if (!isPinnedCompanyPolicy(value, knowledgeSourceHash)) return [];
+  return (["buyer", "seller", "unknown", "public"] as const).flatMap(role => policySegment(value, language, role).split("\n"))
+    .map(line => line.trim()).filter(Boolean);
+}
 function policySegment(value: CustomerAgentCompanyPolicyObservation, language: "ru" | "tg", role: "buyer" | "seller" | "unknown" | "public" = "unknown"): string {
   const k = value.knowledge, tg = language === "tg";
   if (value.topic === "commission") {
@@ -543,6 +550,8 @@ function renderDecisionCore(input: {
     ? validateCustomerAgentSayForDecision({ say: d.say, decision: d, evidence: input.evidence, language: lang, surface: input.surface,
       inputText: input.inputText, verifiedContext: input.verifiedContext }) : null;
   const sayText = sayVerdict?.ok ? sayVerdict.text : null;
+  /** A company term the customer did not ask about was left out (DM). */
+  let unaskedPolicySkipped = false;
   // No second hello in the middle of a conversation (reviewer notes 10–12.11.2026); a salaam gets its answer.
   const greetedBefore = input.surface === "dm" && !!input.verifiedContext?.turns.some(turn => turn.role === "assistant");
   const ownWords = clientOwnWords(input.inputText ?? "");
@@ -614,7 +623,7 @@ function renderDecisionCore(input: {
       if (!isPinnedCompanyPolicy(item.value, input.knowledgeSourceHash)) return null;
       // Voice messages count by their transcript: "рассрочка есть?" said aloud is still the question.
       const askedText = [input.inputText, perception?.success ? perception.data.transcript : ""].filter(Boolean).join("\n");
-      if (input.surface === "dm" && !customerAskedPolicyTopic(item.value.topic, askedText)) continue;
+      if (input.surface === "dm" && !customerAskedPolicyTopic(item.value.topic, askedText)) { unaskedPolicySkipped = true; continue; }
       lines.push(policySegment(item.value, lang, input.surface === "dm" ? intakeProgress(input).role : "public"));
     }
     if (item.value.kind === "company_information") {
@@ -735,6 +744,11 @@ function renderDecisionCore(input: {
   // reply, even if the model attached "Понял" to it.
   if ((publicContactQuestion || (d.kind !== "propose" && d.question === "phone" && input.knownPhoneSource !== "none")) &&
       !evidence.length && question === "none") return null;
+  // Only an unasked company term was "read": silence would leave the customer without an answer, and the term
+  // itself is not what they asked (attack job-unknown-003, 14.11.2026). Ask what they need instead.
+  if (unaskedPolicySkipped && question === "none" && !lines.some(line => line && !Object.values(social).some(kind => kind[lang] === line))) {
+    lines.push(questions.topic[lang]);
+  }
   const text = lines.filter(Boolean).join("\n");
   // Never truncate a monetary value, receipt or critical proposal summary.
   return text && text.length <= input.maxOutputChars ? text : null;

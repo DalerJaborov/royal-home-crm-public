@@ -7,7 +7,8 @@ import { createHash } from "node:crypto";
 export interface RealMessage { at?: string | number; mid?: string; role?: string; content?: unknown }
 export interface RealConversation { channel?: string; peer?: string; at?: string | number; messages?: RealMessage[] }
 export interface RealFinding { channel?: string; type?: string; quote?: string; why?: string; severity?: string | number }
-export interface RealLesson { kind?: string; channel?: string; bot?: string; human?: string; lesson?: string; active?: boolean }
+/** `bot`/`human` (older dump) or `botMessage`/`humanMessage` (BotLesson export 13.11.2026): both shapes are read. */
+export interface RealLesson { kind?: string; channel?: string; bot?: string; human?: string; botMessage?: string; humanMessage?: string; lesson?: string; active?: boolean }
 
 export interface ImportedScenario {
   id: string; category: "real"; surface: "dm"; channel: "INSTAGRAM" | "WHATSAPP" | "FACEBOOK";
@@ -103,7 +104,7 @@ export function lessonsToReference(lessons: readonly RealLesson[]) {
   let inactive = 0, incomplete = 0, duplicates = 0;
   for (const lesson of lessons) {
     if (lesson.active !== true) { inactive++; continue; }
-    const bad = maskPhones(text(lesson.bot)), good = maskPhones(text(lesson.human)), rule = maskPhones(text(lesson.lesson));
+    const bad = maskPhones(text(lesson.bot ?? lesson.botMessage)), good = maskPhones(text(lesson.human ?? lesson.humanMessage)), rule = maskPhones(text(lesson.lesson));
     if (!bad || !good) { incomplete++; continue; }
     const id = createHash("sha1").update(`${bad}\u0000${good}`).digest("hex").slice(0, 12);
     if (seen.has(id)) { duplicates++; continue; }
