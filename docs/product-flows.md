@@ -27265,6 +27265,8 @@
       · запись в журнал ошибок
     - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
       · зовёт notifyLeadOnlyHandover()
+  - const note = leadOnlyNoteWithCallbackTime(`${SCENARIO_NOTE[intake.scenario]}${promise}: «${sealed.clientText.…
+    · зовёт leadOnlyNoteWithCallbackTime()
   - если conversation.clientId
     - если sealed.lead
       - если intake.scenario === "hot"
@@ -27313,6 +27315,8 @@
           · запись в журнал ошибок
         - await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: intake.propertyId, reason: "intak…
           · зовёт notifyLeadOnlyHandover()
+      - const note = leadOnlyNoteWithCallbackTime(`${SCENARIO_NOTE[intake.scenario]}${promise}: «${sealed.clientText.…
+        · зовёт leadOnlyNoteWithCallbackTime()
       - если conversation.clientId
         - если sealed.lead
           - если intake.scenario === "hot"

@@ -122730,6 +122730,14 @@
        ]
       },
       {
+       "k": "do",
+       "t": "const note = leadOnlyNoteWithCallbackTime(`${SCENARIO_NOTE[intake.scenario]}${promise}: «${sealed.clientText.…",
+       "a": [
+        "зовёт leadOnlyNoteWithCallbackTime()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "conversation.clientId",
        "a": [],
@@ -122954,6 +122962,14 @@
              "c": []
             }
            ]
+          },
+          {
+           "k": "do",
+           "t": "const note = leadOnlyNoteWithCallbackTime(`${SCENARIO_NOTE[intake.scenario]}${promise}: «${sealed.clientText.…",
+           "a": [
+            "зовёт leadOnlyNoteWithCallbackTime()"
+           ],
+           "c": []
           },
           {
            "k": "if",

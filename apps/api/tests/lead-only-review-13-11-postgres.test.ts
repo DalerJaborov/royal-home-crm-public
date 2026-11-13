@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { planCustomerLeadOnlyTurn, runCustomerLeadOnlyIntake, sealCustomerLeadOnlyIntake, type CustomerLeadOnlyTurnInput } from "../src/lib/customerLeadOnlyCore.js";
-import { leadOnlyHandoverTag, notifyLeadOnlyHandover } from "../src/lib/leadOnlyHandover.js";
+import { leadOnlyHandoverTag, leadOnlyHumanNotifiedRecently, notifyLeadOnlyHandover } from "../src/lib/leadOnlyHandover.js";
 import { loadCustomerAgentFeaturePolicy } from "../src/lib/customerAgentFeaturePolicy.js";
 import { loadBotCapabilities } from "../src/messengers/botCapabilities.js";
 import { LEAD_ONLY_DEFAULTS } from "../src/ai/leadOnlyMode.js";
@@ -170,8 +170,8 @@ describe("второе ревью: кого и когда зовёт дверь 
     expect((await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "хотим посмотреть завтра" })).status).toBe("notified");
     await new Promise(resolve => setTimeout(resolve, 300));
     expect(await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "хотим посмотреть завтра" })).toEqual({ status: "deduped" });
-    // Другие горячие слова — новый повод: человек узнаёт снова.
-    expect((await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "куда ехать прямо сейчас?" })).status).toBe("notified");
+    // Третье ревью 13.11, №5: окно горячих слов — на разговор, а не на текст; другие горячие слова в те же 15 минут не будят снова.
+    expect(await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary: "куда ехать прямо сейчас?" })).toEqual({ status: "deduped" });
   });
 
   it("№5: агент карточки уволен — зовётся агент объекта, а не пустота", async () => {
@@ -241,5 +241,87 @@ describe("второе ревью: кого и когда зовёт дверь 
       sentTexts: ["Это объект №1, цена 400 000 сомони. Оставьте, пожалуйста, номер телефона, агент перезвонит."] }));
     expect(plan?.scenario).toBe("property");
     expect(plan?.intake).toMatchObject({ scenario: "property", propertyId });
+  });
+});
+
+// ── Третье ревью 13.11.2026: каждый тест проверен внесённой поломкой (номер находки — в имени) ──
+describe("третье ревью: ядро и дверь передачи", () => {
+  const notes = (id: string) => prisma.notification.findMany({ where: { tag: { startsWith: `${leadOnlyHandoverTag(id)}:` } },
+    select: { agentId: true, title: true, tag: true } });
+  const pendingOf = (id: string) => prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { leadOnlyPending: true } }).then(r => r.leadOnlyPending);
+  const remembered = (id: string) => prisma.botConversation.update({ where: { id }, data: { leadOnlyPending: { version: 1, scenario: "property", propertyId,
+    askedAt: new Date().toISOString() } } });
+  const asked = ["Это объект №1, цена 400 000 сомони. Оставьте, пожалуйста, номер телефона, агент перезвонит."];
+
+  it("№1: память о посте не перебивает «хочу продать свою квартиру, 93…» этого сообщения", async () => {
+    const id = await conversation("INSTAGRAM", `review3-sell-${runId}`);
+    await remembered(id);
+    const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Хочу продать свою квартиру, 918 77 66 42", sentTexts: asked }));
+    expect(plan?.scenario).toBe("seller");
+    expect(plan?.intake).toMatchObject({ scenario: "seller", propertyId: null });
+  });
+
+  it("№2: у диалога с карточкой память не читается; смена темы стирает или заменяет память", async () => {
+    const linkedId = await conversation("INSTAGRAM", `review3-linked-${runId}`, await client());
+    await remembered(linkedId);
+    const linkedPlan = await planCustomerLeadOnlyTurn(input({ conversationId: linkedId, inputText: "918 77 66 43", sentTexts: asked }));
+    expect(linkedPlan?.intake?.propertyId ?? null).toBeNull();
+    const igId = await conversation("INSTAGRAM", `review3-topic-${runId}`);
+    await remembered(igId);
+    const igPlan = await planCustomerLeadOnlyTurn(input({ conversationId: igId, inputText: "Хочу продать свою квартиру", sentTexts: asked }));
+    expect(igPlan?.remember).toMatchObject({ scenario: "seller", propertyId: null });
+    const waPeerId = waPeer(), waId = await conversation("WHATSAPP", waPeerId);
+    await remembered(waId);
+    const waPlan = await planCustomerLeadOnlyTurn(input({ conversationId: waId, channel: "WHATSAPP", peer: waPeerId, inputText: "Хочу продать свою квартиру" }));
+    expect(waPlan?.remember).toBeNull();
+    expect(waPlan?.forget).toBe(true);
+  });
+
+  it("№2: заявка оформлена — память просьбы стёрта", async () => {
+    const id = await conversation("INSTAGRAM", `review3-accepted-${runId}`);
+    await remembered(id);
+    const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "918 77 66 44", sentTexts: asked }));
+    expect(plan?.intake).toMatchObject({ scenario: "property", propertyId });
+    expect((await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).status).toBe("accepted");
+    expect(await pendingOf(id)).toBeNull();
+  });
+
+  it("№4: клиент с карточкой «не звоните сейчас, позвоните завтра» — не отказ: агенту время звонка в карточку", async () => {
+    const clientId = await client();
+    const id = await conversation("INSTAGRAM", `review3-callback-${runId}`, clientId);
+    const plan = await planCustomerLeadOnlyTurn(input({ conversationId: id, inputText: "Не звоните сейчас, позвоните завтра" }));
+    expect(plan?.scenario).toBe("callback");
+    expect(plan?.text).toContain("в удобное вам время");
+    expect(plan?.text).not.toContain("без проблем");
+    expect(await runCustomerLeadOnlyIntake(plan!.intake!, { force: true })).toEqual({ status: "notified" });
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect((await notes(id)).find(n => n.agentId === ownerId)?.tag).toContain(":callback_time");
+    expect(await prisma.interaction.findFirst({ where: { clientId, notes: { contains: "позвоните завтра" } } })).not.toBeNull();
+  });
+
+  it("№5: четыре горячих сообщения подряд — одно срочное уведомление на разговор", async () => {
+    const id = await conversation("INSTAGRAM", `review3-hot-${runId}`);
+    const statuses: string[] = [];
+    for (const summary of ["какой адрес? хотим приехать", "куда ехать?", "хотим посмотреть сегодня", "можно приехать сейчас?"]) {
+      statuses.push((await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "hot", summary })).status);
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    expect(statuses).toEqual(["notified", "deduped", "deduped", "deduped"]);
+    expect((await notes(id)).filter(n => n.tag?.includes(":hot")).length).toBe(1);
+  });
+
+  it("№6: «позван ли человек» — по точным меткам; в метке нового номера нет подбираемого отпечатка", async () => {
+    const id = await conversation("INSTAGRAM", `review3-notified-${runId}`), other = await conversation("INSTAGRAM", `review3-quiet-${runId}`);
+    expect(await leadOnlyHumanNotifiedRecently(id)).toBe(false);
+    await notifyLeadOnlyHandover({ conversationId: id, propertyId, reason: "property", summary: "интересует объект" });
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(await leadOnlyHumanNotifiedRecently(id)).toBe(true);
+    expect(await leadOnlyHumanNotifiedRecently(other)).toBe(false);
+    const cardId = await conversation("INSTAGRAM", `review3-newphone-${runId}`, await client());
+    await notifyLeadOnlyHandover({ conversationId: cardId, propertyId: null, reason: "new_phone", key: "900112233", summary: "новый номер" });
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const tag = (await notes(cardId)).find(n => n.tag?.includes(":new_phone"))?.tag ?? "";
+    expect(tag).toMatch(/:new_phone:[0-9a-f]{16}$/);
+    expect(tag).not.toContain(createHash("sha256").update("900112233").digest("hex").slice(0, 12));
   });
 });
