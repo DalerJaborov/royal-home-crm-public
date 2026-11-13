@@ -33,8 +33,8 @@ function publicReadFailed(error: unknown): { status: "unavailable"; reason: "pub
 /** ONE actual source, no copied commission constants/office/customer data. */
 export function readCustomerAgentCompanyKnowledge() {
   const f = AGENCY_FACTS;
-  return customerAgentCompanyKnowledgeSchema.parse({ version: 1, source: "AGENCY_FACTS", city: f.city, otherCities: f.otherCities,
-    commission: { ...f.commission }, rent: f.rent, installments: f.installments, mortgage: f.mortgage,
+  return customerAgentCompanyKnowledgeSchema.parse({ version: 2, source: "AGENCY_FACTS", city: f.city, otherCities: f.otherCities,
+    commission: { ...f.commission }, sellerFreeServices: { ...f.sellerFreeServices }, rent: f.rent, installments: f.installments, mortgage: f.mortgage,
     botNamesDiscount: f.botNamesDiscount, guarantees: f.guarantees });
 }
 export function currentCustomerAgentKnowledgeHash(): string { return customerAgentCompanyKnowledgeHash(readCustomerAgentCompanyKnowledge()); }

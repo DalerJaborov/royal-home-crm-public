@@ -12,7 +12,7 @@ export const CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1 = Object.freeze({
   toKnowledgeSchema: "9221c40f5fb41fd021bc8360f2c984db08239b0343815978f514a575c6b8b8b6",
 });
 
-type Protocol = Pick<CustomerAgentRevision, "promptHash" | "toolSchemaHash" | "knowledgeSchemaHash">;
+type Protocol = Pick<CustomerAgentRevision, "promptHash" | "toolSchemaHash" | "knowledgeSchemaHash"> & { knowledgeSourceHash?: string };
 
 export function isCustomerAgentQualityContinuityUpgradeV1(prior: Protocol, next: Protocol): boolean {
   const pair = CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1;
@@ -40,11 +40,37 @@ export function isCustomerAgentQualityContinuityUpgradeV2(prior: Protocol, next:
     prior.knowledgeSchemaHash === pair.fromKnowledgeSchema && next.knowledgeSchemaHash === pair.toKnowledgeSchema;
 }
 
-export type CustomerAgentQualityContinuityUpgradeVersion = "v1" | "v2";
+/** Third separately approved edge (13.11.2026): the knowledge of the retired «Обучение бота» moves
+ * into the core. The prompt gains three lines (company terms only on a direct question; exchange,
+ * new-build paperwork and "commission in the price" go to an agent; an owner asking about their own
+ * listing goes to an agent); the public knowledge gains the seller's free services and "paid once
+ * after the sale"; the owner's decision on installments/mortgage changes the knowledge SOURCE.
+ * Unlike V1/V2 this edge also pins the exact from/to knowledge source, the only way a changed
+ * AGENCY_FACTS may ride an idle advance (otherwise revision_advance_configuration_changed). */
+export const CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V3 = Object.freeze({
+  fromPrompt: CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2.toPrompt,
+  toPrompt: "3a35f071a0a71abc9bff6dfc463cc12717395bca9d146cbe0220241cca86b94e",
+  toolSchemaHash: CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2.toolSchemaHash,
+  fromKnowledgeSchema: CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2.toKnowledgeSchema,
+  toKnowledgeSchema: "f8c69e13fe7a87afce04d07143eab3ca6ce3675d53cb469934e1ab9c6c88f031",
+  fromKnowledgeSource: "f6ed6bfce552ff88f5d7069241dca6017b3f68d02de0f905319d0c43cbbd06b4",
+  toKnowledgeSource: "6962c0669134ef5003db5c95f7460665843ca8f732754eef10c865ee4cabb784",
+});
+
+export function isCustomerAgentQualityContinuityUpgradeV3(prior: Protocol, next: Protocol): boolean {
+  const pair = CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V3;
+  return prior.promptHash === pair.fromPrompt && next.promptHash === pair.toPrompt &&
+    prior.toolSchemaHash === pair.toolSchemaHash && next.toolSchemaHash === pair.toolSchemaHash &&
+    prior.knowledgeSchemaHash === pair.fromKnowledgeSchema && next.knowledgeSchemaHash === pair.toKnowledgeSchema &&
+    prior.knowledgeSourceHash === pair.fromKnowledgeSource && next.knowledgeSourceHash === pair.toKnowledgeSource;
+}
+
+export type CustomerAgentQualityContinuityUpgradeVersion = "v1" | "v2" | "v3";
 
 /** Exactly one pinned edge may match; a jump over an edge (V1.from → V2.to) is not an upgrade. */
 export function customerAgentQualityContinuityUpgradeVersion(prior: Protocol, next: Protocol): CustomerAgentQualityContinuityUpgradeVersion | null {
   if (isCustomerAgentQualityContinuityUpgradeV1(prior, next)) return "v1";
   if (isCustomerAgentQualityContinuityUpgradeV2(prior, next)) return "v2";
+  if (isCustomerAgentQualityContinuityUpgradeV3(prior, next)) return "v3";
   return null;
 }

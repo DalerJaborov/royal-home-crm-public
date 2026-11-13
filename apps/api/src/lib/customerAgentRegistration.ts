@@ -65,7 +65,7 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       "./customerLeadOnlyCore.js", "./leadOnlySettings.js", "../ai/leadOnlyMode.js", "./leadOnlyHandover.js",
       // Метка рекламы решает тему разговора ядра (вакансия, продавец, объект) — 13.11.2026.
       "./adAttribution.js", "../ai/adTemplateOpener.js"].map(apiFile)),
-    fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentSay.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
+    fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentPolicyAsked.js", "../ai/customerAgentSay.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
       "./customerPropertyFacts.js"].map(apiFile).concat(["customerPropertyPresentation.js", "propertyFinish.js", "propertyTypeFields.js"].map(path => new URL(path, sharedEntry)))),
     fileGroup(["customerAgent.js", "customerAgentDeliveryEvidence.js", "customerMutation.js", "customerState.js", "customerTools.js", "customerHandoverAck.js", "botTurnTrace.js", "customerAgentRollout.js", "customerAgentOwnerControls.js"].map(path => new URL(path, sharedEntry))),
     fileGroup(["customerAgentPublicReads.js", "customerAgentDeliveryEvidence.js", "customerPropertyContext.js", "recruitment.js", "recruitmentResume.js"].map(path => new URL(path, sharedEntry))),

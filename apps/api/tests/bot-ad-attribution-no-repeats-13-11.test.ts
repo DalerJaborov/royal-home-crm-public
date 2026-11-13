@@ -82,11 +82,11 @@ describe("B. блок, уже отправленный в разговоре, н
     const a = block();
     expect(a.split(NL).length).toBeGreaterThanOrEqual(3);
     const digests = a.split(NL).map(customerAgentLineDigest);
-    const again = render("расскажите", context([user("расскажите"), bot("Какой бюджет вы рассматриваете?"), user("1 млн")], { sentLineDigests: digests }), all)!;
+    const again = render("расскажите", context([user("расскажите"), bot("На какую сумму примерно рассчитываете?"), user("1 млн")], { sentLineDigests: digests }), all)!;
     expect(again).not.toContain("500 000");
     expect(again.split(NL)).toHaveLength(1);
     expect(again).not.toContain("—");
-    expect(again).not.toMatch(/Повторю ещё раз/u);
+    expect(again).not.toMatch(/Напомню/u);
   });
   it("без памяти строк тот же блок при новом разговоре уходит как есть", () => {
     expect(render("расскажите", context([user("привет"), bot("Здравствуйте!")]), all)).toBe(block());
@@ -95,7 +95,7 @@ describe("B. блок, уже отправленный в разговоре, н
     const a = block();
     const again = render("расскажите", context([user("расскажите"), bot(a)]), all, { question: "budget" })!;
     expect(again.split(NL)).toHaveLength(2);
-    expect(again.endsWith("Какой бюджет вы рассматриваете?")).toBe(true);
+    expect(again.endsWith("На какую сумму примерно рассчитываете?")).toBe(true);
   });
   it("короткая строка во второй раз другая, третьей копии нет", () => {
     const a = block();

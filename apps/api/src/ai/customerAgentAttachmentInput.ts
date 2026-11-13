@@ -17,8 +17,8 @@ export const FOREIGN_SHARE_LINE = {
 } as const;
 /** Our own publication (found in our account) that no object is linked to: say so once and ask for the wish in words. */
 export const OWN_SHARE_UNLINKED_LINE = {
-  ru: "Это наша публикация, но объект к ней не привязан. Напишите район и число комнат — подберу.",
-  tg: "Ин нашрияи мост, вале объект ба он пайваст нест. Минтақа ва шумораи ҳуҷраҳоро нависед — интихоб мекунам.",
+  ru: "Это наша публикация, но объект к ней не привязан. Напишите, пожалуйста, район и число комнат.",
+  tg: "Ин нашрияи мост, вале объект ба он пайваст нест. Лутфан, ноҳия ва шумораи ҳуҷраҳоро нависед.",
 } as const;
 /** Every attachment of the input is our own unlinked publication. */
 export function customerAgentOwnUnlinkedOnly(input: CustomerAgentAttachmentInput | undefined): boolean {
@@ -45,8 +45,8 @@ export const BUSINESS_QUESTION = {
 } as const;
 /** A disappearing (one-time) photo or video cannot be kept by anybody: ask for an ordinary one. */
 export const EPHEMERAL_PHOTO_LINE = {
-  ru: "Пришлите, пожалуйста, обычным фото — так агент его сохранит.",
-  tg: "Лутфан, ҳамчун акси оддӣ фиристед — агент онро нигоҳ медорад.",
+  ru: "Пришлите, пожалуйста, обычным фото, так агент его сохранит.",
+  tg: "Лутфан, ҳамчун акси оддӣ фиристед, агент онро нигоҳ медорад.",
 } as const;
 const ATTACHMENT_OBJECT_QUESTION = { ru: "Что хотите узнать об этом объекте?", tg: "Дар бораи ин объект чиро донистан мехоҳед?" };
 const ATTACHMENT_QUESTIONS = {

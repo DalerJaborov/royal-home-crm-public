@@ -74,10 +74,10 @@ export const VACANCY_FACTS = {
   schedule: "полный день, но график свободный: от агента требуется одно — принимать объекты и продавать",
 } as const;
 
-/** «Душанбе, ул. Бухоро 49, Bukhoro Tower (Дом печати), 2 этаж; ориентиры — Школа №1, Поликлиника №13». */
+/** «Душанбе, ул. Бухоро 49, Bukhoro Tower (Дом печати), 2 этаж. Ориентиры: Школа №1, Поликлиника №13». */
 export function vacancyOfficeAddress(): string {
   const o = VACANCY_FACTS.office;
-  return `${o.city}, ${o.address}; ориентиры — ${o.landmarks.join(", ")}`;
+  return `${o.city}, ${o.address}. Ориентиры: ${o.landmarks.join(", ")}`;
 }
 
 /**
@@ -94,7 +94,7 @@ export function vacancyOfficeMapUrl(): string {
 /** Same public address data; translate labels rather than duplicate facts. */
 export function vacancyOfficeAddressTg(): string {
   return vacancyOfficeAddress().replace(/ул\./gu,'кӯчаи').replace(/Дом печати/gu,'Хонаи матбуот')
-    .replace(/(\d+)\s+этаж/gu,'ошёнаи $1').replace(/ориентиры/gu,'нишонаҳо').replace(/Школа/gu,'Мактаб')
+    .replace(/(\d+)\s+этаж/gu,'ошёнаи $1').replace(/Ориентиры/gu,'Нишонаҳо').replace(/ориентиры/gu,'нишонаҳо').replace(/Школа/gu,'Мактаб')
     .replace(/Поликлиника/gu,'Дармонгоҳ').replace(/Славянский университет/gu,'Донишгоҳи славянӣ').replace(/старая София/gu,'Софияи пешина');
 }
 

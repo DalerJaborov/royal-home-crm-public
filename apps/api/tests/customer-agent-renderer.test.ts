@@ -14,7 +14,8 @@ describe("CustomerAgentRenderer draft verified-segment obligations", () => {
     const text = render([{ ref: "e0", value: { kind: "agency_contact", contact: { ...PUBLIC_AGENCY_CONTACT } } }], {
       inputText, decision: { kind: "reply", refs: ["e0"], social: "greet", question: "none" },
     });
-    expect(text).toBe("Здравствуйте!");
+    // Emoji only as the first message: the hello and the one business question (13.11.2026), still no number.
+    expect(text).toBe(inputText === "🔥🔥👏" ? "Здравствуйте!\nЧто вас интересует: покупка или продажа недвижимости?" : "Здравствуйте!");
   });
   it.each(["Номер?", "Как с вами связаться?", "Напишите ваш телефон", "Можно номер телефона?", "номер телефона чанд боша", "Рақаматон чанд?", "Номертонро нависед", "Как вам позвонить?", "Ваш WhatsApp?", "Цена и ваш номер?"])("preserves an explicit contact request: %s", inputText => {
     expect(render([{ ref: "e0", value: { kind: "agency_contact", contact: { ...PUBLIC_AGENCY_CONTACT } } }], { inputText }))

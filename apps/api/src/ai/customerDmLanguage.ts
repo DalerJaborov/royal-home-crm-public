@@ -59,7 +59,7 @@ export function customerColloquialTajikLanguage(input: string): boolean {
   const own = stripNonLanguage(clientOwnWords(input)).replace(/«[^»]*»|“[^”]*”|"[^"]*"/gu, " ");
   if (/по[-\s]русски|на русском/iu.test(own)) return false;
   const words = foldCustomerText(own).split(" ");
-  const hints = words.filter(word => /^(?:схемаша|схемаш|планировкаша|партоен|партоед|фурухта|шуд|шуда|кичода|кичо|кучода|кучо|бехтарин|макон)$/u.test(word)).length;
+  const hints = words.filter(word => /^(?:схемаша|схемаш|планировкаша|партоен|партоед|фурухта|шуд|шуда|кичода|кичо|кучода|кучо|бехтарин|макон|равон|кнен|кунед|бтен|бте|тиен|нависен|мекнен|гирен|дорен|наметен|мефурушен|мехарен)$/u.test(word)).length;
   return hints > clientLanguageScores(own).russian;
 }
 

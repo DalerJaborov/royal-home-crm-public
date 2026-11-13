@@ -293,7 +293,9 @@ describe("CustomerAgentCore private canonical public-read extension", () => {
   });
   it.each(["commission", "rental", "payment", "negotiation"] as const)("%s is a useful actual-source answer without mutation or a phone request", async topic => {
     const knowledge = readCustomerAgentCompanyKnowledge();
-    const f = fixture({ requestedFacts: [], tools: [{ name: "get_company_policy", description: "Read approved public company policy" }] });
+    // A company term is printed only for the customer's own question about it (13.11.2026).
+    const asked = { commission: "Сколько стоят ваши услуги?", rental: "Квартиру в аренду сдаёте?", payment: "Рассрочка есть?", negotiation: "Торг возможен?" }[topic];
+    const f = fixture({ inputText: asked, requestedFacts: [], tools: [{ name: "get_company_policy", description: "Read approved public company policy" }] });
     const frame = { ...f.frame, revision: { ...f.frame.revision, knowledgeSourceHash: customerAgentCompanyKnowledgeHash(knowledge) } };
     f.modelTurn.mockResolvedValueOnce({ text: "", calls: [{ name: "get_company_policy", args: { topic }, id: "policy-1" }],
       modelParts: [{ functionCall: { name: "get_company_policy", args: { topic }, id: "policy-1" } }] })
@@ -411,7 +413,7 @@ describe("CustomerAgentCore draft bounded negative controls", () => {
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result).toMatchObject({ status: "ready", question: "property", evidence: [] });
     if (result.status !== "ready") throw Error("Expected a property clarification");
-    expect(result.text).toContain("Пришлите номер объекта"); expect(result.text).not.toMatch(/телефон|сомони|123/u);
+    expect(result.text).toContain("Пришлите ссылку, скриншот объявления или номер объекта"); expect(result.text).not.toMatch(/телефон|сомони|123/u);
     expect(f.modelTurn).not.toHaveBeenCalled();
   });
   it("a failed public read stays held rather than answering a comment without facts", async () => {

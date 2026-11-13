@@ -14,13 +14,13 @@ function reply(text: string, verifiedContext?: CustomerAgentVerifiedContext, sur
 }
 
 describe("legacy seller intake through bounded customer-core progress", () => {
-  it("asks all missing seller parameters together and does not ask known rooms/area again", () => {
+  it("asks at most two missing seller parameters at a time and does not ask known rooms/area again", () => {
     const value = customerAgentIntake([user("Хочу продать квартиру. 2 комнаты, 54 м2")]);
     expect(value.role).toBe("seller");
     expect(value.sellerKnown).toEqual(expect.arrayContaining(["rooms", "area"]));
     const text = customerSellerIntakeQuestion(value.sellerKnown, "ru");
     expect(text).toContain("район или ориентир"); expect(text).toContain("этаж");
-    expect(text).toContain("одним сообщением"); expect(text).not.toMatch(/число комнат|площадь|номер телефона|сохран|агенту/iu);
+    expect(text).not.toContain("состояние"); expect(text).not.toMatch(/число комнат|площадь|номер телефона|сохран|агенту/iu);
   });
   it("retains fields beyond the short displayed history via the server summary", () => {
     const prior = context({ role: "seller", sellerKnown: ["rooms", "area", "district", "condition", "price"], buyerKnown: [] });
@@ -33,7 +33,7 @@ describe("legacy seller intake through bounded customer-core progress", () => {
     const value = customerAgentIntake([user("Ман хона мефурӯшам. 3 ҳуҷра, 80 м2, ошёнаи 4")]);
     expect(value.role).toBe("seller"); expect(value.sellerKnown).toEqual(expect.arrayContaining(["rooms", "area", "floor"]));
     const text = customerSellerIntakeQuestion(value.sellerKnown, "tg");
-    expect(text).toContain("Ҳамаашро дар як паём"); expect(text).not.toMatch(/шумораи ҳуҷраҳо|масоҳат|ошёна|телефон/iu);
+    expect(text).toContain("лутфан"); expect(text).not.toMatch(/шумораи ҳуҷраҳо|масоҳат|ошёна|телефон/iu);
   });
   it("does not learn the seller's own facts from a forwarded video/document or assistant prose", () => {
     const forwarded = wrapUntrusted("video", "2 комнаты 80 м2 3 этаж Сино с ремонтом цена 500000 сомони");

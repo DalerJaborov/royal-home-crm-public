@@ -19,7 +19,7 @@ import { customerAgentRevisionReachable } from "../src/lib/customerAgentRevision
 import { readCustomerDmSourceExecution } from "../src/lib/customerAgentEnrollment.js";
 import { Prisma } from "../src/generated/prisma/client.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
-import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
+import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V3 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
 
 const tag=`synthetic-idle-advance-${randomUUID()}`, password=`Synthetic-${tag}`, accountId=randomUUID(), oldCohort=randomUUID(),newCohort=randomUUID();
 const resource=`${tag}-resource`,peer=`${tag}-peer`,secret=`${tag}-secret`,base="/api/v1/settings/customer-agent";
@@ -106,8 +106,8 @@ it("requires separate catalog-schema consent and preserves model,50%,scopes and 
 });
 it("requires separate quality/continuity consent and retains percentage, scopes and capabilities on elevated publication",async()=>{
   const baseline=await readPolicy(),next=await registerCurrentCustomerAgentRevision(createCustomerAgentProviderSnapshot());
-  const {id:_,...manifest}=next,pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2;
-  const previous={...manifest,promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema},previousId=customerAgentManifestId(previous);
+  const {id:_,...manifest}=next,pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V3;
+  const previous={...manifest,promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema,knowledgeSourceHash:pair.fromKnowledgeSource},previousId=customerAgentManifestId(previous);
   await prisma.$executeRaw`INSERT INTO "CustomerAgentRevision" ("id","manifestJson","createdAt") VALUES (${previousId},${JSON.stringify(previous)}::jsonb,now()) ON CONFLICT DO NOTHING`;
   const value=await publication({advanceIdleRevision:true});value.rollout={...value.rollout,percentBasisPoints:10000,cohortId:randomUUID()};
   const oldRollout={...value.rollout,candidateRevisionId:previousId,cohortId:randomUUID()};

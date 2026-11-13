@@ -65,7 +65,7 @@ describe("judge turns RED on deliberately bad bots", () => {
   });
   it("RED 7: asks again for what the customer just said", () => {
     const s = scenario([{ in: "Ищу двушку в Сино до 600000 сомони" }]);
-    const j = run(s, [outcome("Какой бюджет вы рассматриваете?")]);
+    const j = run(s, [outcome("На какую сумму примерно рассчитываете?")]);
     expect(failed(j)).toContain("no-reask:budget");
   });
   it("RED 8: silence on a DM is a failure by default, silence on an abusive DM is not", () => {
@@ -88,7 +88,7 @@ describe("judge turns RED on deliberately bad bots", () => {
 describe("judge modes", () => {
   it("skips semantic rules in scripted mode and applies them in live mode", () => {
     const s = scenario([{ in: "Хочу работать у вас", expect: { topic: "job", noQuestionOf: ["property"] } }]);
-    const bad = outcome("Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.");
+    const bad = outcome("Какой объект вы имеете в виду? Пришлите ссылку, скриншот объявления или номер объекта.");
     expect(failed(run(s, [bad], "scripted"))).toEqual([]);
     expect(failed(run(s, [bad], "live"))).toEqual(expect.arrayContaining(["topic:job", "no-question:property"]));
   });

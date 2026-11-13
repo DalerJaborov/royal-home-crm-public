@@ -38,8 +38,8 @@ describe("bare affirmation after the bot's own question", () => {
     expect(customerAffirmationFollowUp("О какой квартире вы хотите узнать подробнее?", true)).toBeNull();
   });
   it("re-asks a fixed question in its repair wording, never a repair again and never a consent question", () => {
-    expect(customerAffirmationFollowUp("Какой бюджет вы рассматриваете?", false)).toBe("clarify_previous");
-    expect(customerAffirmationFollowUp("Я уточнял сумму для покупки. Какой у вас бюджет?", false)).toBeNull();
+    expect(customerAffirmationFollowUp("На какую сумму примерно рассчитываете?", false)).toBe("clarify_previous");
+    expect(customerAffirmationFollowUp("Я уточнял сумму для покупки. На какую сумму примерно рассчитываете?", false)).toBeNull();
     expect(customerAffirmationFollowUp("Вы хотите, чтобы сотрудник вам позвонил?", false)).toBeNull();
     expect(customerAffirmationFollowUp("Подтверждаете?", false)).toBeNull();
     expect(customerAffirmationFollowUp("Хотите посмотреть фото?", false)).toBeNull();
@@ -71,14 +71,14 @@ describe("core: follow-up and pre-reads", () => {
     const f = fixture({ followUp: "property", verifiedContext: context("О какой квартире вы хотите узнать подробнее?", "unknown") });
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result).toMatchObject({ status: "ready", rounds: 0, question: "property" });
-    if (result.status === "ready") expect(result.text).toContain("Пришлите номер объекта или ссылку");
+    if (result.status === "ready") expect(result.text).toContain("Пришлите ссылку, скриншот объявления или номер объекта");
     expect(f.modelTurn).not.toHaveBeenCalled();
   });
   it("re-asks a fixed budget question in the separate 'я уточнял' wording, which the repeat guard lets through", async () => {
-    const f = fixture({ followUp: "clarify_previous", verifiedContext: context("Какой бюджет вы рассматриваете?") });
+    const f = fixture({ followUp: "clarify_previous", verifiedContext: context("На какую сумму примерно рассчитываете?") });
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result).toMatchObject({ status: "ready", rounds: 0 });
-    if (result.status === "ready") expect(result.text).toBe("Я уточнял сумму для покупки. Какой у вас бюджет?");
+    if (result.status === "ready") expect(result.text).toBe("Я уточнял сумму для покупки. На какую сумму примерно рассчитываете?");
     expect(f.modelTurn).not.toHaveBeenCalled();
   });
   it("ignores the follow-up hint for a job inquiry", async () => {
@@ -110,7 +110,7 @@ describe("core: follow-up and pre-reads", () => {
     f.executeAllowedTool.mockResolvedValue(search([]));
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result).toMatchObject({ status: "ready", rounds: 0, question: "budget" });
-    if (result.status === "ready") expect(result.text).toBe("Вариантов дешевле сейчас не нашлось.\nКакой бюджет вы рассматриваете?");
+    if (result.status === "ready") expect(result.text).toBe("Вариантов дешевле сейчас не нашлось.\nНа какую сумму примерно рассчитываете?");
     expect(f.modelTurn).not.toHaveBeenCalled();
   });
   it("never presents the dearer tolerance fillers of a cheaper search as cheaper: only over-budget cards means nothing cheaper", async () => {
@@ -124,7 +124,7 @@ describe("core: follow-up and pre-reads", () => {
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(f.modelTurn).not.toHaveBeenCalled();
     if (result.status !== "ready") throw new Error("expected a ready reply " + JSON.stringify(result).slice(0, 400));
-    expect(result.text).toBe("Вариантов дешевле сейчас не нашлось.\nКакой бюджет вы рассматриваете?");
+    expect(result.text).toBe("Вариантов дешевле сейчас не нашлось.\nНа какую сумму примерно рассчитываете?");
     expect(result.text).not.toContain("830");
   });
   it("shows only the genuinely cheaper cards when the pool mixes them with over-budget fillers", async () => {

@@ -2,9 +2,14 @@ import { z } from "zod";
 
 /** Public projection only. This shape is not evidence of its server source. */
 export const customerAgentCompanyKnowledgeSchema = z.object({
-  version: z.literal(1), source: z.literal("AGENCY_FACTS"),
+  // Version 1 rows (stored delivery evidence) stay readable: the 13.11.2026 fields are optional.
+  version: z.union([z.literal(1), z.literal(2)]), source: z.literal("AGENCY_FACTS"),
   city: z.string().trim().min(1).max(80), otherCities: z.boolean(),
-  commission: z.object({ sellerPercent: z.number().finite().min(0).max(100), buyerPercent: z.number().finite().min(0).max(100) }).strict(),
+  commission: z.object({ sellerPercent: z.number().finite().min(0).max(100), buyerPercent: z.number().finite().min(0).max(100),
+    /** The seller pays once and only after the sale; no prepayment. */
+    paidOnceAfterSale: z.boolean().optional() }).strict(),
+  /** What the seller gets free before the sale, in the customer's words. */
+  sellerFreeServices: z.object({ ru: z.string().min(1).max(120), tg: z.string().min(1).max(120) }).strict().optional(),
   rent: z.boolean(), installments: z.boolean(), mortgage: z.boolean(),
   botNamesDiscount: z.boolean(), guarantees: z.boolean(),
 }).strict();

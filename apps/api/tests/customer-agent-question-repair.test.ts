@@ -11,8 +11,8 @@ function render(turns: Array<{ role: "user" | "assistant"; text: string }>, lang
     evidence, language, requestedFacts: [], knownPhoneSource: "scoped_contact", maxOutputChars: 3000, surface: "dm", verifiedContext: context(turns) });
 }
 it("explains the exact canonical budget question rather than restarting a questionnaire", () => {
-  expect(render([{ role: "assistant", text: "Какой бюджет вы рассматриваете?" }]))
-    .toBe("Я уточнял сумму для покупки. Какой у вас бюджет?");
+  expect(render([{ role: "assistant", text: "На какую сумму примерно рассчитываете?" }]))
+    .toBe("Я уточнял сумму для покупки. На какую сумму примерно рассчитываете?");
 });
 it("recognizes an actual canonical TG rooms question and stays within one question", () => {
   const text = render([{ role: "assistant", text: "Ба шумо чанд ҳуҷра лозим аст?" }], "tg");
@@ -32,20 +32,20 @@ it("keeps a verified price segment before the specific repair instead of erasing
   expect(text).toBe("Цена объекта №123: 500 000 сомони.\nЯ уточнял количество комнат. Сколько комнат вам нужно?");
 });
 it.each([
-  { turns: [{ role: "user" as const, text: "Какой бюджет вы рассматриваете?" }] },
-  { turns: [{ role: "assistant" as const, text: "Какой бюджет вы рассматриваете?" }, { role: "user" as const, text: "Уже ответил" }] },
+  { turns: [{ role: "user" as const, text: "На какую сумму примерно рассчитываете?" }] },
+  { turns: [{ role: "assistant" as const, text: "На какую сумму примерно рассчитываете?" }, { role: "user" as const, text: "Уже ответил" }] },
   { turns: [{ role: "assistant" as const, text: "Какой номер телефона вы хотите оставить для связи?" }] },
   { turns: [{ role: "assistant" as const, text: "Вы хотите, чтобы сотрудник вам позвонил?" }] },
-  { turns: [{ role: "assistant" as const, text: "Какой бюджет вы рассматриваете?\nСколько комнат вам нужно?" }] },
+  { turns: [{ role: "assistant" as const, text: "На какую сумму примерно рассчитываете?\nСколько комнат вам нужно?" }] },
 ])("uses honest generic repair for user text, answered/personal/consent or ambiguous questions: %j", ({ turns }) => {
   expect(render(turns)).toBe("Что пояснить подробнее?");
 });
 it("public rendering cannot use a supplied private-DM context for a specific repair", () => {
   expect(renderCustomerAgentDecision({ decision: { kind: "reply", refs: [], social: "none", question: "clarify_previous" },
     evidence: [], language: "ru", requestedFacts: [], knownPhoneSource: "none", surface: "public_comment", maxOutputChars: 3000,
-    verifiedContext: context([{ role: "assistant", text: "Какой бюджет вы рассматриваете?" }]) })).toBe("Что пояснить подробнее?");
+    verifiedContext: context([{ role: "assistant", text: "На какую сумму примерно рассчитываете?" }]) })).toBe("Что пояснить подробнее?");
 });
 it("model JSON cannot supply the server context or a free repair promise", () => {
   expect(customerAgentDecisionSchema.safeParse({ kind: "reply", refs: [], social: "none", question: "clarify_previous",
-    verifiedContext: context([{ role: "assistant", text: "Какой бюджет вы рассматриваете?" }]) }).success).toBe(false);
+    verifiedContext: context([{ role: "assistant", text: "На какую сумму примерно рассчитываете?" }]) }).success).toBe(false);
 });

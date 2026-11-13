@@ -30,7 +30,7 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     f.script([[reply(["e0"], "budget")]]);
     const out = await f.deliver(event);
     expect(out.text).toContain(`Цена объекта №${property.shortId}: 500 000 сомони.`);
-    expect(out.text.indexOf("500 000")).toBeLessThan(out.text.indexOf("Какой бюджет"));
+    expect(out.text.indexOf("500 000")).toBeLessThan(out.text.indexOf("На какую сумму"));
     noPersonalQuestion(out.text); expect(out.text.match(/\?/g)).toHaveLength(1);
     const firstBody = f.bodies[modelStart] as { contents: { parts: { text?: string }[] }[] };
     expect(firstBody.contents.flatMap(c => c.parts).some(p => p.text?.includes('"price":"500000"'))).toBe(true);
@@ -43,7 +43,7 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     const o = await f.owner(), event = await f.capture(o, "Какой адрес и цена объекта?");
     f.script([[reply(["e0"], "phone")]]);
     const out = await f.deliver(event);
-    expect(out.text).toContain("номер объекта или ссылку"); noPersonalQuestion(out.text);
+    expect(out.text).toContain("номер объекта"); noPersonalQuestion(out.text);
     expect(out.text).not.toMatch(/500 000|PRIVATE|Точный адрес|собственник/iu); await noActions(event);
     // Unreadable-media explanation is separately UNAVAILABLE in GAP-MANIFEST;
     // this positive proves missing-object clarification, never media interpretation.
@@ -53,7 +53,7 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     const o = await f.owner(), event = await f.capture(o, "Нархи хизмат чанд?");
     f.script([[call("get_company_policy", { topic: "commission" }, "commission")], [reply(["e0"], "role")]]);
     const out = await f.deliver(event);
-    expect(out.text).toContain("барои фурӯшанда 2%, барои харидор 0%");
+    expect(out.text).toContain("Барои харидор хизматрасонии мо ройгон аст.");
     expect(out.text).toContain("Шумо амвол харидан мехоҳед ё фурӯхтан?"); noPersonalQuestion(out.text);
     expect(out.publicData).toMatchObject({ observations: [{ kind: "company_policy", topic: "commission" }] });
     await noActions(event);
@@ -65,7 +65,7 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     f.script([[call("get_company_policy", { topic: "rental" }, "rental"), call("get_company_policy", { topic: "payment" }, "payment")],
       [reply(["e0", "e1"])]]);
     const out = await f.deliver(event);
-    expect(out.text).toContain("Сейчас арендой не занимаемся"); expect(out.text).toContain("Рассрочки нет. Ипотеки нет.");
+    expect(out.text).toContain("Сейчас арендой не занимаемся"); expect(out.text).toContain("рассрочку дают некоторые застройщики");
     expect(out.text).not.toMatch(/кредит одобрен|нашёл|одобрена|Запрос на звонок|квадратных/iu); noPersonalQuestion(out.text);
     expect(f.counts().generated - before.generated).toBe(2); expect(f.counts().counted - before.counted).toBe(2);
     const native = await prisma.botConversation.findUniqueOrThrow({ where: { id: out.row.originalNativeId! } });
@@ -77,8 +77,8 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     const o = await f.owner(), event = await f.capture(o, "Можно договориться о скидке?");
     f.script([[call("get_company_policy", { topic: "negotiation" }, "negotiation")], [reply(["e0"], "property")]]);
     const out = await f.deliver(event);
-    expect(out.text).toContain("Вопрос торга агент обсуждает с собственником.");
-    expect(out.text).toContain("Размер скидки пока не могу подтвердить."); expect(out.text).toContain("номер объекта или ссылку");
+    expect(out.text).toContain("Торг возможен. Его обсуждает агент с собственником");
+    expect(out.text).toContain("Размер скидки заранее не называю."); expect(out.text).toContain("номер объекта");
     expect(out.text).not.toMatch(/собственник согласился|уточнил у|Вопрос собственнику сохранён|скидка \d/iu);
     expect(customerDeliveryReceiptsSchema.parse(out.row.receiptRefsJson)).toEqual([]); await noActions(event);
   });
@@ -117,7 +117,7 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     f.script([[call("request_callback", { topic: "Позвоните мне" }, "quoted-old-call")],
       [call("get_company_policy", { topic: "payment" }, "payment")], [reply(["e0"])]]);
     const out = await f.deliver(event);
-    expect(out.text).toBe("Рассрочки нет. Ипотеки нет.");
+    expect(out.text).toBe("В новостройках рассрочку дают некоторые застройщики, условия у каждого свои. Ипотеку можно оформить через банк. Условия по конкретному объекту подскажет агент.");
     expect(JSON.stringify(f.bodies.slice(bodyStart))).toContain("Позвоните мне");
     expect(JSON.stringify(f.bodies.slice(bodyStart))).toContain('"status":"denied"');
     expect(JSON.stringify(f.bodies.slice(bodyStart))).not.toContain(statedPhone);
