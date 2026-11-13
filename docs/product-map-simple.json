@@ -16,10 +16,10 @@
   "paths": 749,
   "cron": 130,
   "jobs": 33,
-  "conditions": 4019,
+  "conditions": 4020,
   "untranslatedUnique": 461,
   "untranslatedTotal": 592,
-  "partialUnique": 1086,
+  "partialUnique": 1087,
   "translatedShare": 85
  },
  "untranslated": [
@@ -78781,6 +78781,13 @@
            "a": [],
            "c": [],
            "raw": "result.reason !== NEWER_INPUT_PENDING",
+           "more": true
+          },
+          {
+           "t": "если нет: rearmed",
+           "k": "if",
+           "a": [],
+           "c": [],
            "more": true
           }
          ]

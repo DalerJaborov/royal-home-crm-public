@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4035,
+  "forks": 4036,
   "mounts": 83,
   "cron": 130,
   "jobs": 33,
@@ -120921,7 +120921,7 @@
            "c": [
             {
              "k": "do",
-             "t": "await resumeDeferredCustomerInbox(eventKey);",
+             "t": "rearmed = await resumeDeferredCustomerInbox(eventKey);",
              "a": [
               "зовёт resumeDeferredCustomerInbox()"
              ],
@@ -120930,12 +120930,19 @@
            ]
           },
           {
-           "k": "do",
-           "t": "await reportUnansweredCustomerTurn(eventKey, result.reason);",
-           "a": [
-            "зовёт reportUnansweredCustomerTurn()"
-           ],
-           "c": []
+           "k": "if",
+           "t": "!rearmed",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void reportUnansweredCustomerTurn(eventKey, result.reason);",
+             "a": [
+              "зовёт reportUnansweredCustomerTurn()"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         }
@@ -121218,7 +121225,7 @@
       },
       {
        "k": "do",
-       "t": "await reportUnansweredCustomerTurn(payload.eventKey, \"consume_job_gave_up\");",
+       "t": "void reportUnansweredCustomerTurn(payload.eventKey, \"consume_job_gave_up\");",
        "a": [
         "зовёт reportUnansweredCustomerTurn()"
        ],

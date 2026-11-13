@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4035**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4036**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -26878,10 +26878,11 @@
       - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${re…
         · обращается к базе своим SQL
       - если result.reason !== NEWER_INPUT_PENDING
-        - await resumeDeferredCustomerInbox(eventKey);
+        - rearmed = await resumeDeferredCustomerInbox(eventKey);
           · зовёт resumeDeferredCustomerInbox()
-      - await reportUnansweredCustomerTurn(eventKey, result.reason);
-        · зовёт reportUnansweredCustomerTurn()
+      - если !rearmed
+        - void reportUnansweredCustomerTurn(eventKey, result.reason);
+          · зовёт reportUnansweredCustomerTurn()
   - const recovered = await recoverCustomerPendingEnvelope(eventKey);
     · зовёт recoverCustomerPendingEnvelope()
   - return prisma.$transaction(async tx
@@ -26939,7 +26940,7 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
-  - await reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up");
+  - void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up");
     · зовёт reportUnansweredCustomerTurn()
     - если customerTurnSilenceIsIntended(reason)
       - return;
