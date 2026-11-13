@@ -66,7 +66,7 @@ export async function createCustomerAgentMutationSession(raw: {
     evidence.protectedMetaEndpointScopeId === original.scope.endpointScopeId && evidence.protectedMetaAccountId === original.scope.accountId;
   // Website/PublicEnvelope may still use the core's PUBLIC reads. No write is
   // executed when the current receipt issuer cannot later authorize its ACK.
-  const features = await loadCustomerAgentFeaturePolicy();
+  const features = await loadCustomerAgentFeaturePolicy(original.scope.channel);
   const available = strong ? (Object.keys(kinds) as WriteName[]).filter(name =>
     customerActionCapability(initial.snapshot.state, kinds[name]) && (name !== "book_showing" || features.showings) &&
     (name !== "request_callback" || features.callbacks) && (name !== "ask_owner" || features.ownerQuestions) &&
@@ -146,7 +146,7 @@ export async function createCustomerAgentMutationSession(raw: {
       const command = parsedCommand.data, digest = customerMutationDigest(command), kind = customerMutationKind(command);
       try {
         if (!await assertCurrent(wait)) { stop("held"); return { status: "denied", reason: "original_context_changed" }; }
-        if (command.name === "book_showing" && !(await loadCustomerAgentFeaturePolicy()).showings) return { status: "denied", reason: "showings_disabled" };
+        if (command.name === "book_showing" && !(await loadCustomerAgentFeaturePolicy(original.scope.channel)).showings) return { status: "denied", reason: "showings_disabled" };
         const cached = seen.get(digest); if (cached) return structuredClone(cached);
         const input = frame(); if (!input) { stop("held"); return { status: "denied", reason: "original_frame_missing" }; }
         // Callback slot/consent was recorded by acceptAuthenticatedCustomerAdmission;

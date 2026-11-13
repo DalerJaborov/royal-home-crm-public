@@ -93,6 +93,7 @@ import {
   ASK_OWNER_DISABLED_RULE,
   CAUTIOUS_MODE_RULE,
   LEAD_ONLY_MODE_RULE,
+  LEAD_ONLY_MODE_RULE_WHATSAPP,
   LINKS_DISABLED_RULE,
   SHOWINGS_DISABLED_RULE,
   VACANCIES_DISABLED_RULE,
@@ -1943,7 +1944,8 @@ export async function runQualifyTurn(
     // стояла только внутри блока показов, показы выключили, и бот начал называть
     // клиенту месяц из своего обучения.
     nowBlock(dushanbeWallClock()) +
-    // Номер спрашиваем ВЕЗДЕ, включая WhatsApp (решение владельца 01.08.2026). С 31.07
+    // Номер спрашиваем ВЕЗДЕ, включая WhatsApp (решение владельца 01.08.2026) — КРОМЕ режима «только заявки» с
+    // рубильником «номер WhatsApp» (владелец 12–13.11.2026): там LEAD_ONLY_MODE_RULE_WHATSAPP ниже. С 31.07
     // здесь стоял запрет просить телефон у того, кто пишет со своего же номера, — и
     // рассуждение было верным ровно наполовину. Номер, С КОТОРОГО человек пишет, и
     // номер, ПО КОТОРОМУ он просит перезвонить, совпадают не всегда: пишут с рабочего,
@@ -2003,7 +2005,7 @@ export async function runQualifyTurn(
       : callbackAsLeadPromptRule(callbackPromise(new Date(), clientHours))) +
     (abilities.vacancies ? "" : VACANCIES_DISABLED_RULE) +
     (abilities.links ? "" : LINKS_DISABLED_RULE) +
-    (abilities.leadOnly ? LEAD_ONLY_MODE_RULE : "") +
+    (abilities.leadOnly ? (abilities.leadOnlyWhatsappNumber ? LEAD_ONLY_MODE_RULE_WHATSAPP : LEAD_ONLY_MODE_RULE) : "") +
     // Выводы из случаев, где бот уже ошибался (см. lib/botLessons.ts). Идут в
     // изменяемую часть промта, а не в кэшируемую: список пополняется каждую ночь,
     // и внутри кэш-блока он ломал бы побайтовое совпадение префикса.

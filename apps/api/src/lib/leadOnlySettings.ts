@@ -70,8 +70,10 @@ export async function leadOnlyMarketSummary(intent: CustomerSearchIntent | null)
       // Район назван, но не распознан: «от N» по всему городу было бы неправдой о его районе.
       if (!districtName) return null;
     }
+    // Тип не назван — только жильё (квартира, дом): «варианты от 15 000» за гараж, участок или коммерцию человеку,
+    // который ищет где жить, было бы неправдой (второе ревью 13.11).
     const rows = await findMatchingProperties({ type: intent?.type, districtName: districtName ?? undefined, rooms: intent?.rooms,
-      sort: "cheap" }, { limit: 20 });
+      sort: "cheap" }, { limit: 20, ...(intent?.type ? {} : { scope: { type: { in: ["APARTMENT", "HOUSE"] } } }) });
     const money = await loadMoneyContext();
     let best: { price: string; currency: string; tjs: number } | null = null;
     for (const row of rows) {

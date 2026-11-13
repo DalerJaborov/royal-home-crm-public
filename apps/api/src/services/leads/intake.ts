@@ -1,4 +1,5 @@
 import { Prisma, type Client } from "../../generated/prisma/client.js";
+import { adPropertyForLead } from "../../lib/adPropertyRule.js";
 import { prisma, type TxClient } from "../../db.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
 import { reactivationResetData } from "../../lib/clientLifecycle.js";
@@ -1698,10 +1699,10 @@ export async function processNewCustomerLeadPolicy(actionId: string): Promise<vo
     await prisma.client.updateMany({ where: { id: client.id, sourceAdId: null }, data: { sourceAdId: bound.adExternalId } });
   }
   // Только покупателю и только с рекламы объекта: продавец или кандидат, пришедший когда-то с рекламы квартиры,
-  // не должен уехать агенту той квартиры (ревью 13.11.2026; режим выключен — тоже).
-  const adPropertyFits = !progress.intakeContext.propertyId && !!bound.adPropertyId && client.kind === "BUYER" &&
-    (bound.adTopic ?? "property") === "property";
-  const context = { ...progress.intakeContext, ...(adPropertyFits ? { propertyId: bound.adPropertyId! } : {}) };
+  // не должен уехать агенту той квартиры (ревью 13.11.2026; режим выключен — тоже). Одно правило со старым путём.
+  const adProperty = progress.intakeContext.propertyId ? null
+    : adPropertyForLead({ kind: client.kind, adPropertyId: bound.adPropertyId, adTopic: bound.adTopic });
+  const context = { ...progress.intakeContext, ...(adProperty ? { propertyId: adProperty } : {}) };
   await createNewChannelLead({ ...context, fullName: client.fullName, phone: client.phone, source: client.source,
     kind: client.kind, budgetMin: finiteNumber(client.budgetMin), budgetMax: finiteNumber(client.budgetMax),
     desiredDistrictId: client.desiredDistrictId ?? undefined, desiredRooms: client.desiredRooms ?? undefined,
