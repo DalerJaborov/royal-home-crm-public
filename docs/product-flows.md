@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **725**. Развилок в самих путях: **2412**; вместе с задачами по расписанию и фоновыми заданиями — **3947**. Модулей: **79**.
+Путей: **725**. Развилок в самих путях: **2414**; вместе с задачами по расписанию и фоновыми заданиями — **3949**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -17827,11 +17827,15 @@
 - const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   · зовёт persistVerifiedCustomerIngressBatch()
 - если durableIngress.status === "denied" || durableIngress.status === "unavailable"
+  - reportMetaWebhookNotSaved("dm", durableIngress.reason, metaWebhookAccount(req.body));
+    · зовёт reportMetaWebhookNotSaved()
   - return res.status(503).json({ error: "Входящее событие пока не сохранено" });
     · ответ 503 — «Входящее событие пока не сохранено»
 - const publicIngress = await persistVerifiedMetaPublicCommentBatch(req);
   · зовёт persistVerifiedMetaPublicCommentBatch()
 - если publicIngress.status === "held"
+  - reportMetaWebhookNotSaved("public_comment", publicIngress.reason, metaWebhookAccount(req.body));
+    · зовёт reportMetaWebhookNotSaved()
   - return res.status(503).json({ error: "Комментарий пока не сохранён" });
     · ответ 503 — «Комментарий пока не сохранён»
 - res.json({ ok: true });
@@ -17841,6 +17845,9 @@
   · читает в базе: botConversation
   · меняет в базе: botConversation
   · запись в журнал ошибок
+  - если (durableIngress.status === "persisted" || durableIngress.status === "bypass") && durableIngress.held?.length
+    - await notifyHeldCustomerMessages(durableIngress.held);
+      · зовёт notifyHeldCustomerMessages()
   - для каждого: const message of incoming
     - если message.isEcho
       - continue;
@@ -17939,6 +17946,11 @@
           - пробует
             - если msg.isEcho
               - await handleOutgoingEcho(msg);
+                · дословно из кода
+              - continue;
+                · дословно из кода
+            - если inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD"
+              - traceOutcome("blocked");
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -26097,8 +26109,10 @@
         · дословно из кода
     - иначе
       - пробует
-        - decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: row.scopeKey, en…
+        - const payload = decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: …
           · зовёт decryptCustomerIngressPayload()
+        - reason = customerNonInputCode(payload) ?? reason;
+          · зовёт customerNonInputCode()
       - если сорвалось
         - reason = "payload_binding_invalid";
           · дословно из кода
