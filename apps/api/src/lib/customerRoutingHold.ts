@@ -5,46 +5,51 @@
 // A permanent hold never clears on retry, so Meta retried for ~15 minutes and
 // then dropped the customer's message, and nothing reached the error log.
 //
-// Now each reason has one of three dispositions:
-//  - "retry": a race that a redelivery can resolve -> keep 503, Meta retries;
-//  - "already_handled": the event was already seen by the old bot -> ACK quietly;
-//  - "report" (DEFAULT for every other and every future reason): the text is
-//    written into the person's CRM chat BEFORE the ACK (customerHeldMessage.ts),
-//    Meta gets 200, the message stays OUT of both bots exactly as before (HELD
-//    never falls into the legacy controller; the webhook skips it by its routing
-//    witness before any Graph lookup), and after the ACK the responsible agent
-//    gets one notification with the client's name and a link to the chat.
+// Now each reason has one of two dispositions:
+//  - "unavailable" (503, Meta retries, nothing written): a race a redelivery can
+//    resolve; a REDELIVERY of a MID that already has its original source; the
+//    deliberate cross-account collision guard. Every 503 is logged per account.
+//  - "report" (DEFAULT for every other and every future reason): a NEW message
+//    held for good. Its text is written into the person's CRM chat BEFORE the ACK
+//    (customerHeldMessage.ts), Meta gets 200, no bot answers it (the webhook skips
+//    it by its witness before any Graph lookup), and after the ACK the responsible
+//    agent gets one notification with the client's name and a link to the chat.
 // A new reason therefore never silently becomes "503 forever" again; the guard
 // test `customer-routing-hold-disposition.test.ts` lists every held() literal of
 // the routing chain and fails until the new one is classified on purpose.
 import { logSystemError } from "./systemError.js";
 
-export type CustomerRoutingHoldDisposition = "retry" | "already_handled" | "report";
+export type CustomerRoutingHoldDisposition = "unavailable" | "report";
 
 /** Transient: the same delivery can succeed a moment later. */
 export const CUSTOMER_ROUTING_HOLD_RETRY = ["captured_scope_changed", "assignment_commit_missing"] as const;
-/** The original MID is already in the legacy native history: it was handled. */
-export const CUSTOMER_ROUTING_HOLD_ALREADY_HANDLED = ["original_native_source_already_observed"] as const;
-/** Permanent until a person changes data/settings; listed so the guard test
- * can tell "classified on purpose" from "added and forgotten". */
+/** A REDELIVERY of a MID that already has an original source (ticket or legacy
+ * native history): the message itself was already taken in once. Nothing is
+ * written again (no second chat line, no recreated chat, tombstone kept) and
+ * the webhook keeps answering 503 without a turn, as before 13.11
+ * (customer-original-source / legacy-cutover tests guard this). */
+export const CUSTOMER_ROUTING_HOLD_REDELIVERY = ["original_source_changed", "source_tombstoned_or_ambiguous",
+  "source_assignment_changed", "original_native_source_already_observed", "historical_legacy_selection_conflict"] as const;
+/** Deliberate boundary: the same raw peer on another account is refused until
+ * the contract-cutover release (Phase-A collision guard). Stays 503, now logged. */
+export const CUSTOMER_ROUTING_HOLD_GUARD = ["legacy_native_scope_collision"] as const;
+/** Permanent hold of a NEW message: ACK 200, text into the CRM chat, staff
+ * notified. Listed so the guard test can tell "classified on purpose" from
+ * "added and forgotten"; any unknown reason is treated as "report" too. */
 export const CUSTOMER_ROUTING_HOLD_REPORT = [
-  "subject_invalid", "core_assignment_invalid", "source_tombstoned_or_ambiguous", "original_source_changed",
-  "source_assignment_changed", "active_transaction_required", "surface_enrollment_unavailable", "policy_missing_or_invalid",
+  "subject_invalid", "core_assignment_invalid", "active_transaction_required", "surface_enrollment_unavailable", "policy_missing_or_invalid",
   "owned_subject_stopped", "rollout_config_required", "shadow_not_implemented", "candidate_policy_mismatch",
-  "pinned_campaign_unavailable", "cohort_candidate_changed", "registered_candidate_missing", "legacy_native_scope_collision",
+  "pinned_campaign_unavailable", "cohort_candidate_changed", "registered_candidate_missing",
   "historical_subject_owned_or_closed", "historical_public_subject_owned_or_unbounded", "unkeyed_core_input_unsupported",
-  "historical_legacy_selection_conflict", "historical_brains_conflict",
+  "historical_brains_conflict",
   // Public-comment ownership reads in the same module (not a DM witness today).
   "source_reference_invalid", "source_missing", "staff_public_source_owned", "legacy_source_managed_conflict", "core_public_origin_missing",
 ] as const;
 
-const retry = new Set<string>(CUSTOMER_ROUTING_HOLD_RETRY);
-const handled = new Set<string>(CUSTOMER_ROUTING_HOLD_ALREADY_HANDLED);
+const unavailable = new Set<string>([...CUSTOMER_ROUTING_HOLD_RETRY, ...CUSTOMER_ROUTING_HOLD_REDELIVERY, ...CUSTOMER_ROUTING_HOLD_GUARD]);
 
 export function customerRoutingHoldDisposition(reason: string): CustomerRoutingHoldDisposition {
-  if (retry.has(reason)) return "retry";
-  if (handled.has(reason)) return "already_handled";
-  return "report";
+  return unavailable.has(reason) ? "unavailable" : "report";
 }
 
 /** A 503 to Meta is a promise that the retry may succeed. Make every one visible:

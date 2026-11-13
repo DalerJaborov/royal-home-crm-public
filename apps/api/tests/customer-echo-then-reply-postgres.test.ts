@@ -281,8 +281,10 @@ it("core switched off: the CORE person's message is in their CRM chat, no bot an
   await waitFor(async () => (await heldNotices(chat.id!)).length > 0, { label: "уведомление сотруднику о непереданном сообщении", timeoutMs: 5000 });
   const notices = await waitForSettled(() => heldNotices(chat.id!));
   expect(notices[0].url).toBe(`/messages?open=${chat.id}`); expect(notices[0].body).toContain(DM_TEXT);
-  // Redelivery of the same MID and a second message inside the window: one chat line per MID, no second call.
-  expect((await post(o, raw)).status).toBe(200); expect((await post(o, rawDm(o))).status).toBe(200); await drain();
+  // A redelivery of the SAME MID now has its original source in the chat: like every
+  // redelivery of a sourced MID it is refused (503) and writes nothing a second time.
+  // A second NEW message inside the window: written, but no second call.
+  expect((await post(o, raw)).status).toBe(503); expect((await post(o, rawDm(o))).status).toBe(200); await drain();
   expect((await chatWith(o, mid)).held).toHaveLength(1);
   // Routing already refuses a MID it finds in the chat; the chat writer itself must
   // still hold under two simultaneous first deliveries of one new MID.

@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CUSTOMER_ROUTING_HOLD_ALREADY_HANDLED, CUSTOMER_ROUTING_HOLD_REPORT, CUSTOMER_ROUTING_HOLD_RETRY,
+import { CUSTOMER_ROUTING_HOLD_GUARD, CUSTOMER_ROUTING_HOLD_REDELIVERY, CUSTOMER_ROUTING_HOLD_REPORT, CUSTOMER_ROUTING_HOLD_RETRY,
   customerRoutingHoldDisposition } from "../src/lib/customerRoutingHold.js";
 import { CUSTOMER_NON_INPUT_TICKET_CODES, customerNonInputCode } from "../src/lib/customerIngressNonInput.js";
 
@@ -20,13 +20,16 @@ describe("customer DM routing holds", () => {
       ...all(src("customerAgentIngressRouting.ts"), /lane: "HELD" as const, reason: "([a-z_]+)"/g),
     ]);
     expect(reasons.size).toBeGreaterThan(15); // the scan itself works
-    const known = new Set<string>([...CUSTOMER_ROUTING_HOLD_RETRY, ...CUSTOMER_ROUTING_HOLD_ALREADY_HANDLED, ...CUSTOMER_ROUTING_HOLD_REPORT]);
+    const known = new Set<string>([...CUSTOMER_ROUTING_HOLD_RETRY, ...CUSTOMER_ROUTING_HOLD_REDELIVERY, ...CUSTOMER_ROUTING_HOLD_GUARD,
+      ...CUSTOMER_ROUTING_HOLD_REPORT]);
     expect([...reasons].filter(reason => !known.has(reason))).toEqual([]);
   });
 
-  it("only real races answer 503; the 12.11 reason and unknown reasons are ACKed and reported", () => {
-    expect(customerRoutingHoldDisposition("captured_scope_changed")).toBe("retry");
-    expect(customerRoutingHoldDisposition("original_native_source_already_observed")).toBe("already_handled");
+  it("races, redeliveries of a sourced MID and the collision guard answer 503; new held messages are ACKed and reported", () => {
+    expect(customerRoutingHoldDisposition("captured_scope_changed")).toBe("unavailable");
+    expect(customerRoutingHoldDisposition("original_native_source_already_observed")).toBe("unavailable");
+    expect(customerRoutingHoldDisposition("original_source_changed")).toBe("unavailable");
+    expect(customerRoutingHoldDisposition("legacy_native_scope_collision")).toBe("unavailable");
     expect(customerRoutingHoldDisposition("historical_subject_owned_or_closed")).toBe("report");
     expect(customerRoutingHoldDisposition("owned_subject_stopped")).toBe("report");
     expect(customerRoutingHoldDisposition("some_future_reason")).toBe("report");

@@ -32,7 +32,6 @@ export async function persistVerifiedCustomerIngressBatch(request: Request): Pro
     // Only a transient hold answers 503; a permanent one is ACKed and reported,
     // otherwise Meta retries ~15 min and drops the message unseen (12.11.2026).
     const held = (owned ?? []).flatMap(row => row.execution.lane === "HELD" ? [{ row, reason: row.execution.reason }] : []);
-    if (held.some(hold => customerRoutingHoldDisposition(hold.reason) === "retry")) return { status: "unavailable", reason: "routing_held" };
     // The text of a permanently held DM goes into the person's CRM chat BEFORE
     // the ACK (idempotent by MID); a write failure throws -> 503 -> Meta retries.
     // Notifications are the webhook's job AFTER the whole batch is durable.
@@ -43,6 +42,10 @@ export async function persistVerifiedCustomerIngressBatch(request: Request): Pro
         ? await recordHeldCustomerMessage({ reason, input: row.input as CustomerNormalizedIngressInput, transport: row.transport })
         : { reason, channel: row.input.channel, peer: row.input.peer, accountExternalId: row.input.accountExternalId ?? null, conversationId: null, excerpt: "" });
     }
+    // A race, a redelivery of an already-sourced MID or the collision guard keeps
+    // the old 503 for the whole body; new held texts above are already in their
+    // chats (idempotent), so the retry Meta sends loses nothing.
+    if (held.some(hold => customerRoutingHoldDisposition(hold.reason) === "unavailable")) return { status: "unavailable", reason: "routing_held" };
     const result = await persistRoutedCustomerIngress(request, routing, owned);
     return holds.length && (result.status === "persisted" || result.status === "bypass") ? { ...result, held: holds } : result;
   } catch (error) {
