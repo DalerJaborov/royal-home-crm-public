@@ -32,9 +32,17 @@ export const MAX_STORED_MESSAGES = 40;
  * колонку исходящее сообщение сотрудника — запись устаревшего снимка затёрла бы его.
  * Поэтому пишем ТОЛЬКО новые реплики, а конкатенацию делает Postgres.
  */
-export async function appendConversationMessages(conversationId: string, newMessages: ChatMessage[]): Promise<void> {
+export async function appendConversationMessages(conversationId: string, newMessages: ChatMessage[],
+  /** Запись, которая обязана лечь вместе с репликами (одна транзакция): например, память режима «только заявки». */
+  alongside?: (tx: TxClient) => Promise<void>): Promise<void> {
   if (newMessages.length === 0) return;
-  const { affectedRows, messages } = await appendConversationRows(prisma, conversationId, newMessages);
+  const { affectedRows, messages } = alongside
+    ? await prisma.$transaction(async (tx) => {
+      const rows = await appendConversationRows(tx, conversationId, newMessages);
+      await alongside(tx);
+      return rows;
+    })
+    : await appendConversationRows(prisma, conversationId, newMessages);
   traceWebsiteMessagesPersisted(conversationId, messages, affectedRows);
   void publishMessageNew("bot", conversationId, batchDirection(messages));
   if (batchDirection(messages) === "IN") scheduleSellerFactsRefreshForConversation("bot", conversationId);

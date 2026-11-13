@@ -60,7 +60,8 @@ import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
 import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyGivenLineAvoidingRepeat, leadOnlyStripPhoneAsk } from "../ai/leadOnlyMode.js";
 import { leadOnlyHumanNotifiedRecently, notifyLeadOnlyHandover } from "../lib/leadOnlyHandover.js";
-import { readLeadOnlyPending, rememberLeadOnlyAsk } from "../lib/leadOnlyPending.js";
+import { applyLeadOnlyPending, readLeadOnlyPending } from "../lib/leadOnlyPending.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { adPropertyForLead } from "../lib/adPropertyRule.js";
 import { legacyLeadOnlyDraftForPhone, planLegacyLeadOnlyTurn } from "./leadOnlyLegacy.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
@@ -1467,7 +1468,9 @@ export async function acceptLead(
   try {
     linked = await prisma.botConversation.update({
       where: { id: conversationId },
-      data: { clientId, leadDraft: leadDraftDone },
+      // Режим «только заявки»: заявка оформлена — память «о чём просили номер» стирается здесь же
+      // (lib/leadOnlyPending.ts, третье ревью 13.11, №2), иначе старый объект стал бы объектом разговора.
+      data: { clientId, leadDraft: leadDraftDone, leadOnlyPending: Prisma.DbNull },
       select: { channel: true, subscriberId: true, adExternalId: true, contactProfileId: true },
     });
   } catch (err) {
@@ -3135,11 +3138,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       // Заявку принимаем в любое время суток, но НАЗНАЧЕНИЕ агента вне рабочих
       // часов откладываем до утренней волны: ночью её всё равно некому взять, а
       // счётчик времени ответа агенту шёл бы, пока тот спит.
-      // Режим «только заявки»: тема заявки — то, о чём бот просил номер (lib/leadOnlyPending.ts, второе ревью 13.11, №1),
-      // иначе прежние слова клиента (номер сам её не несёт).
+      // Режим «только заявки»: тема и объект ЭТОГО сообщения сильнее памяти просьбы (третье ревью 13.11, №1); голый номер —
+      // то, о чём бот просил номер (lib/leadOnlyPending.ts), иначе прежние слова клиента.
       const draftForLead = leadOnlyChannel ? legacyLeadOnlyDraftForPhone({ config: leadOnlyConfig, history, text: saidWithPhone || text, draft,
-        propertyId: input.sharedPropertyId ?? input.adPropertyId ?? draft.requestedPropertyId ?? null, jobTopic: vacancyTopic,
-        pending: await readLeadOnlyPending(conversation.id) }) : draft;
+        freshPropertyId: input.sharedPropertyId ?? input.adPropertyId ?? null, carriedPropertyId: draft.requestedPropertyId ?? null,
+        jobTopic: vacancyTopic, pending: await readLeadOnlyPending(conversation.id) }) : draft;
       return await acceptLead(conversation.id, channel, conversation.name ?? name, phoneForLead, draftForLead, history, {
         // Объект известен (сценарий 2) — его агенту сразу, в любое время; иначе ночью — утренней волной.
         deferAssignment: leadOnlyChannel && draftForLead.requestedPropertyId ? false : !(await isWithinWorkingHours()),
@@ -3330,7 +3333,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         leadOnlyPropertyFresh = propertyAdmission.status === "admitted" && context.snapshot.focus.eventKey === propertyAdmission.ticket.eventKey;
       }
     }
-    // Объект, о котором бот уже просил номер (пост прошлого хода), тоже объект разговора (второе ревью 13.11).
+    // Объект, о котором бот уже просил номер (пост прошлого хода), тоже объект разговора (второе ревью 13.11) — но после
+    // объекта этого сообщения и названного в черновике; у диалога с карточкой памяти нет (lib/leadOnlyPending.ts).
     const leadOnlyPending = await readLeadOnlyPending(conversation.id);
     leadOnlyPropertyId = leadOnlyPropertyId ?? draft.requestedPropertyId ?? leadOnlyPending?.propertyId ?? (await propertyChatLeadPropertyId(conversation.id)) ??
       (await conversationAdPropertyId(conversation.id)) ?? null;
@@ -3339,9 +3343,6 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       jobTopic: vacancyTopic, pending: leadOnlyPending,
       humanNotified: await leadOnlyHumanNotifiedRecently(conversation.id).catch(() => false) });
     if (plan) {
-      // Бот просит номер — запомнить, о чём: ход с одним номером возьмёт сценарий и объект отсюда (второе ревью, №1).
-      if (plan.remember) await rememberLeadOnlyAsk(prisma, conversation.id, plan.remember)
-        .catch((err) => console.error("[messenger] режим «только заявки»: тема просьбы номера не записана:", err));
       if (plan.phone && !conversation.clientId) {
         // Реплика клиента уже в переписке (saveIncoming выше): приём — тихий и без повторной записи.
         let failure: string | null = null;
@@ -3371,15 +3372,21 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
           await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: plan.propertyId, reason: "no_agent",
             summary: plan.draft.callbackTopic ?? "заявка из переписки" }).catch((err) => console.error("[messenger] передача человеку:", err));
         }
+      } else if (plan.scenario === "callback") {
+        // Клиент с карточкой назвал, когда ему звонить (третье ревью 13.11, №4): агенту — пометка в карточку и пуш.
+        await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: null, reason: "callback_time", key: plan.callbackTime ?? "",
+          summary: `Клиент просит звонить: «${plan.callbackTime ?? ""}»` }).catch((err) => console.error("[messenger] режим «только заявки» → агенту:", err));
       } else if (plan.needsHuman) {
         // «Передаю агенту» или понравившийся объект без новой заявки (номера нет или карточка уже есть): человек узнаёт сразу.
         await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: plan.propertyId,
           reason: plan.scenario === "hot" ? "hot" : "property",
           summary: plan.draft.callbackTopic ?? "Клиент готов смотреть" }).catch((err) => console.error("[messenger] режим «только заявки» → агенту:", err));
       }
+      // Бот просит номер — запомнить, о чём (ход с одним номером возьмёт сценарий и объект отсюда); тема сменилась —
+      // забыть. В одной транзакции с ответом, как в ядре: просьба без памяти или память без просьбы не остаются.
       await appendConversationMessages(conversation.id, [
         { role: "assistant", content: plan.reply, by: { kind: "bot" }, ...(turnMid ? { replyToMid: turnMid } : {}) },
-      ]);
+      ], plan.remember || plan.forget ? (tx) => applyLeadOnlyPending(tx, conversation.id, plan) : undefined);
       const linkedNow = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { clientId: true } })
         .then((row) => !!row?.clientId).catch(() => !!conversation.clientId);
       return { reply: plan.reply, ready: true, accepted: linkedNow };

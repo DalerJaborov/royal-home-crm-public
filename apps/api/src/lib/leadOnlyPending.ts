@@ -8,14 +8,26 @@
  * старый путь — messengers/leadOnlyLegacy.ts) записывают сюда сценарий и объект, а ход с номером
  * читает их отсюда. Одна дверь записи и чтения, колонка BotConversation.leadOnlyPending.
  *
+ * Третье ревью 13.11.2026, №1–№2: память — запасной ответ, а не приказ.
+ *  - Тема и объект ТЕКУЩЕГО сообщения сильнее запомненных («хочу продать свою квартиру, 93…» через
+ *    три дня после поста объекта A — продавец, а не покупатель A). Это решают маршруты, память лишь
+ *    подсказывает тему голому номеру или отказу.
+ *  - Заявка оформлена — память стирается (acceptLead, одна дверь заявок из переписки); у диалога с
+ *    карточкой память не читается вовсе (просьба номера бывает только без карточки, и привязка
+ *    другим путём — оператором, мостом ядра — тоже её гасит).
+ *  - Клиент сменил тему или объект, а номер бот больше не просит — память стирается ходом (`forget`).
+ *  - Срок — трое суток: номер в ответ на «оставьте номер» приходит в пределах часов, реже на
+ *    следующий день или после выходных; неделя держала чужой объект слишком долго.
+ *
  * Хранится только id объекта и сценарий: ни слов, ни номера клиента.
  */
 import { z } from "zod";
+import { Prisma } from "../generated/prisma/client.js";
 import { prisma, type TxClient } from "../db.js";
 import type { LeadOnlyScenario } from "../ai/leadOnlyMode.js";
 
-/** Дольше недели просьба номера не живёт: тема могла смениться, а номер через месяц — новый разговор. */
-export const LEAD_ONLY_PENDING_TTL_MS = 7 * 24 * 60 * 60_000;
+/** Трое суток (третье ревью 13.11): после этого номер — новый разговор, а не ответ на старую просьбу. */
+export const LEAD_ONLY_PENDING_TTL_MS = 3 * 24 * 60 * 60_000;
 
 const pendingSchema = z.object({
   version: z.literal(1),
@@ -38,12 +50,32 @@ export function parseLeadOnlyPending(raw: unknown, now: Date = new Date()): Lead
   return age >= 0 && age <= LEAD_ONLY_PENDING_TTL_MS ? parsed.data : null;
 }
 
-/** Записать, о чём попросили номер. `db` — транзакция хода ядра или общий клиент старого пути. */
+/** Память из строки диалога: у диалога с карточкой её нет (номер у агента уже есть, просить было нечего). */
+export function leadOnlyPendingOfRow(row: { clientId: string | null; leadOnlyPending: unknown } | null | undefined,
+  now: Date = new Date()): LeadOnlyPending | null {
+  return row && !row.clientId ? parseLeadOnlyPending(row.leadOnlyPending, now) : null;
+}
+
+/** Записать, о чём попросили номер. `db` — транзакция хода (ядро и старый путь пишут вместе с ответом). */
 export async function rememberLeadOnlyAsk(db: TxClient | typeof prisma, conversationId: string, pending: LeadOnlyPending): Promise<void> {
   await db.botConversation.updateMany({ where: { id: conversationId }, data: { leadOnlyPending: pending } });
 }
 
+/** Стереть память: заявка оформлена или тема сменилась. Пустая колонка не трогается (нет лишней записи). */
+export async function forgetLeadOnlyAsk(db: TxClient | typeof prisma, conversationId: string): Promise<void> {
+  await db.botConversation.updateMany({ where: { id: conversationId, leadOnlyPending: { not: Prisma.DbNull } },
+    data: { leadOnlyPending: Prisma.DbNull } });
+}
+
+/** Что сделать с памятью в конце хода режима: записать новую просьбу, стереть или не трогать. */
+export async function applyLeadOnlyPending(db: TxClient | typeof prisma, conversationId: string,
+  plan: { remember: LeadOnlyPending | null; forget?: boolean }): Promise<void> {
+  if (plan.remember) await rememberLeadOnlyAsk(db, conversationId, plan.remember);
+  else if (plan.forget) await forgetLeadOnlyAsk(db, conversationId);
+}
+
 export async function readLeadOnlyPending(conversationId: string, now: Date = new Date()): Promise<LeadOnlyPending | null> {
-  const row = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { leadOnlyPending: true } }).catch(() => null);
-  return parseLeadOnlyPending(row?.leadOnlyPending, now);
+  const row = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { clientId: true, leadOnlyPending: true } })
+    .catch(() => null);
+  return leadOnlyPendingOfRow(row, now);
 }

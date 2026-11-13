@@ -8,8 +8,9 @@
  * «передаю агенту» без заявки — lib/leadOnlyHandover.ts, тоже у вызывающего.
  */
 import { AGENCY_FACTS } from "../ai/agencyFacts.js";
-import { leadOnlyAppliesTo, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused, leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig,
-  type LeadOnlyLanguage, type LeadOnlyPhoneState, type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
+import { leadOnlyAppliesTo, leadOnlyCallbackNotedLine, leadOnlyCallbackTime, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory,
+  leadOnlyPhoneRefused, leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
+  type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
 import { customerSearchContinuation, customerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
 import type { ChatMessage } from "../ai/shared.js";
@@ -22,7 +23,8 @@ import { leadOnlyPendingOf, type LeadOnlyPending } from "../lib/leadOnlyPending.
 
 export interface LegacyLeadOnlyPlan {
   reply: string;
-  scenario: LeadOnlyScenario;
+  /** «callback» — клиент с карточкой назвал удобное время звонка: заявки нет, агенту — пометка. */
+  scenario: LeadOnlyScenario | "callback";
   /** Номер для заявки: WhatsApp-отправителя или названный клиентом. null — номера нет (или карточка уже есть). */
   phone: string | null;
   whatsappPhone: string | null;
@@ -33,8 +35,12 @@ export interface LegacyLeadOnlyPlan {
   promised: "call" | "chat";
   /** Ответ говорит «передаю агенту» (или объект без номера) без новой заявки: вызывающий обязан позвать человека. */
   needsHuman: boolean;
-  /** Бот просит номер: о чём (сценарий и объект). Вызывающий записывает (lib/leadOnlyPending.ts). */
+  /** Бот просит номер: о чём (сценарий и объект). Вызывающий записывает вместе с ответом (lib/leadOnlyPending.ts). */
   remember: LeadOnlyPending | null;
+  /** Тема или объект сменились, а номер бот больше не просит: память о прежней просьбе стереть. */
+  forget: boolean;
+  /** Когда клиент просит звонить (его слова), если назвал. */
+  callbackTime: string | null;
 }
 
 const NOTE: Record<LeadOnlyScenario, string> = {
@@ -49,6 +55,11 @@ const NOTE_CHAT: Record<LeadOnlyScenario, string> = {
   seller: "Хочет продать, номера нет",
   buyer: "Ищет недвижимость, номера нет",
 };
+
+/** Когда звонить — из этого сообщения, иначе из последнего, где клиент это назвал. */
+function callbackTimeOf(own: string, earlierUserWords: readonly string[]): string | null {
+  return [own, ...earlierUserWords.slice().reverse()].map(text => leadOnlyCallbackTime(text)).find(Boolean) ?? null;
+}
 
 export async function planLegacyLeadOnlyTurn(input: {
   config: LeadOnlyConfig;
@@ -75,7 +86,17 @@ export async function planLegacyLeadOnlyTurn(input: {
   const jobTopic = input.jobTopic || input.draft.intent === "job";
   let scenario = leadOnlyScenario({ text: own, propertyKnown: !!input.propertyId, propertyInMessage: input.propertyInMessage,
     propertyAsked: !!input.propertyId && leadOnlyPropertyAsked(own), jobTopic, config: input.config });
+  // Тема пришла словами ЭТОГО сообщения (а не из памяти просьбы): прежняя просьба номера больше не о том.
+  const topicNow = !!scenario;
   const userWords = input.history.filter(m => m.role === "user").map(m => clientOwnWords(String(m.content ?? "")));
+  const turns = input.history.map(m => ({ role: m.role === "user" ? "user" as const : "assistant" as const, text: String(m.content ?? "") }));
+  const sent = turns.filter(t => t.role === "assistant").map(t => t.text);
+  const callbackTime = jobTopic ? null : callbackTimeOf(own, userWords);
+  // Клиент с карточкой назвал, когда ему звонить (третье ревью 13.11, №4): агент узнаёт, звонок не невпопад.
+  if (input.linked && !jobTopic && scenario !== "hot" && leadOnlyCallbackTime(own)) {
+    return { reply: leadOnlyCallbackNotedLine(input.language, sent), scenario: "callback", phone: null, whatsappPhone: null, propertyId: null,
+      draft: input.draft, promised: "call", needsHuman: true, remember: null, forget: false, callbackTime };
+  }
   // Отказ дать номер (в этом сообщении или раньше): больше не просим, «хорошо, без проблем» и номер офиса (второе ревью 13.11).
   const refusedNow = leadOnlyPhoneRefused(own);
   const refused = refusedNow || userWords.some(text => leadOnlyPhoneRefused(text));
@@ -88,8 +109,6 @@ export async function planLegacyLeadOnlyTurn(input: {
   if (!scenario) return null;
   // Заявка уже есть: «агент позвонит» не повторяем каждый ход; горячие слова — агенту сразу (это делает вызывающий).
   if (input.linked && scenario !== "hot") return null;
-  const turns = input.history.map(m => ({ role: m.role === "user" ? "user" as const : "assistant" as const, text: String(m.content ?? "") }));
-  const sent = turns.filter(t => t.role === "assistant").map(t => t.text);
   let phone: string | null = null, whatsappPhone: string | null = null, phoneState: LeadOnlyPhoneState;
   const wa = input.channel === "WHATSAPP" && input.config.useWhatsappNumber ? await resolveWhatsAppLeadIdentity(input.channel, input.subscriberId) : null;
   if (wa) {
@@ -126,35 +145,57 @@ export async function planLegacyLeadOnlyTurn(input: {
     if (other) { reply = other; otherInquiry = true; }
   }
   const promised = phoneState.kind === "ask" || otherInquiry ? "chat" as const : "call" as const;
+  const note = `${(promised === "call" ? NOTE : NOTE_CHAT)[scenario]}: «${own.replace(/\s+/g, " ").slice(0, 200)}»`;
   const draft: LeadDraft = { ...input.draft, intent: scenario === "seller" ? "sell" : "buy", confident: true,
-    callbackTopic: `${(promised === "call" ? NOTE : NOTE_CHAT)[scenario]}: «${own.replace(/\s+/g, " ").slice(0, 200)}»`,
-    ...(propertyId ? { requestedPropertyId: propertyId } : {}) };
+    callbackTopic: leadOnlyNoteWithCallbackTime(note, callbackTime), ...(propertyId ? { requestedPropertyId: propertyId } : {}) };
+  const remember = phoneState.kind === "ask" ? leadOnlyPendingOf(scenario, propertyId) : null;
   return { reply, scenario, phone, whatsappPhone, propertyId, draft, promised,
     // Горячие слова или объект без новой заявки (номера нет или карточка уже есть) — человека зовёт вызывающий.
-    needsHuman,
-    remember: phoneState.kind === "ask" ? leadOnlyPendingOf(scenario, propertyId) : null };
+    needsHuman, remember, forget: !remember && topicNow && !!input.pending, callbackTime };
 }
 
 /**
- * Клиент прислал номер в ответ на просьбу: у самого сообщения сценария нет, тема — в прежних
- * словах. Черновик с намерением нужен приёму, иначе заявка уйдёт «прочим обращением» без агента.
+ * Клиент прислал номер (старый путь, ветка номера). Тема и объект ЭТОГО сообщения сильнее памяти просьбы
+ * (третье ревью 13.11, №1): через три дня после поста объекта A «хочу продать свою квартиру, 93…» — продавец,
+ * а пост объекта B с номером — заявка по B. Память просьбы (lib/leadOnlyPending.ts) — тема только голого номера,
+ * иначе прежние слова клиента. Черновик с намерением нужен приёму, иначе заявка уйдёт «прочим обращением».
  */
 export function legacyLeadOnlyDraftForPhone(input: { config: LeadOnlyConfig; history: ChatMessage[]; text: string; draft: LeadDraft;
-  propertyId: string | null; jobTopic?: boolean; pending?: LeadOnlyPending | null }): LeadDraft {
+  /** Объект ЭТОГО сообщения: пост, реклама, ссылка этого хода. */
+  freshPropertyId: string | null;
+  /** Объект, оставшийся с прошлых ходов (названный в черновике). */
+  carriedPropertyId: string | null;
+  jobTopic?: boolean; pending?: LeadOnlyPending | null }): LeadDraft {
   const jobTopic = input.jobTopic || input.draft.intent === "job";
-  // О чём бот просил номер (второе ревью 13.11, №1): пост объекта прошлого хода, а этот ход — один номер.
-  if (input.pending && !jobTopic) {
-    const { scenario, propertyId } = input.pending;
-    return { ...input.draft, intent: scenario === "seller" ? "sell" : "buy", confident: true,
-      callbackTopic: input.draft.callbackTopic ?? NOTE[scenario], ...(propertyId ? { requestedPropertyId: propertyId } : {}) };
+  if (jobTopic) return input.draft;
+  const own = clientOwnWords(input.text);
+  const earlier = input.history.filter(m => m.role === "user").map(m => clientOwnWords(String(m.content ?? "")));
+  const callbackTime = callbackTimeOf(own, earlier);
+  const withTime = (draft: LeadDraft, note: string): LeadDraft =>
+    ({ ...draft, callbackTopic: leadOnlyNoteWithCallbackTime(input.draft.callbackTopic ?? note, callbackTime) });
+  // 1. Тема этого сообщения. Объект разговора: пришедший сейчас, иначе тот, о котором просили номер, иначе из черновика.
+  const knownPropertyId = input.freshPropertyId ?? input.pending?.propertyId ?? input.carriedPropertyId;
+  const current = leadOnlyScenario({ text: own, propertyKnown: !!knownPropertyId, propertyInMessage: !!input.freshPropertyId,
+    propertyAsked: !!knownPropertyId && leadOnlyPropertyAsked(own), jobTopic, config: input.config });
+  if (current) {
+    const propertyId = current === "property" || current === "hot" ? knownPropertyId : null;
+    // Продавец говорит о СВОЁМ объекте: прежний чужой объект из черновика его заявку не уводит (правило 02.10.2026).
+    return withTime({ ...input.draft, intent: current === "seller" ? "sell" : "buy", confident: true,
+      ...(current === "seller" ? { requestedPropertyId: undefined } : {}),
+      ...(propertyId ? { requestedPropertyId: propertyId } : {}) }, NOTE[current]);
   }
-  const words = [...input.history.filter(m => m.role === "user").map(m => clientOwnWords(String(m.content ?? ""))), clientOwnWords(input.text)];
-  const joined = words.join("\n");
-  const scenario = leadOnlyScenario({ text: joined, propertyKnown: !!input.propertyId,
-    propertyAsked: !!input.propertyId && leadOnlyPropertyAsked(joined), jobTopic, config: input.config });
-  if (!scenario) return input.draft;
-  const withProperty = (scenario === "property" || scenario === "hot") && input.propertyId && !input.draft.requestedPropertyId;
-  return { ...input.draft, intent: input.draft.intent ?? (scenario === "seller" ? "sell" : "buy"), confident: true,
-    callbackTopic: input.draft.callbackTopic ?? NOTE[scenario],
-    ...(withProperty ? { requestedPropertyId: input.propertyId! } : {}) };
+  // 2. Голый номер в ответ на просьбу: тема и объект — о чём бот просил номер (второе ревью 13.11, №1).
+  if (input.pending) {
+    const { scenario, propertyId } = input.pending;
+    return withTime({ ...input.draft, intent: scenario === "seller" ? "sell" : "buy", confident: true,
+      ...(propertyId ? { requestedPropertyId: propertyId } : {}) }, NOTE[scenario]);
+  }
+  // 3. Иначе — прежние слова клиента.
+  const joined = [...earlier, own].join("\n");
+  const scenario = leadOnlyScenario({ text: joined, propertyKnown: !!input.carriedPropertyId,
+    propertyAsked: !!input.carriedPropertyId && leadOnlyPropertyAsked(joined), jobTopic, config: input.config });
+  if (!scenario) return callbackTime ? withTime(input.draft, "Клиент оставил номер") : input.draft;
+  const withProperty = (scenario === "property" || scenario === "hot") && input.carriedPropertyId && !input.draft.requestedPropertyId;
+  return withTime({ ...input.draft, intent: input.draft.intent ?? (scenario === "seller" ? "sell" : "buy"), confident: true,
+    ...(withProperty ? { requestedPropertyId: input.carriedPropertyId! } : {}) }, NOTE[scenario]);
 }

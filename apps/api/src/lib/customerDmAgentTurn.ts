@@ -58,7 +58,7 @@ import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
 import { enqueueCustomerLeadOnlyIntakeTx, planCustomerLeadOnlyTurn, readCustomerLeadOnlySentTexts,
   type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
 import { leadOnlyAppliesTo, leadOnlyFilterReply } from "../ai/leadOnlyMode.js";
-import { rememberLeadOnlyAsk } from "./leadOnlyPending.js";
+import { applyLeadOnlyPending } from "./leadOnlyPending.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -267,7 +267,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
           parts: [{ payload: { kind: "text" as const, text: plan.text } }] });
         if (plan.intake) await enqueueCustomerLeadOnlyIntakeTx(tx, plan.intake);
         // О чём попросили номер — в той же транзакции, что и сама просьба (lib/leadOnlyPending.ts).
-        if (plan.remember) await rememberLeadOnlyAsk(tx, lane.ticket.conversationId, plan.remember);
+        await applyLeadOnlyPending(tx, lane.ticket.conversationId, plan);
         return ids;
       });
       return { status: "planned", partIds };

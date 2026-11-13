@@ -18,11 +18,13 @@
  *
  * «Редко беспокоить людей» (владелец 10.11), но не терять горячего клиента (второе ревью, №4):
  * у каждого повода своё окно тишины на диалог. Прежнее одно окно на диалог глушило горячие слова,
- * если шестью часами раньше ушла заметка о вопросе к сотруднику. Горячие слова зовут всегда; гасится
- * только тот же самый горячий повод в течение нескольких минут (повтор задания, склейка сообщений).
- * В тексте пуша нет ни номера, ни слов клиента: экран открывается по правам сотрудника.
+ * если шестью часами раньше ушла заметка о вопросе к сотруднику. Горячие слова — своё короткое окно
+ * на РАЗГОВОР (15 минут, третье ревью 13.11, №5): прежде окно ключевалось текстом, и четыре разных
+ * горячих сообщения подряд давали четыре срочных пуша.
+ * В тексте пуша нет ни номера, ни слов клиента: экран открывается по правам сотрудника. Уточнение повода
+ * (например, новый номер) в метке — только HMAC с серверным ключом: голый sha256 номера подбирается перебором.
  */
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { prisma } from "../db.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
@@ -34,10 +36,12 @@ import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
 
 export const LEAD_ONLY_HANDOVER_INTERVAL_MS = 6 * 60 * 60_000;
-/** Тот же горячий повод (повтор задания, склейка) — не чаще раза в 10 минут; другой горячий — сразу. */
-export const LEAD_ONLY_HOT_REPEAT_MS = 10 * 60_000;
+/** Горячие слова в одном разговоре — не чаще раза в 15 минут, какими бы словами клиент их ни писал. */
+export const LEAD_ONLY_HOT_REPEAT_MS = 15 * 60_000;
 
-export type LeadOnlyHandoverReason = "hot" | "property" | "escalate" | "filtered" | "new_phone" | "intake_failed" | "no_agent";
+export type LeadOnlyHandoverReason = "hot" | "property" | "escalate" | "filtered" | "new_phone" | "intake_failed" | "no_agent" | "callback_time";
+/** Поводы без уточнения: их метки перечислимы (поиск «позван ли человек» идёт по индексу метки, а не по префиксу). */
+const PLAIN_REASONS: readonly LeadOnlyHandoverReason[] = ["hot", "property", "escalate", "filtered", "intake_failed", "no_agent"];
 export type LeadOnlyHandoverResult =
   | { status: "notified"; to: "assigned" | "property" | "supervisors"; recipients: number }
   | { status: "deduped" }
@@ -51,6 +55,7 @@ const TITLES: Record<LeadOnlyHandoverReason, string> = {
   new_phone: "Клиент просит звонить на другой номер",
   intake_failed: "⚠️ Заявка из переписки не оформилась",
   no_agent: "⚠️ Бот обещал звонок, а агента у заявки нет",
+  callback_time: "Клиент просит звонить в другое время",
 };
 
 /** Начало метки всех уведомлений режима по диалогу (для поиска и уборки). */
@@ -58,13 +63,21 @@ export function leadOnlyHandoverTag(conversationId: string): string {
   return `lead-only-handover-${conversationId}`;
 }
 
-const digest = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 12);
+/**
+ * Отпечаток уточнения повода (номер, время звонка): HMAC с серверным ключом (SETTINGS_ENCRYPTION_KEY, тот же, что
+ * шифрует данные заявки). Без ключа — без уточнения: окно на повод целиком, но номер в метку не попадает ни в каком виде.
+ */
+function keyDigest(conversationId: string, key: string): string | null {
+  const secret = process.env.SETTINGS_ENCRYPTION_KEY;
+  if (!secret) return null;
+  return createHmac("sha256", secret).update(JSON.stringify(["lead-only-handover-key-v1", conversationId, key])).digest("hex").slice(0, 16);
+}
 
-/** Метка окна тишины: свой повод — своё окно. `key` уточняет повод (новый номер — свой ключ на номер). */
-function reasonTag(conversationId: string, reason: LeadOnlyHandoverReason, summary: string, key?: string): string {
+/** Метка окна тишины: свой повод — своё окно на разговор. `key` уточняет повод (новый номер — свой ключ на номер). */
+function reasonTag(conversationId: string, reason: LeadOnlyHandoverReason, key?: string): string {
   const base = `${leadOnlyHandoverTag(conversationId)}:${reason}`;
-  if (reason === "hot") return `${base}:${digest(summary)}`;
-  return key ? `${base}:${digest(key)}` : base;
+  const digest = key && reason !== "hot" && !PLAIN_REASONS.includes(reason) ? keyDigest(conversationId, key) : null;
+  return digest ? `${base}:${digest}` : base;
 }
 
 /**
@@ -74,7 +87,7 @@ function reasonTag(conversationId: string, reason: LeadOnlyHandoverReason, summa
  */
 export async function notifyLeadOnlyHandover(input: { conversationId: string; propertyId: string | null;
   reason: LeadOnlyHandoverReason; summary: string; key?: string }): Promise<LeadOnlyHandoverResult> {
-  const tag = reasonTag(input.conversationId, input.reason, input.summary, input.key);
+  const tag = reasonTag(input.conversationId, input.reason, input.key);
   // Сбой заявки — всегда: это не повтор того же повода, а новая беда.
   const urgent = input.reason === "intake_failed" || input.reason === "no_agent";
   const window = input.reason === "hot" ? LEAD_ONLY_HOT_REPEAT_MS : LEAD_ONLY_HANDOVER_INTERVAL_MS;
@@ -98,9 +111,10 @@ export async function notifyLeadOnlyHandover(input: { conversationId: string; pr
       await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAttentionRequestedAt: new Date() } });
     }
     await logTimeline({ clientId: client.id, actor: { kind: "client", source: "lead-only-handover", subjectAgentId: cardAgent.id },
-      type: "SYSTEM", notes: `Бот передал клиента агенту: ${input.summary}` })
+      type: "SYSTEM", notes: input.reason === "callback_time" ? input.summary : `Бот передал клиента агенту: ${input.summary}` })
       .catch((err) => console.error("[режим только заявки] хронология:", describeError(err)));
-    await deliver([cardAgent.id], { kind: "message", level: "CRITICAL", title, body: `${client.fullName}: клиент ждёт вас. Откройте карточку.`,
+    await deliver([cardAgent.id], { kind: "message", level: input.reason === "callback_time" ? "OTHER" : "CRITICAL", title,
+      body: input.reason === "callback_time" ? `${client.fullName}: время звонка в карточке.` : `${client.fullName}: клиент ждёт вас. Откройте карточку.`,
       url: `/clients/${client.shortId}`, tag });
     // Клиент уже чей-то, а объект — другого агента: хозяину объекта короткая заметка без контактов клиента.
     if (property && propertyOwner && propertyOwner !== cardAgent.id &&
@@ -138,7 +152,11 @@ export async function notifyLeadOnlyHandover(input: { conversationId: string; pr
 /** Позван ли уже человек по этому диалогу за окно тишины (любой повод): ответ клиенту «агент уже в курсе» правдив. */
 export async function leadOnlyHumanNotifiedRecently(conversationId: string, now: Date = new Date()): Promise<boolean> {
   const since = new Date(now.getTime() - LEAD_ONLY_HANDOVER_INTERVAL_MS);
-  return (await prisma.notification.count({ where: { tag: { startsWith: `${leadOnlyHandoverTag(conversationId)}:` }, createdAt: { gte: since } } })) > 0;
+  // Точные метки, а не префикс: `tag IN (…) AND createdAt >= …` идёт по индексу (tag, createdAt) ленты, LIKE по префиксу
+  // при обычной сортировке базы — нет (третье ревью 13.11, №6). Поводы с уточнением (новый номер, время звонка) бывают
+  // только у карточки с агентом и про «агент в курсе переписки» не говорят.
+  const tags = PLAIN_REASONS.map(reason => reasonTag(conversationId, reason));
+  return !!(await prisma.notification.findFirst({ where: { tag: { in: tags }, createdAt: { gte: since } }, select: { id: true } }));
 }
 
 async function deliver(agentIds: string[], payload: Parameters<typeof sendPushToAgents>[1]): Promise<void> {
