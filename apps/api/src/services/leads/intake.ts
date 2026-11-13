@@ -1688,8 +1688,8 @@ export async function processNewCustomerLeadPolicy(actionId: string): Promise<vo
     await prisma.$transaction(tx => finishCustomerLeadPolicyTx(tx, client.id, actionId, { mode: "staff_owned" }));
     return;
   }
-  const [bound] = await prisma.$queryRaw<{ present: boolean; adPropertyId: string | null; adExternalId: string | null }[]>`SELECT TRUE AS present,
-    "adPropertyId","adExternalId" FROM "BotConversation" WHERE "id"=${action.nativeId}
+  const [bound] = await prisma.$queryRaw<{ present: boolean; adPropertyId: string | null; adExternalId: string | null; adTopic: string | null }[]>`SELECT TRUE AS present,
+    "adPropertyId","adExternalId","adTopic" FROM "BotConversation" WHERE "id"=${action.nativeId}
     AND "endpointScopeId"=${action.endpointScopeId} AND "clientId"=${client.id} AND "subscriberId"=${action.peerId}`;
   if (!bound?.present) throw new Error("Customer intake policy native binding changed");
   // The ad that brought the customer (first touch, lib/adAttribution.ts): its property goes to the
@@ -1697,8 +1697,11 @@ export async function processNewCustomerLeadPolicy(actionId: string): Promise<vo
   if (bound.adExternalId) {
     await prisma.client.updateMany({ where: { id: client.id, sourceAdId: null }, data: { sourceAdId: bound.adExternalId } });
   }
-  const context = { ...progress.intakeContext,
-    ...(!progress.intakeContext.propertyId && bound.adPropertyId ? { propertyId: bound.adPropertyId } : {}) };
+  // Только покупателю и только с рекламы объекта: продавец или кандидат, пришедший когда-то с рекламы квартиры,
+  // не должен уехать агенту той квартиры (ревью 13.11.2026; режим выключен — тоже).
+  const adPropertyFits = !progress.intakeContext.propertyId && !!bound.adPropertyId && client.kind === "BUYER" &&
+    (bound.adTopic ?? "property") === "property";
+  const context = { ...progress.intakeContext, ...(adPropertyFits ? { propertyId: bound.adPropertyId! } : {}) };
   await createNewChannelLead({ ...context, fullName: client.fullName, phone: client.phone, source: client.source,
     kind: client.kind, budgetMin: finiteNumber(client.budgetMin), budgetMax: finiteNumber(client.budgetMax),
     desiredDistrictId: client.desiredDistrictId ?? undefined, desiredRooms: client.desiredRooms ?? undefined,

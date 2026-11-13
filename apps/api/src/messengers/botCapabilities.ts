@@ -1,5 +1,6 @@
 import { prisma } from "../db.js";
 import { DEFAULT_PHOTOS_PER_OFFER } from "../ai/photoOffer.js";
+import { leadOnlyAppliesTo } from "../ai/leadOnlyMode.js";
 
 /**
  * ЧТО БОТ УМЕЕТ — ползунки в Настройках, а не удалённый код.
@@ -103,7 +104,7 @@ const ALL_ENABLED: BotCapabilities = {
  * молча онемевший бот страшнее лишнего действия, и разбираться в тишине сложнее,
  * чем в лишнем сообщении.
  */
-export async function loadBotCapabilities(): Promise<BotCapabilities> {
+export async function loadBotCapabilities(channel?: string): Promise<BotCapabilities> {
   try {
     const s = await prisma.settings.findUnique({
       where: { id: "singleton" },
@@ -127,7 +128,8 @@ export async function loadBotCapabilities(): Promise<BotCapabilities> {
     if (!s) return ALL_ENABLED;
     // Режим «только заявки» гасит фото и ссылки при любых прочих ползунках: возможность
     // исчезает из промта и из действий (первый слой), фильтр ответа — второй (conversation.ts).
-    const leadOnly = s.botLeadOnlyMode === true;
+    // Только WhatsApp/Instagram/Facebook: чат сайта, Telegram и вызовы без канала — прежние (решение 13.11 после ревью).
+    const leadOnly = s.botLeadOnlyMode === true && leadOnlyAppliesTo(channel);
     return {
       photos: s.botCanSendPhotos && !leadOnly,
       photosPerOffer: s.botPhotosPerOffer,

@@ -167,4 +167,53 @@ describe("режим «только заявки», старый путь", () =
     expect(callAi).toHaveBeenCalled();
     expect(await clientOf(peer)).toBeNull();
   });
+  // ── Ревью 13.11.2026: каждый тест падает на коде до правки ──
+  it("ревью №2: объект рекламы не «залипает» — «где офис?» вторым ходом не получает «Это объект №N»", async () => {
+    const peer = `lead-only-ig-sticky-${runId}`;
+    const first = await turn(instagram, peer, "Здравствуйте", { adPropertyId: propertyId, adExternalId: `ad-${runId}` });
+    expect(first.reply).toContain(`№${propertyShortId}`);
+    const second = await turn(instagram, peer, "Где ваш офис?");
+    expect(second.reply).not.toContain(`№${propertyShortId}`);
+  });
+
+  it("ревью №3: Instagram без номера, горячие слова — человек правда позван", async () => {
+    const peer = `lead-only-ig-hot-${runId}`;
+    const result = await turn(instagram, peer, "Хотим посмотреть, куда ехать?");
+    expect(result.reply).toContain("передаю агенту");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const conv = await prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { id: true } });
+    expect(await prisma.notification.count({ where: { tag: `lead-only-handover-${conv.id}` } })).toBeGreaterThan(0);
+  });
+
+  it("ревью №3: вырезанная подборка — короткое «передаю агенту», и человек позван", async () => {
+    callAi.mockResolvedValue({ reply: ["Вот ссылка на варианты: https://royalhome.tj/listing/12"], intent: "other", confident: false, ready: false,
+      topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false });
+    const peer = `lead-only-ig-filter-${runId}`;
+    const result = await turn(instagram, peer, "Где ваш офис?");
+    expect(result.reply).toBe("Передаю ваш вопрос агенту, он ответит вам здесь.");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const conv = await prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { id: true } });
+    expect(await prisma.notification.count({ where: { tag: `lead-only-handover-${conv.id}` } })).toBeGreaterThan(0);
+  });
+
+  it("ревью №5: «другой город» с номером — без обещания звонка", async () => {
+    const peer = `lead-only-ig-city-${runId}`;
+    const direct = await turn(instagram, peer, "Хочу купить дом в Худжанде, мой номер 918 44 55 66");
+    expect(direct.reply).not.toMatch(/позвонит/);
+    const peer2 = `lead-only-ig-city2-${runId}`;
+    await turn(instagram, peer2, "Ищу квартиру в Худжанде");
+    const byPhone = await turn(instagram, peer2, "918 55 66 78");
+    expect(byPhone.reply).not.toMatch(/позвонит/);
+  });
+
+  it("ревью №6: карточка уже есть, горячие слова без номера — без «номер получил», агенту метка", async () => {
+    const peer = `lead-only-ig-card-${runId}`;
+    await turn(instagram, peer, "Хочу продать квартиру, мой номер 918 66 77 89");
+    const card = await clientOf(peer);
+    expect(card).not.toBeNull();
+    await prisma.client.update({ where: { id: card!.id }, data: { assignedAgentId: ownerId, agentAttentionRequestedAt: null } });
+    const result = await turn(instagram, peer, "Хотим посмотреть, куда ехать?");
+    expect(result.reply).not.toMatch(/номер получил/i);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: card!.id } })).agentAttentionRequestedAt).not.toBeNull();
+  });
 });
