@@ -5,6 +5,16 @@ import { assistantGroupFixture as fixture } from "./helpers/assistantGroupFixtur
 
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: async () => {} } }));
 
+// 14.11.2026: `\b(?:не надо)\b` молчал на кириллице; граница теперь — \p{L}.
+describe("Instagram link request refusal words", () => {
+  it.each(["Ссылку на инстаграм ОБ-132 не надо", "ОБ-132 инстаграм ссылка, не нужно"])("declines: %s", text => {
+    expect(participation.groupInstagramLinkRequest(text, "")).toBeNull();
+  });
+  it("still answers a plain request", () => {
+    expect(participation.groupInstagramLinkRequest("Дайте ссылку на инстаграм ОБ-132", "")).not.toBeNull();
+  });
+});
+
 describe("natural group addressing and silence", () => {
   it("uses forwarded text as read-only evidence when it mentions the bot", async () => {
     const f = fixture();
