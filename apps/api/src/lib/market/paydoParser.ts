@@ -35,6 +35,7 @@ export interface PaydoRawAd {
   images?: Array<{ url?: string }>;
   media?: Array<{ url?: string; type?: string }>;
   characteristics?: PaydoCharacteristic[];
+  description_fields?: Array<{ title?: string; text?: string | null }>;
   details?: {
     location?: { address?: string | null; latitude?: number | null; longitude?: number | null } | null;
   } | null;
@@ -184,6 +185,7 @@ export function parsePaydoAd(
     totalFloors,
     landmark: location?.address?.trim() || null,
     districtName: districtOf(ad.subtitle2),
+    description: (ad.description_fields ?? []).map((d) => d.text ?? "").filter(Boolean).join("\n") || null,
     city: "Душанбе",
     price,
     currency,
