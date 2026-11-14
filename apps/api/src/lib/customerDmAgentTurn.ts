@@ -601,6 +601,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   }
     })();
     traceCustomerCoreDisposition(outcome.status, "reason" in outcome ? outcome.reason : undefined, heldCause);
+    // 14.11: BotTurnTrace did not keep the cause of 10 of 10 `turn_unavailable` turns (prod), so nobody could say WHY the bot dropped a turn.
+    // Closed codes only (safeCauseCode), one journal line per reason+cause pair, never customer text.
+    if (outcome.status === "held" && "reason" in outcome && heldCause && ["turn_unavailable", "customer_core_unavailable", "turn_deadline", "round_limit", "tool_limit"].includes(outcome.reason)) {
+      void logSystemError("ai", `Ход бота клиента остановлен: ${outcome.reason} (${heldCause})`, { dedupKey: `customer-core-held:${outcome.reason}:${heldCause}`, quietPult: true });
+    }
     return outcome;
   });
 }
