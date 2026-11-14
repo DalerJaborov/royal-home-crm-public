@@ -16,9 +16,9 @@
   "paths": 749,
   "cron": 131,
   "jobs": 33,
-  "conditions": 4018,
-  "untranslatedUnique": 462,
-  "untranslatedTotal": 593,
+  "conditions": 4019,
+  "untranslatedUnique": 461,
+  "untranslatedTotal": 592,
   "partialUnique": 1084,
   "translatedShare": 85
  },
@@ -136,7 +136,6 @@
   "!text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
-  "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
   "!verifyState(state)",
   "!verifyTotpCode(agent.phone, secret, parsed.data.code)",
   "!video || video.propertyId !== req.params.id",
@@ -79809,15 +79808,34 @@
          "t": "если есть заявка",
          "k": "if",
          "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть телефон",
+         "k": "if",
+         "a": [],
          "c": [
           {
-           "t": "если scenario — «hot»",
+           "t": "если телефон заметка — «noted»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если телефон заметка — «no_card»",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           }
          ]
+        },
+        {
+         "t": "если scenario не «callback» и scenario не «no_call»",
+         "k": "if",
+         "a": [],
+         "c": []
         }
        ]
       },
@@ -79990,29 +80008,7 @@
          "a": [],
          "c": [
           {
-           "t": "если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
-           "more": true
-          },
-          {
-           "t": "если нет: переписка",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть назначен сотрудник (клиент)",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть объект",
+           "t": "если есть владелец",
            "k": "if",
            "a": [],
            "c": [],
