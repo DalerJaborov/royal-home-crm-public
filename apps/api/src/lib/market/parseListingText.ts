@@ -37,7 +37,8 @@ export interface ParsedListingText {
   landmark: string | null;
   price: number | null;
   currency: "TJS" | "USD";
-  dealType: "SALE" | "RENT";
+  /** Объявление об аренде: каталог аренду не ведёт, такой текст вызывающий код отбрасывает. */
+  isRental: boolean;
   propertyType: "APARTMENT" | "HOUSE" | "COMMERCIAL" | "LAND";
   /** Номер продавца из текста, приведённый к +992XXXXXXXXX. */
   sellerPhone: string | null;
@@ -65,7 +66,7 @@ const SYSTEM = `Ты разбираешь объявление о недвижи
 
 ЭТАЖ. "5/9" значит floor=5, totalFloors=9.
 
-СДЕЛКА. Аренда ("иҷора", "ижора", "сдаётся", "в месяц", "моҳона") → RENT, иначе SALE.
+АРЕНДА. isRental=true, если это аренда ("иҷора", "ижора", "сдаётся", "в месяц", "моҳона"), иначе false.
 
 ТИП. Квартира → APARTMENT, дом/участок с домом → HOUSE, земля/участок → LAND,
 магазин/офис/склад → COMMERCIAL.
@@ -95,12 +96,12 @@ const SCHEMA: Record<string, unknown> = {
     landmark: { type: "string", description: "Микрорайон, улица, ориентир — как назван в тексте" },
     price: { type: "number" },
     currency: { type: "string", enum: ["TJS", "USD"] },
-    dealType: { type: "string", enum: ["SALE", "RENT"] },
+    isRental: { type: "boolean" },
     propertyType: { type: "string", enum: ["APARTMENT", "HOUSE", "COMMERCIAL", "LAND"] },
     sellerPhone: { type: "string" },
     isOwnerPost: { type: "boolean" },
   },
-  required: ["currency", "dealType", "propertyType", "isOwnerPost"],
+  required: ["currency", "isRental", "propertyType", "isOwnerPost"],
 };
 
 /**
@@ -176,7 +177,7 @@ function sanitize(raw: Partial<ParsedListingText>): ParsedListingText {
     landmark: typeof raw.landmark === "string" && raw.landmark.trim() ? raw.landmark.trim().slice(0, 120) : null,
     price: positiveNumber(raw.price, 1_000_000_000),
     currency: raw.currency === "USD" ? "USD" : "TJS",
-    dealType: raw.dealType === "RENT" ? "RENT" : "SALE",
+    isRental: raw.isRental === true,
     propertyType:
       raw.propertyType === "HOUSE" || raw.propertyType === "COMMERCIAL" || raw.propertyType === "LAND"
         ? raw.propertyType

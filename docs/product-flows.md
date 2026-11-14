@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4042**. Модулей: **83**.
+Путей: **751**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4048**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -8644,6 +8644,20 @@
 
 ## /api/v1/market
 
+### GET /api/v1/market/history
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = marketHistoryQuerySchema.safeParse(req.query);
+  · проверяет данные схемой marketHistoryQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- const points = await readMedianHistory({ city: q.city, districtName: q.districtName, rooms: q.rooms ?? ANY_RO…
+  · зовёт readMedianHistory()
+- res.json(body);
+  · ответ 200
+
 ### POST /api/v1/market/listing-contact
 
 `apps/api/src/routes/marketContact.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -8712,6 +8726,25 @@
   - return res.json(emptyDynamics("для этого типа объекта динамика рынка не считается", "unsupported"));
     · ответ 200
 - res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…
+  · ответ 200
+
+### GET /api/v1/market/property/:id/history
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const where = cardWhereFromParam(String(req.params.id));
+  · зовёт cardWhereFromParam()
+- если !where
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, deletedAt: true, distr…
+  · читает в базе: property
+- если !p || (p.deletedAt && !can(req, "archive.view"))
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const points = p.type === "APARTMENT" && districtName && rooms ? await readMedianHistory({ city: "Душанбе", d…
+  · зовёт readMedianHistory()
+- res.json(body);
   · ответ 200
 
 ### GET /api/v1/market/property/:id
@@ -22398,6 +22431,47 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### market-median-history — 30 6 * * *
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await recordMedianHistory();
+    · зовёт recordMedianHistory()
+    - const day = dushanbeDateString(now);
+      · зовёт dushanbeDateString()
+    - const listings = await prisma.marketListing.findMany({ where: { AND: [segmentsWhere({ city }, now.getTime()),…
+      · читает в базе: marketListing
+    - const [byId, byPhone] = await Promise.all([ ids.length ? prisma.marketListing.groupBy({ by: ["source", "selle…
+      · считает в базе: marketListing
+    - для каждого: const g of byId
+      - if (g.sellerId) counts.set(`${g.source}:${g.sellerId}`, g._count._all);
+        · дословно из кода
+    - для каждого: const g of byPhone
+      - if (g.sellerPhone) counts.set(`ph:${g.sellerPhone}`, g._count._all);
+        · дословно из кода
+    - const rows: HistoryInputRow[] = listings.map((r)
+      - const key = sellerKey(r);
+        · зовёт sellerKey()
+    - const built = buildMedianHistory(rows);
+      · зовёт buildMedianHistory()
+    - если built.length === 0
+      - return { day, fetched: listings.length, written: 0, skipped: "no-data" };
+        · дословно из кода
+    - await prisma.$transaction([ prisma.marketMedianDaily.deleteMany({ where: { day, city } }), prisma.marketMedia…
+      · всё внутри — одной транзакцией
+      · удаляет в базе: marketMedianDaily
+      · создаёт в базе: marketMedianDaily
+- если сорвалось
+  - markCronTickFailed("Ошибка ночной записи истории медиан рынка", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
 
 ### market-own-match — */30 * * * *
 

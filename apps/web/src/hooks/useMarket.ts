@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MarketBuyerListingsResponse, MarketSegmentsQuery, MarketSegmentsResponse } from "@royal-home/shared";
+import type { MarketBuyerListingsResponse, MarketHistoryResponse, MarketSegmentsQuery, MarketSegmentsResponse } from "@royal-home/shared";
 import { api } from "../lib/api";
 import type { MarketDynamicsData, MarketPropertyEstimate, OwnMarketMatchesData } from "../types";
 
@@ -78,6 +78,17 @@ export function useMarketSegments(filters: Partial<Omit<MarketSegmentsQuery, "ci
     queryKey: ["market-segments", query],
     queryFn: () => api<MarketSegmentsResponse>(`/market/segments${query ? `?${query}` : ""}`),
     staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+/** Ряд медиан цены за м² по району и комнатам объекта (GET /market/property/:id/history) — копится ночной записью. */
+export function useMarketHistory(propertyId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["market-history", propertyId],
+    queryFn: () => api<MarketHistoryResponse>(`/market/property/${propertyId}/history`),
+    enabled: !!propertyId,
+    staleTime: 30 * 60_000,
     retry: false,
   });
 }
