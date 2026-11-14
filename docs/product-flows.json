@@ -121210,7 +121210,7 @@
       },
       {
        "k": "do",
-       "t": "void reportUnansweredCustomerTurn(payload.eventKey, \"consume_job_gave_up\");",
+       "t": "void reportUnansweredCustomerTurn(payload.eventKey, \"consume_job_gave_up\", { gaveUp: true });",
        "a": [
         "зовёт reportUnansweredCustomerTurn()"
        ],

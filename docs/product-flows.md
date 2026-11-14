@@ -26937,7 +26937,7 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
-  - void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up");
+  - void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up", { gaveUp: true });
     · зовёт reportUnansweredCustomerTurn()
     - если customerTurnSilenceIsIntended(reason)
       - return;
