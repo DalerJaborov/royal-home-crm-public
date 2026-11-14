@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { CURRENCIES, expenseDateSchema, isReadOnlyRole, parsePermissionOverrides, resolvePermissions } from "@royal-home/shared";
+import { AUTO_EXPENSE_OVERLAP_CODE, CURRENCIES, expenseDateSchema, isReadOnlyRole, parsePermissionOverrides, resolvePermissions } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { Prisma, type Agent, type TelegramExpenseDraft } from "../generated/prisma/client.js";
@@ -136,7 +136,9 @@ export async function markExpensePreviewDelivered(actor: ExpenseDirectorIdentity
 
 type DecisionResult =
   | { kind: "recorded"; expenseId: string }
-  | { kind: "cancelled" | "expired" | "forbidden" | "noRate" | "alreadyRecorded" };
+  | { kind: "cancelled" | "expired" | "forbidden" | "noRate" | "alreadyRecorded" }
+  /** Расход уже учтён автоматически (реклама Meta, ИИ…): чек не пишем, текст — что и сколько. */
+  | { kind: "autoOverlap"; text: string };
 
 /** Expense, receipt, private file, audit and replay marker commit together. */
 export async function decideExpensePhotoDraft(
@@ -177,14 +179,18 @@ export async function decideExpensePhotoDraft(
     const pdf = evidence.sourceFormat === "pdf";
     const extension = pdf ? "pdf" : "jpg";
     // Запись — та же функция, что POST /expenses (одна дверь, 10.11.2026); чек — следом в той же транзакции.
-    const { expense } = await createExpense({
+    const created = await createExpense({
       category: "OTHER", note: evidence.purpose, counterparty: evidence.vendor,
       month: evidence.paymentDate.slice(0, 7), status: "PAID", paymentDate: evidence.paymentDate,
       amount: evidence.amountMinor / 100, currency: evidence.currency, exchangeRate: rate,
     }, { agentId: actor.agentId, requestKey: `tg-receipt:${draft.sourceHash}`, db: tx }).catch((error: unknown) => {
+      // Чек на то, что CRM уже считает сама (пополнение кабинета Meta и т.п.), — не второй расход.
+      if (error instanceof ExpenseCommandError && error.body.code === AUTO_EXPENSE_OVERLAP_CODE) return { overlap: error.body.error };
       if (error instanceof ExpenseCommandError) throw new Error(`expense_receipt_rejected: ${error.body.error}`);
       throw error;
     });
+    if ("overlap" in created) return { kind: "autoOverlap", text: created.overlap };
+    const { expense } = created;
     await tx.expenseReceipt.create({ data: {
       expenseId: expense.id, fileName: `${id}.${extension}`, originalName: `telegram-receipt.${extension}`,
       mimeType: pdf ? "application/pdf" : "image/jpeg",
