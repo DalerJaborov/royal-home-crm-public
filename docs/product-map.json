@@ -1677,6 +1677,11 @@
       "label": null
     },
     {
+      "id": "clip-owner-autopublish",
+      "expr": "*/5 * * * *",
+      "label": null
+    },
+    {
       "id": "clip-review-resend",
       "expr": "*/5 * * * *",
       "label": null

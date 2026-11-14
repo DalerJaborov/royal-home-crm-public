@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2476**; вместе с задачами по расписанию и фоновыми заданиями — **4042**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4050**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10379,8 +10379,11 @@
 
 ### POST /api/v1/properties/:id/clip-review/approve
 
-`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
+`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
+- если !(await canDecideClipInCrm(req.agent!.id, can(req, "properties.moderate"), req.params.id))
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
 - const result = await approveClip(req.params.id, req.agent!.id, "crm");
   · зовёт approveClip()
 - если !result.ok
@@ -10391,8 +10394,11 @@
 
 ### POST /api/v1/properties/:id/clip-review/reject
 
-`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
+`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
+- если !(await canDecideClipInCrm(req.agent!.id, can(req, "properties.moderate"), req.params.id))
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
 - const parsed = sendBackToMontajerSchema.safeParse(req.body);
   · проверяет данные схемой sendBackToMontajerSchema
 - если !parsed.success
@@ -20273,6 +20279,46 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка сторожа «клиент ждёт ответа»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### clip-owner-autopublish — */5 * * * *
+
+- пробует
+  - const { published } = await runClipOwnerAutoPublishTick();
+    · зовёт runClipOwnerAutoPublishTick()
+    - если isClipOwnerNight(now)
+      - return { published: 0 };
+        · дословно из кода
+    - const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { clipOwnerApproveEnabled: t…
+      · читает в базе: settings
+    - если !s?.clipOwnerApproveEnabled && s?.clipReviewEnabled
+      - return { published: 0 };
+        · дословно из кода
+    - const candidates = await prisma.property.findMany({ where: { ...CLIP_REVIEW_PENDING_WHERE, clipOwnerDueAt: { …
+      · читает в базе: property
+    - если candidates.length === 0
+      - return { published: 0 };
+        · дословно из кода
+    - const dialogs = await prisma.telegramDialogState.findMany({ where: { kind: CLIP_REJECT_DIALOG_KIND, expiresAt…
+      · читает в базе: telegramDialogState
+    - для каждого: const p of candidates
+      - если rejecting.has(p.shortId)
+        - continue;
+          · переходит к следующему
+      - const result = await approveClip(p.id, null, "auto", now);
+        · зовёт approveClip()
+      - если result.ok
+        - published++;
+          · дословно из кода
+  - если published > 0
+    - console.log(`[cron] Автопубликация роликов без ответа хозяина: ${published}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка автопубликации ролика без ответа хозяина", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
