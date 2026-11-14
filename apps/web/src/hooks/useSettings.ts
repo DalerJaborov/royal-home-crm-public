@@ -401,6 +401,10 @@ export interface Settings {
   rawReviewRequired: boolean;
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: boolean;
+  /** Готовый ролик подтверждает хозяин объекта; без ответа — автопубликация (11.11.2026). */
+  clipOwnerApproveEnabled: boolean;
+  /** Через сколько часов без ответа хозяина ролик публикуется сам (1–48). */
+  clipOwnerAutoPublishHours: number;
   /** Единственный монтажёр, получающий сырые ролики в очереди «строго один-в-работе». */
   videoMontajerAgentId: string | null;
   /** Этап 4 (телефония): подключение к Asterisk ARI. URL/логин — как есть, пароль — маска. */
