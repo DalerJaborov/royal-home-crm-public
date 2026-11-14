@@ -5,6 +5,7 @@ import { isCustomerPrincipal, revalidateCustomerPrincipal, customerPrincipalAuth
 import { inspectAuthenticatedCustomerInput } from "./customerIngressAuthority.js";
 import { loadPublicCommentSource } from "./customerPublicCommentStore.js";
 import { samePublicInstallation, publicCommentSourceDigest } from "./publicCommentSourceIdentity.js";
+import { accountBrandName } from "../messengers/accounts.js";
 import { customerSellerPrivateReply } from "./customerPublicModerationPolicy.js";
 
 /** Read only OUR actually accepted DM to the exact Meta-returned recipient.
@@ -24,6 +25,7 @@ export async function readCustomerPublicOutreachMemory(principal: unknown): Prom
   const rows=await prisma.customerPublicEffect.findMany({where:{kind:"private_reply",status:"ACCEPTED",providerId:{not:null},
     recipientKey:{in:keys},finishedAt:{gte:new Date(Date.now()-7*24*60*60_000),lte:new Date(current.issuedAt)}},orderBy:{finishedAt:"desc"},take:3});
   const result:Array<{role:"assistant";text:string;observedAt:number;stableKey:string}>=[];
+  const brand=await accountBrandName(principal.scope.accountId);
   for(const row of rows){
     const source=await loadPublicCommentSource({table:"meta",id:row.sourceId});
     // Terminal hide/delete increments the live edition. Historical context
@@ -35,7 +37,7 @@ export async function readCustomerPublicOutreachMemory(principal: unknown): Prom
       source.currentInstallation.id!==row.endpointScopeId || !samePublicInstallation(source.proof.installation,source.currentInstallation)) continue;
     let text: string | null = null;
     try { if(row.payloadEncrypted)text=decryptSecret(row.payloadEncrypted); } catch { /* No plaintext/legacy fallback. */ }
-    if(!text || ![customerSellerPrivateReply("ru"),customerSellerPrivateReply("tg")].includes(text) || !row.finishedAt ||
+    if(!text || ![customerSellerPrivateReply("ru",brand),customerSellerPrivateReply("tg",brand)].includes(text) || !row.finishedAt ||
       createHash("sha256").update(JSON.stringify({kind:"private_reply",text})).digest("hex")!==row.payloadHash)continue;
     result.push({role:"assistant",text,observedAt:row.finishedAt.getTime(),stableKey:`public-private:${row.id}`});
   }

@@ -14,6 +14,7 @@ import { projectCustomerPropertyFacts, CUSTOMER_PROPERTY_CHARACTERISTICS_SELECT 
 import { loadMatchPolicy } from "./matchPolicy.js";
 import { loadMoneyContext, toTjs } from "./money.js";
 import { readCustomerPublicationObservation, customerPublicationObservationCurrent, type CustomerPublicationSource } from "./customerPublicationCatalog.js";
+import { accountBrandName } from "../messengers/accounts.js";
 import { readCustomerCompanyInformation, customerCompanyInformationCurrent } from "./customerCompanyInformation.js";
 import type { CustomerAgentCompanyInformationObservation } from "@royal-home/shared";
 import { resolveSearchPlace } from "./searchPlace.js";
@@ -82,6 +83,10 @@ export interface CustomerAgentPublicDataOptions {
   publication?: CustomerPublicationSource;
   /** Server receipt ledger only; never accepted as model/tool arguments. */
   alreadyShownShortIds?: readonly number[];
+  /** Company name of the account the turn belongs to (MessengerAccount.brandName,
+   * read by the server from the captured scope). Only the name differs between
+   * brands: office, hours and rules stay shared (customerCompanyInformation.ts). */
+  brandName?: string | null;
 }
 export type CustomerAgentPublicDataResult =
     { status: "observed"; observation: CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentPublicationObservation | CustomerAgentCompanyInformationObservation | CustomerAgentVacanciesObservation } |
@@ -96,7 +101,7 @@ export async function readCustomerAgentPublicData(rawCall: unknown, options: Cus
   const call = calls.safeParse(rawCall);
   if (!call.success) return { status: "denied", reason: "invalid_public_call" };
   try {
-    if (call.data.name === "get_company_information") return { status: "observed", observation: await readCustomerCompanyInformation() };
+    if (call.data.name === "get_company_information") return { status: "observed", observation: await readCustomerCompanyInformation(options.brandName) };
     if (call.data.name === "get_open_vacancies") return { status: "observed", observation: await readCustomerOpenVacancies() };
     if (call.data.name === "get_property_facts") {
       if (!options.publication) return { status: "denied", reason: "publication_source_required" };
@@ -171,7 +176,7 @@ export async function readCustomerAgentPublicTool(principal: unknown, rawCall: u
   try {
     if (!await current(principal)) return { status: "denied", reason: "original_context_changed" };
     const result = await readCustomerAgentPublicData(rawCall, { knowledgeSourceHash: options.knowledgeSourceHash,
-      linkPreference: principal.visibility === "website_chat" ? "site" : "social" });
+      linkPreference: principal.visibility === "website_chat" ? "site" : "social", brandName: await accountBrandName(principal.scope.accountId) });
     if (!await current(principal)) return { status: "denied", reason: "original_context_changed" };
     return result;
   } catch (error) { return publicReadFailed(error); }

@@ -79,9 +79,13 @@ async function turn(fixture: CustomerMessengerFixture, peer: string, text: strin
   if (!peers.includes(peer)) peers.push(peer);
   return processMessengerTurn({ ...fixture.turnInput(peer), text, ...extra });
 }
-/** Ходы модели-ответчика. Фоновые разбор и оценка карточки после заявки (card-fill, score-client, client-current-intents) — не ответ клиенту. */
+/** Ходы модели-ответчика. Фоновые разбор и оценка карточки после заявки (card-fill, score-client) — не ответ клиенту.
+ *  Сюда же определение актуальных ролей (client-current-intents): это ПЕРВЫЙ вызов того же фонового автопилота
+ *  карточки (lib/clientAutopilot.ts, «lead_created», без ожидания) — на быстрой машине он успевал до проверки и
+ *  ронял тест через раз (13.11.2026: облачный ship #163 и чистый main 6851f10a локально, 1 из 3). */
 function replyModelCalls(): string[] {
-  return callAi.mock.calls.map((call) => String((call[0] as { endpoint?: string })?.endpoint ?? "?")).filter((e) => !["card-fill", "score-client", "client-current-intents"].includes(e));
+  return callAi.mock.calls.map((call) => String((call[0] as { endpoint?: string })?.endpoint ?? "?"))
+    .filter((e) => !["card-fill", "score-client", "client-current-intents"].includes(e));
 }
 const convId = async (peer: string) => (await prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { id: true } })).id;
 /** Уведомления, которые шлёт сам режим (у карточки — никаких: агенту хватает обычного уведомления о сообщении). */

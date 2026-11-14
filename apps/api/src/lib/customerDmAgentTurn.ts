@@ -41,6 +41,7 @@ import { customerAgentMarkForeignShare } from "../ai/customerAgentAttachmentInpu
 import { customerSpamMuteGate, customerSpamTurn, SPAM_MUTED_NO_REPLY } from "../ai/customerSpamMute.js";
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
+import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
 import { reconcileCustomerShowcaseReply } from "./customerShowcaseReceipt.js";
@@ -492,6 +493,12 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     if (result.status !== "ready" || !result.text.trim() || result.decision.kind === "escalate") {
       const reason = result.status === "held" ? modelHeldReason ?? result.reason : "staff_or_supported_reply_required";
       await releaseHeldClaim(claim, reason);
+      // The model handed the turn to staff and the customer gets no reply: a
+      // person must learn about it (14.11.2026 — before, nobody was told).
+      if (result.status === "ready" && result.decision.kind === "escalate") {
+        await notifyEscalatedCustomerTurn({ conversationId: lane.ticket.conversationId, channel: lane.principal.scope.channel,
+          text: fullInput() });
+      }
       return { status: "held", reason };
     }
     const principal = mutations.principal;
@@ -623,6 +630,16 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   }
     })();
     traceCustomerCoreDisposition(outcome.status, "reason" in outcome ? outcome.reason : undefined, heldCause);
+    // «Передать сотруднику» без оформленной передачи — клиенту тишина (аудит 14.11.2026, №4).
+    // Сотруднику — сразу сигнал через одну дверь; остальные причины молчания ловит
+    // сторож молчания через 30 минут. Ход не ждёт и из-за сигнала не падает.
+    if (outcome.status === "held") {
+      const reason = outcome.reason;
+      void import("./clientWaitingAlert.js")
+        .then(({ STAFF_NEEDED_NOW_REASONS, alertClientWaiting }) =>
+          STAFF_NEEDED_NOW_REASONS.has(reason) ? alertClientWaiting({ conversationId: lane.ticket.conversationId, trigger: "escalate" }) : undefined)
+        .catch(error => console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError"));
+    }
     return outcome;
   });
 }

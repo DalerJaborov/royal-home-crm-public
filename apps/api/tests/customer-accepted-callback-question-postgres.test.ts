@@ -325,7 +325,8 @@ describe("actual accepted callback question → real next signed IN", () => {
     const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: b } });
     expect(await prisma.customerAction.count({ where: { inquiry: { conversationId: ticket.conversationId! } } })).toBe(0);
   });
-  it.each([["ru", "Да"], ["tg", "Ҳа"]] as const)("%s accepted question and tiny yes commit exactly one real callback", async (language, yes) => {
+  // 14.11.2026: ordinary yes wording after our own accepted question (was lost: only bare «Да»/«Ҳа» counted).
+  it.each([["ru", "Да"], ["tg", "Ҳа"], ["ru", "Да, конечно"], ["ru", "Хорошо"], ["tg", "Ҳа, албатта"], ["tg", "Бале"]] as const)("%s accepted question and yes «%s» commit exactly one real callback", async (language, yes) => {
     const f = await fixture(), number = phone(), a = await f.questionA(language, number);
     expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });
     const attempt = await prisma.customerDeliveryAttempt.findFirstOrThrow({ where: { partId: a.part.id } });
@@ -414,6 +415,19 @@ describe("actual accepted callback question → real next signed IN", () => {
 
   // Three actual ingress/model/dispatch turns can exceed the global 20s budget
   // during a full Windows run under memory pressure. Keep the complete oracle.
+  // 14.11.2026: «Алишер 927…» / a bare number in reply to OUR callback question is consent with that number.
+  it.each([(n: string) => `Алишер ${n}`, (n: string) => n])("a name+number reply to the accepted callback question commits one callback with that number (%#)", async (reply) => {
+    const f = await fixture(), a = await f.questionA("ru", null);
+    expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });
+    const number = phone(), b = await f.intake(reply(number)), prepared = await f.beforeClaim(b);
+    const slot = customerActionIntentsSchema.parse(prepared.inquiry.actionIntents).callback;
+    expect(slot).toMatchObject({ status: "open", consent: { originalEventKey: b, acceptedQuestion: { questionEventKey: a.key, affirmationEventKey: b } } });
+    await f.run(b, [[{ functionCall: { name: "request_callback", args: { topic: "по звонку" }, id: "name-number" } }], decision("none", ["e0"])]);
+    const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: prepared.inquiry.id, kind: "callback" } });
+    expect(action).toMatchObject({ status: "COMMITTED" });
+    expect(await prisma.callbackRequest.findUniqueOrThrow({ where: { customerActionId: action.id } })).toMatchObject({ phone: number });
+  }, 60_000);
+
   it("accepted yes with no phone keeps open generation; actual phone-only C completes that same intent", async () => {
     const f = await fixture(), a = await f.questionA("ru", null);
     expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });

@@ -14,11 +14,11 @@
  "totals": {
   "screens": 53,
   "paths": 749,
-  "cron": 130,
+  "cron": 131,
   "jobs": 33,
-  "conditions": 4016,
-  "untranslatedUnique": 459,
-  "untranslatedTotal": 590,
+  "conditions": 4018,
+  "untranslatedUnique": 462,
+  "untranslatedTotal": 593,
   "partialUnique": 1084,
   "translatedShare": 85
  },
@@ -81,6 +81,7 @@
   "!doc || doc.dealId !== deal.id",
   "!e.counterparty?.trim()",
   "!episode || episode.executionMode !== \"LIVE\" || episode.ropAgentId !== req.agent!.id",
+  "!episode || episode.since.getTime() > threshold",
   "!existing && await tx.recruitmentPosition.count() >= 24",
   "!expenseListQuerySchema.safeParse(req.query).success",
   "!filePath || !(await localVideoExists(video.storageKey))",
@@ -135,6 +136,7 @@
   "!text.trim()",
   "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
+  "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
   "!verifyState(state)",
   "!verifyTotpCode(agent.phone, secret, parsed.data.code)",
   "!video || video.propertyId !== req.params.id",
@@ -255,6 +257,7 @@
   "current[field.count] !== dispute.aiCount",
   "customerPropertyContextEnabled() && message.fromAd && message.accountExternalId && await verifyMetaCustomerRe…",
   "customerPropertyTurnTerminal(history)",
+  "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
   "d.media.some((m) => m.status === \"UPLOADING\" && m.updatedAt >= activeSince)",
   "data.assignedAgentId !== undefined && data.assignedAgentId !== existing.assignedAgentId",
   "data.intakeAgentId !== undefined && data.intakeAgentId !== existing.intakeAgentId",
@@ -281,7 +284,6 @@
   "dispatchLikelyInProgress(p.videoHandoffDispatchStartedAt, now)",
   "eligible(agent) !== expected",
   "err instanceof AssistantActionError",
-  "err instanceof BrandNameCoreConflictError",
   "err instanceof ClientMergeOpenDealError",
   "err instanceof ClientMergeTrashedError",
   "err instanceof ConversationClientLinkError",
@@ -436,6 +438,7 @@
   "row.doneAt || row.supersededAt || !intent || intent.status !== \"committed\" || intent.generation !== row.gener…",
   "row.groupChatId && row.groupChatId !== settings.discussionGroupId",
   "row.id === t.id",
+  "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
   "row.status !== status",
   "row.type in byType",
   "row?.factsInputHash === inputHash",
@@ -55533,20 +55536,6 @@
      "a": [],
      "c": [
       {
-       "t": "если err instanceof BrandNameCoreConflictError",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "err instanceof BrandNameCoreConflictError"
-      },
-      {
        "t": "если (err as { code?: string }).code === \"P2002\"",
        "k": "if",
        "a": [],
@@ -62450,6 +62439,12 @@
      ],
      "c": [
       {
+       "t": "если (статус — «persisted» или статус — «bypass») и есть held количество",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
        "t": "и так по каждому",
        "k": "loop",
        "a": [],
@@ -65859,6 +65854,117 @@
    ]
   },
   {
+   "id": "client-silence-sweep",
+   "when": "*/10 * * * *",
+   "label": "client-silence-sweep",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если это не внутри рабочие часы",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если !episode || episode.since.getTime() > threshold",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!episode || episode.since.getTime() > threshold",
+           "more": true
+          },
+          {
+           "t": "если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
+           "more": true
+          },
+          {
+           "t": "если customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если due количество — «0»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если разосланных тревог больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "clip-review-resend",
    "when": "*/5 * * * *",
    "label": "clip-review-resend",
@@ -66519,7 +66625,7 @@
   },
   {
    "id": "director-alert-queue-flush",
-   "when": "*/10 * * * *",
+   "when": "* * * * *",
    "label": "Доставляет руководству накопленные тревоги в разрешённые часы",
    "tree": [
     {
@@ -66532,12 +66638,6 @@
        "k": "do",
        "a": [],
        "c": [
-        {
-         "t": "если это не внутри тревога часы",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
         {
          "t": "если ожидает количество — «0»",
          "k": "if",
@@ -78376,25 +78476,6 @@
      "a": [],
      "c": [
       {
-       "t": "если сотрудник количество — «0»",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если granted количество больше 0 и denied количество больше 0",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "push-уведомление",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
        "t": "push-уведомление",
        "k": "do",
        "a": [],
@@ -79018,25 +79099,6 @@
        "k": "do",
        "a": [],
        "c": [
-        {
-         "t": "если сотрудник количество — «0»",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если granted количество больше 0 и denied количество больше 0",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "push-уведомление",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
         {
          "t": "push-уведомление",
          "k": "do",
@@ -79747,34 +79809,15 @@
          "t": "если есть заявка",
          "k": "if",
          "a": [],
-         "c": []
-        },
-        {
-         "t": "если есть телефон",
-         "k": "if",
-         "a": [],
          "c": [
           {
-           "t": "если телефон заметка — «noted»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если телефон заметка — «no_card»",
+           "t": "если scenario — «hot»",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           }
          ]
-        },
-        {
-         "t": "если scenario не «callback» и scenario не «no_call»",
-         "k": "if",
-         "a": [],
-         "c": []
         }
        ]
       },
@@ -79947,7 +79990,29 @@
          "a": [],
          "c": [
           {
-           "t": "если есть владелец",
+           "t": "если !urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!urgent && !(await shouldAlert(tag, LEAD_ONLY_HANDOVER_INTERVAL_MS))",
+           "more": true
+          },
+          {
+           "t": "если нет: переписка",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть назначен сотрудник (клиент)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть объект",
            "k": "if",
            "a": [],
            "c": [],
@@ -80064,25 +80129,6 @@
      "k": "do",
      "a": [],
      "c": [
-      {
-       "t": "если сотрудник количество — «0»",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если granted количество больше 0 и denied количество больше 0",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "push-уведомление",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
       {
        "t": "push-уведомление",
        "k": "do",
@@ -83110,20 +83156,6 @@
          "k": "do",
          "a": [],
          "c": [
-          {
-           "t": "если сотрудник количество — «0»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если granted количество больше 0 и denied количество больше 0",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
           {
            "t": "push-уведомление",
            "k": "do",

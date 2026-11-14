@@ -25,6 +25,7 @@ import { runVideoHandoffUnfinishedPublishWatchdogTick } from "./lib/videoHandoff
 import { runStationOutageProbeTick } from "./lib/stationOutage.js";
 import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
+import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
 import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
@@ -2715,6 +2716,22 @@ export function startCronJobs() {
   });
 
   /**
+   * «КЛИЕНТ НАПИСАЛ — ЕМУ НИКТО НЕ ОТВЕТИЛ» (14.11.2026, аудит скрытых механизмов
+   * №4, lib/clientWaitingAlert.ts). Раз в 10 минут, только в часы раздачи:
+   * реплика клиента без ответа бота или человека дольше 30 минут — пуш
+   * закреплённому агенту, без агента — срочная тревога руководству. Один сигнал
+   * на эпизод молчания.
+   */
+  scheduleTracked("client-silence-sweep", "*/10 * * * *", async () => {
+    try {
+      const { alerted } = await runClientSilenceSweep();
+      if (alerted > 0) console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «клиент ждёт ответа»", err);
+    }
+  });
+
+  /**
    * АЛАРМ «ЗАЯВЛЕНО N, СДЕЛАНО M» — ПРОДАВЕЦ И ПОКУПАТЕЛЬ, ОДНО УВЕДОМЛЕНИЕ НА
    * КЛИЕНТА (владелец 06.09.2026 п.3, объединено 07.09.2026, срок растянут по
    * числу объектов 07.09.2026). Число ИИ услышал из разговора или переписки
@@ -2762,8 +2779,13 @@ export function startCronJobs() {
    * просроченные ключи и т.д. — см. список мест в комментарии самого модуля).
    * Каждые 10 минут, а не раз в час: как только откроются часы алармов,
    * накопленное за ночь не должно ждать ещё почти час до следующего тика.
+   *
+   * КАЖДУЮ МИНУТУ (14.11.2026, аудит скрытых механизмов №1): колокольчик и
+   * срочные тревоги (ключ канала умер, бот молчит, кончились минуты робота)
+   * теперь идут сразу, мимо окна, — десять минут для них слишком долго. Вне
+   * окна выборка берёт только срочное и ещё не записанное в колокольчик.
    */
-  scheduleTracked("director-alert-queue-flush", "*/10 * * * *", async () => {
+  scheduleTracked("director-alert-queue-flush", "* * * * *", async () => {
     try {
       const sent = await flushDirectorAlertQueue();
       if (sent > 0) console.log(`[cron] Очередь алармов руководству: доставлено ${sent}`);
