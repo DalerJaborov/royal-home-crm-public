@@ -75,7 +75,8 @@ export interface ParsedListing {
   exchangePossible?: boolean | null;
   latitude?: number | null;
   longitude?: number | null;
-  dealType: "SALE" | "RENT";
+  /** Только продажа: аренду каталог не ведёт (14.11.2026). */
+  dealType: "SALE";
   propertyType: "APARTMENT" | "HOUSE" | "COMMERCIAL" | "LAND";
   raw: SomonRawAd;
 }

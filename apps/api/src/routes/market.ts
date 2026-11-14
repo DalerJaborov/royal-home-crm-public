@@ -6,7 +6,9 @@ import { emptyDynamics, findDynamics } from "../lib/market/dynamics.js";
 import { emptyResult, findSimilar, verdictFor, type Repair } from "../lib/market/similarComps.js";
 import { loadMoneyContext, toTjs } from "../lib/money.js";
 import { findSegments } from "../lib/market/segments.js";
-import { marketSegmentsQuerySchema } from "@royal-home/shared";
+import { marketHistoryQuerySchema, marketSegmentsQuerySchema, type MarketHistoryResponse } from "@royal-home/shared";
+import { MIN_SAMPLE } from "../lib/market/comps.js";
+import { ANY_ROOMS, readMedianHistory } from "../lib/market/medianHistory.js";
 
 export const marketRouter = Router();
 
@@ -103,4 +105,66 @@ marketRouter.get("/segments", requireAuth, async (req, res) => {
   const parsed = marketSegmentsQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
   res.json(await findSegments(parsed.data));
+});
+
+/**
+ * GET /api/v1/market/history — ряд медиан цены по дням для района (или города) и комнат; копится ночной
+ * записью (lib/market/medianHistory.ts), прошлое до 14.11.2026 восстановить нельзя. Район «*» (по
+ * умолчанию) — весь город. Данные публичные (чужие объявления), доступ — любой вошедший сотрудник.
+ * Предел: `days` (окно) и `limit` (точек), оба ограничены схемой.
+ */
+marketRouter.get("/history", requireAuth, async (req, res) => {
+  const parsed = marketHistoryQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+  const q = parsed.data;
+  const points = await readMedianHistory({
+    city: q.city,
+    districtName: q.districtName,
+    rooms: q.rooms ?? ANY_ROOMS,
+    building: q.building === "new" ? "NEW" : q.building === "secondary" ? "SECONDARY" : "ANY",
+    audience: q.audience === "owners" ? "OWNERS" : "ALL",
+    days: q.days,
+    limit: q.limit,
+  });
+  const body: MarketHistoryResponse = {
+    minSample: MIN_SAMPLE,
+    city: q.city,
+    districtName: q.districtName,
+    rooms: q.rooms ?? null,
+    building: q.building ?? null,
+    audience: q.audience,
+    points,
+  };
+  res.json(body);
+});
+
+/**
+ * GET /api/v1/market/property/:id/history — ряд медиан цены за м² по району и числу комнат объекта
+ * (весь рынок, любой тип дома): ряд «по району» для блока «Динамика рынка» в карточке объекта.
+ * Объект без района/комнат или не квартира — пустой ряд.
+ */
+marketRouter.get("/property/:id/history", requireAuth, async (req, res) => {
+  const where = cardWhereFromParam(String(req.params.id));
+  if (!where) return res.status(404).json({ error: "Объект не найден" });
+  const p = await prisma.property.findUnique({
+    where,
+    select: { type: true, rooms: true, deletedAt: true, district: { select: { name: true } } },
+  });
+  if (!p || (p.deletedAt && !can(req, "archive.view"))) return res.status(404).json({ error: "Объект не найден" });
+  const districtName = p.district?.name ?? null;
+  const rooms = p.rooms && p.rooms > 0 ? p.rooms : null;
+  const points =
+    p.type === "APARTMENT" && districtName && rooms
+      ? await readMedianHistory({ city: "Душанбе", districtName, rooms, building: "ANY", audience: "ALL", days: 90, limit: 120 })
+      : [];
+  const body: MarketHistoryResponse = {
+    minSample: MIN_SAMPLE,
+    city: "Душанбе",
+    districtName: districtName ?? "",
+    rooms,
+    building: null,
+    audience: "all",
+    points,
+  };
+  res.json(body);
 });

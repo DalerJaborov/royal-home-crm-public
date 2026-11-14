@@ -105,3 +105,45 @@ export interface MarketSegmentsResponse {
   truncated: boolean;
   segments: MarketSegmentStat[];
 }
+
+/** История медиан по сегменту (GET /market/history): ряд по дням, копится ночной записью с 14.11.2026. */
+export const MARKET_HISTORY_DISTRICT_ALL = "*";
+export const marketHistoryQuerySchema = z
+  .object({
+    city: z.string().trim().min(1).max(60).default("Душанбе"),
+    /** Район; «*» (по умолчанию) — весь город. */
+    districtName: z.string().trim().min(1).max(80).default(MARKET_HISTORY_DISTRICT_ALL),
+    /** Комнаты; без параметра — любое число. */
+    rooms: z.coerce.number().int().min(1).max(10).optional(),
+    /** new — новостройка, secondary — вторичка; без параметра — любой дом. */
+    building: z.enum(["new", "secondary"]).optional(),
+    /** all — весь рынок, owners — только собственники. */
+    audience: z.enum(["all", "owners"]).default("all"),
+    /** Окно в сутках от сегодня (по Душанбе). */
+    days: z.coerce.number().int().min(1).max(1095).default(90),
+    /** Предел точек ряда (самые свежие сутки). */
+    limit: z.coerce.number().int().min(1).max(1095).default(365),
+  })
+  .strict();
+export type MarketHistoryQuery = z.infer<typeof marketHistoryQuerySchema>;
+
+export interface MarketHistoryPoint {
+  /** Сутки по Душанбе, ГГГГ-ММ-ДД. */
+  day: string;
+  /** Уникальных объявлений в выборке этих суток (всегда не меньше minSample). */
+  count: number;
+  medianPerSqmTjs: number | null;
+  averagePerSqmTjs: number | null;
+  medianPriceTjs: number | null;
+  averagePriceTjs: number | null;
+}
+
+export interface MarketHistoryResponse {
+  minSample: number;
+  city: string;
+  districtName: string;
+  rooms: number | null;
+  building: "new" | "secondary" | null;
+  audience: "all" | "owners";
+  points: MarketHistoryPoint[];
+}

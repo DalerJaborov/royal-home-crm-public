@@ -1539,7 +1539,7 @@
       "mount": "/api/v1/market",
       "router": "marketRouter",
       "file": "apps/api/src/routes/market.ts",
-      "endpoints": 3,
+      "endpoints": 5,
       "label": null,
       "usedBy": 1
     },
@@ -1860,6 +1860,11 @@
       "id": "lost-inactive-trash-sweep",
       "expr": "30 0 * * *",
       "label": "Убирает в корзину потерянных и неактивных старше трёх месяцев"
+    },
+    {
+      "id": "market-median-history",
+      "expr": "30 6 * * *",
+      "label": null
     },
     {
       "id": "market-own-match",

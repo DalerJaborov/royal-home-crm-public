@@ -1,7 +1,8 @@
 import { MarketWhatsAppButton } from "./MarketWhatsAppButton";
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { useMarketDynamics } from "../hooks/useMarket";
+import type { MarketHistoryResponse } from "@royal-home/shared";
+import { useMarketDynamics, useMarketHistory } from "../hooks/useMarket";
 import { formatMoney, pluralizeRu } from "../lib/format";
 import { marketSourceName } from "../lib/marketSource";
 import type { MarketDynamicsData, MarketGoneListing } from "../types";
@@ -17,7 +18,7 @@ import type { MarketDynamicsData, MarketGoneListing } from "../types";
  */
 
 export interface DynamicsTile {
-  key: "speed" | "price" | "cuts" | "sellers";
+  key: "speed" | "price" | "cuts" | "sellers" | "history";
   label: string;
   text: string;
   hint?: string;
@@ -86,6 +87,31 @@ export function dynamicsTiles(d: MarketDynamicsData): DynamicsTile[] {
   return tiles;
 }
 
+/**
+ * Ряд «по району»: медиана цены за м² по району и комнатам объекта из ночной записи (с 14.11.2026
+ * копится вперёд, прошлое не восстановить). Меньше двух точек — честно «копится», без выдуманной динамики.
+ * Точки в ряду уже прошли порог выборки на сервере.
+ */
+export function historyTile(h: MarketHistoryResponse | undefined): DynamicsTile | null {
+  const pts = (h?.points ?? []).filter((p) => p.medianPerSqmTjs != null);
+  if (!h || pts.length === 0) return null;
+  const last = pts[pts.length - 1];
+  const where = [h.districtName, h.rooms ? `${h.rooms}-комн.` : null].filter(Boolean).join(", ");
+  const now = `${formatMoney(last.medianPerSqmTjs as number, "TJS")}/м²`;
+  if (pts.length < 2) {
+    return { key: "history", label: `Цена за м²: ${where}`, text: now, hint: `медиана по ${last.count} объявлениям; динамика копится с ${last.day}` };
+  }
+  const first = pts[0];
+  const diff = Math.round((((last.medianPerSqmTjs as number) - (first.medianPerSqmTjs as number)) / (first.medianPerSqmTjs as number)) * 100);
+  const sign = diff > 0 ? "+" : diff < 0 ? MINUS : "";
+  return {
+    key: "history",
+    label: `Цена за м²: ${where}`,
+    text: `${now}, ${sign}${Math.abs(diff)}% с ${first.day}`,
+    hint: `медиана по ${last.count} объявлениям, записей: ${pts.length}`,
+  };
+}
+
 function goneAgoLabel(days: number): string {
   return days <= 0 ? "ушло сегодня" : `ушло ${days} дн. назад`;
 }
@@ -130,12 +156,13 @@ function GoneRow({ l }: { l: MarketGoneListing }) {
 }
 
 /** Чистое представление — отдельно от запроса, чтобы проверять без сети. */
-export function MarketDynamicsView({ data }: { data: MarketDynamicsData }) {
+export function MarketDynamicsView({ data, history }: { data: MarketDynamicsData; history?: MarketHistoryResponse }) {
   const [open, setOpen] = useState(false);
   const [allGone, setAllGone] = useState(false);
   if (data.status === "unsupported") return null;
 
-  const tiles = data.status === "ok" ? dynamicsTiles(data) : [];
+  const histTile = historyTile(history);
+  const tiles = [...(data.status === "ok" ? dynamicsTiles(data) : []), ...(histTile ? [histTile] : [])];
   const mobileGone = 3;
   const gone = data.recentlyGone;
 
@@ -205,6 +232,7 @@ export function MarketDynamicsView({ data }: { data: MarketDynamicsData }) {
 
 export function MarketDynamics({ propertyId }: { propertyId: string }) {
   const { data, isLoading } = useMarketDynamics(propertyId);
+  const { data: history } = useMarketHistory(propertyId);
   if (isLoading || !data) return null;
-  return <MarketDynamicsView data={data} />;
+  return <MarketDynamicsView data={data} history={history} />;
 }

@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 749,
-  "forks": 4042,
+  "endpoints": 751,
+  "forks": 4048,
   "mounts": 83,
-  "cron": 132,
+  "cron": 133,
   "jobs": 33,
   "hidden": 0
  },
@@ -38684,6 +38684,63 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/history",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/history",
+   "file": "apps/api/src/routes/market.ts",
+   "router": "marketRouter",
+   "top": "apps/api/src/routes/market.ts::marketRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = marketHistoryQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой marketHistoryQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const points = await readMedianHistory({ city: q.city, districtName: q.districtName, rooms: q.rooms ?? ANY_RO…",
+     "a": [
+      "зовёт readMedianHistory()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(body);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "POST",
    "path": "/listing-contact",
    "mount": "/api/v1/market",
@@ -39202,6 +39259,86 @@
     {
      "k": "do",
      "t": "res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/property/:id/history",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/property/:id/history",
+   "file": "apps/api/src/routes/market.ts",
+   "router": "marketRouter",
+   "top": "apps/api/src/routes/market.ts::marketRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const where = cardWhereFromParam(String(req.params.id));",
+     "a": [
+      "зовёт cardWhereFromParam()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!where",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, deletedAt: true, distr…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!p || (p.deletedAt && !can(req, \"archive.view\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const points = p.type === \"APARTMENT\" && districtName && rooms ? await readMedianHistory({ city: \"Душанбе\", d…",
+     "a": [
+      "зовёт readMedianHistory()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(body);",
      "a": [
       "ответ 200"
      ],
@@ -99933,6 +100070,187 @@
         }
        ],
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "market-median-history",
+   "when": "30 6 * * *",
+   "tree": [
+    {
+     "k": "if",
+     "t": "process.env.MARKET_CRAWL_ENABLED !== \"1\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await recordMedianHistory();",
+       "a": [
+        "зовёт recordMedianHistory()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const day = dushanbeDateString(now);",
+         "a": [
+          "зовёт dushanbeDateString()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const listings = await prisma.marketListing.findMany({ where: { AND: [segmentsWhere({ city }, now.getTime()),…",
+         "a": [
+          "читает в базе: marketListing"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const [byId, byPhone] = await Promise.all([ ids.length ? prisma.marketListing.groupBy({ by: [\"source\", \"selle…",
+         "a": [
+          "считает в базе: marketListing"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const g of byId",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "if (g.sellerId) counts.set(`${g.source}:${g.sellerId}`, g._count._all);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const g of byPhone",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "if (g.sellerPhone) counts.set(`ph:${g.sellerPhone}`, g._count._all);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const rows: HistoryInputRow[] = listings.map((r)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const key = sellerKey(r);",
+           "a": [
+            "зовёт sellerKey()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const built = buildMedianHistory(rows);",
+         "a": [
+          "зовёт buildMedianHistory()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "built.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { day, fetched: listings.length, written: 0, skipped: \"no-data\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await prisma.$transaction([ prisma.marketMedianDaily.deleteMany({ where: { day, city } }), prisma.marketMedia…",
+         "a": [
+          "всё внутри — одной транзакцией",
+          "удаляет в базе: marketMedianDaily",
+          "создаёт в базе: marketMedianDaily"
+         ],
+         "c": []
+        }
+       ],
+       "from": "recordMedianHistory() — apps/api/src/lib/market/medianHistory.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "markCronTickFailed(\"Ошибка ночной записи истории медиан рынка\", err);",
+       "a": [
+        "зовёт markCronTickFailed()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.error(`[cron] ${label}:`, reason);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "tick",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
     }
