@@ -299,7 +299,10 @@ const expenseBaseSchema = z.object({
 /** Что обязательно заполнить, чтобы позже можно было понять, куда ушли деньги:
  * реклама — канал (сумма без разбивки по каналам бесполезна для стоимости лида),
  * зарплата — сотрудник, офис/прочее — комментарий (иначе строка ничего не объясняет). */
-export const expenseCreateSchema = expenseBaseSchema.superRefine((data, ctx) => {
+export const expenseCreateSchema = expenseBaseSchema.extend({
+  /** Человек видел «уже учтено автоматически» (expenseAutoOverlap.ts) и подтвердил, что это другой расход. */
+  confirmAutoOverlap: z.boolean().optional(),
+}).superRefine((data, ctx) => {
   if (data.category === "ADVERTISING" && !data.source) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["source"], message: "Укажите канал рекламы" });
   }
