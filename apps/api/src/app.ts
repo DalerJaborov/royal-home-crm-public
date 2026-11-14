@@ -90,6 +90,7 @@ import { threadsRouter, threadsCallbackRouter } from "./routes/threads.js";
 import { searchConsoleRouter, searchConsoleCallbackRouter, yandexCallbackRouter } from "./routes/searchConsole.js";
 import { budgetWebhookRouter } from "./routes/budgetWebhook.js";
 import { oversightRouter } from "./routes/oversight.js";
+import { functionStatusRouter } from "./routes/functionStatus.js";
 import { insightsRouter } from "./routes/insights.js";
 import { marketRouter } from "./routes/market.js";
 import { marketMatchesRouter } from "./routes/marketMatches.js";
@@ -795,6 +796,8 @@ app.use("/api/v1/vacancies", vacanciesRouter);
 // накопленным данным: просроченные задачи, лимиты лидов, зависшие горячие клиенты,
 // переводы в Неактивные, передачи. Право dashboard.analytics — внутри роутера.
 app.use("/api/v1/oversight", oversightRouter);
+// «Состояние функций»: скрытые рубильники и режимы «только проверка», только директор/админ.
+app.use("/api/v1/function-status", functionStatusRouter);
 app.use("/api/v1/insights", insightsRouter);
 app.use("/api/v1/market/matches", marketMatchesRouter);
 app.use("/api/v1/market", marketContactRouter);

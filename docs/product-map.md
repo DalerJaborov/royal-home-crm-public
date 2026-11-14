@@ -10,10 +10,10 @@
 
 | Что | Сколько |
 |---|---|
-| Экранов (адресов в интерфейсе) | 69 |
+| Экранов (адресов в интерфейсе) | 70 |
 | Из них видно в меню | 36 |
-| Модулей сервера | 83 |
-| Адресов сервера всего | 743 |
+| Модулей сервера | 84 |
+| Адресов сервера всего | 744 |
 | Задач по расписанию | 125 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -84,6 +84,7 @@
 | `/security` | SecurityCenter | **Проверки** | `apps/web/src/pages/SecurityCenter.tsx` |
 | `/sellers` | Clients | только по ссылке | `apps/web/src/pages/Clients.tsx` |
 | `/settings` | Settings | **Настройки CRM** | `apps/web/src/pages/Settings.tsx` |
+| `/settings/functions` | FunctionStatus | только по ссылке | `apps/web/src/pages/settings/FunctionStatus.tsx` |
 | `/settings/roles` | RolesMatrix | только по ссылке | `apps/web/src/pages/settings/RolesMatrix.tsx` |
 | `/site-changes` | SiteChanges | **Изменения на сайте** | `apps/web/src/pages/SiteChanges.tsx` |
 | `/social-videos` | SocialVideos | **Ролики в соцсети** | `apps/web/src/pages/SocialVideos.tsx` |
@@ -222,6 +223,7 @@
 | `/api/v1/lead-magnets` | Чек-листы и выдачи лид-магнитов | 10 | да (1 мест) | `apps/api/src/routes/leadMagnets.ts` |
 | `/api/v1/vacancies` | Кандидаты на вакансии | 19 | да (5 мест) | `apps/api/src/routes/vacancies.ts` |
 | `/api/v1/oversight` | Контроль руководителя | 19 | да (2 мест) | `apps/api/src/routes/oversight.ts` |
+| `/api/v1/function-status` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/functionStatus.ts` |
 | `/api/v1/insights` | Инсайты от ИИ по звонкам | 4 | да (1 мест) | `apps/api/src/routes/insights.ts` |
 | `/api/v1/market/matches` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/marketMatches.ts` |
 | `/api/v1/market` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/marketContact.ts` |
@@ -413,5 +415,5 @@
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
 - Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-log-retention`, `assistant-telegram-context-cleanup`, `client-silence-sweep`, `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-identity-guard`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-somon-incremental`, `market-weekly-crawl`, `meta-ads-stale-watch`, `narration-auto-flow`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `payment-reminders`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `staff-notice-cleanup`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
-- Модулей сервера: `/api/v1/property-offers`, `/api/v1/live-voice`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
+- Модулей сервера: `/api/v1/property-offers`, `/api/v1/live-voice`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/function-status`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
 

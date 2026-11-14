@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2476**; вместе с задачами по расписанию и фоновыми заданиями — **4034**. Модулей: **83**.
+Путей: **750**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4035**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -7282,6 +7282,25 @@
     · запись в журнал ошибок
   - res.status(500).json({ error: "Не удалось посчитать прогноз" });
     · ответ 500 — «Не удалось посчитать прогноз»
+
+## /api/v1/function-status
+
+### GET /api/v1/function-status
+
+`apps/api/src/routes/functionStatus.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- пробует
+  - если !canViewFunctionStatus(req.agent?.role)
+    - return res.status(403).json({ error: "Недостаточно прав" });
+      · ответ 403 — «Недостаточно прав»
+  - const body = await loadFunctionStatus(investigationViewerRole(req));
+    · зовёт loadFunctionStatus()
+  - return res.json(functionStatusResponseSchema.parse(body));
+    · ответ 200
+    · проверяет данные схемой functionStatusResponseSchema
+- если сорвалось
+  - return next(err);
+    · дословно из кода
 
 ## /api/v1/geo
 
