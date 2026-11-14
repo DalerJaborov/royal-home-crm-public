@@ -8,6 +8,7 @@ import { videoHandoffDir } from "../src/upload.js";
 import {
   isPropertyVideoPublic,
   propertyPublicVideoUrl,
+  propertyVideoFileExists,
   type PublicVideoFacts,
 } from "../src/lib/propertyPublicVideo.js";
 import {
@@ -22,6 +23,27 @@ import { hasPublishedPostId } from "../src/lib/publishedRawVideoRetention.js";
  * Постоянная публичная ссылка на готовый ролик объекта (23.10.2026): правило
  * публичности, адрес с ?v=, товарный фид Meta с видео и сам роут отдачи mp4.
  */
+
+/**
+ * 14.11.2026: ссылка на ролик выдаётся, только если файл лежит в handoff (после переезда 6 из 87
+ * путей в базе указывали на пропавшие файлы, сайт и фид Meta получали 404). Чистые проверки ниже
+ * используют файлы с этими именами: кладём их заранее, убираем только те, что создали сами.
+ */
+const FIXTURE_FILES = ["final-a.mp4", "final-b.mp4"];
+const createdFixtures: string[] = [];
+beforeAll(() => {
+  fs.mkdirSync(videoHandoffDir, { recursive: true });
+  for (const name of FIXTURE_FILES) {
+    const full = path.join(videoHandoffDir, name);
+    if (!fs.existsSync(full)) {
+      fs.writeFileSync(full, "fixture");
+      createdFixtures.push(full);
+    }
+  }
+});
+afterAll(() => {
+  for (const full of createdFixtures) fs.rmSync(full, { force: true });
+});
 
 const SITE_BASE = "https://royalhome.tj";
 const CRM_BASE = "https://crm.example.tj";
@@ -91,6 +113,13 @@ describe("propertyPublicVideoUrl", () => {
     expect(propertyPublicVideoUrl(facts(), undefined)).toBeUndefined();
     expect(propertyPublicVideoUrl(facts({ publishedChannels: [] }), CRM_BASE)).toBeUndefined();
   });
+
+  it("файла нет на диске — undefined (сайт и фид Meta не получают мёртвую ссылку)", () => {
+    expect(propertyVideoFileExists("handoff/final-a.mp4")).toBe(true);
+    expect(propertyVideoFileExists("handoff/no-such-file-14-11.mp4")).toBe(false);
+    expect(propertyVideoFileExists(null)).toBe(false);
+    expect(propertyPublicVideoUrl(facts({ videoHandoffFinalPath: "handoff/no-such-file-14-11.mp4" }), CRM_BASE)).toBeUndefined();
+  });
 });
 
 function catalogProperty(overrides: Record<string, unknown>): CatalogProperty {
@@ -123,6 +152,14 @@ describe("buildProductVideoRows / renderProductVideoCsv", () => {
         catalogProperty({ id: "b", shortId: 2, publishedChannels: [] }),
         catalogProperty({ id: "c", shortId: 3, videoHandoffFinalPath: null }),
       ],
+      opts
+    );
+    expect(rows.map((r) => r.id)).toEqual(["1"]);
+  });
+
+  it("файла ролика нет на диске — объекта нет в фиде", () => {
+    const rows = buildProductVideoRows(
+      [catalogProperty({ id: "a", shortId: 1 }), catalogProperty({ id: "d", shortId: 4, videoHandoffFinalPath: "handoff/no-such-file-14-11.mp4" })],
       opts
     );
     expect(rows.map((r) => r.id)).toEqual(["1"]);
@@ -274,6 +311,14 @@ describe("публичные роуты ролика и фида (стенд)", 
     const res = await request(app).get(`/api/v1/public/property-video/${publicShortId}.mp4`);
     expect(res.status).toBe(404);
     expect(res.text).toBe("");
+    // Сколько бы раз ни зашли за пропавшим файлом, в журнале одна запись на объект в сутки (было ~600 строк).
+    await request(app).get(`/api/v1/public/property-video/${publicShortId}.mp4`);
+    await request(app).get(`/api/v1/public/property-video/${publicShortId}.mp4`);
+    await new Promise((r) => setTimeout(r, 300));
+    const logged = await prisma.errorLog.findMany({ where: { dedupKey: `public-video-missing:${publicShortId}` } });
+    expect(logged).toHaveLength(1);
+    expect(logged[0].message).toContain("файла нет на диске");
+    await prisma.errorLog.deleteMany({ where: { dedupKey: `public-video-missing:${publicShortId}` } });
     await prisma.property.update({ where: { id: publicId }, data: { videoHandoffFinalPath: path.join(videoHandoffDir, fileName) } });
   });
 

@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4050,
+  "forks": 4052,
   "mounts": 83,
-  "cron": 133,
+  "cron": 134,
   "jobs": 33,
   "hidden": 0
  },
@@ -63140,6 +63140,29 @@
      ]
     },
     {
+     "k": "if",
+     "t": "!propertyVideoFileExists(property.videoHandoffFinalPath)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"storage\", `Публичный ролик объекта №${shortId}: файла нет на диске, ссылка отдаёт 404`, …",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "res.setHeader(\"Content-Type\", \"video/mp4\");",
      "a": [
@@ -63162,7 +63185,7 @@
        "c": [
         {
          "k": "do",
-         "t": "void logSystemError(\"storage\", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`);",
+         "t": "void logSystemError(\"storage\", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`, { dedupKey: PU…",
          "a": [
           "запись в журнал ошибок"
          ],
@@ -86991,6 +87014,106 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка сторожа свежести копий\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "balance-watch",
+   "when": "20 9 * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const alerts = await runBalanceWatch();",
+       "a": [
+        "зовёт runBalanceWatch()"
+       ],
+       "c": [
+        {
+         "k": "loop",
+         "t": "для каждого: const run of [() => checkElevenLabsBalances(deps), () => checkSmsBalance(deps)]",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"cron\", `Проверка остатка платных сервисов не выполнена: ${describeError(err)}`, { dedupK…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runBalanceWatch() — apps/api/src/lib/balanceWatch.ts"
+      },
+      {
+       "k": "if",
+       "t": "alerts",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Остатки платных сервисов: тревог поднято ${alerts}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка суточной проверки остатков\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],

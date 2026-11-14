@@ -82,6 +82,8 @@ export interface CriticalAlarmInput {
   url?: string;
   /** Повтор по той же метке не чаще; по умолчанию ALERT_EVERY_MS. */
   everyMs?: number;
+  /** «К сведению»: колокольчик сразу, звонок телефона только в часы алармов (не срочно). */
+  quiet?: boolean;
   now?: Date;
 }
 
@@ -106,18 +108,16 @@ export async function raiseCriticalAlarm(input: CriticalAlarmInput): Promise<{ a
         select: { id: true },
       });
       if (already) return false;
-      return enqueueDirectorAlert(
-        {
-          title: input.title,
-          body: input.body.replace(/\s+/g, " ").slice(0, 220),
-          url: input.url ?? SILENT_FAILURE_URL,
-          level: "CRITICAL",
-          severity: "critical",
-          tag,
-          recipientRoles: ["DIRECTOR", "ADMIN"],
-        },
-        tx
-      );
+      const params = {
+        title: input.title,
+        body: input.body.replace(/\s+/g, " ").slice(0, 220),
+        url: input.url ?? SILENT_FAILURE_URL,
+        level: "CRITICAL" as const,
+        severity: "critical" as const,
+        tag,
+        recipientRoles: ["DIRECTOR" as const, "ADMIN" as const],
+      };
+      return enqueueDirectorAlert(input.quiet ? { ...params, level: undefined, severity: "info" as const } : params, tx);
     });
     return { alerted };
   } catch (err) {
