@@ -57,7 +57,7 @@ const ownPush = (convId: string) =>
 
 beforeAll(async () => {
   savedHours = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { workHoursStart: true, workHoursEnd: true } });
-  await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "23:59" } });
+  await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "24:00" } });
   agentId = (
     await prisma.agent.create({ data: { fullName: `Агент ждущих ${runId}`, phone: `+99292${String(Date.now()).slice(-7)}`, role: "AGENT", passwordHash: "x" } })
   ).id;
@@ -192,7 +192,7 @@ describe("runClientSilenceSweep — сторож молчания", () => {
       const res = await runClientSilenceSweep(new Date("2026-11-14T12:00:00Z")); // 17:00 Душанбе
       expect(res.skippedOffHours).toBe(true);
     } finally {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "23:59" } });
+      await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "24:00" } });
     }
   });
 });
