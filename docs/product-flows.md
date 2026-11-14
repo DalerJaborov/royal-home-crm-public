@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4042**. Модулей: **83**.
+Путей: **750**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4055**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3408,8 +3408,8 @@
 - если !hasBuyerCriteria(wants)
   - return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
     · ответ 200
-- const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);
-  · зовёт findBuyerListings()
+- const [{ total, totalIsLowerBound, listings, ownersOnly }, market] = await Promise.all([ loadOwnersFilter().t…
+  · зовёт loadOwnersFilter()
 - const body: MarketBuyerListingsResponse = { status: "ok", criteria, total, totalIsLowerBound, budgetMaxTjs: w…
   · зовёт phoneSafeText()
 - return res.json(body);
@@ -8694,6 +8694,13 @@
   - return res.status(502).json({ error: "Не удалось получить номер — откройте объявление на сайте" });
     · ответ 502 — «Не удалось получить номер — откройте объявление на сайте»
 
+### GET /api/v1/market/overpriced
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- res.json(await findOverpricedPropertiesCached());
+  · ответ 200
+
 ### GET /api/v1/market/property/:id/dynamics
 
 `apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -8723,19 +8730,12 @@
 - если !where
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- const p = await prisma.property.findUnique({ where, select: { id: true, type: true, rooms: true, areaSqm: tru…
+- const p = await prisma.property.findUnique({ where, select: PROPERTY_MARKET_SELECT });
   · читает в базе: property
 - если !p || (p.deletedAt && !can(req, "archive.view"))
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- const money = await loadMoneyContext();
-  · зовёт loadMoneyContext()
-- если (p.type !== "APARTMENT" && p.type !== "HOUSE") || !(subjectBase.areaSqm > 0)
-  - return res.json({ subject: { ...subjectBase, propertyType: p.type }, ...emptyResult("для этого типа объекта р…
-    · ответ 200
-- const result = await findSimilar({ ...subjectBase, propertyType: p.type }, { propertyId: p.id });
-  · зовёт findSimilar()
-- res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === "ok" ?…
+- res.json(await evaluatePropertyAgainstMarket(p, await loadMoneyContext()));
   · ответ 200
 
 ### GET /api/v1/market/segments
@@ -22398,6 +22398,107 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### market-buyer-alerts — 12,27,42,57 * * * *
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await runBuyerMarketAlerts();
+    · зовёт runBuyerMarketAlerts()
+    - если running
+      - return stats;
+        · дословно из кода
+    - пробует
+      - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { marketBuyerAlertsEn…
+        · читает в базе: settings
+      - если !settings?.marketBuyerAlertsEnabled
+        - если settings?.marketBuyerAlertsEnabledAt
+          - await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: { not: null } }, dat…
+            · меняет в базе: settings
+      - если !settings.marketBuyerAlertsEnabledAt
+        - await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: null }, data: { mark…
+          · меняет в базе: settings
+      - const rawListings = await prisma.marketListing.findMany({ where: { dealType: "SALE", isActive: true, firstSee…
+        · читает в базе: marketListing
+      - если rawListings.length === 0
+        - return stats;
+          · дословно из кода
+      - const realtors = await loadOwnersFilter();
+        · зовёт loadOwnersFilter()
+      - если listings.length === 0
+        - return stats;
+          · дословно из кода
+      - const policy = await loadMatchPolicy();
+        · зовёт loadMatchPolicy()
+      - const clients = await prisma.client.findMany({ where: { ...waitingBuyerWhere(policy, now), assignedAgentId: {…
+        · читает в базе: client
+      - если clients.length === 0
+        - return stats;
+          · дословно из кода
+      - const [districts, money] = await Promise.all([ districtIds.length ? prisma.district.findMany({ where: { id: {…
+        · читает в базе: district
+      - const buyers: AlertBuyer[] = clients.flatMap((c)
+        - если !c.assignedAgentId
+          - return [];
+            · дословно из кода
+        - const criteria = currentBuyerMatchingCriteria(c);
+          · зовёт currentBuyerMatchingCriteria()
+        - const wants = buildBuyerWants(criteria, criteria.desiredDistrictId ? districtById.get(criteria.desiredDistric…
+          · зовёт buildBuyerWants()
+        - return hasBuyerCriteria(wants) ? [{ clientId: c.id, shortId: c.shortId, kind: c.kind, agentId: c.assignedAgen…
+          · зовёт hasBuyerCriteria()
+      - если buyers.length === 0
+        - return stats;
+          · дословно из кода
+      - const dayStart = dushanbeStartOfToday(now);
+        · зовёт dushanbeStartOfToday()
+      - const [pairs, recent, todayByAgent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where: { clientI…
+        · читает в базе: buyerMarketAlert
+      - для каждого: const r of recent
+        - previousByClient.set(r.clientId, [...(previousByClient.get(r.clientId) ?? []), toAlertListing(r.listing)]);
+          · дословно из кода
+      - для каждого: const r of todayByAgent
+        - pushKeysByAgent.set(r.agentId, (pushKeysByAgent.get(r.agentId) ?? new Set()).add(`${r.clientId}|${r.notifiedA…
+          · дословно из кода
+      - const plan = planBuyerAlerts({ buyers, listings, alreadyAlerted: new Set(pairs.map((p)
+        · зовёт planBuyerAlerts()
+      - для каждого: const item of plan
+        - const claimed = await prisma.buyerMarketAlert.createMany({ data: item.listings.map((l)
+          · создаёт в базе: buyerMarketAlert
+        - если claimed.count === 0
+          - continue;
+            · переходит к следующему
+        - const owned = claimed.count === item.listings.length ? new Set(item.listings.map((l)
+          · читает в базе: buyerMarketAlert
+        - если toTell.length === 0
+          - continue;
+            · переходит к следующему
+        - const text = buyerAlertText(item.buyer, toTell);
+          · зовёт buyerAlertText()
+        - пробует
+          - await sendPushToAgent(item.buyer.agentId, { kind: "market_buyer", title: text.title, body: text.body, url: `/…
+            · push-уведомление
+        - если сорвалось
+          - await prisma.buyerMarketAlert.deleteMany({ where: { clientId: item.buyer.clientId, notifiedAt: at } });
+            · удаляет в базе: buyerMarketAlert
+          - void logSystemError("api", `Пуш о новом объявлении под покупателя не ушёл: ${err instanceof Error ? err.name …
+            · запись в журнал ошибок
+      - если stats.failed > 0
+        - void logSystemError("api", `Оповещение о новых объявлениях: не ушло пушей ${stats.failed} из ${stats.failed +…
+          · запись в журнал ошибок
+    - в любом случае
+      - running = false;
+        · дословно из кода
+- если сорвалось
+  - markCronTickFailed("Ошибка оповещения о новых объявлениях под покупателей", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
 
 ### market-own-match — */30 * * * *
 

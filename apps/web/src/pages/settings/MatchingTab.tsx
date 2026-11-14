@@ -81,6 +81,8 @@ export function MatchingTab() {
   const includeInactiveOn = settings.matchIncludeInactive;
   const includeDeferredOn = settings.matchIncludeDeferred;
   const notifyOwnerOn = settings.matchNotifyPropertyOwner;
+  const marketAlertsOn = settings.marketBuyerAlertsEnabled ?? false;
+  const ownersOnlyOn = settings.marketOwnersOnly ?? true;
 
   async function handleSaveAutoMatch(e: React.FormEvent) {
     e.preventDefault();
@@ -160,6 +162,28 @@ export function MatchingTab() {
             notifyOwnerOn
               ? "Хозяин объекта получает пуш, когда его объект предлагают чужому клиенту."
               : "Хозяин объекта не узнаёт, что его объект предложили чужому клиенту."
+          }
+        />
+
+        <SwitchRow
+          title="Только собственники в подборе с площадок"
+          on={ownersOnlyOn}
+          onToggle={() => updateSettings.mutate({ marketOwnersOnly: !ownersOnlyOn })}
+          hint={
+            ownersOnlyOn
+              ? "В подборе покупателю и в пушах скрыты агентства и риелторы: помеченные площадкой и те, у кого три и больше объявлений. Цены рынка считаются по всем."
+              : "Выключено: в подборе покупателю показываются все объявления, включая агентства и риелторов."
+          }
+        />
+
+        <SwitchRow
+          title="Сообщать о новых объявлениях с площадок"
+          on={marketAlertsOn}
+          onToggle={() => updateSettings.mutate({ marketBuyerAlertsEnabled: !marketAlertsOn })}
+          hint={
+            marketAlertsOn
+              ? "Агент получает пуш, когда на Somon.tj или Paydo.tj появилось объявление под его покупателя. Не больше трёх пушей в день на одного клиента, одно объявление приходит один раз."
+              : "Выключено: агент видит объявления с площадок только в карточке клиента."
           }
         />
 
