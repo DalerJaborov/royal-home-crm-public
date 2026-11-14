@@ -235,6 +235,11 @@ services:
       ASSISTANT_TTS_DICTIONARY_VERSION_RU: ${ASSISTANT_TTS_DICTIONARY_VERSION_RU:-}
       ASSISTANT_TTS_DICTIONARY_ID_TG: ${ASSISTANT_TTS_DICTIONARY_ID_TG:-}
       ASSISTANT_TTS_DICTIONARY_VERSION_TG: ${ASSISTANT_TTS_DICTIONARY_VERSION_TG:-}
+      # Денежные потолки Gemini помощника (предохранитель, не расход): $/сутки и $/ответ.
+      # Без проброса значение из .env.production до контейнера не доходит;
+      # пусто = действует умолчание из кода (30 и 1).
+      ASSISTANT_GEMINI_DAILY_USD: ${ASSISTANT_GEMINI_DAILY_USD:-}
+      ASSISTANT_GEMINI_TURN_USD: ${ASSISTANT_GEMINI_TURN_USD:-}
       # Independent gates for the approved policy index and paid private lookup.
       ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED: "${ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED:-false}"
       ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED: "${ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED:-false}"

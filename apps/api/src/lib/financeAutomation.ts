@@ -1,6 +1,7 @@
 import { expenseCentsToTjs } from "./money.js";
 import { prisma } from "../db.js";
 import { DEAL_SALARY_AUTO_KEY_PREFIX, dealSalaryAutoKey, isDealSalaryExpense } from "./companyProfit.js";
+import { warnManualOverlapsForAuto } from "./expenseAutoOverlap.js";
 import { describeError } from "./describeError.js";
 import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
 import { centsToTjs, fromCents, loadMoneyContext, NO_USD_RATE_TEXT, toCents, usdRateForWrite } from "./money.js";
@@ -231,6 +232,8 @@ export async function upsertSalaryExpenses(forMonth?: string): Promise<number> {
           note: `Доля агента по закрытым сделкам за ${month} — посчитано автоматически из снапшотов комиссий. Это «причитается», факт выплаты проводит человек.`,
         },
       });
+      // Ручная «доля по сделке» этого агента за месяц уже была — вычлась бы из прибыли дважды.
+      await warnManualOverlapsForAuto(autoKey, month);
       touched++;
     } catch (err) {
       void logSystemError("api", `Зарплатная строка ${autoKey} не записана: ${describeError(err)}`);
