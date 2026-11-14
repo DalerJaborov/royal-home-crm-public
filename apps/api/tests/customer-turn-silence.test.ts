@@ -29,7 +29,7 @@ describe("customer turn silence guard", () => {
 
   it("every intended silence is a real code of the turn code (no dead entries), so the list cannot drift", () => {
     const files = ["lib", "ai"].flatMap(dir => readdirSync(path.join(__dirname, "../src", dir)).filter(f => f.endsWith(".ts"))
-      .filter(f => f !== "customerTurnSilence.ts").map(f => readFileSync(path.join(__dirname, "../src", dir, f), "utf8")));
+      .filter(f => f !== "customerTurnSilence.ts" && f !== "customerIntendedSilence.ts").map(f => readFileSync(path.join(__dirname, "../src", dir, f), "utf8")));
     for (const code of CUSTOMER_TURN_INTENDED_SILENCE) {
       expect(files.some(text => text.includes(`"${code}"`) || text.includes(`= "${code}"`)), code).toBe(true);
     }

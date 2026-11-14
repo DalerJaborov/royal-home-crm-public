@@ -13,30 +13,14 @@
 //    itself);
 //  - everything else, including every FUTURE reason by default: a person gets the
 //    text and a push "answer by hand" (customerHeldMessage.ts).
-// The guard test customer-turn-silence.test.ts fails when a literal stored as a
-// ticket `errorCode` by the turn code is not classified.
+// The list itself lives in customerIntendedSilence.ts (one list for both guards).
+// Unclassified reasons need no test to be safe: by default they call a person.
 import { prisma } from "../db.js";
-import { CUSTOMER_NON_INPUT_TICKET_CODES } from "./customerIngressNonInput.js";
-import { NEWER_INPUT_PENDING, NEWER_INPUT_RESUMED } from "./customerNewerInboxInput.js";
+import { CUSTOMER_TURN_INTENDED_SILENCE, customerTurnSilenceIsIntended } from "./customerIntendedSilence.js";
 import { notifyUnansweredCustomerTurn } from "./customerHeldMessage.js";
 import { logSystemError } from "./systemError.js";
 
-/** Silence that is the product's decision. Keep every entry justified. */
-export const CUSTOMER_TURN_INTENDED_SILENCE: readonly string[] = [
-  ...CUSTOMER_NON_INPUT_TICKET_CODES, // echo of our own message, ad-click marker, bare template echo: the customer said nothing
-  "own_account", // a message from one of our own accounts
-  "spam_muted_no_reply", // spam is muted on purpose (customerSpamTurn)
-  "foreign_share_no_reply", // a foreign post forwarded with no question
-  "attachment_question_repeat_no_reply", // the same attachment question is never asked twice
-  NEWER_INPUT_PENDING, NEWER_INPUT_RESUMED, // put aside for a newer input, which carries its words
-  "already_planned", // not a failure: the answer exists
-  "staff_sender", "outgoing_mid", // our own staff or our own message coming back: the customer said nothing
-  "turn_already_owned", // another worker is running this very turn
-];
-
-export function customerTurnSilenceIsIntended(reason: string): boolean {
-  return CUSTOMER_TURN_INTENDED_SILENCE.includes(reason);
-}
+export { CUSTOMER_TURN_INTENDED_SILENCE, customerTurnSilenceIsIntended };
 
 /** Called once a core turn ended HELD for `reason`. Never throws. */
 export async function reportUnansweredCustomerTurn(eventKey: string, reason: string, opts: { gaveUp?: boolean } = {}): Promise<void> {
@@ -50,7 +34,8 @@ export async function reportUnansweredCustomerTurn(eventKey: string, reason: str
           FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages")='array' THEN c."messages" ELSE '[]'::jsonb END)
           WITH ORDINALITY AS m(elem, ord) WHERE m.elem ->> 'role'='user' ORDER BY m.ord DESC LIMIT 1) AS "excerpt",
         -- "answered" = nobody needs to be alarmed: an answer exists or is coming, the ticket is not HELD any more or a worker holds it,
-        -- or a person already runs this chat (pause, opt-out, own agent, the last message is not the customer's).
+        -- or a person already runs this chat (pause, opt-out, property chat agent, the last message is not the customer's).
+        -- A responsible agent is NOT "answered" (review 193-2, 15.11): the push goes exactly to that agent.
         (EXISTS (SELECT 1 FROM "CustomerOutboxPart" p WHERE p."ticketEventKey"=t."eventKey") OR EXISTS (SELECT 1 FROM "CustomerPropertyIngressTicket" x
           WHERE x."scopeKey"=t."scopeKey" AND x."endpointScopeId"=t."endpointScopeId" AND x."order">t."order" AND x."processingState" IN ('PLANNED','RECEIVED','CLAIMED'))
           -- after the queue job gave up, a ticket left in RECEIVED/CLAIMED is exactly the failure: only PLANNED means answered
@@ -58,9 +43,7 @@ export async function reportUnansweredCustomerTurn(eventKey: string, reason: str
                 ELSE t."processingState" IS DISTINCT FROM 'HELD' OR (t."leaseOwner" IS NOT NULL AND t."leaseUntil" > now()) END)
           OR (c."id" IS NOT NULL AND (
             (c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()) OR c."optedOutAt" IS NOT NULL OR c."propertyChatAgentId" IS NOT NULL
-            OR (c."messages" -> -1 ->> 'role') IS DISTINCT FROM 'user'
-            OR EXISTS (SELECT 1 FROM "Client" cl JOIN "Agent" ag ON ag."id"=cl."assignedAgentId"
-              WHERE cl."id"=c."clientId" AND ag."isActive" AND cl."status" NOT IN ('LOST','ARCHIVED') AND cl."workStatus" <> 'INACTIVE')))) AS "answered"
+            OR (c."messages" -> -1 ->> 'role') IS DISTINCT FROM 'user'))) AS "answered"
       FROM "CustomerPropertyIngressTicket" t LEFT JOIN "BotConversation" c ON c."id"=t."conversationId"
       WHERE t."eventKey"=${eventKey} AND t."tombstonedAt" IS NULL`;
     if (!row || row.answered) return; // gone, or the customer already got an answer to this or a newer input

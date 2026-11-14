@@ -45,6 +45,8 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   unsupported_decision_evidence: "бот не смог подтвердить ответ данными",
   staff_or_supported_reply_required: "бот решил передать вопрос сотруднику",
   sender_read_unavailable: "не удалось прочитать данные собеседника",
+  original_context_changed: "переписка изменилась, пока бот готовил ответ, и ответ не ушёл",
+  consume_job_gave_up: "бот не смог обработать сообщение после повторов",
 };
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
 const tagOf = (conversationId: string) => `customer-held-${conversationId}`;
@@ -202,7 +204,10 @@ export async function notifyUnansweredCustomerTurn(hold: { reason: string; chann
     // ONE door for "the customer is waiting" (#174): idempotent per silence episode, critical level, director fallback when
     // nobody is assigned. The sweep of #174 finds the same chats later; the episode mark keeps it from a second push.
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
-    await alertClientWaiting({ conversationId: hold.conversationId, trigger: "escalate" });
+    // «Бот решил позвать сотрудника» — только когда модель правда так решила; поломка хода — своими словами (ревью 193-3).
+    await alertClientWaiting(hold.reason === "staff_or_supported_reply_required"
+      ? { conversationId: hold.conversationId, trigger: "escalate" }
+      : { conversationId: hold.conversationId, trigger: "failed", why });
   } catch (error) {
     void logSystemError("meta", `Уведомление о неотвеченном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
       { dedupKey: "customer-turn-unanswered-notify-failed", quietPult: true });
