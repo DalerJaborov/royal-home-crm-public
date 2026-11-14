@@ -1,9 +1,9 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 749,
-  "forks": 4034,
-  "mounts": 83,
+  "endpoints": 750,
+  "forks": 4035,
+  "mounts": 84,
   "cron": 131,
   "jobs": 33,
   "hidden": 0
@@ -32231,6 +32231,78 @@
        "t": "res.status(500).json({ error: \"Не удалось посчитать прогноз\" });",
        "a": [
         "ответ 500 — «Не удалось посчитать прогноз»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "mount": "/api/v1/function-status",
+   "full": "/api/v1/function-status",
+   "file": "apps/api/src/routes/functionStatus.ts",
+   "router": "functionStatusRouter",
+   "top": "apps/api/src/routes/functionStatus.ts::functionStatusRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!canViewFunctionStatus(req.agent?.role)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+         "a": [
+          "ответ 403 — «Недостаточно прав»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const body = await loadFunctionStatus(investigationViewerRole(req));",
+       "a": [
+        "зовёт loadFunctionStatus()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json(functionStatusResponseSchema.parse(body));",
+       "a": [
+        "ответ 200",
+        "проверяет данные схемой functionStatusResponseSchema"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return next(err);",
+       "a": [
+        "дословно из кода"
        ],
        "c": []
       }

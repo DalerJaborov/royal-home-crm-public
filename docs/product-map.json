@@ -559,6 +559,13 @@
       }
     },
     {
+      "path": "/settings/functions",
+      "component": "FunctionStatus",
+      "file": "apps/web/src/pages/settings/FunctionStatus.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
       "path": "/settings/roles",
       "component": "RolesMatrix",
       "file": "apps/web/src/pages/settings/RolesMatrix.tsx",
@@ -1510,6 +1517,14 @@
       "endpoints": 19,
       "label": "Контроль руководителя",
       "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/function-status",
+      "router": "functionStatusRouter",
+      "file": "apps/api/src/routes/functionStatus.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 1
     },
     {
       "mount": "/api/v1/insights",

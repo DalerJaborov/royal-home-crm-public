@@ -159,6 +159,9 @@ const Settings = lazyWithReload(() => import("./pages/Settings").then((m) => ({ 
 const RolesMatrix = lazyWithReload(() =>
   import("./pages/settings/RolesMatrix").then((m) => ({ default: m.RolesMatrix })),
 );
+const FunctionStatus = lazyWithReload(() =>
+  import("./pages/settings/FunctionStatus").then((m) => ({ default: m.FunctionStatus })),
+);
 const Profile = lazyWithReload(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
 const Finance = lazyWithReload(loadCleanFinance);
 const Archive = lazyWithReload(() => import("./pages/Archive").then((m) => ({ default: m.Archive })));
@@ -446,6 +449,9 @@ export default function App() {
         {/* «Права по ролям» — таблица роль на роль по пресетам shared/permissions.ts,
             вход из Настройки → Сотрудники. Право settings.view, как у самой страницы. */}
         <Route path="settings/roles" element={<RolesMatrix />} />
+        {/* «Состояние функций» — что включено, что «только проверка», что выключено и почему.
+            Только директор и администратор (проверка на самой странице и на сервере); вход — Настройки → Данные и система. */}
+        <Route path="settings/functions" element={<FunctionStatus />} />
         <Route path="profile" element={<Profile />} />
         <Route path="finance" element={<Finance />} />
         <Route path="ads" element={<Ads />} />

@@ -553,3 +553,31 @@ html[data-theme="royal-home-2026-night"] {
   font-weight: 400 !important;
   padding-inline: 0;
 }
+
+/* «Состояние функций» (14.11.2026, pages/settings/FunctionStatus.tsx): строка списка с переносом текста,
+   подпись-причина, имена серверных переменных мелким шрифтом. Только токены темы, обе темы. */
+.rh2 .row.fs-item { align-items: flex-start; gap: 12px; padding-block: 14px; }
+.rh2 .row.fs-item > .dot { margin-top: 7px; }
+.rh2 .row.fs-item .fs-body { min-width: 0; flex: 1; }
+.rh2 .row.fs-item .fs-body > b { white-space: normal; overflow: visible; text-overflow: clip; }
+.rh2 .fs-body p { margin: 4px 0 0; white-space: normal; overflow-wrap: anywhere; }
+.rh2 .fs-what { font-size: var(--fs-13); color: var(--muted); }
+.rh2 .fs-reason { font-size: var(--fs-14); color: var(--ink); }
+.rh2 .fs-detail { font-size: var(--fs-13); color: var(--body); }
+.rh2 .fs-err { display: block; margin-top: 4px; font-size: var(--fs-13); color: var(--crit); overflow-wrap: anywhere; }
+.rh2 .fs-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; }
+.rh2 .fs-env { font-size: var(--fs-13); color: var(--muted); display: inline-flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.rh2 .fs-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted);
+  background: var(--soft); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
+.rh2 .fs-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.rh2 .fs-crons { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rh2 .fs-cron { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: var(--fs-13); color: var(--body); }
+.rh2 .fs-cron-name { font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.rh2 .fs-cron-when { color: var(--muted); }
+.rh2 .fs-crons-all { padding: 6px 4px 2px; gap: 12px; }
+.rh2 .fs-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.rh2 .chip.fs-filter { cursor: pointer; min-height: 36px; font: inherit; font-size: var(--fs-13); }
+.rh2 .chip.fs-filter.on { background: var(--pill); color: var(--pill-ink); border-color: transparent; }
+.rh2 .fs-all > summary { cursor: pointer; padding: 10px 4px; font-size: var(--fs-14); color: var(--ink); min-height: 44px; display: flex; align-items: center; }
+.rh2 .quiet.fs-entry { margin-bottom: 12px; flex-wrap: wrap; }
+.rh2 .quiet.fs-entry .txt { flex: 1; min-width: 200px; }
