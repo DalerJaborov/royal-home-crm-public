@@ -93,6 +93,7 @@ export async function raiseChannelKeyAlarm(input: ChannelKeyAlarmInput): Promise
           body: `${input.label}: ${detail.slice(0, 160)}. ${fix}`,
           url: "/settings?tab=channels",
           level: "CRITICAL",
+          severity: "critical",
           tag,
           recipientRoles: ["DIRECTOR", "ADMIN"],
         },
