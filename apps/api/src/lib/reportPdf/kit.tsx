@@ -292,7 +292,7 @@ export function Note({ children }: { children: ReactNode }) {
 }
 
 /** Воронка: полосы по шагам. Без «% от шага выше»: шаги — события по своим датам, а не одни и те же клиенты (как и на экране «Отчёты»). */
-export function Funnel({ steps }: { steps: { label: string; count: number; extra?: string }[] }) {
+export function FunnelBars({ steps }: { steps: { label: string; count: number; extra?: string }[] }) {
   const max = Math.max(1, ...steps.map((x) => x.count));
   return (
     <View wrap={false}>

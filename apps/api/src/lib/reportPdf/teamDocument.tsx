@@ -1,7 +1,7 @@
 import { View } from "@react-pdf/renderer";
 import { CLIENT_SOURCE_LABELS, type ClientSource } from "@royal-home/shared";
 import type { AgentReportRow, FunnelStep, SourcesReport } from "../teamReports.js";
-import { BarList, DataTable, Funnel, KpiGrid, Note, ReportDocument, Section } from "./kit.js";
+import { BarList, DataTable, FunnelBars, KpiGrid, Note, ReportDocument, Section } from "./kit.js";
 import { C, money, num, percent } from "./theme.js";
 
 /**
@@ -58,7 +58,7 @@ export function TeamReport({ periodLabel, preparedBy, generatedAtLabel, seesMone
       <Section
         title="Воронка"
         hint="Сколько событий каждого шага было за период. Это не конверсия одних и тех же клиентов: события считаются по своим датам, поэтому соотношения могут быть больше 100 %."
-        lead={<Funnel steps={funnel.map((x) => ({ label: STEP_LABELS[x.key] ?? x.label, count: x.count }))} />}
+        lead={<FunnelBars steps={funnel.map((x) => ({ label: STEP_LABELS[x.key] ?? x.label, count: x.count }))} />}
       />
 
       <Section title="Команда" hint="Показы и закрытые сделки каждого агента за период. Ушедшие сотрудники со сделками в периоде остаются в списке.">
