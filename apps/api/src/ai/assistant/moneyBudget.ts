@@ -33,8 +33,8 @@ async function reserveDaily(amount: number, day: string, limit: number): Promise
  */
 export function createAssistantMoneyWallet(options: WalletOptions = {}): AssistantMoneyWallet {
   const now = options.now ?? Date.now;
-  const daily = dollarLimit(options.dailyUsd ?? process.env.ASSISTANT_GEMINI_DAILY_USD ?? "3");
-  const turn = dollarLimit(options.turnUsd ?? process.env.ASSISTANT_GEMINI_TURN_USD ?? "0.30");
+  const daily = dollarLimit(options.dailyUsd ?? process.env.ASSISTANT_GEMINI_DAILY_USD ?? "30");
+  const turn = dollarLimit(options.turnUsd ?? process.env.ASSISTANT_GEMINI_TURN_USD ?? "1");
   const day = dushanbeDayKey(now());
   let used = 0;
   return { async reserve(amount, signal) {
