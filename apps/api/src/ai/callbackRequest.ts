@@ -32,6 +32,7 @@
 import { callbackPromiseLine, type CallbackPromise } from "./agencyFacts.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { clientAskedForCallback } from "./operatorHandoff.js";
+import { customerAskTextWithoutRefusals } from "./customerAskSignals.js";
 
 /** Поле инструмента submit_reply. Есть в обоих режимах — различается обработка. */
 export const CALLBACK_SCHEMA_FIELD = {
@@ -140,7 +141,9 @@ const EXPLICIT_CALLBACK_MARKERS: readonly RegExp[] = [
 
 export function hasExplicitCallbackAsk(clientText: string | null | undefined): boolean {
   if (!clientText) return false;
-  const text = clientText.normalize("NFC");
+  // Отказы («не звоните» содержит «звоните»), цитаты и упоминания роли («я
+  // работаю оператором», «у меня оператор Билайн») вырезаны до поиска (14.11.2026).
+  const text = customerAskTextWithoutRefusals(clientText);
   // Два набора маркеров, и оба нужны: здешний ловит «свяжитесь», «ты бот?»,
   // латиницу («zang zaned»); ai/operatorHandoff.ts — «тамос гиред», «соедините»,
   // и он же снимает врезки из присланных файлов и заметок CRM, чтобы просьбой не

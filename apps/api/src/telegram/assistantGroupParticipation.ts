@@ -98,7 +98,7 @@ export function groupInstagramLinkRequest(text: string, quoted: string): { ref: 
   if (text.length > 180 || !/(?:инстаграм|instagram)/iu.test(text)
       || !/(?:ссылк|пайванд|линк)/iu.test(text)
       || !/\?|(?<!\p{L})(?:дай(?:те)?|скинь(?:те)?|отправь(?:те)?|покажи(?:те)?|пришли(?:те)?|где|можно|нужна|парто|фирист\p{L}*|равон|диҳ\p{L}*)(?!\p{L})/iu.test(text)
-      || /https?:\/\/|\b(?:не надо|не нужно)\b|(?<!\p{L})(?:не|накун|иваз|измени|обнови|снизь)(?!\p{L})|[;\r\n]/iu.test(text)) return null;
+      || /https?:\/\/|(?<!\p{L})(?:не надо|не нужно)(?!\p{L})|(?<!\p{L})(?:не|накун|иваз|измени|обнови|снизь)(?!\p{L})|[;\r\n]/iu.test(text)) return null;
   const current = groupPropertyRefs(text);
   const refs = current.length ? current : groupPropertyRefs(quoted);
   return refs.length === 1 ? { ref: refs[0], tajik: /пайванд|парто|фирист|равон|диҳ|(?:инстаграм|линк)и(?!\p{L})/iu.test(text) } : null;

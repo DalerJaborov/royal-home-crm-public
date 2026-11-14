@@ -6,6 +6,8 @@ import { checkGeminiModel } from "../ai/geminiCheck.js";
 import { getChatTitle, getChatMemberStatus, isTelegramEnabled, canBotWriteToChat } from "../telegram/api.js";
 import { parseTelegramChatIds } from "./telegramChats.js";
 import { loadCredentials, GRAPH_VERSION, instagramApiUrl, instagramRequest, fetchWithRetry } from "../messengers/meta.js";
+import { facebookPageTokenFor, instagramRouteForToken } from "./metaEternalTokens.js";
+import { isMetaAuthFailure, isMetaAuthFailureText, raiseChannelKeyAlarm } from "./channelKeyAlarm.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { listAccounts, accountTokenById } from "../messengers/accounts.js";
 import { r2HealthCheck } from "./r2Client.js";
@@ -181,7 +183,16 @@ export async function checkTelegramExtraChatsHealth(): Promise<IntegrationCheck[
 async function pickAccountForHealth(channel: string) {
   const rows = await listAccounts(channel);
   if (rows.length === 0) return null;
-  return rows.find((r) => r.isDefault && r.enabled) ?? rows.find((r) => r.enabled) ?? rows[0];
+  const main = rows.find((r) => r.isDefault && r.enabled);
+  // Тот же порядок, что resolveIncomingAccount (13.11.2026): вторая Страница
+  // Facebook (Arvan) без «по умолчанию» не подменяет основную из Settings —
+  // иначе смерть основного маркера не заметил бы никто.
+  if (!main && channel !== "INSTAGRAM") {
+    const creds = await loadCredentials();
+    if (channel === "FACEBOOK" && creds.pageToken && creds.pageId) return null;
+    if (channel === "WHATSAPP" && creds.waToken && creds.waPhoneId) return null;
+  }
+  return main ?? rows.find((r) => r.enabled) ?? rows[0];
 }
 
 /** Общий read-запрос к Graph API: спрашивает у объекта только его собственный id. */
@@ -190,9 +201,11 @@ async function graphIdReadable(objectId: string, token: string): Promise<{ ok: b
     `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(objectId)}` +
     `?fields=id&access_token=${encodeURIComponent(token)}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) });
-  const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+  const body = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: number } };
   if (res.ok) return { ok: true, detail: `HTTP ${res.status}` };
-  return { ok: false, detail: `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}` };
+  // Код ошибки Meta — в тексте: по нему сторож ключей узнаёт «ключ умер» (190/102).
+  const code = body.error?.code ? ` (code ${body.error.code})` : "";
+  return { ok: false, detail: `HTTP ${res.status}${code}: ${body.error?.message ?? "без пояснения"}` };
 }
 
 /**
@@ -213,17 +226,26 @@ export async function checkMetaPageTokenHealth(): Promise<IntegrationCheck> {
   const account = await pickAccountForHealth("FACEBOOK");
   const creds = await loadCredentials();
   const pageId = account?.externalId || creds.pageId;
-  const pageToken = account ? (await accountTokenById(account.id, "FACEBOOK")).token : creds.pageToken;
-  if (!pageToken || !pageId) return { name, ok: null, detail: "не настроен" };
+  const personalToken = account ? (await accountTokenById(account.id, "FACEBOOK")).token : creds.pageToken;
+  if (!personalToken || !pageId) return { name, ok: null, detail: "не настроен" };
+  // Проверяем тот маркер, которым реально пойдёт переписка: вечный, если он есть.
+  const pageToken = await facebookPageTokenFor(personalToken);
 
   try {
     const r = await graphIdReadable(pageId, pageToken);
-    if (r.ok) return { name, ok: true, detail: r.detail };
+    if (r.ok) return { name, ok: true, detail: pageToken === personalToken ? r.detail : `${r.detail}, вечный ключ` };
     await report(
       "meta",
       `Токен Страницы Facebook${account ? ` «${account.title}»` : ""} не работает — бот не сможет отвечать в ` +
         `Messenger: ${r.detail}. Выпустить новый вечный Page Token и записать в Настройки → Каналы.`
     );
+    if (isMetaAuthFailureText(r.detail)) {
+      await raiseChannelKeyAlarm({
+        key: account ? `account:${account.id}` : "settings:metaPageToken",
+        label: `Страница Facebook${account ? ` «${account.title}»` : ""} (Messenger)`,
+        detail: r.detail,
+      });
+    }
     return { name, ok: false, detail: r.detail };
   } catch (err) {
     await report("meta", `Проверка токена Страницы Facebook не удалась: ${describeError(err)}`);
@@ -252,9 +274,53 @@ export async function checkMetaWhatsappTokenHealth(): Promise<IntegrationCheck> 
       `Токен WhatsApp${account ? ` «${account.title}»` : ""} не работает — бот не сможет отвечать клиентам в ` +
         `WhatsApp: ${r.detail}. Заменить маркер в Настройках → Каналы.`
     );
+    if (isMetaAuthFailureText(r.detail)) {
+      await raiseChannelKeyAlarm({
+        key: account ? `account:${account.id}` : "settings:metaWaToken",
+        label: `WhatsApp${account ? ` «${account.title}»` : ""}`,
+        detail: r.detail,
+      });
+    }
     return { name, ok: false, detail: r.detail };
   } catch (err) {
     await report("meta", `Проверка токена WhatsApp не удалась: ${describeError(err)}`);
+    return { name, ok: false, detail: describeError(err) };
+  }
+}
+
+/** Жив ли личный маркер Instagram (graph.instagram.com/me) — без записи в журнал. */
+async function instagramPersonalKeyAlive(token: string): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me?fields=id`), token);
+    const res = await fetchWithRetry(req.url, { headers: req.headers }, CHECK_TIMEOUT_MS);
+    const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    return { ok: res.ok, detail: res.ok ? `HTTP ${res.status}` : `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}` };
+  } catch (err) {
+    return { ok: false, detail: describeError(err) };
+  }
+}
+
+/**
+ * Маркер системного пользователя (Settings.metaIgManageToken, 12.11.2026) — основа
+ * вечного пути переписки Instagram/Facebook и рекламы (lib/metaEternalTokens.ts).
+ * Срок «никогда», но его можно отозвать или удалить пользователя — тогда все
+ * вечные пути разом откатываются на личные маркеры.
+ */
+export async function checkMetaSystemTokenHealth(): Promise<IntegrationCheck> {
+  const name = "Вечный ключ Meta";
+  const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { metaIgManageToken: true } });
+  const token = decryptSecretSafe(s?.metaIgManageToken ?? null);
+  if (!token) return { name, ok: null, detail: "не настроен" };
+  try {
+    const r = await graphIdReadable("me", token);
+    if (r.ok) return { name, ok: true, detail: r.detail };
+    await report("meta", `Вечный ключ Meta (системный пользователь) не работает: ${r.detail}. Настройки → Каналы.`);
+    if (isMetaAuthFailureText(r.detail)) {
+      await raiseChannelKeyAlarm({ key: "meta-system-user", label: "Вечный ключ Meta (системный пользователь)", detail: r.detail });
+    }
+    return { name, ok: false, detail: r.detail };
+  } catch (err) {
+    await report("meta", `Проверка вечного ключа Meta не удалась: ${describeError(err)}`);
     return { name, ok: false, detail: describeError(err) };
   }
 }
@@ -275,9 +341,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * Не настроено (аккаунтов нет вовсе) — одна строка "не настроен", как и у
  * остальных проверок файла.
  */
-export async function checkInstagramAccountsHealth(): Promise<IntegrationCheck[]> {
+export async function checkInstagramAccountsHealth(
+  /** Только эти аккаунты (тесты); по умолчанию — все Instagram. */
+  onlyIds?: string[]
+): Promise<IntegrationCheck[]> {
   const rows = await prisma.messengerAccount.findMany({
-    where: { channel: "INSTAGRAM" },
+    where: { channel: "INSTAGRAM", ...(onlyIds ? { id: { in: onlyIds } } : {}) },
     select: { id: true, title: true, token: true, tokenRefreshedAt: true, updatedAt: true },
   });
   if (rows.length === 0) return [{ name: "Instagram", ok: null, detail: "не настроен" }];
@@ -291,10 +360,32 @@ export async function checkInstagramAccountsHealth(): Promise<IntegrationCheck[]
       continue;
     }
 
+    // ВЕЧНЫЙ КЛЮЧ (12.11.2026): переписка идёт маркером Страницы от системного
+    // пользователя — личный маркер тогда запасной (на него откатывается отказ
+    // Страницы). Проверяем и его, но его смерть — ПРЕДУПРЕЖДЕНИЕ, а не тревога.
+    const route = await instagramRouteForToken(token);
+    if (route.kind === "page") {
+      const backup = await instagramPersonalKeyAlive(token);
+      if (backup.ok) {
+        out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}; запасной личный жив` });
+      } else {
+        await logSystemError(
+          "meta",
+          `Предупреждение: запасной личный маркер Instagram «${row.title}» не работает (${backup.detail}). ` +
+            `Переписка идёт ключом компании через Страницу; если она откажет, отвечать будет нечем.`,
+          { dedupKey: `ig-backup-key-dead:${row.id}`, dedupWindowMs: DAY_MS, silent: true }
+        );
+        out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}; предупреждение: запасной личный не работает` });
+      }
+      continue;
+    }
+
     try {
       const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me?fields=id,username`), token);
       const res = await fetchWithRetry(req.url, { headers: req.headers }, CHECK_TIMEOUT_MS);
-      const body = (await res.json().catch(() => ({}))) as { username?: string; error?: { message?: string } };
+      const raw = await res.text();
+      let body: { username?: string; error?: { message?: string } } = {};
+      try { body = JSON.parse(raw); } catch { body = {}; }
       if (res.ok) {
         out.push({ name, ok: true, detail: body.username ? `@${body.username}` : `HTTP ${res.status}` });
       } else {
@@ -304,6 +395,9 @@ export async function checkInstagramAccountsHealth(): Promise<IntegrationCheck[]
           `Маркер Instagram «${row.title}» не работает — аккаунт не сможет отвечать клиентам: ${detail}. ` +
             `Проверить в Настройках → Каналы.`
         );
+        if (isMetaAuthFailure(res.status, raw)) {
+          await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (личный маркер)`, detail });
+        }
         out.push({ name, ok: false, detail });
       }
     } catch (err) {
@@ -722,6 +816,7 @@ export async function runIntegrationHealthChecks(): Promise<IntegrationCheck[]> 
     ["Telegram-канал", checkTelegramChannelHealth],
     ["Facebook Page", checkMetaPageTokenHealth],
     ["WhatsApp", checkMetaWhatsappTokenHealth],
+    ["Вечный ключ Meta", checkMetaSystemTokenHealth],
     ["TikTok", checkTikTokTokenHealth],
     ["Threads", checkThreadsTokenHealth],
     ["Cloudflare R2", checkR2Health],

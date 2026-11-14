@@ -4,6 +4,8 @@ import type { CustomerPropertyAdmissionResult } from "@royal-home/shared";
 import { customerPropertyContextEnabled } from "../lib/customerPropertyContextFlag.js";
 import { admitCustomerPropertyInput } from "../lib/customerPropertyAdmission.js";
 import { persistVerifiedCustomerIngressBatch } from "../lib/customerIngressProducer.js";
+import { reportMetaWebhookNotSaved } from "../lib/customerRoutingHold.js";
+import { notifyHeldCustomerMessages } from "../lib/customerHeldMessage.js";
 import { persistVerifiedMetaPublicCommentBatch } from "../lib/customerPublicCommentProducer.js";
 import { captureAuthenticatedCustomerInput, registerAuthenticatedMetaCustomerRequest,
   registerAuthenticatedWebsiteCustomerRequest, initializeVerifiedCustomerEndpoint, verifyMetaCustomerReferralTarget, type AuthenticatedCustomerInput } from "../lib/customerIngressAuthority.js";
@@ -36,15 +38,14 @@ import { createLeadFromChannel } from "../leads.js";
 import { resolvePropertyFromPageUrl } from "../lib/resolvePropertyFromPageUrl.js";
 import { classifyInbound } from "../services/leads/intakePolicy.js";
 import {
-  adTopicByExternalId,
   type AdTopic,
   clientSaidNothingSubstantive,
-  isJobAdRef,
   neutralOpenerHint,
   sellerTurnHint,
   vacancyTurnHint,
 } from "../ai/adTemplateOpener.js";
 import { isVacancyPostCode } from "../lib/vacancyPosts.js";
+import { resolveAdTopic } from "../lib/adAttribution.js";
 import { appendConversationMessages } from "../messengers/appendMessages.js";
 import { markLastReplyUndelivered, markMessageDeliveryStatus, stampOutgoingMid } from "../messengers/conversationStore.js";
 import { processMessengerTurn } from "../messengers/conversation.js";
@@ -1647,6 +1648,12 @@ webhooksRouter.post("/telegram", requireTelegramSecret, telegramChatLimiter, asy
   );
 });
 
+/** Receiving account of a signed Meta body (first entry), for journal scoping only. */
+function metaWebhookAccount(body: unknown): string | undefined {
+  const id = (body as { entry?: Array<{ id?: unknown }> } | null)?.entry?.[0]?.id;
+  return typeof id === "string" && id.length <= 128 ? id : undefined;
+}
+
 webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, res) => {
   // Подпись уже сверена middleware'ом requireMetaSignature — и именно ДО
   // лимитера: его ключ строится из sender.id в теле, и неподписанные запросы не
@@ -1666,6 +1673,9 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // is enabled. No model/provider call occurs here. OFF follows legacy intake.
   const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   if (durableIngress.status === "denied" || durableIngress.status === "unavailable") {
+    // Visible every time (deduplicated): a 503 that repeats ~15 min is a lost
+    // message, and until 13.11 it left no trace at all.
+    reportMetaWebhookNotSaved("dm", durableIngress.reason, metaWebhookAccount(req.body));
     return res.status(503).json({ error: "Входящее событие пока не сохранено" });
   }
   // Public inputs keep their actual publication/thread and immutable original
@@ -1673,6 +1683,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // old post-ACK comment funnel on a provider redelivery.
   const publicIngress = await persistVerifiedMetaPublicCommentBatch(req);
   if (publicIngress.status === "held") {
+    reportMetaWebhookNotSaved("public_comment", publicIngress.reason, metaWebhookAccount(req.body));
     return res.status(503).json({ error: "Комментарий пока не сохранён" });
   }
   const propertyAdmissions = new Map<(typeof incoming)[number], CustomerPropertyAdmissionResult>();
@@ -1689,6 +1700,11 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // полуслове при рестарте контейнера.
   void trackBackgroundTask(
     (async () => {
+      // Held DMs are already in their CRM chats; call a person only now, when
+      // the whole batch is durable and Meta has its 200 (13.11.2026).
+      if ((durableIngress.status === "persisted" || durableIngress.status === "bypass") && durableIngress.held?.length) {
+        await notifyHeldCustomerMessages(durableIngress.held);
+      }
       // Immutable admissions precede profile/media/ad enrichment. Scoped
       // pending payloads/jobs have already committed before the ACK above.
       {
@@ -1901,6 +1917,9 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         await handleOutgoingEcho(msg);
         continue;
       }
+      // A held DM was written into its CRM chat before the ACK and belongs to
+      // no bot: skip it BEFORE any account/Graph profile lookup (13.11.2026).
+      if (inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD") { traceOutcome("blocked"); continue; }
 
       // Чей это разговор: маркер найденного аккаунта уходит и в индикаторы
       // «прочитано/печатает», и в сам ответ, и в служебные запросы вроде
@@ -2411,22 +2430,18 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // Регулярка переехала в ai/adTemplateOpener.ts: тот же вопрос задаётся при
       // разборе пересланного ролика вакансии и при восстановлении признака
       // вакансии на следующих ходах — две копии разошлись бы на первой правке.
-      const isJobAd = isJobAdRef(adRefLower);
-      /** О чём реклама/публикация по referral — переживает первое сообщение (BotConversation.adTopic). */
-      const referralAdTopic: "job" | "property" | undefined =
-        isJobAd || vacancyPost ? "job" : msg.fromAd && adRefLower ? "property" : undefined;
       /**
-       * REFERRAL НЕ ОПОЗНАЛ ТИП — СПРОСИТЬ НАШУ ТАБЛИЦУ Ad (25.09.2026, аудит
-       * «кто вообще кандидат»). У WhatsApp click-to-message метки часто нет
-       * вовсе, хотя сама реклама (кампания «приемка ...») однозначно говорит,
-       * что это реклама ДЛЯ СОБСТВЕННИКОВ — а бот из-за этого спрашивал
-       * продавцов «вам квартира или вакансия?». `msg.adId` — тот же
-       * `adExternalId`, что уходит в processMessengerTurn ниже.
+       * О ЧЁМ РЕКЛАМА — ОДНИМ ПРАВИЛОМ С НОВЫМ ЯДРОМ (lib/adAttribution.ts, 13.11.2026).
+       * Таблица Ad (кампания «приемка …», «вакансия …») старше текста объявления, текст
+       * объявления (referral.ref / headline+body у WhatsApp) — старше «просто реклама».
+       * Раньше при любом тексте объявления таблицу не спрашивали вовсе, и у WhatsApp
+       * (headline есть почти всегда) реклама для собственников читалась как реклама
+       * квартиры. Пересланный пост вакансии — по-прежнему вакансия.
        */
-      const dbAdTopic =
-        referralAdTopic === undefined && msg.fromAd && msg.adId ? await adTopicByExternalId(msg.adId) : undefined;
-      /** Итоговый тип рекламы: своё мнение референсной метки старше, таблица Ad — только когда та промолчала. */
-      const adTopic: AdTopic | undefined = referralAdTopic ?? dbAdTopic;
+      const adTopic: AdTopic | undefined = vacancyPost
+        ? "job"
+        : msg.fromAd ? await resolveAdTopic({ adId: msg.adId, adRef: msg.adRef }) : undefined;
+      const isJobAd = adTopic === "job";
       const isSellerAd = adTopic === "seller";
       /**
        * ЧЕЛОВЕК НЕ НАПИСАЛ НИЧЕГО СВОЕГО — СПРАШИВАЕМ, ЧЕМ ПОМОЧЬ (владелец

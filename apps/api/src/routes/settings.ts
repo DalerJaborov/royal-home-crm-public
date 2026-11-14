@@ -5,6 +5,7 @@ import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
 import { settingsInstagramAppBindingRouter } from "./settingsInstagramAppBinding.js";
+import { settingsMetaEternalRouter } from "./settingsMetaEternal.js";
 import { settingsSomonRouter } from "./settingsSomon.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -77,7 +78,7 @@ import { buildWhisperText, WHISPER_PARTS } from "../lib/telephony/whisperText.js
 import { previewWhisperSpeech } from "../lib/telephony/whisperAudio.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
-import { BrandNameCoreConflictError, deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
+import { deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
 import { brandNameError } from "../ai/brandPattern.js";
 import { dispatchInBackground, EDITOR_HOLDER_WHERE } from "../lib/videoHandoff.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
@@ -98,6 +99,8 @@ export const settingsRouter = Router();
 settingsRouter.use("/somon", settingsSomonRouter);
 settingsRouter.use("/customer-agent", customerAgentSettingsRouter);
 settingsRouter.use("/messenger-accounts", settingsInstagramAppBindingRouter);
+/** Вечные ключи Meta (12.11.2026): самопроверка, рубильник, Страница аккаунта. */
+settingsRouter.use("/meta-eternal", settingsMetaEternalRouter);
 
 /** Маска ключа: из Настроек (расшифровав) или из окружения. null — не задан нигде. */
 function maskOrNull(encrypted: string | null | undefined, fromEnv: string | undefined): string | null {
@@ -1062,6 +1065,12 @@ const settingsUpdateSchema = z.object({
    *  способностей бота) — включить можно было только прямым запросом к базе.
    *  Добавлен сюда явно, а не забыт вторым по счёту разом с liveVoiceEnabled.*/
   botCanSendVoiceReplies: z.boolean().optional(),
+  /** РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (13.11.2026, ai/leadOnlyMode.ts): бот берёт заявку и передаёт
+   *  агенту, без подборок, фото и ссылок. Остальные три поля действуют только внутри режима. */
+  botLeadOnlyMode: z.boolean().optional(),
+  botUseWhatsappNumber: z.boolean().optional(),
+  botMaxPhoneAsks: z.number().int().min(1).max(3).optional(),
+  botHotIntentHandover: z.boolean().optional(),
   /** Робозвонок покупателю после показа (13.09.2026, см. lib/postShowingCalls.ts и
    *  docs/buyer-antifraud-funnel-13-09-2026.md). Работает только поверх включённого
    *  живого голоса выше: свой канал звонка он не заводит, а пользуется тем же мостом. */
@@ -2864,7 +2873,6 @@ settingsRouter.post(
       });
       res.json({ ok: true, id });
     } catch (err) {
-      if (err instanceof BrandNameCoreConflictError) return res.status(409).json({ error: err.message });
       // Один и тот же аккаунт дважды — самая частая ошибка при подключении.
       if ((err as { code?: string }).code === "P2002") {
         return res.status(409).json({ error: "Такой аккаунт уже подключён" });

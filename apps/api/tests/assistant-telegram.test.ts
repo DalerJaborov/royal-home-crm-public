@@ -1261,6 +1261,35 @@ describe("новая доставка ответа помощника", () => {
     expect(sendVoiceFile).not.toHaveBeenCalled(); // synthesis is mocked as a whole, never contacts provider
     expect(chatAction).not.toHaveBeenCalled();
   });
+  // Владелец, 14.11.2026: просьбу о голосе понимает модель (метка [голос]), а не список фраз.
+  it("метка модели [голос] включает озвучку на любые слова, в текст и историю не попадает", async () => {
+    synthVoice.mockResolvedValue(true);
+    runner.mockResolvedValueOnce({ ok: true, reply: "[голос]\nҲа, ман ҳастам!" });
+    // Фраза, которую разбор по словам не знает: решает только метка модели.
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8301, text: "садоятро мехоҳам шунавам" }));
+    expect(synthVoice).toHaveBeenCalledTimes(1);
+    expect(synthVoice.mock.calls[0]?.[1]).toBe("Ҳа, ман ҳастам!");
+    expect(sentTexts()).toEqual([]);
+    runner.mockImplementationOnce(async (history: { role: string; content: string }[]) => {
+      expect(JSON.stringify(history)).not.toContain("[голос]");
+      return { ok: true, reply: "Ҳа." };
+    });
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8302, text: "ташаккур" }));
+    expect(runner).toHaveBeenCalledTimes(2);
+  });
+  it("без метки текстовая просьба остаётся текстом, а ложное «голос не работает» вырезается", async () => {
+    synthVoice.mockResolvedValue(true);
+    runner.mockResolvedValueOnce({ ok: true, reply: "Салом! Чӣ хизмат кунам?" });
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8303, text: "салом" }));
+    expect(synthVoice).not.toHaveBeenCalled();
+    expect(sentTexts().join("\n")).toContain("Чӣ хизмат кунам?");
+    for (const m of [synthVoice, sendMessage, sendHtmlMessage]) m.mockClear();
+    runner.mockResolvedValueOnce({ ok: true, reply: "[голос]\nҲоло овоз кор намекунад, фақат менависам" });
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8304, text: "Овозатро равон кун бо ханда :)" }));
+    expect(synthVoice).toHaveBeenCalledTimes(1);
+    expect(synthVoice.mock.calls[0]?.[1]).toBe("Ҳа, гӯш мекунам.");
+    expect(sentTexts().join("\n")).not.toMatch(/овоз кор намекунад|\[голос\]/u);
+  });
   it("из голоса на русском и таджикском готовит клиента и выбранную задачу, пишет только после кнопки", async () => {
     const agent = agents.author;
     const phone = `+992${uid(61)}`;

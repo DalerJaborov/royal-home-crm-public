@@ -11,6 +11,7 @@ import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPr
 import { enrollCustomerAgentSubjectTx, readCustomerDmSourceExecution, type CustomerAgentExecution } from "./customerAgentEnrollment.js";
 import { captureCustomerDmRouting, inspectCustomerDmRouting, type CustomerDmRoutingWitness, type CustomerUnkeyedRoutingInput } from "./customerAgentRoutingReference.js";
 import { customerIngressPayloadHash } from "./customerIngressPayload.js";
+import { customerNonInputCode } from "./customerIngressNonInput.js";
 import { findOriginalNativeMid, persistOriginalLegacySource } from "./customerOriginalSource.js";
 export { inspectCustomerDmRouting, type CustomerDmRoutingWitness } from "./customerAgentRoutingReference.js";
 
@@ -55,8 +56,7 @@ export async function prepareVerifiedCustomerDmRouting(request: Request): Promis
   try { normalized = normalizeAuthenticatedCustomerIngress(request); }
   catch { return { status: "held", reason: "routing_normalization_unavailable" }; }
   const keyed = normalized.entries.filter((entry): entry is MetaEntry =>
-    ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(entry.channel) && !entry.observations.providerEcho &&
-    !entry.observations.referralOnly && entry.observations.classifier?.bareTemplateEcho !== true);
+    ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(entry.channel) && customerNonInputCode(entry) === null);
   if (new Set(keyed.map(key)).size !== keyed.length) return { status: "held", reason: "routing_source_ambiguous" };
   let rawSubjects: ReturnType<typeof normalizeAuthenticatedMetaRoutingSubjects>;
   try { rawSubjects = normalizeAuthenticatedMetaRoutingSubjects(request); }

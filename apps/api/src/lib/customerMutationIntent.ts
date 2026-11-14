@@ -4,10 +4,9 @@ import { stripUntrusted } from "../ai/untrustedContent.js";
 import { authenticatedInputMatchesFence, inspectAuthenticatedCustomerInput, type AuthenticatedCustomerInput } from "./customerIngressAuthority.js";
 import { assertCustomerFence, customerActionCapability, loadAcceptedCustomerState, transitionCustomerState } from "./customerState.js";
 import { customerMutationDigest, customerMutationKind } from "./customerActionCommand.js";
+import { customerAsksForHuman, customerComplainsNoContact, customerTalksAboutContact, withoutQuotes } from "../ai/customerAskSignals.js";
 
 const REPORTED_OR_NEGATED = /[«»"“”]|(?<![\p{L}])(?:не\s+(?:надо|хочу|нужно|нужен|нужна|нужны|стоит|следует|записывайте|отменяйте|переносите|спрашива[\p{L}]*|уточня[\p{L}]*|передава[\p{L}]*)|(?:лозим|даркор)\s+нест|намехо[ҳх]ам|напурсед|нафиристед|гуфт(?:анд)?|написал(?:а|и)?|он\s+сказал|навишт)(?![\p{L}])/iu;
-const HUMAN_TARGET = "(?:жив(?:ой|ого)\\s+)?(?:оператор(?:а|у|ом)?|сотрудник(?:а|у|ом)?|человек(?:а|ом)?|менеджер(?:а|у|ом)?|агент(?:а|у|ом)?)";
-const HANDOVER_REQUEST = new RegExp(`(?<![\\p{L}])(?:(?:соедините|позовите|пригласите|переключите)[^.!?\\n]{0,40}|(?:хочу|можно|могу)\\s+(?:поговорить|связаться|пообщаться)\\s+(?:с|со)\\s+|(?:мне\\s+)?(?:нужен|нужна|нужны|хочу|прошу)\\s+)${HUMAN_TARGET}(?![\\p{L}])`, "iu");
 const HANDOVER_NOT_REQUEST = /(?<![\p{L}])(?:кто\s+такой|что\s+(?:значит|означает)|(?:вам|у\s+вас)\s+нуж(?:ен|на|ны))(?![\p{L}])/iu;
 const BARE_HANDOVER = /^(?:(?:пожалуйста|илтимос)[,\s]*)?(?:оператор(?:а)?|живой\s+человек|корманд|бо\s+одам)[.!?\s]*$/iu;
 const HANDOVER_TG = /(?<![\p{L}])(?:бо\s+(?:корманд|оператор|одам)\s+(?:гап|суҳбат|сухбат)|(?:корманд|оператор)(?:ро)?\s+(?:ҷеғ|чег|даъват|пайваст|мехоҳам|лозим|даркор))(?![\p{L}])/iu;
@@ -26,6 +25,17 @@ function exactStatedDate(text: string, at: string): boolean {
   return dates.length === 1 && Number(dates[0][1]) === values.day && Number(dates[0][2]) === values.month &&
     Number(dates[0][3]) === values.year && Number(dates[0][4]) === values.hour && Number(dates[0][5]) === values.minute && instant.getUTCSeconds() === 0;
 }
+/** The customer's own words carry a handover the model proposed: an explicit
+ * request/complaint (ru, tg, Latin, typos via ai/customerAskSignals.ts), or any
+ * message about people or contact that is not a refusal or a role question.
+ * Text that exists only inside quotes never qualifies. */
+export function customerHandoverAuthorized(own: string): boolean {
+  const unquoted = withoutQuotes(own).trim();
+  if (!unquoted.replace(/[\s.,!?:;-]+/gu, "") || HANDOVER_NOT_REQUEST.test(unquoted)) return false;
+  return customerAsksForHuman(unquoted) || customerComplainsNoContact(unquoted) || BARE_HANDOVER.test(unquoted) ||
+    (HANDOVER_TG.test(unquoted) && !/(?:лозим|даркор)\s+нест/iu.test(unquoted)) || NO_CALL_COMPLAINT.test(unquoted) ||
+    customerTalksAboutContact(unquoted);
+}
 /** A model can propose a command but cannot approve it. Until the delivery-
  * backed proposal/confirmation adapter is installed, date-changing actions
  * accept only a single fully stated date/time from this authenticated IN.
@@ -36,12 +46,19 @@ export function currentInputAuthorizesCustomerCommand(text: string, command: Cus
   // vacancy application. It neither accepts a model payload nor authorizes a
   // call/interview. Job context and current opening are checked under DB locks.
   if (command.name === "save_job_application") return own.length <= 8000;
-  if (!own || own.length > 8000 || REPORTED_OR_NEGATED.test(own)) return false;
+  if (!own || own.length > 8000) return false;
+  // Handover: the MODEL decides (14.11.2026). Code only refuses a message that
+  // is not about people/contact at all, an explicit refusal («не нужен
+  // оператор»), a role/vacancy question or text that exists only in quotes.
+  // «Я вам написал, никто не отвечает, дайте человека» is a request: the old
+  // global REPORTED_OR_NEGATED («написал», any quote char) cancelled it, the
+  // model said «передам агенту», the customer repeated and the outbound shield
+  // paused the chat for 6 hours.
+  if (command.name === "request_handover") return customerHandoverAuthorized(own) && command.args.topic === own.slice(0, 500);
+  if (REPORTED_OR_NEGATED.test(own)) return false;
   if ((command.name === "book_showing" || command.name === "reschedule_showing" || command.name === "cancel_showing") &&
       (/[?？]/u.test(own) || /(?<![\p{L}])(?:как|можно|возможно|чи\s+хел|мешавад)(?![\p{L}])/iu.test(own))) return false;
   switch (command.name) {
-    case "request_handover": return !HANDOVER_NOT_REQUEST.test(own) && (HANDOVER_REQUEST.test(own) || BARE_HANDOVER.test(own) || HANDOVER_TG.test(own) ||
-      NO_CALL_COMPLAINT.test(own)) && command.args.topic === own.slice(0, 500);
     case "ask_owner": return OWNER_QUESTION.test(own) && command.args.question === own && own.length <= 1000;
     case "book_showing": return BOOK.test(own) && !CANCEL.test(own) && !MOVE.test(own) && exactStatedDate(own, command.args.at);
     case "reschedule_showing": return MOVE.test(own) && !CANCEL.test(own) && exactStatedDate(own, command.args.at);

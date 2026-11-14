@@ -289,6 +289,7 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   LeadMagnetCampaign: "Лид-магнит",
   LostConversation: "Потерянный разговор",
   MessengerAccount: "Аккаунт мессенджера",
+  FacebookPageSubscription: "Подписка Страницы Facebook на сообщения",
   CoverTemplate: "Шаблон обложки",
   OwnerQuestion: "Вопрос собственника",
   BotConversation: "Разговор с ботом",

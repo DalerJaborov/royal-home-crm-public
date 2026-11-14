@@ -75,6 +75,17 @@ function withRememberedAdReferral(message: MetaIncoming): MetaIncoming {
   return ref ? { ...message, ...ref, fromAd: true, propertyReferralOrigin: "remembered_referral" } : message;
 }
 
+/** First-touch ad attribution of this event (lib/adAttribution.ts): the ad id, the click id and the ad
+ * text the customer saw. Bounded like the schema; nothing when the event did not come from an ad. */
+function adContextOf(message: MetaIncoming): Pick<CustomerNormalizedIngressInput, "adContext"> {
+  if (!message.fromAd) return {};
+  const bounded = (value: string | undefined, max: number) => value?.trim() ? value.trim().slice(0, max) : undefined;
+  const context = { adId: bounded(message.adId, 512), adRef: bounded(message.adRef, 1000), adClickId: bounded(message.adClickId, 512),
+    adPostId: bounded(message.adPostId, 512), adTitle: bounded(message.adTitle, 500) };
+  const present = Object.fromEntries(Object.entries(context).filter(([, value]) => value !== undefined));
+  return Object.keys(present).length ? { adContext: present } : {};
+}
+
 /** Only raw bytes belonging to this genuinely authenticated request are parsed.
  * Nothing here classifies FINAL-IN, creates a native, or mints a customer brand. */
 export function normalizeAuthenticatedCustomerIngress(request: VerifiedRequest): { entries: CustomerNormalizedIngressInput[]; unsupported: number } {
@@ -112,6 +123,7 @@ export function normalizeAuthenticatedCustomerIngress(request: VerifiedRequest):
         ...(extra.attachmentMediaId ? { publicationId: extra.attachmentMediaId } : {}) });
       mediaKinds.push(observedMediaKind(extra.type));
     }
+    const withAd = withRememberedAdReferral(message);
     return customerNormalizedIngressSchema.parse({ version: 1, channel: message.channel, peer: message.senderId,
       accountExternalId: message.accountExternalId, eventId: message.messageId, eventKind: message.payload ? "postback" : "message",
       inputText: message.text ?? "", ...(message.name ? { displayName: message.name } : {}),
@@ -122,7 +134,8 @@ export function normalizeAuthenticatedCustomerIngress(request: VerifiedRequest):
         classifier: { version: 1, bareTemplateEcho: !message.text && message.attachmentType === "template",
           ...(mediaKinds.length ? { mediaKinds } : {}),
           ...(source.recipientPhoneDigits ? { recipientPhoneDigits: source.recipientPhoneDigits } : {}) } }, media,
-      propertyEvidence: customerPropertyEvidenceFromMeta(withRememberedAdReferral(message)),
+      propertyEvidence: customerPropertyEvidenceFromMeta(withAd),
+      ...adContextOf(withAd),
     });
   }) };
 }

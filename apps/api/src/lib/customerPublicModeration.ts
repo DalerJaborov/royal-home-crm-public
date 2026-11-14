@@ -11,6 +11,7 @@ import { inspectPublicCommentPrincipal, revalidatePublicCommentPrincipal, type P
 import { lockPublicCommentSourceTx, publicCommentOrigin, readPublicSourceRow, readPublicCommentMetaToken } from "./customerPublicCommentStore.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { loadVerifiedCustomerAgentRevision } from "./customerAgentRegistration.js";
+import { accountBrandName } from "../messengers/accounts.js";
 import { customerPublicModerationPlan, customerSellerPrivateReply } from "./customerPublicModerationPolicy.js";
 import { dushanbeWallClock } from "./dushanbeTime.js";
 
@@ -55,7 +56,8 @@ export async function executeCustomerPublicModeration(principal: PublicCommentPr
     if (kind === "private_reply" && (original.target.parentId || now - origin.originalReceivedAt >= 7 * DAY)) {
       notes.push("private_reply_ineligible"); continue;
     }
-    const text = kind === "private_reply" ? customerSellerPrivateReply(detectClientLanguage(original.text) === "tg" ? "tg" : "ru") : "";
+    const text = kind === "private_reply" ? customerSellerPrivateReply(detectClientLanguage(original.text) === "tg" ? "tg" : "ru",
+      await accountBrandName(original.currentInstallation.accountId)) : "";
     const id = randomUUID();
     const reserved = await prisma.$transaction(async tx => {
       const current = await lockPublicCommentSourceTx(tx, original.source);
