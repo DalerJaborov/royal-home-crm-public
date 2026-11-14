@@ -38,6 +38,8 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
   const [error, setError] = useState<string | null>(null);
   /** «Уже учтено автоматически» от сервера: следующее нажатие пишет с подтверждением. */
   const [overlap, setOverlap] = useState<string | null>(null);
+  /** Черновик, для которого показано «уже учтено»: подтверждение не переносится на другой. */
+  const overlapFor = useRef<string | null>(null);
   const [errorField, setErrorField] = useState<keyof CleanExpenseDraft | null>(null);
   const fields = useRef<HTMLFieldSetElement>(null);
   useLayoutEffect(() => {
@@ -57,7 +59,7 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
     setErrorField(null);
   }
   function close() { if (!lock.current.isBusy() && !pending) onClose(); }
-  function back() { if (!pending) { setStep((value) => Math.max(0, value - 1)); setError(null); } }
+  function back() { if (!pending) { setStep((value) => Math.max(0, value - 1)); setError(null); setOverlap(null); } }
 
   async function advance() {
     if (!canManage || pending || lock.current.isBusy()) return;
@@ -80,12 +82,12 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
       setWorking(true); setError(null);
       try {
         if (request.kind === "recurring") await recurring.mutateAsync(request.body);
-        else await create.mutateAsync(overlap ? { ...request.body, confirmAutoOverlap: true } : request.body);
+        else await create.mutateAsync(overlap && overlapFor.current === JSON.stringify(request.body) ? { ...request.body, confirmAutoOverlap: true } : request.body);
         setDraft(INITIAL); setAccountingMonth(null); setStep(0); setOverlap(null);
         onClose();
       } catch (reason) {
         const repeated = autoOverlapMessage(reason);
-        if (repeated) { setOverlap(repeated); return; }
+        if (repeated) { overlapFor.current = JSON.stringify(request.body); setOverlap(repeated); return; }
         setError(isReadOnlyRoleError(reason) ? "Режим просмотра: запись расходов недоступна для вашей роли. Данные формы не отправлены повторно." : reason instanceof Error ? reason.message : "Не удалось записать расход. Данные сохранены в форме — повторите.");
       } finally { setWorking(false); }
     });
@@ -147,7 +149,7 @@ export function CleanExpenseWizard({ open, onClose, month, canManage }: {
         </>}
         <div><p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>Частые назначения</p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{PRESETS.map((preset) => <CButton key={preset.title} size="sm" variant="soft"
-            onClick={() => { if (pending) return; setDraft((previous) => ({ ...previous, note: preset.title, category: preset.category })); setError(null); setErrorField(null); }}>{preset.title}</CButton>)}</div>
+            onClick={() => { if (pending) return; setDraft((previous) => ({ ...previous, note: preset.title, category: preset.category })); setError(null); setOverlap(null); setErrorField(null); }}>{preset.title}</CButton>)}</div>
         </div>
       </>}
       {step === 2 && <>

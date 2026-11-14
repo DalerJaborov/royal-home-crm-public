@@ -119,6 +119,13 @@ export function batchCurrency(rows: readonly { currency?: "TJS" | "USD"; currenc
 export function parseBatchArgs(raw: unknown, now = new Date()): BatchArgs {
   const parsed = argsSchema.safeParse(raw);
   if (!parsed.success) throw new AssistantActionError(400, "BAD_ARGS", "Не поняла строки расходов: нужны название и сумма у каждой");
+  // «Это другой расход» подтверждается отдельной карточкой ТОЛЬКО для пропущенных строк: смешанный
+  // вызов (вся пачка заново + флаг у одной) получил бы новые ключи и записал остальные второй раз
+  // (ревью 14.11.2026).
+  const confirmed = parsed.data.items.filter((row) => row.confirmAutoOverlap).length;
+  if (confirmed && confirmed !== parsed.data.items.length) {
+    throw new AssistantActionError(400, "MIXED_CONFIRM", "Подтверждение «это другой расход» — отдельным вызовом только с этими строками, остальные уже записаны");
+  }
   const today = todayExpenseDay(now);
   const currentMonth = today.slice(0, 7);
   // Валюту не угадываем молча: строка без валюты получает валюту пачки и пометку «проверьте».
@@ -326,9 +333,13 @@ async function lockSources(args: BatchArgs, agentId: string, tx: TxClient) {
   for (const key of locks) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
 }
 
-/** Снимок строк для брокера: тело и «не запишу — уже учтено» (смена любого — карточка устарела). */
-function snapshotRows(rows: ResolvedRow[]) {
-  return rows.map(row => row.autoOverlap ? { ...row.body, skip: "auto_overlap" } : row.body);
+/**
+ * Снимок строк для брокера: тело и «не запишу — уже учтено» (смена любого — карточка устарела).
+ * Откат передаёт `skipped` из результата записи: автоматическая строка, появившаяся ПОСЛЕ записи,
+ * не должна делать карточку «устаревшей» и запрещать откат (ревью 14.11.2026).
+ */
+function snapshotRows(rows: ResolvedRow[], skipped?: readonly number[]) {
+  return rows.map((row, i) => (skipped ? skipped.includes(i) : row.autoOverlap) ? { ...row.body, skip: "auto_overlap" } : row.body);
 }
 
 /** Все строки пачки уже учтены автоматически — писать нечего, отвечаем словами, без карточки. */
@@ -401,24 +412,26 @@ const executor: AssistantActionExecutor<BatchArgs> = {
     const money = await rateContextFor(args, tx);
     const keys = rowRequestKeys(args, actor.agentId);
     const ids: string[] = [];
+    const skipped: number[] = [];
+    const overlapCache = newOverlapCache();
     const audits: { action: string; entityType: string; entityId: string; agentId: string; agentName: string; meta: Prisma.InputJsonValue }[] = [];
     for (const [i, row] of rows.entries()) {
       // Уже учтено автоматически — карточка показала «⏭ не запишу», строка пропускается.
-      if (row.autoOverlap) continue;
-      const { expense, month } = await createExpense(row.body, { agentId: actor.agentId, requestKey: keys[i]!, db: tx, money }).catch(asActionError);
+      if (row.autoOverlap) { skipped.push(i); continue; }
+      const { expense, month } = await createExpense(row.body, { agentId: actor.agentId, requestKey: keys[i]!, db: tx, money, overlapCache }).catch(asActionError);
       ids.push(expense.id);
       audits.push(expenseCreateAudit(args, i, row, expense, month, actor, actionId, agent?.fullName ?? "Неизвестно"));
     }
     // След каждой строки, как у POST /expenses, — одной вставкой на пачку.
     await tx.auditLog.createMany({ data: audits });
-    return { result: { expenseIds: ids, count: ids.length }, audit: { entityType: "Expense", entityId: ids[0] ?? null } };
+    return { result: { expenseIds: ids, count: ids.length, skipped }, audit: { entityType: "Expense", entityId: ids[0] ?? null } };
   },
   transactionalUndo: {
     matches: (result) => Array.isArray((result as { expenseIds?: unknown } | null)?.expenseIds),
     async execute(args, actor, { tx, result, assertSnapshot }) {
       await assertFinanceWriter(actor, tx);
       await lockSources(args, actor.agentId, tx);
-      assertSnapshot({ existing: recordedState(await existingBatch(args, actor.agentId, tx)), rows: snapshotRows(await resolveRows(args, tx)) });
+      assertSnapshot({ existing: recordedState(await existingBatch(args, actor.agentId, tx)), rows: snapshotRows(await resolveRows(args, tx), (result as { skipped?: number[] }).skipped ?? []) });
       const ids = (result as { expenseIds: string[] }).expenseIds;
       // Откат = в корзину, как «Удалить» на экране: запись остаётся в архиве.
       await tx.expense.updateMany({ where: { id: { in: ids }, deletedAt: null }, data: { deletedAt: new Date(), version: { increment: 1 } } });
@@ -467,7 +480,7 @@ export const addExpensesPlugin: AssistantWriteToolPlugin = {
     "Сумм и строк не придумывай: чего не сказали — спроси. После вызова ответь одной фразой: проверьте и нажмите «Записать». " +
     "Рекламу Meta (таргет Instagram/Facebook), расход на ИИ и долю агентов по сделкам CRM считает САМА: если ответ говорит, " +
     "что расход уже учтён автоматически, перескажи человеку сумму и месяц и спроси, другой ли это платёж; только если человек " +
-    "подтвердил, что другой, повтори вызов с confirmAutoOverlap: true у этой строки.",
+    "подтвердил, что другой, вызови инструмент ещё раз ТОЛЬКО с этими строками и confirmAutoOverlap: true у каждой (остальные уже записаны).",
   parameters: {
     type: "object",
     properties: {

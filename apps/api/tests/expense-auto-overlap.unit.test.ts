@@ -39,7 +39,7 @@ describe("правило «уже учтено автоматически»", ()
     for (const note of ["Комиссии банка", "Канцтовары для бухгалтерии", "Вода для кулера"]) {
       expect(manualExpenseAutoKinds({ category: "OTHER", note, amount: 100 })).toEqual([]);
     }
-    expect(findAutoExpenseOverlap({ category: "OTHER", note: "Подписка ChatGPT", amount: 20, currency: "USD" }, autos, RATE)?.kind).toBe("ai");
+    expect(findAutoExpenseOverlap({ category: "OTHER", note: "Оплата Claude API", amount: 20, currency: "USD" }, autos, RATE)?.kind).toBe("ai");
   });
 
   it("доля по сделкам: тот же сотрудник — пересечение, другой — нет", () => {
@@ -61,6 +61,37 @@ describe("правило «уже учтено автоматически»", ()
 
   it("нулевая автоматическая строка ничего не перекрывает", () => {
     expect(findAutoExpenseOverlap({ category: "OTHER", note: "Таргет инстаграм", amount: 100, currency: "TJS" }, [{ ...metaOctober, amount: 0 }], RATE)).toBeNull();
+  });
+});
+
+describe("ложные срабатывания и пропуски (ревью 14.11)", () => {
+  const kinds = (row: Parameters<typeof manualExpenseAutoKinds>[0]) => manualExpenseAutoKinds(row);
+  it("люди и посевы — не кабинет Meta: таргетолог, блогер, СММ; зарплата — никогда не реклама", () => {
+    expect(kinds({ category: "OTHER", note: "Услуги таргетолога", amount: 1 })).toEqual([]);
+    expect(kinds({ category: "SALARY", agentId: "a", note: "Зарплата таргетолога", amount: 1 })).toEqual(["deal_salary"]);
+    expect(kinds({ category: "ADVERTISING", source: "INSTAGRAM", note: "Реклама у блогера", amount: 1 })).toEqual(["ads_other"]);
+    expect(kinds({ category: "OTHER", note: "СММ инстаграм реклама", amount: 1 })).toEqual([]);
+  });
+  it("явный канал сильнее слов: «таргет» в TikTok — не Meta", () => {
+    expect(kinds({ category: "ADVERTISING", source: "TIKTOK", note: "Таргет", amount: 1 })).toEqual(["ads_other"]);
+  });
+  it("подписки на ИИ — не обращения CRM", () => {
+    for (const note of ["Подписка ChatGPT Plus", "Claude Pro", "AI конференция"]) expect(kinds({ category: "OTHER", note, amount: 1 })).toEqual([]);
+    expect(kinds({ category: "OTHER", note: "Оплата «ИИ»", amount: 1 })).toEqual(["ai"]);
+  });
+  it("кириллица на границах слов и таджикское «таблиғ»", () => {
+    expect(kinds({ category: "OTHER", note: "реклама инста", amount: 1 })).toEqual(["ads_meta"]);
+    expect(kinds({ category: "OTHER", note: "Таблиғ дар Инстаграм", amount: 1 })).toEqual(["ads_meta"]);
+    expect(kinds({ category: "OTHER", note: "Инстаграмм аккаунт ремонт", amount: 1 })).toEqual([]);
+  });
+  it("оклад агента не переспрашивается, доля по сделке — да", () => {
+    expect(findAutoExpenseOverlap({ category: "SALARY", agentId: "agent-1", note: "Оклад за октябрь", amount: 3000, currency: "TJS" }, autos, RATE)).toBeNull();
+    expect(findAutoExpenseOverlap({ category: "SALARY", agentId: "agent-1", note: "Оклад", amount: 12000, currency: "TJS" }, autos, RATE)?.kind).toBe("deal_salary");
+  });
+  it("шаблон зарплаты одного агента не перекрывает зарплату другого с той же суммой", () => {
+    const tpl = { autoKey: "rec:t:2026-10", category: "SALARY", amount: 3000, currency: "TJS", exchangeRate: 1, agentId: "agent-a" };
+    expect(findAutoExpenseOverlap({ category: "SALARY", agentId: "agent-b", note: "Оклад", amount: 3000, currency: "TJS" }, [tpl], RATE)).toBeNull();
+    expect(findAutoExpenseOverlap({ category: "SALARY", agentId: "agent-a", note: "Оклад", amount: 3000, currency: "TJS" }, [tpl], RATE)?.kind).toBe("recurring");
   });
 });
 

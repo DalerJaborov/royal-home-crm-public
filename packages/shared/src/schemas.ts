@@ -315,6 +315,8 @@ export const expenseCreateSchema = expenseBaseSchema.extend({
 });
 
 export const expenseUpdateSchema = expenseBaseSchema.partial().extend({
+  /** Правка сделала строку похожей на автоматическую (expenseAutoOverlap.ts) — человек подтвердил «другой». */
+  confirmAutoOverlap: z.boolean().optional(),
   /** Version read when opening the editor, not a fresh version fetched at save time. */
   version: z.number().int().nonnegative().optional(),
 });

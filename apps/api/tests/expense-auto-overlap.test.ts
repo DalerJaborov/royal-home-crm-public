@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
-import { createExpense, ExpenseCommandError } from "../src/lib/expenseCommands.js";
+import { createExpense, deleteExpense, ExpenseCommandError, restoreExpense, updateExpense } from "../src/lib/expenseCommands.js";
 import { warnManualOverlapsForAuto } from "../src/lib/expenseAutoOverlap.js";
 import { parseBatchArgs, resolveRows } from "../src/ai/assistant/tools/expenseBatchTool.js";
 
@@ -73,6 +73,34 @@ describe("пачка Шабнам", () => {
     ] }));
     expect(confirmed[0]!.autoOverlap).toBeUndefined();
     expect(confirmed[0]!.body.confirmAutoOverlap).toBe(true);
+  });
+});
+
+describe("пачка: подтверждение только отдельным вызовом", () => {
+  it("смешанный вызов (вся пачка + флаг у одной строки) отклоняется — остальные не запишутся второй раз", () => {
+    expect(() => parseBatchArgs({ items: [
+      { title: "ТАРГЕТ", amount: 7278, currency: "TJS", month: M1, confirmAutoOverlap: true },
+      { title: "Вода", amount: 60, currency: "TJS", month: M1 },
+    ] })).toThrow(/отдельным вызовом/);
+  });
+});
+
+describe("правка и возврат из корзины тоже проверяются", () => {
+  it("ручную строку перевели в «таргет Instagram» того же месяца — 409; сумму у неё поменять можно", async () => {
+    const { expense } = await createExpense({ category: "OFFICE", amount: 300, currency: "TJS", month: M1, note: "Интернет" }, { agentId });
+    const err = await updateExpense(expense.id, { category: "ADVERTISING", source: "INSTAGRAM", note: "Таргет", version: expense.version }).catch((e: unknown) => e);
+    expect((err as ExpenseCommandError).body?.code).toBe("AUTO_EXPENSE_OVERLAP");
+    const ok = await updateExpense(expense.id, { amount: 350, category: "OFFICE", note: "Интернет", version: expense.version });
+    expect(Number(ok.expense.amount)).toBe(350);
+  });
+
+  it("строка из корзины, повторяющая автоматическую, без подтверждения не возвращается", async () => {
+    const row = await prisma.expense.create({ data: { month: months[0]!, amount: 100, currency: "USD", category: "OTHER", note: "Таргет фейсбук", createdById: agentId } });
+    await deleteExpense(row.id);
+    const err = await restoreExpense(row.id).catch((e: unknown) => e);
+    expect((err as ExpenseCommandError).body?.code).toBe("AUTO_EXPENSE_OVERLAP");
+    const back = await restoreExpense(row.id, { confirmAutoOverlap: true });
+    expect(back.deletedAt).toBeNull();
   });
 });
 

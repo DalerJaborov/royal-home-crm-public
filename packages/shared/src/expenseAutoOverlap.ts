@@ -29,6 +29,7 @@ export interface AutoExpenseRowLike {
   currency: string;
   exchangeRate?: unknown;
   agentId?: string | null;
+  source?: string | null;
 }
 
 export interface ManualExpenseLike {
@@ -67,11 +68,21 @@ export function autoExpenseKindOf(autoKey: string | null | undefined): AutoExpen
   return null;
 }
 
+/**
+ * Границы слов — lookaround по буквам и цифрам (`(?<![\p{L}\p{N}])`): `\b` в JavaScript видит
+ * только латиницу («реклама инста» с `инста\b` не ловилось), а «ИИ» бывает в кавычках-ёлочках.
+ */
 /** Реклама в Meta словами строки: таргет, Instagram/Facebook, Meta (ru/tg/латиница). */
-const META_WORDS = /instagram|insta\b|инстаграм|инста\b|facebook|фейсбук|фэйсбук|(?:^|[\s(/,-])(?:fb|фб|meta|мета)(?=$|[\s)/,.-])|таргет|target/iu;
-const AD_WORDS = /реклам|таргет|target|\bads?\b|reklama|продвижен|boost|буст/iu;
+const META_WORDS = /instagram|(?<![\p{L}\p{N}])insta(?![\p{L}\p{N}])|инстаграм|(?<![\p{L}\p{N}])инста(?![\p{L}\p{N}])|facebook|фейсбук|фэйсбук|(?<![\p{L}\p{N}])(?:fb|фб|meta|мета)(?![\p{L}\p{N}])|таргет(?!олог)|(?<![\p{L}\p{N}])target(?!olog)/iu;
+const AD_WORDS = /реклам|таблиғ|таблиг|таргет(?!олог)|(?<![\p{L}\p{N}])target(?!olog)|(?<![\p{L}\p{N}])ads?(?![\p{L}\p{N}])|reklama|продвижен|boost|буст/iu;
+/** Не кабинет Meta, а люди и посевы: блогер, таргетолог, СММщик — их оплата не дублирует кабинет. */
+const NOT_CABINET = /блогер|blogger|инфлюенс|influenc|посев|коллаб|таргетолог|targetolog|(?<![\p{L}\p{N}])(?:смм|smm)|дизайн|съёмк|съемк|видеограф/iu;
 /** ИИ словами строки: «оплата ИИ», Claude, Gemini, ChatGPT, нейросеть. */
-const AI_WORDS = /(?:^|[\s(/,-])(?:ии|ai)(?=$|[\s)/,.-])|искусствен\p{L}*\s+интеллект|нейросет|claude|клод|gemini|джемини|openai|chat\s*gpt|чат\s*gpt|\bgpt|deepseek|anthropic/iu;
+const AI_WORDS = /(?<![\p{L}\p{N}])(?:ии|ai)(?![\p{L}\p{N}])|искусствен\p{L}*\s+интеллект|нейросет|claude|клод|gemini|джемини|openai|chat\s*gpt|чат\s*gpt|(?<![\p{L}\p{N}])gpt|deepseek|anthropic/iu;
+/** Подписки и мероприятия — не обращения CRM к ИИ (их журнал AiLog не видит). */
+const NOT_AI_USAGE = /подписк|subscription|(?<![\p{L}\p{N}])(?:plus|pro|max|team)(?![\p{L}\p{N}])|конференц|обучени|тренинг|(?<![\p{L}\p{N}])курс/iu;
+/** Ручная зарплата — доля по сделке, а не оклад или аванс. */
+const DEAL_SHARE_WORDS = /(?<![\p{L}\p{N}])дол[яиюей](?![\p{L}\p{N}])|процент|%|комисси|бонус|сделк/iu;
 
 function textOf(row: ManualExpenseLike): string {
   return `${row.note ?? ""} ${row.counterparty ?? ""}`;
@@ -82,12 +93,15 @@ export function manualExpenseAutoKinds(row: ManualExpenseLike): AutoExpenseKind[
   const text = textOf(row);
   const kinds: AutoExpenseKind[] = [];
   const metaChannel = row.source === "INSTAGRAM" || row.source === "FACEBOOK";
-  if ((row.category === "ADVERTISING" && (metaChannel || META_WORDS.test(text)))
-    || (row.category !== "ADVERTISING" && META_WORDS.test(text) && AD_WORDS.test(text))) {
+  // Явно выбранный канал сильнее слов: «таргет» в TikTok — не кабинет Meta.
+  const otherChannel = row.category === "ADVERTISING" && !!row.source && !metaChannel;
+  if (row.category !== "SALARY" && !otherChannel && !NOT_CABINET.test(text)
+    && ((row.category === "ADVERTISING" && (metaChannel || META_WORDS.test(text)))
+      || (row.category !== "ADVERTISING" && META_WORDS.test(text) && AD_WORDS.test(text)))) {
     kinds.push("ads_meta");
   }
   if (row.category === "ADVERTISING" && !kinds.includes("ads_meta")) kinds.push("ads_other");
-  if (row.category !== "SALARY" && AI_WORDS.test(text)) kinds.push("ai");
+  if (row.category !== "SALARY" && AI_WORDS.test(text) && !NOT_AI_USAGE.test(text)) kinds.push("ai");
   if (row.category === "SALARY" && row.agentId) kinds.push("deal_salary");
   return kinds;
 }
@@ -118,9 +132,14 @@ export function findAutoExpenseOverlap(
     const autoTjs = amountTjs(auto.amount, auto.currency, auto.exchangeRate, usdToTjs);
     if (autoTjs <= 0) continue;
     const amountClose = close(manualTjs, autoTjs);
+    // Доля по сделкам: тот же сотрудник и либо слова «доля/процент/сделка», либо близкая сумма —
+    // оклад и аванс того же агента в том же месяце не переспрашиваем.
     const byKind = (kind === "ads_meta" || kind === "ai") && kinds.includes(kind)
-      || kind === "deal_salary" && kinds.includes("deal_salary") && auto.agentId === manual.agentId;
-    const byAmount = (kind === "recurring" || kind === "ads_other") && auto.category === manual.category && amountClose;
+      || kind === "deal_salary" && kinds.includes("deal_salary") && auto.agentId === manual.agentId
+        && (amountClose || DEAL_SHARE_WORDS.test(textOf(manual)));
+    // Шаблон и прочие площадки — тот же раздел, тот же сотрудник и канал, близкая сумма.
+    const byAmount = (kind === "recurring" || kind === "ads_other") && auto.category === manual.category && amountClose
+      && (auto.agentId ?? null) === (manual.agentId ?? null) && (auto.source ?? null) === (manual.source ?? null);
     if (!byKind && !byAmount) continue;
     const overlap: AutoExpenseOverlap = {
       kind, autoKey: auto.autoKey, autoAmount: Number(auto.amount), autoCurrency: auto.currency,

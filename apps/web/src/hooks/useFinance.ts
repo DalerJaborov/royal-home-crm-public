@@ -180,7 +180,9 @@ export function useExpenseArchive(range: { from?: string; to?: string }, enabled
 export function useRestoreExpense() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api(`/expenses/${id}/restore`, { method: "PATCH" }),
+    mutationFn: (target: string | { id: string; confirmAutoOverlap: true }) => typeof target === "string"
+      ? api(`/expenses/${target}/restore`, { method: "PATCH" })
+      : api(`/expenses/${target.id}/restore`, { method: "PATCH", body: { confirmAutoOverlap: true } }),
     onSuccess: () => {
       invalidate(qc)();
       qc.invalidateQueries({ queryKey: ["expenses-archive"] });
