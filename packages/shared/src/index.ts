@@ -75,6 +75,7 @@ export * from "./ownerReport.js";
 export * from "./priceAdvisor.js";
 export * from "./uiShellRollout.js";
 export * from "./expenseWorkspace.js";
+export * from "./expenseAutoOverlap.js";
 export * from "./uploadLimits.js";
 export * from "./propertyChangeRequest.js";
 export * from "./adsAccess.js";

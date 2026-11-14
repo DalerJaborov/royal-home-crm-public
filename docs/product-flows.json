@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 751,
-  "forks": 4037,
+  "forks": 4046,
   "mounts": 84,
-  "cron": 132,
+  "cron": 133,
   "jobs": 33,
   "hidden": 0
  },
@@ -30032,7 +30032,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const expense = await restoreExpense(req.params.id);",
+       "t": "const expense = await restoreExpense(req.params.id, { confirmAutoOverlap: req.body?.confirmAutoOverlap === tr…",
        "a": [
         "зовёт restoreExpense()"
        ],
@@ -46010,11 +46010,25 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.moderate"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!(await canDecideClipInCrm(req.agent!.id, can(req, \"properties.moderate\"), req.params.id))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const result = await approveClip(req.params.id, req.agent!.id, \"crm\");",
@@ -46060,11 +46074,25 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.moderate"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!(await canDecideClipInCrm(req.agent!.id, can(req, \"properties.moderate\"), req.params.id))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const parsed = sendBackToMontajerSchema.safeParse(req.body);",
@@ -89905,6 +89933,192 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "clip-owner-autopublish",
+   "when": "*/5 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { published } = await runClipOwnerAutoPublishTick();",
+       "a": [
+        "зовёт runClipOwnerAutoPublishTick()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "isClipOwnerNight(now)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { published: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { clipOwnerApproveEnabled: t…",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!s?.clipOwnerApproveEnabled && s?.clipReviewEnabled",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { published: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const candidates = await prisma.property.findMany({ where: { ...CLIP_REVIEW_PENDING_WHERE, clipOwnerDueAt: { …",
+         "a": [
+          "читает в базе: property"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "candidates.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { published: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const dialogs = await prisma.telegramDialogState.findMany({ where: { kind: CLIP_REJECT_DIALOG_KIND, expiresAt…",
+         "a": [
+          "читает в базе: telegramDialogState"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const p of candidates",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "rejecting.has(p.shortId)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const result = await approveClip(p.id, null, \"auto\", now);",
+           "a": [
+            "зовёт approveClip()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "result.ok",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "published++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runClipOwnerAutoPublishTick() — apps/api/src/lib/clipReview.ts"
+      },
+      {
+       "k": "if",
+       "t": "published > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Автопубликация роликов без ответа хозяина: ${published}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка автопубликации ролика без ответа хозяина\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "clip-review-resend",
    "when": "*/5 * * * *",
    "tree": [
@@ -92862,33 +93076,131 @@
         },
         {
          "k": "do",
-         "t": "const candidates = await prisma.agent.findMany({ where: { role: \"DIRECTOR\", isActive: true, telegramChatId: {…",
+         "t": "const release = ()",
          "a": [
-          "читает в базе: agent"
+          "меняет в базе: settings"
          ],
          "c": []
         },
         {
-         "k": "loop",
-         "t": "для каждого: const c of candidates",
+         "k": "try",
+         "t": "пробует",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "const access = await loadAgentAccess(c.id);",
+           "t": "const candidates = await prisma.agent.findMany({ where: { role: \"DIRECTOR\", isActive: true, telegramChatId: {…",
            "a": [
-            "зовёт loadAgentAccess()"
+            "читает в базе: agent"
            ],
            "c": []
           },
           {
-           "k": "if",
-           "t": "access?.isActive && access.permissions.has(\"finance.view\") && c.telegramChatId",
+           "k": "loop",
+           "t": "для каждого: const c of candidates",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "recipients.push({ id: c.id, chatId: String(c.telegramChatId) });",
+             "t": "const access = await loadAgentAccess(c.id);",
+             "a": [
+              "зовёт loadAgentAccess()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "access?.isActive && access.permissions.has(\"finance.view\") && c.telegramChatId",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "recipients.push({ id: c.id, chatId: String(c.telegramChatId) });",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "recipients.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const r of recipients",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await sendDocumentFile(r.chatId, pdf.buffer, pdf.filename, `Финансовый отчёт · ${pdf.periodLabel}`);",
+               "a": [
+                "зовёт sendDocumentFile()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "logAgentAudit(r.id, \"REPORT_PDF_EXPORT\", \"Report\", \"finance\", { destination: \"monthlyTelegram\", period: pdf.p…",
+               "a": [
+                "зовёт logAgentAudit()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "delivered === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await release();",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return { month, status: \"failed\", delivered, failed };",
              "a": [
               "дословно из кода"
              ],
@@ -92899,39 +93211,10 @@
          ]
         },
         {
-         "k": "if",
-         "t": "recipients.length === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "try",
-         "t": "пробует",
-         "a": [],
-         "c": []
-        },
-        {
          "k": "catch",
          "t": "если сорвалось",
          "a": [],
          "c": [
-          {
-           "k": "do",
-           "t": "await prisma.settings.updateMany({ where: { id: \"singleton\", financePdfMonthlyLastSent: month }, data: { fina…",
-           "a": [
-            "меняет в базе: settings"
-           ],
-           "c": []
-          },
           {
            "k": "do",
            "t": "throw err;",
@@ -92939,51 +93222,6 @@
             "пробрасывает ошибку дальше"
            ],
            "c": []
-          }
-         ]
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const r of recipients",
-         "a": [],
-         "c": [
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await sendDocumentFile(r.chatId, pdf.buffer, pdf.filename, `Финансовый отчёт · ${pdf.periodLabel}`);",
-             "a": [
-              "зовёт sendDocumentFile()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "logAgentAudit(r.id, \"REPORT_PDF_EXPORT\", \"Report\", \"finance\", { destination: \"monthlyTelegram\", period: pdf.p…",
-             "a": [
-              "зовёт logAgentAudit()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
           }
          ]
         }

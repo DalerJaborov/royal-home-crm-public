@@ -10,6 +10,7 @@ import {
   type ExpenseCategory,
 } from "@royal-home/shared";
 import {
+  autoOverlapMessage,
   useCreateExpense,
   useCreateRecurring,
   useDeleteExpense,
@@ -433,6 +434,9 @@ function NewExpenseSheet({ open, onClose, month }: { open: boolean; onClose: () 
   const [repeat, setRepeat] = useState(false);
   const [day, setDay] = useState("1");
   const [error, setError] = useState<string | null>(null);
+  /** «Уже учтено автоматически» от сервера: следующее «Добавить» пишет с подтверждением. */
+  const [overlap, setOverlap] = useState<string | null>(null);
+  const overlapFor = useRef<string | null>(null);
 
   const needsSource = category === "ADVERTISING";
   const needsAgent = category === "SALARY";
@@ -449,14 +453,18 @@ function NewExpenseSheet({ open, onClose, month }: { open: boolean; onClose: () 
       if (request.kind === "recurring") {
         await createRecurring.mutateAsync(request.body);
       } else {
-        await create.mutateAsync(request.body);
+        const sameDraft = overlap && overlapFor.current === JSON.stringify(request.body);
+        await create.mutateAsync(sameDraft ? { ...request.body, confirmAutoOverlap: true } : request.body);
       }
+      setOverlap(null);
       setNote("");
       setAmount("");
       setSource("");
       setAgentId("");
       onClose();
     } catch (err) {
+      const repeated = autoOverlapMessage(err);
+      if (repeated && request.kind !== "recurring") { overlapFor.current = JSON.stringify(request.body); setOverlap(repeated); return; }
       setError(err instanceof Error ? err.message : "Не удалось сохранить");
     }
   };
@@ -477,7 +485,7 @@ function NewExpenseSheet({ open, onClose, month }: { open: boolean; onClose: () 
             disabled={!ready || create.isPending || createRecurring.isPending}
             onClick={submit}
           >
-            Добавить
+            {overlap && overlapFor.current === JSON.stringify(request.ok && request.kind !== "recurring" ? request.body : null) ? "Всё равно записать" : "Добавить"}
           </button>
         </>
       }
@@ -598,6 +606,11 @@ function NewExpenseSheet({ open, onClose, month }: { open: boolean; onClose: () 
       {error && (
         <p className="state err">
           <span className="dot crit" /> {error}
+        </p>
+      )}
+      {overlap && (
+        <p className="state err" role="alert" data-expense-overlap="">
+          <span className="dot crit" /> {overlap}
         </p>
       )}
       <p className="state">

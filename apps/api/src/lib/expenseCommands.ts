@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
-  CLIENT_SOURCES, expenseCategorySchema, expenseCreateSchema, expensePaymentSchema, expenseUpdateSchema,
+  AUTO_EXPENSE_OVERLAP_CODE, CLIENT_SOURCES, expenseCategorySchema, expenseCreateSchema, expensePaymentSchema, expenseUpdateSchema,
   recurringOccurrenceSchema, recurringWorkspaceFields, type ClientSource,
 } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
@@ -11,6 +11,7 @@ import {
   changeExpensePayment, expenseDay, ExpenseLifecycleError, materializeOccurrence, occurrenceDates, todayExpenseDay,
   validateExpenseCategory,
 } from "./expenseWorkspace.js";
+import { findManualOverlap, type OverlapCache } from "./expenseAutoOverlap.js";
 
 /**
  * ОДНА ДВЕРЬ ЗАПИСИ РАСХОДОВ (10.11.2026).
@@ -51,20 +52,24 @@ export interface CreateExpenseOptions {
   db?: TxClient;
   /** Курс, уже прочитанный для пачки: одна выборка Настроек на пачку, а не на строку. */
   money?: MoneyContext;
+  /** Пачка: автоматические строки месяца читаются раз на пачку, а не на строку. */
+  overlapCache?: OverlapCache;
 }
 
 /** POST /expenses. Возвращает строку и месяц из запроса (для аудита). */
 export async function createExpense(raw: unknown, opts: CreateExpenseOptions): Promise<{ expense: Expense; month: string }> {
   const parsed = expenseCreateSchema.safeParse(raw);
   if (!parsed.success) fail(400, "Неверные данные", { details: parsed.error!.flatten() });
-  const { month, ...rest } = parsed.data!;
+  const { month, confirmAutoOverlap, ...rest } = parsed.data!;
   if (rest.amount > 99_999_999.99) fail(400, "Сумма слишком большая");
   if (!await validateExpenseCategory(rest.categoryId, rest.category)) fail(400, "Выберите категорию соответствующего раздела");
   const key = opts.idempotencyKey;
   if (key && !IDEMPOTENCY_HEADER_KEY.test(key)) fail(400, "Неверный ключ запроса");
   const requestKey = opts.requestKey ?? (key ? `${opts.agentId}:${key}` : undefined);
   const db = opts.db ?? prisma;
-  const fingerprint = createHash("sha256").update(JSON.stringify(parsed.data)).digest("hex");
+  // Подтверждение «это другой расход» — не часть самого расхода: повтор с ним и без него один ключ.
+  const { confirmAutoOverlap: _confirm, ...fingerprinted } = parsed.data!;
+  const fingerprint = createHash("sha256").update(JSON.stringify(fingerprinted)).digest("hex");
   // Доллар без своего курса пишется только по курсу из Настроек: запасное число FALLBACK_USD_TO_TJS
   // курсом не является (решение владельца 10.11.2026; та же дверь у помощницы) — без курса 409.
   const needsRate = rest.currency === "USD" && rest.exchangeRate == null && rest.status !== "PLANNED";
@@ -84,6 +89,13 @@ export async function createExpense(raw: unknown, opts: CreateExpenseOptions): P
   if ((rest.status ?? "PAID") === "PAID" && rest.paymentDate && rest.paymentDate > todayExpenseDay()) {
     fail(400, "Будущий платёж запишите как план");
   }
+  // Расход, который CRM уже считает сама (реклама Meta, ИИ, доля по сделкам, шаблон), молча
+  // второй раз не пишем (14.11.2026): человек видит, что уже учтено, и подтверждает «другой».
+  // Повтор того же запроса (ключ уже записан) проверку не проходит заново — строка уже есть.
+  if (!confirmAutoOverlap && !(requestKey && await db.expense.findUnique({ where: { requestKey }, select: { id: true } }))) {
+    const found = await findManualOverlap(data.month.toISOString().slice(0, 7), { ...rest, exchangeRate: rate }, { db, money: opts.money, cache: opts.overlapCache });
+    if (found) fail(409, found.text, { code: AUTO_EXPENSE_OVERLAP_CODE, overlap: found.overlap });
+  }
   const expense = requestKey
     ? await db.expense.upsert({ where: { requestKey }, update: {}, create: data })
     : await db.expense.create({ data });
@@ -97,7 +109,7 @@ export async function createExpense(raw: unknown, opts: CreateExpenseOptions): P
 export async function updateExpense(id: string, raw: unknown): Promise<{ expense: Expense; changed: string[] }> {
   const parsed = expenseUpdateSchema.safeParse(raw);
   if (!parsed.success) fail(400, "Неверные данные", { details: parsed.error!.flatten() });
-  const { month, version, ...rest } = parsed.data!;
+  const { month, version, confirmAutoOverlap, ...rest } = parsed.data!;
   // expenseUpdateSchema — partial без superRefine создания, поэтому обязательность
   // проверяется здесь, по ИТОГОВОМУ состоянию строки (26.08.2026): раньше PATCH
   // { category: "ADVERTISING" } по расходу без канала проходил молча, и стоимость
@@ -142,6 +154,23 @@ export async function updateExpense(id: string, raw: unknown): Promise<{ expense
     ...(finalCategory !== "ADVERTISING" ? { source: null } : {}),
     ...(finalCategory !== "SALARY" ? { agentId: null } : {}),
   };
+  // Правка, которая ПЕРЕНОСИТ ручную строку в чужой вид или месяц (раздел, канал, сотрудник,
+  // назначение, месяц), проверяется тем же правилом, что создание: иначе дубль заводится в два шага.
+  // Правка одной суммы или контрагента у уже подтверждённой строки не переспрашивает.
+  const finalMonth = (rest.status ?? row.status) === "PAID" && rest.paymentDate ? rest.paymentDate.slice(0, 7)
+    : month ?? row.month.toISOString().slice(0, 7);
+  // Форма шлёт все поля сразу — сравниваем значения, а не наличие ключа.
+  const identityChanged = finalCategory !== row.category || (finalSource ?? null) !== (row.source ?? null)
+    || (finalAgentId ?? null) !== (row.agentId ?? null) || (finalNote ?? "").trim() !== (row.note ?? "").trim()
+    || finalMonth !== row.month.toISOString().slice(0, 7);
+  if (!row.autoKey && !confirmAutoOverlap && identityChanged) {
+    const found = await findManualOverlap(finalMonth, {
+      category: finalCategory, source: finalCategory === "ADVERTISING" ? finalSource : null,
+      agentId: finalCategory === "SALARY" ? finalAgentId : null, note: finalNote, counterparty: rest.counterparty ?? row.counterparty,
+      amount: rest.amount ?? row.amount, currency: rest.currency ?? row.currency, exchangeRate: rest.exchangeRate ?? row.exchangeRate,
+    });
+    if (found) fail(409, found.text, { code: AUTO_EXPENSE_OVERLAP_CODE, overlap: found.overlap });
+  }
   try {
     const expense = await prisma.expense.update({
       where: { id, version: version ?? row.version, deletedAt: null },
@@ -189,8 +218,17 @@ export async function deleteExpense(id: string, version?: number): Promise<Expen
   }
 }
 
-/** PATCH /expenses/:id/restore — вернуть из архива. */
-export async function restoreExpense(id: string): Promise<Expense> {
+/**
+ * PATCH /expenses/:id/restore — вернуть из архива. Ручная строка, за месяц которой тем временем
+ * появилась автоматическая того же вида, без подтверждения не возвращается (дубль через корзину).
+ * Откат своего же удаления (помощница) передаёт confirmAutoOverlap: вернуть как было — не новый факт.
+ */
+export async function restoreExpense(id: string, opts: { confirmAutoOverlap?: boolean } = {}): Promise<Expense> {
+  const row = await prisma.expense.findUnique({ where: { id } });
+  if (row?.deletedAt && !row.autoKey && !opts.confirmAutoOverlap) {
+    const found = await findManualOverlap(row.month.toISOString().slice(0, 7), row);
+    if (found) fail(409, found.text, { code: AUTO_EXPENSE_OVERLAP_CODE, overlap: found.overlap });
+  }
   try {
     return await prisma.expense.update({ where: { id }, data: { deletedAt: null } });
   } catch (err) {

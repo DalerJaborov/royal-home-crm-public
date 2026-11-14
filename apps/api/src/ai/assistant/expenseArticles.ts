@@ -108,6 +108,9 @@ export type AdChannel = (typeof AD_CHANNELS)[number]["source"];
 
 export function adChannelOf(text: string): AdChannel | null {
   const found = AD_CHANNELS.filter((c) => c.match.test(text));
+  // «Таргет (инстаграм-фейсбук)» — один кабинет Meta, а не два канала: его расход CRM относит к
+  // Instagram (lib/ads/adExpenseSync.ts PLATFORM_SOURCE). Раньше такая строка уходила в «Прочее».
+  if (found.length === 2 && found.every((c) => c.source === "INSTAGRAM" || c.source === "FACEBOOK")) return "INSTAGRAM";
   return found.length === 1 ? found[0]!.source : null;
 }
 
