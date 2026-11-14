@@ -329,7 +329,10 @@ function MontageBlock({
   const [holdReason, setHoldReason] = useState("");
 
   const can = useCan();
-  const canModerateClip = can("properties.moderate");
+  const myId = useAuthStore((s) => s.agent?.id);
+  // Хозяин объекта решает по своему ролику наравне с модератором (14.11.2026,
+  // подтверждение хозяином; сервер проверяет то же правило заново).
+  const canModerateClip = can("properties.moderate") || (!!myId && vh?.clipReview.ownerAgentId === myId);
   const qc = useQueryClient();
   const [clipBusy, setClipBusy] = useState(false);
   const [clipMessage, setClipMessage] = useState<string | null>(null);

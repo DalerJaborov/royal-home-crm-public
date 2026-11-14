@@ -102,8 +102,12 @@ export async function getClipOwnerSettings(): Promise<ClipOwnerSettings> {
 /** Срок автопубликации (та же формула, что пишет приём ролика в Property.clipOwnerDueAt). */
 export const clipOwnerAutoPublishAt = clipOwnerDueFrom;
 
-/** Хозяин объекта, которому идёт ролик: активный агент с привязанным Telegram, иначе null. */
-export async function clipOwnerRecipient(propertyId: string): Promise<ClipReviewer | null> {
+/**
+ * Хозяин объекта, который вправе решать по ролику: активный, не замороженный и не
+ * сам монтажёр (ревью 11.11.2026). Telegram здесь не нужен — решить можно и в
+ * карточке CRM (14.11.2026); для рассылки его требует clipOwnerRecipient ниже.
+ */
+async function clipOwnerAgent(propertyId: string): Promise<{ id: string; fullName: string; telegramChatId: string | null } | null> {
   const p = await prisma.property.findUnique({
     where: { id: propertyId },
     select: { intakeAgentId: true, assignedAgentId: true, createdById: true },
@@ -117,9 +121,29 @@ export async function clipOwnerRecipient(propertyId: string): Promise<ClipReview
     }),
     prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } }),
   ]);
-  // Замороженный не решает; монтажёр свой же ролик не подтверждает (ревью 11.11.2026).
-  if (!a || !a.isActive || a.frozenAt || !a.telegramChatId || a.id === settings?.videoMontajerAgentId) return null;
+  if (!a || !a.isActive || a.frozenAt || a.id === settings?.videoMontajerAgentId) return null;
+  return { id: a.id, fullName: a.fullName, telegramChatId: a.telegramChatId };
+}
+
+/** Хозяин объекта, которому идёт ролик в Telegram: как clipOwnerAgent, плюс привязанный чат. */
+export async function clipOwnerRecipient(propertyId: string): Promise<ClipReviewer | null> {
+  const a = await clipOwnerAgent(propertyId);
+  if (!a || !a.telegramChatId) return null;
   return { id: a.id, fullName: a.fullName, chatId: a.telegramChatId };
+}
+
+/**
+ * Хозяин решает, пока рубильник включён ИЛИ у ролика стоит срок автопубликации:
+ * выключили рубильник, а срок в силе — без кнопок хозяин не успел бы вернуть ролик.
+ * Возвращает id хозяина-решающего или null. Одно правило для Telegram и CRM.
+ */
+export async function clipOwnerDeciderId(propertyId: string): Promise<string | null> {
+  const [{ enabled }, due] = await Promise.all([
+    getClipOwnerSettings(),
+    prisma.property.findUnique({ where: { id: propertyId }, select: { clipOwnerDueAt: true } }),
+  ]);
+  if (!enabled && !due?.clipOwnerDueAt) return null;
+  return (await clipOwnerAgent(propertyId))?.id ?? null;
 }
 
 /**
@@ -133,16 +157,21 @@ export async function clipDeciderByChat(
 ): Promise<(ClipReviewer & { asOwner: boolean }) | null> {
   const reviewer = await clipReviewerByChat(chatId);
   if (reviewer) return { ...reviewer, asOwner: false };
-  // Хозяин решает, пока рубильник включён ИЛИ у ролика стоит срок автопубликации:
-  // выключили рубильник, а срок в силе — без кнопок хозяин не успел бы вернуть ролик.
-  const [{ enabled }, due] = await Promise.all([
-    getClipOwnerSettings(),
-    prisma.property.findUnique({ where: { id: propertyId }, select: { clipOwnerDueAt: true } }),
-  ]);
-  if (!enabled && !due?.clipOwnerDueAt) return null;
+  const ownerId = await clipOwnerDeciderId(propertyId);
+  if (!ownerId) return null;
   const owner = await clipOwnerRecipient(propertyId);
-  if (!owner || owner.chatId !== chatId) return null;
+  if (!owner || owner.id !== ownerId || owner.chatId !== chatId) return null;
   return { ...owner, asOwner: true };
+}
+
+/**
+ * Кто может решить по ролику из карточки CRM (14.11.2026, владелец: «каждый агент
+ * получал своё видео, просмотрел, одобрил или отклонил»): право модерации объектов
+ * или хозяин этого объекта по тому же правилу, что в Telegram (clipOwnerDeciderId).
+ */
+export async function canDecideClipInCrm(agentId: string, canModerate: boolean, propertyId: string): Promise<boolean> {
+  if (canModerate) return true;
+  return (await clipOwnerDeciderId(propertyId)) === agentId;
 }
 
 // ─────────────────────────── очередь «ждёт проверки» ───────────────────────────

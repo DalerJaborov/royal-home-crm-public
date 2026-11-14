@@ -80,6 +80,7 @@ import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { dropNarrationMaster, mixFromStoredMaster, planCrmMixOnReceive, storeNarrationMaster } from "./narrationMaster.js";
 import { narrationLineForMontajer } from "./narrationMontajerNote.js";
+import { propertyOwnerAgentId } from "./propertyOwner.js";
 
 /**
  * ЗАДАНИЕ «ПУБЛИКАЦИЯ ПРИНЯТОГО РОЛИКА» (21.09.2026, случай №114) — тип,
@@ -4099,6 +4100,11 @@ export interface VideoHandoffCardPropertyFields {
   clipReviewDecidedAt: Date | null;
   clipReviewDecidedById: string | null;
   clipReviewComment: string | null;
+  /** Срок автопубликации при подтверждении хозяином (есть — хозяин решает сам). */
+  clipOwnerDueAt?: Date | null;
+  intakeAgentId?: string | null;
+  assignedAgentId?: string | null;
+  createdById?: string | null;
 }
 
 /**
@@ -4165,6 +4171,9 @@ export async function videoHandoffCardForProperty(property: VideoHandoffCardProp
       decidedAt: property.clipReviewDecidedAt?.toISOString() ?? null,
       decidedBy: clipDecidedBy?.fullName ?? null,
       comment: property.clipReviewComment,
+      // Хозяин решает, только пока ролик ждёт и у него стоит срок автопубликации —
+      // тот же признак, что у кнопок в Telegram (lib/clipReview.ts::clipOwnerDeciderId).
+      ownerAgentId: property.clipReviewStatus === "PENDING" && property.clipOwnerDueAt ? propertyOwnerAgentId(property) : null,
     },
     videos: videos.map((v) => ({
       id: v.id,

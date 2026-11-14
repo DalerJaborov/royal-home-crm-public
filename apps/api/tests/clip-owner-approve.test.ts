@@ -317,6 +317,41 @@ describe("ролик идёт хозяину объекта", () => {
   });
 });
 
+describe("решение хозяина в карточке CRM (14.11.2026)", () => {
+  it("хозяин видит «Одобрить» и вправе решить; чужой — нет; модератор — всегда", async () => {
+    const p = await pendingClip("карточка", owner.id, owner.chatId);
+    const row = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    const card = await vh.videoHandoffCardForProperty(row);
+    expect(card?.clipReview.ownerAgentId).toBe(owner.id);
+    expect(await cr.canDecideClipInCrm(owner.id, false, p.id)).toBe(true);
+    expect(await cr.canDecideClipInCrm(stranger.id, false, p.id)).toBe(false);
+    expect(await cr.canDecideClipInCrm(stranger.id, true, p.id)).toBe(true);
+    // Хозяин без Telegram тоже решает из карточки: ролик ему в чат не уходит, но кнопка в CRM есть.
+    const p2 = await pendingClip("карточка-без-тг", ownerNoTgId, null);
+    expect(await cr.canDecideClipInCrm(ownerNoTgId, false, p2.id)).toBe(true);
+    // Решено — кнопка гаснет (ownerAgentId только у ждущего ролика).
+    const approved = await cr.approveClip(p.id, owner.id, "crm");
+    expect(approved.ok).toBe(true);
+    const after = await vh.videoHandoffCardForProperty(await prisma.property.findUniqueOrThrow({ where: { id: p.id } }));
+    expect(after?.clipReview.ownerAgentId).toBeNull();
+    const audit = await waitFor(() => prisma.auditLog.findFirst({ where: { entityId: p.id, action: "PROPERTY_CLIP_APPROVED" } }));
+    expect(audit.meta).toMatchObject({ decidedAs: "owner", source: "crm" });
+  });
+
+  it("рубильник выключен и срока нет — хозяин в CRM не решает, кнопки не видит", async () => {
+    const p = await pendingClip("карточка-выкл", owner.id, owner.chatId);
+    await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: false } });
+    await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: null } });
+    try {
+      expect(await cr.canDecideClipInCrm(owner.id, false, p.id)).toBe(false);
+      const card = await vh.videoHandoffCardForProperty(await prisma.property.findUniqueOrThrow({ where: { id: p.id } }));
+      expect(card?.clipReview.ownerAgentId).toBeNull();
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: true } });
+    }
+  });
+});
+
 describe("автопубликация без ответа", () => {
   it("через 3 ч — ролик публикуется сам, журнал «автоматически», повторный тик ничего не делает", async () => {
     const p = await pendingClip("авто", owner.id, owner.chatId);

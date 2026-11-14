@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4040,
+  "forks": 4042,
   "mounts": 83,
   "cron": 132,
   "jobs": 33,
@@ -46010,11 +46010,25 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.moderate"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!(await canDecideClipInCrm(req.agent!.id, can(req, \"properties.moderate\"), req.params.id))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const result = await approveClip(req.params.id, req.agent!.id, \"crm\");",
@@ -46060,11 +46074,25 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.moderate"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!(await canDecideClipInCrm(req.agent!.id, can(req, \"properties.moderate\"), req.params.id))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const parsed = sendBackToMontajerSchema.safeParse(req.body);",
