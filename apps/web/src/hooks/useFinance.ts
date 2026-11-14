@@ -1,6 +1,18 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { ClientSource, CommissionForecast, Currency, ExpenseCategory } from "@royal-home/shared";
+import { AUTO_EXPENSE_OVERLAP_CODE, type ClientSource, type CommissionForecast, type Currency, type ExpenseCategory } from "@royal-home/shared";
 import { api } from "../lib/api";
+import { ApiError } from "../lib/apiError";
+
+/**
+ * Сервер отказал «этот расход уже учтён автоматически» (реклама Meta, ИИ, доля по сделкам —
+ * packages/shared/src/expenseAutoOverlap.ts). Текст для человека или null, если отказ другой.
+ * Форма показывает его и предлагает «Всё равно записать» (confirmAutoOverlap).
+ */
+export function autoOverlapMessage(error: unknown): string | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const data = error.data as { code?: string; error?: string } | null | undefined;
+  return data?.code === AUTO_EXPENSE_OVERLAP_CODE ? data.error ?? error.message : null;
+}
 import { SAFETY_REFETCH_MS } from "../lib/refetchIntervals";
 
 export interface Expense {
@@ -168,7 +180,9 @@ export function useExpenseArchive(range: { from?: string; to?: string }, enabled
 export function useRestoreExpense() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api(`/expenses/${id}/restore`, { method: "PATCH" }),
+    mutationFn: (target: string | { id: string; confirmAutoOverlap: true }) => typeof target === "string"
+      ? api(`/expenses/${target}/restore`, { method: "PATCH" })
+      : api(`/expenses/${target.id}/restore`, { method: "PATCH", body: { confirmAutoOverlap: true } }),
     onSuccess: () => {
       invalidate(qc)();
       qc.invalidateQueries({ queryKey: ["expenses-archive"] });
