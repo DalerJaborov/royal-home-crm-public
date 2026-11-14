@@ -10,11 +10,12 @@
  */
 import { MARKET_REALTOR_MIN_LISTINGS, marketSellerKey } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { marketCatalogWhere } from "./somonRubrics.js";
 
 export async function loadRealtorSellerKeys(): Promise<Set<string>> {
   const groups = await prisma.marketListing.groupBy({
     by: ["source", "sellerId"],
-    where: { isActive: true, dealType: "SALE", sellerId: { not: null } },
+    where: { isActive: true, dealType: "SALE", sellerId: { not: null }, AND: [marketCatalogWhere()] },
     _count: { _all: true },
     having: { id: { _count: { gte: MARKET_REALTOR_MIN_LISTINGS } } },
   });
