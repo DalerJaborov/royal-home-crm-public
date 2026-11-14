@@ -8,6 +8,7 @@ import { extractAllPhones, extractVolunteeredPhone, unparsedPhoneAttempt } from 
 import { type LeadDraft } from "../ai/leadDraft.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
+import { customerAgentIntake } from "../ai/customerAgentIntake.js";
 import { phoneTail } from "./clientPhones.js";
 import { maskClientPhone } from "./clientPhone.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
@@ -85,14 +86,20 @@ export interface PhoneWithoutLead {
   /** Черновик заявки и переписка — их ждёт настоящий приём (см. tryAcceptQuietly). */
   draft: unknown;
   history: ConversationMessage[];
+  /** Тема разговора у нового ядра бота (CustomerInquiry.publicState.topic); null — диалог вёл старый путь. */
+  coreTopic: string | null;
+  /** Запрос клиента в ядре (для анкеты кандидата, заведённой ядром). */
+  inquiryId: string | null;
 }
 
 /** Слова КЛИЕНТА этого диалога — без врезок разобранных файлов: текст внутри
  *  присланного PDF не является номером, который человек оставил сам (тот же
- *  приём, что в acceptLead). */
-function clientTexts(messages: ConversationMessage[]): string[] {
+ *  приём, что в acceptLead). `after` — только реплики новее прошлой попытки сторожа;
+ *  реплика без отметки времени к «новым» не относится: старый номер не воскрешаем. */
+function clientTexts(messages: ConversationMessage[], after?: Date | null): string[] {
   return messages
     .filter((m) => m.role === "user" && typeof m.content === "string" && m.content)
+    .filter((m) => !after || (typeof m.at === "string" && Date.parse(m.at) > after.getTime()))
     .slice(-LOOK_BACK_MESSAGES)
     .map((m) => stripUntrusted(m.content, ["document", "video", "voice"]));
 }
@@ -103,15 +110,34 @@ function clientTexts(messages: ConversationMessage[]): string[] {
  * Отбор в базе узкий (clientId пуст + свежий), разбор текста — в памяти: номер
  * лежит внутри JSON-переписки, и SQL по нему всё равно был бы полным перебором.
  */
-export async function findPhonesWithoutLead(now: Date = new Date()): Promise<PhoneWithoutLead[]> {
-  const since = new Date(now.getTime() - PHONE_WATCH_WINDOW_HOURS * 60 * 60 * 1000);
+export async function findPhonesWithoutLead(
+  now: Date = new Date(),
+  /** Только для разового добора (backfillPhonesWithoutLead): шире окно и без учёта прошлых попыток. */
+  options: { windowHours?: number; ignoreAttempts?: boolean } = {}
+): Promise<PhoneWithoutLead[]> {
+  const since = new Date(now.getTime() - (options.windowHours ?? PHONE_WATCH_WINDOW_HOURS) * 60 * 60 * 1000);
   const rows = await prisma.botConversation.findMany({
-    // `watchdogAttemptedAt: null` — ОДНА попытка на диалог (авария 17.09.2026).
-    // Раньше отбор был только «карточки нет + свежий», а карточка у разговора о
-    // работе не появляется никогда: диалог оставался кандидатом вечно и приём
-    // прогонялся заново каждые 15 минут. Причина отказа сама не исчезнет — если
-    // приём не сработал с первого раза, дальше это работа человека, а не крона.
-    where: { clientId: null, lastMessageAt: { gte: since }, watchdogAttemptedAt: null },
+    // ОДНА попытка на одни и те же реплики (авария 17.09.2026). Раньше отбор был
+    // только «карточки нет + свежий», а карточка у разговора о работе не появляется
+    // никогда: диалог оставался кандидатом вечно и приём прогонялся заново каждые
+    // 15 минут. Причина отказа сама не исчезнет — если приём не сработал с первого
+    // раза, дальше это работа человека, а не крона.
+    //
+    // НО «одна попытка на диалог НАВСЕГДА» теряла вернувшегося клиента (14.11.2026):
+    // разговор, который сторож уже разбирал когда-то (карточку потом удалили, или
+    // тогда был отказ), больше не проверялся никогда, а новое ядро бота само карточку
+    // по номеру почти не заводит — сторож у него главная дверь. Поэтому диалог снова
+    // в отборе, если клиент написал ПОСЛЕ прошлой попытки, и разбираются только эти
+    // новые реплики. Петли нет: приём из сторожа идёт с fromHistory и lastMessageAt
+    // не двигает (tests/phone-lead-watchdog-loop.test.ts).
+    where: {
+      clientId: null,
+      lastMessageAt: { gte: since },
+      ...(options.ignoreAttempts ? {} : { OR: [
+        { watchdogAttemptedAt: null },
+        { watchdogAttemptedAt: { lt: prisma.botConversation.fields.lastMessageAt } },
+      ] }),
+    },
     select: {
       id: true,
       channel: true,
@@ -120,6 +146,8 @@ export async function findPhonesWithoutLead(now: Date = new Date()): Promise<Pho
       leadDraft: true,
       spamFlaggedAt: true,
       lastMessageAt: true,
+      watchdogAttemptedAt: true,
+      customerInquiry: { select: { id: true, publicState: true } },
     },
     orderBy: { lastMessageAt: "desc" },
     take: MAX_CONVERSATIONS,
@@ -128,7 +156,7 @@ export async function findPhonesWithoutLead(now: Date = new Date()): Promise<Pho
   const found: PhoneWithoutLead[] = [];
   for (const row of rows) {
     const history = (row.messages as unknown as ConversationMessage[]) ?? [];
-    const texts = clientTexts(history);
+    const texts = clientTexts(history, options.ignoreAttempts ? null : row.watchdogAttemptedAt);
     let phone: string | null = null;
     let raw: string | null = null;
     let phoneText = "";
@@ -153,6 +181,15 @@ export async function findPhonesWithoutLead(now: Date = new Date()): Promise<Pho
      */
     const intent = (row.leadDraft as { intent?: string } | null)?.intent;
     if (intent === "job") continue;
+    /**
+     * То же для НОВОГО ЯДРА бота (14.11.2026): ядро держит тему разговора не в
+     * leadDraft.intent, а в CustomerInquiry.publicState.topic, и анкету кандидата
+     * пишет по запросу (JobApplication.customerInquiryId), а не по диалогу. Сторож
+     * этого не видел: за 8–14.11 из 12 заведённых им карточек 9 были соискателями
+     * работы — «Прочие обращения» без агента, мусор вместо лидов.
+     */
+    const coreTopic = coreTopicOf(row.customerInquiry?.publicState);
+    if (coreTopic === "job") continue;
     found.push({
       conversationId: row.id,
       channel: row.channel,
@@ -163,9 +200,16 @@ export async function findPhonesWithoutLead(now: Date = new Date()): Promise<Pho
       phoneText,
       draft: row.leadDraft,
       history,
+      coreTopic,
+      inquiryId: row.customerInquiry?.id ?? null,
     });
   }
   return withoutJobApplications(found);
+}
+
+function coreTopicOf(publicState: unknown): string | null {
+  const topic = (publicState as { topic?: unknown } | null)?.topic;
+  return typeof topic === "string" ? topic : null;
 }
 
 /**
@@ -178,13 +222,15 @@ export async function findPhonesWithoutLead(now: Date = new Date()): Promise<Pho
 async function withoutJobApplications(rows: PhoneWithoutLead[]): Promise<PhoneWithoutLead[]> {
   if (rows.length === 0) return rows;
   const ids = rows.map((r) => r.conversationId);
+  const inquiryIds = rows.map((r) => r.inquiryId).filter((id): id is string => !!id);
   const applications = await prisma.jobApplication.findMany({
-    where: { conversationId: { in: ids } },
-    select: { conversationId: true },
+    // Анкету старого пути ищем по диалогу, анкету ядра — по его запросу (customerInquiryId).
+    where: { OR: [{ conversationId: { in: ids } }, ...(inquiryIds.length ? [{ customerInquiryId: { in: inquiryIds } }] : [])] },
+    select: { conversationId: true, customerInquiryId: true },
     take: MAX_CONVERSATIONS,
   });
-  const candidates = new Set(applications.map((a) => a.conversationId));
-  return rows.filter((r) => !candidates.has(r.conversationId));
+  const candidates = new Set(applications.flatMap((a) => [a.conversationId, a.customerInquiryId]).filter(Boolean));
+  return rows.filter((r) => !candidates.has(r.conversationId) && !(r.inquiryId && candidates.has(r.inquiryId)));
 }
 
 /**
@@ -291,6 +337,25 @@ const ALERT_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
  * `await import` — не украшение: lib → messengers → lib даёт цикл импортов, а на
  * нём CI уже спотыкался (см. коммент к экспорту acceptLead).
  */
+/**
+ * Черновик для приёма. Старый путь копит намерение в leadDraft.intent сам; новое ядро
+ * бота его не пишет (тема — в CustomerInquiry.publicState.topic), и без этого шага
+ * КАЖДЫЙ клиент ядра уходил в «Прочие обращения» без агента (8–14.11.2026: покупатель
+ * «1–2 комнаты» и продавец с ценой — оба «Прочее»), хотя бот обещал звонок агента.
+ * Намерение берём из темы ядра, иначе — тем же кодовым разбором слов клиента, что у
+ * моста ядра (ai/customerAgentIntake.ts). Все отсечки приёма (аренда, чужой город,
+ * услуги, «направление не подтверждено») продолжают работать в classifyInbound.
+ */
+export function watchdogLeadDraft(row: Pick<PhoneWithoutLead, "draft" | "coreTopic" | "history">): LeadDraft {
+  const draft = ((row.draft as LeadDraft | null) ?? { stage: "chatting" }) as LeadDraft;
+  if (draft.intent || row.coreTopic === null) return draft;
+  // Аренда — тем же отказом приёма, что у старого пути (заявки на аренду не берём, владелец 21.08.2026).
+  const fromTopic = row.coreTopic === "buyer" ? "buy" : row.coreTopic === "seller" ? "sell" : row.coreTopic === "rent" ? "rent" : null;
+  const role = fromTopic ? null : customerAgentIntake(clientTexts(row.history).map((text) => ({ role: "user" as const, text }))).role;
+  const intent = fromTopic ?? (role === "buyer" ? "buy" : role === "seller" ? "sell" : null);
+  return intent ? { ...draft, intent, confident: true } : draft;
+}
+
 async function tryAcceptQuietly(row: PhoneWithoutLead): Promise<"accepted" | "declined" | "failed"> {
   try {
     const { acceptLead } = await import("../messengers/conversation.js");
@@ -299,7 +364,7 @@ async function tryAcceptQuietly(row: PhoneWithoutLead): Promise<"accepted" | "de
       row.channel,
       row.name ?? undefined,
       row.phone!,
-      (row.draft as LeadDraft) ?? { stage: "chatting" },
+      watchdogLeadDraft(row),
       // Тот же приём, что и в живом пути (messengers/conversation.ts): переписка
       // лежит в JSON-колонке, и её форма совпадает с ChatMessage.
       row.history as unknown as ChatMessage[],
@@ -339,11 +404,13 @@ async function tryAcceptQuietly(row: PhoneWithoutLead): Promise<"accepted" | "de
  * дойти до конца списка, а пропущенная отметка — это в худшем случае одна лишняя
  * попытка на следующем тике, а не остановка всего прохода.
  */
-async function markWatchdogAttempted(conversationId: string): Promise<void> {
+async function markWatchdogAttempted(conversationId: string, at: Date): Promise<void> {
   try {
     await prisma.botConversation.update({
       where: { id: conversationId },
-      data: { watchdogAttemptedAt: new Date() },
+      // Время НАЧАЛА прохода, а не конца: реплика, пришедшая, пока шёл приём, новее
+      // отметки и попадёт в следующий тик (повторный разбор берёт только новые реплики).
+      data: { watchdogAttemptedAt: at },
     });
   } catch (err) {
     console.error("[alarm] phone-watchdog отметка попытки:", err instanceof Error ? err.message : err);
@@ -390,7 +457,7 @@ export async function runPhoneLeadWatchdogTick(
     // приём) через 15 минут не изменится сама, а вот петля из повторов — изменится,
     // и именно она разослала клиентам сотни сообщений. Оба случая не теряются: они
     // уходят в leftForHuman ниже, и человек получает сигнал.
-    await markWatchdogAttempted(row.conversationId);
+    await markWatchdogAttempted(row.conversationId, now);
     if (outcome === "accepted") {
       accepted++;
       // След в журнале: «карточка возникла сама, без сообщения клиенту» не должно
@@ -452,4 +519,76 @@ export async function runPhoneLeadWatchdogTick(
     }
   }
   return { alerted, accepted, attached };
+}
+
+/**
+ * РАЗОВЫЙ ДОБОР ПОТЕРЯННЫХ НОМЕРОВ (14.11.2026, scripts/phone-leads-backfill-14-11.ts).
+ *
+ * Та же дверь, что и тик сторожа: тот же отбор, та же привязка к известной карточке,
+ * тот же тихий приём (acceptLead) — второго пути заведения карточки здесь нет. Отличия
+ * только два: окно шире (сутки × N) и прошлые попытки сторожа не мешают — именно они
+ * и провалились из-за починенных сегодня дыр («done» без карточки, ядро без намерения).
+ *
+ * Чего добор НЕ делает: не зовёт руководство тревогами (это работа тика) и не трогает
+ * диалоги, где карточку уже заводили и её потом убрал человек — номер в Корзине или
+ * в журнале есть строка «Заявка оформлена сторожем … (диалог <id>». Решение человека
+ * «удалить» скрипт не отменяет.
+ */
+export interface PhoneBackfillRow {
+  conversationId: string;
+  channel: string;
+  /** Номер закрыт маской: отчёт добора печатается в консоль. */
+  maskedPhone: string | null;
+  coreTopic: string | null;
+  intent: string | null;
+  action: "attach" | "accept" | "skip";
+  reason?: string;
+  outcome?: "accepted" | "declined" | "failed" | "attached";
+  clientId?: string | null;
+}
+
+export async function backfillPhonesWithoutLead(input: { apply: boolean; windowHours: number; now?: Date }): Promise<PhoneBackfillRow[]> {
+  const startedAt = input.now ?? new Date();
+  const found = await findPhonesWithoutLead(startedAt, { windowHours: input.windowHours, ignoreAttempts: true });
+  if (found.length === 0) return [];
+  const known = await findKnownClientsByTail(found);
+  const tails = [...new Set(found.map((r) => (r.phone ? phoneTail(r.phone) : "")).filter(Boolean))];
+  const trashed = new Set(tails.length === 0 ? [] : (await prisma.$queryRaw<Array<{ tail: string }>>`
+    SELECT DISTINCT right(regexp_replace("phone", '[^0-9]', '', 'g'), 9) AS "tail" FROM "Client"
+    WHERE "deletedAt" IS NOT NULL AND right(regexp_replace("phone", '[^0-9]', '', 'g'), 9) = ANY(${tails})`).map((r) => r.tail));
+  const ids = found.map((r) => r.conversationId);
+  const madeBefore = new Set((await prisma.errorLog.findMany({
+    where: { message: { startsWith: "Заявка оформлена сторожем" }, OR: ids.map((id) => ({ message: { contains: `(диалог ${id},` } })) },
+    select: { message: true },
+    take: MAX_CONVERSATIONS,
+  })).flatMap((e) => ids.filter((id) => e.message.includes(`(диалог ${id},`))));
+
+  const report: PhoneBackfillRow[] = [];
+  const toAttach: PhoneWithoutLead[] = [];
+  for (const row of found) {
+    const base = { conversationId: row.conversationId, channel: row.channel, coreTopic: row.coreTopic,
+      maskedPhone: row.phone ? maskClientPhone(row.phone) : null, intent: watchdogLeadDraft(row).intent ?? null };
+    const skip = (reason: string) => report.push({ ...base, action: "skip", reason });
+    if (!row.phone) { skip("номер не разобран — решает человек"); continue; }
+    if (known.has(phoneTail(row.phone))) { toAttach.push(row); report.push({ ...base, action: "attach" }); continue; }
+    if (row.spamFlagged) { skip("диалог помечен как рассылка"); continue; }
+    if (trashed.has(phoneTail(row.phone))) { skip("карточка с этим номером в Корзине — удалил человек"); continue; }
+    if (madeBefore.has(row.conversationId)) { skip("карточку по диалогу уже заводили, её удалили"); continue; }
+    report.push({ ...base, action: "accept" });
+  }
+  if (!input.apply) return report;
+
+  if (toAttach.length > 0) {
+    await attachKnownClientConversations(toAttach);
+    for (const r of report) if (r.action === "attach") r.outcome = "attached";
+  }
+  // Последовательно — по той же причине, что и в тике: распределение считает портфели.
+  for (const r of report) {
+    if (r.action !== "accept") continue;
+    const row = found.find((f) => f.conversationId === r.conversationId)!;
+    r.outcome = await tryAcceptQuietly(row);
+    await markWatchdogAttempted(row.conversationId, startedAt);
+    r.clientId = (await prisma.botConversation.findUnique({ where: { id: row.conversationId }, select: { clientId: true } }))?.clientId ?? null;
+  }
+  return report;
 }
