@@ -14,7 +14,7 @@
 
 import { prisma } from "../../db.js";
 import { loadMoneyContext, toTjs } from "../money.js";
-import { resolveDistrictByPoint } from "./districtResolver.js";
+import { resolveDistrict } from "./districtInference.js";
 import type { ParsedListing } from "./somonParser.js";
 
 export interface SaveStats {
@@ -113,6 +113,22 @@ function sameValue(a: unknown, b: unknown): boolean {
  * Пачкой, а не по одному: обход даёт 60 объявлений на страницу, и запрос на
  * каждое превратил бы обычный обход в десять тысяч походов в базу.
  */
+async function districtOf(l: ParsedListing): Promise<string | null> {
+  if (l.districtName) return l.districtName;
+  // Лестница знает справочники Душанбе: для других городов район не выводим.
+  if (l.city && !/душанбе/i.test(l.city)) return null;
+  return (
+    await resolveDistrict({
+      sourceDistrict: l.districtName,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      address: l.landmark,
+      title: l.title,
+      description: l.description,
+    })
+  ).name;
+}
+
 export async function saveListings(source: string, listings: ParsedListing[]): Promise<SaveStats> {
   const stats: SaveStats = { created: 0, updated: 0, priceChanges: 0, skipped: 0 };
   if (listings.length === 0) return stats;
@@ -145,8 +161,8 @@ export async function saveListings(source: string, listings: ParsedListing[]): P
       dealType: l.dealType,
       propertyType: l.propertyType,
       city: l.city,
-      // Источник район не назвал (Paydo) — берём по координатам.
-      districtName: l.districtName ?? (await resolveDistrictByPoint(l.latitude, l.longitude)),
+      // Источник район не назвал — выводим по лестнице (координаты, подпись в тексте, улица, место); не знаем — null.
+      districtName: await districtOf(l),
       landmark: l.landmark,
       rooms: l.rooms,
       areaSqm: l.areaSqm,
@@ -199,6 +215,8 @@ export async function saveListings(source: string, listings: ParsedListing[]): P
       for (const key of PRESERVED_WHEN_EMPTY) {
         if (update[key] == null) delete update[key];
       }
+      // Район, уже записанный в строке (из источника или прошлого вывода), выведенным заново не перебиваем.
+      if (!l.districtName && prev.districtName) delete update.districtName;
       const prevRow = prev as Record<string, unknown>;
       const unchanged =
         COMPARED_FIELDS.every((key) => sameValue(prevRow[key], update[key])) &&

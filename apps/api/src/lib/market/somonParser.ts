@@ -73,6 +73,8 @@ export interface ParsedListing {
   /** Дом сдан (true) или строится (false). */
   buildingReady?: boolean | null;
   exchangePossible?: boolean | null;
+  /** Текст описания из списка, если источник его отдал (Paydo). В базу не пишется — только для вывода района. */
+  description?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   dealType: "SALE" | "RENT";
