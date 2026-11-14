@@ -81561,6 +81561,29 @@
      ]
     },
     {
+     "k": "if",
+     "t": "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "console.log(`[вебхук] FACEBOOK: повтор ${incoming.length} сообщ., уже отданных сотруднику по сверке Страниц —…",
+       "a": [
+        "пишет строку в журнал сервера"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ ok: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const durableIngress = await persistVerifiedCustomerIngressBatch(req);",
      "a": [
@@ -101793,29 +101816,6 @@
           },
           {
            "k": "do",
-           "t": "const recentFailure = await prisma.errorLog.findFirst({ where: { dedupKey: { startsWith: \"meta-webhook-503:\" …",
-           "a": [
-            "читает в базе: errorLog"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "recentFailure",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return { ...result, skipped: \"webhook_retrying\" };",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
            "t": "pages = await listFacebookPageInboxes();",
            "a": [
             "зовёт listFacebookPageInboxes()"
@@ -101882,7 +101882,7 @@
             },
             {
              "k": "do",
-             "t": "const incoming = incomingFromGraph(page.pageId, body, now);",
+             "t": "const incoming = incomingFromGraph(page.pageId, body, now, { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS, proc…",
              "a": [
               "зовёт incomingFromGraph()"
              ],

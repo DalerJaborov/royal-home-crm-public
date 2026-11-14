@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4050**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4050**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18439,6 +18439,11 @@
 - если !(await isMetaEnabled())
   - return res.status(503).json({ error: "Канал Meta выключен в Настройках CRM" });
     · ответ 503 — «Канал Meta выключен в Настройках CRM»
+- если incoming.length > 0 && incoming.every((m) => m.channel === "FACEBOOK" && !m.isEcho && m.messageId) && !metaBo…
+  - console.log(`[вебхук] FACEBOOK: повтор ${incoming.length} сообщ., уже отданных сотруднику по сверке Страниц —…
+    · пишет строку в журнал сервера
+  - return res.json({ ok: true });
+    · ответ 200
 - const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   · зовёт persistVerifiedCustomerIngressBatch()
 - если durableIngress.status === "denied" || durableIngress.status === "unavailable"
@@ -22784,11 +22789,6 @@
       - если !(await isMetaEnabled())
         - return { ...result, skipped: "meta_disabled" };
           · дословно из кода
-      - const recentFailure = await prisma.errorLog.findFirst({ where: { dedupKey: { startsWith: "meta-webhook-503:" …
-        · читает в базе: errorLog
-      - если recentFailure
-        - return { ...result, skipped: "webhook_retrying" };
-          · дословно из кода
       - pages = await listFacebookPageInboxes();
         · зовёт listFacebookPageInboxes()
     - если сорвалось
@@ -22803,7 +22803,7 @@
             · запись в журнал ошибок
           - continue;
             · переходит к следующему
-        - const incoming = incomingFromGraph(page.pageId, body, now);
+        - const incoming = incomingFromGraph(page.pageId, body, now, { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS, proc…
           · зовёт incomingFromGraph()
         - const known = await knownMessageIds(incoming);
           · зовёт knownMessageIds()

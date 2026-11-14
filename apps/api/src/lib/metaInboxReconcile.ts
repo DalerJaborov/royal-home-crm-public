@@ -31,11 +31,22 @@ import { isMetaEnabled } from "../messengers/meta.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
 
-/** Пока вебхук мог ещё не дойти, Meta повторяет доставку после 503 или бот ждёт склейки — не тревожим.
- *  15 минут, а не 5 (ревью 192-4): ранний сигнал по сообщению, которое Meta ещё дошлёт, дал бы клиенту два ответа. */
+/** Пока вебхук мог ещё не дойти, Meta повторяет доставку после сбоя или бот ждёт склейки — не тревожим. */
 export const GRACE_MS = 15 * 60_000;
-/** Был недавний 503 вебхука — Meta сейчас повторяет доставку, тик пропускаем (ревью 192-4). */
-const RECENT_WEBHOOK_FAILURE_MS = 30 * 60_000;
+/**
+ * Сообщение пришло, пока этот процесс не работал (выкатка, падение): Meta может дослать его
+ * после подъёма, и тогда ответит бот. Даём боту полчаса после старта процесса, потом зовём
+ * человека (повторное ревью, Н1). Двойного ответа нет и позже: повтор Meta по сообщению,
+ * о котором уже сказали человеку, вебхук принимает молча (isHandedToStaff ниже).
+ */
+export const AFTER_START_GRACE_MS = 30 * 60_000;
+const PROCESS_STARTED_AT = Date.now();
+/**
+ * Сообщение Страницы считается ответом человека, только если оно пришло позже реплики
+ * клиента больше чем на минуту (повторное ревью, Н2): автоответ Business Suite
+ * («мгновенный ответ», «нет на месте») уходит за секунды и сигнал гасить не должен.
+ */
+export const AUTO_REPLY_WINDOW_MS = 60_000;
 /** Глубже не смотрим: старое — дело разовой сверки со «да» владельца, не пуша. */
 export const LOOKBACK_MS = 3 * 60 * 60_000;
 const CONVERSATIONS_PER_PAGE = 25;
@@ -69,27 +80,32 @@ interface GraphConversations {
 /**
  * Входящие от людей (не от самой Страницы) в окне [now-lookback, now-grace], на
  * которые Страница ещё НЕ ответила. Ответ сотрудника из Meta Business Suite — это
- * сообщение Страницы позже реплики человека в той же переписке: такую реплику не
- * трогаем (ревью 192-3, иначе «ответьте вручную» шло бы на уже отвеченное).
+ * сообщение Страницы позже реплики человека больше чем на AUTO_REPLY_WINDOW_MS: такую
+ * реплику не трогаем (ревью 192-3). Мгновенный автоответ Страницы ответом не считается (Н2).
  * Чистая функция — проверяется без сети и базы.
  */
 export function incomingFromGraph(pageId: string, body: GraphConversations, now: Date,
-  window: { graceMs: number; lookbackMs: number } = { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS }): InboxMessage[] {
+  window: { graceMs: number; lookbackMs: number; processStartedAt?: number } = { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS }): InboxMessage[] {
   const out: InboxMessage[] = [];
   const newest = now.getTime() - window.graceMs;
   const oldest = now.getTime() - window.lookbackMs;
+  const startedAt = window.processStartedAt ?? PROCESS_STARTED_AT;
   for (const conversation of body.data ?? []) {
-    let lastPageAt = -Infinity;
+    const pageTimes: number[] = [];
     for (const m of conversation.messages?.data ?? []) {
       const at = m.created_time ? new Date(m.created_time).getTime() : NaN;
-      if (m.from?.id === pageId && !Number.isNaN(at)) lastPageAt = Math.max(lastPageAt, at);
+      if (m.from?.id === pageId && !Number.isNaN(at)) pageTimes.push(at);
     }
     for (const m of conversation.messages?.data ?? []) {
       const fromId = m.from?.id;
       if (!m.id || !m.created_time || !fromId || fromId === pageId) continue;
       const createdAt = new Date(m.created_time);
       const at = createdAt.getTime();
-      if (Number.isNaN(at) || at > newest || at < oldest || at < lastPageAt) continue;
+      if (Number.isNaN(at) || at > newest || at < oldest) continue;
+      // Человек Страницы ответил после этой реплики (а не автоответ за секунды) — уже отвечено.
+      if (pageTimes.some((p) => p >= at + AUTO_REPLY_WINDOW_MS)) continue;
+      // Пришло до старта процесса — ждём, не дошлёт ли Meta (бот ответит сам).
+      if (at < startedAt && now.getTime() < startedAt + AFTER_START_GRACE_MS) continue;
       out.push({ mid: m.id, createdAt, fromId, fromName: m.from?.name?.trim() || null, text: (m.message ?? "").trim() });
     }
   }
@@ -151,6 +167,19 @@ export function withoutToken(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).replace(/access_token=[^&\s"']+/gi, "access_token=***").slice(0, 300);
 }
 
+/**
+ * Повтор доставки Meta по сообщению, о котором человеку УЖЕ сказали «Ответьте вручную»
+ * (повторное ревью, Н1). Сотрудник отвечает сам — бот отвечать не должен, иначе клиент
+ * получит два ответа. Вебхук зовёт это до приёма и, если ВСЕ сообщения запроса такие,
+ * отвечает Meta 200 и ничего не делает. Пустой список — false.
+ */
+export async function isHandedToStaff(mids: readonly string[]): Promise<boolean> {
+  const unique = [...new Set(mids.filter(Boolean))];
+  if (!unique.length) return false;
+  const marks = await prisma.processedMessage.count({ where: { channel: CLAIM_CHANNEL, messageId: { in: unique } } });
+  return marks === unique.length;
+}
+
 /** Атомарно: true — этот mid ещё никому не показывали (двое не пройдут). */
 async function claimMissed(mid: string): Promise<boolean> {
   const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
@@ -163,22 +192,18 @@ export interface MetaInboxReconcileResult {
   missed: number;
   people: number;
   failedPages: number;
-  /** Почему тик ничего не сверял: канал выключен или Meta сейчас повторяет доставку. */
-  skipped: "meta_disabled" | "webhook_retrying" | null;
+  /** Почему тик ничего не сверял: канал Meta выключен в Настройках. */
+  skipped: "meta_disabled" | null;
 }
 
 /** Тик крона. Никогда не бросает: сбой одной Страницы — строка в журнале, остальные сверяются. */
-export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: GraphFetch = defaultFetch): Promise<MetaInboxReconcileResult> {
+export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: GraphFetch = defaultFetch,
+  options: { processStartedAt?: number } = {}): Promise<MetaInboxReconcileResult> {
   const result: MetaInboxReconcileResult = { pages: 0, missed: 0, people: 0, failedPages: 0, skipped: null };
   let pages: PageInbox[];
   try {
     // Канал Meta выключен в Настройках — вебхук отвечает 503 намеренно, звать людей не о чем (ревью 192-9).
     if (!(await isMetaEnabled())) return { ...result, skipped: "meta_disabled" };
-    const recentFailure = await prisma.errorLog.findFirst({
-      where: { dedupKey: { startsWith: "meta-webhook-503:" }, createdAt: { gte: new Date(now.getTime() - RECENT_WEBHOOK_FAILURE_MS) } },
-      select: { id: true },
-    });
-    if (recentFailure) return { ...result, skipped: "webhook_retrying" };
     pages = await listFacebookPageInboxes();
   } catch (err) {
     void logSystemError("meta", `Сверка переписок Страниц не запустилась: ${withoutToken(err)}`,
@@ -198,7 +223,7 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
           { dedupKey: `meta-inbox-read-failed:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000 });
         continue;
       }
-      const incoming = incomingFromGraph(page.pageId, body, now);
+      const incoming = incomingFromGraph(page.pageId, body, now, { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS, processStartedAt: options.processStartedAt });
       const known = await knownMessageIds(incoming);
       const missed = incoming.filter((m) => !known.has(m.mid));
       if (!missed.length) continue;

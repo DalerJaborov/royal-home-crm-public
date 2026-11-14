@@ -17,9 +17,9 @@
   "cron": 133,
   "jobs": 33,
   "conditions": 4034,
-  "untranslatedUnique": 462,
-  "untranslatedTotal": 593,
-  "partialUnique": 1090,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 594,
+  "partialUnique": 1089,
   "translatedShare": 85
  },
  "untranslated": [
@@ -336,6 +336,7 @@
   "id === otherId",
   "ids.length !== existing.size || ids.some((id) => !existing.has(id))",
   "inNightFullCrawlWindow()",
+  "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
   "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
@@ -62437,6 +62438,20 @@
      "c": []
     },
     {
+     "t": "если incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…"
+    },
+    {
      "t": "если статус — «denied» или статус — «unavailable»",
      "k": "if",
      "a": [],
@@ -70836,13 +70851,6 @@
          "c": [
           {
            "t": "если выключено: Meta",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть недавняя запись failure",
            "k": "if",
            "a": [],
            "c": [],
