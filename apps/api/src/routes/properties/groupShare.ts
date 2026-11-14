@@ -26,8 +26,8 @@ const indexParamSchema = z.object({ index: z.coerce.number().int().min(0) });
  *  действий над постами объекта (canManageProperty в shared.ts), но с явной
  *  проверкой propertyOwnerAgentId вместо трёх полей россыпью, потому что здесь
  *  нужен единый резолвер (задание прямо называет lib/propertyOwner.ts). */
-async function canMarkGroupShare(agentId: string, agentRole: string | undefined, propertyId: string): Promise<boolean> {
-  if (hasMarketingRole(agentRole)) return true;
+async function canMarkGroupShare(agentId: string, agent: { permissions: ReadonlySet<string> } | undefined, propertyId: string): Promise<boolean> {
+  if (hasMarketingRole(agent)) return true;
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
     select: { intakeAgentId: true, assignedAgentId: true, createdById: true },
@@ -46,7 +46,7 @@ groupShareRouter.post("/:id/group-share/:index/done", requireAuth, async (req, r
   const parsedIndex = indexParamSchema.safeParse(req.params);
   if (!parsedIndex.success) return res.status(400).json({ error: "Некорректный номер группы" });
 
-  const allowed = await canMarkGroupShare(req.agent!.id, req.agent!.role, req.params.id);
+  const allowed = await canMarkGroupShare(req.agent!.id, req.agent, req.params.id);
   if (!allowed) return res.status(403).json({ error: "Недостаточно прав" });
 
   const result = await markGroupShareDone(req.params.id, parsedIndex.data.index, req.agent!.id);
@@ -60,7 +60,7 @@ groupShareRouter.delete("/:id/group-share/:index/done", requireAuth, async (req,
   const parsedIndex = indexParamSchema.safeParse(req.params);
   if (!parsedIndex.success) return res.status(400).json({ error: "Некорректный номер группы" });
 
-  const allowed = await canMarkGroupShare(req.agent!.id, req.agent!.role, req.params.id);
+  const allowed = await canMarkGroupShare(req.agent!.id, req.agent, req.params.id);
   if (!allowed) return res.status(403).json({ error: "Недостаточно прав" });
 
   const result = await undoGroupShare(req.params.id, parsedIndex.data.index);

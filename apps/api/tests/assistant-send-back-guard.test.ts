@@ -44,7 +44,7 @@ const propertyIds: string[] = [];
 let settingsBefore: { videoHandoffEnabled: boolean; videoMontajerAgentId: string | null } | null = null;
 
 const can = (perms: string[]) => (p: string) => perms.includes(p);
-const director = () => ({ agentId: directorId, role: "DIRECTOR", can: can(["properties.editForeign"]) as never });
+const director = () => ({ agentId: directorId, role: "DIRECTOR", can: can(["properties.editForeign", "marketing.access"]) as never });
 
 async function seed(overrides: Record<string, unknown> = {}, withVideo = true) {
   const property = await prisma.property.create({
@@ -170,8 +170,8 @@ describe("права: одна проверка на кнопку и на пом
     expect(sendBackDenied(own, published, undefined)).toMatchObject({ status: 403 });
     expect(sendBackDenied(own, draft, undefined)).toBeNull();
     expect(sendBackDenied(own, draft, true)).toMatchObject({ status: 403 });
-    expect(sendBackDenied({ ...own, role: "MARKETING" }, draft, true)).toBeNull();
-    expect(sendBackDenied({ agentId: "d", role: "DIRECTOR", can: can(["properties.editForeign"]) as never }, published, true)).toBeNull();
+    expect(sendBackDenied({ ...own, role: "MARKETING", can: can(["marketing.access"]) as never }, draft, true)).toBeNull();
+    expect(sendBackDenied({ agentId: "d", role: "DIRECTOR", can: can(["properties.editForeign", "marketing.access"]) as never }, published, true)).toBeNull();
   });
 
   it("объекта нет — 404, чужой неопубликованный — 403 до любой записи", async () => {

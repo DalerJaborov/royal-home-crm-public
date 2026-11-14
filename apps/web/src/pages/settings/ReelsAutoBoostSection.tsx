@@ -37,7 +37,7 @@ export function ReelsAutoBoostSection() {
   // Читать могут те же, кто видит остальную рекламу (api: requireAdsRead) — остальным запрос не шлём вовсе.
   const can = useCan();
   const role = useAuthStore((st) => st.agent?.role);
-  const canRead = role === "MARKETING" || can("finance.view");
+  const canRead = role === "MARKETING" || can("finance.view") || can("marketing.access");
   const { data } = useReelsAutoBoost(canRead);
   const update = useUpdateReelsAutoBoost();
   const run = useRunReelsAutoBoost();

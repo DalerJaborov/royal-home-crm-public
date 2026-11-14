@@ -17,7 +17,7 @@ const argsSchema = z.object({
 }).refine(({ ref, scope }) => Boolean(ref) !== Boolean(scope));
 
 // Same visibility as GET /marketing/editor-queue. Other employees can list their own objects.
-const queueRoles = new Set(["ADMIN", "DIRECTOR", "MARKETING", "EDITOR"]);
+const queueRoles = new Set(["EDITOR"]);
 const listLimit = 8;
 const select = {
   id: true,
@@ -107,7 +107,7 @@ function identity(row: Pick<WorkRow, "shortId" | "title">) {
 export async function getPropertyWorkList(actor: AssistantActor, scope: "mine" | "queue", now = new Date()) {
   const hideOwnPendingDeleteFor = actor.permissions?.has("properties.delete") ? undefined : actor.id;
   const isQueue = scope === "queue";
-  const companyQueue = isQueue && queueRoles.has(actor.role);
+  const companyQueue = isQueue && (queueRoles.has(actor.role) || !!actor.permissions?.has("marketing.access"));
   const where: Prisma.PropertyWhereInput = {
     deletedAt: null,
     AND: [{

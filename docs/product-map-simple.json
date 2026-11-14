@@ -97,7 +97,7 @@
   "!key || !narrationProviderReady(config, key)",
   "!known && !fbAccount && settings?.metaPageId !== params.data.pageId",
   "!legacy && property.clipVideoPendingInput !== payload.inputFilename",
-  "!manager(req.agent?.role)",
+  "!manager(req.agent)",
   "!message.referralOnly && admission.status === \"admitted\" && admission.fresh && pendingReferral && message.acc…",
   "!messages.some((m) => m.role === \"user\")",
   "!narrationAutoEnabled(config)",
@@ -345,7 +345,7 @@
   "lastAlertDay === today",
   "lastRequestedAt !== undefined && Date.now() - lastRequestedAt < RETRANSCRIBE_LIMIT_MS",
   "latest && narrationFactsCurrent(latest, p) && latest.status !== \"FAILED\"",
-  "latest?.approvedAt && !manager(req.agent?.role)",
+  "latest?.approvedAt && !manager(req.agent)",
   "leftMs > 5 * 60_000 || leftMs < 0",
   "legacyUrl?.startsWith(\"/uploads/\")",
   "link.expiresAt && link.expiresAt.getTime() < Date.now()",
@@ -1013,6 +1013,11 @@
      "i": 534,
      "direct": false,
      "conf": "через общую часть"
+    },
+    {
+     "i": 564,
+     "direct": false,
+     "conf": "через часть экрана"
     },
     {
      "i": 574,
@@ -8173,6 +8178,11 @@
     },
     {
      "i": 287,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 564,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -40166,7 +40176,7 @@
    ],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -40177,7 +40187,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если данные заполнены неправильно или нет: success",
@@ -40360,7 +40370,7 @@
    ],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -40371,7 +40381,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если данные заполнены неправильно или нет: success",
@@ -40584,7 +40594,7 @@
    ],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -40595,7 +40605,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если данные заполнены неправильно или нет: success",
@@ -40928,7 +40938,7 @@
    ],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -40939,7 +40949,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если данные заполнены неправильно",
@@ -40983,7 +40993,7 @@
    ],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -40994,7 +41004,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если !z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success",
@@ -41039,7 +41049,7 @@
    ],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -41050,7 +41060,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если !z.object({}).strict().safeParse(req.body).success",
@@ -41275,11 +41285,11 @@
        "raw": "(latest?.revision ?? 0) !== parsed.data.expectedRevision"
       },
       {
-       "t": "если latest?.approvedAt && !manager(req.agent?.role)",
+       "t": "если latest?.approvedAt && !manager(req.agent)",
        "k": "if",
        "a": [],
        "c": [],
-       "raw": "latest?.approvedAt && !manager(req.agent?.role)"
+       "raw": "latest?.approvedAt && !manager(req.agent)"
       },
       {
        "t": "заводит: объект narration version",
@@ -48847,7 +48857,7 @@
    ],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -48858,7 +48868,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -51034,6 +51044,8 @@
     "есть право: reports.view"
    ],
    "screens": [
+    "/",
+    "/pult",
     "/reports"
    ],
    "tree": [
@@ -51471,7 +51483,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "screens": [
     "/marketing"
@@ -51625,7 +51638,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "screens": [
     "/marketing"
@@ -51709,7 +51723,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "screens": [
     "/marketing"
@@ -51755,7 +51770,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "screens": [
     "/marketing"
@@ -51909,7 +51925,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "screens": [
     "/marketing"
@@ -59608,7 +59625,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "screens": [],
    "tree": [
@@ -59779,7 +59797,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "screens": [],
    "tree": [
@@ -59962,7 +59981,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "screens": [
     "/properties/:id"
@@ -60193,7 +60213,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "screens": [
     "/properties/:id"

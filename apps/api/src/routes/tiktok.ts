@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";
-import { requireMarketingRole } from "./marketing.js";
+import { requireMarketingRole, requireChannelAdmin } from "./marketing.js";
 import { encryptSecret, decryptSecretSafe } from "../crypto.js";
 import { publicAppUrl } from "../lib/crmPublicUrl.js";
 import { logAudit } from "../lib/audit.js";
@@ -54,7 +54,7 @@ tiktokRouter.use(requireAuth);
 tiktokRouter.use(requireMarketingRole);
 
 /** Адрес окна TikTok, куда фронт делает `window.location.assign(url)`. */
-tiktokRouter.get("/oauth/start", async (req, res) => {
+tiktokRouter.get("/oauth/start", requireChannelAdmin, async (req, res) => {
   const app = await loadAppCredentials();
   if (!app) {
     return res.status(400).json({ error: "Не заполнены Client key и Client secret TikTok — сначала внесите их в Настройках" });
@@ -89,7 +89,7 @@ tiktokRouter.get("/oauth/start", async (req, res) => {
  * поля здесь — иначе кнопка «Отключить» переставала бы работать из-за чужого
  * отказа.
  */
-tiktokRouter.post("/disconnect", async (req, res) => {
+tiktokRouter.post("/disconnect", requireChannelAdmin, async (req, res) => {
   const settings = await prisma.settings.findUnique({
     where: { id: "singleton" },
     select: { tiktokClientKey: true, tiktokClientSecret: true, tiktokRefreshToken: true },

@@ -15,13 +15,12 @@ import type { PermissionId, SendBackToMontajerInput } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { afterClipRejected, type ClipReviewSource } from "./clipReview.js";
-import { hasMarketingRole } from "./marketingRole.js";
 import { canManagePropertyAs, publishedActionDeniedReasonAs } from "./propertyAccess.js";
 import { sendBackToMontajer, type SendBackResult } from "./publishedVideoFix.js";
 
 export interface SendBackActor {
   agentId: string;
-  /** Роль сотрудника: право «снять из соцсетей» — по роли, как у кнопки «Убрать из соцсетей». */
+  /** Роль сотрудника (право «снять из соцсетей» — по marketing.access через can). */
   role: string | undefined;
   can: (permission: PermissionId) => boolean;
 }
@@ -46,7 +45,7 @@ export function sendBackDenied(
   // (requireMarketingRole): снятие вышедшего поста видно подписчикам так же, как
   // публикация, и отменить его нельзя. Молча игнорировать поле нельзя — человек
   // решил бы, что «убрали», когда не убирали.
-  if (removeFromSocial && !hasMarketingRole(actor.role)) return { status: 403, error: "Недостаточно прав" };
+  if (removeFromSocial && !actor.can("marketing.access")) return { status: 403, error: "Недостаточно прав" };
   return null;
 }
 

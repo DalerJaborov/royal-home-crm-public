@@ -464,7 +464,7 @@ export interface InboxQueueState extends InboxQueueMeta {
 
 /** Какие очереди доступны роли — повторяет проверки прав соответствующих роутов. */
 export function enabledInboxQueues(has: (p: PermissionId) => boolean, role: string | undefined): Set<InboxQueueId> {
-  const marketing = role === "DIRECTOR" || role === "ADMIN" || role === "MARKETING";
+  const marketing = has("marketing.access");
   const out = new Set<InboxQueueId>();
   // Лента флагов и «Принято» — только директор/администратор (серверный запрет тот же).
   if (role === "DIRECTOR" || role === "ADMIN") out.add("violations");

@@ -9,7 +9,7 @@ import {
   type SocialVideoItem,
 } from "@royal-home/shared";
 import "../social-videos.css";
-import { useAuthStore } from "../store/auth";
+import { useCan } from "../lib/permissions";
 import { MarketingTabs } from "../components/SectionTabs";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { ChannelBadge } from "../components/socialVideos/ChannelBadge";
@@ -127,8 +127,7 @@ function VideoRow({ item, infos, onOpen }: { item: SocialVideoItem; infos: Socia
 }
 
 export function SocialVideos() {
-  const role = useAuthStore((s) => s.agent?.role);
-  const canView = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
+  const canView = useCan()("marketing.access");
   const [params] = useSearchParams();
   // `?new=1` — сразу композитор; `?open=<id>` — сразу карточка ролика (ссылки из «Маркетинга»).
   const [view, setView] = useState<View>(() => {

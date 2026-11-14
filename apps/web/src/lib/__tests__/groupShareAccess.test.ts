@@ -13,24 +13,21 @@ import { canMarkFacebookGroupShare } from "../groupShareAccess";
 const property = { intakeAgentId: "intake", assignedAgent: { id: "assigned" }, createdById: "creator" };
 
 describe("canMarkFacebookGroupShare", () => {
-  it("маркетинг, директор, админ — да", () => {
-    for (const role of ["MARKETING", "DIRECTOR", "ADMIN"]) {
-      expect(canMarkFacebookGroupShare(role, "кто-то", property)).toBe(true);
-    }
+  it("право marketing.access (маркетинг, директор, админ, РОП) — да", () => {
+    expect(canMarkFacebookGroupShare(true, "кто-то", property)).toBe(true);
   });
   it("хозяин объекта — интейкер, если он есть", () => {
-    expect(canMarkFacebookGroupShare("AGENT", "intake", property)).toBe(true);
-    expect(canMarkFacebookGroupShare("AGENT", "assigned", property)).toBe(false);
-    expect(canMarkFacebookGroupShare("AGENT", "creator", property)).toBe(false);
+    expect(canMarkFacebookGroupShare(false, "intake", property)).toBe(true);
+    expect(canMarkFacebookGroupShare(false, "assigned", property)).toBe(false);
+    expect(canMarkFacebookGroupShare(false, "creator", property)).toBe(false);
   });
   it("без интейкера хозяин — назначенный агент, потом создатель", () => {
-    expect(canMarkFacebookGroupShare("AGENT", "assigned", { ...property, intakeAgentId: null })).toBe(true);
+    expect(canMarkFacebookGroupShare(false, "assigned", { ...property, intakeAgentId: null })).toBe(true);
     expect(
-      canMarkFacebookGroupShare("AGENT", "creator", { intakeAgentId: null, assignedAgent: null, createdById: "creator" })
+      canMarkFacebookGroupShare(false, "creator", { intakeAgentId: null, assignedAgent: null, createdById: "creator" })
     ).toBe(true);
   });
   it("менеджер с правом правки чужих объектов, но не хозяин — нет", () => {
-    expect(canMarkFacebookGroupShare("MANAGER", "кто-то", property)).toBe(false);
-    expect(canMarkFacebookGroupShare("EDITOR", "кто-то", property)).toBe(false);
+    expect(canMarkFacebookGroupShare(false, "кто-то", property)).toBe(false);
   });
 });

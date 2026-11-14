@@ -23,13 +23,13 @@ import { listPriceCaptionDelivery } from "../../lib/priceCaptionDelivery.js";
 export const narrationRouter = Router();
 narrationRouter.use(["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], requireAuth);
 const idSchema = z.string().uuid();
-const manager = (role?: string) => hasMarketingRole(role);
+const manager = (agent?: { permissions: ReadonlySet<string> } | null) => hasMarketingRole(agent);
 const configuration = loadNarrationConfiguration;
 /** Образец объекта для проверки шаблона при сохранении: цена и ошибки ловятся до первой оплаты. */
 const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" };
 // This static path is mounted before /properties/:id.
 narrationRouter.get("/narration-settings", async (req, res) => {
-  if (!manager(req.agent?.role)) return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
+  if (!manager(req.agent)) return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
   const { config, key } = await configuration();
   res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceededSince() });
 });
@@ -119,9 +119,9 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     const unresolved = await prisma.propertyNarrationVersion.findMany({ where: { propertyId: p.id, status: { in: ["GENERATING", "UNKNOWN"] } }, orderBy: { revision: "desc" }, take: 1 });
     for (const row of unresolved) if (!versions.some(v => v.id === row.id)) versions.push(row);
   }
-  const deliveries = manager(req.agent?.role) ? await prisma.propertyNarrationDelivery.findMany({ where: { propertyId: p.id }, orderBy: { createdAt: "desc" }, take: 20 }) : [];
-  const subscription = manager(req.agent?.role) ? await prisma.ownerReportSubscription.findUnique({ where: { propertyId: p.id } }) : null;
-  const reports = manager(req.agent?.role) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p.id }, orderBy: { createdAt: "desc" }, take: 12, select: { id: true, status: true, period: true, lastError: true, providerReceipt: true } }) : [];
+  const deliveries = manager(req.agent) ? await prisma.propertyNarrationDelivery.findMany({ where: { propertyId: p.id }, orderBy: { createdAt: "desc" }, take: 20 }) : [];
+  const subscription = manager(req.agent) ? await prisma.ownerReportSubscription.findUnique({ where: { propertyId: p.id } }) : null;
+  const reports = manager(req.agent) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p.id }, orderBy: { createdAt: "desc" }, take: 12, select: { id: true, status: true, period: true, lastError: true, providerReceipt: true } }) : [];
   const receiptId = (receipt: unknown): string | null => { const parsed = z.object({ smsMessageId: z.string() }).safeParse(receipt); return parsed.success ? parsed.data.smsMessageId : null; };
   const smsIds = reports.flatMap(r => receiptId(r.providerReceipt) ? [receiptId(r.providerReceipt)!] : []);
   const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyId: p.id, purpose: "OWNER_REPORT" }, select: { id: true, deliveryStatus: true } }) : [];
@@ -134,20 +134,20 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     approvedAt: v.approvedAt, stale: !narrationFactsCurrent(v, p), hasAudio: v.status === "READY" && !!v.storageKey, errorCode: v.errorCode, createdAt: v.createdAt,
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
     source: v.source, templateId: v.templateId, language: v.language, generateAfter: v.generateAfter })),
-    suggestedScript: suggestedNarration(facts), config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent?.role), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
+    suggestedScript: suggestedNarration(facts), config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
     deliveries: deliveries.map(d => ({ id: d.id, status: d.status, mode: d.mode, versionId: d.versionId, createdAt: d.createdAt, lastError: d.lastError, planHash: d.plan ? narrationHash(d.plan) : null })),
     ownerReportsEnabled: mediaExecutionMode("OWNER_REPORT") === "LIVE",
-    ownerReport: manager(req.agent?.role) ? { active: !!subscription?.active && subscription.sellerClientId === p.sellerClientId, revision: subscription?.revision ?? 0, executionMode: subscription?.executionMode ?? "PREVIEW", deliveries: reportViews } : undefined,
+    ownerReport: manager(req.agent) ? { active: !!subscription?.active && subscription.sellerClientId === p.sellerClientId, revision: subscription?.revision ?? 0, executionMode: subscription?.executionMode ?? "PREVIEW", deliveries: reportViews } : undefined,
     canDraft: req.agent!.role !== "EDITOR", readiness: { voiceCount: config.voices.length, modelConfigured: !!config.modelId, apiKeyConfigured: !!key },
     // Агент объекта (canManageProperty уже проверен выше) одобряет готовое аудио автоозвучки.
     // Озвучку разового прохода по очереди монтажа одобряет владелец (12.11.2026).
     canApproveAudio: req.agent!.role !== "EDITOR" && (versions[0]?.source !== "BACKFILL" || isNarrationOwnerRole(req.agent!.role)), autoGenerate: narrationAutoEnabled(config),
     off: p.narrationOff,
     lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
-    budget: manager(req.agent?.role) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
+    budget: manager(req.agent) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
     samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })),
-    mix: { hasMaster: !!p.videoMasterStorageKey, error: manager(req.agent?.role) ? p.videoMasterMixError ?? null : null },
-    quotaExceeded: manager(req.agent?.role) ? !!await narrationQuotaExceededSince() : undefined });
+    mix: { hasMaster: !!p.videoMasterStorageKey, error: manager(req.agent) ? p.videoMasterMixError ?? null : null },
+    quotaExceeded: manager(req.agent) ? !!await narrationQuotaExceededSince() : undefined });
 });
 
 narrationRouter.post("/:id/narration", async (req, res) => {
@@ -177,7 +177,7 @@ narrationRouter.post("/:id/narration", async (req, res) => {
     if (existing) return existing.propertyId === p.id && existing.createdById === req.agent!.id && existing.script === script && existing.voiceId === (parsed.data.voiceId ?? null) ? existing : null;
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision: "desc" } });
     if ((latest?.revision ?? 0) !== parsed.data.expectedRevision) return null;
-    if (latest?.approvedAt && !manager(req.agent?.role)) return null;
+    if (latest?.approvedAt && !manager(req.agent)) return null;
     return tx.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: parsed.data.expectedRevision + 1, script, factsSnapshot: facts,
       factsHash: narrationHash(facts), voiceId: parsed.data.voiceId ?? null, modelId: config.modelId || null, createdById: req.agent!.id, requestKey: parsed.data.requestKey } });
   });
@@ -196,7 +196,7 @@ narrationRouter.post("/:id/narration/:versionId/approve", async (req, res) => {
   const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId);
   if (!parsed.success || !versionId.success) return res.status(400).json({ error: "Подтвердите текст и номер версии" });
   const p = res.locals.narrationProperty;
-  const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: req.agent!.id, isManager: manager(req.agent?.role), actorRole: req.agent!.role });
+  const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: req.agent!.id, isManager: manager(req.agent), actorRole: req.agent!.role });
   if (outcome === "FORBIDDEN") return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
   if (outcome === "CONFLICT") return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
   res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versionId.data) } : {}) });
@@ -233,7 +233,7 @@ async function tellMontajerNarrationOff(shortId: number): Promise<void> {
 }
 
 narrationRouter.post("/:id/narration/:versionId/generate", async (req, res) => {
-  if (!manager(req.agent?.role)) return res.status(403).json({ error: "Генерация доступна маркетингу и руководству" });
+  if (!manager(req.agent)) return res.status(403).json({ error: "Генерация доступна маркетингу и руководству" });
   const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId);
   if (!parsed.success || !versionId.success) return res.status(400).json({ error: "Подтвердите генерацию выбранной версии" });
   const p = res.locals.narrationProperty, { config, key } = await configuration();
@@ -286,7 +286,7 @@ narrationRouter.post("/:id/narration/:versionId/reconcile", async (req, res) => 
 });
 
 narrationRouter.post("/:id/narration/:versionId/handoff-preview", async (req, res) => {
-  if (!manager(req.agent?.role)) return res.status(403).json({ error: "Передачу готовит маркетинг или руководство" });
+  if (!manager(req.agent)) return res.status(403).json({ error: "Передачу готовит маркетинг или руководство" });
   const parsed = narrationHandoffSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId);
   if (!parsed.success || !versionId.success) return res.status(400).json({ error: "Проверьте параметры передачи" });
   const p = res.locals.narrationProperty;
@@ -305,7 +305,7 @@ narrationRouter.post("/:id/narration/:versionId/handoff-preview", async (req, re
 });
 
 narrationRouter.post("/:id/narration/deliveries/:deliveryId/queue", async (req, res) => {
-  if (!manager(req.agent?.role)) return res.status(403).json({ error: "Нет доступа" });
+  if (!manager(req.agent)) return res.status(403).json({ error: "Нет доступа" });
   const parsed = z.object({ confirmed: z.literal(true), planHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().safeParse(req.body);
   const deliveryId = idSchema.safeParse(req.params.deliveryId);
   if (!parsed.success || !deliveryId.success) return res.status(400).json({ error: "Подтвердите актуальный план" });
@@ -327,7 +327,7 @@ narrationRouter.post("/:id/narration/deliveries/:deliveryId/queue", async (req, 
 });
 
 narrationRouter.post("/:id/narration/publication-preview", async (req, res) => {
-  if (!manager(req.agent?.role)) return res.status(403).json({ error: "Нет доступа" });
+  if (!manager(req.agent)) return res.status(403).json({ error: "Нет доступа" });
   if (!z.object({}).strict().safeParse(req.body).success) return res.status(400).json({ error: "Некорректный запрос предварительного просмотра" });
   const p = res.locals.narrationProperty;
   const [rows, deliveryRows] = await Promise.all([
@@ -338,7 +338,7 @@ narrationRouter.post("/:id/narration/publication-preview", async (req, res) => {
 });
 
 narrationRouter.post("/:id/narration/owner-report-preview", async (req, res) => {
-  if (!manager(req.agent?.role)) return res.status(403).json({ error: "Нет доступа" });
+  if (!manager(req.agent)) return res.status(403).json({ error: "Нет доступа" });
   const parsed = z.object({ ownerRequested: z.literal(true) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Подтвердите согласованный с собственником отчёт" });
   const p = res.locals.narrationProperty;
@@ -347,7 +347,7 @@ narrationRouter.post("/:id/narration/owner-report-preview", async (req, res) => 
   res.json({ draft, sent: false, message: draft ? "Согласие сохранено. Отчёт подготовлен; доставка отражается отдельно в журнале." : "Согласие сохранено. Нужна действующая HTTPS-ссылка отчёта и номер собственника." });
 });
 narrationRouter.post("/:id/narration/owner-report-revoke", async (req, res) => {
-  if (!manager(req.agent?.role)) return res.status(403).json({ error: "Нет доступа" });
+  if (!manager(req.agent)) return res.status(403).json({ error: "Нет доступа" });
   if (!z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success) return res.status(400).json({ error: "Подтвердите отзыв" });
   await setOwnerReportConsent(res.locals.narrationProperty.id, req.agent!.id, false);
   res.json({ active: false });
