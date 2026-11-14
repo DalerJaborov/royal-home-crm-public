@@ -69,20 +69,21 @@ export function autoExpenseKindOf(autoKey: string | null | undefined): AutoExpen
 }
 
 /**
- * Границы слов — lookaround по буквам и цифрам (`(?<![\p{L}\p{N}])`): `\b` в JavaScript видит
- * только латиницу («реклама инста» с `инста\b` не ловилось), а «ИИ» бывает в кавычках-ёлочках.
+ * Граница слова — «начало строки или не буква и не цифра»: `\b` в JavaScript видит только
+ * латиницу («реклама инста» с `инста\b` не ловилось), «ИИ» бывает в кавычках-ёлочках, а взгляд
+ * назад `(?<!…)` старый Safari не знает (сторож noRegexLookbehind — файл попадает в сайт).
  */
 /** Реклама в Meta словами строки: таргет, Instagram/Facebook, Meta (ru/tg/латиница). */
-const META_WORDS = /instagram|(?<![\p{L}\p{N}])insta(?![\p{L}\p{N}])|инстаграм|(?<![\p{L}\p{N}])инста(?![\p{L}\p{N}])|facebook|фейсбук|фэйсбук|(?<![\p{L}\p{N}])(?:fb|фб|meta|мета)(?![\p{L}\p{N}])|таргет(?!олог)|(?<![\p{L}\p{N}])target(?!olog)/iu;
-const AD_WORDS = /реклам|таблиғ|таблиг|таргет(?!олог)|(?<![\p{L}\p{N}])target(?!olog)|(?<![\p{L}\p{N}])ads?(?![\p{L}\p{N}])|reklama|продвижен|boost|буст/iu;
+const META_WORDS = /instagram|(?:^|[^\p{L}\p{N}])insta(?![\p{L}\p{N}])|инстаграм|(?:^|[^\p{L}\p{N}])инста(?![\p{L}\p{N}])|facebook|фейсбук|фэйсбук|(?:^|[^\p{L}\p{N}])(?:fb|фб|meta|мета)(?![\p{L}\p{N}])|таргет(?!олог)|(?:^|[^\p{L}\p{N}])target(?!olog)/iu;
+const AD_WORDS = /реклам|таблиғ|таблиг|таргет(?!олог)|(?:^|[^\p{L}\p{N}])target(?!olog)|(?:^|[^\p{L}\p{N}])ads?(?![\p{L}\p{N}])|reklama|продвижен|boost|буст/iu;
 /** Не кабинет Meta, а люди и посевы: блогер, таргетолог, СММщик — их оплата не дублирует кабинет. */
-const NOT_CABINET = /блогер|blogger|инфлюенс|influenc|посев|коллаб|таргетолог|targetolog|(?<![\p{L}\p{N}])(?:смм|smm)|дизайн|съёмк|съемк|видеограф/iu;
+const NOT_CABINET = /блогер|blogger|инфлюенс|influenc|посев|коллаб|таргетолог|targetolog|(?:^|[^\p{L}\p{N}])(?:смм|smm)|дизайн|съёмк|съемк|видеограф/iu;
 /** ИИ словами строки: «оплата ИИ», Claude, Gemini, ChatGPT, нейросеть. */
-const AI_WORDS = /(?<![\p{L}\p{N}])(?:ии|ai)(?![\p{L}\p{N}])|искусствен\p{L}*\s+интеллект|нейросет|claude|клод|gemini|джемини|openai|chat\s*gpt|чат\s*gpt|(?<![\p{L}\p{N}])gpt|deepseek|anthropic/iu;
+const AI_WORDS = /(?:^|[^\p{L}\p{N}])(?:ии|ai)(?![\p{L}\p{N}])|искусствен\p{L}*\s+интеллект|нейросет|claude|клод|gemini|джемини|openai|chat\s*gpt|чат\s*gpt|(?:^|[^\p{L}\p{N}])gpt|deepseek|anthropic/iu;
 /** Подписки и мероприятия — не обращения CRM к ИИ (их журнал AiLog не видит). */
-const NOT_AI_USAGE = /подписк|subscription|(?<![\p{L}\p{N}])(?:plus|pro|max|team)(?![\p{L}\p{N}])|конференц|обучени|тренинг|(?<![\p{L}\p{N}])курс/iu;
+const NOT_AI_USAGE = /подписк|subscription|(?:^|[^\p{L}\p{N}])(?:plus|pro|max|team)(?![\p{L}\p{N}])|конференц|обучени|тренинг|(?:^|[^\p{L}\p{N}])курс/iu;
 /** Ручная зарплата — доля по сделке, а не оклад или аванс. */
-const DEAL_SHARE_WORDS = /(?<![\p{L}\p{N}])дол[яиюей](?![\p{L}\p{N}])|процент|%|комисси|бонус|сделк/iu;
+const DEAL_SHARE_WORDS = /(?:^|[^\p{L}\p{N}])дол[яиюей](?![\p{L}\p{N}])|процент|%|комисси|бонус|сделк/iu;
 
 function textOf(row: ManualExpenseLike): string {
   return `${row.note ?? ""} ${row.counterparty ?? ""}`;
