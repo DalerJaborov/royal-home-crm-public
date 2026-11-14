@@ -193,7 +193,7 @@ export function hadCallContactAfter(
 /** Последний состоявшийся звонок сотрудника по каждому клиенту из пачки —
  *  ОДНИМ запросом (groupBy), не в цикле: кандидатов до 2×ROW_LIMIT, отдельный
  *  запрос на каждого был бы тем самым N+1, которого тут не должно быть. */
-async function fetchLastCallContactByClient(clientIds: string[]): Promise<Map<string, Date>> {
+export async function fetchLastCallContactByClient(clientIds: string[]): Promise<Map<string, Date>> {
   if (clientIds.length === 0) return new Map();
   const rows = await prisma.interaction.groupBy({
     by: ["clientId"],

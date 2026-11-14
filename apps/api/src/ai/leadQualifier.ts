@@ -19,6 +19,7 @@ import { geoMentionBlock } from "./geoMentions.js";
 import { CLIENT_ADDRESS_RULES, MANDATORY_BOT_RULES, propertyGeographyBlock } from "./dushanbeGeography.js";
 import { folkGeographyBlock } from "./folkPlaces.js";
 import { accountPersona } from "../messengers/accounts.js";
+import { brandForAccount, brandize } from "./brandName.js";
 import { SALES_FACTS, salesTactics } from "./salesPlaybook.js";
 import { abilitiesForIntent, isNonClientRole } from "./roleAbilities.js";
 import { WHO_IS_THIS } from "./botContract.js";
@@ -91,6 +92,7 @@ import {
 import {
   ASK_OWNER_DISABLED_RULE,
   CAUTIOUS_MODE_RULE,
+  LEAD_ONLY_MODE_RULE,
   LINKS_DISABLED_RULE,
   SHOWINGS_DISABLED_RULE,
   VACANCIES_DISABLED_RULE,
@@ -1842,7 +1844,8 @@ export async function runQualifyTurn(
     // Подборка — по черновику, ДОПОЛНЕННОМУ разбором этой реплики (аудит поиска P0-2):
     // черновик модель обновит только в ответе, а «ищу двушку в Сино» в первом же
     // сообщении обязано дать варианты в этом же ходе. Разбор не удался — черновик как был.
-    buyerQueryForTurn(draft, lastClientText)
+    // Режим «только заявки»: подборки в промте нет вовсе — модель не может ни прислать её, ни пересказать.
+    abilities.leadOnly ? Promise.resolve("") : buyerQueryForTurn(draft, lastClientText)
       .catch(() => draft)
       .then((turnQuery) =>
         searchMatchingProperties(
@@ -2000,6 +2003,7 @@ export async function runQualifyTurn(
       : callbackAsLeadPromptRule(callbackPromise(new Date(), clientHours))) +
     (abilities.vacancies ? "" : VACANCIES_DISABLED_RULE) +
     (abilities.links ? "" : LINKS_DISABLED_RULE) +
+    (abilities.leadOnly ? LEAD_ONLY_MODE_RULE : "") +
     // Выводы из случаев, где бот уже ошибался (см. lib/botLessons.ts). Идут в
     // изменяемую часть промта, а не в кэшируемую: список пополняется каждую ночь,
     // и внутри кэш-блока он ломал бы побайтовое совпадение префикса.
@@ -2035,10 +2039,14 @@ export async function runQualifyTurn(
     (options.retryDirective ?? "") +
     (recruitmentCatalog ? legacyRecruitmentCatalogBlock(recruitmentCatalog, recruitmentWords) : "");
 
+  // Имя компании аккаунта (ai/brandName.ts): «Royal Home» в собранном промте хода
+  // заменяется ОДИН раз, здесь, в точке сборки — а не копиями по файлам. У аккаунта
+  // без своего имени обе строки уходят побайтово прежними.
+  const brand = await brandForAccount(options.accountId);
   const rawResult = await callAiText<unknown>({
     endpoint: "lead-qualify",
-    systemStable,
-    system,
+    systemStable: brandize(systemStable, brand),
+    system: brandize(system, brand),
     // Разрывы во времени подмешиваются в текст реплик: без них разговор
     // трёхмесячной давности неотличим от начатого минуту назад (conversationTime.ts).
     messages: withTimeGaps(markHumanRepliesForModel(maskHistoryForModel(history.slice(-MAX_HISTORY_TO_MODEL)))),

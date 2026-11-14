@@ -34,7 +34,7 @@ export async function loadWeeklyLeaderboard(now: Date = new Date()): Promise<Lea
   if (rows.length === 0) return [];
 
   const agents = await prisma.agent.findMany({
-    where: { id: { in: rows.map((r) => r.agentId) }, role: { in: [...RATED_ROLES] } },
+    where: { id: { in: rows.map((r) => r.agentId) }, role: { in: [...RATED_ROLES] }, isActive: true },
     select: { id: true, fullName: true, avatarUrl: true },
   });
   const byId = new Map(agents.map((a) => [a.id, a]));

@@ -4,13 +4,12 @@ import { loadMoneyContext } from "./money.js";
 import { loadMatchPolicy } from "./matchPolicy.js";
 import { evaluateClientProperty, compareClientProperties, hasClientMatchingCriteria, clientTextWishes,
   type MatchingBuyerCriteria } from "./clientPropertyMatching.js";
-import { loadMatchWeights, scoreClientProperty } from "../routes/matching.js";
 import type { ClientPropertyMatchSummary } from "@royal-home/shared";
 
 const factSelect = {
   id: true, shortId: true, type: true, districtId: true, price: true, currency: true, rooms: true,
   areaSqm: true, floor: true, totalFloors: true, lat: true, lng: true, condition: true,
-  marketType: true, amenities: true, details: true, description: true,
+  marketType: true, amenities: true, details: true, description: true, documents: true,
   intakeAgentId: true, assignedAgentId: true, createdById: true,
 } satisfies Prisma.PropertySelect;
 
@@ -34,10 +33,10 @@ function requirementsSummary(client: MatchingBuyerCriteria): string[] {
     result.push(`${min} ${max} ${client.currency === "USD" ? "$" : "сомони"}`.trim());
   }
   if (client.desiredDistrictId) result.push("Указанный район");
-  if (client.desiredPlaces.length) result.push(`Ориентиры: ${client.desiredPlaces.length}`);
+  if (client.desiredPlaces?.length) result.push(`Ориентиры: ${client.desiredPlaces.length}`);
   if (client.desiredAreaMin) result.push(`От ${client.desiredAreaMin} м²`);
   if (client.desiredFloorMin != null || client.desiredFloorMax != null) result.push("Указанные этажи");
-  for (const wish of clientTextWishes(client.requirementsNotes)) result.push(`${wish.label}: ${wish.wanted ? "нужно" : "без"}`);
+  for (const wish of clientTextWishes(client.requirementsNotes ?? null)) result.push(`${wish.label}: ${wish.wanted ? "нужно" : "без"}`);
   return result;
 }
 
@@ -46,23 +45,20 @@ export async function clientPropertyMatchingCatalog(
   clientId: string, client: MatchingBuyerCriteria,
   options: { viewerId: string; canDeleteProperties: boolean; page: number; pageSize: number; scope: "all" | "mine" }
 ) {
-  const [money, policy, weights] = await Promise.all([loadMoneyContext(), loadMatchPolicy(), loadMatchWeights()]);
+  const [money, policy] = await Promise.all([loadMoneyContext(), loadMatchPolicy()]);
   const where: Prisma.PropertyWhereInput = { status: "AVAILABLE", deletedAt: null,
     OR: [{ sellerClientId: null }, { sellerClientId: { not: clientId } }],
     ...(!options.canDeleteProperties ? { deleteRequests: { none: { status: "PENDING", requestedById: options.viewerId } } } : {}) };
   let cursor: string | undefined;
   let scanned = 0;
-  const ranked: Array<NonNullable<ReturnType<typeof evaluateClientProperty>> & { score: number }> = [];
+  const ranked: Array<NonNullable<ReturnType<typeof evaluateClientProperty>>> = [];
   for (;;) {
     const batch = await prisma.property.findMany({ where, select: factSelect, orderBy: { id: "asc" }, take: 200,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) });
     scanned += batch.length;
     for (const property of batch) {
       const evaluated = evaluateClientProperty(client, property, money, policy, options.viewerId);
-      if (evaluated) ranked.push({ ...evaluated,
-        // Retained for old consumers only. UI uses the evidence, not this legacy weight sum.
-        score: scoreClientProperty(client, property, money,
-          { weights, includeHotBonus: false }).score });
+      if (evaluated) ranked.push(evaluated);
     }
     if (batch.length < 200) break;
     cursor = batch[batch.length - 1].id;
@@ -89,7 +85,7 @@ export async function clientPropertyMatchingCatalog(
     const property = propertyById.get(item.id);
     if (!property) return [];
     const send = sentById.get(item.id);
-    return [{ ...property, score: item.score, distanceM: item.distanceM, aiReason: null,
+    return [{ ...property, distanceM: item.distanceM, aiReason: null,
       match: { ...item.match, lastSentAt: send?._max.sentAt?.toISOString() ?? null, sentCount: send?._count._all ?? 0 } }];
   }) };
 }

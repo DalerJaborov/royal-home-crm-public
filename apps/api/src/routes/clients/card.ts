@@ -34,7 +34,9 @@ import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { publishClientUpdated } from "../../lib/livePublish.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { loadMoneyContext } from "../../lib/money.js";
-import { loadMatchWeights, scoreClientProperty } from "../matching.js";
+import { propertyMatchSelect } from "../matching.js";
+import { matchClientProperty } from "../../lib/clientPropertyMatching.js";
+import { loadMatchPolicy } from "../../lib/matchPolicy.js";
 import { refreshPropertiesOfSeller } from "../../lib/propertyAutoStatus.js";
 import { cardWhereFromParam } from "../../lib/cardIdParam.js";
 import { conductedShowingWhere } from "../../lib/conductedShowing.js";
@@ -349,14 +351,16 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   if (!client.acceptedAt && client.assignReason === "own_property_match" && client.matchedPropertyId) {
     const matchedProperty = await prisma.property.findUnique({
       where: { id: client.matchedPropertyId },
-      select: { id: true, price: true, currency: true, districtId: true, rooms: true },
+      select: propertyMatchSelect,
     });
     if (matchedProperty) {
-      const [money, weights] = await Promise.all([loadMoneyContext(), loadMatchWeights()]);
+      const [money, policy] = await Promise.all([loadMoneyContext(), loadMatchPolicy()]);
       // includeHotBonus: false — тем же приёмом, что pickByPropertyMatch (leads.ts)
       // считает балл при распределении. Без этого HOT-клиенту показанный процент
       // был бы выше числа, которое реально сравнивалось с порогом в Настройках.
-      matchScore = scoreClientProperty(client, matchedProperty, money, { weights, includeHotBonus: false }).score;
+      // Та же единая модель и та же шкала порога, что у распределения (findMatchingPropertiesForClient).
+      // Запрос клиента с тех пор разошёлся с объектом — балла нет, а не устаревшее число.
+      matchScore = matchClientProperty(client, matchedProperty, money, policy)?.points ?? null;
     }
   }
 

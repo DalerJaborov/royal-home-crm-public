@@ -35,6 +35,8 @@ export { toCents, fromCents, roundMoney };
 
 export interface MoneyContext {
   usdToTjs: number;
+  /** Курс прочитан из Настроек (не FALLBACK_USD_TO_TJS) — им можно записывать доллар. */
+  verified?: true;
 }
 
 /** Keep the supplied/captured rate for new entries; never claim it is a recovered historical rate. */
@@ -52,6 +54,34 @@ export async function loadMoneyContext(db: Pick<typeof prisma, "settings"> = pri
   });
   const rate = settings?.usdToTjsRate ? Number(settings.usdToTjsRate) : null;
   return { usdToTjs: rate && rate > 0 ? rate : FALLBACK_USD_TO_TJS };
+}
+
+/**
+ * Курс доллара КАК ОН ЕСТЬ в Настройках — без подстановки FALLBACK_USD_TO_TJS (10.11.2026,
+ * владелец: «никогда чтобы расходы не ошибались, особенно в валюте»). Помощница пишет
+ * долларовый расход только при заданном курсе и показывает его в карточке с датой обновления;
+ * `rate` здесь равен тому, что loadMoneyContext отдаст createExpense, когда курс задан.
+ */
+/** Текст отказа без курса — один на REST и помощницу (одна дверь, 10.11.2026). */
+export const NO_USD_RATE_TEXT = "Курс доллара в Настройках CRM не задан — долларовый расход не записываю. Задайте курс в Настройках (Финансы → курс) или укажите курс в самом расходе.";
+
+/**
+ * Курс для ЗАПИСИ долларового расхода: из Настроек, без FALLBACK_USD_TO_TJS. null — курса нет,
+ * писать нельзя (вызывающий отказывает 409). Кэшированный курс пачки (`known`) — тот же самый.
+ */
+export async function usdRateForWrite(db: Pick<typeof prisma, "settings"> = prisma, known?: MoneyContext): Promise<number | null> {
+  // Запасному курсу из loadMoneyContext не верим: только проверенный (`verified`) или из Настроек.
+  if (known?.verified) return known.usdToTjs;
+  return (await loadUsdRateInfo(db)).rate;
+}
+
+export async function loadUsdRateInfo(db: Pick<typeof prisma, "settings"> = prisma): Promise<{ rate: number | null; updatedAt: Date | null; source: string | null }> {
+  const settings = await db.settings.findUnique({
+    where: { id: "singleton" },
+    select: { usdToTjsRate: true, usdToTjsRateUpdatedAt: true, usdToTjsRateSource: true },
+  });
+  const rate = settings?.usdToTjsRate ? Number(settings.usdToTjsRate) : null;
+  return { rate: rate && rate > 0 ? rate : null, updatedAt: settings?.usdToTjsRateUpdatedAt ?? null, source: settings?.usdToTjsRateSource ?? null };
 }
 
 /**
@@ -253,4 +283,15 @@ export function priceRangeBranches(
       ...(maxTjs !== undefined && { lte: fromTjs(maxTjs, currency, ctx) }),
     },
   }));
+}
+
+/**
+ * Курс доллара для ДЕНЕГ, КОТОРЫЕ ЧЕЛОВЕК ПОДТВЕРЖДАЕТ (ИИ-помощница, «Сделки»):
+ * только заданный в Настройках, без запасного курса. Не задан — null, и долларовая
+ * сумма не записывается. Для прикидок в отчётах — loadMoneyContext выше.
+ */
+export async function loadConfiguredUsdRate(db: Pick<typeof prisma, "settings"> = prisma): Promise<number | null> {
+  const settings = await db.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true } });
+  const rate = settings?.usdToTjsRate ? Number(settings.usdToTjsRate) : null;
+  return rate && Number.isFinite(rate) && rate > 0 ? rate : null;
 }

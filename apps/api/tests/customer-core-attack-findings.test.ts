@@ -64,11 +64,18 @@ describe("class 2: the finished buyer questionnaire is asked once", () => {
   });
 });
 
-describe("class 3: a named position is not asked again", () => {
+describe("class 3: a position is never asked for, the vacancy is answered with the phone line", () => {
   const evidence: CustomerAgentEvidence[] = [{ ref: "e0", value: vacancies }];
   it("reads the role from the current message even when the catalog text is not shown", () => {
     const text = render("job_position", "вот моё резюме: Анна, 24 года, SMM 2 года", context(), evidence)!;
-    expect(text).not.toContain("Какая должность");
+    expect(text ?? "").not.toContain("Какая должность");
+    expect(text).toBeNull();
+    const shown = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "none", question: "job_position" } as never, evidence,
+      language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm",
+      inputText: "вот моё резюме: Анна, 24 года, SMM 2 года", verifiedContext: context() })!;
+    expect(shown).toContain("SMM-специалист");
+    expect(shown).toContain("Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста.");
+    expect(shown).not.toContain("Какая должность");
   });
   it("reads the role from the history", () => {
     const text = render("job_position", "мне 23, опыт 2 года", context([user("smm"), bot("Какая должность вас интересует?")]), evidence)!;
@@ -78,8 +85,8 @@ describe("class 3: a named position is not asked again", () => {
     const empty = { kind: "open_vacancies", collecting: true, positions: [], sourceHash: recruitmentCatalogHash({ collecting: true, positions: [] }) } as unknown as CustomerAgentObservation;
     expect(render("job_position", "хочу работать агентом", context(), [{ ref: "e0", value: empty }])).toBeTruthy();
   });
-  it("still asks when no role was named", () => {
-    expect(render("job_position", "хочу работать", context(), evidence)).toContain("Какая должность");
+  it("does not ask which role either when none was named (phone-only recruitment)", () => {
+    expect(render("job_position", "хочу работать", context(), evidence)).toBeNull();
   });
 });
 

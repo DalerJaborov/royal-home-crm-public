@@ -253,7 +253,13 @@ it("long polling восстанавливает незавершённый ап�
     if (latest === first) await promise;
     return { ok: true, reply: "Готово." };
   });
-  pollGetUpdates.mockResolvedValueOnce(updates).mockImplementation(async () => {
+  // Как настоящий Telegram: пока offset не продвинут, апдейты приходят снова. С 08.11.2026 ход
+  // помощницы идёт вне пачки — поллер опрашивает дальше, но offset за незавершённый ответ не уходит.
+  pollGetUpdates.mockImplementation(async (offset: number) => {
+    if (offset === 0) {
+      await new Promise((r) => setTimeout(r, 20));
+      return updates;
+    }
     stopTelegramBot();
     return [];
   });
@@ -266,7 +272,10 @@ it("long polling восстанавливает незавершённый ап�
         where: { channel: "TELEGRAM", messageId: ids[2], completedAt: { not: null } },
       })).toBe(1);
     }, { timeout: 3_000 });
-    expect(pollGetUpdates.mock.calls).toEqual([[0]]);
+    // Пока первый ход не закончен, offset не продвинут (Telegram пришлёт апдейт снова при перезапуске),
+    // а повторные опросы не обработали его второй раз.
+    expect(pollGetUpdates.mock.calls.every(([offset]) => offset === 0)).toBe(true);
+    expect(histories.has(second)).toBe(false);
     const currentClaim = await prisma.processedMessage.findUniqueOrThrow({
       where: { channel_messageId: { channel: "TELEGRAM", messageId: ids[0] } },
     });
@@ -275,8 +284,9 @@ it("long polling восстанавливает незавершённый ап�
 
     resolve();
     await vi.waitFor(() => {
-      expect(pollGetUpdates.mock.calls).toEqual([[0], [updates[3].update_id + 1]]);
-    }, { timeout: 3_000 });
+      expect(pollGetUpdates.mock.calls.at(-1)).toEqual([updates[3].update_id + 1]);
+    }, { timeout: 5_000 });
+    expect(pollGetUpdates.mock.calls.filter(([offset]) => offset !== 0)).toEqual([[updates[3].update_id + 1]]);
     expect(histories.get(second)).toContain(first);
     expect(histories.has(alreadyHandled)).toBe(false);
     expect(await prisma.processedMessage.count({
@@ -288,6 +298,46 @@ it("long polling восстанавливает незавершённый ап�
     await vi.waitFor(() => expect(isTelegramPollerBusy()).toBe(false), { timeout: 3_000 });
     await prisma.processedMessage.deleteMany({ where: { channel: "TELEGRAM", messageId: { in: ids } } });
     pollGetUpdates.mockReset();
+    if (secret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    else process.env.TELEGRAM_WEBHOOK_SECRET = secret;
+  }
+});
+it("зависший ответ помощницы не держит offset вечно: по потолку апдейт завершён и есть запись в журнале", async () => {
+  const { isTelegramPollerBusy, startTelegramBot, stopTelegramBot, setDeferredReplyCeilingForTests } = await import("../src/telegram/poller.js");
+  const hung = "Зависший вопрос помощнице.";
+  const update = privateMsg("author", { message_id: 14101, text: hung });
+  const id = String(update.update_id);
+  let release: (value: { ok: true; reply: string }) => void = () => {};
+  runner.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+  pollGetUpdates.mockImplementation(async (offset: number) => {
+    if (offset <= update.update_id) {
+      await new Promise((r) => setTimeout(r, 20));
+      return [update];
+    }
+    stopTelegramBot();
+    return [];
+  });
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  setDeferredReplyCeilingForTests(300);
+  try {
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    startTelegramBot();
+    await vi.waitFor(() => {
+      expect(pollGetUpdates.mock.calls.at(-1)).toEqual([update.update_id + 1]);
+    }, { timeout: 5_000 });
+    expect(await prisma.processedMessage.count({ where: { channel: "TELEGRAM", messageId: id, completedAt: { not: null } } })).toBe(1);
+    // Обработан один раз, хотя Telegram прислал апдейт несколько раз.
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(await prisma.errorLog.count({ where: { message: { contains: `Ответ помощницы на апдейт ${id} не готов` } } })).toBeGreaterThan(0);
+  } finally {
+    setDeferredReplyCeilingForTests(null);
+    // Отпускаем «зависший» ход: иначе очередь этого чата ждала бы его до потолка в соседних тестах.
+    release({ ok: true, reply: "Готово." });
+    stopTelegramBot();
+    await vi.waitFor(() => expect(isTelegramPollerBusy()).toBe(false), { timeout: 3_000 });
+    await prisma.processedMessage.deleteMany({ where: { channel: "TELEGRAM", messageId: id } });
+    pollGetUpdates.mockReset();
+    runner.mockReset();
     if (secret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
     else process.env.TELEGRAM_WEBHOOK_SECRET = secret;
   }
@@ -424,6 +474,20 @@ describe("живые сценарии чтения Мадины", () => {
     }
   });
 
+  // Ревью 11.11: «не присылай/не отправляй …» с именем, датой или номером — рабочая
+  // команда помощнице, а не выключение уведомлений (telegram/staffNotice.ts).
+  it.each([
+    ["не отправляй заявку Нозе", 905],
+    ["не надо писать задачу на завтра, я сам", 906],
+    ["верни обратно объект в продажу", 907],
+  ])("рабочая команда «%s» доходит до помощницы, а не выключает уведомления", async (text, messageId) => {
+    runner.mockResolvedValueOnce({ ok: true, reply: "Хорошо." });
+    const before = (await prisma.agent.findUnique({ where: { id: agents.director.id }, select: { pushMuted: true } }))!.pushMuted;
+    await handleTelegramUpdate(privateMsg("director", { message_id: messageId, text }));
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect((await prisma.agent.findUnique({ where: { id: agents.director.id }, select: { pushMuted: true } }))!.pushMuted).toEqual(before);
+  });
+
   it("озвучивает предыдущий ответ из личного чата без нового вызова модели", async () => {
     runner.mockResolvedValueOnce({ ok: true, reply: "Нашла два варианта. Ссылки в карточках." });
     await handleTelegramUpdate(privateMsg("director", { message_id: 902, text: "покажи варианты" }));
@@ -442,7 +506,9 @@ describe("живые сценарии чтения Мадины", () => {
       })) });
       await handleTelegramUpdate(privateMsg("director", { message_id: 904, text: "найди клиентов агента маруфтест" }));
       const sent = sentTexts().join("\n");
-      expect(sent).toContain("Всего доступных карточек — 6.");
+      // Общий вид списков помощницы: заголовок с числом, номер-эмодзи, код карточки первым.
+      expect(sent).toMatch(/👥 Клиенты агента Маъруфтест \d+ · 6/);
+      expect(sent).toContain("1️⃣ ");
       expect(sent).toContain("Показываю 5 из 6");
       expect(sent).toContain("href=");
       expect(sent).not.toMatch(/HOT|COLD/i);
@@ -1194,6 +1260,35 @@ describe("новая доставка ответа помощника", () => {
     expect(sentTexts()).toEqual([]);
     expect(sendVoiceFile).not.toHaveBeenCalled(); // synthesis is mocked as a whole, never contacts provider
     expect(chatAction).not.toHaveBeenCalled();
+  });
+  // Владелец, 14.11.2026: просьбу о голосе понимает модель (метка [голос]), а не список фраз.
+  it("метка модели [голос] включает озвучку на любые слова, в текст и историю не попадает", async () => {
+    synthVoice.mockResolvedValue(true);
+    runner.mockResolvedValueOnce({ ok: true, reply: "[голос]\nҲа, ман ҳастам!" });
+    // Фраза, которую разбор по словам не знает: решает только метка модели.
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8301, text: "садоятро мехоҳам шунавам" }));
+    expect(synthVoice).toHaveBeenCalledTimes(1);
+    expect(synthVoice.mock.calls[0]?.[1]).toBe("Ҳа, ман ҳастам!");
+    expect(sentTexts()).toEqual([]);
+    runner.mockImplementationOnce(async (history: { role: string; content: string }[]) => {
+      expect(JSON.stringify(history)).not.toContain("[голос]");
+      return { ok: true, reply: "Ҳа." };
+    });
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8302, text: "ташаккур" }));
+    expect(runner).toHaveBeenCalledTimes(2);
+  });
+  it("без метки текстовая просьба остаётся текстом, а ложное «голос не работает» вырезается", async () => {
+    synthVoice.mockResolvedValue(true);
+    runner.mockResolvedValueOnce({ ok: true, reply: "Салом! Чӣ хизмат кунам?" });
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8303, text: "салом" }));
+    expect(synthVoice).not.toHaveBeenCalled();
+    expect(sentTexts().join("\n")).toContain("Чӣ хизмат кунам?");
+    for (const m of [synthVoice, sendMessage, sendHtmlMessage]) m.mockClear();
+    runner.mockResolvedValueOnce({ ok: true, reply: "[голос]\nҲоло овоз кор намекунад, фақат менависам" });
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8304, text: "Овозатро равон кун бо ханда :)" }));
+    expect(synthVoice).toHaveBeenCalledTimes(1);
+    expect(synthVoice.mock.calls[0]?.[1]).toBe("Ҳа, гӯш мекунам.");
+    expect(sentTexts().join("\n")).not.toMatch(/овоз кор намекунад|\[голос\]/u);
   });
   it("из голоса на русском и таджикском готовит клиента и выбранную задачу, пишет только после кнопки", async () => {
     const agent = agents.author;

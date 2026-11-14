@@ -1,5 +1,5 @@
 import { voicePersonaName, voiceStaffNoun, type VoiceGender } from "@royal-home/shared";
-import { buildLiveVoiceSystemPrompt, promptSafeName, promptSafeText } from "./liveVoicePersona.js";
+import { buildLiveVoiceSystemPrompt, liveVoiceThirdPartyRule, promptSafeName, promptSafeText } from "./liveVoicePersona.js";
 import { POST_SHOWING_CALL_TOOLS } from "./postShowingCallPersona.js";
 
 /**
@@ -43,7 +43,7 @@ export interface SellerProbeCallContext {
 export const SELLER_PROBE_CALL_TOOLS = POST_SHOWING_CALL_TOOLS;
 
 export const SELLER_PROBE_CALL_GREETING_TRIGGER =
-  "(Собеседник снял трубку. Сразу поздоровайся, представься Royal Home и спроси, удобно ли говорить.)";
+  "(Собеседник снял трубку. Сразу поздоровайся, представься Royal Home и уточни, тот ли это человек, которому ты звонишь. О цели звонка пока не говори.)";
 
 export function buildSellerProbeCallPrompt(ctx: SellerProbeCallContext, forceRussianOnly = true): string {
   // Имя собственника и название объекта — чужой текст: в промт только очищенными
@@ -78,7 +78,7 @@ export function buildSellerProbeCallPrompt(ctx: SellerProbeCallContext, forceRus
 
 ЕСЛИ ОТКАЗЫВАЕТСЯ РАЗГОВАРИВАТЬ — поблагодари, попрощайся, заверши с причиной refused.
 
-ЕСЛИ ТРУБКУ ВЗЯЛ НЕ СОБСТВЕННИК — не обсуждай квартиру вообще, вежливо попрощайся, ничего не обещая (не говори, что перезвонишь), заверши с причиной wrong_person.
+${liveVoiceThirdPartyRule("собственник", "с ним свяжутся", !forceRussianOnly)} Квартиру не обсуждай вообще.
 
 ЕСЛИ ОТВЕТИЛ АВТООТВЕТЧИК — не говори ничего и сразу заверши с причиной voicemail.
 

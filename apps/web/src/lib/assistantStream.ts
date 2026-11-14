@@ -1,4 +1,5 @@
 import {
+  ASSISTANT_DEADLINE_SEC,
   assistantActionViewSchema,
   ASSISTANT_HISTORY_WINDOW,
   type AssistantActionErrorBody,
@@ -20,8 +21,13 @@ export interface AssistantMessage {
   content: string;
 }
 
-/** Потолок ожидания ответа. Сервер сам укладывается раньше (план: 25 с), клиент даёт запас на сеть. */
-export const ASSISTANT_TIMEOUT_MS = 30_000;
+/**
+ * Потолок ожидания ответа: самый длинный срок, который можно выставить в Настройках
+ * (ASSISTANT_DEADLINE_SEC.max), плюс запас на сеть. Сервер сам укладывается в свой срок и
+ * присылает честное «слишком долго». До 07.11.2026 здесь стояло 30 с при сроке сервера 35 с —
+ * браузер обрывал ответ, который сервер ещё собирал.
+ */
+export const ASSISTANT_TIMEOUT_MS = ASSISTANT_DEADLINE_SEC.max * 1000 + 15_000;
 /** Сервер принимает реплику до 4000 символов (assistantRequestSchema) — длиннее режем, а не получаем 400. */
 const MAX_MESSAGE_CHARS = 4000;
 

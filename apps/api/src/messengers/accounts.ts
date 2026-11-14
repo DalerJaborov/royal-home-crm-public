@@ -1,3 +1,4 @@
+import { brandNameError } from "../ai/brandPattern.js";
 import { prisma } from "../db.js";
 import { decryptSecretSafe, encryptSecret } from "../crypto.js";
 import {
@@ -9,6 +10,7 @@ import {
 } from "./meta.js";
 import { logSystemError } from "../lib/systemError.js";
 import { readInstalledCustomerTransport } from "../lib/customerInstalledTransport.js";
+import { resetMetaEternalCache } from "../lib/metaEternalTokens.js";
 
 /**
  * Подключённые аккаунты мессенджеров: какой Instagram (WhatsApp, Facebook) чей.
@@ -43,6 +45,8 @@ export interface MessengerAccountView {
   hasAppSecret: boolean;
   /** Своя «личность» бота у этого аккаунта. Пусто — работает общая из Настроек. */
   systemPrompt: string | null;
+  /** Как бот называет компанию в этом аккаунте. Пусто — «Royal Home», как везде. */
+  brandName: string | null;
   /** Идентификаторы, добавленные вручную — Meta их своим ответом не подтверждает
    *  и подтвердить не может (см. schema.prisma, поле extraExternalIds). */
   extraExternalIds: string[];
@@ -82,6 +86,7 @@ let cache: {
     enabled: boolean;
     isDefault: boolean;
     systemPrompt: string | null;
+    brandName: string | null;
     username: string | null;
     messagingId: string | null;
     /** Идентификаторы, введённые вручную (см. schema.prisma) — Meta их не подтверждает. */
@@ -97,6 +102,9 @@ export function resetAccountsCache(): void {
   // WhatsApp, см. meta.ts): без сброса только что заведённый аккаунт минуту
   // получал бы 403 на вебхуке — подпись сверялась бы без его секрета.
   resetMetaAccountCredsCache();
+  // Вечные ключи (lib/metaEternalTokens.ts) держат снимок тех же строк — Страница
+  // аккаунта, маркер-удостоверение; без сброса новая Страница ждала бы минуту.
+  resetMetaEternalCache();
   // Заодно снимаем задвижку сверки идентификаторов (reconcileInstagramAccountIds):
   // состав аккаунтов изменился — значит и сверять их можно заново, не выжидая
   // десять минут. Зацикливания не даёт: сверка меняет запись только когда Meta
@@ -127,6 +135,7 @@ export async function listAccounts(channel?: string): Promise<MessengerAccountVi
       // Через приведение типа: колонка добавляется отдельной миграцией схемы.
       hasAppSecret: Boolean((r as { appSecret?: string | null }).appSecret),
       systemPrompt: r.systemPrompt,
+      brandName: r.brandName,
       extraExternalIds: r.extraExternalIds,
     }));
 }
@@ -143,6 +152,36 @@ export async function accountPersona(accountId: string | null | undefined): Prom
   try {
     const row = (await loadAccounts()).find((r) => r.id === accountId);
     return row?.systemPrompt?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Как бот называет компанию в диалогах аккаунта — или null, если имя не задано и
+ * везде остаётся «Royal Home» (ai/brandName.ts).
+ *
+ * Тот же приём, что у accountPersona: нужен на каждом ходе, отказ базы — null
+ * (прежнее имя лучше упавшего хода).
+ */
+/**
+ * Все имена компаний, заданные аккаунтам (без пустых), — для проверки, что имя в
+ * сохранённом ответе ядра взято из настроек, а не придумано. Отказ базы — пустой
+ * список: тогда своё имя не подтверждается и ответ ядра честно задерживается.
+ */
+export async function configuredBrandNames(): Promise<string[]> {
+  try {
+    return [...new Set((await loadAccounts()).map((r) => r.brandName?.trim() ?? "").filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
+export async function accountBrandName(accountId: string | null | undefined): Promise<string | null> {
+  if (!accountId) return null;
+  try {
+    const row = (await loadAccounts()).find((r) => r.id === accountId);
+    return row?.brandName?.trim() || null;
   } catch {
     return null;
   }
@@ -222,6 +261,23 @@ export async function resolveIncomingAccount(
   if (!exact && externalId && (channel === "WHATSAPP" || channel === "FACEBOOK") &&
       await readInstalledCustomerTransport(prisma, channel, externalId)) {
     return { id: null, title: "Основной", token: await legacyToken(channel), certain: true };
+  }
+
+  /**
+   * ОСНОВНАЯ СТРАНИЦА ИЗ НАСТРОЕК ОСТАЁТСЯ ОСНОВНОЙ (13.11.2026).
+   *
+   * Facebook Royal.home.tj работает через Settings, а вторая Страница (Arvan)
+   * подключена отдельной строкой БЕЗ «по умолчанию». Без этой ветки первая же
+   * такая строка забрала бы всё, что приходит без получателя (старые диалоги
+   * с accountId = null, фоновые сообщения через accountTokenById): клиенту
+   * Royal Home ответили бы маркером Arvan. Незнакомому получателю маркер из
+   * Settings по-прежнему НЕ отдаётся (messenger-settings-accounts.test.ts). Пока строки
+   * «по умолчанию» в канале нет, а Settings настроены — отвечаем как раньше.
+   * Instagram не трогаем: там основной аккаунт — строка «по умолчанию».
+   */
+  if (!externalId && channel !== "INSTAGRAM" && !rows.some((r) => r.isDefault && r.enabled)) {
+    const legacy = await legacyToken(channel);
+    if (legacy) return { id: null, title: "Основной", token: legacy };
   }
 
   const chosen = exact ?? rows.find((r) => r.isDefault && r.enabled) ?? rows.find((r) => r.enabled) ?? rows[0];
@@ -498,6 +554,19 @@ export interface SaveAccountInput {
    * `undefined` (не трогать) и `""` (очистить), а не отбрасываем пустое.
    */
   systemPrompt?: string | null;
+  /**
+   * Как бот называет компанию. Как и промт: `undefined` — не трогать, пустая
+   * строка или null — вернуть «Royal Home».
+   */
+  brandName?: string | null;
+  /**
+   * Ник и идентификатор личных сообщений из ответа Meta (instagramTokenIdentity),
+   * а не из формы. Без ника ядро клиентского бота держит ВСЕ входящие Instagram
+   * (lib/customerIngressClassification.ts, instagramComplete) — так 08–10.11.2026
+   * молчали 23 диалога после подключения Arvan Estate. `undefined` — не трогать.
+   */
+  username?: string;
+  messagingId?: string;
 }
 
 /**
@@ -522,6 +591,11 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
   // Пустую строку сохраняем как null: «своего промта нет» — это одно состояние, а
   // не два (пусто и NULL), иначе accountPersona пришлось бы проверять оба.
   const persona = input.systemPrompt === undefined ? undefined : input.systemPrompt?.trim() || null;
+  const brand = input.brandName === undefined ? undefined : input.brandName?.trim() || null;
+  // Имя, содержащее «Royal Home», заменяло бы слово само собой и шумело бы в журнале утечек.
+  const brandError = brandNameError(brand);
+  if (brandError) throw new Error(brandError);
+
   // Чистим и убираем дубликаты/пустые строки — форма присылает то, что человек
   // напечатал построчно или через запятую (см. routes/settings.ts).
   const extraIds =
@@ -542,7 +616,10 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
             ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
             ...(input.isDefault === undefined ? {} : { isDefault: input.isDefault }),
             ...(persona === undefined ? {} : { systemPrompt: persona }),
+            ...(brand === undefined ? {} : { brandName: brand }),
             ...(extraIds === undefined ? {} : { extraExternalIds: extraIds }),
+            ...(input.username?.trim() ? { username: input.username.trim() } : {}),
+            ...(input.messagingId?.trim() ? { messagingId: input.messagingId.trim() } : {}),
           },
         })
       : await tx.messengerAccount.create({
@@ -555,7 +632,10 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
             enabled: input.enabled ?? true,
             isDefault: input.isDefault ?? false,
             systemPrompt: persona ?? null,
+            brandName: brand ?? null,
             extraExternalIds: extraIds ?? [],
+            ...(input.username?.trim() ? { username: input.username.trim() } : {}),
+            ...(input.messagingId?.trim() ? { messagingId: input.messagingId.trim() } : {}),
           },
         });
 

@@ -1,6 +1,8 @@
 import { decryptSecretSafe } from "../../crypto.js";
 import { prisma } from "../../db.js";
 import { fetchWithRetry } from "../../messengers/meta.js";
+import { eternalAdsToken } from "../metaEternalTokens.js";
+import { raiseChannelKeyAlarm } from "../channelKeyAlarm.js";
 import { ADS_GRAPH_VERSION } from "./adsGraphVersion.js";
 import type { GraphAdSet } from "./adSetSettings.js";
 
@@ -61,10 +63,14 @@ export async function loadMetaAdsCredentials(): Promise<MetaAdsCredentials> {
     where: { id: "singleton" },
     select: { metaAdsEnabled: true, metaAdsToken: true, metaAdAccountId: true },
   });
+  const personal = decryptSecretSafe(s?.metaAdsToken ?? null) || process.env.META_ADS_TOKEN || null;
+  const adAccountIds = parseAdAccountIds(s?.metaAdAccountId ?? process.env.META_AD_ACCOUNT_ID ?? null);
   return {
     enabled: !!s?.metaAdsEnabled,
-    token: decryptSecretSafe(s?.metaAdsToken ?? null) || process.env.META_ADS_TOKEN || null,
-    adAccountIds: parseAdAccountIds(s?.metaAdAccountId ?? process.env.META_AD_ACCOUNT_ID ?? null),
+    // Вечный ключ (12.11.2026): маркер системного пользователя, если у него не
+    // меньше прав на рекламу и каждый кабинет читается; иначе личный, как раньше.
+    token: s?.metaAdsEnabled ? await eternalAdsToken(personal, adAccountIds) : personal,
+    adAccountIds,
   };
 }
 
@@ -195,7 +201,15 @@ function throwOnGraphError(res: Response, body: GraphErrorBody): void {
   const message = body.error?.message ?? `HTTP ${res.status}`;
   // 190 — маркер истёк/отозван, 102 — сессия недействительна. Оба лечатся только
   // новым маркером, повторять их бессмысленно.
-  if (code === 190 || code === 102) throw new MetaAdsTokenError(message);
+  if (code === 190 || code === 102) {
+    void raiseChannelKeyAlarm({
+      key: "meta-ads",
+      label: "Отчёт по рекламе (маркер рекламного кабинета)",
+      detail: message,
+      fix: "Настройки → Реклама: переподключите кабинет или выдайте кабинет системному пользователю royalhome-crm.",
+    });
+    throw new MetaAdsTokenError(message);
+  }
   if (isRateLimitCode(code)) throw new MetaRateLimitError(`Marketing API: ${message}`);
   throw new Error(`Marketing API: ${message}`);
 }

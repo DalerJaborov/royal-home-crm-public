@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
-import { findMatchingClients, findMatchingPropertiesForClient, scoreClientProperty } from "../src/routes/matching.js";
+import { findMatchingClients, findMatchingPropertiesForClient } from "../src/routes/matching.js";
+import { matchClientProperty } from "../src/lib/clientPropertyMatching.js";
+import { DEFAULT_MATCH_POLICY } from "../src/lib/matchPolicy.js";
 import { loadMoneyContext } from "../src/lib/money.js";
 
 /** Шкала близости «клиент ↔ объект» вынесена в scoreClientProperty, чтобы ею
@@ -96,54 +98,49 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("Шкала близости не сдвинулась при выносе", () => {
-  it("точное попадание — сто из ста", async () => {
+describe("Шкала порога «свой объект» не сдвинулась при подборе 2.0", () => {
+  /** Шкала (points) живёт в единой модели matchClientProperty и нужна только
+   *  порогу распределения заявок; числа прибиты, как и до 10.11.2026. */
+  it("точное попадание — сто из ста, причины названы поимённо", async () => {
     const money = await loadMoneyContext();
-    const { score, reasons } = scoreClientProperty(
+    const found = matchClientProperty(
       { budgetMin: 250_000, budgetMax: 400_000, currency: "TJS", desiredDistrictId: districtId, desiredRooms: 3 },
-      { id: exactPropertyId, price: 300_000, currency: "TJS", districtId, rooms: 3 },
-      money
-    );
+      { id: exactPropertyId, price: 300_000, currency: "TJS", districtId, rooms: 3, type: "APARTMENT" },
+      money, DEFAULT_MATCH_POLICY
+    )!;
     // 40 база + 25 район + 20 комнаты + 15 бюджет.
-    expect(score).toBe(100);
-    expect(reasons).toEqual(["район совпал", "комнат столько же", "в бюджете"]);
+    expect(found.points).toBe(100);
+    expect(found.tier).toBe("exact");
+    expect(found.reasons).toEqual(["Нужный район", "В бюджете", "3 комнаты, как просил"]);
   });
 
-  it("компромисс по комнатам и цене — сорок пять", async () => {
+  it("компромисс по комнатам и цене — сорок, уровень «можно предложить»", async () => {
     const money = await loadMoneyContext();
-    const { score, reasons } = scoreClientProperty(
+    const found = matchClientProperty(
       { budgetMin: 250_000, budgetMax: 400_000, currency: "TJS", desiredDistrictId: null, desiredRooms: 3 },
-      { id: roughPropertyId, price: 430_000, currency: "TJS", districtId, rooms: 4 },
-      money
-    );
-    // 40 база + 5 ни за что: район не назван, комнаты не те, цена выше бюджета.
-    expect(score).toBe(40);
-    expect(reasons).toEqual(["искал 3-комн", "чуть выше бюджета"]);
+      { id: roughPropertyId, price: 430_000, currency: "TJS", districtId, rooms: 4, type: "APARTMENT" },
+      money, DEFAULT_MATCH_POLICY
+    )!;
+    expect(found.points).toBe(40);
+    expect(found.tier).toBe("alternative");
+    expect(found.tradeoffs).toEqual(["На 8% дороже бюджета (+30 000 сомони)", "На 1 комнату больше (просил 3)"]);
   });
 
-  it("горячий клиент получает свои десять — и теряет их, когда бонус выключен", async () => {
+  it("теплота клиента на шкалу пары не влияет — бонуса «горячему» больше нет", async () => {
     const money = await loadMoneyContext();
-    const pair = [
-      { budgetMax: 400_000, budgetMin: null, currency: "TJS", desiredDistrictId: null, desiredRooms: null, status: "HOT" },
-      { id: exactPropertyId, price: 300_000, currency: "TJS", districtId, rooms: 3 },
-      money,
-    ] as const;
-    expect(scoreClientProperty(...pair).score).toBe(65); // 40 + 15 бюджет + 10 горячий
-    expect(scoreClientProperty(...pair, { includeHotBonus: false }).score).toBe(55);
+    const property = { id: exactPropertyId, price: 300_000, currency: "TJS", districtId, rooms: 3 };
+    const client = { budgetMax: 400_000, budgetMin: null, currency: "TJS", desiredDistrictId: null, desiredRooms: null };
+    expect(matchClientProperty({ ...client, status: "HOT" } as typeof client, property, money, DEFAULT_MATCH_POLICY)!.points).toBe(55);
+    expect(matchClientProperty(client, property, money, DEFAULT_MATCH_POLICY)!.points).toBe(55);
   });
 
-  it("findMatchingClients продолжает считать по той же шкале", async () => {
-    // 17.09.2026: findMatchingClients возвращает { items, total }, не голый массив.
+  it("findMatchingClients: точный уровень у обоих, горячий — только при прочих равных выше", async () => {
     const { items: matched } = await findMatchingClients(exactPropertyId, 50);
     const exact = matched.find((m) => m.id === exactClientId);
     const hot = matched.find((m) => m.id === hotClientId);
-    expect(exact?.score).toBe(100);
-    // Горячему больше сотни не начисляется — потолок остался на месте.
-    expect(hot?.score).toBe(100);
-    // И горячий стоит не ниже обычного при равном балле.
-    expect(matched.findIndex((m) => m.id === hotClientId)).toBeLessThanOrEqual(
-      matched.findIndex((m) => m.id === exactClientId) + 1
-    );
+    expect(exact?.match.tier).toBe("exact");
+    expect(hot?.match.tier).toBe("exact");
+    expect(matched.findIndex((m) => m.id === hotClientId)).toBeLessThan(matched.findIndex((m) => m.id === exactClientId));
   });
 });
 
@@ -162,11 +159,8 @@ describe("Веса шкалы — константа в коде (Путь по�
       const exact = matched.find((m) => m.propertyId === exactPropertyId);
       // 40 база + 25 район + 20 комнаты + 15 бюджет = 100 (MATCH_SCORE_WEIGHTS).
       expect(exact?.score).toBe(100);
-
-      const { items: matchedRough } = await findMatchingClients(roughPropertyId, 50);
-      const client = matchedRough.find((m) => m.id === exactClientId);
       // 40 база + 25 район = 65, комнаты и бюджет мимо. Читай сервер колонку — было бы 90.
-      expect(client?.score).toBe(65);
+      expect(matched.find((m) => m.propertyId === roughPropertyId)?.score).toBe(65);
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: { matchScoreDistrict: 25 } });
     }

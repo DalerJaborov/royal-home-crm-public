@@ -50,7 +50,8 @@ describe("customer conversation quality", () => {
       evidence: [{ ref: "e0", value: vacancies }],
     });
     expect(result).toContain("Да, конечно. Расскажите о себе и своём опыте на таджикском.");
-    expect(result).toContain("Размер зарплаты и точные часы пока не опубликованы.");
+    expect(result).toContain("Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста.");
+    expect(result).not.toContain("Размер зарплаты");
     expect(result).not.toMatch(/\b\d{4,}\b/u);
     expect(result).not.toContain("Какая должность вас интересует?");
   });
@@ -67,7 +68,8 @@ describe("customer conversation quality", () => {
       verifiedContext: context("job", [], position.key), evidence: [{ ref: "e0", value: vacancies }],
     });
     expect(result).toContain("Бале, албатта. Дар бораи худ ва таҷрибаатон ба тоҷикӣ нақл кунед.");
-    expect(result).toContain("Маош ва соатҳои дақиқ ҳоло нашр нашудаанд.");
+    expect(result).toContain("Маълумоти пурраро дар бораи кор мутахассиси мо Ноза бо телефон медиҳад: 777 070 100. Лутфан занг занед.");
+    expect(result).not.toContain("Маош ва соатҳои дақиқ");
     expect(result).not.toMatch(/\b\d{4,}\b/u);
   });
 

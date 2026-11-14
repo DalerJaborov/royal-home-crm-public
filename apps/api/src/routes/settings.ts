@@ -1,9 +1,11 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { canViewInvestigations } from "@royal-home/shared";
+import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, canViewInvestigations } from "@royal-home/shared";
+import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
 import { settingsInstagramAppBindingRouter } from "./settingsInstagramAppBinding.js";
+import { settingsMetaEternalRouter } from "./settingsMetaEternal.js";
 import { settingsSomonRouter } from "./settingsSomon.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -58,9 +60,10 @@ import { originateLiveVoiceTestCall, LIVE_VOICE_GREETING_TRIGGER } from "../lib/
 import { liveVoiceRtpProblem, configuredRtpHost } from "../lib/telephony/liveVoiceRtpConfig.js";
 import { liveVoiceErrorForPerson } from "../lib/telephony/liveVoiceUserError.js";
 import { previewLiveVoiceGreeting } from "../ai/liveVoiceClient.js";
-import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
-import { elevenLabsRequest, syncElevenLabsAgent } from "../ai/elevenLabsAgentSync.js";
+import { loadElevenLabsProviderConfig } from "../ai/liveVoiceProvider.js";
+import { elevenLabsRequest, syncElevenLabsAgentDetailed } from "../ai/elevenLabsAgentSync.js";
 import { CONSULTANT_TOOLS } from "../lib/telephony/liveVoiceConsultant.js";
+import { warmElevenLabsAgent } from "../lib/telephony/liveVoiceWarmup.js";
 import { r2PresignDownloadUrl } from "../lib/r2Client.js";
 import { phoneSafeText } from "../lib/clientPhone.js";
 import { loadAmiCredentials, testAmiConnection } from "../lib/telephony/amiClient.js";
@@ -76,8 +79,10 @@ import { previewWhisperSpeech } from "../lib/telephony/whisperAudio.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
+import { brandNameError } from "../ai/brandPattern.js";
 import { dispatchInBackground, EDITOR_HOLDER_WHERE } from "../lib/videoHandoff.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
+import { alertNoMontajerIfWorkWaits } from "../lib/montajerHandover.js";
 
 /** Ключи весов — из реестра метрик, а не строками: новая метрика в kpi.ts сразу
  *  принимается и здесь, без второй правки. */
@@ -94,6 +99,8 @@ export const settingsRouter = Router();
 settingsRouter.use("/somon", settingsSomonRouter);
 settingsRouter.use("/customer-agent", customerAgentSettingsRouter);
 settingsRouter.use("/messenger-accounts", settingsInstagramAppBindingRouter);
+/** Вечные ключи Meta (12.11.2026): самопроверка, рубильник, Страница аккаунта. */
+settingsRouter.use("/meta-eternal", settingsMetaEternalRouter);
 
 /** Маска ключа: из Настроек (расшифровав) или из окружения. null — не задан нигде. */
 function maskOrNull(encrypted: string | null | undefined, fromEnv: string | undefined): string | null {
@@ -499,8 +506,14 @@ async function withLiveVoiceInboundStatus<T extends Record<string, unknown>>(pay
   const snapshot = await prisma.integrationHealthSnapshot
     .findUnique({ where: { name: `Телефония: ${CONSULTANT_DIALPLAN_CHECK}` } })
     .catch(() => null);
+  // Сколько робот наговорил за сутки и месяц против потолка (П5, 11.11.2026). Только
+  // чтение: удержание и тревоги ставит тик и дверь. Не прочиталось — экран без строки.
+  const spend = await readLiveVoiceSpend().catch(() => null);
   return {
     ...payload,
+    liveVoiceSpend: spend
+      ? { day: spend.day, month: spend.month, held: spend.held, retryAt: spend.retryAt?.toISOString() ?? null, provider: spend.provider }
+      : null,
     liveVoiceInbound: {
       wanted: readiness.wanted,
       rtpHostConfigured: readiness.rtpHostConfigured,
@@ -954,11 +967,16 @@ const settingsUpdateSchema = z.object({
   /** Ручная передача видео монтажёру через Telegram (01.09.2026, lib/videoHandoff.ts) —
    *  единственный путь подготовки ролика после удаления автомонтажа 04.09.2026. */
   videoHandoffEnabled: z.boolean().optional(),
+  /** Ролик от СММщика или другого сотрудника через Шабнам (12.11.2026, telegram/staffClip.ts). */
+  staffClipIntakeEnabled: z.boolean().optional(),
   /** Проверка фото и видео агента перед монтажом (25.09.2026). false — CRM
    *  одобряет сама (lib/propertyReview.ts::autoApproveIfRawReviewOff). */
   rawReviewRequired: z.boolean().optional(),
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: z.boolean().optional(),
+  /** Готовый ролик подтверждает хозяин объекта, без ответа — автопубликация (11.11.2026). */
+  clipOwnerApproveEnabled: z.boolean().optional(),
+  clipOwnerAutoPublishHours: z.number().int().min(1).max(48).optional(),
   // videoModeratorAgentId УБРАН из схемы (01.11.2026): интерфейс убран 23.09.2026,
   // ни одна строка сервера поле не читает. Колонка в базе остаётся до общего дропа.
   videoMontajerAgentId: z.string().max(64).nullable().optional(),
@@ -1035,6 +1053,10 @@ const settingsUpdateSchema = z.object({
   elevenLabsVoiceGender: z.enum(["female", "male"]).nullable().optional(),
   /** Ключ ElevenLabs. Пустая строка — очистить (вернуться на .env ELEVENLABS_API_KEY). */
   elevenLabsApiKey: z.string().trim().max(500).optional(),
+  /** Потолок минут робота за сутки и месяц по Душанбе (П5, 11.11.2026, lib/liveVoiceSpend.ts).
+   *  0 — без потолка (явный выбор владельца). Верх — защита от лишнего нуля. */
+  liveVoiceDailyMinutesCap: z.number().int().min(0).max(LIVE_VOICE_MINUTES_CAP_MAX).optional(),
+  liveVoiceMonthlyMinutesCap: z.number().int().min(0).max(LIVE_VOICE_MINUTES_CAP_MAX).optional(),
   /** ГОЛОСОВЫЕ ОТВЕТЫ БОТА В ПЕРЕПИСКЕ (13.09.2026) — озвучивает свой текстовый
    *  ответ, только если клиент сам прислал голосовое в этом же ходе (см.
    *  messengers/botCapabilities.ts::voiceReplies). Выключено по умолчанию —
@@ -1043,6 +1065,12 @@ const settingsUpdateSchema = z.object({
    *  способностей бота) — включить можно было только прямым запросом к базе.
    *  Добавлен сюда явно, а не забыт вторым по счёту разом с liveVoiceEnabled.*/
   botCanSendVoiceReplies: z.boolean().optional(),
+  /** РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (13.11.2026, ai/leadOnlyMode.ts): бот берёт заявку и передаёт
+   *  агенту, без подборок, фото и ссылок. Остальные три поля действуют только внутри режима. */
+  botLeadOnlyMode: z.boolean().optional(),
+  botUseWhatsappNumber: z.boolean().optional(),
+  botMaxPhoneAsks: z.number().int().min(1).max(3).optional(),
+  botHotIntentHandover: z.boolean().optional(),
   /** Робозвонок покупателю после показа (13.09.2026, см. lib/postShowingCalls.ts и
    *  docs/buyer-antifraud-funnel-13-09-2026.md). Работает только поверх включённого
    *  живого голоса выше: свой канал звонка он не заводит, а пользуется тем же мостом. */
@@ -1242,6 +1270,16 @@ const settingsUpdateSchema = z.object({
   instagramCollaborators: z.string().trim().max(200).nullable().optional(),
   /** ИИ-ассистент внутри CRM. Выключен по умолчанию. */
   aiAssistantEnabled: z.boolean().optional(),
+  /** Сколько дней хранить журнал помощницы (пачка 2, 07.11.2026); пределы — общие с экраном. */
+  aiAssistantLogRetentionDays: z
+    .number()
+    .int()
+    .min(ASSISTANT_LOG_RETENTION_DAYS.min)
+    .max(ASSISTANT_LOG_RETENTION_DAYS.max)
+    .optional(),
+  /** Шагов помощницы на один ответ и срок ответа в секундах (решение владельца 07.11.2026). */
+  aiAssistantMaxRounds: z.number().int().min(ASSISTANT_MAX_ROUNDS.min).max(ASSISTANT_MAX_ROUNDS.max).optional(),
+  aiAssistantDeadlineSec: z.number().int().min(ASSISTANT_DEADLINE_SEC.min).max(ASSISTANT_DEADLINE_SEC.max).optional(),
   /** Улучшение фото объекта ИИ (пункт 7 очереди, 23.08.2026). Выключено по
    *  умолчанию — живой тест показал, что модель может исказить помещение
    *  вопреки промту; см. schema.prisma у PropertyPhoto для полного контекста. */
@@ -1792,8 +1830,9 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
         // поведением, что было до 25.09.2026 (нет адресата, которому «передан»).
         if (previousMontajerAgentId) {
           try {
-            const oldMontajer = await prisma.agent.findUnique({
-              where: { id: previousMontajerAgentId },
+            // Уволенному в личный Telegram про объекты агентства не пишем (11.11.2026).
+            const oldMontajer = await prisma.agent.findFirst({
+              where: { id: previousMontajerAgentId, isActive: true },
               select: { telegramChatId: true },
             });
             if (oldMontajer?.telegramChatId) {
@@ -1812,6 +1851,14 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
         // держит место монтажёра и ждёт назначения (владелец увидит в тревогах).
         void logSystemError("video-handoff", `Монтажёра сняли в Настройках — объект №${holder.shortId} ждёт назначения нового`);
       }
+    }
+    // Монтажёра сняли — тревога модераторам, если хоть что-то ждёт (держатель
+    // или очередь), а не только строка в журнале (11.11.2026). Дальше её
+    // повторяет сторож досылки, пока монтажёра не выберут.
+    if (!pair.videoMontajerAgentId) {
+      void alertNoMontajerIfWorkWaits().catch((err) =>
+        logSystemError("video-handoff", `Тревога «монтажёр не назначен» не ушла: ${err instanceof Error ? err.message : String(err)}`)
+      );
     }
   }
 
@@ -2001,29 +2048,57 @@ settingsRouter.post("/gemini-test", requireAuth, requirePermission("settings.man
  * ПРОВЕРКА И ПОДГОТОВКА АГЕНТА ELEVENLABS (02.10.2026, живой голос через
  * ElevenLabs). Тем же путём, что и звонок: ключ из Настроек, тот же REST API.
  * Заводит у агента функции консультанта (поиск квартир, СМС, перевод агенту,
- * итог) и включает разрешения на подмену промта, первой фразы, языка и голоса —
+ * итог), включает разрешения на подмену промта, первой фразы, языка и голоса и
+ * выставляет настройки телефонного разговора (ELEVENLABS_PHONE_AGENT_TUNING) —
  * чтобы первый настоящий звонок не тратил на это секунды. Ответ — имя агента и
  * сколько функций заведено; ключа в ответе нет.
  */
 settingsRouter.post("/live-voice/elevenlabs-check", requireAuth, requirePermission("settings.manage"), requireElevation, async (_req, res) => {
-  const row = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: { elevenLabsApiKey: true, elevenLabsAgentId: true },
-  });
-  const apiKey = resolveElevenLabsKey(row?.elevenLabsApiKey);
-  const agentId = row?.elevenLabsAgentId?.trim();
+  // Те же поля и та же обработка, что у звонка (ai/liveVoiceProvider.ts), — иначе ключ
+  // памяти подготовки разойдётся со звонком и прогрев ему не достанется (П1, 11.11.2026).
+  const config = await loadElevenLabsProviderConfig();
+  const { apiKey, agentId } = config;
   if (!apiKey) return res.status(400).json({ ok: false, error: "Ключ ElevenLabs не задан — сначала сохраните ключ" });
   if (!agentId) return res.status(400).json({ ok: false, error: "Не указан id агента ElevenLabs" });
   try {
     const agent = await elevenLabsRequest<{ name?: string }>(apiKey, "GET", `/v1/convai/agents/${encodeURIComponent(agentId)}`);
-    const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS);
-    res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: tools.size });
+    // Свежая проверка с причиной (приняты ли настройки звучания) — память подготовки её не хранит.
+    const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: config.voiceIdTg });
+    // И тот же путь, что у звонка (lib/telephony/liveVoiceWarmup.ts): каждый вид звонка
+    // подготовлен в памяти процесса, и первый звонок после кнопки не ждёт подготовку.
+    const warm = await warmElevenLabsAgent(config, { budgetMs: ELEVENLABS_CHECK_WARMUP_BUDGET_MS });
+    const toolsSynced = Math.max(warm.toolIds, outcome.ids.size);
+    // Функции заведены, а настройки звучания агент не принял — не «готов»: экран
+    // показывает error, и владелец видит причину, а не зелёную строку.
+    if (!outcome.tuned) {
+      return res.json({
+        ok: false,
+        agentName: agent.name ?? null,
+        toolsSynced,
+        error: `Функции заведены (${outcome.ids.size}), но агент не принял настройки звучания: ${outcome.tuningError}`,
+      });
+    }
+    if (warm.failed.length > 0 && !warm.timedOut) {
+      return res.json({
+        ok: false,
+        agentName: agent.name ?? null,
+        toolsSynced,
+        error:
+          `Агент отвечает, но не подготовлен для звонков: ${warm.failed.join(", ")}. Причина — в журнале ошибок; ` +
+          "после недавней неудачи подготовка повторяется не раньше чем через 5 минут.",
+      });
+    }
+    // Не уложились в потолок — оставшиеся виды доготовятся в фоне, звонки возьмут их из памяти.
+    res.json({ ok: true, agentName: agent.name ?? null, toolsSynced });
   } catch (err) {
     const detail = describeError(err);
     void logSystemError("telephony", `Проверка агента ElevenLabs не прошла: ${detail}`);
     res.json({ ok: false, error: detail });
   }
 });
+
+/** Потолок прогрева на кнопке: экран не ждёт дольше, остальное доготовится в фоне. */
+const ELEVENLABS_CHECK_WARMUP_BUDGET_MS = 30_000;
 
 /**
  * ПРОВЕРКА СТАТИСТИКИ INSTAGRAM (21.09.2026). Владелец выпустил новый маркер с
@@ -2700,6 +2775,8 @@ const messengerAccountSchema = z.object({
   enabled: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   systemPrompt: z.string().max(30000).nullish(),
+  /** Как бот называет компанию в этом аккаунте (ai/brandName.ts); пусто — «Royal Home». */
+  brandName: z.string().trim().max(60).nullish(),
   /**
    * Идентификаторы получателя, которые Meta своим ответом не подтвердит
    * (см. schema.prisma, MessengerAccount.extraExternalIds) — владелец переписывает
@@ -2726,6 +2803,7 @@ settingsRouter.post(
       return res.status(400).json({ error: "Неизвестный канал" });
     }
     let externalId = body.externalId?.trim();
+    let instagramIdentity: { username: string; messagingId?: string } | undefined;
     const title = body.title?.trim();
     if (!title) return res.status(400).json({ error: "Укажите название аккаунта" });
 
@@ -2746,6 +2824,16 @@ settingsRouter.post(
         return res.status(400).json({ error: `Маркер не принят: ${identity.error}` });
       }
       externalId = identity.id;
+      /**
+       * НИК ОБЯЗАТЕЛЕН (10.11.2026). По нику ядро клиентского бота узнаёт наши
+       * собственные аккаунты во входящем; у Arvan Estate его не сохранили, и ядро
+       * двое суток держало ВСЕ сообщения Instagram всех трёх аккаунтов. Meta
+       * отдаёт ник тем же ответом — раньше он просто выбрасывался.
+       */
+      if (!identity.username?.trim()) {
+        return res.status(400).json({ error: "Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан входом через Instagram, и попробуйте снова" });
+      }
+      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId };
     }
     // Правка одного поля (промт, «сделать основным», выключить) не обязана
     // пересылать всю запись: недостающее берём из той, что уже есть.
@@ -2760,6 +2848,8 @@ settingsRouter.post(
     if (typeof body.systemPrompt === "string" && body.systemPrompt.length > 30000) {
       return res.status(400).json({ error: "Промт слишком длинный" });
     }
+    const brandError = brandNameError(body.brandName);
+    if (brandError) return res.status(400).json({ error: brandError });
 
     try {
       const id = await saveAccount({
@@ -2771,9 +2861,16 @@ settingsRouter.post(
         enabled: body.enabled,
         isDefault: body.isDefault,
         systemPrompt: body.systemPrompt,
+        brandName: body.brandName,
         extraExternalIds: body.extraExternalIds,
+        ...(instagramIdentity ?? {}),
       });
-      logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, { channel, title });
+      // Смена имени компании меняет то, что бот говорит клиентам, — берём в аудит, на что.
+      logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, {
+        channel,
+        title,
+        ...(body.brandName === undefined ? {} : { brandName: body.brandName?.trim() || null }),
+      });
       res.json({ ok: true, id });
     } catch (err) {
       // Один и тот же аккаунт дважды — самая частая ошибка при подключении.

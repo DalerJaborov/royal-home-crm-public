@@ -35,11 +35,12 @@ import { SomonSourceUnavailable } from "../src/lib/somonLeads/sourceClient.js";
 import { PaydoBlockedError } from "../src/lib/market/paydoClient.js";
 import { looksTruncated, runMarketFullCrawl, runPaydoFullCrawl, withMarketCrawlLock } from "../src/lib/market/nightly.js";
 import { DISAPPEAR_AFTER_HOURS, PAYDO_DISAPPEAR_AFTER_HOURS } from "../src/lib/market/marketStore.js";
+import { RUBRIC_HOUSES, somonListPageHtml } from "./helpers/somonPage.js";
 
-function pageHtml(ids: number[], links: number): string {
-  const ads = ids.map((id) => ({ id, title: "2-комн. квартира, 50 м², 3/9 этаж", url: `/adv/${id}_stand/` }));
-  const anchors = Array.from({ length: links }, (_, i) => `<a href="?page=${i + 1}">${i + 1}</a>`).join("");
-  return `${anchors}<script>self.__next_f.push([1,${JSON.stringify(JSON.stringify({ adverts: ads }))}]);</script>`;
+function pageHtml(ids: number[], links: number, houses = false): string {
+  return houses
+    ? somonListPageHtml(ids.map((id) => ({ id, rubricId: RUBRIC_HOUSES, title: "2 этажн. 5-комн. дом, 2 соток, Сино" })), { links, pageRubricId: RUBRIC_HOUSES })
+    : somonListPageHtml(ids.map((id) => ({ id })), { links });
 }
 const pause = async () => {};
 const paydoOk = async (_c: unknown, _s: unknown, o: { onPage?: (l: unknown[], p: number) => Promise<void> }) => {
@@ -60,8 +61,9 @@ beforeEach(() => {
   // Каждый раздел: 2 страницы, у каждого раздела свои id.
   mocks.fetchSomon.mockImplementation(async (path: string) => {
     const n = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
-    const base = path.includes("domov") ? 2000 : 1000;
-    return new Response(pageHtml([base + n * 10 + 1, base + n * 10 + 2], 2));
+    const houses = path.includes("domov");
+    const base = houses ? 2000 : 1000;
+    return new Response(pageHtml([base + n * 10 + 1, base + n * 10 + 2], 2, houses));
   });
 });
 
@@ -74,8 +76,8 @@ describe("недельный обход Somon", () => {
     expect(mocks.fetchSomon.mock.calls.map((c) => c[0])).toEqual([
       "/nedvizhimost/prodazha-kvartir/dushanbe/",
       "/nedvizhimost/prodazha-kvartir/dushanbe/?page=2",
-      "/nedvizhimost/prodazha-domov/dushanbe/",
-      "/nedvizhimost/prodazha-domov/dushanbe/?page=2",
+      "/nedvizhimost/prodazha-domov-havli-i-dach/dushanbe/",
+      "/nedvizhimost/prodazha-domov-havli-i-dach/dushanbe/?page=2",
     ]);
     expect(mocks.gone.mock.calls).toEqual([["somon.tj", DISAPPEAR_AFTER_HOURS]]);
     // порог «не видели дольше полутора интервалов» передан явно: мимо двух полных обходов подряд
@@ -161,7 +163,7 @@ describe("защита от молча оборванного обхода: по
     mocks.fetchSomon.mockImplementation(async (path: string) => {
       const n = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
       const base = (path.includes("domov") ? 20_000 : 10_000) + n * 100;
-      return new Response(pageHtml(Array.from({ length: 60 }, (_, i) => base + i), 2));
+      return new Response(pageHtml(Array.from({ length: 60 }, (_, i) => base + i), 2, path.includes("domov")));
     });
   }
 

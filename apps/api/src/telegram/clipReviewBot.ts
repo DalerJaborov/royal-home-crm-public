@@ -37,7 +37,11 @@ import {
 import {
   approveClip,
   clipAlreadyDecidedText,
-  clipReviewerByChat,
+  CLIP_REJECT_DIALOG_KIND,
+  clipDeciderByChat,
+  clipOwnerRecipient,
+  holdClipOwnerDueForReject,
+  getClipOwnerSettings,
   listClipReviewers,
   onClipDecision,
   rejectClip,
@@ -64,7 +68,7 @@ import { dushanbeDateTimeString } from "../lib/dushanbeTime.js";
 
 const CLIP_KINDS = ["CLIP", "CLIP_TEXT"];
 /** Вид состояния диалога «жду комментарий к возврату» (TelegramDialogState). */
-const REJECT_DIALOG_KIND = "clip_reject_comment";
+const REJECT_DIALOG_KIND = CLIP_REJECT_DIALOG_KIND;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─────────────────────────── подпись и кнопки ───────────────────────────
@@ -110,6 +114,32 @@ export function clipReviewButtons(shortId: number): TelegramInlineButton[][] {
   ];
 }
 
+/**
+ * Хозяину объекта (11.11.2026): та же подпись, но шапка — «ваш объект» и срок
+ * автопубликации; кнопки те же `cr:a` / `cr:r` (право решает clipDeciderByChat).
+ */
+export function clipOwnerCaption(caption: string, shortId: number, autoAt: Date): string {
+  const when = dushanbeDateTimeString(autoAt);
+  const body = caption.replace(/^🎬 Ролик на проверку · Объект №\d+\n?/, "");
+  return [
+    `🎬 Готов ролик по вашему объекту №${shortId}`,
+    body || null,
+    `Подтвердите — и он сразу встанет в публикацию. Не ответите до ${when} — опубликуется сам (ночью с 00:00 до 07:00 не публикуем).`,
+  ]
+    .filter((l): l is string => l !== null)
+    .join("\n");
+}
+
+export function clipOwnerButtons(shortId: number): TelegramInlineButton[][] {
+  return [
+    [
+      { text: "✅ Подтвердить", callback_data: `cr:a:${shortId}` },
+      { text: "↩️ Вернуть монтажёру", callback_data: `cr:r:${shortId}` },
+    ],
+    [{ text: "🔗 Открыть в CRM", url: crmPropertyUrl(shortId) }],
+  ];
+}
+
 // ─────────────────────────── рассылка ───────────────────────────
 
 function reportSendFailure(r: ClipReviewer, shortId: number, err: unknown): void {
@@ -122,9 +152,9 @@ async function sendClipTo(
   r: ClipReviewer,
   p: { id: string; shortId: number; version: number },
   caption: string,
-  clip: ClipForTelegram | null
+  clip: ClipForTelegram | null,
+  buttons: TelegramInlineButton[][] = clipReviewButtons(p.shortId)
 ): Promise<void> {
-  const buttons = clipReviewButtons(p.shortId);
   try {
     const tooBig = clip != null && clip.sizeBytes > TELEGRAM_BOT_SEND_LIMIT_BYTES;
     if (!clip || tooBig) throw new Error(tooBig ? "файл больше предела Telegram" : "файл ролика не найден");
@@ -147,11 +177,26 @@ async function sendClipTo(
 export async function notifyClipReview(propertyId: string): Promise<void> {
   try {
     if (!isTelegramEnabled()) return;
+    const ownerSettings = await getClipOwnerSettings();
     const reviewers = await listClipReviewers();
-    if (reviewers.length === 0) return;
+    // Хозяин объекта (11.11.2026) — если он сам не среди руководства, копия ему.
+    // Нет Telegram или неактивен — null: ролик закроет таймер автопубликации.
+    const ownerRaw = ownerSettings.enabled ? await clipOwnerRecipient(propertyId) : null;
+    // Срок ставит приём ролика; ролик пришёл до включения — подтверждения хозяина
+    // и обещания «опубликуется сам» нет (проверяется ниже по clipOwnerDueAt).
+    const owner = ownerRaw && !reviewers.some((r) => r.id === ownerRaw.id) ? ownerRaw : null;
+    if (reviewers.length === 0 && !owner) return;
     const p = await prisma.property.findUnique({
       where: { id: propertyId },
-      select: { id: true, shortId: true, version: true, deletedAt: true, clipReviewStatus: true, videoHandoffFinalPath: true },
+      select: {
+        id: true,
+        shortId: true,
+        version: true,
+        deletedAt: true,
+        clipReviewStatus: true,
+        clipOwnerDueAt: true,
+        videoHandoffFinalPath: true,
+      },
     });
     if (!p || p.deletedAt || p.clipReviewStatus !== "PENDING") return;
     // Монтажёр переслал исправленный ролик (reopenForResend) — кнопки под прежним
@@ -179,8 +224,11 @@ export async function notifyClipReview(propertyId: string): Promise<void> {
     // перевёрнутый/HEVC/огромный — копией для просмотра (lib/clipReviewPreview.ts).
     const clip = fileStat && diskPath ? await prepareClipForTelegram(diskPath, media, fileStat.size, TELEGRAM_BOT_SEND_LIMIT_BYTES) : null;
     try {
+      if (owner && p.clipOwnerDueAt) {
+        await sendClipTo(owner, p, clipOwnerCaption(caption, p.shortId, p.clipOwnerDueAt), clip, clipOwnerButtons(p.shortId));
+      }
       for (const [i, r] of reviewers.entries()) {
-        if (i > 0) await sleep(SEND_PAUSE_MS);
+        if (i > 0 || owner) await sleep(SEND_PAUSE_MS);
         await sendClipTo(r, p, caption, clip);
       }
     } finally {
@@ -251,17 +299,19 @@ export function runClipReviewStaleAlarmTick(now: Date = new Date()): Promise<{ r
 
 // ─────────────────────────── решение гасит кнопки у всех ───────────────────────────
 
-export function clipDecisionLine(e: { outcome: "approved" | "rejected"; name: string; at: Date; reason?: string }): string {
+export function clipDecisionLine(e: { outcome: "approved" | "rejected"; name: string | null; at: Date; reason?: string }): string {
   const time = dushanbeDateTimeString(e.at).split(" ")[1] ?? "";
+  if (e.outcome === "approved" && e.name === null) return `✅ Ушёл в публикацию автоматически ${time} — ответа не было`;
   return e.outcome === "approved"
     ? `✅ Одобрил ${e.name} ${time}`
     : `↩️ Вернул ${e.name} ${time}${e.reason ? `: ${e.reason}` : ""}`;
 }
 
 async function onDecision(e: ClipDecisionEvent): Promise<void> {
-  const agent = await prisma.agent.findUnique({ where: { id: e.byId }, select: { fullName: true } });
+  const agent = e.byId ? await prisma.agent.findUnique({ where: { id: e.byId }, select: { fullName: true } }) : null;
+  const name = e.byId ? (agent?.fullName ?? "—") : null;
   const where: Prisma.TelegramModerationMessageWhereInput = { propertyId: e.propertyId, kind: { in: CLIP_KINDS } };
-  await resolveMessages(where, clipDecisionLine({ outcome: e.outcome, name: agent?.fullName ?? "—", at: e.at, reason: e.reason }));
+  await resolveMessages(where, clipDecisionLine({ outcome: e.outcome, name, at: e.at, reason: e.reason }));
 }
 
 // ─────────────────────────── диалог «комментарий к возврату» ───────────────────────────
@@ -288,9 +338,17 @@ async function clearRejectDialog(chatId: string): Promise<void> {
   await prisma.telegramDialogState.deleteMany({ where: { chatId, kind: REJECT_DIALOG_KIND } });
 }
 
-async function finishReject(r: ClipReviewer, propertyId: string, reasonIdx: number, comment: string | null): Promise<void> {
+type ClipDecider = ClipReviewer & { asOwner: boolean };
+
+async function finishReject(r: ClipDecider, propertyId: string, reasonIdx: number, comment: string | null): Promise<void> {
   const reason = VIDEO_REMAKE_REASONS[reasonIdx] as VideoRemakeReason;
-  const result = await rejectClip(propertyId, { reason, comment, byId: r.id, source: "telegram" });
+  const result = await rejectClip(propertyId, {
+    reason,
+    comment,
+    byId: r.id,
+    source: "telegram",
+    decidedAs: r.asOwner ? "owner" : "reviewer",
+  });
   if (!result.ok) await reply(r.chatId, result.error);
 }
 
@@ -305,13 +363,9 @@ export async function handleClipReviewCallback(query: TelegramCallbackQuery): Pr
   if (!chatId) return true;
   if (!(await claimCallback(query.id))) return true;
 
-  const r = await clipReviewerByChat(chatId);
-  if (!r) {
-    await reply(chatId, "Нет права проверять ролики. Если это ошибка — попросите руководителя выдать его в CRM.");
-    return true;
-  }
   const [, action, arg1, arg2] = data.split(":");
   if (action === "x") {
+    // Диалог своего вида и своего чата — отменить может только тот, кто его начал.
     await clearRejectDialog(chatId);
     await reply(chatId, "Отменено.");
     return true;
@@ -321,6 +375,12 @@ export async function handleClipReviewCallback(query: TelegramCallbackQuery): Pr
   const p = await prisma.property.findFirst({ where: { shortId }, select: { id: true, deletedAt: true, clipReviewStatus: true } });
   if (!p || p.deletedAt) {
     await reply(chatId, "🗑 Объект удалён");
+    return true;
+  }
+  // Решить может руководство/модератор или хозяин ЭТОГО объекта (11.11.2026).
+  const r = await clipDeciderByChat(chatId, p.id);
+  if (!r) {
+    await reply(chatId, "Нет права решать по этому ролику. Если это ошибка — попросите руководителя проверить в CRM.");
     return true;
   }
 
@@ -354,6 +414,7 @@ export async function handleClipReviewCallback(query: TelegramCallbackQuery): Pr
         await reply(chatId, await clipAlreadyDecidedText(p.id));
         return true;
       }
+      await holdClipOwnerDueForReject(p.id);
       await reply(
         chatId,
         `Почему возвращаем ролик №${shortId} монтажёру?`,
@@ -406,9 +467,9 @@ export async function handleClipReviewCallback(query: TelegramCallbackQuery): Pr
 export async function handleClipReviewText(chatId: string, text: string): Promise<boolean> {
   const row = await prisma.telegramDialogState.findUnique({ where: { chatId }, select: { kind: true } });
   if (row?.kind !== REJECT_DIALOG_KIND) return false;
-  const r = await clipReviewerByChat(chatId);
-  if (!r) return false;
-  const state = await getRejectDialog(chatId, r.id);
+  const agent = await prisma.agent.findUnique({ where: { telegramChatId: chatId }, select: { id: true, isActive: true } });
+  if (!agent || !agent.isActive) return false;
+  const state = await getRejectDialog(chatId, agent.id);
   if (!state) {
     await reply(chatId, "Время на ответ вышло — нажмите «Вернуть монтажёру» ещё раз.");
     return true;
@@ -417,6 +478,12 @@ export async function handleClipReviewText(chatId: string, text: string): Promis
   const p = await prisma.property.findFirst({ where: { shortId: state.shortId }, select: { id: true, deletedAt: true } });
   if (!p || p.deletedAt) {
     await reply(chatId, "🗑 Объект удалён");
+    return true;
+  }
+  // Право — заново, на этот объект: руководство или его хозяин (11.11.2026).
+  const r = await clipDeciderByChat(chatId, p.id);
+  if (!r) {
+    await reply(chatId, "Нет права решать по этому ролику.");
     return true;
   }
   await finishReject(r, p.id, state.reason, text.trim().slice(0, 2000) || null);

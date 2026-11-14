@@ -24,6 +24,11 @@ export type AssistantToolLevel = "A" | "B" | "C";
 
 export interface AssistantToolContext {
   actor: AssistantActor;
+  /**
+   * Вопрос сотрудника этого хода, его собственными словами (не аргументы модели). Нужен там,
+   * где важно, что сказал человек, а что додумала модель (район в поиске по ориентиру).
+   */
+  question?: string;
 }
 
 interface AssistantToolBase {
@@ -54,6 +59,11 @@ export interface AssistantWriteToolPlugin extends AssistantToolBase {
    * брокер (lib/assistantActions.ts) находит исполнителя на подтверждении и откате.
    */
   executor: AssistantActionExecutor<never>;
+  /**
+   * Добавить к аргументам модели то, что знает только ядро: ключ хода (`tg:<чат>:<сообщение>`) и
+   * слова человека. Модельные значения этих полей обязан отбросить сам плагин.
+   */
+  bindContext?: (args: Record<string, unknown>, ctx: { question?: string; turnKey?: string }) => Record<string, unknown>;
 }
 
 export type AssistantToolPlugin = AssistantReadToolPlugin | AssistantWriteToolPlugin;

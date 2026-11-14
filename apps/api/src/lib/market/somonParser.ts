@@ -14,6 +14,7 @@
  */
 
 import { detectDistrictInText } from "./districtName.js";
+import { somonRubricOf } from "./somonRubrics.js";
 
 export interface SomonRawAd {
   id: number;
@@ -30,7 +31,7 @@ export interface SomonRawAd {
   has_video?: boolean;
   ad_type?: { type?: string; text?: string };
   user?: { id?: number; name?: string; is_bussiness?: boolean };
-  rubric?: { slug?: string; ancestors?: Array<{ name?: string; slug?: string }> };
+  rubric?: { id?: number; slug?: string; ancestors?: Array<{ id?: number; name?: string; slug?: string }> };
   seo?: { images?: { alt_texts?: string[] } };
 }
 
@@ -41,8 +42,10 @@ export interface ParsedListing {
   rooms: number | null;
   areaSqm: number | null;
   floor: number | null;
-  /** Этажность дома. Даёт её только sk.tj («7/16 этаж»); у остальных null. */
+  /** Этажность дома. Даёт её sk.tj («7/16 этаж») и дома Somon («3 этажн. дом»); у остальных null. */
   totalFloors?: number | null;
+  /** Участок в сотках (дома Somon: «3 соток», «1.60 сотки»). */
+  landSotki?: number | null;
   landmark: string | null;
   districtName: string | null;
   city: string;
@@ -133,7 +136,7 @@ export function extractAds(payload: string): SomonRawAd[] {
 }
 
 /** Вырезает сбалансированный по скобкам JSON-объект, начиная с позиции `start`. */
-function sliceBalancedObject(text: string, start: number): string | null {
+export function sliceBalancedObject(text: string, start: number): string | null {
   let depth = 0;
   let inStr = false;
   let escaped = false;
@@ -200,23 +203,51 @@ export function parseTitle(title: string): {
   };
 }
 
-/** Тип сделки и объекта — по цепочке рубрик сайта, а не по словам в заголовке. */
+/**
+ * Тип сделки и объекта — ТОЛЬКО по номеру рубрики из списка `somonRubrics.ts`. null — объявление
+ * не из недвижимости (автозапчасти, услуги, ноутбуки): писать его в каталог нельзя.
+ *
+ * Прежде тип угадывался по словам в предках рубрики, а всё неопознанное становилось «квартирой»:
+ * так 11.11.2026 в каталог «квартирами» легли 13 тыс. чужих объявлений, а дома (рубрика 218,
+ * её предок — просто «nedvizhimost») — тоже «квартирами».
+ */
 export function detectCategory(ad: SomonRawAd): {
   dealType: ParsedListing["dealType"];
   propertyType: ParsedListing["propertyType"];
+} | null {
+  const rubric = somonRubricOf(ad);
+  return rubric ? { dealType: rubric.dealType, propertyType: rubric.propertyType } : null;
+}
+
+/**
+ * Заголовок дома Somon: «3 этажн. 6-комн. дом, 3 соток, Конституция, Бозори Балх»,
+ * «1 этажн. 3-комн. дом, 1.60 сотки, Фирдавси» (живая страница рубрики 218, 12.11.2026).
+ * «этажн.» — этажность дома (не этаж квартиры), участок — в сотках. Площади самого дома в
+ * заголовке обычно нет: тогда null, а не выдумка. Если продавец её всё же указал («150 м²») — берём.
+ */
+export function parseHouseTitle(title: string): {
+  rooms: number | null;
+  totalFloors: number | null;
+  areaSqm: number | null;
+  landSotki: number | null;
+  landmark: string | null;
 } {
-  const slugs = (ad.rubric?.ancestors ?? []).map((a) => a.slug ?? "").join("/");
-  const dealType: ParsedListing["dealType"] = /arenda|sdaetsya|prokat/i.test(slugs) ? "RENT" : "SALE";
-  const propertyType: ParsedListing["propertyType"] = /kvartir/i.test(slugs)
-    ? "APARTMENT"
-    : /dom|kottedzh|dach/i.test(slugs)
-      ? "HOUSE"
-      : /uchastok|zeml/i.test(slugs)
-        ? "LAND"
-        : /kommerch|ofis|magazin|sklad/i.test(slugs)
-          ? "COMMERCIAL"
-          : "APARTMENT";
-  return { dealType, propertyType };
+  const storeys = /(\d+)\s*-?\s*этажн/i.exec(title);
+  const rooms = /(\d+)\s*-?\s*комн/i.exec(title);
+  const area = /([\d.,]+)\s*м²/i.exec(title);
+  const land = /([\d]+(?:[.,]\d+)?)\s*сот(?:ок|ки|ка|\.)?/i.exec(title);
+  const num = (m: RegExpExecArray | null) => (m ? Number(m[1].replace(",", ".")) : null);
+  const parts = title.split(",").map((p) => p.trim()).filter(Boolean);
+  // Ориентир — первый кусок после описания дома, который не про этажи/комнаты/площадь/сотки.
+  const landmark = parts.slice(1).find((p) => !/этажн|комн|м²|сот/i.test(p)) ?? null;
+  const landSotki = num(land);
+  return {
+    rooms: rooms ? Number(rooms[1]) : null,
+    totalFloors: storeys ? Number(storeys[1]) : null,
+    areaSqm: num(area),
+    landSotki: landSotki != null && Number.isFinite(landSotki) && landSotki > 0 ? landSotki : null,
+    landmark,
+  };
 }
 
 /**
@@ -234,12 +265,20 @@ export function normalizeRepair(text: string | null | undefined): ParsedListing[
   return null;
 }
 
-/** Приводит сырое объявление сайта к нашей форме. */
+/** Приводит сырое объявление сайта к нашей форме. null — не объявление или не недвижимость. */
 export function toListing(ad: SomonRawAd): ParsedListing | null {
   if (!ad.url || !ad.id) return null;
+  const category = detectCategory(ad);
+  if (!category) return null;
+  const { dealType, propertyType } = category;
   const title = ad.title ?? "";
-  const { rooms, floor, areaSqm, landmark } = parseTitle(title);
-  const { dealType, propertyType } = detectCategory(ad);
+  const isHouse = propertyType === "HOUSE";
+  const house = isHouse ? parseHouseTitle(title) : null;
+  const flat = isHouse ? null : parseTitle(title);
+  const rooms = house ? house.rooms : flat!.rooms;
+  const areaSqm = house ? house.areaSqm : flat!.areaSqm;
+  const floor = house ? null : flat!.floor;
+  const landmark = house ? house.landmark : flat!.landmark;
 
   // price_without_currency — уже очищенное число самого сайта; строку «1 694 000 c.»
   // разбирать вручную не нужно и не стоит: формат пробелов там меняется.
@@ -252,6 +291,7 @@ export function toListing(ad: SomonRawAd): ParsedListing | null {
     rooms,
     areaSqm,
     floor,
+    ...(house ? { totalFloors: house.totalFloors, landSotki: house.landSotki } : {}),
     landmark,
     districtName: detectDistrict(ad),
     city: ad.location ?? "Душанбе",

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRetryKey } from "../../hooks/useRetryKey";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import type { PropertyDraftView } from "@royal-home/shared";
+import type { NarrationWizardChoice, PropertyDraftView } from "@royal-home/shared";
+import { narrationChoiceForCreate } from "./NarrationChoice";
 import { useDistricts } from "../../hooks/useDistricts";
 import { useCreateProperty } from "../../hooks/useProperties";
 import { PROPERTY_DRAFT_QUERY_KEY } from "../../hooks/usePropertyDraft";
@@ -159,6 +160,7 @@ export function PropertyWizard({
    *  сохранении, DuplicatePropertyError в routes/properties/crud.ts). Живой
    *  проверки заранее нет, поэтому появляется только ПОСЛЕ попытки сохранить. */
   const [duplicate, setDuplicate] = useState<{ shortId: number; message: string } | null>(null);
+  const [narration, setNarration] = useState<NarrationWizardChoice>({});
   const [saving, setSaving] = useState(false);
   const [waitingUploads, setWaitingUploads] = useState(false);
   /**
@@ -579,6 +581,9 @@ export function PropertyWizard({
       // PropertyDraftMedia, см. draftAttach.ts) — без этого ключа обложкой
       // навсегда остался бы первый ЗАГРУЖЕННЫЙ снимок, а не выбранный агентом.
       if (!pendingCreateBody.current && coverUploadKey) body.coverUploadKey = coverUploadKey;
+      // Озвучка ролика: шаблон, голос и правка текста из конца мастера (NarrationChoice).
+      const narrationChoice = narrationChoiceForCreate(narration);
+      if (!pendingCreateBody.current && narrationChoice) body.narration = narrationChoice;
       pendingCreateBody.current = body;
       const completedDraftId = typeof body.draftId === "string" ? body.draftId : null;
       const saved = await create.mutateAsync(body);
@@ -1103,6 +1108,8 @@ export function PropertyWizard({
           errors={errors}
           onGoTo={setStep}
           duplicate={duplicate}
+          narration={narration}
+          onNarrationChange={setNarration}
         />
       )}
     </WizardShell>

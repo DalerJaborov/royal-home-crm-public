@@ -8,10 +8,10 @@ import { Router } from "express";
 import { z } from "zod";
 import { bulkSiteSyncSchema, sendBackToMontajerSchema, voiceNoteUrlSchema } from "@royal-home/shared";
 import { prisma } from "../../db.js";
-import { requireAuth, requirePermission } from "../../auth/middleware.js";
+import { can, requireAuth, requirePermission } from "../../auth/middleware.js";
 import { isPipelineStatus } from "../../lib/propertyPipeline.js";
 import { approveReviewMaterial, rejectReview } from "../../lib/propertyReview.js";
-import { approveClip, rejectClip, listPendingClips } from "../../lib/clipReview.js";
+import { approveClip, canDecideClipInCrm, rejectClip, listPendingClips } from "../../lib/clipReview.js";
 import { syncPropertiesToSite } from "../../lib/siteSync.js";
 import { logAudit } from "../../lib/audit.js";
 import { reelsCaptionValuesFromProperty, withPostFooter } from "../../lib/reelsCaptionTemplate.js";
@@ -143,7 +143,12 @@ moderationRouter.get("/clip-review/pending", requireAuth, requirePermission("pro
   res.json(await listPendingClips(parsed.data.limit));
 });
 
-moderationRouter.post("/:id/clip-review/approve", requireAuth, requirePermission("properties.moderate"), async (req, res) => {
+moderationRouter.post("/:id/clip-review/approve", requireAuth, async (req, res) => {
+  // Модератор или хозяин объекта при подтверждении хозяином (14.11.2026, то же
+  // правило, что у кнопки в Telegram — lib/clipReview.ts::clipOwnerDeciderId).
+  if (!(await canDecideClipInCrm(req.agent!.id, can(req, "properties.moderate"), req.params.id))) {
+    return res.status(403).json({ error: "Недостаточно прав" });
+  }
   const result = await approveClip(req.params.id, req.agent!.id, "crm");
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   res.json({
@@ -153,7 +158,10 @@ moderationRouter.post("/:id/clip-review/approve", requireAuth, requirePermission
   });
 });
 
-moderationRouter.post("/:id/clip-review/reject", requireAuth, requirePermission("properties.moderate"), async (req, res) => {
+moderationRouter.post("/:id/clip-review/reject", requireAuth, async (req, res) => {
+  if (!(await canDecideClipInCrm(req.agent!.id, can(req, "properties.moderate"), req.params.id))) {
+    return res.status(403).json({ error: "Недостаточно прав" });
+  }
   // Та же схема, что у «Вернуть монтажёру», с тем же правилом «для этой причины
   // нужен комментарий»; замена исходника и снятие из сетей — в полном окне возврата.
   const parsed = sendBackToMontajerSchema.safeParse(req.body);
@@ -163,6 +171,7 @@ moderationRouter.post("/:id/clip-review/reject", requireAuth, requirePermission(
     comment: parsed.data.comment ?? null,
     byId: req.agent!.id,
     source: "crm",
+    decidedAs: can(req, "properties.moderate") ? "reviewer" : "owner",
   });
   if (!result.ok) return res.status(409).json({ error: result.error });
   res.json(result);

@@ -1,5 +1,5 @@
 import { open } from "node:fs/promises";
-import { resolveTelegramFile, type TelegramIncomingMessage } from "./api.js";
+import { IS_LOCAL_BOT_API, resolveTelegramFile, type TelegramIncomingMessage } from "./api.js";
 import { understandAssistantMedia } from "../ai/assistant/mediaUnderstanding.js";
 import { loadAssistantSettings, loadAssistantGeminiRuntime } from "../ai/assistant/runtime.js";
 import { ASSISTANT_TAJIK_MODEL } from "../ai/assistant/languageRouting.js";
@@ -10,14 +10,17 @@ import { recognizeShortAssistantVoice } from "./assistantScribe.js";
 
 /** Bounded download even when Telegram's reported file_size is wrong. No arbitrary URL input. */
 export async function downloadAssistantMedia(fileId: string, maximum: number): Promise<Buffer> {
-  const reference = await resolveTelegramFile(fileId, maximum, 10_000);
+  // Свой Bot API-сервер отвечает на getFile, только когда сам докачал файл у
+  // Telegram, — ему общий таймаут; облаку хватает десяти секунд.
+  const reference = IS_LOCAL_BOT_API ? await resolveTelegramFile(fileId, maximum) : await resolveTelegramFile(fileId, maximum, 10_000);
   if (!reference) throw new Error("media_download_failed");
   if (reference.kind === "path") {
     const handle = await open(reference.path, "r");
     try {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.size <= 0 || stat.size > maximum) throw new Error("media_size_rejected");
-      const buffer = Buffer.alloc(maximum + 1);
+      // По фактическому размеру файла (+1 байт, чтобы заметить дописанный хвост), а не по пределу.
+      const buffer = Buffer.alloc(Math.min(maximum, stat.size) + 1);
       let length = 0;
       while (length < buffer.length) {
         const read = await handle.read(buffer, length, buffer.length - length, null);

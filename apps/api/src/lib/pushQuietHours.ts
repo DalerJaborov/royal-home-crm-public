@@ -75,7 +75,31 @@ export function quietHoursDisabledByEnv(): boolean {
   return process.env.PUSH_QUIET_HOURS === "off";
 }
 
-export function quietDecision(payload: Pick<PushPayload, "kind" | "realtime" | "close">, at: Date = new Date()): QuietDecision {
+/**
+ * РАБОЧИЙ ДЕНЬ СИЛЬНЕЕ ТИШИНЫ (14.11.2026, аудит скрытых механизмов №3).
+ *
+ * Тишина начиналась в 21:00, а раздача лидов (Настройки → «Когда лиды уходят
+ * агентам», workHoursStart/End) на проде шла до 22:30. В эти полтора часа лид
+ * назначался, пуш о нём ВЫБРАСЫВАЛСЯ (`lead` в DROP_KINDS), телефон молчал, а
+ * через 15 минут круг передавал лид следующему — тоже молча (29 лидов за 30 дней).
+ * Сообщения клиентов в те же часы ждали до 08:00, хотя агенты на месте.
+ *
+ * Правило теперь одно: пока открыты часы раздачи, ночи нет — тишина действует
+ * только вне рабочего дня. Часы раздачи читает ОДНА функция
+ * (lib/workingHours.ts::isWithinWorkingHours), и ею же открывается круг
+ * «не принял за N минут» (services/leads/reassignment.ts::staleLeadCircleOpen).
+ * Поэтому пуш о лиде не может быть подавлен, пока идёт таймер передачи, а
+ * когда пуш подавлен — таймер стоит. Сходство двух окон сторожит
+ * tests/push-quiet-hours-workday.test.ts.
+ *
+ * `workdayOpen` передаёт транспорт (push.ts::handledByQuietHours), чтобы эта
+ * функция осталась чистой и синхронной.
+ */
+export function quietDecision(
+  payload: Pick<PushPayload, "kind" | "realtime" | "close">,
+  at: Date = new Date(),
+  workdayOpen = false
+): QuietDecision {
   if (quietHoursDisabledByEnv()) return "send";
   // Закрытие уведомления на устройстве (`close`) — не звонок, а уборка уже
   // показанной карточки: задерживать её значит оставить на экране зов к
@@ -83,5 +107,6 @@ export function quietDecision(payload: Pick<PushPayload, "kind" | "realtime" | "
   if (payload.close) return "send";
   if (payload.realtime) return "send";
   if (!isQuietHour(at)) return "send";
+  if (workdayOpen) return "send";
   return payload.kind && DROP_KINDS.has(payload.kind) ? "drop" : "defer";
 }

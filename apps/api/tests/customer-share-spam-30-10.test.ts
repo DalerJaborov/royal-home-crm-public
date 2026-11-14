@@ -137,8 +137,13 @@ describe("renderer: office address only on request", () => {
   it.each(["Где ваш офис?", "Адрес подскажите", "Когда вы работаете?", "Куҷо ҳастед?"])("still prints it for %j", inputText => {
     expect(render(inputText) ?? "").toMatch(/Тестовая|09:30/);
   });
-  it("keeps it for a job candidate", () => {
-    expect(render("Спасибо!", { verifiedContext: context([], { topic: "job" }) }) ?? "").toContain("Тестовая");
+  // Owner 10.11.2026: a job candidate no longer gets the office address/hours unasked
+  // (tests/customer-recruitment-no-office-10-11.test.ts); asked explicitly, it is still printed.
+  it("does not print it unasked for a job candidate", () => {
+    expect(render("Спасибо!", { verifiedContext: context([], { topic: "job" }) }) ?? "").not.toContain("Тестовая");
+  });
+  it("still prints it for a job candidate who asks where the office is", () => {
+    expect(render("Где ваш офис?", { verifiedContext: context([], { topic: "job" }) }) ?? "").toContain("Тестовая");
   });
 });
 

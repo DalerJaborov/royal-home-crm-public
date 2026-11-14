@@ -436,6 +436,11 @@ export const MERGE_LINKS_MOVED = [
   "InsightCase.clientId",
   "SmsMessage.clientId",
   "LiveVoiceSession.clientId",
+  // Робозвонок (П3, 11.11.2026): «не звонить» и разрешение сотрудника относятся к человеку —
+  // без переноса просьба «больше не звоните» осталась бы на удалённом дубле, и робот
+  // позвонил бы основной карточке снова.
+  "RobotCallStop.clientId",
+  "RobotCallAllow.clientId",
   "DealReview.clientId",
   "CallWhisper.clientId",
   "SellerObjectFacts.clientId",
@@ -456,6 +461,7 @@ export const MERGE_LINKS_LEFT_BEHIND: Record<string, string> = {
   "ClientDeleteRequest.clientId": "заявка на удаление дубля закрывается отдельно (closePendingDeleteRequestsOnMerge)",
   "PushActionToken.clientId": "одноразовые токены кнопок в пуше: истекают сами, переносить нечего",
   "Client.duplicateReviewOfClientId": "проверка дублей ведёт свой цикл и сама гасит ссылку на удалённую карточку",
+  "PropertyClientOffer.clientId": "предложение объекта коллегой по карточке-дублю закрывается при слиянии (CLOSED); переносить нельзя — у основной карточки может быть своё по тому же объекту (одна строка на пару), новое предлагается заново",
 };
 
 async function moveRemainingClientLinks(tx: TxClient, from: string, to: string): Promise<void> {
@@ -483,6 +489,8 @@ async function moveRemainingClientLinks(tx: TxClient, from: string, to: string):
   await tx.insightCase.updateMany(move);
   await tx.smsMessage.updateMany(move);
   await tx.liveVoiceSession.updateMany(move);
+  await tx.robotCallStop.updateMany(move);
+  await tx.robotCallAllow.updateMany(move);
   await tx.jobApplication.updateMany(move);
 
   // Уникальные пары: переезжает только то, чего у основной карточки ещё нет.
@@ -500,6 +508,8 @@ async function moveRemainingClientLinks(tx: TxClient, from: string, to: string):
 
 /** Cancel before open-task reassignment so historical assignees stay intact. */
 async function closeMergedSellerControls(tx: TxClient, from: string, to: string) {
+  // Предложения объектов коллегой по дублю — закрыть, а не переносить (см. MERGE_LINKS_LEFT_BEHIND).
+  await tx.propertyClientOffer.updateMany({ where: { clientId: from, status: { in: ["PENDING", "SENT"] } }, data: { status: "CLOSED" } });
   for (const candidate of await tx.buyerShowingCandidate.findMany({ where: { clientId: from, status: { notIn: ["RESOLVED", "CANCELLED"] } } })) {
     await tx.buyerShowingCandidate.update({ where: { id: candidate.id }, data: { status: "CANCELLED", revision: { increment: 1 } } });
     if (candidate.taskId) await tx.interaction.updateMany({ where: { id: candidate.taskId, completedAt: null, taskCancelledAt: null }, data: { taskCancelledAt: new Date() } });

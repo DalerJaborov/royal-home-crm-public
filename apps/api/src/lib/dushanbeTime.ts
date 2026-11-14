@@ -133,3 +133,29 @@ export function dushanbeStartOfMonth(at: Date = new Date()): Date {
 export function dushanbeEndOfDay(at: Date): Date {
   return new Date(dushanbeDayRange(at).end.getTime() - 1);
 }
+
+/**
+ * Фильтр «с даты по дату» из полей формы (`<input type="date">` → `z.coerce.date()` = полночь
+ * UTC) — целыми сутками по Душанбе: «с 07.11 по 07.11» = весь день 07.11 по местному времени,
+ * а не 05:00–05:00. undefined — фильтра по дате нет.
+ */
+export function dushanbeDateFilter(from?: Date, to?: Date): { gte?: Date; lte?: Date } | undefined {
+  if (!from && !to) return undefined;
+  return {
+    ...(from ? { gte: dushanbeDayRange(from).start } : {}),
+    ...(to ? { lte: dushanbeEndOfDay(to) } : {}),
+  };
+}
+
+/**
+ * Границы месяца по Душанбе из ключа «YYYY-MM» — для полей с настоящим моментом
+ * (Deal.closedAt, Client.createdAt). Якорь — 15-е число в UTC: сдвиг на ±5 часов
+ * не меняет календарный месяц. Одна функция на ИИ-помощницу и её инструменты.
+ */
+export function dushanbeMonthRange(monthKey: string): { from: Date; to: Date } {
+  const [y, m] = monthKey.split("-").map(Number);
+  return {
+    from: dushanbeStartOfMonth(new Date(Date.UTC(y, m - 1, 15))),
+    to: dushanbeStartOfMonth(new Date(Date.UTC(y, m, 15))),
+  };
+}

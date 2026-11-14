@@ -104,8 +104,8 @@ describe("parseFastPathIntent — что берём без модели", () => 
     ["+992 90 123-45-67", { kind: "phone", phone: "+992901234567" }],
     ["0901234567", { kind: "phone", phone: "+992901234567" }],
     ["номер 901234567", { kind: "phone", phone: "+992901234567" }],
-    ["https://www.instagram.com/reel/Cx1_aB-9z/?igsh=abc", { kind: "instagram", code: "Cx1_aB-9z" }],
-    ["вот ссылка https://instagram.com/p/AbC123/", { kind: "instagram", code: "AbC123" }],
+    ["https://www.instagram.com/reel/Cx1_aB-9z/?igsh=abc", { kind: "instagram", code: "Cx1_aB-9z", link: "https://www.instagram.com/reel/Cx1_aB-9z/?igsh=abc" }],
+    ["вот ссылка https://instagram.com/p/AbC123/", { kind: "instagram", code: "AbC123", link: "вот ссылка https://instagram.com/p/AbC123/" }],
   ])("%s", (text, expected) => {
     expect(parseFastPathIntent(text)).toEqual(expected);
   });
@@ -144,13 +144,17 @@ describe("tryAssistantFastPath — выдача под правами", () => {
     expect(res!.tool).toBe("fast_path.property-code");
   });
 
-  it("удалённый и отсутствующий объект одинаково не видны по номеру", async () => {
+  // До 07.11.2026 удалённый и отсутствующий объект отвечали одинаково «не нашла». Решение владельца
+  // (lib/trashAccess.ts, пачка 2 Шабнам): Корзина объектов — справка для всех, поэтому удалённый
+  // объект по номеру даёт «в Корзине, удалён …» без карточки, а несуществующий — прежнее «не нашла».
+  it("удалённый объект по номеру — справка «в Корзине» без карточки; отсутствующий — «не нашла»", async () => {
     const p = await makeProperty({ deletedAt: new Date() });
-    for (const shortId of [p.shortId, 999999999]) {
-      expect(await tryAssistantFastPath(`объект ${shortId}`, actor(agentAId))).toMatchObject({
-        cards: [], reply: `Не нашла объект ОБ-${String(shortId).padStart(6, "0")} среди доступных карточек.`,
-      });
-    }
+    const trashed = await tryAssistantFastPath(`объект ${p.shortId}`, actor(agentAId));
+    expect(trashed).toMatchObject({ cards: [], trashed: 1 });
+    expect(trashed?.reply).toContain(`ОБ-${String(p.shortId).padStart(6, "0")} в Корзине`);
+    expect(await tryAssistantFastPath("объект 999999999", actor(agentAId))).toMatchObject({
+      cards: [], reply: "Не нашла объект ОБ-999999999 среди доступных карточек.",
+    });
   });
 
   it("ссылка Instagram: точный код, а не просто общее начало", async () => {

@@ -213,7 +213,7 @@ export function TeamMemberDetail() {
   // /team уже загружен «Командой» перед переходом сюда — тот же react-query
   // кеш, повторного запроса по сети не будет. Freeze/Handover просят полный
   // TeamMember (frozen, absenceKind…), которого нет ни в /overview, ни в /live.
-  const { data: team } = useTeam(!!id);
+  const { data: team } = useTeam(!!id, { includeFormer: canManageAgents });
   const member = useMemo(() => team?.find((m) => m.id === id), [team, id]);
   const callAgent = useCallAgent(id ?? "");
   const [showFreeze, setShowFreeze] = useState(false);

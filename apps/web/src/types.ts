@@ -740,6 +740,9 @@ export interface AppNotification {
   retiredAt?: string | null;
   /** Причина гашения — «Клиент передан Иванову» и т.п., подпись рядом с меткой. */
   retiredReason?: string | null;
+  /** Предложение объекта коллегой (kind `property-offer`): статус ответа с сервера,
+   *  чтобы после перезагрузки лента показывала ответ, а не снова кнопки. */
+  offer?: { id: string; status: string; answerable: boolean };
   createdAt: string;
 }
 

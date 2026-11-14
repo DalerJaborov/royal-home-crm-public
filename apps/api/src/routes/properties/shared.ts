@@ -6,19 +6,19 @@
 import type { Request } from "express";
 import { z } from "zod";
 import {
+  isReadOnlyRole,
   PROPERTY_EDIT_LOCKED_CODE,
   PROPERTY_EDIT_LOCKED_MESSAGE,
   PROPERTY_EDIT_LOCKED_REASON_PUBLISHED,
   foldTajikLetters,
   propertyEditLocked,
   transliterateLatin,
-  SALES_AGENT_ROLES,
 } from "@royal-home/shared";
 import { can } from "../../auth/middleware.js";
+import { canTransferProperty } from "../../lib/propertyManualTransfer.js";
 import { canManagePropertyAs, publishedActionDeniedReasonAs } from "../../lib/propertyAccess.js";
 import { enqueueBackgroundJob } from "../../jobs/enqueue.js";
 import { GEOCODE_MAX_ATTEMPTS } from "../../jobs/geocode.js";
-import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 
 /** Best-effort, никогда не блокирует ответ на создание/сохранение объекта — Nominatim
@@ -199,7 +199,8 @@ export function canManageProperty(
  * руководитель). Нужны оба права: правка чужого объекта и распределение.
  */
 export function canReassignPropertyAgents(req: Request): boolean {
-  return can(req, "properties.editForeign") && can(req, "clients.assign");
+  // Одно правило с передачей объекта помощницей (lib/propertyManualTransfer.ts).
+  return canTransferProperty({ id: req.agent?.id ?? "", can: (permission) => can(req, permission) });
 }
 
 /**
@@ -213,8 +214,11 @@ export function canReassignPropertyAgents(req: Request): boolean {
 export function propertyCreateDeniedReason(req: Pick<Request, "agent">): string | null {
   if (!req.agent) return "Недостаточно прав";
   if (req.agent.role === "SECURITY") return "Служба безопасности не заводит объекты — это делает агент";
-  // Акционер (SHAREHOLDER) — только смотрит: объекты не заводит (спека ролей §2.4).
-  if (req.agent.role === "SHAREHOLDER") return "Акционер только просматривает данные — объекты заводит агент";
+  // Роли «только просмотр» (акционер, спека ролей §2.4) объекты не заводят — то же
+  // правило, что у requireAuth (isReadOnlyRole), а не сверка имени роли.
+  if (isReadOnlyRole(req.agent.role)) {
+    return req.agent.role === "SHAREHOLDER" ? "Акционер только просматривает данные — объекты заводит агент" : "Режим просмотра: изменения недоступны";
+  }
   return null;
 }
 
@@ -255,27 +259,8 @@ export function publishedActionDeniedReason(
   return publishedActionDeniedReasonAs({ agentId: req.agent?.id ?? "", can: (permission) => can(req, permission) }, property);
 }
 
-/**
- * Годится ли этот id в `intakeAgentId`/`assignedAgentId` объекта — дыра 11.09.2026
- * (Пачка 1 п.9): сервер проверял только право ПРИСЛАТЬ это поле (properties.editForeign
- * для чужого, самого себя — рядовой агент), но не то, что id вообще указывает на
- * живого действующего сотрудника с ролью «Агент». PATCH с id уволенного, гостя из
- * другой роли или вовсе несуществующей строкой раньше сохранялся как есть, и
- * карточка объекта показывала ответственным человека, который не может им быть.
- *
- * Возвращает текст ошибки или `null`, если id годится.
- */
-export async function assignableAgentError(agentId: string): Promise<string | null> {
-  const agent = await prisma.agent.findUnique({
-    where: { id: agentId },
-    select: { role: true, isActive: true, frozenAt: true },
-  });
-  if (!agent) return "Сотрудник не найден";
-  if (!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)) return "Указанный сотрудник не может вести объекты (не агент)";
-  if (!agent.isActive) return "Сотрудник уволен или деактивирован";
-  if (agent.frozenAt) return "Сотрудник заморожен — назначьте другого";
-  return null;
-}
+/** Перенесено в lib/propertyAssignableAgent.ts (10.11.2026): его зовёт и помощница. */
+export { assignableAgentError } from "../../lib/propertyAssignableAgent.js";
 
 /**
  * Ключи повторной отправки: по одному на файл, в том же порядке, что и файлы.

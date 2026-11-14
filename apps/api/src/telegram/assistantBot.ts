@@ -1,4 +1,4 @@
-import { assistantInstagramLink, renderAssistantForTelegram, requestedAssistantReplyMode, requestedAssistantReplyPreference, sanitizeAssistantReply, splitReaction,
+import { assistantInstagramLink, dropVoiceAvailabilityClaims, renderAssistantForTelegram, requestedAssistantReplyMode, requestedAssistantReplyPreference, sanitizeAssistantReply, splitReaction, splitVoiceMarker,
   type AssistantReplyMode, type AssistantSpeechLanguage } from "./assistantReply.js";
 import { assistantGroupClarification, sendAssistantReply } from "./assistantDelivery.js";
 import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
@@ -6,15 +6,16 @@ import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assist
 import { matchGroupPublicShellQuestion, replyGroupPublicShellQuestion, replyPublicListingQuestion } from "./assistantGroupPublicListing.js";
 import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
+import { trashedPropertyNoteFor } from "../ai/assistant/tools/propertyPresenter.js";
 import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
-import { formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
+import { ASSISTANT_DEADLINE_SEC, formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
-import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
+import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
 import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
@@ -24,13 +25,19 @@ import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistant
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
-import { handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
+import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
+import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
+import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
+import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
+import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
+import { applyExpenseFixMessage, expenseBatchOutcomeText, handleExpenseCardCallback, sendExpenseBatchCard } from "./assistantExpenseCard.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
   AssistantActionError,
   discardPendingAssistantAction,
   confirmAssistantAction,
+  undoAssistantAction,
   type AssistantActionActor,
   type AssistantActionView,
 } from "../lib/assistantActions.js";
@@ -38,13 +45,31 @@ import { claimAgentAiAction } from "../lib/agentAiActionCap.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { findAgentByTelegramChatId, findAgentByTelegramUserId } from "../lib/telegramAgentLink.js";
 import { claimCallback } from "../lib/telegramModeration.js";
+import { handlePaymentReminderCallback } from "../lib/paymentReminders.js";
+import { handleNoticePreferenceText, handleStaffNoticeCallback } from "./staffNotice.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
-import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
+import { trackBackgroundTask } from "../lib/shutdownState.js";
+import { logAssistantFastPathTurn, logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
+import {
+  bundleNeedsStepUp,
+  cancelStepUpForBundle,
+  findPendingStepUp,
+  parseStepUpCode,
+  rememberStepUpPrompt,
+  startStepUpChallenge,
+  stepUpText,
+  verifyStepUpCode,
+  type PendingStepUp,
+  type StepUpKind,
+  type StepUpLanguage,
+} from "./assistantStepUp.js";
+import { STAFF_TOOL_NAMES } from "../ai/assistant/tools/staffToolNames.js";
 import {
   answerCallbackQuery as answerCallbackQueryRaw,
+  deletePrivateMessage,
   getBotUsername,
-  sendChatAction, sendHtmlMessage,
+  editMessageText, sendChatAction, sendHtmlMessage,
   sendMessage,
   sendMessageWithButtons,
   setMessageReaction,
@@ -101,13 +126,25 @@ const DISABLED_TEXT = "ИИ-помощник выключен в Настрой�
  */
 const answerCallbackQuery = (id: string, text?: string) => answerCallbackQueryRaw(id, text).catch(() => undefined);
 
-const BUNDLE_CALLBACK = /^as:(ok|no):([0-9a-f-]{36})$/;
+const BUNDLE_CALLBACK = /^as:(ok|no|undo):([0-9a-f-]{36})$/;
+
+/**
+ * Кнопка «↩️ Отменить» после исполнения (10.11.2026) — только в личке и только для
+ * раздела «Команда» и передачи клиента: там откат есть в брокере (права, роль,
+ * пауза, заморозка, передача дел). Остальные карточки Telegram ведут себя как раньше.
+ */
+const UNDO_IN_TELEGRAM: ReadonlySet<string> = new Set<string>([...STAFF_TOOL_NAMES, "change_client_agent"]);
+const undoButtons = (bundleId: string) => [[{ text: "↩️ Отменить", callback_data: `as:undo:${bundleId}` }]];
+
 
 // ───────────────────────────── права ─────────────────────────────
 
 /** Права, которых в общей группе у помощника нет, даже если они есть у спросившего. */
 const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = [
   "clients.viewPhone", "finance.view", "reports.view", "calls.transcripts", "calls.ownTranscripts",
+  // Корзина КЛИЕНТОВ — не при чужих глазах в общей группе (07.11.2026); в личном чате доступна.
+  // Удалённые ОБЪЕКТЫ — справка для всех и в группе (lib/trashAccess.ts, решение владельца 07.11).
+  "archive.view",
 ];
 
 /**
@@ -117,6 +154,11 @@ const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = [
  */
 const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "search_deals",
+  // «Сделки» Шабнам (10.11.2026): деньги и доли — только в личке. Сами инструменты
+  // тоже не объявляются вне лички (dealToolsAllowed), это вторая стена.
+  "get_deal_card",
+  "get_my_commission",
+  "get_payouts_due",
   "get_company_stats",
   "get_finance_summary",
   "get_lead_sources",
@@ -124,7 +166,22 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "create_task",
   "reschedule_task",
   "add_client_note",
+  // Сотрудники и права — только личка (владелец 10.11.2026): в группе ни читать, ни менять.
+  ...STAFF_TOOL_NAMES,
+  // Личная настройка уведомлений (14.11.2026): только в личке; в группе — вторая стена к allowed().
+  "set_notification_pref",
+  // Деньги в общей группе не показываются и не меняются (10.11.2026): все инструменты расходов.
+  // Список буквами (не импортом): сверку с реестром держит тест assistant-expense-batch.
+  "list_expenses", "get_expense_summary", "get_expense_forecast", "get_expense_pivot", "list_recurring_expenses",
+  "list_expense_archive", "list_expense_categories", "add_expenses", "update_expense", "delete_expense", "restore_expense",
+  "pay_expense", "undo_expense_payment", "create_recurring_expense", "update_recurring_expense", "delete_recurring_expense",
+  "recurring_expense_payment", "create_expense_category", "update_expense_category", "get_expense_history",
 ]);
+
+/** Для теста-сторожа: что закрыто в общей группе. */
+export function groupHiddenToolsForTests(): ReadonlySet<string> {
+  return GROUP_HIDDEN_TOOLS;
+}
 
 /** Актор помощника для ЧТЕНИЯ: в группе — без телефонов клиентов, финансов и отчётов. */
 export function assistantActorFor(
@@ -159,7 +216,32 @@ function lines(record: Record<string, unknown>): string {
 }
 
 /** Одна карточка на все ожидающие действия ответа: «было → станет» по каждому. */
-export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false, source?: string, tajik = false): string {
+/**
+ * Рамка карточки подтверждения на языке собеседника (10.11.2026): «Подтвердите действие / Было /
+ * Станет / Подтвердить может только …». Одна таблица на все инструменты записи; значения полей —
+ * как их построил инструмент. По умолчанию — русский, как было.
+ */
+const CARD_FRAME = {
+  ru: { confirm: (many: boolean) => `Подтвердите действие${many ? "я" : ""}:`, was: "Было", becomes: "Станет", irreversible: "Необратимо",
+    only: (name: string) => `Подтвердить может только ${name}.`, origin: (who: string) => `По сообщению ${who}`,
+    ok: "✅ Подтвердить", okIrreversible: "✅ Подтвердить (необратимо)", okPlain: "Подтвердить", cancel: "✖ Отмена", cancelPlain: "Отмена" },
+  tg: { confirm: (many: boolean) => `Ин амал${many ? "ҳо" : ""}ро тасдиқ кунед:`, was: "Пеш", becomes: "Мешавад", irreversible: "Баргардонда намешавад",
+    only: (name: string) => `Танҳо ${name} тасдиқ карда метавонад.`, origin: (who: string) => `Аз рӯи паёми ${who}`,
+    ok: "✅ Тасдиқ", okIrreversible: "✅ Тасдиқ (баргардонда намешавад)", okPlain: "Тасдиқ", cancel: "✖ Бекор", cancelPlain: "Бекор" },
+} as const;
+export type CardFrameLang = keyof typeof CARD_FRAME;
+/** Буквы, которых нет в русском, — по ним видно, что инструмент построил карточку по-таджикски. */
+const TAJIK_LETTERS = /[ӣӯқғҳҷҒҚҲҶӢӮ]/u;
+
+/** Язык рамки карточки: таджикский, только если все карточки построены по-таджикски и разговор таджикский. */
+export function bundleFrameLang(actions: readonly Pick<AssistantActionView, "preview">[], language: ReturnType<typeof assistantLanguage> | undefined): CardFrameLang {
+  return actions.length > 0 && actions.every((a) => TAJIK_LETTERS.test(a.preview.title)) && cardFrameLang(language) === "tg" ? "tg" : "ru";
+}
+export const cardFrameLang = (language: ReturnType<typeof assistantLanguage> | undefined): CardFrameLang =>
+  language === "tg" || language === "mixed" ? "tg" : "ru";
+
+export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false, source?: string, tajik = false, lang: CardFrameLang = "ru"): string {
+  const frame = CARD_FRAME[lang];
   const parts = actions.map((a, i) => {
     const p = a.preview;
     const head = actions.length > 1 ? `${i + 1}) ${p.title}` : p.title;
@@ -174,19 +256,19 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
     }
     return [
       head,
-      `   Было: ${lines(p.was)}`,
-      `   Станет: ${lines(p.becomes)}`,
-      p.risk ? `   ${p.irreversible ? "⚠️ " : ""}${field(p.risk)}` : p.irreversible ? "   ⚠️ Необратимо" : null,
+      `   ${frame.was}: ${lines(p.was)}`,
+      `   ${frame.becomes}: ${lines(p.becomes)}`,
+      p.risk ? `   ${p.irreversible ? "⚠️ " : ""}${field(p.risk)}` : p.irreversible ? `   ⚠️ ${frame.irreversible}` : null,
     ]
       .filter(Boolean)
       .join("\n");
   });
-  const origin = source ? `По сообщению ${source}
+  const origin = source ? `${frame.origin(source)}
 ` : "";
   if (maskPhones && actions.length === 1 && actions[0]?.tool === "change_property_price") {
     return sanitizeAssistantReply(parts[0] ?? "", true);
   }
-  const card = `${origin}Подтвердите действие${actions.length > 1 ? "я" : ""}:\n\n${parts.join("\n\n")}\n\nПодтвердить может только ${authorName}.`;
+  const card = `${origin}${frame.confirm(actions.length > 1)}\n\n${parts.join("\n\n")}\n\n${frame.only(authorName)}`;
   return sanitizeAssistantReply(card, maskPhones);
 }
 
@@ -197,6 +279,8 @@ interface TurnResult {
   propertyCard?: AssistantPropertyCard;
   failed?: true;
   structured?: boolean;
+  /** Модель поняла просьбу ответить голосом (метка `[голос]`, уже вырезанная из reply). */
+  voiceRequested?: boolean;
   propertySelection?: NonNullable<ReturnType<typeof propertySelection>>;
   /** Карточки, ждущие «Подтвердить» (уровень C). */
   pending: AssistantActionView[];
@@ -216,6 +300,100 @@ interface TurnParams {
   validateQueueAudience?: () => Promise<boolean>;
   /** Для сообщения-отказа до запуска модели. */
   deny: (text: string) => Promise<void>;
+  /** «Печатает…» в чате: Telegram гасит его через ~5 с, поэтому на долгом ходе (до двух минут,
+   *  Settings.aiAssistantDeadlineSec) повторяется каждые TYPING_REFRESH_MS, пока идёт модель. */
+  showWorking?: () => void;
+  /** Ключ хода (`tg:<чат>:<сообщение>`): повторная доставка того же сообщения не повторяет записи. */
+  turnKey?: string;
+}
+
+/** Чаще, чем Telegram гасит «печатает…» (~5 с), но без лишних вызовов API. */
+export const TYPING_REFRESH_MS = 4_000;
+
+/**
+ * ХОД ПОМОЩНИЦЫ ВНЕ ОЧЕРЕДИ ЧАТА (ревью 08.11.2026). Ход теперь длится до двух минут
+ * (Settings.aiAssistantDeadlineSec). Внутри очереди чата (telegram/bot.ts, chatChains) он держал бы
+ * всю группу, а при long polling (telegram/poller.ts) — пачку всех чатов. Поэтому долгая часть
+ * уходит в свою очередь на одного человека: порядок ответов одному человеку сохраняется, соседи
+ * по группе и другие чаты не ждут. Двойной обработки нет: апдейт уже принят и отмечен (дедуп
+ * вебхука и поллера срабатывает до этого места), очередь только откладывает ответ.
+ * Ответ отдаётся наверх как `reply` (TelegramUpdateAccepted): вебхук и тесты его дожидаются,
+ * поллер — нет; мягкая остановка ждёт его через trackBackgroundTask.
+ */
+const assistantLanes = new Map<string, Promise<void>>();
+
+/**
+ * Сколько ходов помощницы идут разом во всём процессе. Остальные ждут свободного места в общей
+ * очереди: двадцать человек, спросивших разом, не должны разом съесть память worker и лимиты
+ * Gemini. Порядок внутри одного человека держит его собственная очередь (assistantLanes).
+ */
+export const ASSISTANT_CONCURRENT_TURNS = 8;
+let assistantTurnsRunning = 0;
+const assistantTurnWaiters: (() => void)[] = [];
+
+async function withAssistantSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (assistantTurnsRunning >= ASSISTANT_CONCURRENT_TURNS) {
+    await new Promise<void>((resolve) => assistantTurnWaiters.push(resolve));
+  } else {
+    assistantTurnsRunning += 1;
+  }
+  try {
+    return await work();
+  } finally {
+    const next = assistantTurnWaiters.shift();
+    // Место передаётся следующему ожидающему напрямую, счётчик при этом не меняется.
+    if (next) next();
+    else assistantTurnsRunning -= 1;
+  }
+}
+
+/** Для тестов: сколько ходов помощницы сейчас идёт и сколько ждут места. */
+export function assistantTurnSlotsForTests(): { running: number; waiting: number } {
+  return { running: assistantTurnsRunning, waiting: assistantTurnWaiters.length };
+}
+const deferredReplies = new WeakMap<object, Promise<void>>();
+
+/**
+ * Сколько следующий ход человека ждёт предыдущий: самый длинный срок хода + минута. Зависший
+ * (не ответивший) ход не должен навсегда запереть очередь этого человека.
+ */
+const DEFAULT_LANE_WAIT_CEILING_MS = ASSISTANT_DEADLINE_SEC.max * 1000 + 60_000;
+let laneWaitCeilingMs = DEFAULT_LANE_WAIT_CEILING_MS;
+/** Для тестов: короткий потолок (null — обычный). */
+export function setAssistantLaneCeilingForTests(ms: number | null): void {
+  laneWaitCeilingMs = ms ?? DEFAULT_LANE_WAIT_CEILING_MS;
+}
+
+export function runInAssistantLane(key: string, work: () => Promise<unknown>, onError: (err: unknown) => Promise<void>): Promise<void> {
+  const before = assistantLanes.get(key) ?? Promise.resolve();
+  let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
+  const previous = Promise.race([
+    before,
+    new Promise<void>((resolve) => { ceilingTimer = setTimeout(resolve, laneWaitCeilingMs); }),
+  ]).finally(() => clearTimeout(ceilingTimer));
+  const run = previous.then(async () => {
+    try {
+      await withAssistantSlot(work);
+    } catch (err) {
+      await onError(err).catch(() => {});
+    }
+  });
+  assistantLanes.set(key, run);
+  void run.then(() => {
+    if (assistantLanes.get(key) === run) assistantLanes.delete(key);
+  });
+  return trackBackgroundTask(run);
+}
+
+/** Отложенный ответ помощницы на это сообщение (если был) — для telegram/bot.ts. */
+export function takeDeferredAssistantReply(msg: TelegramIncomingMessage): Promise<void> | undefined {
+  const reply = deferredReplies.get(msg);
+  deferredReplies.delete(msg);
+  return reply;
+}
+
+function deferAssistantReply(msg: TelegramIncomingMessage, reply: Promise<void>): void {
+  deferredReplies.set(msg, reply);
 }
 
 function montageQueueLanguage(text: string): "ru" | "tg" | null {
@@ -239,6 +417,14 @@ function formatMontageQueue(queue: Awaited<ReturnType<typeof getPropertyWorkList
   if (codes.length) lines.push(codes.join(", "));
   if (queue.total > codes.length) lines.push(`${labels.more} ${queue.total - codes.length}`);
   return lines.join("\n");
+}
+
+/**
+ * Вид ответа: метка модели `[голос]` — главное (она понимает просьбу любыми словами), разбор
+ * фраз — страховка. Язык голоса при метке — язык самого ответа (assistantDelivery берёт его первым).
+ */
+function replyPreference(result: TurnResult, fallback: ReturnType<typeof requestedAssistantReplyPreference> | undefined) {
+  return result.voiceRequested ? { mode: "voice" as const, voiceLanguage: fallback?.voiceLanguage } : fallback;
 }
 
 /** Общий ход: рубильник → права → потолок → быстрый путь → ядро. null — отказ уже отправлен. */
@@ -269,22 +455,34 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
       .filter(plugin => plugin.level !== "A" && (plugin.level !== "C" || plugin.name !== params.onlyGroupConfirmation))
       .map(plugin => plugin.name)]);
   }
+  const turnStartedAt = Date.now();
   if (queueLanguage) {
     let reply: string;
+    let queueFailed = false;
     try {
       const queue = await getPropertyWorkList(actor, "queue");
       const currentAccess = await loadAgentAccess(params.agentId, prisma);
       if (!currentAccess?.isActive || currentAccess.role !== access.role
         || currentAccess.permissions.has("properties.delete") !== access.permissions.has("properties.delete")
         || (params.validateQueueAudience && !(await params.validateQueueAudience()))) return null;
-      void logAssistantToolCall({ agentId: actor.id, tool: "get_property_work_status", argsSummary: '{"scope":"queue"}', resultCount: queue.total });
+      void logAssistantToolCall({
+        agentId: actor.id, tool: "get_property_work_status", argsSummary: '{"scope":"queue"}', resultCount: queue.total,
+        question: last?.role === "user" ? last.content : null,
+      });
       reply = formatMontageQueue(queue, queueLanguage, params.scope === "private");
     } catch (error) {
       void logSystemError("ai", `Помощник Telegram: очередь монтажа: ${describeError(error)}`);
+      queueFailed = true;
       reply = queueLanguage === "tg"
         ? "Навбати монтажро санҷида натавонистам. Каме баъд боз пурс."
         : "Не удалось проверить очередь монтажа. Попробуй чуть позже.";
     }
+    void logAssistantTurn({
+      agentId: actor.id, channel: "telegram", surface: actor.surface ?? null,
+      question: last?.role === "user" ? last.content : null,
+      outcome: queueFailed ? "error" : "answer", reason: queueFailed ? "internal" : null, route: "fast_path",
+      rounds: 0, toolCalls: 1, replyChars: reply.length, ms: Date.now() - turnStartedAt,
+    });
     return { reply, pending: [], done: [], structured: true };
   }
   const canCaptureCards = Boolean(params.allowPropertyCards && !params.forwardedEvidence && !params.onlyGroupConfirmation
@@ -296,7 +494,11 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
       if (params.scope === "private") {
         const roster = await findTelegramAgentClients(last.content, actor);
         if (roster !== null) {
-          void logAssistantToolCall({ agentId: actor.id, tool: "find_clients", argsSummary: "{}", resultCount: null });
+          void logAssistantToolCall({ agentId: actor.id, tool: "find_clients", argsSummary: "{}", resultCount: null, question: last.content });
+          void logAssistantFastPathTurn({
+            agentId: actor.id, channel: "telegram", surface: actor.surface, question: last.content,
+            reply: roster, found: 1, startedAt: turnStartedAt,
+          });
           return { reply: roster, pending: [], done: [], structured: true };
         }
       }
@@ -307,6 +509,11 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
           tool: fast.tool,
           argsSummary: fast.argsSummary,
           resultCount: fast.cards.length,
+          question: last.content,
+        });
+        void logAssistantFastPathTurn({
+          agentId: actor.id, channel: "telegram", surface: actor.surface, question: last.content,
+          reply: fast.reply, found: fast.cards.length + (fast.trashed ?? 0), startedAt: turnStartedAt,
         });
         const first = fast.cards[0];
         return {
@@ -329,8 +536,10 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   let mixedRead = false;
   let searches = 0;
   const readOnly = Boolean(params.forwardedEvidence || params.readOnlyGroup);
+  const typing = params.showWorking ? setInterval(params.showWorking, TYPING_REFRESH_MS) : null;
   const outcome = await runAssistantDetailed(params.history, actor, {
     channel: "telegram",
+    turnKey: params.turnKey,
     moneyWallet: params.moneyWallet,
     confirmUi: !readOnly,
     readOnly,
@@ -345,15 +554,21 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
         propertyLookup ??= propertySelection(name, result, args) ?? undefined;
       } else if (name !== "get_property_card") mixedRead = true;
     },
+  }).finally(() => {
+    if (typing) clearInterval(typing);
   });
   const all = [...seen.values()];
   const pending = all.filter((a) => a.status === "PENDING");
   const done = all.filter((a) => a.status === "EXECUTED");
   if (!outcome.ok) {
-    return { reply: ASSISTANT_ERROR_MESSAGES[outcome.code], pending, done, failed: true };
+    return { reply: assistantErrorMessage(outcome.code, params.history), pending, done, failed: true };
   }
+  // Модель не решает, работает ли голос: такие фразы вырезаются до отправки и до истории.
+  // Метку `[голос]` (модель поняла просьбу ответить голосом) снимаем здесь же — в историю и
+  // в текст она не попадает. Пересланное — чужие слова, не просьба этого человека.
+  const marked = splitVoiceMarker(outcome.reply);
   return {
-    reply: outcome.reply, pending, done, structured,
+    reply: dropVoiceAvailabilityClaims(marked.text), voiceRequested: marked.voice && !params.forwardedEvidence, pending, done, structured,
     propertySelection: !mixedRead && searches < 2 ? searchSelection ?? propertyLookup : undefined,
   };
 }
@@ -399,7 +614,9 @@ async function bindConfirmation(agentId: string, actionIds: string[]): Promise<C
 async function sendTurnResult(
   chatId: string,
   result: TurnResult,
-  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; messageThreadId?: number; source?: string; fromVoice?: boolean; addressedGroupVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number; requestLanguage?: ReturnType<typeof assistantLanguage>; voiceLanguage?: AssistantSpeechLanguage }
+  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; messageThreadId?: number; source?: string; fromVoice?: boolean; addressedGroupVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number; requestLanguage?: ReturnType<typeof assistantLanguage>; voiceLanguage?: AssistantSpeechLanguage;
+    /** Язык рамки карточки подтверждения (личка: язык сообщения человека). */
+    cardLanguage?: ReturnType<typeof assistantLanguage> }
 ): Promise<void> {
   const maskPhones = ctx.scope === "group";
   const split = splitReaction(result.reply);
@@ -422,9 +639,24 @@ async function sendTurnResult(
     });
     return;
   }
+  // Пачка расходов — своя карточка по статьям, со страницами и «Править» (assistantExpenseCard.ts).
+  if (!maskPhones && result.pending.length === 1 && result.pending[0]!.tool === ADD_EXPENSES_TOOL) {
+    // Карточка говорит сама за себя: фразу модели «проверьте и нажмите» второй репликой не шлём.
+    const lead = written.join("\n");
+    if (lead.trim()) await sendMessage(chatId, lead, ctx.replyTo).catch(() => undefined);
+    if (!(await sendExpenseBatchCard(chatId, result.pending[0]!, ctx.agentId, ctx.replyTo))) {
+      await cancelPending(result.pending, ctx.agentId);
+      await sendMessage(chatId, "Карточка уже изменилась. Повторите просьбу.", ctx.replyTo);
+    }
+    return;
+  }
   const priceOnlyInGroup = maskPhones && result.pending.every(action => action.tool === "change_property_price");
   const tajikPrice = priceOnlyInGroup && (ctx.requestLanguage === "tg" || ctx.requestLanguage === "mixed");
-  const preview = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source, tajikPrice);
+  // Язык рамки = язык содержимого инструментов (повторное ревью 10.11.2026): таджикская рамка только
+  // если все карточки построены по-таджикски и собеседник говорит по-таджикски; иначе русская целиком.
+  const frameLang = bundleFrameLang(result.pending, ctx.cardLanguage ?? ctx.requestLanguage);
+  const frame = CARD_FRAME[frameLang];
+  const preview = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source, tajikPrice, frameLang);
   const body = [priceOnlyInGroup ? "" : rendered, ...written].filter(Boolean).join("\n");
   // Кнопка без полностью видимой карточки — подтверждение вслепую: слишком длинное не показываем.
   if (preview.length > CARD_MAX_CHARS) {
@@ -444,14 +676,16 @@ async function sendTurnResult(
   }
   const { bundleId } = binding;
   // Show the same order that pressing either card will execute.
-  const card = renderBundleCard(binding.actionIds.map((id) => pendingById.get(id)!), ctx.authorName, maskPhones, ctx.source, tajikPrice);
+  const card = renderBundleCard(binding.actionIds.map((id) => pendingById.get(id)!), ctx.authorName, maskPhones, ctx.source, tajikPrice, frameLang);
   const irreversible = result.pending.some((a) => a.preview.irreversible);
   // Карточка целиком, ответ модели — по остатку места (не наоборот).
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);
   const text = [body.slice(0, room), card].filter(Boolean).join("\n\n");
   const buttons = [[
-    { text: tajikPrice ? "Ҳа" : irreversible ? "✅ Подтвердить (необратимо)" : maskPhones ? "Подтвердить" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
-    { text: tajikPrice ? "Бекор" : maskPhones ? "Отмена" : "✖ Отмена", callback_data: `as:no:${bundleId}` },
+    // Сотрудники и права: кнопка честно говорит, что дальше спросят код (assistantStepUp.ts). Рамка — на
+    // языке содержимого (у карточек сотрудников она русская), поэтому и надпись кнопки — русская.
+    { text: tajikPrice ? "Ҳа" : bundleNeedsStepUp(result.pending) ? "🔐 Подтвердить кодом" : irreversible ? frame.okIrreversible : maskPhones ? frame.okPlain : frame.ok, callback_data: `as:ok:${bundleId}` },
+    { text: tajikPrice ? "Бекор" : maskPhones ? frame.cancelPlain : frame.cancel, callback_data: `as:no:${bundleId}` },
   ]];
   if (priceOnlyInGroup && result.pending.length === 1
       && await sendTelegramPriceConfirmationPhotos(chatId, result.pending[0], text, buttons, ctx.replyTo)) return;
@@ -565,6 +799,17 @@ function forwardedTextPrompt(text: string): string {
 }
 
 /** Личный чат сотрудника, не монтажёра: всё, что он пишет, — просьба помощнику. */
+/**
+ * Личка сотрудника — ход помощницы в очереди этого чата, но вне общей очереди апдейтов
+ * (runInAssistantLane): долгий ход не держит поллер и остальные чаты. Ответ — через
+ * takeDeferredAssistantReply(msg). У handleAssistantPrivate свой перехват ошибок.
+ */
+export function startAssistantPrivate(msg: TelegramIncomingMessage, agent: { id: string; fullName: string }): void {
+  deferAssistantReply(msg, runInAssistantLane(`private:${msg.chat.id}`, () => handleAssistantPrivate(msg, agent), async (err) => {
+    await logSystemError("telegram", `Помощник в личке Telegram: ${describeError(err)}`);
+  }));
+}
+
 export async function handleAssistantPrivate(
   msg: TelegramIncomingMessage,
   agent: { id: string; fullName: string }
@@ -584,7 +829,14 @@ export async function handleAssistantPrivate(
     const forwardedPlain = isForwarded && Boolean((msg.text ?? msg.caption)?.trim());
     const moneyWallet = createAssistantMoneyWallet();
     if (msg.document && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
+    // «Править текст» озвучки (15 минут после кнопки) — раньше мастера объекта и общего ответа.
+    if (!isForwarded && await handleNarrationTextReply(msg, agent)) return;
+    // Ответ «к какому объекту ролик» (30 минут после вопроса) — telegram/staffClip.ts.
+    if (!isForwarded && await handleStaffClipText(msg, agent)) return;
     if (!isForwarded && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
+    // Ролик от СММщика или другого сотрудника (12.11.2026): сам находит объект, дальше
+    // «Готов к выпуску» или «Нужен монтаж». В мастере объекта видео остаётся исходником (выше).
+    if (await handleStaffClipMessage(msg, agent)) return;
     if (msg.photo?.length && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
     let text = (msg.text ?? msg.caption ?? "").trim();
     const fromVoice = Boolean(msg.voice || msg.audio);
@@ -632,8 +884,14 @@ export async function handleAssistantPrivate(
       await send(HELP_TEXT);
       return;
     }
+    // Ответ на «Править → строка N» в карточке расходов: поправка строки, а не новая просьба.
+    if (!forwardedEvidence && await applyExpenseFixMessage(chatId, agent.id, text, msg.message_id)) return;
     const more = !forwardedEvidence && propertyPageRequest(text);
     if (more && await replyWithMoreProperties(cardScope, more, text)) return;
+    // «Не присылай мне такое», «что у меня выключено», «включи обратно уведомления …» —
+    // личные отключения. ПОСЛЕ карточек (правка строки расходов, «ещё варианты»): рабочий
+    // ответ на карточку важнее; разбор узкий и чужую фразу пропускает дальше (staffNotice.ts).
+    if (!forwardedEvidence && await handleNoticePreferenceText(msg, agent, text)) return;
     const previous = await loadHistory(chatId, agent.id);
     if (!forwardedEvidence && isVoiceReplayRequest(text)) {
       if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
@@ -650,18 +908,22 @@ export async function handleAssistantPrivate(
     if (followup && previousQuestion && parseFastPathIntent(previousQuestion.content)?.kind === "property-code") {
       text = `объект ${followup[1]}`;
     }
-    if (!fromVoice) void sendChatAction(chatId);
+    const showTyping = fromVoice ? undefined : () => void sendChatAction(chatId).catch(() => {});
+    showTyping?.();
     const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
+      showWorking: showTyping, turnKey: `tg:${chatId}:${msg.message_id}`,
       validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
     });
     if (!result) return;
     if (!await sendSelectedPropertyCards(cardScope, result, text)) {
-      const preference = forwardedEvidence ? undefined : requestedAssistantReplyPreference(text);
+      const preference = replyPreference(result, forwardedEvidence ? undefined : requestedAssistantReplyPreference(text));
       await sendTurnResult(chatId, result, {
         agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice,
         mode: preference?.mode ?? "auto", reactTo: msg.message_id, voiceLanguage: preference?.voiceLanguage,
         requestLanguage: preference?.mode === "voice" ? assistantLanguage([{ role: "user", content: text }]) : undefined,
+        // Язык разговора, а не одного сообщения: «5000» или «ҳа» не сбивают на русский.
+        cardLanguage: assistantLanguage(history.slice(-6)),
       });
     }
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);
@@ -792,7 +1054,13 @@ async function groupMontageReply(
 ): Promise<string | null> {
   const found = await findPropertiesByRef(ref, { hideOwnPendingDeleteFor: actor.mayDelete ? undefined : actor.id, limit: 1 });
   const property = found.kind === "shortId" ? found.properties[0] : undefined;
-  if (!property) return tajik ? `${ref}-ро дар CRM наёфтам.` : `Не нашла ${ref} в CRM.`;
+  if (!property) {
+    // Номер удалённого объекта — справка «в Корзине», а не «не нашла» (пачка 2, lib/trashAccess.ts).
+    const trash = { agentId: actor.id, can: (p: string) => p === "properties.delete" && actor.mayDelete, surface: "telegram-group" as const };
+    const note = await trashedPropertyNoteFor(ref, trash, tajik ? "tg" : "ru");
+    if (note) return note;
+    return tajik ? `${ref}-ро дар CRM наёфтам.` : `Не нашла ${ref} в CRM.`;
+  }
   if (property.videoHandoffStatus === "QUEUED") {
     const remake = Boolean(property.videoHandoffRemakeReason);
     return tajik ? `Навори ${ref} дар навбат аст${remake ? ". Аз нав месозанд" : ""}.`
@@ -872,6 +1140,17 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
   const reply = async (message: string) => {
     if (msg.message_thread_id === undefined) await sendMessage(chatId, message, msg.message_id);
     else await sendMessage(chatId, message, msg.message_id, undefined, { messageThreadId: msg.message_thread_id });
+  };
+
+  /** Долгая часть хода — вне очереди группы, в очереди этого человека (см. runInAssistantLane). */
+  const detach = (work: () => Promise<unknown>): true => {
+    const person = msg.from?.id ?? msg.sender_chat?.id ?? "unknown";
+    deferAssistantReply(msg, runInAssistantLane(`group:${chatId}:${person}`, work, async (err) => {
+      await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
+      if (!automatic && !automaticRead && !automaticAction && !membership && (!historySelector || addressed)
+          && (!standaloneVoice || addressed)) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
+    }));
+    return true;
   };
 
   try {
@@ -1016,7 +1295,12 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       if (!(await validateQueueAudience())) return false;
       const property = found.kind === "shortId" ? found.properties[0] : undefined;
       const url = assistantInstagramLink(property?.instagramUrl);
-      if (!url) {
+      // Номер удалённого объекта — справка «в Корзине», а не «не нашла» (пачка 2).
+      const trashedNote = property ? null : await trashedPropertyNoteFor(
+        ref, { agentId: sender.id, can: (p) => access.permissions.has(p), surface: "telegram-group" }, tajik ? "tg" : "ru");
+      if (trashedNote) {
+        await reply(trashedNote);
+      } else if (!url) {
         await reply(!property
           ? tajik ? `${ref}-ро наёфтам.` : `Не нашла ${ref}.`
           : tajik ? `Дар корти ${ref} линки Instagram нест.` : `В карточке ${ref} нет ссылки на пост в Instagram.`);
@@ -1183,39 +1467,46 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         }));
         question = `${currentWords}\n${wrapUntrusted("document", JSON.stringify(archived), 3000)}`;
       }
-      showWorking();
-      const result = await runTurn({
-        agentId: sender.id, scope: "group", readOnlyGroup: Boolean(historySelector) || !automaticAction,
-        validateQueueAudience, forwardedEvidence: isForwarded,
-        allowPropertyCards: Boolean(cardScope && !historySelector && !statusFollowUp),
-        onlyGroupConfirmation: historySelector ? undefined : automaticAction ?? undefined, moneyWallet,
-        history: [{ role: "user", content: maskAssistantContacts(question) }],
-        deny: async () => {},
-      });
-      if (!result || (result.failed && !automaticAction)) return true;
-      const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
-      if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
-          || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())
-          || (historySelector && (current.contextEnabledAt?.getTime() !== historyEnabledAt?.getTime()
-            || current.contextIncludeUnlinked !== historyIncludesUnlinked))) {
-        if (result.pending.length) await cancelPending(result.pending, sender.id);
-        return true;
-      }
-      if (automaticAction && !historySelector) {
-        await sendTurnResult(chatId, result, {
-          agentId: sender.id, authorName: sender.fullName, scope: "group", mode: "text", replyTo: msg.message_id,
-          messageThreadId: msg.message_thread_id, requestLanguage,
+      // Окно диалога — сразу, до долгого хода: уточнение без @ во время хода не теряется (ревью 08.11).
+      const earlyRefs = groupPropertyRefs(historySelector ? currentWords : statusFollowUp ? quoted : raw);
+      if (!isForwarded) openWindow(false, earlyRefs.length === 1 ? earlyRefs[0] : undefined);
+      return detach(async () => {
+        showWorking();
+        const result = await runTurn({
+          showWorking,
+          turnKey: `tg:${chatId}:${msg.message_id}`,
+          agentId: sender.id, scope: "group", readOnlyGroup: Boolean(historySelector) || !automaticAction,
+          validateQueueAudience, forwardedEvidence: isForwarded,
+          allowPropertyCards: Boolean(cardScope && !historySelector && !statusFollowUp),
+          onlyGroupConfirmation: historySelector ? undefined : automaticAction ?? undefined, moneyWallet,
+          history: [{ role: "user", content: maskAssistantContacts(question) }],
+          deny: async () => {},
         });
+        if (!result || (result.failed && !automaticAction)) return true;
+        const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+        if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
+            || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())
+            || (historySelector && (current.contextEnabledAt?.getTime() !== historyEnabledAt?.getTime()
+              || current.contextIncludeUnlinked !== historyIncludesUnlinked))) {
+          if (result.pending.length) await cancelPending(result.pending, sender.id);
+          return true;
+        }
+        if (automaticAction && !historySelector) {
+          await sendTurnResult(chatId, result, {
+            agentId: sender.id, authorName: sender.fullName, scope: "group", mode: "text", replyTo: msg.message_id,
+            messageThreadId: msg.message_thread_id, requestLanguage,
+          });
+          return true;
+        }
+        if (cardScope && await sendSelectedPropertyCards(cardScope, result, currentWords)) return true;
+        await sendAssistantReply(chatId, splitReaction(result.reply).text, {
+          scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id,
+          messageThreadId: msg.message_thread_id, written: [], requestLanguage,
+        });
+        const refs = groupPropertyRefs(historySelector ? currentWords : statusFollowUp ? quoted : raw);
+        if (!isForwarded) openWindow(false, refs.length === 1 ? refs[0] : undefined);
         return true;
-      }
-      if (cardScope && await sendSelectedPropertyCards(cardScope, result, currentWords)) return true;
-      await sendAssistantReply(chatId, splitReaction(result.reply).text, {
-        scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id,
-        messageThreadId: msg.message_thread_id, written: [], requestLanguage,
       });
-      const refs = groupPropertyRefs(historySelector ? currentWords : statusFollowUp ? quoted : raw);
-      if (!isForwarded) openWindow(false, refs.length === 1 ? refs[0] : undefined);
-      return true;
     }
 
     if (windowText !== null && key && dialogWindows.get(key)?.registeredAt !== registeredAt) {
@@ -1317,41 +1608,49 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       }
       if (refs.length === 1) request = tajik ? `${request}\nРақами объект: ${refs[0]}.` : `${request}\nНомер объекта: ${refs[0]}.`;
     }
-    if (!fromVoice || !audioWords) showWorking();
-    // Окно диалога открывается (и продлевается) на обработанном обращении.
-    const result = await runTurn({
-      agentId: sender.id,
-      moneyWallet,
-      scope: "group",
-      allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
-      readOnlyGroup: Boolean(continuationRef),
-      validateQueueAudience, forwardedEvidence,
-      history: [{ role: "user", content: request.slice(0, 4000) }],
-      deny: reply,
-    });
-    if (!result) return true;
-    if (continuationRef) {
-      const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
-      if (!current || current.createdAt.getTime() !== registeredAt
-          || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return true;
-    }
-    if (!result.failed && !forwardedEvidence) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
-    if (cardScope?.group && await sendSelectedPropertyCards({ ...cardScope,
-      group: { ...cardScope.group, addressed } }, result, words)) return true;
-    const preference = forwardedEvidence ? undefined : requestedAssistantReplyPreference(words);
-    await sendTurnResult(chatId, result, {
-      agentId: sender.id,
-      authorName: sender.fullName,
-      scope: "group",
-      fromVoice,
-      addressedGroupVoice: addressed && fromVoice && !forwardedEvidence && shortNativeVoice,
-      mode: preference?.mode ?? "auto",
-      voiceLanguage: preference?.voiceLanguage,
-      reactTo: msg.message_id,
-      replyTo: msg.message_id,
-      messageThreadId: msg.message_thread_id,
-      source,
-      requestLanguage: language === "mixed" ? language : tajik ? "tg" : language,
+    // Окно диалога — сразу, до долгого хода: «а за 600?» без @ во время хода попадёт в него и
+    // встанет в очередь этого человека после первого хода (ревью 08.11).
+    if (!forwardedEvidence) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
+    return detach(async () => {
+      const keepWorking = !fromVoice || !audioWords ? showWorking : undefined;
+      keepWorking?.();
+      // Окно диалога открывается (и продлевается) на обработанном обращении.
+      const result = await runTurn({
+        showWorking: keepWorking,
+        agentId: sender.id,
+        moneyWallet,
+        scope: "group",
+        allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
+        readOnlyGroup: Boolean(continuationRef),
+        validateQueueAudience, forwardedEvidence,
+        turnKey: `tg:${chatId}:${msg.message_id}`,
+        history: [{ role: "user", content: request.slice(0, 4000) }],
+        deny: reply,
+      });
+      if (!result) return true;
+      if (continuationRef) {
+        const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+        if (!current || current.createdAt.getTime() !== registeredAt
+            || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return true;
+      }
+      if (!result.failed && !forwardedEvidence) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
+      if (cardScope?.group && await sendSelectedPropertyCards({ ...cardScope,
+        group: { ...cardScope.group, addressed } }, result, words)) return true;
+      const preference = replyPreference(result, forwardedEvidence ? undefined : requestedAssistantReplyPreference(words));
+      await sendTurnResult(chatId, result, {
+        agentId: sender.id,
+        authorName: sender.fullName,
+        scope: "group",
+        fromVoice,
+        addressedGroupVoice: addressed && fromVoice && !forwardedEvidence && shortNativeVoice,
+        mode: preference?.mode ?? "auto",
+        voiceLanguage: preference?.voiceLanguage,
+        reactTo: msg.message_id,
+        replyTo: msg.message_id,
+        messageThreadId: msg.message_thread_id,
+        source,
+        requestLanguage: language === "mixed" ? language : tajik ? "tg" : language,
+      });
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
@@ -1396,8 +1695,25 @@ const FAIL_STATUS_NOTE: Record<string, string> = {
 
 /** `as:ok|no:<связка>`. true — это наша кнопка (обработана или отклонена). */
 export async function handleAssistantCallback(query: TelegramCallbackQuery): Promise<boolean> {
+  // «🔕 Не присылать такое» / «🔔 Включить обратно» — под любым сообщением помощницы по её почину.
+  if (await handleStaffNoticeCallback(query)) return true;
+  // «✅ Оплатил» / «⏰ Напомнить завтра» под напоминанием об оплате подписки.
+  if (await handlePaymentReminderCallback(query)) return true;
   if (query.data?.startsWith("ef:")) return handleTelegramExpenseReceiptCallback(query);
+  if (query.data?.startsWith("ay:")) {
+    if (!(await claimCallback(query.id))) { await answerCallbackQuery(query.id); return true; }
+    const clicker = await clickerOf(query).catch(() => null);
+    return handleExpenseFileQuestionCallback(query, clicker?.id ?? null);
+  }
+  if (query.data?.startsWith("ax:")) {
+    if (!(await claimCallback(query.id))) { await answerCallbackQuery(query.id); return true; }
+    const clicker = await clickerOf(query).catch(() => null);
+    return handleExpenseCardCallback(query, clicker?.id ?? null);
+  }
   if (await handleTelegramPropertyDraftCallback(query)) return true;
+  if (await handlePropertyOfferCallback(query)) return true;
+  if (await handleNarrationCallback(query)) return true;
+  if (await handleStaffClipCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);
   if (!match) {
@@ -1473,15 +1789,56 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       const executed = await serializeBundle(bundleId, async () => {
         if (!(await groupRegistrationAllows())) return null;
         for (const a of actions) await discardPendingAssistantAction(a.id, actor).catch(() => undefined);
+        await cancelStepUpForBundle(bundleId);
         return prisma.assistantAction.count({ where: { bundleId, status: { in: ["EXECUTED", "CONFIRMED"] } } });
       });
       if (executed === null) return true;
       // Часть цепочки могла успеть исполниться до отмены — правду об этом не прячем.
       const note = executed > 0 ? "Часть действий уже была выполнена, остальные отменены" : "Отменено";
       await answerCallbackQuery(query.id, note);
+      const isExpenseBatch = actions.length === 1 && actions[0]!.tool === ADD_EXPENSES_TOOL;
+      const expenseNote = executed === 0 && isExpenseBatch ? await expenseBatchOutcomeText(actions, false).catch(() => null) : null;
+      if (expenseNote && chatId && messageId) {
+        await editMessageText(chatId, messageId, expenseNote, null).catch(() => {});
+        return true;
+      }
       if (chatId && query.message && messageId) {
         await editTelegramConfirmationMessage(query.message, sanitizeAssistantReply(tajikPrice && executed === 0 ? "Бекор шуд" : `✖ ${note} (${clicker.fullName})`, chatId.startsWith("-"))).catch(() => {});
       }
+      return true;
+    }
+
+    if (verb === "undo") {
+      if (callbackChat?.type !== "private" || !chatId) {
+        await answerCallbackQuery(query.id, "Отменить можно в личке с Шабнам");
+        return true;
+      }
+      const executed = actions.filter((a) => a.status === "EXECUTED");
+      if (executed.length === 0) {
+        await answerCallbackQuery(query.id, actions.some((a) => a.status === "UNDONE") ? "Уже отменено" : "Отменять нечего");
+        return true;
+      }
+      // Откат того, что стояло за подтверждением личности, — тоже только с кодом.
+      if (bundleNeedsStepUp(executed)) {
+        await askStepUpCode({ agentId: clicker.id, chatId, bundleId, kind: "undo", cardMessageId: messageId, answer: (text) => answerCallbackQuery(query.id, text) });
+        return true;
+      }
+      const undone = await serializeBundle(bundleId, () => undoBundle(executed.map((a) => a.id), actor));
+      await answerCallbackQuery(query.id, undone.failed ? "Отменено не всё" : "Отменено");
+      await showOnCard(chatId, messageId, undoSummary(undone, clicker.fullName), null);
+      return true;
+    }
+
+    // Сотрудники, права, сброс 2FA (10.11.2026): как в CRM за подтверждением личности —
+    // здесь только кодом Google Authenticator, отдельным сообщением (assistantStepUp.ts).
+    // Уже исполненная или истёкшая карточка кода не просит: дальше «Уже выполнено» / «время вышло».
+    const awaiting = actions.some((a) => a.status === "PENDING" && a.expiresAt.getTime() > Date.now());
+    if (awaiting && bundleNeedsStepUp(actions)) {
+      if (callbackChat?.type !== "private" || !chatId) {
+        await answerCallbackQuery(query.id, "Это действие доступно в личке с Шабнам");
+        return true;
+      }
+      await askStepUpCode({ agentId: clicker.id, chatId, bundleId, cardMessageId: messageId, answer: (text) => answerCallbackQuery(query.id, text) });
       return true;
     }
 
@@ -1504,6 +1861,13 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
     }
     await answerCallbackQuery(query.id, outcome.failed ? "Выполнено не всё" : "Готово");
     if (!chatId) return true;
+    const expenseDone = !outcome.failed && actions.length === 1 && actions[0]!.tool === ADD_EXPENSES_TOOL
+      ? await expenseBatchOutcomeText(actions, true).catch(() => null) : null;
+    if (expenseDone) {
+      if (messageId) await editMessageText(chatId, messageId, expenseDone, null).catch(() => sendMessage(chatId, expenseDone).catch(() => {}));
+      else await sendMessage(chatId, expenseDone).catch(() => {});
+      return true;
+    }
     const isGroup = chatId.startsWith("-");
     const mark = outcome.failed ? "⚠️" : "✅";
     const summary = isGroup
@@ -1512,6 +1876,10 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
         : `${outcome.failed ? "Не всё получилось" : "Готово"}:\n${outcome.lines.join("\n")}`)
       : `${mark} ${clicker.fullName}:\n${outcome.lines.join("\n")}`;
     const safeSummary = sanitizeAssistantReply(summary, isGroup);
+    if (!isGroup && outcome.undoable && messageId) {
+      await showOnCard(chatId, messageId, safeSummary, undoButtons(bundleId));
+      return true;
+    }
     if (query.message && messageId) {
       await editTelegramConfirmationMessage(query.message, safeSummary).catch(async (err: unknown) => {
         if (isGroup && (!(err instanceof TelegramApiError) || err.errorCode !== 400 || /message is not modified/i.test(err.message))) return;
@@ -1533,7 +1901,7 @@ type BundleOutcome =
   | { kind: "busy" }
   | { kind: "retry"; message: string }
   | { kind: "replay" }
-  | { kind: "done"; failed: boolean; lines: string[]; priceResult?: string };
+  | { kind: "done"; failed: boolean; lines: string[]; priceResult?: string; undoable: boolean };
 
 export function renderGroupPriceResult(action: AssistantActionView, tajik = false): string | undefined {
   if (action.tool !== "change_property_price" || typeof action.preview.becomes.Цена !== "string"
@@ -1558,17 +1926,23 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
   let ranAny = false;
   let failed = false;
   let priceResult: string | undefined;
+  let undoable = false;
   for (let i = 0; i < ids.length; i++) {
     try {
       const access = await loadAgentAccess(actor.agentId, prisma);
       if (!access?.isActive || isReadOnlyRole(access.role)) {
         throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
       }
-      const currentActor = actionActorOf(actor.agentId, access, actor.telegramPrivate === true);
+      const currentActor: AssistantActionActor = {
+        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true),
+        // Код проверен в этом же исполнении (assistantStepUp.ts) — только для него.
+        ...(actor.stepUpVerified === true ? { stepUpVerified: true } : {}),
+      };
       const { action, replay } = await confirmAssistantAction(ids[i], currentActor);
       if (!replay) ranAny = true;
       if (!replay && ids.length === 1) priceResult = renderGroupPriceResult(action, tajikPrice);
       lines.push(`${replay ? "↺" : "•"} ${action.preview.title}`);
+      if (action.undoUntil && UNDO_IN_TELEGRAM.has(action.tool)) undoable = true;
     } catch (err) {
       if (err instanceof AssistantActionError && err.code === "IN_PROGRESS") return { kind: "busy" };
       if (err instanceof AssistantActionError && err.code === "CONFIRM_RETRY") return { kind: "retry", message: err.message };
@@ -1585,5 +1959,179 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
     }
   }
   if (!ranAny && !failed) return { kind: "replay" };
-  return { kind: "done", failed, lines, priceResult };
+  return { kind: "done", failed, lines, priceResult, undoable: undoable && !failed };
+}
+
+/** Откат связки — в обратном порядке; на первой неудаче останавливаемся и говорим правду. */
+async function undoBundle(ids: string[], actor: AssistantActionActor): Promise<{ failed: boolean; lines: string[] }> {
+  const lines: string[] = [];
+  let failed = false;
+  const order = [...ids].reverse();
+  for (const [index, id] of order.entries()) {
+    try {
+      const access = await loadAgentAccess(actor.agentId, prisma);
+      if (!access?.isActive || isReadOnlyRole(access.role)) {
+        throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
+      }
+      const currentActor: AssistantActionActor = {
+        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true),
+        ...(actor.stepUpVerified === true ? { stepUpVerified: true } : {}),
+      };
+      const { action, replay } = await undoAssistantAction(id, currentActor);
+      lines.push(`${replay ? "↺" : "↩️"} ${action.preview.title}`);
+    } catch (err) {
+      failed = true;
+      lines.push(`✖ ${err instanceof AssistantActionError ? FAIL_STATUS_NOTE[err.code] ?? err.message : "не получилось отменить"}`);
+      if (!(err instanceof AssistantActionError)) await logSystemError("ai", `Помощник Telegram: откат ${id} упал: ${describeError(err)}`);
+      if (index < order.length - 1) lines.push("Остальное не отменено.");
+      break;
+    }
+  }
+  return { failed, lines };
+}
+
+/** Итог отката: при сбое честно «не всё отменено» и что именно. */
+function undoSummary(undone: { failed: boolean; lines: string[] }, name: string): string {
+  const head = undone.failed ? `⚠️ Не всё отменено (${name}):` : `↩️ ${name}:`;
+  return sanitizeAssistantReply(`${head}\n${undone.lines.join("\n")}`, false);
+}
+
+/** Итог на месте карточки (личка): правим её текст и кнопки, не вышло — одно отдельное сообщение. */
+async function showOnCard(chatId: string, messageId: number | undefined, text: string, buttons: ReturnType<typeof undoButtons> | null) {
+  if (!messageId) {
+    await sendMessage(chatId, text).catch(() => {});
+    return;
+  }
+  await editMessageText(chatId, messageId, text, buttons).catch(async () => {
+    await sendMessage(chatId, text).catch(() => {});
+  });
+}
+
+// ───────────────────────────── код Google Authenticator ─────────────────────────────
+
+async function stepUpLanguageOf(chatId: string, agentId: string): Promise<StepUpLanguage> {
+  const history = await loadHistory(chatId, agentId).catch(() => []);
+  const last = history.slice().reverse().find((m) => m.role === "user");
+  if (!last) return "ru";
+  const language = assistantLanguage([{ role: "user", content: last.content }]);
+  return language === "tg" || language === "mixed" ? "tg" : "ru";
+}
+
+/** «Подтвердить» на карточке со step-up: просим код, ничего не исполняем. */
+async function askStepUpCode(input: {
+  agentId: string;
+  chatId: string;
+  bundleId: string;
+  kind?: StepUpKind;
+  cardMessageId?: number;
+  answer: (text: string) => Promise<unknown>;
+}): Promise<void> {
+  const language = await stepUpLanguageOf(input.chatId, input.agentId);
+  const started = await startStepUpChallenge({ ...input, language });
+  if (started.kind === "no_totp") {
+    await input.answer(language === "tg" ? "Google Authenticator фаъол нест" : "Не включён Google Authenticator");
+    await sendMessage(input.chatId, stepUpText("noTotp", language)).catch(() => {});
+    return;
+  }
+  if (started.kind === "locked") {
+    await input.answer(language === "tg" ? "Тасдиқ муваққатан баста аст" : "Подтверждение временно закрыто");
+    await sendMessage(input.chatId, stepUpText("locked", language)).catch(() => {});
+    return;
+  }
+  await input.answer(language === "tg" ? "Кодро нависед" : "Введите код из приложения");
+  const sent = (await sendMessage(input.chatId, stepUpText("prompt", language)).catch(() => null)) as { message_id?: number } | null;
+  await rememberStepUpPrompt(started.challengeId, sent?.message_id);
+}
+
+/** Итог исполнения связки — тот же вид, что после обычного нажатия в личке. */
+function privateSummary(outcome: Extract<BundleOutcome, { kind: "done" }>, clickerName: string): string {
+  const mark = outcome.failed ? "⚠️" : "✅";
+  return sanitizeAssistantReply(`${mark} ${clickerName}:\n${outcome.lines.join("\n")}`, false);
+}
+
+async function runVerifiedBundle(challenge: PendingStepUp, agent: { id: string; fullName: string }): Promise<void> {
+  const tg = challenge.language === "tg";
+  const access = await loadAgentAccess(agent.id, prisma);
+  if (!access?.isActive || isReadOnlyRole(access.role)) {
+    await sendMessage(challenge.chatId, tg ? "Барои ин кор ҳуқуқ нест." : "Нет прав на это действие.").catch(() => {});
+    return;
+  }
+  const actions = await prisma.assistantAction.findMany({
+    where: { bundleId: challenge.bundleId },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, agentId: true, status: true },
+  });
+  if (actions.length === 0 || actions.some((a) => a.agentId !== agent.id)) {
+    await sendMessage(challenge.chatId, tg ? "Корт кӯҳна шуд. Боз нависед." : "Карточка устарела. Повторите просьбу.").catch(() => {});
+    return;
+  }
+  const actor: AssistantActionActor = { ...actionActorOf(agent.id, access, true), stepUpVerified: true };
+  if (challenge.kind === "undo") {
+    const undone = await serializeBundle(challenge.bundleId, () => undoBundle(actions.map((a) => a.id), actor));
+    await showOnCard(challenge.chatId, challenge.cardMessageId ?? undefined, undoSummary(undone, agent.fullName), null);
+    return;
+  }
+  const outcome = await serializeBundle(challenge.bundleId, () => executeBundle(actions.map((a) => a.id), actor, false));
+  if (outcome.kind !== "done") {
+    const note = outcome.kind === "busy" ? "Уже выполняется." : outcome.kind === "replay" ? "Уже выполнено." : outcome.message;
+    await sendMessage(challenge.chatId, note).catch(() => {});
+    return;
+  }
+  const summary = privateSummary(outcome, agent.fullName);
+  await showOnCard(challenge.chatId, challenge.cardMessageId ?? undefined, summary, outcome.undoable ? undoButtons(challenge.bundleId) : null);
+}
+
+/**
+ * Сообщение в личке, пока ждём код (telegram/bot.ts зовёт ДО остальных обработчиков
+ * текста). true — это был код, и он обработан; false — обычное сообщение, дальше по
+ * обычному пути. Сообщение с кодом удаляется сразу — и верное, и неверное.
+ */
+export async function handleAssistantStepUpMessage(msg: TelegramIncomingMessage, agent: { id: string; fullName: string }): Promise<boolean> {
+  if (msg.chat.type !== "private" || msg.forward_origin || msg.forward_from_message_id) return false;
+  const chatId = String(msg.chat.id);
+  const voice = Boolean(msg.voice || msg.audio || msg.video_note);
+  const code = voice ? null : parseStepUpCode(msg.text);
+  if (!voice && !code) return false;
+  const challenge = await findPendingStepUp(chatId, agent.id);
+  if (!challenge) return false;
+  if (voice) {
+    // Голос кодом не считается: просим цифрами; распознавать цифры из речи — путь к ошибкам и утечке.
+    if (challenge.expired) return false;
+    await sendMessage(chatId, stepUpText("voice", challenge.language)).catch(() => {});
+    return true;
+  }
+  const messageId = msg.message_id;
+  // Проверка и исполнение — в очереди этого чата (как ход помощницы): два кода подряд
+  // не проверяются наперегонки, а долгая передача дел не держит общую очередь апдейтов.
+  deferAssistantReply(msg, runInAssistantLane(`private:${chatId}`, async () => {
+    // Сообщение с кодом удаляется ДО проверки — и верное, и неверное.
+    if (messageId && !(await deletePrivateMessage(chatId, messageId))) {
+      await sendMessage(chatId, stepUpText("notDeleted", challenge.language)).catch(() => {});
+    }
+    await checkStepUpCode(chatId, challenge, code!, agent);
+  }, async (err) => {
+    await logSystemError("telegram", `Помощник: проверка кода Google Authenticator: ${describeError(err)}`);
+  }));
+  return true;
+}
+
+async function checkStepUpCode(chatId: string, challenge: PendingStepUp, code: string, agent: { id: string; fullName: string }): Promise<void> {
+  try {
+    const verdict = await verifyStepUpCode(challenge, code);
+    if (verdict.kind === "gone") return;
+    if (verdict.kind !== "passed") {
+      if (challenge.kind === "confirm" && (verdict.kind === "locked" || verdict.kind === "no_totp" || verdict.kind === "inactive")) {
+        const actor: AssistantActionActor = { agentId: agent.id, channel: "telegram", telegramPrivate: true, can: () => false };
+        const rows = await prisma.assistantAction.findMany({ where: { bundleId: challenge.bundleId }, select: { id: true } });
+        for (const row of rows) await discardPendingAssistantAction(row.id, actor).catch(() => undefined);
+      }
+      await sendMessage(chatId, verdict.message).catch(() => {});
+      return;
+    }
+    if (challenge.promptMessageId) void deletePrivateMessage(chatId, challenge.promptMessageId);
+    await runVerifiedBundle(challenge, agent);
+  } catch (err) {
+    await logSystemError("telegram", `Помощник: проверка кода Google Authenticator: ${describeError(err)}`);
+    await sendMessage(chatId, challenge.language === "tg" ? "Нашуд, боз кӯшиш кунед." : "Не получилось, попробуйте ещё раз.").catch(() => {});
+  }
 }

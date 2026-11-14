@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CoverProvider } from "@royal-home/shared";
+import type { CoverProvider, LiveVoiceSpendPeriod } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
 import { FALLBACK_USD_TO_TJS } from "../lib/format";
@@ -395,10 +395,16 @@ export interface Settings {
   /** Ручная передача видео монтажёру через Telegram (01.09.2026, lib/videoHandoff.ts) —
    *  единственный путь подготовки ролика с 04.09.2026. */
   videoHandoffEnabled: boolean;
+  /** Ролик от сотрудника через Шабнам (12.11.2026): по умолчанию включён. */
+  staffClipIntakeEnabled?: boolean;
   /** Проверять фото и видео агента перед монтажом (25.09.2026). false — CRM одобряет сама. */
   rawReviewRequired: boolean;
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: boolean;
+  /** Готовый ролик подтверждает хозяин объекта; без ответа — автопубликация (11.11.2026). */
+  clipOwnerApproveEnabled: boolean;
+  /** Через сколько часов без ответа хозяина ролик публикуется сам (1–48). */
+  clipOwnerAutoPublishHours: number;
   /** Единственный монтажёр, получающий сырые ролики в очереди «строго один-в-работе». */
   videoMontajerAgentId: string | null;
   /** Этап 4 (телефония): подключение к Asterisk ARI. URL/логин — как есть, пароль — маска. */
@@ -456,10 +462,30 @@ export interface Settings {
     rtpHostConfigured: boolean;
     stationDialplan: { ok: boolean | null; detail: string | null; checkedAt: string } | null;
   };
+  /** Потолок минут робота на ElevenLabs за сутки и месяц по Душанбе (П5, 11.11.2026);
+   *  0 — без потолка. */
+  liveVoiceDailyMinutesCap: number;
+  liveVoiceMonthlyMinutesCap: number;
+  /** Сколько робот наговорил против потолка (считает сервер, только чтение); null — не прочиталось. */
+  liveVoiceSpend?: {
+    day: LiveVoiceSpendPeriod;
+    month: LiveVoiceSpendPeriod;
+    held: "day" | "month" | null;
+    retryAt: string | null;
+    provider: string;
+  } | null;
   /** Голосовые ответы бота в переписке (13.09.2026) — озвучивает свой текст, только
    *  если клиент сам прислал голосовое в этом же ходе. По умолчанию false (владелец:
    *  «создай, но выключи, сам протестирую»). Тумблер в BOT_ABILITIES (BotTab.tsx). */
   botCanSendVoiceReplies: boolean;
+  /** Режим «только заявки» (13.11.2026): бот берёт заявку и передаёт агенту. По умолчанию false. */
+  botLeadOnlyMode: boolean;
+  /** В режиме «только заявки»: WhatsApp-номер клиента — номер для звонка (по умолчанию true). */
+  botUseWhatsappNumber: boolean;
+  /** В режиме «только заявки»: сколько раз просить номер в Instagram/Facebook, 1..3 (по умолчанию 2). */
+  botMaxPhoneAsks: number;
+  /** В режиме «только заявки»: «хотим посмотреть», «адрес» → заявка агенту сразу (по умолчанию true). */
+  botHotIntentHandover: boolean;
   /* Поля браузерного софтфона (asteriskWebrtc*) и список операторов входящих
    * (incomingOperatorIds) убраны 18.08.2026 вместе с самим механизмом: роль
    * оператора отменена, звонки идут прямо агентам. Сервер их пока отдаёт —
@@ -540,6 +566,11 @@ export interface Settings {
   followUpEnabled: boolean;
   /** Окно инициативных сообщений бота, "HH:MM" по Душанбе. */
   aiAssistantEnabled: boolean;
+  /** Сколько дней хранить журнал помощницы (пачка 2, 07.11.2026). У сотрудников без настроек — нет. */
+  aiAssistantLogRetentionDays?: number;
+  /** Шагов помощницы на один ответ и срок ответа, секунд (решение владельца 07.11.2026). */
+  aiAssistantMaxRounds?: number;
+  aiAssistantDeadlineSec?: number;
   /** Google Search grounding для справочных вопросов ассистента CRM (рынок/законы/
    *  налоги/ипотека Таджикистана вне данных CRM). Выключен по умолчанию. */
   groundedSearchEnabled: boolean;

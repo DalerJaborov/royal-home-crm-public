@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
+import { STAFF_TOOL_NAMES } from "../src/ai/assistant/tools/staffToolNames.js";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import * as shared from "@royal-home/shared";
 import * as zod from "zod";
 import { expect, it, vi } from "vitest";
 import * as reply from "../src/telegram/assistantReply.js";
+import { unstubbedModule } from "./helpers/unstubbedModule.js";
 
 const source = readFileSync(new URL("../src/telegram/assistantReadResults.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, {
@@ -116,9 +119,21 @@ it("reports incomplete private replay without claiming a voice-only answer is al
   }).outputText;
   const dependencies: Record<string, unknown> = {
     "./assistantReply.js": reply,
+    "@royal-home/shared": shared,
     "./assistantPropertyDraft.js": { handleTelegramPropertyDraft: async () => false },
+    // «Править текст» озвучки (11.11.2026): ожидания нет — сообщение идёт дальше обычным путём.
+    "./assistantNarration.js": { handleNarrationTextReply: async () => false },
+    // Ролик от сотрудника (12.11.2026): ожидания «к какому объекту» нет, видео нет.
+    "./staffClip.js": { handleStaffClipText: async () => false, handleStaffClipMessage: async () => false },
+    // «Не присылай мне такое» (11.11.2026): фраза не про это — сообщение идёт дальше.
+    "./staffNotice.js": { handleNoticePreferenceText: async () => false },
+    "../lib/describeError.js": { describeError: (error: unknown) => String(error) },
     "./assistantPropertyPages.js": { propertyPageRequest: () => null },
+    "./assistantExpenseCard.js": { applyExpenseFixMessage: async () => false },
     "./assistantReadResults.js": f.delivery,
+    // Сотрудники и права (10.11.2026): список имён — настоящий, код Google Authenticator — инертная заглушка.
+    "../ai/assistant/tools/staffToolNames.js": { STAFF_TOOL_NAMES },
+    "./assistantStepUp.js": { bundleNeedsStepUp: () => false, cancelStepUpForBundle: async () => {} },
     "./api.js": { sendMessage: send },
     "../ai/assistant/moneyBudget.js": { createAssistantMoneyWallet: () => ({}) },
     "../ai/assistant.js": { isAiAssistantEnabled: async () => true, runAssistantDetailed: run },
@@ -129,7 +144,7 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     }) } } },
     "../lib/systemError.js": { logSystemError: error },
   };
-  runInNewContext(code, { exports: adapter, require: (name: string) => dependencies[name] ?? {} });
+  runInNewContext(code, { exports: adapter, require: (name: string) => dependencies[name] ?? unstubbedModule("assistant-voice-replay", name) });
   await adapter.handleAssistantPrivate({
     chat: { id: 123, type: "private" }, message_id: 23, text: "озвучь ответ",
   }, { id: "test-agent", fullName: "Тест" });

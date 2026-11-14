@@ -133,6 +133,7 @@ export function Profile() {
 
         <ActiveSessionsSection />
         <LoginHistorySection />
+        <NotifyKindsSection />
         <PushNotificationsSection />
 
         <section className="card">
@@ -214,7 +215,7 @@ function CleanProfile({ profile, royalScoreEnabled, canSettings, onLogout }: {
         {canSettings && <div className="card tight"><div className="mod"><div className="t"><b>Настройки CRM</b><span>Общие правила агентства: комиссия, лиды и ИИ.</span></div><button className="pill ghost" type="button" onClick={() => navigate("/settings")}>Открыть</button></div></div>}
       </>}
       {id === "appearance" && <><AppearanceSettings /><section className="card"><div className="sec-h stack"><h2>Приложение на устройстве</h2><span className="note">Быстрый запуск CRM с рабочего стола</span></div><InstallAppSection showStatus /></section></>}
-      {id === "notifications" && <PushNotificationsSection showUnavailable />}
+      {id === "notifications" && <><NotifyKindsSection /><PushNotificationsSection showUnavailable /></>}
       {id === "security" && <section className="card"><div className="sec-h stack"><h2>Вход и безопасность</h2><span className="note">Двухфакторная защита, вход по отпечатку, автовыход</span></div><TwoFactorSettings /><PasskeySettings /><AutoLogoutSection /></section>}
       {id === "sessions" && <><ActiveSessionsSection /><LoginHistorySection /></>}
       {id === "connections" && <section className="card"><div className="sec-h stack"><h2>Служебные подключения</h2><span className="note">Личные привязки для работы, не клиентские каналы</span></div>{canReceiveMontageCopies(profile?.role) && <MontageCopiesSection />}{(profile?.role === "AGENT" || profile?.isVideoMontajer || profile?.telegramLinked || profile?.montageCopiesTelegram || profile?.permissions.includes("properties.moderate")) ? <TelegramLinkSection /> : <p className="state">Для вашей роли нет дополнительных служебных подключений.</p>}</section>}
@@ -402,6 +403,7 @@ function ProfileMobile() {
 
             <ActiveSessionsSection />
             <LoginHistorySection />
+            <NotifyKindsSection />
 
             <section className="card">
               <div className="sec-h stack">
@@ -829,7 +831,6 @@ function PushNotificationsSection({ showUnavailable = false }: { showUnavailable
         </div>
       </div>
 
-      {subscribed && <PushKindsList />}
 
       <div className="quiet">
         <span className="dot" />
@@ -842,33 +843,39 @@ function PushNotificationsSection({ showUnavailable = false }: { showUnavailable
 }
 
 /**
- * Что именно присылать этому сотруднику.
+ * «Что присылать мне» — какие виды сообщений человек себе оставил
+ * (владелец 10.11.2026: «не присылай мне такое» — для всех и про всё).
  *
- * До 11.08.2026 выбор был «всё или ничего» на устройство: агент, которому мешал
- * поток сообщений клиентов, отключал заодно и новые лиды, то есть ровно то, ради
- * чего уведомления и заводились.
+ * Одна настройка на человека и на все каналы: уведомления CRM на телефон и
+ * сообщения помощницы в Telegram. Та же, что кнопка «🔕 Не присылать такое»
+ * под сообщением и фраза «не присылай мне такое» (сервер: lib/notificationPrefs.ts).
+ * Поэтому блок не привязан к подписке этого устройства — раньше без включённых
+ * push-уведомлений выбор вообще не показывался.
  *
  * Положение тумблера меняется сразу, до ответа сервера (правило Настроек от
- * 11.08.2026), а отказ откатывает его назад. Подпись по ТЕКУЩЕМУ положению, а не
- * по тому, что произойдёт при нажатии.
+ * 11.08.2026), а отказ откатывает его назад. Подпись по ТЕКУЩЕМУ положению.
+ * Неотключаемое (безопасность) показано отдельной строкой с причиной.
  */
-function PushKindsList() {
+type KindPrefs = {
+  kinds: { key: string; label: string; hint: string; enabled: boolean }[];
+  alwaysOn?: { key: string; label: string; why: string }[];
+};
+
+function NotifyKindsSection() {
   const queryClient = useQueryClient();
-  const { data } = useQuery<{ kinds: { key: string; label: string; hint: string; enabled: boolean }[] }>({
+  const { data, isError } = useQuery<KindPrefs>({
     queryKey: ["push-preferences"],
     queryFn: () => api("/push/preferences"),
   });
 
   const toggle = useMutation({
-    // Без JSON.stringify: api() сериализует body сам, а двойная сериализация
-    // отправляла на сервер JSON-строку-литерал, Zod отвечал 400, и тумблеры
-    // «Что присылать на это устройство» не сохранялись НИКОГДА (аудит №4).
-    mutationFn: (vars: { kind: string; enabled: boolean }) => api("/push/preferences", { method: "PATCH", body: vars }),
+    // Без JSON.stringify: api() сериализует body сам (аудит №4).
+    mutationFn: (vars: { kind: string; enabled: boolean }) => api<KindPrefs>("/push/preferences", { method: "PATCH", body: vars }),
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: ["push-preferences"] });
       const previous = queryClient.getQueryData(["push-preferences"]);
-      queryClient.setQueryData(["push-preferences"], (old: typeof data) =>
-        old ? { kinds: old.kinds.map((k) => (k.key === vars.kind ? { ...k, enabled: vars.enabled } : k)) } : old
+      queryClient.setQueryData(["push-preferences"], (old: KindPrefs | undefined) =>
+        old ? { ...old, kinds: old.kinds.map((k) => (k.key === vars.kind ? { ...k, enabled: vars.enabled } : k)) } : old
       );
       return { previous, epoch: currentSessionEpoch() };
     },
@@ -881,15 +888,18 @@ function PushKindsList() {
     },
   });
 
-  if (!data) return null;
-
   return (
-    <>
-      {data.kinds.map((kind) => (
+    <section className="card">
+      <div className="sec-h stack">
+        <h2>Что присылать мне</h2>
+        <span className="note">Уведомления CRM и сообщения помощницы в Telegram</span>
+      </div>
+      {isError && <p className="state">Не получилось загрузить. Обновите страницу.</p>}
+      {data?.kinds.map((kind) => (
         <div className="mod" key={kind.key}>
           <div className="t">
             <b>{kind.label}</b>
-            <span>{kind.enabled ? kind.hint : "Выключено: эти уведомления не приходят."}</span>
+            <span>{kind.enabled ? kind.hint : "Выключено: не приходит на телефон и в Telegram. В колокольчике CRM остаётся для истории."}</span>
           </div>
           <div className="acts">
             <ProtoToggle
@@ -900,7 +910,26 @@ function PushKindsList() {
           </div>
         </div>
       ))}
-    </>
+      {data?.alwaysOn?.map((kind) => (
+        <div className="mod" key={kind.key}>
+          <div className="t">
+            <b>{kind.label}</b>
+            <span>{kind.why}</span>
+          </div>
+          <div className="acts">
+            <span className="chip">Всегда</span>
+          </div>
+        </div>
+      ))}
+      {data && (
+        <div className="quiet">
+          <span className="dot" />
+          <span className="txt">
+            В Telegram можно и словами: «не присылай мне такое», «что у меня выключено», «включи обратно».
+          </span>
+        </div>
+      )}
+    </section>
   );
 }
 

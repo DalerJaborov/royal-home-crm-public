@@ -22,14 +22,13 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
 import { prisma } from "../src/db.js";
 import { ingestMarketPage, runSomonMonitorTick } from "../src/lib/somonLeads/monitor.js";
 import { somonKeyFingerprint } from "../src/lib/somonLeads/contactIdentity.js";
+import { RUBRIC_FLAT_2, RUBRIC_FOREIGN, somonListPageHtml } from "./helpers/somonPage.js";
 
 const ids = ["987653001", "987653002"];
 let oldMonitor: Awaited<ReturnType<typeof prisma.somonMonitor.findUnique>> = null;
 
-function html(adIds: string[]) {
-  const ads = adIds.map((id) => ({ id: Number(id), title: "2-комн. квартира, 50 м², 3/9 этаж", url: `/adv/${id}_stand/`, ad_type: { type: "regular" } }));
-  const data = JSON.stringify({ next_page: `?page=2&page_size=${adIds.length}`, rubric: { slug: "prodazha-kvartir" }, location_ids: [1], adverts: ads });
-  return `<a href="?page=2">2</a><script>self.__next_f.push([1,${JSON.stringify(data)}]);</script>`;
+function html(adIds: string[], rubricId = RUBRIC_FLAT_2) {
+  return somonListPageHtml(adIds.map((id) => ({ id: Number(id), rubricId, ad_type: { type: "regular" } })), { links: 2 });
 }
 
 async function resetBaseline() {
@@ -111,6 +110,14 @@ describe("рыночный каталог не влияет на лиды", () =
     mocks.save.mockResolvedValue({ created: 0, updated: 0, priceChanges: 0, skipped: 0 });
     await ingestMarketPage(html([ids[0]]));
     expect(mocks.save).toHaveBeenCalledTimes(1);
+    expect((mocks.save.mock.calls[0][1] as Array<{ sourceId: string }>).map((l) => l.sourceId)).toEqual([ids[0]]);
+  });
+
+  it("чужая рубрика на странице квартир в каталог из парсера лидов не пишется (то же правило, что у обхода)", async () => {
+    mocks.save.mockResolvedValue({ created: 0, updated: 0, priceChanges: 0, skipped: 0 });
+    await ingestMarketPage(html([ids[0]], RUBRIC_FOREIGN));
+    expect(mocks.save).toHaveBeenCalledTimes(1);
+    expect(mocks.save.mock.calls[0][1]).toEqual([]);
   });
 
   it("лиды выключены — парсер ничего не качает и рынку нечего отдавать", async () => {

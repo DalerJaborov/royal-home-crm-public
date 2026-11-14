@@ -9,6 +9,8 @@ import { queueVideoHandoff, rearmPublishAfterRestore, releaseVideoHandoffForTras
 import { describeError } from "./describeError.js";
 import { cancelPendingInstagramContainersForTrashed } from "./instagramPendingContainers.js";
 import { sendPushToAgent } from "../push.js";
+import { refreshSellerAfterPropertyChange } from "./clientAutoStatus.js";
+import { canRestorePropertyAs, PROPERTY_RESTORE_DENIED, type TrashActor } from "./trashAccess.js";
 
 /**
  * УДАЛЕНИЕ ОБЪЕКТА В КОРЗИНУ — ОДНА ФУНКЦИЯ НА ВСЕ ВХОДЫ.
@@ -486,4 +488,52 @@ export async function reopenWorkAfterRestore(property: {
       `Объект ${property.id}: восстановлен из Корзины, но публикацию принятого ролика переоткрыть не удалось: ${describeError(err)}`
     )
   );
+}
+
+export type RestorePropertyResult =
+  | {
+      ok: true;
+      property: { id: string; shortId: number; title: string; status: string; assignedAgentId: string | null };
+    }
+  | { ok: false; status: 403 | 404 | 409; error: string };
+
+/**
+ * ВОССТАНОВЛЕНИЕ ОБЪЕКТА ИЗ КОРЗИНЫ — ОДНА ДВЕРЬ (07.11.2026). Её зовут кнопка «Восстановить»
+ * (POST /properties/:id/restore) и помощник (ai/assistant/tools/restorePropertyTool.ts). Кто
+ * может — lib/trashAccess.ts (директор/админ или хозяин объекта); проверка здесь, на сервере.
+ *
+ * Публикация на сайте сама НЕ возвращается: снятие с сайта было осознанным действием при
+ * удалении, повторную публикацию решают отдельно кнопкой. publishedOnSite сбрасывается
+ * (ночная проверка 24.09.2026, №128: иначе первая же правка карточки молча досылала объект
+ * на сайт). Запись идёт условием «всё ещё в Корзине»: два одновременных нажатия
+ * восстанавливают один раз, второе получает 409.
+ *
+ * Журнал (logAudit) и живое обновление экранов — у вызывающего: у REST есть запрос, у
+ * помощника — номер действия.
+ */
+export async function restorePropertyFromTrash(propertyId: string, actor: TrashActor): Promise<RestorePropertyResult> {
+  const property = await prisma.property.findUnique({ where: { id: propertyId } });
+  if (!property || !property.deletedAt) return { ok: false, status: 404, error: "Объект не найден в корзине" };
+  if (!canRestorePropertyAs(actor, property)) return { ok: false, status: 403, error: PROPERTY_RESTORE_DENIED };
+
+  const updated = await prisma.property.updateMany({
+    where: { id: property.id, deletedAt: { not: null } },
+    data: { deletedAt: null, deletedById: null, publishedOnSite: false },
+  });
+  if (updated.count !== 1) return { ok: false, status: 409, error: "Объект уже восстановлен — обновите карточку" };
+
+  // Очередь монтажа и публикация принятого ролика — тем же списком, что и у «Откатить»
+  // удаление сайтом (routes/siteNotifications.ts).
+  await reopenWorkAfterRestore(property);
+  await refreshSellerAfterPropertyChange(property.sellerClientId);
+  return {
+    ok: true,
+    property: {
+      id: property.id,
+      shortId: property.shortId,
+      title: property.title,
+      status: property.status,
+      assignedAgentId: property.assignedAgentId,
+    },
+  };
 }

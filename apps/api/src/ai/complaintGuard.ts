@@ -16,6 +16,7 @@
  */
 
 import { clientOwnWords } from "./untrustedContent.js";
+import { customerAsksForHuman, customerComplainsNoContact, customerRefusesHuman } from "./customerAskSignals.js";
 
 const rx = (parts: string[]): RegExp => new RegExp(parts.join("|"), "iu");
 
@@ -60,7 +61,10 @@ const NO_CONTACT_COMPLAINT = rx([
 export function looksLikeNoContactComplaint(clientText: string): boolean {
   const text = ownText(clientText);
   if (!text) return false;
-  return NO_CONTACT_COMPLAINT.test(text);
+  // Общий словарь (ai/customerAskSignals.ts, 14.11.2026): «мне никто не звонит»,
+  // «почему никто не звонит», «вы обещали перезвонить», «агент так и не вышел на
+  // связь» здешний список не знал.
+  return NO_CONTACT_COMPLAINT.test(text) || customerComplainsNoContact(text);
 }
 
 /**
@@ -104,5 +108,8 @@ const WANTS_HUMAN_AGENT = rx([
 export function looksLikeWantsHumanAgent(clientText: string): boolean {
   const text = ownText(clientText);
   if (!text) return false;
-  return WANTS_HUMAN_AGENT.test(text);
+  // Общий словарь (14.11.2026): «можно с менеджером?», «дайте менеджера»,
+  // «пригласите руководителя», «передайте агенту, пусть позвонит».
+  // Старый список отрицания не видел: «агент не нужен» ловился как «нужен агент».
+  return (WANTS_HUMAN_AGENT.test(text) && !customerRefusesHuman(text)) || customerAsksForHuman(text);
 }

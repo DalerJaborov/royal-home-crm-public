@@ -100,8 +100,9 @@ export const CLIENT_TOOLS: LiveVoiceFunctionDeclaration[] = [
   {
     name: "save_client_request",
     description:
-      "Записать, что человек ищет или продаёт, — молча, как только он это сказал, и снова, когда узнал новое (бюджет, срок). " +
-      "Агенту потом не придётся переспрашивать. Передавай только то, что человек сказал сам.",
+      "Записать, что человек ищет или продаёт. Сначала выясни по ходу разговора обязательное: тип (квартира, дом, коммерческое, участок), район, комнаты (для квартиры), бюджет с валютой и срок — по одному вопросу за реплику, — и тогда записывай молча. " +
+      "Не хватает полей — функция ответит ошибкой «не хватает: …» (то, что уже сказано, записано): спроси недостающее и вызови снова; человек не знает или не хочет называть — передай эти поля в declined. " +
+      "Новое (этаж, ремонт, уточнение бюджета) дописывай повторным вызовом, одни и те же слова второй раз не передавай. Передавай только то, что человек сказал сам.",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -117,6 +118,11 @@ export const CLIENT_TOOLS: LiveVoiceFunctionDeclaration[] = [
         condition: { type: "STRING", description: "Ремонт: с ремонтом, коробка, не важно — словами звонящего." },
         timeframe: { type: "STRING", description: "Когда планирует купить или продать («в этом месяце», «к весне»)." },
         notes: { type: "STRING", description: "Другое важное одной фразой (ориентир, школа рядом, этажность дома)." },
+        declined: {
+          type: "STRING",
+          description:
+            "Поля, которые человек НЕ знает или не хочет называть, через запятую (type, district, rooms, budget, currency, timeframe): они перестанут считаться недостающими. Только после того, как спросил.",
+        },
       },
     },
   },
@@ -373,6 +379,51 @@ export function sanitizeClientRequest(args: Record<string, unknown>): ClientCall
   return out;
 }
 
+const REQUEST_FIELD_WORDS = {
+  intent: "покупает или продаёт",
+  type: "тип (квартира, дом, коммерческое, участок)",
+  district: "район",
+  rooms: "сколько комнат",
+  budget: "бюджет",
+  currency: "валюта бюджета (доллары или сомони)",
+  timeframe: "срок (когда планирует)",
+} as const;
+export type RequestField = keyof typeof REQUEST_FIELD_WORDS;
+const REQUEST_FIELDS = Object.keys(REQUEST_FIELD_WORDS) as RequestField[];
+
+/** Поля из declined: «type, срок» → type, timeframe. Незнакомые слова молча отбрасываются. */
+export function parseDeclinedFields(value: unknown): RequestField[] {
+  if (typeof value !== "string") return [];
+  const aliases: Record<string, RequestField> = { срок: "timeframe", тип: "type", район: "district", комнаты: "rooms", бюджет: "budget", валюта: "currency" };
+  const out = new Set<RequestField>();
+  for (const raw of value.toLowerCase().split(/[,;\s]+/u)) {
+    const key = raw.trim();
+    if (!key) continue;
+    const name = (aliases[key] ?? (key === "districtname" ? "district" : key)) as RequestField;
+    if (REQUEST_FIELDS.includes(name)) out.add(name);
+  }
+  return [...out];
+}
+
+/**
+ * Каких обязательных полей не хватает в условиях звонящего. Комнаты нужны только для квартиры; валюта — когда
+ * назван бюджет; поля из declined (спросил, человек не знает) не считаются недостающими. Порядок —
+ * порядок вопросов в разговоре.
+ */
+export function missingRequestFields(r: ClientCallRequest, declined: readonly string[] = []): RequestField[] {
+  const skip = new Set<string>(declined);
+  const hasBudget = !!(r.budgetMin || r.budgetMax);
+  const missing: RequestField[] = [];
+  if (!r.intent) missing.push("intent");
+  if (!r.type) missing.push("type");
+  if (!r.districtName) missing.push("district");
+  if (r.type === "APARTMENT" && !r.rooms) missing.push("rooms");
+  if (!hasBudget) missing.push("budget");
+  else if (!r.currency) missing.push("currency");
+  if (!r.timeframe) missing.push("timeframe");
+  return missing.filter((f) => !skip.has(f));
+}
+
 const TYPE_WORDS: Record<string, string> = { APARTMENT: "квартира", HOUSE: "дом", COMMERCIAL: "коммерческое", LAND: "участок" };
 
 /** Условия одной строкой — для агента в записи звонка и в расшифровке. */
@@ -397,8 +448,14 @@ export function clientRequestText(r: ClientCallRequest): string {
 async function saveRequestTool(memory: PropertyCallMemory, args: Record<string, unknown>): Promise<LiveVoiceToolReply> {
   const fresh = sanitizeClientRequest(args);
   if (Object.keys(fresh).length === 0) return reply({ ok: false, error: "нечего записать: передай то, что человек сказал" });
+  // ОДНО условие на звонок: повторный вызов дописывает поля в то же memory.request, а не заводит второе
+  // (на конец звонка в досье и агенту уходит один набор). Неполное тоже сохраняется — звонящий мог повесить
+  // трубку, — но функция отвечает ошибкой «не хватает: …», пока обязательное не названо или не отклонено.
+  const declined = [...new Set([...(memory.requestDeclined ?? []), ...parseDeclinedFields(args.declined)])];
+  memory.requestDeclined = declined;
   const merged: ClientCallRequest = { ...(memory.request ?? {}), ...fresh };
   memory.request = merged;
+  const missing = missingRequestFields(merged, declined);
   // В общее досье — теми же ключами, что пишет чат-бот (BUYER_KEYS): район, тип,
   // комнаты, бюджет В СОМОНИ. Бюджет без названной валюты в досье не идёт: бюджет с
   // неверной валютой хуже пустого (то же правило, что в search_properties).
@@ -427,6 +484,18 @@ async function saveRequestTool(memory: PropertyCallMemory, args: Record<string, 
   if (memory.contactProfileId && merged.intent) {
     const category = categoryFromIntent(merged.intent);
     if (category) await setContactCategory({ profileId: memory.contactProfileId, category, source: "model", conversationId: null }).catch(() => undefined);
+  }
+  if (missing.length > 0) {
+    const words = missing.map((f) => REQUEST_FIELD_WORDS[f]).join("; ");
+    return reply(
+      {
+        ok: false,
+        saved: true,
+        missing,
+        error: `не хватает: ${words}. Записанное сохранено — спроси недостающее по одному вопросу и вызови функцию снова; человек не знает или не хочет называть — передай эти поля в declined.`,
+      },
+      `[условия клиента (неполные): ${clientRequestText(merged)}; не хватает: ${missing.join(", ")}]`
+    );
   }
   return reply({ ok: true }, `[условия клиента: ${clientRequestText(merged)}]`, "SILENT");
 }

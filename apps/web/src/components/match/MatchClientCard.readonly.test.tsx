@@ -11,7 +11,8 @@ import { MatchClientCard } from "./MatchClientCard";
 function buttons(node: ReactNode): { children?: ReactNode; onClick?: () => void; disabled?: boolean }[] {
   return Children.toArray(node).flatMap(child => isValidElement<{ children?: ReactNode; onClick?: () => void; disabled?: boolean }>(child) ? [...(child.type === "button" ? [child.props] : []), ...buttons(child.props.children)] : []);
 }
-const client = { id: "seed-client", shortId: 1, fullName: "Seed client", reasons: [], score: 80, status: "IN_PROGRESS" } as unknown as MatchingClient;
+const client = { id: "seed-client", shortId: 1, fullName: "Seed client", status: "IN_PROGRESS",
+  match: { tier: "exact", reasons: [], tradeoffs: [], unknowns: [], ask: [], lastSentAt: null, sentCount: 0 } } as unknown as MatchingClient;
 beforeEach(() => { h.readOnly = false; h.index = 0; h.refs = []; h.confirm = null; h.send.mockReset(); h.navigate.mockReset(); });
 describe("matching row access changes", () => {
   it("prevents a captured send confirmation after readonly access appears", async () => {

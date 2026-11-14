@@ -258,6 +258,31 @@ describe("get_finance_summary — только ADMIN/DIRECTOR (finance.view)", (
     expect(after.expensesTJS - before.expensesTJS).toBe(200);
     expect(after.dealsCompleted - before.dealsCompleted).toBe(1);
   });
+
+  it("прибыль помощницы = прибыль экрана «Финансы» на одной базе, с зарплатой из сделок", async () => {
+    // Одна дверь (10.11.2026): своя копия арифметики вычитала строку «Зарплата из сделок»
+    // из доли компании второй раз; экран её не вычитает — доля риелтора уже вне дохода компании.
+    const monthKey = dushanbeWallClock().toISOString().slice(0, 7);
+    const salary = await prisma.expense.create({
+      data: { category: "SALARY", amount: 1500, currency: "TJS", agentId: agentAId, autoKey: `salary:${runId}:${monthKey}`,
+        note: "Зарплата из сделок", month: new Date(`${monthKey}-01T00:00:00.000Z`) },
+    });
+    expenseIds.push(salary.id);
+    const { default: request } = await import("supertest");
+    const { app } = await import("../src/app.js");
+    const { signAccessToken } = await import("../src/auth/jwt.js");
+    const screen = await request(app).get(`/api/v1/expenses/summary?months=1&through=${monthKey}`)
+      .set("Authorization", `Bearer ${signAccessToken({ sub: directorId, role: "DIRECTOR" })}`);
+    expect(screen.status).toBe(200);
+    const shown = screen.body.months[0] as { profit: number; companyRevenue: number; totalExpenses: number; revenue: number };
+    const assistant = (await runTool("get_finance_summary", { month: monthKey }, actorDirector())) as {
+      profitTJS: number; companyRevenueTJS: number; expensesTJS: number; revenueTJS: number;
+    };
+    expect(assistant.profitTJS).toBe(shown.profit);
+    expect(assistant.companyRevenueTJS).toBe(shown.companyRevenue);
+    expect(assistant.expensesTJS).toBe(shown.totalExpenses);
+    expect(assistant.revenueTJS).toBe(shown.revenue);
+  });
 });
 
 describe("get_lead_sources — то же право, что REST /reports/sources (reports.view)", () => {

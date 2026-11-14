@@ -55,6 +55,7 @@ import { generateReelsCaptionWithAi } from "../../ai/reelsCaptionAi.js";
 import { loadEventPoints, recordScoreEvent } from "../../lib/scoreJournal.js";
 import { localVideoDelete } from "../../lib/localVideoStorage.js";
 import { removePurgedNarrationAudio } from "../../lib/propertyNarrationCleanup.js";
+import { startNarrationForNewProperty } from "../../lib/narrationAutoFlow.js";
 import { propertyOwnedFilePaths } from "../../lib/diskCleanup.js";
 import {
   skipVideoHandoffOnManualPublish,
@@ -62,8 +63,8 @@ import {
 } from "../../lib/videoHandoff.js";
 import { describeError } from "../../lib/describeError.js";
 import { closeWorkAfterLeavingSale } from "../../lib/propertyLeftSale.js";
-import { reopenWorkAfterRestore, trashProperties, trashProperty } from "../../lib/trashProperty.js";
-import { propertyRemovalSchema } from "@royal-home/shared";
+import { restorePropertyFromTrash, trashProperties, trashProperty } from "../../lib/trashProperty.js";
+import { propertyRemovalSchema, narrationWizardChoiceSchema } from "@royal-home/shared";
 import { recordPropertyRemoval } from "../../lib/propertyRemovalEvidence.js";
 import { recomputeSellerCardState } from "../../lib/sellerCardState.js";
 import {
@@ -164,6 +165,8 @@ const createFromDraftSchema = z.object({
    *  отправки снимка, который должен стать первым фото объекта. Тем же
    *  доводом, что и draftId выше: свойство ЭТОГО запроса, не поля объекта. */
   coverUploadKey: z.string().min(8).max(128).optional(),
+  /** Выбор агента в конце мастера (CRM и Шабнам): текст, шаблон и голос озвучки. */
+  narration: narrationWizardChoiceSchema.optional(),
 });
 
 class PropertySellerAccessError extends Error {}
@@ -647,6 +650,8 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       data: {
         ...rest,
         title,
+        // Заведён мастером CRM или Шабнам: догоняющий проход автоозвучки трогает только такие (12.11.2026).
+        createdInCrmWizard: true,
         // Канонный адрес — считается один раз при сохранении (см. комментарий у
         // normalizePropertyAddress) и используется точным равенством в проверке
         // «этот адрес уже заведён» на шаге «Где» (routes/properties/duplicateCheck.ts).
@@ -871,6 +876,10 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       console.error("[автоподбор] новый объект создан сразу в продаже:", err instanceof Error ? err.message : err)
     );
   }
+
+  // Озвучка ролика: сразу ставится в очередь, агенту придёт на одобрение (lib/narrationAutoFlow.ts).
+  // Под рубильником autoGenerate; ошибка не роняет создание объекта.
+  void startNarrationForNewProperty(property.id, req.agent.id, parsedDraftRef.data.narration);
 
   // Автопубликации у объекта в конвейере нет: пока не сняли видео, публиковать
   // нечего, и попытка кончилась бы отказом сайта на каждом созданном объекте.
@@ -1775,7 +1784,7 @@ crudRouter.delete("/:id", requireAuth, requirePermission("properties.delete"), a
   res.status(204).send();
 });
 
-/** Восстановление объекта из Корзины — только ADMIN. Публикация на сайте
+/** Восстановление объекта из Корзины — директор/админ или хозяин объекта. Публикация на сайте
  * сознательно не возвращается автоматически: снятие с сайта было осознанным
  * действием при удалении, повторную публикацию решают отдельно кнопкой.
  *
@@ -1788,19 +1797,16 @@ crudRouter.delete("/:id", requireAuth, requirePermission("properties.delete"), a
  * же правка карточки (PATCH) видела publishedOnSite: true и молча
  * досылала объект на сайт через resyncPhotosIfPublished — тот же довод, что
  * у сброса флага при WITHDRAWN выше по файлу. */
-crudRouter.post("/:id/restore", requireAuth, requirePermission("properties.delete"), async (req, res) => {
-  const property = await prisma.property.findUnique({ where: { id: req.params.id } });
-  if (!property || !property.deletedAt) return res.status(404).json({ error: "Объект не найден в корзине" });
-
-  await prisma.property.update({
-    where: { id: property.id },
-    data: { deletedAt: null, deletedById: null, publishedOnSite: false },
+// Право — не одним `properties.delete` на входе, а общим правилом Корзины (07.11.2026,
+// решение владельца): директор/админ ИЛИ хозяин объекта (lib/trashAccess.ts). Само
+// восстановление — lib/trashProperty.ts::restorePropertyFromTrash, та же дверь у помощника.
+crudRouter.post("/:id/restore", requireAuth, async (req, res) => {
+  const result = await restorePropertyFromTrash(req.params.id, {
+    agentId: req.agent!.id,
+    can: (permission) => can(req, permission),
   });
-
-  // Очередь монтажа и публикация принятого ролика — тем же списком, что и у
-  // «Откатить» удаление сайтом (lib/trashProperty.ts::reopenWorkAfterRestore).
-  await reopenWorkAfterRestore(property);
-  await refreshSellerAfterPropertyChange(property.sellerClientId);
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  const property = result.property;
 
   logAudit(req, "RESTORE", "Property", property.id, { shortId: property.shortId, title: property.title });
   publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent!.id });
@@ -1884,6 +1890,10 @@ crudRouter.delete("/:id/permanent", requireAuth, requirePermission("properties.p
   });
   if (!purge) return res.status(409).json({ error: "Объект изменился или озвучка ещё генерируется. Обновите карточку перед удалением." });
   await removePurgedNarrationAudio(property.id, purge.narrationIds);
+  // Ролик без голоса (11.11.2026) — в том же закрытом хранилище, ссылка уходит вместе с объектом.
+  if (property.videoMasterStorageKey && !await localVideoDelete(property.videoMasterStorageKey)) {
+    void logSystemError("storage", `Объект ${property.shortId}: ролик без голоса ${property.videoMasterStorageKey} не удалён`);
+  }
   for (const d of purge.detached) {
     logAudit(req, "UPDATE", "Ad", d.adId, {
       reason: "property-purged",

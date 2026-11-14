@@ -40,8 +40,8 @@ export const PAYDO_DISAPPEAR_AFTER_HOURS = PAYDO_CRAWL_INTERVAL_HOURS * 3; // 72
  * потерянные разряды. Выше — тоже: обычно приписан лишний ноль. Пороги грубые
  * нарочно, они отсекают опечатки, а не дорогие или дешёвые варианты.
  */
-const MIN_PRICE_PER_SQM_TJS = 500;
-const MAX_PRICE_PER_SQM_TJS = 100_000;
+export const MIN_PRICE_PER_SQM_TJS = 500;
+export const MAX_PRICE_PER_SQM_TJS = 100_000;
 
 /** Цена за квадрат, если она правдоподобна; иначе null — считать по ней нельзя. */
 export function pricePerSqm(priceTjs: number | null, areaSqm: number | null): number | null {
@@ -60,6 +60,7 @@ const PRESERVED_WHEN_EMPTY = [
   "districtName",
   "landmark",
   "totalFloors",
+  "landSotki",
   "sellerPhone",
   "publishedAt",
   "repair",
@@ -126,7 +127,7 @@ export async function saveListings(source: string, listings: ParsedListing[]): P
       sourceUrl: true, dealType: true, propertyType: true, city: true, rooms: true, areaSqm: true, floor: true,
       price: true, currency: true, priceTjs: true, pricePerSqmTjs: true, negotiable: true, sellerId: true,
       sellerName: true, isAgency: true, title: true, photoCount: true, hasVideo: true, isPromoted: true, publishedText: true,
-      districtName: true, landmark: true, totalFloors: true, sellerPhone: true, publishedAt: true, repair: true,
+      districtName: true, landmark: true, totalFloors: true, landSotki: true, sellerPhone: true, publishedAt: true, repair: true,
       buildingType: true, isNewBuilding: true, buildingReady: true, exchangePossible: true, latitude: true, longitude: true,
     },
   });
@@ -151,6 +152,7 @@ export async function saveListings(source: string, listings: ParsedListing[]): P
       areaSqm: l.areaSqm,
       floor: l.floor,
       totalFloors: l.totalFloors ?? null,
+      landSotki: l.landSotki ?? null,
       price: l.price,
       currency: l.currency,
       priceTjs,

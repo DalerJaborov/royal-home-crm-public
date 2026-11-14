@@ -21,6 +21,8 @@ import { findDistrictIdByName } from "../../../lib/districtLookup.js";
 import { dushanbeDateString } from "../../../lib/dushanbeTime.js";
 import { fuzzyClientIds } from "../../../lib/fuzzySearch.js";
 import { withHiddenOrigin } from "../../../lib/clientOrigin.js";
+import { canSeeTrashedClientContacts, clientTrashScopeFor } from "../../../lib/trashAccess.js";
+import { trashActorOf } from "../actor.js";
 import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
@@ -33,13 +35,21 @@ import type { AssistantReadToolPlugin } from "./types.js";
  * чат и список не разошлись. Права:
  *  - рядовой агент (нет clients.viewAll) видит только СВОИХ и ПРИНЯТЫХ клиентов, только
  *    покупателей/продавцов, как его список в REST; чужого агента фильтром не задать;
- *  - Корзина скрыта всем; карточка с висящей заявкой на удаление — тем, у кого нет
+ *  - Корзина — только по scope=trash/both и по общему правилу (lib/trashAccess.ts, 07.11.2026):
+ *    руководство (archive.view) видит всю, остальные — только свои удалённые карточки, в общей
+ *    группе Telegram — никто; карточка с висящей заявкой на удаление — тем, у кого нет
  *    clients.delete (как в списке);
  *  - телефон — по clients.viewPhone и только у принятого лида (как search_clients), поиск
  *    по номеру и нику соцсети — только тому, кому они видны.
  */
 const MAX_LIMIT = 20;
 const DEFAULT_LIMIT = 10;
+
+/** Слова «я сам» вместо имени агента: «me», «я», «мои», «мне», «ман», «худам» (таджикский). */
+const SELF_AGENT_WORDS = new Set(["me", "my", "mine", "myself", "self", "я", "мои", "мой", "моих", "мне", "меня", "сам", "ман", "худам", "аз они ман"]);
+export function isSelfAgentName(name: string): boolean {
+  return SELF_AGENT_WORDS.has(name.trim().toLowerCase().replace(/[.!?]+$/u, ""));
+}
 
 const argsSchema = z.object({
   q: z.string().trim().max(200).optional(),
@@ -48,6 +58,8 @@ const argsSchema = z.object({
   status: z.enum(CLIENT_STATUSES).optional(),
   source: z.enum(CLIENT_SOURCES).optional(),
   hot: z.boolean().optional(),
+  kind: z.enum(["BUYER", "SELLER"]).optional(),
+  scope: z.enum(["live", "trash", "both"]).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
 });
 
@@ -60,11 +72,19 @@ const parameters = {
         "Слова поиска: имя, номер карточки (ПК-000042 или 42), адрес, район, пожелания клиента из заметок. " +
         "Каждое слово должно найтись; порядок слов не важен. Телефон ищется только тем, кому он виден.",
     },
-    agentName: { type: "string", description: "Имя или фамилия агента, за которым закреплены клиенты («Сайфуллоев»)" },
+    agentName: { type: "string", description: "Имя или фамилия агента, за которым закреплены клиенты («Сайфуллоев»); «мои клиенты» — передай «me»" },
     districtName: { type: "string", description: "Район, который клиент ищет («Сино», «Шоҳмансур»)" },
     status: { type: "string", enum: [...CLIENT_STATUSES] },
     source: { type: "string", enum: [...CLIENT_SOURCES] },
     hot: { type: "boolean", description: "true — только горячие клиенты" },
+    kind: { type: "string", enum: ["BUYER", "SELLER"], description: "BUYER — покупатели, SELLER — продавцы (собственники)" },
+    scope: {
+      type: "string",
+      enum: ["live", "trash", "both"],
+      description:
+        "live — живые, trash — Корзина удалённых клиентов, both — оба. Руководство видит всю Корзину клиентов, агент — только свои " +
+        "удалённые карточки; в общей группе Telegram Корзина клиентов закрыта.",
+    },
     limit: { type: "number", description: `Сколько вернуть (до ${MAX_LIMIT}, по умолчанию ${DEFAULT_LIMIT})` },
   },
 };
@@ -91,7 +111,11 @@ export const findClientsTool: AssistantReadToolPlugin = {
     // не выбираем и по всему агентству вместо «того самого» не отвечаем.
     let agentIds: string[] | undefined;
     let agentsMatched: string[] | undefined;
-    if (args.agentName) {
+    if (args.agentName && isSelfAgentName(args.agentName)) {
+      // «Мои клиенты»: модель передаёт «me», «я», «мои» — это сам спрашивающий (журнал прода
+      // 05–07.11: «me» давало ошибку, и модель отдавала общий список вместо своих).
+      agentIds = [actor.id];
+    } else if (args.agentName) {
       const match = await findActiveAgentByName(args.agentName);
       if (match.kind === "none") return { error: `Сотрудника «${args.agentName}» нет среди активных — уточните имя` };
       if (match.kind === "many") {
@@ -121,10 +145,30 @@ export const findClientsTool: AssistantReadToolPlugin = {
       if (!districtId) return { error: `Района «${args.districtName}» нет в справочнике — уточните название` };
     }
 
+    // Корзина клиентов — общее правило (lib/trashAccess.ts): руководство (право «Архив») — вся,
+    // остальные — только СВОИ удалённые карточки, в общей группе Telegram — никакая. Проверка
+    // здесь, на сервере.
+    const trashScope = clientTrashScopeFor(trashActorOf(actor));
+    const trashContacts = canSeeTrashedClientContacts(trashActorOf(actor));
+    const wantedScope = args.scope ?? "live";
+    if (wantedScope === "trash" && trashScope === "none") {
+      return { error: "Удалённых клиентов в общей группе не показываю — спросите меня в личном чате." };
+    }
+    // Поиск удалённых по номеру телефона — тоже показ телефона (подтверждение перебором): без
+    // «Архива» запрещён (решение владельца 07.11 «агенту не показывать телефон удаленного клиента»).
+    const phoneQuery = (args.q ?? "").split(/\s+/).some((t) => /^[+\d()-]+$/.test(t) && t.replace(/\D/g, "").length >= 5)
+      || /^[+\d\s()-]+$/.test(args.q ?? "") && (args.q ?? "").replace(/\D/g, "").length >= 5;
+    if (phoneQuery && !trashContacts && wantedScope === "trash") {
+      return { error: "Искать удалённых клиентов по номеру телефона может только руководство. Назовите имя клиента." };
+    }
+    const scope = trashScope === "none" || (phoneQuery && !trashContacts) ? "live" : wantedScope;
     const where: Prisma.ClientWhereInput = {
-      deletedAt: null,
-      ...clientFieldFilters({ status: args.status, source: args.source, districtId, hot: args.hot }),
+      ...(scope === "live" ? { deletedAt: null } : scope === "trash" ? { deletedAt: { not: null } } : {}),
+      ...clientFieldFilters({ kind: args.kind, status: args.status, source: args.source, districtId, hot: args.hot }),
     };
+    const and: Prisma.ClientWhereInput[] = [];
+    // Не руководство: из Корзины — только карточки, закреплённые за самим спросившим.
+    if (trashScope === "own" && scope !== "live") and.push({ OR: [{ deletedAt: null }, { assignedAgentId: actor.id }] });
     if (ownScope) {
       // Свои, принятые, только покупатели/продавцы — как личный список агента.
       where.assignedAgentId = ownScope;
@@ -139,7 +183,11 @@ export const findClientsTool: AssistantReadToolPlugin = {
       canSearchByPhone: actor.canViewPhone,
       canSearchByOrigin: has("clients.viewOrigin"),
     });
-    if (textAnd) where.AND = textAnd;
+    // Условие Корзины держится и в запасном проходе по опечаткам ниже (он заменяет только слова;
+    // сам fuzzyClientIds сейчас ищет лишь живых, но условие не должно зависеть от этого).
+    const trashAnd = [...and];
+    if (textAnd) and.push(...textAnd);
+    if (and.length > 0) where.AND = and;
 
     const include = {
       desiredDistrict: { select: { name: true } },
@@ -162,7 +210,7 @@ export const findClientsTool: AssistantReadToolPlugin = {
     if (total === 0 && args.q && textAnd) {
       const fuzzyIds = await fuzzyClientIds(args.q);
       if (fuzzyIds.length > 0) {
-        [rows, total] = await find({ ...where, AND: [{ id: { in: fuzzyIds } }] });
+        [rows, total] = await find({ ...where, AND: [...trashAnd, { id: { in: fuzzyIds } }] });
         approximate = total > 0;
       }
     }
@@ -171,22 +219,32 @@ export const findClientsTool: AssistantReadToolPlugin = {
     return {
       total,
       shown: rows.length,
+      searched: {
+        scope,
+        ...(trashScope === "own" && scope !== "live" ? { trashOwnOnly: "Из Корзины показаны только ваши карточки" } : {}),
+        ...(trashScope === "none" && wantedScope === "both"
+          ? { trashNotChecked: "Удалённых клиентов в общей группе не смотрела — это в личном чате" }
+          : {}),
+      },
       ...(agentsMatched ? { agentsMatched } : {}),
       ...(approximate ? { note: "Точных совпадений нет — показаны похожие по написанию" } : {}),
       items: rows.map((raw) => {
         // Источник и ник — по правилу REST (lib/clientOrigin.ts): без clients.viewOrigin
         // источник скрыт, имя-ник заменено — как в списке клиентов.
         const c = withHiddenOrigin(raw, canSeeOrigin);
+        // Удалённый клиент: хозяин-агент видит карточку без телефона и других контактов, контакты —
+        // только руководству с «Архивом» (решение владельца 07.11.2026, lib/trashAccess.ts).
+        const contacts = actor.canViewPhone && (c.deletedAt === null || trashContacts);
         return {
           id: c.id,
           code: formatClientCode(c.shortId, c.kind),
           href: `/clients/${c.shortId}`,
           // Имя — с ролью (как на экранах) и без номера внутри; всё присланное — в границах «данные».
-          name: safeField(clientNamePhoneSafe(formatClientName(c), actor.canViewPhone)),
+          name: safeField(clientNamePhoneSafe(formatClientName(c), contacts)),
           kind: clientKindLabel(c),
           status: c.status,
           source: c.source,
-          phone: clientPhoneFor(c.phone, actor.canViewPhone && c.acceptedAt !== null),
+          phone: c.deletedAt !== null && !trashContacts ? null : clientPhoneFor(c.phone, contacts && c.acceptedAt !== null),
           pendingAcceptance: c.acceptedAt === null,
           agent: c.assignedAgent?.fullName ?? null,
           desiredDistrict: c.desiredDistrict?.name ?? null,
@@ -194,9 +252,12 @@ export const findClientsTool: AssistantReadToolPlugin = {
           budgetMin: c.budgetMin ? Number(c.budgetMin) : null,
           budgetMax: c.budgetMax ? Number(c.budgetMax) : null,
           currency: c.currency,
-          address: safeField(phoneSafeText(c.address, actor.canViewPhone), 200),
-          notes: safeField(phoneSafeText(c.requirementsNotes, actor.canViewPhone), 200),
+          address: c.deletedAt !== null && !trashContacts ? null : safeField(phoneSafeText(c.address, contacts), 200),
+          // Заметки удалённого клиента (адрес, ориентиры дома) — тоже контакт: агенту без «Архива» не показываем.
+          notes: c.deletedAt !== null && !trashContacts ? null : safeField(phoneSafeText(c.requirementsNotes, contacts), 200),
           hot: c.hotSince !== null,
+          inTrash: c.deletedAt !== null,
+          ...(c.deletedAt ? { deletedAt: dushanbeDateString(c.deletedAt) } : {}),
           lastContact: dushanbeDateString(c.lastContactAt),
         };
       }),

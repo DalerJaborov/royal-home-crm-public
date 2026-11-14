@@ -65,12 +65,12 @@ describe("P1 an ad without a link or number says so in its own words", () => {
   const unresolved = (reason: string): CustomerAgentEvidence => ({ ref: "e0", value: { kind: "property_unresolved", status: "missing", reason } as CustomerAgentObservation });
   const render = (language: "ru" | "tg") => renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "none", question: "property" } as never,
     evidence: [unresolved("ad_unmapped")], language, requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm" }) ?? "";
-  it("the line has no «link or number» wording in either language", () => {
-    const ru = render("ru").split(String.fromCharCode(10))[0], tg = render("tg").split(String.fromCharCode(10))[0];
-    expect(ru).toContain("По этой рекламе объект не определился");
-    expect(ru).not.toMatch(/ссылк|номеру/u);
-    expect(tg).toContain("Аз рӯи ин реклама объект муайян нашуд");
-    expect(tg).not.toMatch(/пайванд|рақам ёфт/u);
+  it("asks one short human question, no «object not determined» and no «link or number» (13.11.2026)", () => {
+    const ru = render("ru"), tg = render("tg");
+    expect(ru).toBe("Подскажите, пожалуйста, что вас интересует?");
+    expect(ru).not.toMatch(/не определился|ссылк|номер/u);
+    expect(tg).toBe("Бигӯед, лутфан, ба шумо чӣ лозим аст?");
+    expect(tg).not.toMatch(/муайян нашуд|пайванд|рақам/u);
   });
 });
 

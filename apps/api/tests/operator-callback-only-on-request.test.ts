@@ -111,6 +111,27 @@ describe("порог по словам клиента", () => {
     expect(clientAskedForOperator(["перезвоните мне пожалуйста"])).toBe(false);
   });
 
+  // 14.11.2026: просьбы обычными словами — звонок; упоминание роли — не оператор.
+  it.each(["позвони мне", "можете позвонить?", "пусть позвонят", "свяжитесь со мной", "zang zaned", "Ба ман занг занад",
+    "пазвоните пж", "жду звонка", "tamos gired", "Можете мне перезвонить вечером?"])("просьба о звонке обычными словами: %s", (text) => {
+    expect(clientAskedForCallback([text])).toBe(true);
+    expect(clientAskedForOperator([text])).toBe(false);
+  });
+  it.each(["Не звоните мне", "Не надо мне звонить", "занг назанед", "Пожалуйста, не звоните", "zang nazaned"])(
+    "отказ от звонка — не просьба о звонке: %s", (text) => {
+      expect(clientAskedForCallback([text])).toBe(false);
+    });
+  it.each(["я работаю оператором", "у меня оператор Билайн", "я менеджер по продажам, ищу двушку", "Я сам агент, работаю с клиентом",
+    "мобильный оператор Tcell плохо ловит", "Ман менеджер ҳастам", "Оператор не нужен", "Мне менеджер не нужен"])(
+    "упоминание роли или отказ — не просьба оператора: %s", (text) => {
+      expect(clientAskedForOperator([text])).toBe(false);
+    });
+  it.each(["Можно с менеджером?", "Дайте менеджера", "Пригласите руководителя", "Хочу поговорить с реальным человеком",
+    "дайте аператора", "bo odam gap zanam"])("просьба о человеке обычными словами: %s", (text) => {
+    expect(clientAskedForOperator([text])).toBe(true);
+    expect(clientAskedForCallback([text])).toBe(true);
+  });
+
   it("жалоба «занг назадед» — не просьба (её разбирает complaintGuard)", () => {
     expect(clientAskedForCallback(["чанд руз шуд занг назадед"])).toBe(false);
     expect(clientAskedForCallback(["мне так и не позвонили"])).toBe(false);

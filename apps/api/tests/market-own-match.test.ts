@@ -19,6 +19,7 @@ const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
 const { extractPhoneTails, maskTail, runOwnMatching, scoreOwnMatch } = await import("../src/lib/market/ownMatch.js");
 import type { OwnMatchListing, OwnMatchProperty } from "../src/lib/market/ownMatch.js";
+import { catalogRaw } from "./helpers/somonPage.js";
 
 /**
  * Наш объект на Somon/Paydo: чистая оценка (scoreOwnMatch), прогон runOwnMatching
@@ -187,7 +188,7 @@ function listingData(n: number, over: Record<string, unknown> = {}) {
     sellerName: "Фируз",
     sellerPhone: phoneFor(n),
     isActive: true,
-    raw: {},
+    raw: catalogRaw(over),
     ...over,
   };
 }

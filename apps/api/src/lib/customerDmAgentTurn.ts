@@ -9,6 +9,7 @@ import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
 import { customerSearchContinuation, customerSearchIntent, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
 import { resolveSearchPlace } from "./searchPlace.js";
+import { customerPreReadWithoutShown } from "./customerSearchHistory.js";
 import { customerAffirmationFollowUp, customerBareAffirmation, customerCheaperRequested, customerCheaperSearchCall } from "../ai/customerAgentFollowUp.js";
 import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
 import { prisma } from "../db.js";
@@ -40,6 +41,7 @@ import { customerAgentMarkForeignShare } from "../ai/customerAgentAttachmentInpu
 import { customerSpamMuteGate, customerSpamTurn, SPAM_MUTED_NO_REPLY } from "../ai/customerSpamMute.js";
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
+import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
 import { reconcileCustomerShowcaseReply } from "./customerShowcaseReceipt.js";
@@ -53,6 +55,10 @@ import { customerDeliveryMediaEndpointSchema } from "./customerDeliveryContracts
 import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { fetchInstagramProfile, loadCredentials } from "../messengers/meta.js";
 import { bindCustomerMetaSendCredentials } from "./customerMetaTransport.js";
+import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
+import { enqueueCustomerLeadOnlyIntakeTx, planCustomerLeadOnlyTurn, readCustomerLeadOnlySentTexts,
+  type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
+import { leadOnlyAppliesTo, leadOnlyFilterReply } from "../ai/leadOnlyMode.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -244,6 +250,34 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       authenticatedInput: lane.authenticatedInput, ticket: lane.ticket, agentClaim: claim, handoverAckLanguage: language });
     if (session.status !== "ready") { await releaseHeldClaim(claim, session.reason); return { status: "held", reason: session.reason }; }
     const mutations = session.session; activeMutations = mutations;
+    // Режим «только заявки» (13.11.2026): заявка, продажа, понравившийся объект и горячие слова —
+    // короткий ответ сервера и заявка агенту, без модели. Остальные ходы — обычное ядро, но без
+    // подборки, фото, памятки и ссылок (ai/leadOnlyMode.ts — одна дверь решений для обоих маршрутов).
+    // Режим действует только в WhatsApp, Instagram и Facebook: чат сайта остаётся прежним (решение 13.11 после ревью).
+    const leadOnlyConfig = await loadLeadOnlyConfig();
+    const leadOnly = { ...leadOnlyConfig, enabled: leadOnlyConfig.enabled && leadOnlyAppliesTo(planningPrincipal.scope.channel) };
+    const leadOnlyFocusId = focus?.snapshot.focus.status === "resolved" ? focus.snapshot.focus.propertyId ?? null : null;
+    // Объект определён именно этим сообщением, а не остался в фокусе с прошлых ходов (ревью: «залипший» объект).
+    const leadOnlyFocusFresh = !!leadOnlyFocusId && focus?.snapshot.focus.eventKey === lane.ticket.eventKey;
+    const leadOnlySent = leadOnly.enabled && lane.ticket.conversationId ? await readCustomerLeadOnlySentTexts({
+      conversationId: lane.ticket.conversationId, endpointScopeId: planningPrincipal.scope.endpointScopeId, before: new Date(claim.pin.receivedAt) }) : [];
+    const planLeadOnly = async (plan: CustomerLeadOnlyTurnPlan): Promise<CustomerDmAgentTurnResult> => {
+      const partIds = await prisma.$transaction(async tx => {
+        const ids = await createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
+          parts: [{ payload: { kind: "text" as const, text: plan.text } }] });
+        if (plan.intake) await enqueueCustomerLeadOnlyIntakeTx(tx, plan.intake);
+        return ids;
+      });
+      return { status: "planned", partIds };
+    };
+    const leadOnlyTurn = (forced?: "escalate") => planCustomerLeadOnlyTurn({ config: leadOnly,
+      channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer, conversationId: lane.ticket.conversationId,
+      eventKey: claim.eventKey, language, inputText: fullInput(), focusPropertyId: leadOnlyFocusId, focusFromThisMessage: leadOnlyFocusFresh,
+      turns: remembered.context.turns, sentTexts: leadOnlySent, jobTopic: remembered.context.publicState.topic === "job", ...(forced ? { forced } : {}) });
+    if (leadOnly.enabled) {
+      const plan = await leadOnlyTurn();
+      if (plan) return await planLeadOnly(plan);
+    }
     const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(fullInput(), { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
       (!text.trim() && prepared.attachmentInput && (prepared.attachmentPropertyReference || mediaReferenceResolved) && focus?.snapshot.focus.status === "resolved"
         ? ["price" as const, "address" as const] : []);
@@ -255,12 +289,12 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const previousTurn = remembered.context.turns.at(-1);
     const followUp = plainTurn && !carried && customerBareAffirmation(text)
       ? customerAffirmationFollowUp(previousTurn?.role === "assistant" ? previousTurn.text : undefined, !!resolvedFocusId) ?? undefined : undefined;
-    const cheaperCall = plainTurn && !followUp && resolvedFocusId && customerCheaperRequested(fullInput())
+    const cheaperCall = plainTurn && !followUp && resolvedFocusId && !leadOnly.enabled && customerCheaperRequested(fullInput())
       ? customerCheaperSearchCall(await readCustomerPropertyFacts(resolvedFocusId, planningPrincipal.scope.channel)) : null;
     // «Ищу двушку в Сино», «есть ли двушки»: the model did not start the search on its own (live 30-31.10), so the server reads the
     // bounded catalogue first and the model answers from the result. Only without an object in focus and with the tool's own required args.
     let searchCall: ReturnType<typeof customerSearchPreRead> = null;
-    if (plainTurn && !followUp && !cheaperCall && !resolvedFocusId) {
+    if (plainTurn && !followUp && !cheaperCall && !resolvedFocusId && !leadOnly.enabled) {
       const intent = customerSearchIntent(fullInput(), language) ?? customerSearchContinuation(fullInput(), remembered.context.turns);
       if (intent) {
         let placeDistrict: string | undefined;
@@ -271,7 +305,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         searchCall = customerSearchPreRead(intent, placeDistrict);
       }
     }
-    const preReadCall = cheaperCall ?? searchCall;
+    const preReadCall = await customerPreReadWithoutShown(cheaperCall ?? searchCall, planningPrincipal);
     // Buyer-guide availability is a server hint only. It is deliberately not
     // exposed on unrelated job/seller turns, and no model marker can mint a
     // file send without the exact current campaign witness below.
@@ -283,7 +317,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     let approvedFilePlan: CustomerApprovedFilePlan | undefined;
     let approvedFileAuthority: CustomerApprovedFileAuthority | undefined;
     let mediaEndpoint: ReturnType<typeof customerDeliveryMediaEndpointSchema.parse> | undefined;
-    if (mediaExecution === "LIVE" && authenticatedInput && planningPrincipal.scope.channel !== "WEBSITE") {
+    if (mediaExecution === "LIVE" && authenticatedInput && planningPrincipal.scope.channel !== "WEBSITE" && !leadOnly.enabled) {
       const currentPrincipal = await revalidateCustomerPrincipal(planningPrincipal);
       const capturedTransport = currentPrincipal.status === "current" ? currentPrincipal.snapshot.transport : undefined;
       // Project only the exact transport fields required by the media sender.
@@ -359,7 +393,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState, ...(followUp ? { followUp } : {}), ...(preReadCall ? { preReads: [preReadCall] } : {}),
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
-      tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS, ...mutations.availableToolNames]),
+      // В режиме «только заявки» подборки нет вовсе: инструмент не предлагается модели (первый слой запрета).
+      tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS.filter(name => !leadOnly.enabled || name !== "search_public_properties"),
+        ...mutations.availableToolNames]),
       verifiedContext: remembered.context, sayMode: customerAgentSayMode(),
     }, {
       assertCurrent: async (evidence, wait) => { accumulated = evidence; return current(wait); },
@@ -427,9 +463,20 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await releaseHeldClaim(claim, "handover_committed_ack_unavailable");
       return { status: "held", reason: "handover_committed_ack_unavailable" };
     }
+    // Режим «только заявки»: «передать сотруднику» — это ответ клиенту и заявка, а не молчание.
+    if (leadOnly.enabled && result.status === "ready" && result.decision.kind === "escalate") {
+      const plan = await leadOnlyTurn("escalate");
+      if (plan) return await planLeadOnly(plan);
+    }
     if (result.status !== "ready" || !result.text.trim() || result.decision.kind === "escalate") {
       const reason = result.status === "held" ? modelHeldReason ?? result.reason : "staff_or_supported_reply_required";
       await releaseHeldClaim(claim, reason);
+      // The model handed the turn to staff and the customer gets no reply: a
+      // person must learn about it (14.11.2026 — before, nobody was told).
+      if (result.status === "ready" && result.decision.kind === "escalate") {
+        await notifyEscalatedCustomerTurn({ conversationId: lane.ticket.conversationId, channel: lane.principal.scope.channel,
+          text: fullInput() });
+      }
       return { status: "held", reason };
     }
     const principal = mutations.principal;
@@ -442,6 +489,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     if (sealed.status !== "sealed") {
       await releaseHeldClaim(claim, sealed.reason);
       return { status: "held", reason: sealed.reason };
+    }
+    // Второй слой запрета: ссылка или подборка всё же оказалась в ответе — вместо него короткий ответ «передаю агенту».
+    if (leadOnly.enabled && leadOnlyFilterReply(sealed.text).changed) {
+      const plan = await leadOnlyTurn("escalate");
+      if (plan) return await planLeadOnly(plan);
     }
     const mediaMode = customerPropertyMediaExecutionMode();
     const photoRequested = mediaMode !== "OFF" && explicitCustomerPropertyPhotoRequest(text);
@@ -460,7 +512,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       const currentFocus = focus?.snapshot.focus;
       const focusedProperty = currentFocus?.status === "resolved" && currentFocus.propertyId &&
         currentFocus.eventKey === lane.ticket.eventKey && currentFocus.scopeKey === lane.ticket.scopeKey ? currentFocus : null;
-      const policy = await loadCustomerAgentFeaturePolicy();
+      const policy = await loadCustomerAgentFeaturePolicy(mutations.principal.scope.channel);
       if (focusedProperty && policy.photos && policy.photosPerOffer > 0 &&
           ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(mutations.principal.scope.channel)) {
         const currentPrincipal = await revalidateCustomerPrincipal(mutations.principal);
@@ -556,6 +608,16 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   }
     })();
     traceCustomerCoreDisposition(outcome.status, "reason" in outcome ? outcome.reason : undefined, heldCause);
+    // «Передать сотруднику» без оформленной передачи — клиенту тишина (аудит 14.11.2026, №4).
+    // Сотруднику — сразу сигнал через одну дверь; остальные причины молчания ловит
+    // сторож молчания через 30 минут. Ход не ждёт и из-за сигнала не падает.
+    if (outcome.status === "held") {
+      const reason = outcome.reason;
+      void import("./clientWaitingAlert.js")
+        .then(({ STAFF_NEEDED_NOW_REASONS, alertClientWaiting }) =>
+          STAFF_NEEDED_NOW_REASONS.has(reason) ? alertClientWaiting({ conversationId: lane.ticket.conversationId, trigger: "escalate" }) : undefined)
+        .catch(error => console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError"));
+    }
     return outcome;
   });
 }

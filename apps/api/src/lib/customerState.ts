@@ -295,7 +295,7 @@ export async function activateCustomerInquiryForInput(input: AuthenticatedCustom
  * the caller already classified a real customer input. Older completion cannot
  * register a new ordinal or activate a newer owner's inquiry. */
 export async function acceptAuthenticatedCustomerAdmission(input: AuthenticatedCustomerInput, ticket: CustomerPropertyAdmission,
-  db: TxClient): Promise<CustomerStateSnapshot | null> {
+  db: TxClient, adTopic?: "job" | "property" | "seller"): Promise<CustomerStateSnapshot | null> {
   const evidence = inspectAuthenticatedCustomerInput(input);
   if (!evidence || evidence.channel !== ticket.channel || !isActiveTransactionClient(db)) return null;
   const endpoint = await resolveCustomerEndpoint({ channel: evidence.channel, subscriberId: evidence.peer,
@@ -323,10 +323,15 @@ export async function acceptAuthenticatedCustomerAdmission(input: AuthenticatedC
   const codes = ticket.evidence.flatMap(item => [item.reference, item.secondaryReference].flatMap(ref => ref ? [recruitmentPostCode(ref)].filter((code): code is string => !!code) : []));
   const previousPublic = value.state.snapshot.publicState;
   const word = recruitmentKeyword(evidence.inputText);
-  const positions = codes.length || word || previousPublic.topic === "job" || customerRecruitmentTopic(evidence.inputText, previousPublic.topic) === "job" ? await readRecruitmentPositions(db) : [];
+  // `adTopic` is the server-resolved topic of the ad that brought THIS event (lib/adAttribution.ts:
+  // our Ad table or the ad text the customer saw), never model output. A vacancy ad is a job inquiry
+  // exactly like a vacancy post code; the customer's own words still win (customerRecruitmentTopic).
+  const positions = codes.length || word || adTopic === "job" || previousPublic.topic === "job" || customerRecruitmentTopic(evidence.inputText, previousPublic.topic) === "job" ? await readRecruitmentPositions(db) : [];
   const matchedPosts = positions.filter(position => position.postCodes.some(code => codes.includes(code)) || !!word && position.keywords.includes(word));
-  const matchedPublication = matchedPosts.length > 0;
-  const topic = customerRecruitmentTopic(evidence.inputText, previousPublic.topic, matchedPublication);
+  const matchedPublication = matchedPosts.length > 0 || adTopic === "job";
+  const roleTopic = customerRecruitmentTopic(evidence.inputText, previousPublic.topic, matchedPublication);
+  // An ad for owners ("сдайте/продайте нам") makes an otherwise unknown inquiry a seller one.
+  const topic = roleTopic === "unknown" && adTopic === "seller" ? "seller" as const : roleTopic;
   const selected = topic === "job" ? selectedRecruitmentPosition(positions, evidence.inputText,
     matchedPosts.length === 1 ? matchedPosts[0].key : matchedPosts.length === 0 ? previousPublic.jobPositionKey : undefined) : null;
   const { jobPositionKey: _oldPosition, ...publicWithoutPosition } = previousPublic;
@@ -363,19 +368,26 @@ export async function reconcileCallbackConsentForInput(input: AuthenticatedCusto
     return { decision: "none", snapshot: null };
   }
   let event: CustomerStateEvent | null = null;
+  const slot = value.state.actionIntents.callback;
+  // A phone that continues an already-open consent keeps its generation. Only
+  // otherwise may a number reply to OUR accepted callback question («Алишер
+  // 927123456») become consent: before 14.11.2026 it was continue_phone with no
+  // open slot, matched neither branch and the lead was silently lost.
+  const phoneContinues = decision === "continue_phone" && evidence.provenance === "meta_signature" &&
+    evidence.protectedMetaEndpointScopeId === fence.endpoint.endpointScopeId && evidence.protectedMetaAccountId === fence.endpoint.accountId &&
+    slot?.status === "open" && !!slot.consent;
+  const answeredOurQuestion = (decision === "none" || (decision === "continue_phone" && !phoneContinues)) && !!acceptedQuestion &&
+    acceptedQuestion.affirmationEventKey === ticket.eventKey && acceptedQuestion.affirmationOrder === ticket.order;
   if (decision === "cancelled" || decision === "needs_review") {
     event = { type: "intent", kind: "callback", change: decision === "cancelled" ? "cancel" : "review", evidenceRefs: [ticket.eventKey] };
-  } else if ((decision === "requested" || (decision === "none" && acceptedQuestion &&
-      acceptedQuestion.affirmationEventKey === ticket.eventKey && acceptedQuestion.affirmationOrder === ticket.order)) && fence.nativeId && fence.ownerToken) {
+  } else if ((decision === "requested" || answeredOurQuestion) && fence.nativeId && fence.ownerToken) {
     event = { type: "callback_consent", consent: { matcherVersion: 1, originalEventKey: ticket.eventKey, originalOrder: ticket.order,
       nativeId: fence.nativeId, endpointScopeId: fence.endpoint.endpointScopeId, accountId: fence.endpoint.accountId,
       ownershipEpoch: fence.ownershipEpoch, bindingRevision: fence.bindingRevision, scopeRevision: fence.scopeRevision,
       policyRevision: fence.policyRevision, ownerToken: fence.ownerToken,
-      ...(acceptedQuestion && decision === "none" ? { acceptedQuestion } : {}) } };
-  } else if (decision === "continue_phone" && evidence.provenance === "meta_signature" &&
-      evidence.protectedMetaEndpointScopeId === fence.endpoint.endpointScopeId && evidence.protectedMetaAccountId === fence.endpoint.accountId) {
-    const slot = value.state.actionIntents.callback;
-    if (slot?.status === "open" && slot.consent) event = { type: "intent_evidence", kind: "callback", generation: slot.generation, eventKey: ticket.eventKey };
+      ...(acceptedQuestion && answeredOurQuestion ? { acceptedQuestion } : {}) } };
+  } else if (phoneContinues && slot) {
+    event = { type: "intent_evidence", kind: "callback", generation: slot.generation, eventKey: ticket.eventKey };
   }
   if (!event) return { decision, snapshot: value.state.snapshot };
   const result = await transitionCustomerState(db, fence, event);

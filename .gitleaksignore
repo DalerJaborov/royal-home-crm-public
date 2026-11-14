@@ -13,3 +13,7 @@
 # Historical prose: invalid_api_key followed by the public field names voiceIdRu/voiceIdTg.
 # No credential is present; ignore only this reviewed finding, not the rule or file.
 33f6cee1d15c4f6ccb3ea64da2f173a5c118a5d8:docs/design/madina-gemini-elevenlabs-2026-11-03.md:generic-api-key:79
+
+# Test fixture: fake literal sk_abcdefgh12345678 checks that redact() hides key-like strings.
+# No credential is present; ignore only this reviewed finding, not the rule or file.
+04ced9b117a792048e358deb48a3ac33b0cc2417:scripts/elevenlabs/elevenlabs-scripts.test.mjs:generic-api-key:32

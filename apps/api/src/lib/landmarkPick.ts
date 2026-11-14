@@ -34,7 +34,7 @@
  * подписи, но был бы недопустим для самого адреса объекта.
  */
 import { prisma } from "../db.js";
-import { distanceMeters } from "./geo.js";
+import { distanceMeters, isInsideDushanbe } from "./geo.js";
 import { landmarkCategoryKey, readableLandmarkName } from "./landmarkCategory.js";
 import { findNearestStreetName, loadStreetPoints, type StreetPoint } from "./geoLookup.js";
 
@@ -401,6 +401,16 @@ export interface LandmarkSuggestion {
   text: string;
   /** Ориентиры справочника, вошедшие в текст (фразы агентов сюда не входят). */
   landmarks: PickedLandmark[];
+}
+
+/**
+ * Точка мастера → ориентир: GET /geo/landmarks и мастер в Telegram (10.11.2026)
+ * зовут одну функцию. За пределами Душанбе справочника ориентиров нет — пустой
+ * ответ, а не «ближайший» ориентир за десятки километров.
+ */
+export async function suggestLandmarksForPoint(lat: number, lng: number): Promise<LandmarkSuggestion> {
+  if (!isInsideDushanbe(lat, lng)) return { text: "", landmarks: [] };
+  return suggestLandmarks(lat, lng);
 }
 
 /**

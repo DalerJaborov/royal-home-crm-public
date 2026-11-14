@@ -27,6 +27,9 @@ export const API_PROCESS_TICKS = {
   "interview-invite-call": "*/5 * * * *",
   // Уборка осиротевших каналов моста на станции — liveVoiceScenarioTicks.ts.
   "live-voice-orphan-sweep": "*/10 * * * *",
+  // Потолок минут робота (П5, 11.11.2026) — liveVoiceSpend.ts: удержание входящих живёт
+  // в памяти процесса моста, поэтому тик здесь; раз в минуту — перерасход не больше минуты.
+  "live-voice-spend-ceiling": "* * * * *",
 } as const;
 
 export type ApiProcessTickName = keyof typeof API_PROCESS_TICKS;

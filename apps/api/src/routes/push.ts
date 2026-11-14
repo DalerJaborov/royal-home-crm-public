@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
-import { PUSH_KINDS, isPushKind, isReadOnlyRole, type PushActionResult } from "@royal-home/shared";
+import { isReadOnlyRole, type PushActionResult } from "@royal-home/shared";
+import { mutedKindsOf, preferencesView, setKindMuted } from "../lib/notificationPrefs.js";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";
 import { isPushConfigured, getVapidPublicKey, sendPushToAgent } from "../push.js";
@@ -66,31 +67,21 @@ pushRouter.post("/test", requireAuth, async (req, res) => {
  * что человек снял. Новый вид уведомления при таком хранении доходит до всех сам.
  */
 pushRouter.get("/preferences", requireAuth, async (req, res) => {
-  const agent = await prisma.agent.findUnique({
-    where: { id: req.agent!.id },
-    select: { pushMuted: true },
-  });
-  const muted = agent?.pushMuted ?? [];
-  res.json({
-    kinds: PUSH_KINDS.map((k) => ({ ...k, enabled: !muted.includes(k.key) })),
-  });
+  res.json(preferencesView(await mutedKindsOf(req.agent!.id)));
 });
 
+/** Тумблер профиля — та же дверь, что «🔕 Не присылать такое» в Telegram (lib/notificationPrefs.ts). */
 pushRouter.patch("/preferences", requireAuth, async (req, res) => {
-  const parsed = z
-    .object({ kind: z.string().refine(isPushKind, "Неизвестный вид уведомления"), enabled: z.boolean() })
-    .safeParse(req.body);
+  const parsed = z.object({ kind: z.string().min(1).max(40), enabled: z.boolean() }).safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
-
-  const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { pushMuted: true } });
-  const current = new Set(agent?.pushMuted ?? []);
-  if (parsed.data.enabled) current.delete(parsed.data.kind);
-  else current.add(parsed.data.kind);
-
-  await prisma.agent.update({ where: { id: req.agent!.id }, data: { pushMuted: [...current] } });
-  res.json({ kinds: PUSH_KINDS.map((k) => ({ ...k, enabled: !current.has(k.key) })) });
+  const result = await setKindMuted(req.agent!.id, parsed.data.kind, !parsed.data.enabled);
+  if (!result.ok && result.reason === "always-on") {
+    return res.status(409).json({ error: `«${result.label}» выключить нельзя. ${result.why}` });
+  }
+  if (!result.ok) return res.status(400).json({ error: "Неизвестный вид уведомления" });
+  res.json(result.view);
 });
 
 const actionSchema = z.object({

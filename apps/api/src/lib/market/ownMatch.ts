@@ -42,6 +42,7 @@ import { maskClientPhone } from "../clientPhone.js";
 import { distanceMeters } from "../geo.js";
 import { loadMoneyContext, toTjs } from "../money.js";
 import { logSystemError } from "../systemError.js";
+import { marketCatalogWhere } from "./somonRubrics.js";
 
 // ───────────────────────────── Правила совпадения ─────────────────────────────
 
@@ -320,7 +321,7 @@ async function countListingsByPhone(phones: string[]): Promise<Map<string, numbe
   if (phones.length === 0) return new Map();
   const groups = await prisma.marketListing.groupBy({
     by: ["sellerPhone"],
-    where: { isActive: true, sellerPhone: { in: phones } },
+    where: { isActive: true, sellerPhone: { in: phones }, AND: [marketCatalogWhere()] },
     _count: { _all: true },
   });
   return new Map(groups.filter((g) => g.sellerPhone).map((g) => [g.sellerPhone as string, g._count._all]));
@@ -363,6 +364,7 @@ export async function runOwnMatching(): Promise<OwnMatchingStats> {
           isActive: true,
           dealType: "SALE",
           OR: chunk.map((x) => candidateWhere(x.row, x.mp)),
+          AND: [marketCatalogWhere()],
         },
         select: {
           id: true, propertyType: true, districtName: true, rooms: true, areaSqm: true, floor: true, totalFloors: true,

@@ -16,7 +16,7 @@ import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvi
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
-import { renderCustomerAgentDecision, customerAgentFixedLines, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
+import { renderCustomerAgentDecision, customerAgentFixedLines, customerAgentLineDigest, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentInput.js";
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
@@ -59,6 +59,32 @@ export function projectCustomerAgentMemory(candidates: readonly CustomerAgentMem
     unique.add(c.stableKey); selected.push({ role: c.role, text }); usedChars += text.length; usedBytes += size;
   }
   return selected.reverse();
+}
+/** Lines the bot actually sent in this conversation before the current input: the last bot parts within a day,
+ * wider than the six-turn memory (13.11.2026: a list re-sent as A, B, A slipped past the previous-turn check).
+ * Digests only: the renderer compares, nothing reaches the model. Bounded by the current input's receipt time,
+ * so a re-render of the same turn sees the same set. Corrupt parts are skipped, never a grant. */
+const SENT_LINES_WINDOW_MS = 24 * 60 * 60_000;
+async function readSentLineDigests(principal: CustomerPrincipal, before: Date): Promise<string[]> {
+  const parts = await prisma.customerOutboxPart.findMany({ where: {
+    conversationId: principal.scope.conversationId, originalNativeId: principal.scope.conversationId,
+    inquiryId: principal.authority.fence.inquiryId, endpointScopeId: principal.scope.endpointScopeId,
+    sourceKind: "BOT_TURN", mode: "LIVE", status: { in: ["ACCEPTED", "AVAILABLE_WIDGET"] },
+    acceptedAt: { not: null, lte: before, gte: new Date(before.getTime() - SENT_LINES_WINDOW_MS) },
+    supersededAt: null, cancelRequestedAt: null,
+  }, orderBy: [{ acceptedAt: "desc" }, { ordinal: "desc" }], take: 30 });
+  const digests = new Set<string>();
+  for (const part of parts) {
+    try {
+      const payload = decodeCustomerOutboxPayload(part);
+      if (payload.kind !== "text") continue;
+      for (const line of payload.text.split(/\r?\n/u).map(value => value.trim()).filter(Boolean)) {
+        if (digests.size >= 400) break;
+        digests.add(customerAgentLineDigest(line));
+      }
+    } catch { /* A part that does not decode supplies no repeat memory. */ }
+  }
+  return [...digests];
 }
 /** Epoch relation only, NOT a public read/write grant. Same-IN semantic
  * counters can advance; controller/scope/binding may never be adopted anew. */
@@ -285,6 +311,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
           if (text) candidates.push({ role: "assistant", text, observedAt: part.acceptedAt.getTime(), stableKey: `out:${part.id}` });
         } catch { /* Corrupt or non-public historical part is omitted, never a grant. */ }
       }
+      const sentLineDigests = await readSentLineDigests(principal, ticket.receivedAt);
       const positionKey = before.snapshot.state.publicState.topic === "job" ? before.snapshot.state.publicState.jobPositionKey : undefined;
       // Inside the protected own-inquiry branch only. Expose presence, never
       // résumé text, private HR notes/decision, cross-profile matches or IDs.
@@ -310,6 +337,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
       return { status: "current", context: customerAgentVerifiedContextSchema.parse({ surface: "dm", revisionId: revision.id,
         ...(positionKey ? { recruitmentKnown: [...recruitmentKnown] } : {}),
         ...(recruitmentAnswerTo ? { recruitmentAnswerTo } : {}),
+        ...(sentLineDigests.length ? { sentLineDigests } : {}),
         turns: projectCustomerAgentMemory(candidates, revision.limits.maxInputChars),
         intake: customerAgentIntake([...history].reverse().flatMap(row => {
           const text = historicalText(row, current, true, priorRevisions, intakeContinuity);

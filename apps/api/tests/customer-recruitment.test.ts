@@ -18,6 +18,10 @@ function render(language: "ru" | "tg", value = observation(), question: "none" |
     ...(knownKey ? { verifiedContext: { surface: "dm" as const, revisionId: "1".repeat(64), turns: [],
       publicState: { language, topic: "job" as const, openQuestion: "none" as const, jobPositionKey: knownKey } } } : {}) });
 }
+const phoneLine = (language: "ru" | "tg") => language === "ru"
+  ? "Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста."
+  : "Маълумоти пурраро дар бораи кор мутахассиси мо Ноза бо телефон медиҳад: 777 070 100. Лутфан занг занед.";
+
 describe("current recruitment facts", () => {
   it("keeps owner-approved onsite SMM conditions separate from the agent commission and uses the canonical office", () => {
     const templates = recruitmentPositionTemplates(), video = templates.find(row => row.key === "smm-videographer")!;
@@ -45,26 +49,29 @@ describe("current recruitment facts", () => {
     expect(customerRecruitmentTopic("Ищу квартиру в аренду", "unknown", true)).toBe("rent");
     expect(customerRecruitmentTopic("Хона ба иҷора лозим", "job", true)).toBe("rent");
   });
-  it.each(["ru", "tg"] as const)("renders staff facts in %s without invented pay, contact or saved application", language => {
+  it.each(["ru", "tg"] as const)("names the role and gives only the phone line in %s, with no staff conditions, invented pay, contact or saved application", language => {
     const text = render(language, observation(), "budget", language === "ru" ? "Вакансия: агент по недвижимости" : "Ҷойи кор: агент оид ба амвол");
     expect(text).toContain(language === "ru" ? position.titleRu : position.titleTg);
-    expect(text).toContain(language === "ru" ? position.detailsRu : position.detailsTg);
-    expect(text).not.toMatch(/992|1000|500|сохранен|сабт шуд|бюджет|буҷет/iu);
-    expect(text).toContain(language === "ru" ? "резюме или просто расскажите о себе" : "Резюме фиристед ё дар бораи худ");
+    expect(text).toContain(phoneLine(language));
+    expect(text).not.toContain(language === "ru" ? position.detailsRu : position.detailsTg);
+    expect(text).not.toMatch(/1000|500|сохранен|сабт шуд|бюджет|буҷет|резюме|Резюме/iu);
   });
   it("does not import another role's salary or stale built-in vacancy defaults", () => {
     const video = { ...position, key: "synthetic-video", titleRu: "SMM-менеджер / видеограф", titleTg: "Менеҷери SMM / видеограф", detailsRu: "", detailsTg: "", postCodes: [] };
     const text = render("ru", observation([position, video]), "none", "Вакансия видеограф");
-    expect(text).toContain("условия этой должности пока не опубликованы");
+    expect(text).toContain("SMM-менеджер / видеограф");
+    expect(text).toContain(phoneLine("ru"));
+    expect(text).not.toContain("условия этой должности пока не опубликованы");
     expect(text).not.toContain(position.detailsRu);
   });
   it.each([["ru", "Можно работать удалённо?"], ["ru", "А суббота рабочая?"], ["tg", "Аз хона кор кардан мешавад?"]] as const)(
-    "answers a %s work-format follow-up from the selected CRM conditions: %s", (language, text) => {
+    "answers a %s work-format follow-up with the phone line, not the CRM conditions: %s", (language, text) => {
       const template = recruitmentPositionTemplates().find(row => row.key === "smm-videographer")!;
       const video = { ...template, isOpen: true, revision: 1 };
       const result = render(language, observation([video]), "none", text, video.key);
-      expect(result).toContain(language === "ru" ? "Удалённая работа не предусмотрена" : "Кори фосилавӣ пешбинӣ нашудааст");
-      expect(result).toContain(language === "ru" ? "с понедельника по субботу" : "аз душанбе то шанбе");
+      expect(result).toContain(phoneLine(language));
+      expect(result).not.toContain(language === "ru" ? "Удалённая работа не предусмотрена" : "Кори фосилавӣ пешбинӣ нашудааст");
+      expect(result).not.toContain(language === "ru" ? "с понедельника по субботу" : "аз душанбе то шанбе");
       expect(result).not.toMatch(/\d+%|\$\d+|будем ждать вас завтра/iu);
     });
   it("does not ask a property or application question when no opening is confirmed", () => {

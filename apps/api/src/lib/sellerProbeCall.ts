@@ -7,7 +7,7 @@ import { buildSellerProbeCallPrompt, SELLER_PROBE_CALL_GREETING_TRIGGER, SELLER_
 import { parseSellerProbeCall } from "../ai/sellerProbeCallParse.js";
 import { logSystemAudit } from "./audit.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
-import { scenarioCallBlockReason } from "./scenarioCallEligibility.js";
+import { scenarioBlockFromPolicy, scenarioCallBlockReason } from "./scenarioCallEligibility.js";
 import {
   alignToCallHours,
   hasSubstantialClientSpeech,
@@ -27,6 +27,8 @@ import { originateLiveVoiceScenarioCall } from "./telephony/liveVoiceBridge.js";
 import { LIVE_VOICE_STATION_AUDIO_RETRY_MS } from "./telephony/liveVoiceAudioPath.js";
 import { scenarioVoice } from "./telephony/scenarioVoice.js";
 import { clientLinesOf, looksLikeVoicemail } from "../ai/scenarioTranscript.js";
+import { reportThirdPartyDisclosure } from "../ai/thirdPartyDisclosure.js";
+import { liveVoiceScenarioCommonRules } from "../ai/liveVoicePersona.js";
 import type { LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
 import type { SellerProbeCallOutcome } from "../generated/prisma/client.js";
 
@@ -107,6 +109,19 @@ export async function scheduleSellerProbeCalls(now: Date = new Date()): Promise<
  * Один проход: завести новые проверки, освободить зависшие, набрать те, чей час
  * настал. Возвращает число начатых звонков.
  */
+/**
+ * Роль звонка собственнику из НОВОГО источника (не после показа). Общие правила сценариев — одно место с
+ * приглашением и опросом (liveVoiceScenarioCommonRules: речь, посторонний на линии, автоответчик, «вы робот?», сроки).
+ * Название объекта называется, только чтобы уточнить, тот ли это собственник: цену, этаж и подробности — нет.
+ */
+export function buildNewSourceSellerProbePrompt(propertyTitle: string, tajik: boolean): string {
+  return (
+    `Вы сотрудник Royal Home. Честно скажите, что уточняете данные квартиры «${propertyTitle}». Спросите, является ли собеседник собственником, продаётся ли квартира, или планы изменились. ` +
+    "Не утверждайте, что реклама сейчас идёт или что показ был. Не обвиняйте, не обещайте автоматического снятия. При просьбе не звонить закончите разговор. Используйте инструмент завершения разговора.\n\n" +
+    liveVoiceScenarioCommonRules({ addressee: "собственник", tajik })
+  );
+}
+
 export async function runSellerProbeCallTick(now: Date = new Date()): Promise<number> {
   const settings = await prisma.settings.findUnique({
     where: { id: "singleton" },
@@ -337,7 +352,7 @@ async function dialSellerProbeCall(id: string, now: Date, allowNewSource = false
 
   // Голос — до промта: имя и «сотрудница/сотрудник» в нём от пола голоса (02.10.2026).
   const voice = await scenarioVoice();
-  const prompt = newSource ? `Вы сотрудник Royal Home. Честно скажите, что уточняете данные квартиры «${probe.property.title}». Спросите, является ли собеседник собственником, продаётся ли квартира, или планы изменились. Не утверждайте, что реклама сейчас идёт или что показ был. Не обвиняйте, не обещайте автоматического снятия. При просьбе не звонить закончите разговор. Используйте инструмент завершения разговора.` : buildSellerProbeCallPrompt({
+  const prompt = newSource ? buildNewSourceSellerProbePrompt(probe.property.title, !voice.forceRussianOnly) : buildSellerProbeCallPrompt({
     sellerName: firstName(probe.seller.fullName),
     propertyLabel: probe.property.title,
     voiceGender: voice.gender,
@@ -393,9 +408,17 @@ async function dialSellerProbeCall(id: string, now: Date, allowNewSource = false
   if (result.busy) {
     // Линия живого голоса занята другим разговором (25.09.2026) — это не
     // «номер не отвечает» и не повод поднимать тревогу о вписанном руками
-    // номере. Пробуем на следующем часовом проходе, попытку не тратим.
-    await releaseClaim();
+    // номере. Пробуем на следующем часовом проходе, попытку не тратим. Отказ двери
+    // звонков робота (П3) по часам/частоте приносит время, когда снова можно.
+    await releaseClaim(result.retryAt);
     return "busy";
+  }
+  // Окончательный отказ двери (П3): «не звонить», «не беспокойте», чёрный список — не
+  // сбой станции и не «мёртвый номер»: проверка закрывается причиной, без журнала ошибок.
+  const policyBlock = scenarioBlockFromPolicy(result);
+  if (policyBlock) {
+    await prisma.sellerProbeCall.updateMany({ where: { id, status: "CALLING", lastAttemptAt: now }, data: { status: "SKIPPED", skipReason: policyBlock } });
+    return "skipped";
   }
   if (!result.ok || !result.channelId) {
     if (newSource) {
@@ -463,6 +486,7 @@ export async function finishSellerProbeCall(result: LiveVoiceScenarioResult, now
   // Номер при этом живой (аудит №6, №12).
   if (kind === "wrong_person") {
     logSystemAudit("seller_probe_call_wrong_person", "SellerProbeCall", probe.id, { attempts: probe.attempts });
+    reportThirdPartyDisclosure("seller_probe", probe.id, result.transcript);
     await markSellerProbeNoAnswer(probe, now, ["line_alive", "wrong_person"]);
     if (probe.sourceKind !== "POST_SHOWING") await raiseDeadNumberAlertIfManualCard(probe.id);
     return;

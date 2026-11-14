@@ -1,10 +1,12 @@
 import fsp from "node:fs/promises";
 import { openAsBlob } from "node:fs";
+import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
+import { raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
 import { requireModerationAccepted, telegramDeleteOutcome, type ModerationOutcome } from "../messengers/commentModerationOutcome.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -131,6 +133,16 @@ async function call<T>(method: string, body: Record<string, unknown>, timeoutMs 
     if (!singleAttempt && waitMs !== null) {
       await sleep(waitMs);
       continue;
+    }
+    // 401 — ключ бота отозван или заменён в BotFather: молчит весь Telegram (channelKeyAlarm.ts).
+    if (data.error_code === 401) {
+      void raiseChannelKeyAlarm({
+        key: "telegram-bot",
+        label: "Telegram-бот",
+        detail: data.description ?? "Unauthorized",
+        source: "telegram",
+        fix: "Проверьте ключ бота TELEGRAM_BOT_TOKEN на сервере (BotFather → /token).",
+      });
     }
     throw new TelegramApiError(data.error_code, method, data.description ?? "неизвестная ошибка");
   }
@@ -385,6 +397,20 @@ export function sendPhoto(chatId: string, photoUrl: string, caption?: string, op
  */
 export async function deleteChannelMessage(chatId: string, messageId: number): Promise<void> {
   await call("deleteMessage", { chat_id: chatId, message_id: messageId });
+}
+
+/**
+ * Удалить сообщение в ЛИЧНОМ чате с ботом (10.11.2026, код Google Authenticator,
+ * telegram/assistantStepUp.ts): в личке бот вправе удалять и входящие. Best-effort:
+ * false — Telegram отказал (сообщению больше 48 часов, сеть), вызывающий решает сам.
+ */
+export async function deletePrivateMessage(chatId: string, messageId: number): Promise<boolean> {
+  try {
+    await call("deleteMessage", { chat_id: chatId, message_id: messageId });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Comments need the actual deletion confirmation; other channel consumers keep their contract. */
@@ -710,6 +736,20 @@ export async function sendHtmlMessage(
   }, CALL_TIMEOUT_MS, undefined, undefined, true);
 }
 
+/** Правка своего сообщения с разметкой HTML (карточка расходов листается и правится на месте). */
+export async function editHtmlMessage(
+  chatId: string, messageId: number, html: string, buttons?: TelegramInlineButton[][] | null,
+): Promise<void> {
+  await call("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text: html,
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+    reply_markup: { inline_keyboard: buttons ?? [] },
+  });
+}
+
 /** Repeat a known voice for this bot, with no ambiguous automatic retry. */
 export async function sendAssistantVoiceId(
   chatId: string, fileId: string, replyToMessageId?: number, messageThreadId?: number,
@@ -982,6 +1022,8 @@ export interface TelegramMedia {
   /** Геометка. Содержимое не используется — нужна, чтобы сообщение с одной
    *  геометкой не исчезало из переписки без следа (ночная проверка 24.09.2026). */
   location?: { latitude: number; longitude: number };
+  /** Место из поиска Telegram («Отправить место»): точка плюс название. */
+  venue?: { location: { latitude: number; longitude: number }; title?: string; address?: string };
 }
 
 /** Обычное сообщение клиентскому боту. */
@@ -1175,7 +1217,15 @@ export async function resolveTelegramFile(
       console.warn(`[telegram] файл ${fileId} слишком большой (${file.file_size} байт) — пропускаем`);
       return null;
     }
-    if (isAbsoluteFilePath(file.file_path)) return { kind: "path", path: file.file_path };
+    if (isAbsoluteFilePath(file.file_path)) {
+      // Запас: путь от своего Bot API-сервера читаем, только если он внутри его
+      // тома — та же проверка, что у вложений клиентов (пустой том — отказ).
+      if (!isInsideTelegramFilesDir(file.file_path)) {
+        void logSystemError("telegram", `getFile ${fileId}: путь вне тома Bot API — не читаем`);
+        return null;
+      }
+      return { kind: "path", path: file.file_path };
+    }
     return { kind: "url", url: `${API_ROOT}/file/bot${TOKEN}/${file.file_path}` };
   } catch (err) {
     console.error("[telegram] getFile:", err instanceof Error ? err.message : err);

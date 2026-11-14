@@ -42,7 +42,9 @@ import {
 } from "../lib/leadMagnet.js";
 import { loadPeerAiBudget, spendAiTurns } from "../lib/aiDailyBudget.js";
 import { resolveIncomingAccount } from "./accounts.js";
+import { brandForAccount, brandize, guardBrandLeak } from "../ai/brandName.js";
 import { ensureConversationId } from "./conversationStore.js";
+import { ensureCustomerEndpoint, type CustomerTransportReference } from "../lib/customerConversationScope.js";
 import { propertyIdForStoredComment } from "../lib/propertyVoice/commentProperty.js";
 import { appendConversationMessages } from "./appendMessages.js";
 import { SALES_FACTS } from "../ai/salesPlaybook.js";
@@ -707,6 +709,8 @@ export interface CommentPromptInput {
   /** Наши последние публичные ответы в этом канале — чтобы не повторять их дословно:
    *  одинаковые ответы под постами Instagram считает накруткой, а люди — автоматом. */
   recentReplies?: string[];
+  /** Как аккаунт называет компанию (ai/brandName.ts); пусто — «Royal Home», как было. */
+  brand?: string | null;
 }
 
 /** Строка промта с последними ответами; пусто, когда их нет. */
@@ -1083,14 +1087,17 @@ async function decideOnComment(input: CommentPromptInput, context: MediaContext)
     // переписке (ai/leadQualifier.ts). Выходило наоборот тому, чего требует цена
     // ошибки: под постом, где текст видят все подписчики, бот знал о городе меньше,
     // чем в личке с одним человеком, и спрашивал «Бустон Сити тарафи кадом район?».
-    systemStable: AGENCY_COMPANY_INFO + SALES_FACTS + (await folkGeographyBlock()) + MANDATORY_BOT_RULES + COMMENT_SCENARIO_RULES + (await propertyGeographyBlock()),
+    systemStable: brandize(
+      AGENCY_COMPANY_INFO + SALES_FACTS + (await folkGeographyBlock()) + MANDATORY_BOT_RULES + COMMENT_SCENARIO_RULES + (await propertyGeographyBlock()),
+      input.brand
+    ),
     // Выводы из случаев, где бот уже ошибался (lib/botLessons.ts) — та же функция,
     // что и в личной переписке (ai/leadQualifier.ts). В ИЗМЕНЯЕМУЮ часть промта, а
     // прямо в чате, см. routes/conversations.ts POST /:id/reply-feedback) чаще, чем
     // живёт кэш, и внутри кэшируемого блока новое правило не пробилось бы в промт,
     // пока не сменится что-то ещё в стабильной части (см. тот же приём и комментарий
     // в leadQualifier.ts).
-    system: buildCommentSystem(input, context, await loadCommentPrompt()) + (await learnedRulesBlock("comments")),
+    system: brandize(buildCommentSystem(input, context, await loadCommentPrompt()) + (await learnedRulesBlock("comments")), input.brand),
     user: `Комментарий от ${author}: «${input.text}»`,
     maxTokens: 400,
     // Комментарий читают посторонние — это лицо компании на публике, и экономить
@@ -1160,6 +1167,34 @@ export type QueuedComment = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+/**
+ * ЧЕЙ НАШ АККАУНТ У АВТОРА КОММЕНТАРИЯ — ОДНА ДВЕРЬ для всех записей в CRM по
+ * комментарию: досье, переписка (личное, письмо собственнику), интерес к объекту.
+ *
+ * Тот же выбор, что у личного входящего (routes/webhooks.ts): строка аккаунта,
+ * если она есть, — прежний путь без изменений. Нет строки (account.id = null)
+ * — значит, страница Facebook подключена через Настройки, и namespace задаёт
+ * подписанный Meta получатель комментария `row.accountExternalId`; сверка, что
+ * это именно страница из Настроек, — внутри accountForEndpoint
+ * (readInstalledCustomerTransport), чужая страница получает отказ, как и раньше.
+ *
+ * Без этой половины каждый комментарий под постом страницы Facebook с 15.10.2026
+ * получал `Customer endpoint denied: account_unknown`: ответ под постом и личное
+ * уходили (отправка берёт страницу из Настроек сама, resolveLegacyMetaSendTransport),
+ * а досье, переписка и интерес к объекту не писались (ErrorLog прода 15.10–07.11).
+ * YouTube сюда не относится: у его архива нет namespace (upsertYouTubeCommentArchive).
+ */
+export async function commentAuthorScope(
+  row: Pick<QueuedComment, "channel" | "authorId" | "accountExternalId">,
+  accountId: string | null | undefined
+): Promise<{ accountId: string | null | undefined; transport?: CustomerTransportReference }> {
+  if (accountId || row.channel !== "FACEBOOK" || !row.accountExternalId) return { accountId };
+  const transport = await ensureCustomerEndpoint(prisma, {
+    channel: row.channel, subscriberId: row.authorId, accountExternalId: row.accountExternalId,
+  });
+  return { accountId: null, transport };
+}
 
 /**
  * Разбирает подошедшие комментарии. Зовётся кроном раз в минуту.
@@ -1319,6 +1354,10 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // guessed запись досье/истории, сохраняя прежнюю привязку и карантин legacy.
   // Флаг не даёт permission на запись или перенос переписки в другой аккаунт.
   const accountGuess = "certain" in account && account.certain === false;
+  // Имя компании этого аккаунта (ai/brandName.ts): в промте и в готовых текстах ниже.
+  const brand = await brandForAccount(account.id);
+  /** Страховка на выходе: прежнее имя в готовом ответе заменяется и пишется в журнал. */
+  const leakSafe = (t: string): string => guardBrandLeak([t], brand, { where: "комментарий", conversationId: row.id })[0]!;
 
   // Защита от зацикливания: одному человеку под одной публикацией отвечаем
   // ограниченное число раз в сутки. Дальше — молчим, разговор продолжает человек.
@@ -1705,6 +1744,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
       answered,
       channel,
       recentReplies: await recentPublicReplies(channel),
+      brand,
     },
     context
   );
@@ -1725,7 +1765,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     // Собственник, которого код не узнал (без номера, своими словами). Спросил НАС —
     // модель дала короткий публичный ответ, комментарий остаётся. Выложил объявление
     // для читателей — ответа нет, объявление убираем с глаз, как у кода выше.
-    const publicReply = cleanPublicCommentReply(stripShowingInvite(decision.reply?.trim() ?? ""), row.text);
+    const publicReply = leakSafe(cleanPublicCommentReply(stripShowingInvite(decision.reply?.trim() ?? ""), row.text));
     if (publicReply) {
       await humanReplyDelay();
       const replyCommentId = await postCommentReply(row, publicReply, account.token);
@@ -1782,8 +1822,11 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
    * только в InstagramComment.note/dmSentAt — сама карточка от него больше не
    * зависит.
    */
+  let authorTransport: CustomerTransportReference | undefined;
   try {
-    await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, account.id, accountGuess);
+    const scope = await commentAuthorScope(row, account.id);
+    authorTransport = scope.transport;
+    await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
   } catch (err) {
     void logSystemError("meta", `Досье комментатора ${row.commentId} не заведено: ${describeError(err)}`);
   }
@@ -1823,7 +1866,9 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
         channel,
         row.authorId,
         undefined,
-        account.id
+        // Тот же namespace, что у досье выше (commentAuthorScope): страница из
+        // Настроек без строки аккаунта иначе давала account_unknown.
+        authorTransport ?? account.id
       );
     }
   }
@@ -1851,14 +1896,14 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // смайликом — норма и прямо предписан промтом (в личке эмодзи запрещены). Поэтому
   // ответ, состоящий только из реакции, оставляем как есть; чистим лишь текст.
   const rawReply = stripShowingInvite(decision.reply?.trim() ?? "");
-  const replyText = cleanPublicCommentReply(rawReply, row.text);
+  const replyText = leakSafe(cleanPublicCommentReply(rawReply, row.text));
   if (replyText) await humanReplyDelay();
   const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
 
   // Личное только после публичного ответа: если публичный не ушёл, значит с
   // комментарием что-то не так, и лезть человеку в личку тем более не стоит.
   // Личное — это обычная переписка, и правила там ровно те же, что в директе.
-  const dmText = linkAsLastLine(cleanOutgoingReply(decision.dm?.trim() ?? ""), context.property) || undefined;
+  const dmText = leakSafe(linkAsLastLine(cleanOutgoingReply(decision.dm?.trim() ?? ""), context.property)) || undefined;
   const dm = replyText ? await maybeSendPrivateReply(row, dmText, account.token) : { sent: false as const };
   // Личное ушло — оно ОБЯЗАНО появиться в переписке CRM (20.09.2026). Раньше текст
   // личного ложился только в журнал комментариев (InstagramComment.dmText), а в
@@ -1978,7 +2023,8 @@ async function contactOwner(
     void logSystemError("meta", `Подбор покупателей под объявление ${row.commentId} не удался: ${describeError(err)}`);
     return null;
   });
-  const dmText = ownerDmText(looksTajik(row.text), buyers?.total ?? 0);
+  // Готовый текст называет компанию: у аккаунта со своим брендом имя подменяется.
+  const dmText = brandize(ownerDmText(looksTajik(row.text), buyers?.total ?? 0), await brandForAccount(account.id));
   const dm = await maybeSendPrivateReply(row, dmText, account.token);
   if (dm.sent) {
     await recordOwnerConversation(row, dmText, dm.mid ?? null, account.id, account.certain === false);
@@ -2021,12 +2067,14 @@ async function recordOwnerConversation(
 ): Promise<void> {
   if (row.channel !== "INSTAGRAM" && row.channel !== "FACEBOOK") return;
   try {
+    const scope = await commentAuthorScope(row, accountId);
     const conversationId = await ensureConversationId(
       row.channel,
       row.authorId,
       row.authorName ?? undefined,
-      accountId,
-      accountGuess
+      scope.accountId,
+      accountGuess,
+      scope.transport
     );
     await appendConversationMessages(conversationId, [
       { role: "user", content: `(комментарий под нашим постом) ${row.text}` },
@@ -2129,12 +2177,14 @@ async function recordPrivateReply(
   // но проверка стоит явно: переписки этого канала в BotConversation не бывает.
   if (row.channel !== "INSTAGRAM" && row.channel !== "FACEBOOK") return;
   try {
+    const scope = await commentAuthorScope(row, accountId);
     const conversationId = await ensureConversationId(
       row.channel,
       row.authorId,
       row.authorName ?? undefined,
-      accountId,
-      accountGuess
+      scope.accountId,
+      accountGuess,
+      scope.transport
     );
     // Сам комментарий — тоже в переписку, как в recordOwnerConversation
     // (02.10.2026): без него бот в директе не знал, о чём человек спросил под

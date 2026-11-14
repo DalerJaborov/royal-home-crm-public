@@ -12,6 +12,7 @@ import {
   sanitizeAssistantReply, splitHumanMessages, splitReaction, stripAssistantSpeechMarkup,
 } from "./assistantReply.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
+import { renderAssistantListText } from "./assistantList.js";
 
 const agentRequest = /^(?:(?:найди|найдите|покажи|покажите)\s+)?клиент(?:ов|ы)\s+агента\s+([\p{L}'’\-]+(?:\s+[\p{L}'’\-]+){0,2})[?!.]*$/iu;
 const nameForLink = (text: string) => text.replace(/[\[\]\r\n]+/g, " ").trim();
@@ -45,10 +46,15 @@ export async function findTelegramAgentClients(text: string, actor: AssistantAct
   if (error.success) return error.data.error;
   const { total, shown, agentsMatched, items, note } = rosterSchema.parse(result);
   if (note && !total) return note;
-  const head = `Клиенты агента ${agentsMatched?.[0] ?? name}. Всего доступных карточек — ${total}.`;
-  if (!shown) return head;
-  const list = items.map(item => `• [${item.code} · ${nameForLink(item.name)}](${item.href})`);
-  return [head, total > shown ? `Показываю ${shown} из ${total}:` : "", ...list].filter(Boolean).join("\n");
+  // Вид — общий модуль списков помощницы (telegram/assistantList.ts).
+  return renderAssistantListText({
+    icon: "👥",
+    title: `Клиенты агента ${agentsMatched?.[0] ?? name}`,
+    total,
+    items: items.map(item => ({ code: item.code, href: item.href, title: nameForLink(item.name) })),
+    note: total > shown ? `Показываю ${shown} из ${total}, остальные — в CRM.` : undefined,
+    empty: "Доступных карточек нет.",
+  }).join("\n\n");
 }
 
 export function isVoiceReplayRequest(text: string): boolean {

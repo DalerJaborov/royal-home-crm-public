@@ -362,6 +362,18 @@
       }
     },
     {
+      "path": "/market",
+      "component": "MarketSegments",
+      "file": "apps/web/src/pages/MarketSegments.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/market",
+        "label": "Рынок: цены",
+        "group": "objects",
+        "gate": ""
+      }
+    },
+    {
       "path": "/marketing",
       "component": "MarketingCenter",
       "file": "apps/web/src/pages/MarketingCenter.tsx",
@@ -732,6 +744,12 @@
       "gate": ""
     },
     {
+      "to": "/market",
+      "label": "Рынок: цены",
+      "group": "objects",
+      "gate": ""
+    },
+    {
       "to": "/site-changes",
       "label": "Изменения на сайте",
       "group": "objects",
@@ -958,20 +976,28 @@
       "usedBy": 1
     },
     {
+      "mount": "/api/v1/property-offers",
+      "router": "propertyOffersRouter",
+      "file": "apps/api/src/routes/propertyOffers.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 1
+    },
+    {
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 125,
+      "endpoints": 129,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 31
+      "usedBy": 33
     },
     {
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 60,
+      "endpoints": 63,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
-      "usedBy": 13
+      "usedBy": 14
     },
     {
       "mount": "/api/v1/deals",
@@ -993,7 +1019,7 @@
       "mount": "/api/v1/deals",
       "router": "dealPayoutRouter",
       "file": "apps/api/src/routes/dealPayout.ts",
-      "endpoints": 2,
+      "endpoints": 3,
       "label": "Сделки, документы, выплаты",
       "usedBy": 4
     },
@@ -1073,7 +1099,7 @@
       "mount": "/api/v1/ai",
       "router": "aiRouter",
       "file": "apps/api/src/routes/ai.ts",
-      "endpoints": 12,
+      "endpoints": 13,
       "label": "Запросы к ИИ из интерфейса",
       "usedBy": 3
     },
@@ -1107,15 +1133,15 @@
       "file": "apps/api/src/routes/settingsRestorePoints.ts",
       "endpoints": 2,
       "label": "Точки возврата настроек",
-      "usedBy": 10
+      "usedBy": 11
     },
     {
       "mount": "/api/v1/settings",
       "router": "settingsRouter",
       "file": "apps/api/src/routes/settings.ts",
-      "endpoints": 50,
+      "endpoints": 58,
       "label": "Настройки CRM и точки возврата",
-      "usedBy": 10
+      "usedBy": 11
     },
     {
       "mount": "/api/v1/ui-shell",
@@ -1513,7 +1539,7 @@
       "mount": "/api/v1/market",
       "router": "marketRouter",
       "file": "apps/api/src/routes/market.ts",
-      "endpoints": 2,
+      "endpoints": 3,
       "label": null,
       "usedBy": 1
     },
@@ -1563,6 +1589,11 @@
     {
       "id": "assistant-actions-sweep",
       "expr": "35 * * * *",
+      "label": null
+    },
+    {
+      "id": "assistant-log-retention",
+      "expr": "25 4 * * *",
       "label": null
     },
     {
@@ -1636,6 +1667,16 @@
       "label": "Ночная оценка ИИ всех активных клиентов"
     },
     {
+      "id": "client-silence-sweep",
+      "expr": "*/10 * * * *",
+      "label": null
+    },
+    {
+      "id": "clip-owner-autopublish",
+      "expr": "*/5 * * * *",
+      "label": null
+    },
+    {
       "id": "clip-review-resend",
       "expr": "*/5 * * * *",
       "label": null
@@ -1692,7 +1733,7 @@
     },
     {
       "id": "director-alert-queue-flush",
-      "expr": "*/10 * * * *",
+      "expr": "* * * * *",
       "label": "Доставляет руководству накопленные тревоги в разрешённые часы"
     },
     {
@@ -1766,6 +1807,11 @@
       "label": "Отвечает, скрывает и эскалирует комментарии под публикациями"
     },
     {
+      "id": "instagram-identity-guard",
+      "expr": "*/10 * * * *",
+      "label": null
+    },
+    {
       "id": "instagram-online-followers",
       "expr": "15 14 * * *",
       "label": null
@@ -1831,6 +1877,11 @@
       "label": null
     },
     {
+      "id": "market-somon-incremental",
+      "expr": "7,22,37,52 * * * *",
+      "label": null
+    },
+    {
       "id": "market-weekly-crawl",
       "expr": "30 2 * * 0",
       "label": null
@@ -1866,6 +1917,11 @@
       "label": "Утренний дайджест директорам"
     },
     {
+      "id": "narration-auto-flow",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
       "id": "narration-version-delivery",
       "expr": "* * * * *",
       "label": null
@@ -1898,6 +1954,11 @@
     {
       "id": "owner-report-monthly-preview",
       "expr": "20 8 * * *",
+      "label": null
+    },
+    {
+      "id": "payment-reminders",
+      "expr": "40 * * * *",
       "label": null
     },
     {
@@ -2003,6 +2064,11 @@
     {
       "id": "somon-owner-leads",
       "expr": "* * * * *",
+      "label": null
+    },
+    {
+      "id": "staff-notice-cleanup",
+      "expr": "40 3 * * *",
       "label": null
     },
     {
@@ -2234,7 +2300,7 @@
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
       "keys": 9,
-      "files": 12
+      "files": 13
     },
     {
       "name": "Бюджет Google Cloud",
@@ -2264,12 +2330,12 @@
     {
       "name": "Реклама Meta (рекламный кабинет)",
       "keys": 3,
-      "files": 3
+      "files": 4
     },
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 16
+      "files": 18
     },
     {
       "name": "Телефония FreePBX / Asterisk",

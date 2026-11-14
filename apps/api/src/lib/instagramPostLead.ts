@@ -27,9 +27,21 @@ import { propertyOwnerAgentId } from "./propertyOwner.js";
  */
 
 /** Код поста Instagram из ссылки: /p/<code>, /reel/<code>, /reels/<code>, /tv/<code>. */
+/**
+ * ОДИН РАЗБОР ССЫЛКИ НА ПОСТ INSTAGRAM (08.11.2026, ревью пачки 2 Шабнам): /p/, /reel/, /reels/,
+ * /tv/, с ником впереди или без, с хвостом `?igsh=`. Им пользуются заявка по ссылке (ниже),
+ * find_property (lib/propertyRefLookup.ts) и быстрый путь помощницы (ai/assistantFastPath.ts).
+ */
+const INSTAGRAM_LINK_RE = /instagram\.com\/(?:[^/\s?#]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/giu;
+
+/** Все коды постов Instagram в тексте (без повторов). */
+export function instagramLinkCodes(text: string): string[] {
+  return [...new Set([...text.matchAll(INSTAGRAM_LINK_RE)].map((m) => m[1]))];
+}
+
+/** Код поста в одной ссылке; короче пяти знаков — не код (заявка по ссылке, как и раньше). */
 export function instagramPostCode(url: string): string | null {
-  const m = /instagram\.com\/(?:[^/]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]{5,})/i.exec(url);
-  return m ? m[1] : null;
+  return instagramLinkCodes(url).find((code) => code.length >= 5) ?? null;
 }
 
 /** Все коды постов, встреченные в тексте сообщения клиента. */

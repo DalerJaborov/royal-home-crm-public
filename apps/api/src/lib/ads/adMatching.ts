@@ -264,12 +264,11 @@ export async function buildAdMatcher(options: AdMatcherOptions = {}): Promise<Ad
     }
   }
 
-  // Наша Страница Facebook: первая половина storyId у своих объявлений — это её id.
-  const settings = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: { metaPageId: true },
-  });
-  const ourPageId = settings?.metaPageId?.trim() || process.env.META_PAGE_ID || null;
+  // Наши Страницы Facebook: первая половина storyId у своих объявлений — id Страницы.
+  // НЕСКОЛЬКО (13.11.2026): кроме основной из Настроек — подключённые кнопкой
+  // (Arvan estate) и Страницы, к которым привязаны наши Instagram. Иначе реклама,
+  // запущенная со Страницы Arvan, считалась бы чужой и пряталась из расходов.
+  const ourPageIds = await loadOurPageIds();
 
   let healed = 0;
 
@@ -284,11 +283,12 @@ export async function buildAdMatcher(options: AdMatcherOptions = {}): Promise<Ad
       const assetCode = instagramShortcode(asset.permalink);
       if (assetCode && feedByCode.has(assetCode)) return true;
     }
-    if (ourPageId && ad.storyId?.startsWith(`${ourPageId}_`)) return true;
+    const storyPage = ad.storyId?.split("_")[0];
+    if (storyPage && ourPageIds.has(storyPage)) return true;
     // Лента недоступна и Страница не настроена — отличить своё от чужого нечем.
     // В этом случае считаем своим ВСЁ: спрятать реальные расходы хуже, чем
     // показать лишнее, — лишнее видно и снимается вручную, спрятанное не видно никак.
-    if (feed.length === 0 && !ourPageId) return true;
+    if (feed.length === 0 && ourPageIds.size === 0) return true;
     return false;
   };
 
@@ -473,4 +473,24 @@ export function matchByCaption(
   // Ничья между двумя объектами — доказательства нет, молчим.
   if (scored.length > 1 && scored[1].hits === scored[0].hits) return null;
   return scored[0].id;
+}
+
+/** Id наших Страниц Facebook: основная из Настроек, подключённые аккаунты FACEBOOK
+ *  и Страницы, к которым привязаны наши Instagram (MessengerAccount.pageId). */
+export async function loadOurPageIds(): Promise<Set<string>> {
+  const [settings, accounts] = await Promise.all([
+    prisma.settings.findUnique({ where: { id: "singleton" }, select: { metaPageId: true } }),
+    prisma.messengerAccount.findMany({
+      where: { OR: [{ channel: "FACEBOOK" }, { pageId: { not: null } }] },
+      select: { channel: true, externalId: true, pageId: true },
+    }),
+  ]);
+  const ids = new Set<string>();
+  const main = settings?.metaPageId?.trim() || process.env.META_PAGE_ID || null;
+  if (main) ids.add(main);
+  for (const a of accounts) {
+    if (a.channel === "FACEBOOK" && a.externalId.trim()) ids.add(a.externalId.trim());
+    if (a.pageId?.trim()) ids.add(a.pageId.trim());
+  }
+  return ids;
 }

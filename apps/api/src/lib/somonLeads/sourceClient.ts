@@ -26,8 +26,10 @@ function retryDelay(header: string | null, now: number): number | undefined {
 
 /** All background Somon calls must go through this budgeted entry point. */
 export async function fetchSomon(path: string, now = new Date(), request: typeof fetch = fetch, options: ClaimOptions = {}): Promise<Response> {
-  // Страницы списков: квартиры (лиды и рынок) и дома (только рынок). Больше ничего.
-  const permitted = /^\/nedvizhimost\/prodazha-(?:kvartir|domov)\/dushanbe\/(?:\?page=\d{1,5})?$/.test(path)
+  // Страницы списков: квартиры (лиды и рынок) и дома (только рынок). Больше ничего. Раздел домов —
+  // prodazha-domov-havli-i-dach (рубрика 218); прежний адрес prodazha-domov с 11.2026 отдаёт ОБЩУЮ
+  // ленту всех объявлений сайта (9 326 страниц), поэтому закрыт (12.11.2026).
+  const permitted = /^\/nedvizhimost\/prodazha-(?:kvartir|domov-havli-i-dach)\/dushanbe\/(?:\?page=\d{1,5})?$/.test(path)
     || /^\/items\/author\/\d{1,20}\/$/.test(path)
     || /^\/api\/items\/get_phone\/\d{1,20}\/$/.test(path)
     || /^\/api\/v2\/spa\/adverts\/card\/[\w%-]+\/$/.test(path);

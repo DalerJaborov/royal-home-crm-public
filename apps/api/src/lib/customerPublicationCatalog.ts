@@ -70,7 +70,7 @@ export async function readCustomerPublicationObservation(source: CustomerPublica
   const cards = catalog.ids.length === 1 || (!open.length && all.length === catalog.ids.length) ? all : open;
   if (!cards.length || (await readCustomerPublicationCatalog(source))?.signature !== catalog.signature) return null;
   return customerAgentPublicationObservationSchema.parse({ kind: "publication_properties", source,
-    mappingSignature: catalog.signature, kinds, cards, linksAllowed: (await loadCustomerAgentFeaturePolicy()).links });
+    mappingSignature: catalog.signature, kinds, cards, linksAllowed: (await loadCustomerAgentFeaturePolicy(source.channel)).links });
 }
 
 export async function customerPublicationObservationCurrent(value: CustomerAgentPublicationObservation): Promise<boolean> {

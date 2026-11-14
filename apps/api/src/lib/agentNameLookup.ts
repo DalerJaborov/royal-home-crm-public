@@ -23,13 +23,22 @@ const MAX_CANDIDATES = 6;
 const normalize = (text: string) => text.toLocaleLowerCase("ru").replace(/ё/g, "е").replace(/\s+/g, " ").trim();
 
 export async function findActiveAgentByName(rawName: string): Promise<AgentNameMatch> {
+  return findStaffByName(rawName);
+}
+
+/**
+ * То же правило поиска, но для управления сотрудниками (помощница, 10.11.2026):
+ * `includeInactive` находит и отключённых — их включают обратно или удаляют.
+ * Учётки «удалён, история сохранена» (телефон с меткой -deleted:) не находятся никогда.
+ */
+export async function findStaffByName(rawName: string, opts: { includeInactive?: boolean } = {}): Promise<AgentNameMatch> {
   const name = rawName.replace(/\s+/g, " ").trim();
   if (name.length < 2) return { kind: "none" };
   const tokens = name.split(" ").filter((t) => t.length >= 2).slice(0, 4);
   if (tokens.length === 0) return { kind: "none" };
   const rows = await prisma.agent.findMany({
     where: {
-      isActive: true,
+      ...(opts.includeInactive ? { NOT: { phone: { contains: "-deleted:" } } } : { isActive: true }),
       AND: tokens.map((token) => ({ fullName: { contains: token, mode: "insensitive" as const } })),
     },
     select: { id: true, fullName: true },

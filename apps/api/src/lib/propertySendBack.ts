@@ -60,11 +60,14 @@ export async function sendPropertyBackToMontajerAs(input: {
   /** Только проверки (права + отказы функции), без записи: для превью помощника. */
   dryRun?: boolean;
   auditSource?: Record<string, unknown>;
+  /** Старые посты снимет публикация нового ролика (12.11.2026, ролик от сотрудника в Telegram).
+   *  Право то же, что у «снять из соцсетей»: снятие видно подписчикам. */
+  replaceOnNewVideo?: boolean;
 }): Promise<SendBackAsResult> {
   const { actor, body } = input;
   const property = await prisma.property.findUnique({ where: { id: input.propertyId } });
   if (!property) return { ok: false, status: 404, error: "Объект не найден" };
-  const denied = sendBackDenied(actor, property, body.removeFromSocial);
+  const denied = sendBackDenied(actor, property, body.removeFromSocial || input.replaceOnNewVideo);
   if (denied) return { ok: false, ...denied };
 
   // Замена исходника стирает старые ролики — право то же, что у DELETE
@@ -75,7 +78,7 @@ export async function sendPropertyBackToMontajerAs(input: {
     body.reason,
     body.comment ?? null,
     body.replaceVideoIds ?? null,
-    { removeFromSocial: body.removeFromSocial, ...(input.guard ? { guard: input.guard } : {}), ...(input.dryRun ? { dryRun: true } : {}) }
+    { removeFromSocial: input.replaceOnNewVideo ? "on-new-video" : body.removeFromSocial, ...(input.guard ? { guard: input.guard } : {}), ...(input.dryRun ? { dryRun: true } : {}) }
   );
   if (!result.ok) return { ok: false, status: 409, error: result.error, ...(result.stale ? { stale: true as const } : {}) };
   if (input.dryRun) return { ok: true, result };

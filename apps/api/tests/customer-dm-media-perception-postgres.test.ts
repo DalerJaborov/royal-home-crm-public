@@ -4,11 +4,11 @@ import { createCustomerCoreGoldenFixture, reply, call, decision } from "./helper
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
 import * as mediaObservation from "../src/lib/customerAgentMediaObservation.js";
 import { decodeCustomerAgentMediaObservation } from "../src/lib/customerAgentMediaObservation.js";
-import { readFileSync, mkdtempSync, unlinkSync, rmdirSync } from "node:fs";
+import { readFileSync, mkdtempSync, unlinkSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { customerRecruitmentPortfolioSchema } from "@royal-home/shared";
+import { customerRecruitmentPortfolioSchema, recruitmentPhoneLine } from "@royal-home/shared";
 import { privateFilePath } from "../src/lib/privateFiles.js";
 import { prepareCustomerDmInboxCoreContext } from "../src/lib/customerDmCoreContext.js";
 
@@ -50,7 +50,8 @@ it("a queued caption supersedes the older media reply while its real perceived v
     expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: first } })).toBe(0);
     const actual = await f.deliver(second);
     expect(actual.text).toContain("Агент по недвижимости");
-    expect(actual.text).toContain("Обучение и наставник");
+    expect(actual.text).toContain(recruitmentPhoneLine("ru"));
+    expect(actual.text).not.toContain("Обучение и наставник");
     expect(actual.text).not.toMatch(/мебель|Какой объект|нет подтверждённых/iu);
   } finally {
     await prisma.recruitmentPosition.delete({ where: { key } });
@@ -72,7 +73,8 @@ it("a genuine SMM video goes through the bounded Gemini media path, private stor
     const event = await f.capture(owner, "Вакансия видеограф: вот моя работа", [{ type: "video", payload: { url } }]);
     const result = await f.deliver(event);
     expect(result.text).toContain("Сведения добавлены к отклику");
-    expect(result.text).not.toMatch(/позвон|передан|принят на работу|возраст|992/iu);
+    expect(result.text).toContain(recruitmentPhoneLine("ru"));
+    expect(result.text).not.toMatch(/передан|принят на работу|возраст|992/iu);
     const application = await prisma.jobApplication.findFirstOrThrow({ where: { customerPositionKey: key } });
     const portfolio = customerRecruitmentPortfolioSchema.parse(application.customerPortfolio);
     expect(portfolio).toHaveLength(1); expect(portfolio[0].kind).toBe("video");
@@ -86,7 +88,7 @@ it("a genuine SMM video goes through the bounded Gemini media path, private stor
     await prisma.recruitmentPosition.delete({ where: { key } });
     await prisma.settings.update({ where: { id: "singleton" }, data: settings });
     if (saved && dirname(saved) === directory) unlinkSync(saved);
-    rmdirSync(directory);
+    rmSync(directory, { recursive: true, force: true });
     if (previousDir === undefined) delete process.env.PRIVATE_UPLOADS_DIR; else process.env.PRIVATE_UPLOADS_DIR = previousDir;
   }
 });

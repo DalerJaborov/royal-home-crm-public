@@ -68,6 +68,7 @@ async function alertDirectorsOnce(revisionId: string): Promise<void> {
       body: "После обновления CRM бот ждёт подтверждения версии. Настройки → Новый бот → «Обновить версию бота».",
       url: "/settings?tab=bot&task=rollout",
       level: "CRITICAL",
+      severity: "critical",
       tag,
       recipientRoles: ["DIRECTOR", "ADMIN"],
     });

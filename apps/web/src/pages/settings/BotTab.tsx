@@ -15,7 +15,17 @@ import {
   Sparkles,
   TrendingDown,
 } from "lucide-react";
-import { LIVE_VOICE_INBOUND_WAIT_SECONDS, LOST_REASON_LABELS, LOST_STAGES, LOST_STAGE_LABELS, voiceGender } from "@royal-home/shared";
+import {
+  ELEVENLABS_CREDITS_PER_MINUTE_ESTIMATE,
+  LIVE_VOICE_DAILY_MINUTES_CAP_DEFAULT,
+  LIVE_VOICE_INBOUND_WAIT_SECONDS,
+  LIVE_VOICE_MINUTES_CAP_MAX,
+  LIVE_VOICE_MONTHLY_MINUTES_CAP_DEFAULT,
+  LOST_REASON_LABELS,
+  LOST_STAGES,
+  LOST_STAGE_LABELS,
+  voiceGender,
+} from "@royal-home/shared";
 import {
   useSettings,
   useSettingsRestorePoints,
@@ -898,6 +908,8 @@ function BotPowerSection() {
         </div>
       </div>
 
+      <LeadOnlyModeFields onToggle={toggle} />
+
       <div className="grp-lab">Что бот умеет</div>
       <div className="quiet">
         <span className="dot" />
@@ -921,7 +933,14 @@ function BotPowerSection() {
         // Напоминания молчащим держат два тумблера и число (cron.ts::sendFollowUps).
         const followUpBlock =
           field === "botCanFollowUp" && on && settings ? followUpBlockedBy(settings, "ability") : null;
-        const idle = showingBlock ? (
+        // Режим «только заявки» гасит фото и ссылки на сервере при любом положении этих тумблеров.
+        const leadOnlyBlock =
+          (field === "botCanSendPhotos" || field === "botCanSendLinks") && on && settings?.botLeadOnlyMode
+            ? "Сейчас не действует: включён режим «только заявки»."
+            : null;
+        const idle = leadOnlyBlock ? (
+          leadOnlyBlock
+        ) : showingBlock ? (
           <>
             {showingBlock}{" "}
             <Link className="lnk" to="/settings?tab=leads">
@@ -963,6 +982,94 @@ function BotPowerSection() {
         </div>
       )}
     </SettingsSection>
+  );
+}
+
+/**
+ * РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (владелец 12–13.11.2026). Один главный тумблер; три
+ * уточнения показываются только при включённом режиме — без него они ни на что не
+ * влияют. Поведение — apps/api/src/ai/leadOnlyMode.ts (ядро и старый путь бота).
+ */
+function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: boolean) => void }) {
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const on = settings?.botLeadOnlyMode ?? false;
+  const useWhatsapp = settings?.botUseWhatsappNumber ?? true;
+  const hot = settings?.botHotIntentHandover ?? true;
+  const asks = settings?.botMaxPhoneAsks ?? 2;
+  const [askError, setAskError] = useState<string | null>(null);
+  return (
+    <>
+      <div className="grp-lab">Режим: только заявки</div>
+      <SwitchRow
+        title="Бот только принимает заявки"
+        on={on}
+        hint={
+          on
+            ? "WhatsApp, Instagram и Facebook: бот отвечает коротко, берёт номер и передаёт клиента агенту. Подборки, фото и ссылки не отправляет, цены называет только из базы. Чат сайта работает как раньше."
+            : "Обычный режим: бот сам подбирает варианты, присылает фото и ссылки."
+        }
+        onToggle={() => onToggle("botLeadOnlyMode", !on)}
+      />
+      {on && (
+        <>
+          <SwitchRow
+            title="В WhatsApp звонить на номер, с которого пишут"
+            on={useWhatsapp}
+            hint={
+              useWhatsapp
+                ? "Номер не спрашиваем: «Агент позвонит вам на этот номер, удобно?»"
+                : "Бот просит номер для звонка и в WhatsApp, как в Instagram."
+            }
+            onToggle={() => onToggle("botUseWhatsappNumber", !useWhatsapp)}
+          />
+          <SwitchRow
+            title="«Хотим посмотреть» — сразу агенту"
+            on={hot}
+            hint={
+              hot
+                ? "Слова «хотим посмотреть», «куда ехать», «адрес» и такие же по-таджикски сразу передают клиента агенту объекта, а без номера зовут сотрудника в переписку."
+                : "Такие слова бот отвечает как обычный вопрос."
+            }
+            onToggle={() => onToggle("botHotIntentHandover", !hot)}
+          />
+          <div className="mod">
+            <div className="t">
+              <b>Сколько раз просить номер</b>
+              <span style={{ whiteSpace: "normal" }}>
+                Instagram и Facebook. Потом бот даёт номер офиса и больше не настаивает.
+              </span>
+            </div>
+            <div className="acts">
+              <div className="seg" role="group" aria-label="Сколько раз просить номер">
+                {[1, 2, 3].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    // aria-pressed — смысл для экранного диктора (кнопка-переключатель); aria-selected — крючок стиля .seg на экране настроек.
+                    aria-pressed={asks === n}
+                    aria-selected={asks === n}
+                    onClick={() => {
+                      setAskError(null);
+                      updateSettings.mutate({ botMaxPhoneAsks: n }, {
+                        onError: (err) => setAskError(err instanceof Error ? err.message : "Не удалось сохранить настройку"),
+                      });
+                    }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {askError && (
+            <p className="msg" role="alert">
+              {askError}
+            </p>
+          )}
+        </>
+      )}
+    </>
   );
 }
 
@@ -2103,6 +2210,8 @@ function LiveVoiceSection() {
 
       <LiveVoiceProviderFields />
 
+      {provider === "elevenlabs" && <LiveVoiceSpendCapFields />}
+
       {provider === "google" && (
         <>
           <div className="fld" style={{ marginTop: "var(--s4)" }}>
@@ -2232,6 +2341,116 @@ function LiveVoiceSection() {
         </span>
       </div>
     </SettingsSection>
+  );
+}
+
+/**
+ * ПОТОЛОК МИНУТ РОБОТА (П5, 11.11.2026; сервер — apps/api/src/lib/liveVoiceSpend.ts).
+ * Владелец: «чтобы … деньги не пошли в минус». Два числа одной кнопкой и строка «сколько
+ * уже наговорено». Дошли до потолка — новые звонки робота на паузе (идущий разговор не
+ * рвётся), директору тревога на 80% и 100%. 0 — без потолка.
+ */
+function LiveVoiceSpendCapFields() {
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const [daily, setDaily] = useState(String(LIVE_VOICE_DAILY_MINUTES_CAP_DEFAULT));
+  const [monthly, setMonthly] = useState(String(LIVE_VOICE_MONTHLY_MINUTES_CAP_DEFAULT));
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // По самим полям, а не по объекту настроек: фоновое обновление не сбрасывает набранное.
+  const dailyCap = settings?.liveVoiceDailyMinutesCap;
+  const monthlyCap = settings?.liveVoiceMonthlyMinutesCap;
+  useEffect(() => {
+    if (dailyCap !== undefined) setDaily(String(dailyCap));
+  }, [dailyCap]);
+  useEffect(() => {
+    if (monthlyCap !== undefined) setMonthly(String(monthlyCap));
+  }, [monthlyCap]);
+
+  const spend = settings?.liveVoiceSpend;
+  const usage = (p: { usedMinutes: number; capMinutes: number } | undefined) =>
+    p ? (p.capMinutes > 0 ? `${p.usedMinutes} из ${p.capMinutes} мин` : `${p.usedMinutes} мин, без потолка`) : "—";
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError(null);
+        setSaved(false);
+        // Пустое поле — не «0»: Number("") дал бы 0, то есть молча снял бы потолок совсем.
+        if (daily.trim() === "" || monthly.trim() === "") {
+          setError("Впишите число минут в оба поля (0 — без потолка)");
+          return;
+        }
+        try {
+          await updateSettings.mutateAsync({ liveVoiceDailyMinutesCap: Number(daily), liveVoiceMonthlyMinutesCap: Number(monthly) });
+          setSaved(true);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Не удалось сохранить");
+        }
+      }}
+    >
+      <div className="mod">
+        <div className="t">
+          <b>Потолок минут робота</b>
+          <span style={{ whiteSpace: "normal" }}>
+            Сколько минут робот может проговорить за сутки и за месяц. Дошёл до потолка — новые звонки робота ждут
+            (исходящие переносятся, входящие уходят на автоответчик), идущий разговор не прерывается. На 80% и 100%
+            придёт тревога. Минута — примерно {ELEVENLABS_CREDITS_PER_MINUTE_ESTIMATE} кредитов ElevenLabs. 0 — без потолка.
+          </span>
+        </div>
+        <div className="acts">
+          <span className="nf">
+            <input
+              type="number"
+              min={0}
+              max={LIVE_VOICE_MINUTES_CAP_MAX}
+              inputMode="numeric"
+              value={daily}
+              onChange={(e) => setDaily(e.target.value)}
+              aria-label="Минут робота в сутки"
+            />
+            <span className="u">мин в сутки</span>
+          </span>
+          <span className="nf">
+            <input
+              type="number"
+              min={0}
+              max={LIVE_VOICE_MINUTES_CAP_MAX}
+              inputMode="numeric"
+              value={monthly}
+              onChange={(e) => setMonthly(e.target.value)}
+              aria-label="Минут робота в месяц"
+            />
+            <span className="u">мин в месяц</span>
+          </span>
+          <button className="pill sm" type="submit" disabled={updateSettings.isPending}>
+            Сохранить
+          </button>
+        </div>
+        {spend && (
+          <p className="msg" style={{ whiteSpace: "normal" }}>
+            Сегодня: {usage(spend.day)} · за месяц: {usage(spend.month)}
+          </p>
+        )}
+        {/* Условный рендер, а не hidden: на flex-элементе hidden не срабатывает. */}
+        {spend?.held && (
+          <p className="msg" role="alert" style={{ color: "var(--crit)", whiteSpace: "normal" }}>
+            Робот на паузе {spend.held === "month" ? "до следующего месяца" : "до завтра"}: потолок минут исчерпан. Поднимите
+            потолок, если звонки нужны сейчас.
+          </p>
+        )}
+      </div>
+      <div className="wrap">
+        {saved && <span className="saved on">Сохранено</span>}
+        {error && (
+          <span className="saved" style={{ color: "var(--crit)" }}>
+            {error}
+          </span>
+        )}
+      </div>
+    </form>
   );
 }
 

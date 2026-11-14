@@ -8,13 +8,17 @@ import { ensureCustomerEndpoint } from "./customerConversationScope.js";
 import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { NEWER_INPUT_PENDING } from "./customerNewerInboxInput.js";
+import { customerNonInputCode } from "./customerIngressNonInput.js";
+import { customerRoutingHoldDisposition } from "./customerRoutingHold.js";
+import { recordHeldCustomerMessage, type CustomerHeldMessage } from "./customerHeldMessage.js";
+import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
 
 type Request = object & { rawBody?: Buffer; get(name: string): string | undefined };
 type Stored = { eventKey: string; order: bigint; scopeKey: string; endpointScopeId: string | null; payloadVersion: number | null;
   payloadCiphertext: string | null; payloadHash: string | null; conversationId: string | null; originalConversationId: string | null; tombstonedAt: Date | null };
 export type PersistedCustomerIngressBatch =
-  | { status: "persisted"; tickets: Array<{ eventKey: string; order: string; fresh: boolean }>; unsupported: number }
-  | { status: "bypass"; reason: "policy_off" | "unsupported" }
+  | { status: "persisted"; tickets: Array<{ eventKey: string; order: string; fresh: boolean }>; unsupported: number; held?: CustomerHeldMessage[] }
+  | { status: "bypass"; reason: "policy_off" | "unsupported"; held?: CustomerHeldMessage[] }
   | { status: "denied" | "unavailable"; reason: string };
 
 /** Same-request raw normalization + required existing job in one short local
@@ -24,8 +28,37 @@ export async function persistVerifiedCustomerIngressBatch(request: Request): Pro
     const routing = await prepareVerifiedCustomerDmRouting(request);
     if (routing.status === "held") return { status: routing.reason === "routing_target_not_verified" ? "denied" : "unavailable", reason: routing.reason };
     const owned = routing.status === "current" ? routing.witnesses.map(w => inspectCustomerDmRouting(w)!) : null;
-    if (owned?.some(row => row.execution.lane === "HELD")) return { status: "unavailable", reason: "routing_held" };
-    if (owned && owned.every(row => row.execution.lane === "LEGACY")) return { status: "bypass", reason: "unsupported" };
+    // A held DM stays out of BOTH bots (the webhook skips it by its witness).
+    // Only a transient hold answers 503; a permanent one is ACKed and reported,
+    // otherwise Meta retries ~15 min and drops the message unseen (12.11.2026).
+    const held = (owned ?? []).flatMap(row => row.execution.lane === "HELD" ? [{ row, reason: row.execution.reason }] : []);
+    // The text of a permanently held DM goes into the person's CRM chat BEFORE
+    // the ACK (idempotent by MID); a write failure throws -> 503 -> Meta retries.
+    // Notifications are the webhook's job AFTER the whole batch is durable.
+    const holds: CustomerHeldMessage[] = [];
+    for (const { row, reason } of held) {
+      if (customerRoutingHoldDisposition(reason) !== "report") continue;
+      holds.push("inputText" in row.input
+        ? await recordHeldCustomerMessage({ reason, input: row.input as CustomerNormalizedIngressInput, transport: row.transport })
+        : { reason, channel: row.input.channel, peer: row.input.peer, accountExternalId: row.input.accountExternalId ?? null, conversationId: null, excerpt: "" });
+    }
+    // A race, a redelivery of an already-sourced MID or the collision guard keeps
+    // the old 503 for the whole body; new held texts above are already in their
+    // chats (idempotent), so the retry Meta sends loses nothing.
+    if (held.some(hold => customerRoutingHoldDisposition(hold.reason) === "unavailable")) return { status: "unavailable", reason: "routing_held" };
+    const result = await persistRoutedCustomerIngress(request, routing, owned);
+    return holds.length && (result.status === "persisted" || result.status === "bypass") ? { ...result, held: holds } : result;
+  } catch (error) {
+    // No raw payloads, URLs or verifier details in errors returned to a caller.
+    return { status: "unavailable", reason: error instanceof SyntaxError ? "invalid_raw_payload" : "inbox_persistence_unavailable" };
+  }
+}
+
+async function persistRoutedCustomerIngress(request: Request,
+  routing: Exclude<Awaited<ReturnType<typeof prepareVerifiedCustomerDmRouting>>, { status: "held" }>,
+  owned: NonNullable<ReturnType<typeof inspectCustomerDmRouting>>[] | null): Promise<PersistedCustomerIngressBatch> {
+  {
+    if (owned && owned.every(row => row.execution.lane !== "CORE")) return { status: "bypass", reason: "unsupported" };
     const policy = await prisma.customerRuntimePolicy.findUnique({ where: { id: "singleton" }, select: { contractVersion: true, rolloutMode: true } });
     if (policy?.contractVersion !== "scoped" || policy.rolloutMode === "OFF") {
       if (!owned) return { status: "bypass", reason: "policy_off" };
@@ -101,8 +134,13 @@ export async function persistVerifiedCustomerIngressBatch(request: Request): Pro
           selection.transport.endpointScopeId !== endpoint.endpointScopeId || selection.transport.scopeRevision !== endpoint.scopeRevision)) {
           throw new Error("Original intake assignment changed before source commit");
         }
+        // Our echo / a bare referral / a template echo is stored for the
+        // record only: it belongs to NO engine and needs no worker (13.11).
+        // Pinning it to the active revision made it look like CORE history.
+        const nonInput = customerNonInputCode(entry);
+        if (nonInput && selection) throw new Error("Non-input frame cannot own a routing selection");
         const assignmentId = selection?.execution.lane === "CORE" ? selection.execution.assignment?.id ?? null : null;
-        const originalRevisionId = selection?.execution.lane === "CORE" ? selection.execution.revisionId : activeRevision?.id ?? null;
+        const originalRevisionId = nonInput ? null : selection?.execution.lane === "CORE" ? selection.execution.revisionId : activeRevision?.id ?? null;
         const hash = customerIngressPayloadHash(entry);
         const order = orders[index];
         const proof = await captureCustomerPendingVerification(request, entry, endpoint, tx);
@@ -112,9 +150,9 @@ export async function persistVerifiedCustomerIngressBatch(request: Request): Pro
         const receivedAt = requestEvidence.issuedAt;
         await tx.$executeRaw`INSERT INTO "CustomerPropertyIngressTicket"
           ("eventKey","order","scopeKey","endpointScopeId","eventKind","payloadVersion","payloadCiphertext","payloadHash","receivedAt","providerOccurredAt","processingState",
-            "intakeAgentRevisionId","rolloutAssignmentId","routingSourceVersion","routingSourceHash","routingScopeRevision","routingProvenance")
+            "errorCode","intakeAgentRevisionId","rolloutAssignmentId","routingSourceVersion","routingSourceHash","routingScopeRevision","routingProvenance")
           VALUES (${eventKey},${order},${scopeKey},${endpoint.endpointScopeId},${entry.eventKind},1,${ciphertext},${hash},
-            ${new Date(receivedAt)},${entry.providerOccurredAt ? new Date(entry.providerOccurredAt) : null},'RECEIVED',
+            ${new Date(receivedAt)},${entry.providerOccurredAt ? new Date(entry.providerOccurredAt) : null},${nonInput ? "HELD" : "RECEIVED"},${nonInput},
             ${originalRevisionId},${assignmentId},${selection ? 1 : null},${selection ? hash : null},
             ${selection ? BigInt(endpoint.scopeRevision) : null},${selection ? "META_ENVELOPE" : null})
           ON CONFLICT ("eventKey") DO NOTHING`;
@@ -127,15 +165,12 @@ export async function persistVerifiedCustomerIngressBatch(request: Request): Pro
         }
         // A historical payload-less row is not upgraded by replaying caller data.
         if (stored.payloadVersion !== 1 || !stored.payloadCiphertext || stored.payloadHash !== hash) throw new Error("Inbox immutable payload mismatch");
-        if (fresh) await tx.backgroundJob.create({ data: { type: "customer-inbox-consume", payload: { version: 1, eventKey },
+        if (fresh && !nonInput) await tx.backgroundJob.create({ data: { type: "customer-inbox-consume", payload: { version: 1, eventKey },
           maxAttempts: 5, dedupeKey: `customer-inbox-consume:${eventKey}` } });
         tickets.push({ eventKey, order: stored.order.toString(), fresh });
       }
       return { status: "persisted" as const, tickets, unsupported };
     }, { maxWait: 5000, timeout: 10000 });
-  } catch (error) {
-    // No raw payloads, URLs or verifier details in errors returned to a caller.
-    return { status: "unavailable", reason: error instanceof SyntaxError ? "invalid_raw_payload" : "inbox_persistence_unavailable" };
   }
 }
 
@@ -173,8 +208,12 @@ export async function consumeCustomerInboxTicket(eventKey: string): Promise<
     if (!row || row.tombstonedAt || (row.originalConversationId && !row.conversationId)) reason = "native_tombstoned_or_missing";
     else if (row.payloadVersion !== 1 || !row.payloadCiphertext || !row.payloadHash || !row.endpointScopeId) reason = "historical_payload_unavailable";
     else {
-      try { decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: row.scopeKey,
-        endpointScopeId: row.endpointScopeId, payloadHash: row.payloadHash }, row.payloadCiphertext); }
+      try {
+        const payload = decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: row.scopeKey,
+          endpointScopeId: row.endpointScopeId, payloadHash: row.payloadHash }, row.payloadCiphertext);
+        // Keep the non-input label: ownership reads exclude rows by it.
+        reason = customerNonInputCode(payload) ?? reason;
+      }
       catch { reason = "payload_binding_invalid"; }
     }
     const changed = row ? await tx.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${reason},

@@ -7,7 +7,7 @@ const ad: SomonRawAd = {
   url: "/adv/1_x/",
   price_without_currency: "900000",
   currency: "TJS",
-  rubric: { slug: "3-komnatnyie", ancestors: [{ slug: "nedvizhimost" }, { slug: "prodazha-kvartir" }] },
+  rubric: { id: 2833, slug: "3-komnatnyie", ancestors: [{ slug: "nedvizhimost" }, { slug: "prodazha-kvartir" }] },
 };
 
 describe("somonParser: признаки для подбора похожих", () => {

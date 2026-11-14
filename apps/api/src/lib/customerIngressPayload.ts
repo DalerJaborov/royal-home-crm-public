@@ -29,6 +29,13 @@ export const customerNormalizedIngressSchema = z.object({
     mimeType: z.string().max(160).optional(), publicationId: reference.optional(),
   }).strict()).max(16),
   propertyEvidence: z.array(customerPropertyEvidenceSchema).max(16),
+  /** Which ad brought the customer (13.11.2026): the click id and the ad text the
+   * customer saw, for first-touch attribution of the native conversation
+   * (lib/adAttribution.ts). Optional and excluded from the stable event identity:
+   * envelopes queued before this field stay readable and a redelivery is not a
+   * payload mismatch. Never a property/topic authority by itself. */
+  adContext: z.object({ adId: reference.optional(), adRef: z.string().max(1000).optional(), adClickId: reference.optional(),
+    adPostId: reference.optional(), adTitle: z.string().max(500).optional() }).strict().optional(),
 }).strict().superRefine((value, ctx) => {
   if (value.observations.classifier?.mediaKinds && value.observations.classifier.mediaKinds.length !== value.media.length) {
     ctx.addIssue({ code: "custom", message: "Media classifier membership mismatch" });
@@ -71,7 +78,9 @@ export function customerIngressPayloadHash(payload: CustomerNormalizedIngressInp
   // Optional server classifier metadata is AEAD protected, but not stable raw
   // provider-event identity. Redelivery must retain an older immutable payload,
   // not fail/upgrade it merely because this deployment captures more metadata.
-  return createHash("sha256").update(JSON.stringify({ ...normalized,
+  // The ad context is attribution metadata of the same event, not its identity (see the field).
+  const { adContext: _adContext, ...identity } = normalized;
+  return createHash("sha256").update(JSON.stringify({ ...identity,
     observations: { providerEcho: normalized.observations.providerEcho, referralOnly: normalized.observations.referralOnly },
     source: { frameHash: normalized.source.frameHash } })).digest("hex");
 }
