@@ -31,7 +31,7 @@ const dayKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата указыва�
 /** Финансы: отчётный месяц (по Душанбе) и сколько месяцев истории показать на графике. */
 export const financeReportPdfQuerySchema = z.object({
   month: monthKey.optional(),
-  months: z.coerce.number().int().min(1).max(24).default(6),
+  months: z.coerce.number().int().min(1).max(36).default(6),
 });
 
 /** Команда и заявки: тот же период from/to, что у экрана «Отчёты». */
