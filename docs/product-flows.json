@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4042,
+  "forks": 4052,
   "mounts": 83,
-  "cron": 132,
+  "cron": 134,
   "jobs": 33,
   "hidden": 0
  },
@@ -90261,6 +90261,192 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "comment-needs-human-sweep",
+   "when": "6-59/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alerted } = await runCommentNeedsHumanSweep();",
+       "a": [
+        "зовёт runCommentNeedsHumanSweep()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!rows.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: 0, alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const recipients = await findAgentsWithPermission(\"messages.view\");",
+         "a": [
+          "зовёт findAgentsWithPermission()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!recipients.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Комментарии ждут человека (${rows.length}), но в CRM нет никого с правом «Сообще…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of rows",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const claimed = await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdA…",
+             "a": [
+              "обращается к базе своим SQL"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "claimed !== 1",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await sendPushToAgents(recipients, { kind: \"message\", title: `💬 ${PLACE[row.channel] ?? row.channel}: ответь…",
+             "a": [
+              "push-уведомление"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: row.commentId } }).cat…",
+             "a": [
+              "удаляет в базе: processedMessage"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `Пуш по комментарию ${row.commentId} не отправлен: ${err instanceof Error ? err.m…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runCommentNeedsHumanSweep() — apps/api/src/lib/commentWaitingAlert.ts"
+      },
+      {
+       "k": "if",
+       "t": "alerted > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа комментариев без ответа\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "contact-link-sweep",
    "when": "10 3 * * *",
    "tree": [
@@ -101749,6 +101935,274 @@
         "дословно из кода"
        ],
        "c": []
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "meta-inbox-reconcile",
+   "when": "3-59/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { people, missed } = await runMetaInboxReconcile();",
+       "a": [
+        "зовёт runMetaInboxReconcile()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "pages = await listFacebookPageInboxes();",
+           "a": [
+            "зовёт listFacebookPageInboxes()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Сверка переписок Страниц не запустилась: ${withoutToken(err)}`, { dedupKey: \"met…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const page of pages",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const body = await fetchPageInbox(page, fetchImpl);",
+             "a": [
+              "зовёт fetchPageInbox()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "body.error",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"meta\", `Сверка переписок: Meta не отдала переписки Страницы «${page.title}» ` + `(код ${…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const incoming = incomingFromGraph(page.pageId, body, now);",
+             "a": [
+              "зовёт incomingFromGraph()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "const known = await knownMessageIds(incoming);",
+             "a": [
+              "зовёт knownMessageIds()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!missed.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "loop",
+             "t": "для каждого: const m of missed",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "!(await claimMissed(m.mid))",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!byPerson.size",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "recipients ??= await findAgentsWithPermission(\"messages.view\");",
+             "a": [
+              "зовёт findAgentsWithPermission()"
+             ],
+             "c": []
+            },
+            {
+             "k": "loop",
+             "t": "для каждого: const [fromId, list] of byPerson",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "recipients.length",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await sendPushToAgents(recipients, { kind: \"message\", level: \"CRITICAL\", title: `Ответьте вручную: ${name} (F…",
+                 "a": [
+                  "push-уведомление"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `Страница «${page.title}»: ${byPerson.size} чел. написали в Messenger, а до CRM с…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `Сверка переписок Страницы «${page.title}» оборвалась: ${withoutToken(err)}`, { d…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runMetaInboxReconcile() — apps/api/src/lib/metaInboxReconcile.ts"
+      },
+      {
+       "k": "if",
+       "t": "people > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Сверка Страниц: не дошло до CRM ${missed} сообщ. от ${people} чел. — сотрудникам пуш`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сверки переписок Страниц\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
     }

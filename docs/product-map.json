@@ -1687,6 +1687,11 @@
       "label": null
     },
     {
+      "id": "comment-needs-human-sweep",
+      "expr": "6-59/10 * * * *",
+      "label": null
+    },
+    {
       "id": "contact-link-sweep",
       "expr": "10 3 * * *",
       "label": null
@@ -1900,6 +1905,11 @@
       "id": "meta-ads-sync",
       "expr": "*/15 * * * *",
       "label": "Тянет из рекламного кабинета объявления и расходы"
+    },
+    {
+      "id": "meta-inbox-reconcile",
+      "expr": "3-59/10 * * * *",
+      "label": null
     },
     {
       "id": "monthly-problem-report",
@@ -2300,7 +2310,7 @@
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
       "keys": 9,
-      "files": 13
+      "files": 14
     },
     {
       "name": "Бюджет Google Cloud",
