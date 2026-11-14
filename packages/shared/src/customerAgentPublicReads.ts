@@ -26,6 +26,13 @@ export const customerAgentCompanyInformationSchema = z.object({
 }).strict();
 
 const amount = z.string().regex(/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/).refine(value => Number(value) > 0);
+/** Sane purchase-budget bounds per currency (14.11.2026): "50" or "до 5 комнат" read as money, or an extra zero, must not reach the
+ * catalogue as a real ceiling. One source for the model's tool arguments and for the server's own reading of the customer's words. */
+export const CUSTOMER_SEARCH_BUDGET_LIMITS = { USD: { min: 1_000, max: 50_000_000 }, TJS: { min: 5_000, max: 500_000_000 } } as const;
+export function customerSearchBudgetSane(value: string | number, currency: keyof typeof CUSTOMER_SEARCH_BUDGET_LIMITS): boolean {
+  const n = Number(value), limits = CUSTOMER_SEARCH_BUDGET_LIMITS[currency];
+  return Number.isFinite(n) && n >= limits.min && n <= limits.max;
+}
 /** No currency inference, raw street/coordinates, staff scope, resource IDs or profile fields.
  * Results are possible ranked alternatives, not proof of a customer's interest. */
 export const customerAgentPropertySearchArgsSchema = z.object({
@@ -34,7 +41,9 @@ export const customerAgentPropertySearchArgsSchema = z.object({
   rooms: z.number().int().min(1).max(20).optional(),
   budget: z.object({ min: amount.optional(), max: amount.optional(), currency: z.enum(["TJS", "USD"]) }).strict()
     .refine(value => value.min !== undefined || value.max !== undefined)
-    .refine(value => value.min === undefined || value.max === undefined || Number(value.min) <= Number(value.max)).optional(),
+    .refine(value => value.min === undefined || value.max === undefined || Number(value.min) <= Number(value.max))
+    .refine(value => [value.min, value.max].every(bound => bound === undefined || customerSearchBudgetSane(bound, value.currency)),
+      "Budget is outside the sane range for its currency").optional(),
   sort: z.enum(["best", "cheap"]).optional(),
   nextPage: z.boolean().optional(),
 }).strict().refine(value => value.type !== undefined || value.districtName !== undefined,

@@ -42,7 +42,7 @@ const allTools = [...CUSTOMER_AGENT_PUBLIC_TOOLS, "save_contact", "request_callb
 export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): Promise<CustomerAgentManifest> {
   const snapshot = decodeCustomerAgentProviderSnapshot(rawSnapshot), identity = customerAgentProviderIdentities(snapshot);
   const [coreHash, rendererHash, modelSchemaHash, knowledgeSchemaHash] = await Promise.all([
-    fileGroup(["../ai/customerAgentCore.js", "../ai/customerAgentModel.js", "../ai/customerAgentToolDefinitions.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "./customerCompanyInformation.js", "./customerAgentFeaturePolicy.js", "./recruitmentPositions.js", "../ai/customerAgentRecruitmentProtocol.js",
+    fileGroup(["../ai/customerAgentCore.js", "../ai/customerAgentModel.js", "../ai/customerAgentToolDefinitions.js", "../ai/customerAgentIntake.js", "../ai/customerBuyerNeeds.js", "../ai/sellerIntake.js", "./customerCompanyInformation.js", "./customerAgentFeaturePolicy.js", "./recruitmentPositions.js", "../ai/customerAgentRecruitmentProtocol.js",
       "../ai/providerContract.js", "../ai/providerBudget.js", "../ai/geminiClient.js", "../ai/geminiOperationRuntime.js", "../ai/geminiCountedTools.js",
       "../ai/geminiFunctionDeclarations.js", "../ai/geminiManagedToolsUsage.js", "../ai/geminiManagedMedia.js",
       "../ai/geminiCapabilities.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentModelContracts.js", "../ai/clientLanguage.js", "../ai/customerDmLanguage.js", "../ai/untrustedContent.js", "./customerDmMediaContent.js", "./customerAgentMediaObservation.js", "./customerAgentMediaFocus.js",
@@ -65,7 +65,7 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       "./customerLeadOnlyCore.js", "./leadOnlySettings.js", "../ai/leadOnlyMode.js", "./leadOnlyHandover.js",
       // Метка рекламы решает тему разговора ядра (вакансия, продавец, объект) — 13.11.2026.
       "./adAttribution.js", "../ai/adTemplateOpener.js"].map(apiFile)),
-    fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentSay.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
+    fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentSay.js", "../ai/customerAgentIntake.js", "../ai/customerBuyerNeeds.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
       "./customerPropertyFacts.js"].map(apiFile).concat(["customerPropertyPresentation.js", "propertyFinish.js", "propertyTypeFields.js"].map(path => new URL(path, sharedEntry)))),
     fileGroup(["customerAgent.js", "customerAgentDeliveryEvidence.js", "customerMutation.js", "customerState.js", "customerTools.js", "customerHandoverAck.js", "botTurnTrace.js", "customerAgentRollout.js", "customerAgentOwnerControls.js"].map(path => new URL(path, sharedEntry))),
     fileGroup(["customerAgentPublicReads.js", "customerAgentDeliveryEvidence.js", "customerPropertyContext.js", "recruitment.js", "recruitmentResume.js"].map(path => new URL(path, sharedEntry))),

@@ -8,6 +8,7 @@ import { customerPublicThanks, customerRequestedAgencyContact, customerRecruitme
   customerFurnitureQuestionRequested, customerMessengerChannelQuestion, isCustomerPublicAppreciation,
   customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion, customerSellerIntakeQuestionLines } from "./customerAgentIntake.js";
+import { buyerNeedsKnown, buyerNextQuestion, overlayBuyerNeeds, type BuyerNeedKey } from "./customerBuyerNeeds.js";
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
   recruitmentMissingForTurn, recruitmentRequiredQuestion, recruitmentFactQuestionLines } from "./customerAgentRecruitmentProtocol.js";
 import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines, customerDmForeignShareNoise } from "./customerAgentAbuse.js";
@@ -71,7 +72,7 @@ export type CustomerAgentRenderedQuestion = CustomerAgentQuestion | "confirmatio
 interface RecruitmentMaterial { mediaText?: string; materialReceived?: boolean; applicationSaved?: boolean }
 const JOB_ONLY_QUESTIONS: readonly string[] = ["job_position", "job_required", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start"];
 // With nothing to apply to, neither a job nor a property questionnaire is asked; a name, a contact or the topic still is.
-const NO_OPENING_SUPPRESSED: readonly string[] = [...JOB_ONLY_QUESTIONS, "property", "budget", "location", "rooms", "role", "seller_details", "preferences"];
+const NO_OPENING_SUPPRESSED: readonly string[] = [...JOB_ONLY_QUESTIONS, "property", "budget", "budget_currency", "location", "rooms", "role", "seller_details", "preferences"];
 /** The résumé is requested ONCE. Not again when a document/photo/own account is already here,
  * or when an earlier assistant turn of this inquiry has already asked for it. */
 function recruitmentAboutHandled(input: RecruitmentMaterial & { verifiedContext?: CustomerAgentVerifiedContext; inputText?: string }): boolean {
@@ -116,12 +117,28 @@ function recruitmentNextFact(input: RecruitmentMaterial & { evidence: readonly C
     answerTo: input.verifiedContext?.recruitmentAnswerTo,
     knownPhone: input.knownPhoneSource !== "none" }).find(key => key !== "about" || !aboutHandled);
 }
+const lastAssistantText = (context: CustomerAgentVerifiedContext | undefined) => {
+  const last = context?.turns.at(-1);
+  return last?.role === "assistant" ? last.text : undefined;
+};
 function intakeProgress(input: { verifiedContext?: CustomerAgentVerifiedContext; inputText?: string }) {
   const prior = input.verifiedContext?.intake;
-  const recent = customerAgentIntake(prior ? [] : input.verifiedContext?.turns ?? [], input.inputText, prior?.role);
+  const recent = customerAgentIntake(prior ? [] : input.verifiedContext?.turns ?? [], input.inputText, prior?.role, lastAssistantText(input.verifiedContext));
   if (!prior || recent.role !== "unknown" && recent.role !== prior.role) return recent;
+  // The summary kept by the server (the whole inquiry) and this turn's own words: the later correction wins, nothing named is lost.
+  const buyerNeeds = overlayBuyerNeeds(prior.buyerNeeds, recent.buyerNeeds);
   return { role: prior.role, sellerKnown: [...new Set([...prior.sellerKnown, ...recent.sellerKnown])],
-    buyerKnown: [...new Set([...prior.buyerKnown, ...recent.buyerKnown])] };
+    buyerKnown: [...new Set([...prior.buyerKnown, ...recent.buyerKnown, ...buyerNeedsKnown(buyerNeeds)])], ...(buyerNeeds ? { buyerNeeds } : {}) };
+}
+/** What the object the customer is asking about already tells: its rooms and its district make those two wishes known (a buyer who
+ * asks about «ID 123» is not asked «Сколько комнат вам нужно?»). Only a live, referenced card; a sold one says nothing. */
+function cardAnchoredKnown(evidence: readonly CustomerAgentEvidence[], refs: readonly string[]): BuyerNeedKey[] {
+  const facts = evidence.filter(e => refs.includes(e.ref)).flatMap(e =>
+    e.value.kind === "facts" ? [e.value.facts] : e.value.kind === "publication_properties" ? e.value.cards : [])
+    .filter(card => card.availability !== "SOLD");
+  if (facts.length !== 1) return [];
+  const [card] = facts;
+  return [...(card.publicAddress ? ["location" as const] : []), ...(card.characteristics?.rooms ? ["rooms" as const] : [])];
 }
 export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDecision; evidence: readonly CustomerAgentEvidence[];
   surface: CustomerAgentSurface; knownPhoneSource: "none" | "current_input" | "scoped_contact"; requestedFacts?: readonly CustomerPropertyFactKind[];
@@ -145,7 +162,7 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
     // An empty/closed catalog leaves no job question to ask, but the customer's other next
     // step (a name, a contact, what they are looking for) is not suppressed with it.
     if (!openings.length && NO_OPENING_SUPPRESSED.includes(d.question)) return "none";
-    if (openings.length && ["property", "budget", "location", "rooms", "role", "topic", "seller_details", "preferences", ...JOB_ONLY_QUESTIONS, "name", "phone"].includes(d.question)) {
+    if (openings.length && ["property", "budget", "budget_currency", "location", "rooms", "role", "topic", "seller_details", "preferences", ...JOB_ONLY_QUESTIONS, "name", "phone"].includes(d.question)) {
       // Phone-only recruitment (owner 10–11.11.2026): the bot names the role and gives the
       // specialist's number; it asks no questionnaire questions and discusses no conditions.
       return "none";
@@ -162,8 +179,15 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
   if (input.surface === "dm") {
     const intake = intakeProgress(input);
     if (intake.role === "seller" && ["role", "rooms", "location", "budget", "seller_details"].includes(d.question)) return "seller_details";
-    if (intake.role === "buyer" && intake.buyerKnown.includes(d.question as "rooms" | "budget" | "location")) {
-      return (["location", "rooms", "budget"] as const).find(key => !intake.buyerKnown.includes(key)) ?? "preferences";
+    // One «what is still unknown» for a buyer: what the customer said (the whole inquiry + this message) plus what the asked-about object says.
+    if (intake.role === "buyer" && (d.question === "rooms" || d.question === "budget" || d.question === "location")) {
+      // The object card counts only for someone who has already said they are buying (a price question alone does not make the customer's wishes known).
+      const known = intake.role === "buyer" ? [...new Set([...intake.buyerKnown, ...cardAnchoredKnown(input.evidence, d.refs)])] : [];
+      // «до 60 тысяч»: the amount is known, the currency is not. Ask THAT once, not the budget again (not twice in a row either).
+      const budget = intake.role === "buyer" && "buyerNeeds" in intake ? intake.buyerNeeds?.budget : undefined;
+      const askedLines = (lastAssistantText(input.verifiedContext) ?? "").split("\n").map(line => line.trim());
+      if (d.question === "budget" && budget && !budget.currency && !askedLines.includes(questions.budget_currency.ru) && !askedLines.includes(questions.budget_currency.tg)) return "budget_currency";
+      if (known.includes(d.question)) return buyerNextQuestion(known);
     }
   }
   return d.question;
@@ -175,6 +199,7 @@ const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
   none: { ru: "", tg: "" },
   property: { ru: "Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.", tg: "Шумо кадом объектро дар назар доред? Рақами объект ё пайвандашро фиристед." },
   budget: { ru: "Какой бюджет вы рассматриваете?", tg: "Шумо чӣ қадар буҷет дар назар доред?" },
+  budget_currency: { ru: "Эта сумма в долларах или в сомони?", tg: "Ин маблағ доллар аст ё сомонӣ?" },
   location: { ru: "Какой район вам подходит?", tg: "Кадом ноҳия ба шумо мувофиқ аст?" },
   rooms: { ru: "Сколько комнат вам нужно?", tg: "Ба шумо чанд ҳуҷра лозим аст?" },
   name: { ru: "Как к вам обращаться?", tg: "Ба шумо чӣ тавр муроҷиат кунам?" },
