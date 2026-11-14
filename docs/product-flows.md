@@ -6850,7 +6850,7 @@
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
-  - const expense = await restoreExpense(req.params.id);
+  - const expense = await restoreExpense(req.params.id, { confirmAutoOverlap: req.body?.confirmAutoOverlap === tr…
     · зовёт restoreExpense()
   - logAudit(req, "RESTORE", "Expense", expense.id, { category: expense.category, amount: expense.amount.toString…
     · зовёт logAudit()

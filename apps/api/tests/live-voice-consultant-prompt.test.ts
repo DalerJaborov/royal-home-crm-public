@@ -354,9 +354,9 @@ describe("манера речи консультанта — как живой �
   });
 
   it("таджикские подтверждения — только без замка; с замком таджикского в блоке манеры нет", () => {
-    expect(both).toContain("«Ҳа, фаҳмидам»");
+    expect(both).toContain("«Хуб шуд»");
     expect(both).toContain("«Майлаш»");
-    expect(ru).not.toContain("«Ҳа, фаҳмидам»");
+    expect(ru).not.toContain("«Хуб шуд»");
     const manner = ru.slice(ru.indexOf("МАНЕРА РЕЧИ"), ru.indexOf("КАК БРАТЬ ТРУБКУ"));
     expect(manner).not.toMatch(/[ҲҳҚқҒғҶҷӢӣӮӯ]/);
   });

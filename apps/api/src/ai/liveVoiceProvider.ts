@@ -62,6 +62,9 @@ const PROVIDER_SELECT = {
   elevenLabsVoiceGender: true,
 } as const;
 
+/** ElevenLabs «Anna - Premium Lifestyle Ads», женский русский голос: по умолчанию для телефонии. */
+export const DEFAULT_PHONE_VOICE_ID = "0XJ7mts7SfzZk5uEHl4e";
+
 function elevenLabsConfigFromRow(row: {
   elevenLabsApiKey: string | null;
   elevenLabsAgentId: string | null;
@@ -73,7 +76,8 @@ function elevenLabsConfigFromRow(row: {
     provider: "elevenlabs",
     apiKey: resolveElevenLabsKey(row.elevenLabsApiKey),
     agentId: row.elevenLabsAgentId?.trim() || null,
-    voiceIdRu: row.elevenLabsVoiceIdRu?.trim() || null,
+    // Голос по умолчанию — Anna (владелец 14.11.2026); значение из Настроек перекрывает.
+    voiceIdRu: row.elevenLabsVoiceIdRu?.trim() || DEFAULT_PHONE_VOICE_ID,
     voiceIdTg: row.elevenLabsVoiceIdTg?.trim() || null,
     // Не задан — женский, как для неузнанного голоса Gemini (voiceGender).
     voiceGender: row.elevenLabsVoiceGender === "male" ? "male" : "female",
