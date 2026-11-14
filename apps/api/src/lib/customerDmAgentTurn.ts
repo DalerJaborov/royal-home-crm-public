@@ -7,7 +7,7 @@ import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { recordCustomerAgentSay } from "./customerAgentSayStats.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
-import { customerSearchContinuation, customerSearchIntent, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
+import { customerSearchContinuation, customerSearchIntent, customerSearchIntentWithKnownNeeds, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
 import { resolveSearchPlace } from "./searchPlace.js";
 import { customerPreReadWithoutShown } from "./customerSearchHistory.js";
 import { customerAffirmationFollowUp, customerBareAffirmation, customerCheaperRequested, customerCheaperSearchCall } from "../ai/customerAgentFollowUp.js";
@@ -295,7 +295,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // bounded catalogue first and the model answers from the result. Only without an object in focus and with the tool's own required args.
     let searchCall: ReturnType<typeof customerSearchPreRead> = null;
     if (plainTurn && !followUp && !cheaperCall && !resolvedFocusId && !leadOnly.enabled) {
-      const intent = customerSearchIntent(fullInput(), language) ?? customerSearchContinuation(fullInput(), remembered.context.turns);
+      // What the buyer named on earlier turns (budget, rooms, district) rides into the search: the same record the intake does not ask again.
+      const knownNeeds = remembered.context.intake?.role === "buyer" ? remembered.context.intake.buyerNeeds : undefined;
+      const intent = customerSearchIntentWithKnownNeeds(
+        customerSearchIntent(fullInput(), language) ?? customerSearchContinuation(fullInput(), remembered.context.turns), knownNeeds);
       if (intent) {
         let placeDistrict: string | undefined;
         if (!intent.districtName && intent.placeText) {
