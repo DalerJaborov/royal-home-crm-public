@@ -1,38 +1,101 @@
 import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { PropertyNarrationView } from "@royal-home/shared";
+import type { PropertyNarrationItem, PropertyNarrationView } from "@royal-home/shared";
 vi.mock("../lib/api", () => ({ api: vi.fn() }));
-import { PropertyNarrationManager } from "./PropertyNarrationManager";
+import { PropertyNarrationManager, narrationIsPending } from "./PropertyNarrationManager";
+
+/**
+ * КАРТОЧКА ОБЪЕКТА: АГЕНТ ВИДИТ ТОЛЬКО ГОЛОС, ТЕКСТ И «ОЗВУЧИТЬ» (14.11.2026, владелец: «всю
+ * техническую часть полностью убирать в настройки CRM, в настройках объекта этого вообще не должно быть»).
+ */
+const config = {
+  modelId: "eleven_v4", autoGenerate: true,
+  voices: [{ id: "f1", name: "Мадина", gender: "female" as const }, { id: "m1", name: "Фирӯз", gender: "male" as const }],
+  templates: [
+    { id: "tg-a", name: "Кӯтоҳ", lang: "tg" as const, text: "{вид} барои фурӯш. Масоҳаташ {площадь} метри мураббаъ." },
+    { id: "tg-b", name: "Дароз", lang: "tg" as const, text: "Ассалому алайкум! {вид}, {площадь} метри мураббаъ." },
+    { id: "ru-a", name: "Русский", lang: "ru" as const, text: "В продаже {вид}. Площадь {площадь} метров." },
+  ],
+};
+const facts = { type: "APARTMENT", rooms: 2, areaSqm: "62", floor: 3, totalFloors: 9, district: "Сино", price: "60000", currency: "USD" };
+const version = (over: Partial<PropertyNarrationItem> = {}): PropertyNarrationItem => ({ id: "v", revision: 1, script: "Квартира барои фурӯш. Масоҳаташ шасту ду метри мураббаъ.", voiceId: "f1", status: "READY",
+  approvedAt: null, stale: false, hasAudio: true, errorCode: null, createdAt: "2026-11-14", source: "WIZARD", templateId: "tg-a", language: "tg", ...over });
 function render(overrides: Partial<PropertyNarrationView> = {}) {
   const client = new QueryClient();
-  client.setQueryData(["property-narration", "p"], { versions: [], suggestedScript: "Квартира площадью девяносто метров.", config: { modelId: "", voices: [] }, configured: false, canApprove: false, sendsEnabled: false, ...overrides });
+  client.setQueryData(["property-narration", "p"], { versions: [], suggestedScript: "Квартира.", facts, config, configured: true, autoGenerate: true,
+    canApprove: false, canApproveAudio: true, canDraft: true, sendsEnabled: false, ...overrides } satisfies PropertyNarrationView);
   return renderToStaticMarkup(<QueryClientProvider client={client}><PropertyNarrationManager propertyId="p" /></QueryClientProvider>);
 }
-describe("narration visible boundaries", () => {
-  it("shows unconfigured state and editable draft without invented voices", () => {
-    const html = render(); expect(html).toContain("Генерация пока недоступна"); expect(html).toContain("Сохранить новую версию");
-    expect(html).not.toContain("Сгенерировать в ElevenLabs"); expect(html).not.toContain("Настройки голосов");
+const TECH = ["Модель озвучки", "Символов в сутки", "Словарь произношения", "Настройки голосов", "Служебное", "Сгенерировать в ElevenLabs", "Подготовить образцы"];
+
+describe("карточка объекта: озвучка для агента", () => {
+  it("нет озвучки: сначала голос, потом текст по шаблону с цифрами словами, одна кнопка «Озвучить», техники нет", () => {
+    const html = render();
+    expect(html.indexOf("Голос")).toBeLessThan(html.indexOf("Текст"));
+    expect(html).toContain("Квартира барои фурӯш. Масоҳаташ шасту ду метри мураббаъ.");
+    expect(html).toContain(">Озвучить<");
+    expect(html).toContain("Другой вариант");
+    expect(html).toContain("Тоҷикӣ"); expect(html).toContain("Русский");
+    for (const word of TECH) expect(html).not.toContain(word);
   });
-  it("shows both editor handoff modes only to marketing for ready audio", () => {
-    const versions = [{ id: "v", revision: 1, script: "Квартира", voiceId: "configured", status: "READY", approvedAt: "2026-10-25", stale: false, hasAudio: true, errorCode: null, createdAt: "2026-10-25" }];
-    const html = render({ versions, canApprove: true });
-    expect(html).toContain("Только новую озвучку"); expect(html).toContain("Исходники и озвучку"); expect(html).toContain("Предварительные планы сами не отправляются");
-    expect(render({ versions })).not.toContain("Подготовить передачу монтажёру");
+  it("готовое аудио: послушать и одобрить, без формы", () => {
+    const html = render({ versions: [version()] });
+    expect(html).toContain("послушайте и одобрите"); expect(html).toContain("Одобрить"); expect(html).toContain("Изменить голос или текст");
+    expect(html).not.toContain("Другой вариант");
   });
-  it("does not offer handoff of obsolete facts", () => {
-    expect(render({ canApprove: true, versions: [{ id: "v", revision: 1, script: "Квартира", voiceId: null, status: "READY", approvedAt: "2026-10-25", stale: true, hasAudio: true, errorCode: null, createdAt: "2026-10-25" }] })).not.toContain("Подготовить передачу монтажёру");
+  it("озвучку разового прохода одобряет владелец, а не агент", () => {
+    expect(render({ versions: [version({ source: "BACKFILL" })], canApproveAudio: false })).toContain("одобряет владелец");
   });
-  it("marketing can approve but only leadership can configure global voices", () => {
-    expect(render({ canApprove: true, canConfigure: false })).not.toContain("Настройки голосов");
-    expect(render({ canApprove: true, canConfigure: true })).toContain("Настройки голосов");
+  it("готовится: статус и опрос сервера, кнопок нет", () => {
+    const pending = version({ status: "DRAFT", hasAudio: false, generateAfter: "2026-11-14T10:00:00Z" });
+    expect(render({ versions: [pending] })).toContain("Готовим озвучку");
+    expect(narrationIsPending(pending)).toBe(true);
+    expect(narrationIsPending(version())).toBe(false);
   });
-  it("shows provider acceptance separately from delivery and offers revocation", () => {
-    const html = render({ canApprove: true, ownerReport: { active: true, revision: 1, executionMode: "PREVIEW", deliveries: [{ id: "r", period: "2026-10", status: "SENT", lastError: null }] } });
-    expect(html).toContain("получение человеком не подтверждено"); expect(html).toContain("Отозвать согласие на отчёты"); expect(html).not.toContain("включить для объекта");
+  it("ревью 14.11: устаревший текст со старой ценой в форму не попадает; неизвестный итог — статус без формы; зависшая генерация не опрашивается вечно", () => {
+    const old = render({ versions: [version({ status: "FAILED", hasAudio: false, stale: true, script: "Нархаш СТАРАЯ ЦЕНА сомонӣ." })] });
+    expect(old).not.toContain("СТАРАЯ ЦЕНА");
+    expect(old).toContain("Квартира барои фурӯш. Масоҳаташ шасту ду метри мураббаъ.");
+    const unknown = render({ versions: [version({ status: "UNKNOWN", hasAudio: false })] });
+    expect(unknown).toContain("уточняет руководство");
+    expect(unknown).not.toContain(">Озвучить<");
+    expect(unknown).not.toContain("Озвучка не получилась");
+    expect(narrationIsPending(version({ status: "GENERATING", hasAudio: false, canReconcile: true }))).toBe(false);
+    expect(narrationIsPending(version({ status: "GENERATING", hasAudio: false }))).toBe(true);
   });
-  it("does not expose live dispatch button while server is PREVIEW", () => {
-    const deliveries = [{ id: "d", status: "PREVIEW", mode: "AUDIO_ONLY", versionId: "v", createdAt: "2026-10-25", lastError: null, planHash: "a".repeat(64) }];
+  it("новая озвучка не легла на вышедший ролик — агенту сказано, что дальше", () => {
+    const approved = [version({ approvedAt: "2026-11-14" })];
+    expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: "VOICE_LONGER" } })).toContain("длиннее ролика, обрезать голос CRM не стала");
+    expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: "FAILED" } })).toContain("в соцсетях пока прежний ролик");
+    expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: null } })).not.toContain("warn-bg");
+  });
+  it("одобрено, устарело, не получилось — понятными словами", () => {
+    expect(render({ versions: [version({ approvedAt: "2026-11-14" })] })).toContain("Озвучка одобрена");
+    expect(render({ versions: [version({ stale: true })] })).toContain("Данные объекта изменились");
+    const failed = render({ versions: [version({ status: "FAILED", hasAudio: false })] });
+    expect(failed).toContain("Озвучка не получилась"); expect(failed).toContain(">Озвучить<");
+  });
+  it("«Без озвучки»: только кнопка включить", () => {
+    const html = render({ off: true });
+    expect(html).toContain("Включить озвучку"); expect(html).not.toContain(">Озвучить<");
+  });
+  it("автоозвучка выключена: агент сохраняет текст, генерирует маркетинг", () => {
+    const html = render({ autoGenerate: false });
+    expect(html).toContain("Сохранить текст"); expect(html).not.toContain(">Озвучить<");
+  });
+  it("служебное (передача монтажёру, отчёт собственнику) — только маркетингу и руководству, свёрнутым", () => {
+    const marketing = render({ canApprove: true, versions: [version({ approvedAt: "2026-11-14" })] });
+    expect(marketing).toContain("Служебное"); expect(marketing).toContain("Только новую озвучку"); expect(marketing).toContain("<details");
+    expect(render({ versions: [version({ approvedAt: "2026-11-14" })] })).not.toContain("Служебное");
+  });
+  it("живая отправка плана монтажёру — только когда сервер в LIVE", () => {
+    const deliveries = [{ id: "d", status: "PREVIEW", mode: "AUDIO_ONLY", versionId: "v", createdAt: "2026-11-14", lastError: null, planHash: "a".repeat(64) }];
     expect(render({ canApprove: true, deliveries })).not.toContain("Подтвердить отправку этого плана");
     expect(render({ canApprove: true, sendsEnabled: true, deliveries })).toContain("Подтвердить отправку этого плана");
-  });});
+  });
+  it("монтажёр (canDraft=false) только слушает", () => {
+    const html = render({ canDraft: false, canApproveAudio: false, versions: [version({ approvedAt: "2026-11-14" })] });
+    expect(html).not.toContain("Без озвучки"); expect(html).not.toContain(">Изменить<");
+  });
+});

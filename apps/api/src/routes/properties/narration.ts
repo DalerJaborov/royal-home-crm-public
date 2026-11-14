@@ -9,6 +9,7 @@ import { narrationFacts, narrationFactsCurrent, narrationHash, suggestedNarratio
 import { localVideoFilePath } from "../../lib/localVideoStorage.js";
 import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
+import { NARRATION_VOICE_LONGER_MARK } from "../../lib/narrationMix.js";
 import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAutoEnabled, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
 import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
 import { syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
@@ -31,7 +32,13 @@ const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, tot
 narrationRouter.get("/narration-settings", async (req, res) => {
   if (!manager(req.agent?.role)) return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
   const { config, key } = await configuration();
-  res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceededSince() });
+  // С 14.11.2026 техника озвучки живёт в Настройках CRM, а не в карточке объекта: всё, что раньше
+  // раздел брал из ответа карточки (расход, образцы, готовность), приходит здесь.
+  const limits = narrationLimits(config);
+  res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceededSince(),
+    canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), configured: !!key && !!config.modelId && config.voices.length > 0,
+    autoGenerate: narrationAutoEnabled(config), samplesReady: (await readyVoiceSamples(config)).length,
+    budget: { ...await narrationBudgetUsage(), dailyChars: limits.dailyChars, dailyGenerations: limits.dailyGenerations } });
 });
 /** Мастер объекта (CRM) и карточка: шаблоны и голоса без ключа и модели. Любой сотрудник. */
 narrationRouter.get("/narration-options", async (_req, res) => {
@@ -134,7 +141,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     approvedAt: v.approvedAt, stale: !narrationFactsCurrent(v, p), hasAudio: v.status === "READY" && !!v.storageKey, errorCode: v.errorCode, createdAt: v.createdAt,
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
     source: v.source, templateId: v.templateId, language: v.language, generateAfter: v.generateAfter })),
-    suggestedScript: suggestedNarration(facts), config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent?.role), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
+    suggestedScript: suggestedNarration(facts), facts, config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent?.role), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
     deliveries: deliveries.map(d => ({ id: d.id, status: d.status, mode: d.mode, versionId: d.versionId, createdAt: d.createdAt, lastError: d.lastError, planHash: d.plan ? narrationHash(d.plan) : null })),
     ownerReportsEnabled: mediaExecutionMode("OWNER_REPORT") === "LIVE",
     ownerReport: manager(req.agent?.role) ? { active: !!subscription?.active && subscription.sellerClientId === p.sellerClientId, revision: subscription?.revision ?? 0, executionMode: subscription?.executionMode ?? "PREVIEW", deliveries: reportViews } : undefined,
@@ -146,7 +153,10 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
     budget: manager(req.agent?.role) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
     samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })),
-    mix: { hasMaster: !!p.videoMasterStorageKey, error: manager(req.agent?.role) ? p.videoMasterMixError ?? null : null },
+    mix: { hasMaster: !!p.videoMasterStorageKey, error: manager(req.agent?.role) ? p.videoMasterMixError ?? null : null,
+      // 14.11.2026: агент видит, что новая озвучка на вышедший ролик не легла, а не только руководство в журнале.
+      problem: p.videoMasterMixError && p.videoMasterMixErrorVersionId && p.videoMasterMixErrorVersionId === versions[0]?.id
+        ? (p.videoMasterMixError.includes(NARRATION_VOICE_LONGER_MARK) ? "VOICE_LONGER" as const : "FAILED" as const) : null },
     quotaExceeded: manager(req.agent?.role) ? !!await narrationQuotaExceededSince() : undefined });
 });
 

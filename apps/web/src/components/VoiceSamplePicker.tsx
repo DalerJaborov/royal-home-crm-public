@@ -61,25 +61,31 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
 
   return (
     <fieldset className="space-y-2" disabled={disabled}>
-      <legend className="text-sm font-medium">Голос</legend>
+      <legend className="sr-only">Голос</legend>
       {groups.map(([label, list]) => list.length > 0 && (
         <div key={label ?? "other"} className="space-y-1">
-          {label && <p className="text-sm text-slate-600">{label}</p>}
-          {list.map((voice) => (
-            <div key={voice.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2">
-              <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-                <input type="radio" name={name} value={voice.id} checked={value === voice.id} onChange={() => onChange(voice.id)} />
-                <span className="truncate">{voice.name}</span>
-                {lastPickedId === voice.id && <span className="text-sm text-slate-600">последний раз выбран</span>}
-              </label>
-              {has.has(voice.id) && (
-                <button type="button" className="pill sm" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
-                  onClick={() => void play(voice)}>
-                  {playing === voice.id ? "■ Стоп" : "▶ Прослушать"}
-                </button>
-              )}
-            </div>
-          ))}
+          {label && <p className="text-sm text-[var(--muted)]">{label}</p>}
+          {/* Плитки (14.11.2026): два в ряд на телефоне, четыре на ПК; вся плитка — выбор, кнопка — прослушать. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {list.map((voice) => {
+              const on = value === voice.id;
+              return (
+                <div key={voice.id} className={`flex min-w-0 flex-col gap-2 rounded-xl border p-2 ${on ? "border-blue bg-blue/10" : "border-line"}`}>
+                  <label className="flex min-w-0 cursor-pointer items-center gap-2 text-sm">
+                    <input type="radio" name={name} value={voice.id} checked={on} onChange={() => onChange(voice.id)} />
+                    <span className="truncate font-medium">{voice.name}</span>
+                  </label>
+                  {lastPickedId === voice.id && <span className="text-sm text-[var(--muted)]">последний раз выбран</span>}
+                  {has.has(voice.id) && (
+                    <button type="button" className="pill sm" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
+                      onClick={() => void play(voice)}>
+                      {playing === voice.id ? "■ Стоп" : "▶ Прослушать"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       ))}
       {error && <p className="text-sm text-red-700" role="status">{error}</p>}

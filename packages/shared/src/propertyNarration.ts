@@ -327,6 +327,33 @@ export function narrationDraftText(config: Pick<NarrationConfig, "templates" | "
   return { text: renderNarrationTemplate(template, facts), templateId: template.id, lang: template.lang };
 }
 
+/** Языки, на которых у владельца есть хотя бы один шаблон, в постоянном порядке (сначала таджикский). */
+export function narrationTemplateLangs(templates: readonly Pick<NarrationTemplate, "lang">[]): NarrationLang[] {
+  return NARRATION_LANGS.filter((lang) => templates.some((t) => t.lang === lang));
+}
+
+/**
+ * ВАРИАНТЫ ТЕКСТА ПО КРУГУ (14.11.2026, владелец: «несколько шаблонов, чтобы не каждый раз одинаковые»).
+ * Следующий шаблон того же языка после `afterId` (прошлый выбор сотрудника). Нет прошлого или он
+ * другого языка — первый шаблон языка. Один шаблон на язык — он же.
+ */
+export function nextNarrationTemplateId(templates: readonly Pick<NarrationTemplate, "id" | "lang">[], lang: NarrationLang, afterId?: string | null): string | null {
+  const same = templates.filter((t) => t.lang === lang);
+  if (!same.length) return null;
+  const at = same.findIndex((t) => t.id === afterId);
+  return same[(at + 1) % same.length].id;
+}
+
+/**
+ * Шаблон нового объекта, если сотрудник его не выбирал: следующий вариант после его прошлого,
+ * на том же языке. Мастер CRM показывает ровно его, сервер (мастер CRM и Шабнам) ставит его же.
+ * Прошлого выбора нет — null, дальше работает обычный pickNarrationTemplate (умолчание владельца).
+ */
+export function narrationRotatedTemplateId(templates: readonly Pick<NarrationTemplate, "id" | "lang">[], lastTemplateId?: string | null): string | null {
+  const last = templates.find((t) => t.id === lastTemplateId);
+  return last ? nextNarrationTemplateId(templates, last.lang, last.id) : null;
+}
+
 /** Голос по умолчанию: выбранный владельцем, иначе первый в списке. */
 export function pickNarrationVoice(config: Pick<NarrationConfig, "voices" | "defaultVoiceId">, voiceId?: string | null): string | null {
   return config.voices.find((v) => v.id === voiceId)?.id ?? config.voices.find((v) => v.id === config.defaultVoiceId)?.id ?? config.voices[0]?.id ?? null;
@@ -383,6 +410,8 @@ export type NarrationOptionsView = {
 };
 export type PropertyNarrationView = {
   versions: PropertyNarrationItem[]; suggestedScript: string; config: NarrationConfig;
+  /** Данные объекта для шаблона текста (14.11.2026: карточка собирает текст той же функцией, что мастер). */
+  facts?: NarrationFacts;
   /** У объекта выбрано «Без озвучки» (12.11.2026). */
   off?: boolean;
   lastChoice?: { voiceId?: string; templateId?: string };
@@ -398,5 +427,12 @@ export type PropertyNarrationView = {
   readiness?: { voiceCount: number; modelConfigured: boolean; apiKeyConfigured: boolean };
   samples?: NarrationVoiceSampleRef[];
   /** Озвучку на этот ролик накладывает CRM (есть ролик без голоса от монтажёра); ошибка наложения — для руководства. */
-  mix?: { hasMaster: boolean; error: string | null };
+  /** problem (14.11.2026): последняя озвучка не легла на вышедший ролик — VOICE_LONGER (ушла монтажёру удлинить ролик) или FAILED. */
+  mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null };
+};
+/** Настройки CRM → «Озвучка роликов» (14.11.2026): вся техника, которую агент в карточке не видит. */
+export type NarrationSettingsView = {
+  config: NarrationConfig; apiKeyConfigured: boolean; sendsEnabled: boolean; quotaExceeded: boolean;
+  canConfigure: boolean; configured: boolean; autoGenerate: boolean; samplesReady: number;
+  budget: { usedChars: number; usedGenerations: number; dailyChars: number; dailyGenerations: number };
 };
