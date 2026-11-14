@@ -30032,7 +30032,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const expense = await restoreExpense(req.params.id);",
+       "t": "const expense = await restoreExpense(req.params.id, { confirmAutoOverlap: req.body?.confirmAutoOverlap === tr…",
        "a": [
         "зовёт restoreExpense()"
        ],
