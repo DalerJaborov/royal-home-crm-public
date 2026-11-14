@@ -14,6 +14,7 @@ import { prisma } from "../db.js";
 import { sendPushToAgents } from "../push.js";
 import { appendConversationMessagesInTransaction } from "../messengers/appendMessages.js";
 import type { ChatMessage } from "../ai/client.js";
+import { clientOwnWords } from "../ai/untrustedContent.js";
 import { CustomerScopeDenied, ensureScopedBotConversation, findScopedBotConversation, type CustomerTransportReference } from "./customerConversationScope.js";
 import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
@@ -45,8 +46,6 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   staff_or_supported_reply_required: "бот решил передать вопрос сотруднику",
   sender_read_unavailable: "не удалось прочитать данные собеседника",
 };
-/** A person who just wrote is waiting: a 30-minute window per chat (the routing hold keeps its six hours). */
-const TURN_NOTIFY_WINDOW_MS = 30 * 60 * 1000;
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
 const tagOf = (conversationId: string) => `customer-held-${conversationId}`;
 
@@ -127,8 +126,8 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
       }
       if (seen.has(hold.conversationId)) continue;
       seen.add(hold.conversationId);
-      await pushManualReply({ conversationId: hold.conversationId, channel: hold.channel, excerpt: hold.excerpt,
-        why: plainReason(hold.reason), tag: tagOf(hold.conversationId), windowMs: NOTIFY_WINDOW_MS, claimChannel: "customer-held-notify" });
+      await pushStaffAboutChat({ conversationId: hold.conversationId, channel: hold.channel,
+        body: `«${hold.excerpt}». Бот не ответит: ${plainReason(hold.reason)}.` });
     } catch (error) {
       void logSystemError("meta", `Уведомление о непереданном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
         { dedupKey: "customer-dm-routing-held-notify-failed", quietPult: true });
@@ -136,33 +135,56 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
   }
 }
 
-/** One push "answer by hand" to the responsible agent (or everyone who reads all chats), at most once per chat and window.
- * Shared by the routing hold and the unanswered-turn guard. Throws only on a database failure (callers log it). */
-async function pushManualReply(args: { conversationId: string; channel: string; excerpt: string; why: string; tag: string;
-  windowMs: number; claimChannel: string; alarm?: boolean }): Promise<void> {
-  const { conversationId, windowMs } = args;
-  const recent = await prisma.notification.findFirst({ where: { tag: args.tag, createdAt: { gte: new Date(Date.now() - windowMs) } },
+/** One push per chat per window to the responsible agent (or everyone who
+ * reads all chats). Shared by a routing hold and a bot escalation, so a person
+ * whose chat is both held and escalated is not called twice. */
+async function pushStaffAboutChat(input: { conversationId: string; channel: string; body: string; alarm?: boolean }): Promise<"sent" | "skipped"> {
+  const tag = tagOf(input.conversationId);
+  const recent = await prisma.notification.findFirst({ where: { tag, createdAt: { gte: new Date(Date.now() - NOTIFY_WINDOW_MS) } },
     select: { id: true } });
-  if (recent) return; // one call per chat per window, the chat itself shows every message
-  const chat = await prisma.botConversation.findUnique({ where: { id: conversationId },
+  if (recent) return "skipped"; // one call per chat per window, the chat itself shows every message
+  const chat = await prisma.botConversation.findUnique({ where: { id: input.conversationId },
     select: { name: true, client: { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } } });
   // The client is in the trash: the text is kept in the hidden chat, nobody is called.
-  if (!chat || chat.client?.deletedAt) return;
-  const name = chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[args.channel] ?? args.channel}`;
+  if (!chat || chat.client?.deletedAt) return "skipped";
+  const name = chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[input.channel] ?? input.channel}`;
   // An inactive (dismissed) responsible agent gets no push: fall back to everyone who reads all chats.
   const owner = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
   const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
-  if (!recipients.length) return;
+  if (!recipients.length) return "skipped";
   // Atomic claim per chat and window: two near-simultaneous batches must not
   // both pass the "recent" check above (the feed row is written asynchronously).
   const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt")
-    VALUES (${randomUUID()},${args.claimChannel},${`${conversationId}:${Math.floor(Date.now() / windowMs)}`},now())
+    VALUES (${randomUUID()},'customer-held-notify',${`${input.conversationId}:${Math.floor(Date.now() / NOTIFY_WINDOW_MS)}`},now())
     ON CONFLICT ("channel","messageId") DO NOTHING`;
-  if (claimed !== 1) return;
-  // The routing hold keeps its "message" kind (a person may mute it); the unanswered-turn alarm has no kind, so a muted
-  // message category never silences it (like the AI budget alarm).
-  await sendPushToAgents(recipients, { ...(args.alarm ? {} : { kind: "message" as const }), title: `Ответьте вручную: ${name}`,
-    body: `«${args.excerpt}». Бот не ответит: ${args.why}.`, url: `/messages?open=${conversationId}`, tag: args.tag });
+  if (claimed !== 1) return "skipped";
+  // The unanswered-turn alarm has no kind, so a muted message category never silences it (like the AI budget alarm).
+  await sendPushToAgents(recipients, { ...(input.alarm ? {} : { kind: "message" as const }), title: `Ответьте вручную: ${name}`, body: input.body,
+    url: `/messages?open=${input.conversationId}`, tag });
+  return "sent";
+}
+
+/**
+ * THE NEW BOT ESCALATED A DM TURN TO STAFF (14.11.2026). Decision `escalate`
+ * sends the customer nothing (lib/customerDmAgentTurn.ts): the ticket is only
+ * marked HELD, and until this change nobody was told — the customer asked for a
+ * person and waited in silence. Now the responsible agent (or everyone who
+ * reads all chats) gets the same once-per-chat-per-window push as a routing
+ * hold. The text is already in the CRM chat. Never throws.
+ */
+export async function notifyEscalatedCustomerTurn(input: { conversationId: string; channel: string; text: string }): Promise<"sent" | "skipped"> {
+  try {
+    const chat = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: { clientId: true } });
+    if (!chat) return "skipped";
+    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[сообщение без текста]";
+    const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
+    return await pushStaffAboutChat({ conversationId: input.conversationId, channel: input.channel,
+      body: `«${excerpt}». Бот передал разговор человеку: ответьте клиенту сами.` });
+  } catch (error) {
+    void logSystemError("meta", `Уведомление о переданном боте разговоре не отправлено: ${error instanceof Error ? error.message : String(error)}`,
+      { dedupKey: "customer-dm-escalated-notify-failed", quietPult: true });
+    return "skipped";
+  }
 }
 
 /** Post-turn guard (13.11.2026): a core turn that ended HELD without an answer for a reason that is NOT an intended silence
@@ -178,8 +200,9 @@ export async function notifyUnansweredCustomerTurn(hold: { reason: string; chann
     { dedupKey: `customer-turn-unanswered:${hold.reason}`, dedupWindowMs: NOTIFY_WINDOW_MS, quietPult: true });
   try {
     if (!hold.conversationId) return;
-    await pushManualReply({ conversationId: hold.conversationId, channel: hold.channel, excerpt: hold.excerpt, why,
-      tag: `customer-turn-unanswered-${hold.conversationId}`, windowMs: TURN_NOTIFY_WINDOW_MS, claimChannel: "customer-turn-notify", alarm: true });
+    // The SAME door as the routing hold and the escalation: one push per chat per window, never two for one person.
+    await pushStaffAboutChat({ conversationId: hold.conversationId, channel: hold.channel, alarm: true,
+      body: `«${hold.excerpt}». Бот не ответит: ${why}.` });
   } catch (error) {
     void logSystemError("meta", `Уведомление о неотвеченном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
       { dedupKey: "customer-turn-unanswered-notify-failed", quietPult: true });

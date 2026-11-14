@@ -10,7 +10,7 @@
  *   npx tsx scripts/notify-unanswered-held-turns-13-11.ts --hours=24 --apply
  *
  * Резервная копия перед --apply (на сервере): pg_dump таблиц Notification и ProcessedMessage; откат — удалить строки
- * Notification с tag LIKE 'customer-turn-unanswered-%' и ProcessedMessage с channel='customer-turn-notify' за время запуска.
+ * Notification с tag LIKE 'customer-held-%' и ProcessedMessage с channel='customer-held-notify' за время запуска.
  */
 import "dotenv/config";
 import { prisma } from "../src/db.js";

@@ -30,6 +30,24 @@ describe("customer action proposal is not approval", () => {
   it.each(["Соедините меня с оператором", "Мне нужен сотрудник", "Прошу оператора", "Можно поговорить с оператором?", "Бо корманд суҳбат кардан мехоҳам"])("retains an explicit human request: %s", text => {
     expect(currentInputAuthorizesCustomerCommand(text, { name: "request_handover", args: { topic: text } })).toBe(true);
   });
+  // Аудит 14.11.2026: модель решает о передаче, код отказывает только на явном
+  // отказе, цитате, вопросе о роли/вакансии или сообщении не о людях и связи.
+  it.each(["Хочу поговорить с живым человеком", "Можно с менеджером?", "Дайте менеджера", "Хочу с реальным человеком пообщаться",
+    "Передайте агенту, пусть позвонит", "Мне никто не звонил", "Мне не позвонили", "Пригласите руководителя",
+    "Я вам написал, никто не отвечает, дайте человека", "Мне никто не звонит уже три дня", "Вы обещали перезвонить",
+    "Агент так и не вышел на связь", "бо одам гап задан мехоҳам", "operator lozim", "можна с минеджером?", "дайте аператора",
+    "Ба ман ҳеҷ кас занг назад"])("model handover is accepted for: %s", text => {
+    expect(currentInputAuthorizesCustomerCommand(text, { name: "request_handover", args: { topic: text } })).toBe(true);
+  });
+  it.each(["Я работаю оператором", "У меня оператор Билайн, связь плохая", "Я менеджер по продажам, ищу квартиру",
+    "«Дайте менеджера»", "Оператор не нужен", "Мне не нужен менеджер, просто цену скажите", "Сколько стоит квартира?",
+    "Нужен ли вам менеджер по продажам?", "Корманд намехоҳам"])("refusal, quote, role mention or unrelated text is not a handover: %s", text => {
+    expect(currentInputAuthorizesCustomerCommand(text, { name: "request_handover", args: { topic: text } })).toBe(false);
+  });
+  it("a request quoted inside the customer's own words keeps the own request", () => {
+    const text = "Я писал «перезвоните», никто не звонит, соедините с менеджером";
+    expect(currentInputAuthorizesCustomerCommand(text, { name: "request_handover", args: { topic: text } })).toBe(true);
+  });
   it.each(["Не спрашивайте у собственника", "Не спрашивай собственника?", "Не передавайте мой вопрос собственнику?", "Напурсед", "Хорошо"])("does not turn an owner refusal or acknowledgement into a new question: %s", text => {
     expect(currentInputAuthorizesCustomerCommand(text, { name: "ask_owner", args: { question: text } })).toBe(false);
   });
