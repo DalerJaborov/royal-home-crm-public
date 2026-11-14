@@ -36,6 +36,7 @@ import { clientPropertyMatchingCatalog } from "../../lib/clientPropertyMatchingC
 import { currentBuyerMatchingCriteria } from "../../lib/clientPropertyMatching.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
 import { buyerWantsFromCriteria, describeBuyerCriteria, findBuyerListings, hasBuyerCriteria } from "../../lib/market/buyerMatch.js";
+import { findBuyerMarketSummary } from "../../lib/market/buyerMarket.js";
 
 export const matchingRouter = Router();
 
@@ -406,7 +407,7 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
   if (!canAccessAssignedAgent(req, client.assignedAgentId)) return res.status(403).json({ error: "Недостаточно прав" });
   const empty = (status: MarketBuyerListingsResponse["status"], criteria: string[] = [], budgetMaxTjs: number | null = null): MarketBuyerListingsResponse =>
-    ({ status, criteria, total: 0, totalIsLowerBound: false, budgetMaxTjs, listings: [] });
+    ({ status, criteria, total: 0, totalIsLowerBound: false, budgetMaxTjs, market: null, listings: [] });
   const ownAgentId = scopeToOwnAgent(req);
   if (ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt) return res.json(empty("pending_acceptance"));
   if (!confirmedClientIntents(client).buys) return res.json(empty("not_buyer"));
@@ -414,7 +415,11 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
   const wants = await buyerWantsFromCriteria(currentBuyerMatchingCriteria(client));
   const criteria = describeBuyerCriteria(wants);
   if (!hasBuyerCriteria(wants)) return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
-  const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);
+  // Список и строка рынка независимы: считаем вместе (два запроса к каталогу, без повторов на клиента).
+  const [{ total, totalIsLowerBound, listings }, market] = await Promise.all([
+    findBuyerListings(wants, parsed.data.limit),
+    findBuyerMarketSummary(wants),
+  ]);
   const seesPhone = can(req, "clients.viewPhone");
   const body: MarketBuyerListingsResponse = {
     status: "ok",
@@ -422,6 +427,7 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
     total,
     totalIsLowerBound,
     budgetMaxTjs: wants.budgetMaxTjs,
+    market,
     listings: listings.map(l => ({ ...l, title: phoneSafeText(l.title, seesPhone) })),
   };
   return res.json(body);

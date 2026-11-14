@@ -21,7 +21,7 @@ import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { areaMeetsMinimum, roomsWithinTolerance, type MatchingBuyerCriteria } from "../clientPropertyMatching.js";
 import { budgetWindowTjs, loadMatchPolicy, type MatchPolicy } from "../matchPolicy.js";
-import { loadMoneyContext, toTjs } from "../money.js";
+import { loadMoneyContext, toTjs, type MoneyContext } from "../money.js";
 import { isPlausibleSale, plausibleSaleWhere } from "./plausible.js";
 import { dedupeListings, WINDOW_DAYS } from "./similarComps.js";
 import { marketCatalogWhere } from "./somonRubrics.js";
@@ -212,15 +212,13 @@ export async function findBuyerListings(
   return { ...ranked, totalIsLowerBound: rows.length >= BUYER_FETCH_LIMIT };
 }
 
-/** Желания покупателя → условия выборки: район по справочнику, бюджет в сомони общей функцией, допуски из политики. */
-export async function buyerWantsFromCriteria(criteria: MatchingBuyerCriteria): Promise<BuyerWants> {
-  const [district, money, policy] = await Promise.all([
-    criteria.desiredDistrictId
-      ? prisma.district.findUnique({ where: { id: criteria.desiredDistrictId }, select: { name: true, city: true } })
-      : Promise.resolve(null),
-    loadMoneyContext(),
-    loadMatchPolicy(),
-  ]);
+/** Чистая часть: желания покупателя → условия выборки (район и общие деньги/политика уже загружены). */
+export function buildBuyerWants(
+  criteria: MatchingBuyerCriteria,
+  district: { name: string; city: string } | null,
+  money: MoneyContext,
+  policy: MatchPolicy
+): BuyerWants {
   const toBudget = (value: unknown): number | null => {
     if (value == null) return null;
     const n = Number(value);
@@ -237,4 +235,28 @@ export async function buyerWantsFromCriteria(criteria: MatchingBuyerCriteria): P
     budgetMaxTjs: toBudget(criteria.budgetMax),
     policy,
   };
+}
+
+/** Желания покупателя → условия выборки: район по справочнику, бюджет в сомони общей функцией, допуски из политики. */
+export async function buyerWantsFromCriteria(criteria: MatchingBuyerCriteria): Promise<BuyerWants> {
+  const [district, money, policy] = await Promise.all([
+    criteria.desiredDistrictId
+      ? prisma.district.findUnique({ where: { id: criteria.desiredDistrictId }, select: { name: true, city: true } })
+      : Promise.resolve(null),
+    loadMoneyContext(),
+    loadMatchPolicy(),
+  ]);
+  return buildBuyerWants(criteria, district, money, policy);
+}
+
+/**
+ * Район совпадает, тип совпадает, и точная проверка допусков (matchesBuyer): то же, что делает запрос
+ * buyerListingsWhere в базе, но для строки в памяти. Нужна там, где объявления выбираются одним запросом
+ * для многих покупателей сразу (оповещение агентов, lib/market/buyerAlerts.ts): допуски остаются теми же.
+ */
+export function listingFitsBuyer(row: BuyerRow & { city?: string | null }, w: BuyerWants): boolean {
+  if (row.city != null && row.city !== w.city) return false;
+  if (w.districtName != null && row.districtName !== w.districtName) return false;
+  if (w.propertyType != null && row.propertyType != null && row.propertyType !== w.propertyType) return false;
+  return matchesBuyer(row, w);
 }

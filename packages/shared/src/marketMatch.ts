@@ -36,6 +36,31 @@ export interface MarketBuyerListing {
 
 export type MarketBuyerListingsStatus = "ok" | "no_criteria" | "not_buyer" | "pending_acceptance";
 
+/**
+ * Рынок под запрос покупателя (14.11.2026): типичная цена объявлений в его районе и с его числом
+ * комнат и во сколько раз бюджет отличается от неё. Считает сервер (lib/market/buyerMarket.ts), порог
+ * `minSample` тот же, что у блока «Рынок» объекта: ниже него чисел нет вовсе.
+ *  · ok — чисел достаточно;
+ *  · insufficient — район и комнаты названы, но объявлений меньше порога (в `count` их число);
+ *  · no_segment — района или числа комнат нет (или тип не квартира): сравнивать не с чем.
+ */
+export type MarketBuyerSummaryStatus = "ok" | "insufficient" | "no_segment";
+
+export interface MarketBuyerSummary {
+  status: MarketBuyerSummaryStatus;
+  districtName: string | null;
+  rooms: number | null;
+  /** Число уникальных объявлений района и комнат (после склейки дублей). */
+  count: number;
+  minSample: number;
+  medianPerSqmTjs: number | null;
+  medianPriceTjs: number | null;
+  /** Бюджет покупателя в сомони, с которым сравниваем (середина вилки или единственная граница). */
+  budgetTjs: number | null;
+  /** Бюджет к медианной цене, %: плюс — выше рынка, минус — ниже. null — нечего сравнивать. */
+  budgetVsMedianPercent: number | null;
+}
+
 export interface MarketBuyerListingsResponse {
   status: MarketBuyerListingsStatus;
   /** Что из запроса покупателя реально применено к выборке — сервер говорит словами. */
@@ -46,6 +71,8 @@ export interface MarketBuyerListingsResponse {
   totalIsLowerBound: boolean;
   /** Бюджет, приведённый к сомони общим курсом, — чтобы экран не пересчитывал сам. */
   budgetMaxTjs: number | null;
+  /** Медиана рынка по району и комнатам покупателя; null, когда сравнивать невозможно (нет желаний, не покупатель). */
+  market: MarketBuyerSummary | null;
   listings: MarketBuyerListing[];
 }
 
@@ -104,4 +131,36 @@ export interface MarketSegmentsResponse {
   /** true — выборка упёрлась в предел: цифры по самым свежим объявлениям, а не по всем. */
   truncated: boolean;
   segments: MarketSegmentStat[];
+}
+
+/** Наш объект в продаже, который дороже рынка (14.11.2026, GET /market/overpriced). */
+export interface MarketOverpricedItem {
+  propertyId: string;
+  /** Номер карточки: ссылка /properties/{shortId}. */
+  shortId: number;
+  title: string;
+  districtName: string;
+  rooms: number;
+  areaSqm: number;
+  askingPriceTjs: number;
+  /** Ориентир рынка: медианная цена за м² сегмента × площадь объекта. */
+  estimatedPriceTjs: number;
+  /** На сколько % цена объекта выше ориентира (всегда больше порога вердикта). */
+  diffPercent: number;
+  /** Сколько объявлений в сегменте, по которым считали. */
+  sampleSize: number;
+  /** Сегмент: район и комнаты, плюс ремонт, если считали по нему. */
+  basis: string;
+}
+
+export interface MarketOverpricedResponse {
+  minSample: number;
+  /** Порог вердикта, %: объект попадает в список, если выше ориентира больше чем на столько. */
+  thresholdPercent: number;
+  /** Сколько наших объектов в продаже сравнили с рынком и сколько из них без данных. */
+  checked: number;
+  withoutData: number;
+  /** true — объектов больше предела выборки: список по самым свежим. */
+  truncated: boolean;
+  items: MarketOverpricedItem[];
 }

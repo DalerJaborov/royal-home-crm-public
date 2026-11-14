@@ -122,8 +122,9 @@ export function segmentsWhere(q: MarketSegmentsQuery, now = Date.now()): Prisma.
   };
 }
 
-export async function findSegments(q: MarketSegmentsQuery): Promise<MarketSegmentsResponse> {
-  const rows = await prisma.marketListing.findMany({
+/** Загрузка строк сегментов ОДНИМ запросом с пределом (общая для таблицы, строки покупателя и списка «дороже рынка»). */
+export async function loadSegmentRows(q: MarketSegmentsQuery): Promise<{ rows: SegmentRow[]; sources: { source: string; count: number }[]; truncated: boolean }> {
+  const found = await prisma.marketListing.findMany({
     where: segmentsWhere(q),
     select: {
       source: true, districtName: true, rooms: true, repair: true, areaSqm: true, priceTjs: true, pricePerSqmTjs: true,
@@ -133,27 +134,71 @@ export async function findSegments(q: MarketSegmentsQuery): Promise<MarketSegmen
     take: SEGMENTS_FETCH_LIMIT,
   });
   const sources = new Map<string, number>();
-  for (const r of rows) sources.set(r.source, (sources.get(r.source) ?? 0) + 1);
+  for (const r of found) sources.set(r.source, (sources.get(r.source) ?? 0) + 1);
   return {
-    minSample: MIN_SAMPLE,
-    windowDays: WINDOW_DAYS,
-    city: q.city,
     sources: [...sources].map(([source, count]) => ({ source, count })).sort((a, b) => b.count - a.count),
-    truncated: rows.length >= SEGMENTS_FETCH_LIMIT,
-    segments: buildSegments(
-      rows.map((r) => ({
-        source: r.source,
-        districtName: r.districtName as string,
-        rooms: r.rooms as number,
-        repair: r.repair,
-        areaSqm: r.areaSqm != null ? Number(r.areaSqm) : null,
-        priceTjs: Number(r.priceTjs),
-        pricePerSqmTjs: r.pricePerSqmTjs != null ? Number(r.pricePerSqmTjs) : null,
-        floor: r.floor,
-        firstSeenAt: r.firstSeenAt,
-        lastSeenAt: r.lastSeenAt,
-        sellerId: r.sellerId,
-      }))
-    ),
+    truncated: found.length >= SEGMENTS_FETCH_LIMIT,
+    rows: found.map((r) => ({
+      source: r.source,
+      districtName: r.districtName as string,
+      rooms: r.rooms as number,
+      repair: r.repair,
+      areaSqm: r.areaSqm != null ? Number(r.areaSqm) : null,
+      priceTjs: Number(r.priceTjs),
+      pricePerSqmTjs: r.pricePerSqmTjs != null ? Number(r.pricePerSqmTjs) : null,
+      floor: r.floor,
+      firstSeenAt: r.firstSeenAt,
+      lastSeenAt: r.lastSeenAt,
+      sellerId: r.sellerId,
+    })),
   };
+}
+
+export async function findSegments(q: MarketSegmentsQuery): Promise<MarketSegmentsResponse> {
+  const { rows, sources, truncated } = await loadSegmentRows(q);
+  return { minSample: MIN_SAMPLE, windowDays: WINDOW_DAYS, city: q.city, sources, truncated, segments: buildSegments(rows) };
+}
+
+/**
+ * ИНДЕКС РЫНКА ДЛЯ СРАВНЕНИЯ В ПАМЯТИ (14.11.2026): статистика района × комнаты «по всем ремонтам» и
+ * района × комнаты × ремонт. Строится ОДНИМ проходом по строкам, поэтому список «дороже рынка» не
+ * считает рынок заново на каждый объект (N+1 нет). Правила те же, что у buildSegments: порог, выбросы,
+ * склейка дублей, медианы.
+ */
+export interface MarketIndex {
+  all: Map<string, MarketSegmentStat>;
+  byRepair: Map<string, MarketSegmentStat>;
+}
+
+export function buildMarketIndex(rows: SegmentRow[], now = Date.now()): MarketIndex {
+  const all = new Map<string, MarketSegmentStat>();
+  // Ремонт обнуляем: сегмент «все ремонты» — это тот же расчёт, но без разделения по ремонту.
+  for (const s of buildSegments(rows.map((r) => ({ ...r, repair: null })), now)) all.set(`${s.districtName}|${s.rooms}`, s);
+  const byRepair = new Map<string, MarketSegmentStat>();
+  for (const s of buildSegments(rows, now)) if (s.repair) byRepair.set(`${s.districtName}|${s.rooms}|${s.repair}`, s);
+  return { all, byRepair };
+}
+
+/**
+ * Сегмент для объекта: сначала с его ремонтом (если там достаточно объявлений), иначе «все ремонты».
+ * null — сегмента нет или в нём меньше порога: числа показывать нельзя.
+ */
+export function lookupMarketSegment(
+  index: MarketIndex,
+  districtName: string,
+  rooms: number,
+  repair: string | null
+): { stat: MarketSegmentStat; byRepair: boolean } | null {
+  if (repair) {
+    const exact = index.byRepair.get(`${districtName}|${rooms}|${repair}`);
+    if (exact?.enough && exact.medianPerSqmTjs != null) return { stat: exact, byRepair: true };
+  }
+  const any = index.all.get(`${districtName}|${rooms}`);
+  return any?.enough && any.medianPerSqmTjs != null ? { stat: any, byRepair: false } : null;
+}
+
+/** Статистика ОДНОГО района и числа комнат (все ремонты) — строка рынка под запросом покупателя. */
+export async function findDistrictRoomsStat(city: string, districtName: string, rooms: number): Promise<MarketSegmentStat | null> {
+  const { rows } = await loadSegmentRows({ city, districtName, rooms });
+  return buildMarketIndex(rows).all.get(`${districtName}|${rooms}`) ?? null;
 }

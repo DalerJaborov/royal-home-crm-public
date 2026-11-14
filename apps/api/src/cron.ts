@@ -2003,6 +2003,28 @@ export function startCronJobs() {
   );
 
   /**
+   * НОВОЕ ОБЪЯВЛЕНИЕ ПОД ПОКУПАТЕЛЯ (14.11.2026): через 5 минут после инкрементов Somon (7/22/37/52) и Paydo
+   * агенту уходит пуш, если в каталоге появилось объявление под его активного покупателя. Один раз на пару
+   * клиент+объявление, не больше 3 пушей на клиента за сутки по Душанбе. Только по каталогу, в сеть не ходит.
+   * Включается рубильником в Настройках (marketBuyerAlertsEnabled, по умолчанию выключен) и тем же
+   * MARKET_CRAWL_ENABLED=1. Вся логика и тест — lib/market/buyerAlerts.ts.
+   */
+  scheduleTracked(
+    "market-buyer-alerts",
+    "12,27,42,57 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runBuyerMarketAlerts } = await import("./lib/market/buyerAlerts.js");
+        await runBuyerMarketAlerts();
+      } catch (err) {
+        markCronTickFailed("Ошибка оповещения о новых объявлениях под покупателей", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
    * ЕЖЕНЕДЕЛЬНОЕ НАПОМИНАНИЕ О ВЕРОЯТНЫХ ДУБЛИКАТАХ (владелец 06.09.2026, разбор
    * слепых зон п.3) — тот же понедельник, что у «Разбора недели» выше, но на
    * 10 минут позже (та же причина: не складывать тяжёлые задачи в одну минуту)
