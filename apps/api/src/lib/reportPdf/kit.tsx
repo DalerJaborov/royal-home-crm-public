@@ -291,14 +291,12 @@ export function Note({ children }: { children: ReactNode }) {
   return <Text style={s.note}>{children}</Text>;
 }
 
-/** Воронка: полосы, сужающиеся к сделкам, с долей от предыдущего шага. */
+/** Воронка: полосы по шагам. Без «% от шага выше»: шаги — события по своим датам, а не одни и те же клиенты (как и на экране «Отчёты»). */
 export function Funnel({ steps }: { steps: { label: string; count: number; extra?: string }[] }) {
   const max = Math.max(1, ...steps.map((x) => x.count));
   return (
     <View wrap={false}>
       {steps.map((step, i) => {
-        const prev = i > 0 ? steps[i - 1]!.count : null;
-        const conv = prev ? `${Math.round((step.count / prev) * 100)} % от шага выше` : "";
         return (
           <View key={step.label} style={{ flexDirection: "row", alignItems: "center", marginBottom: 7 }}>
             <Text style={{ width: 92, fontSize: 9, color: C.text }}>{step.label}</Text>
@@ -307,7 +305,7 @@ export function Funnel({ steps }: { steps: { label: string; count: number; extra
                 <Text style={{ fontSize: 10, fontWeight: 700, color: C.white }}>{num(step.count)}</Text>
               </View>
             </View>
-            <Text style={{ width: 120, fontSize: 8, color: C.muted, textAlign: "right" }}>{step.extra ?? conv}</Text>
+            {step.extra ? <Text style={{ width: 120, fontSize: 8, color: C.muted, textAlign: "right" }}>{step.extra}</Text> : null}
           </View>
         );
       })}

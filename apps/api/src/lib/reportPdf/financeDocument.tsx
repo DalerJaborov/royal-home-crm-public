@@ -21,6 +21,8 @@ export interface FinanceReportInput {
   summary: FinanceSummary;
   /** Только для текущего месяца — для прошлого исторического прогноза нет. */
   forecast: CommissionForecast | null;
+  /** Месяц ещё идёт: сравнение с прошлым полным месяцем вводит в заблуждение («−100 %» 1-го числа). */
+  inProgress?: boolean;
   preparedBy: string;
   generatedAtLabel: string;
 }
@@ -33,11 +35,13 @@ function sourceLabel(key: string): string {
   return CLIENT_SOURCE_LABELS[key as ClientSource] ?? key;
 }
 
-export function FinanceReport({ month, summary, forecast, preparedBy, generatedAtLabel }: FinanceReportInput) {
+export function FinanceReport({ month, summary, forecast, inProgress = false, preparedBy, generatedAtLabel }: FinanceReportInput) {
   const months = summary.months;
   const idx = months.findIndex((m) => m.month === month);
   const cur: FinanceMonth | undefined = idx >= 0 ? months[idx] : undefined;
-  const prev: FinanceMonth | undefined = idx > 0 ? months[idx - 1] : undefined;
+  const prevMonth: FinanceMonth | undefined = idx > 0 ? months[idx - 1] : undefined;
+  // Для идущего месяца плашку сравнения не печатаем вовсе (KpiGrid без current).
+  const prev = inProgress ? undefined : prevMonth;
   const periodLabel = monthTitle(month);
 
   const expenseItems = cur
@@ -59,16 +63,16 @@ export function FinanceReport({ month, summary, forecast, preparedBy, generatedA
         {cur ? (
           <KpiGrid
             items={[
-              { label: "Прибыль", value: money(cur.profit), current: cur.profit, previous: prev?.profit, main: true, hint: "Доход компании минус операционные расходы" },
-              { label: "Валовая комиссия", value: money(cur.revenue), current: cur.revenue, previous: prev?.revenue, hint: "Всё, что заплатили клиенты по закрытым сделкам" },
-              { label: "Доход компании", value: money(cur.companyRevenue), current: cur.companyRevenue, previous: prev?.companyRevenue, hint: `Выплаты риелторам: ${money(cur.realtorPayouts)}` },
-              { label: "Операционные расходы", value: money(cur.operatingExpenses), current: cur.operatingExpenses, previous: prev?.operatingExpenses, upIsGood: false, hint: "Без зарплат из сделок — они уже вычтены из дохода" },
+              { label: "Прибыль", value: money(cur.profit), current: inProgress ? undefined : cur.profit, previous: prev?.profit, main: true, hint: "Доход компании минус операционные расходы" },
+              { label: "Валовая комиссия", value: money(cur.revenue), current: inProgress ? undefined : cur.revenue, previous: prev?.revenue, hint: "Всё, что заплатили клиенты по закрытым сделкам" },
+              { label: "Доход компании", value: money(cur.companyRevenue), current: inProgress ? undefined : cur.companyRevenue, previous: prev?.companyRevenue, hint: `Выплаты риелторам: ${money(cur.realtorPayouts)}` },
+              { label: "Операционные расходы", value: money(cur.operatingExpenses), current: inProgress ? undefined : cur.operatingExpenses, previous: prev?.operatingExpenses, upIsGood: false, hint: "Без зарплат из сделок — они уже вычтены из дохода" },
             ]}
           />
         ) : (
           <Note>За выбранный месяц сводки нет. Это отсутствие данных, а не нулевой результат.</Note>
         )}
-        {cur ? <Note>{`Новых заявок за месяц: ${num(cur.leads)}. Все расходы месяца с зарплатами из сделок: ${money(cur.totalExpenses)}.`}</Note> : null}
+        {cur ? <Note>{`${inProgress ? "Месяц ещё идёт — цифры на момент выгрузки, сравнение с прошлым месяцем появится после его окончания. " : ""}Новых заявок за месяц: ${num(cur.leads)}. Все расходы месяца с зарплатами из сделок: ${money(cur.totalExpenses)}.`}</Note> : null}
       </Section>
 
       {forecast ? (

@@ -73,7 +73,7 @@ export async function buildReportPdf(kind: ReportPdfKind, rawQuery: unknown, vie
       }
     }
     const buffer = await renderReportPdf(
-      <FinanceReport month={month} summary={summary} forecast={forecast} preparedBy={viewer.name} generatedAtLabel={generatedAtLabel} />,
+      <FinanceReport month={month} summary={summary} forecast={forecast} inProgress={month === currentDushanbeMonth(now)} preparedBy={viewer.name} generatedAtLabel={generatedAtLabel} />,
     );
     return { buffer, filename: reportPdfFilename(kind, month), periodLabel: monthTitle(month), periodKey: month };
   }

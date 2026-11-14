@@ -50,14 +50,14 @@ export function TeamReport({ periodLabel, preparedBy, generatedAtLabel, seesMone
               : { label: "Закрыто сделок", value: num(deals?.count ?? 0), main: true },
             { label: "Новые заявки", value: num(leads) },
             { label: "Показы", value: num(step("showings")?.count ?? 0) },
-            { label: "Заявка → сделка", value: percent(leads > 0 ? ((deals?.count ?? 0) / leads) * 100 : null), hint: sources.avgDaysNewToClosed !== null ? `В среднем от заявки до сделки: ${num(sources.avgDaysNewToClosed)} дн.` : undefined },
+            { label: "Сделки / новые заявки", value: percent(leads > 0 ? ((deals?.count ?? 0) / leads) * 100 : null), hint: sources.avgDaysNewToClosed !== null ? `В среднем от заявки до сделки: ${num(sources.avgDaysNewToClosed)} дн.` : undefined },
           ]}
         />
       </Section>
 
       <Section
         title="Воронка"
-        hint="Сколько людей дошло до каждого шага; справа — доля от шага выше."
+        hint="Сколько событий каждого шага было за период. Это не конверсия одних и тех же клиентов: события считаются по своим датам, поэтому соотношения могут быть больше 100 %."
         lead={<Funnel steps={funnel.map((x) => ({ label: STEP_LABELS[x.key] ?? x.label, count: x.count }))} />}
       />
 
