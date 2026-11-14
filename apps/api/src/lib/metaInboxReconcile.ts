@@ -27,11 +27,15 @@ import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { GRAPH_VERSION } from "../messengers/metaGraph.js";
 import { sendPushToAgents } from "../push.js";
+import { isMetaEnabled } from "../messengers/meta.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
 
-/** Пока вебхук мог ещё не дойти или бот ждёт склейки сообщений — не тревожим. */
-export const GRACE_MS = 5 * 60_000;
+/** Пока вебхук мог ещё не дойти, Meta повторяет доставку после 503 или бот ждёт склейки — не тревожим.
+ *  15 минут, а не 5 (ревью 192-4): ранний сигнал по сообщению, которое Meta ещё дошлёт, дал бы клиенту два ответа. */
+export const GRACE_MS = 15 * 60_000;
+/** Был недавний 503 вебхука — Meta сейчас повторяет доставку, тик пропускаем (ревью 192-4). */
+const RECENT_WEBHOOK_FAILURE_MS = 30 * 60_000;
 /** Глубже не смотрим: старое — дело разовой сверки со «да» владельца, не пуша. */
 export const LOOKBACK_MS = 3 * 60 * 60_000;
 const CONVERSATIONS_PER_PAGE = 25;
@@ -63,7 +67,10 @@ interface GraphConversations {
 }
 
 /**
- * Входящие от людей (не от самой Страницы) в окне [now-lookback, now-grace].
+ * Входящие от людей (не от самой Страницы) в окне [now-lookback, now-grace], на
+ * которые Страница ещё НЕ ответила. Ответ сотрудника из Meta Business Suite — это
+ * сообщение Страницы позже реплики человека в той же переписке: такую реплику не
+ * трогаем (ревью 192-3, иначе «ответьте вручную» шло бы на уже отвеченное).
  * Чистая функция — проверяется без сети и базы.
  */
 export function incomingFromGraph(pageId: string, body: GraphConversations, now: Date,
@@ -72,12 +79,17 @@ export function incomingFromGraph(pageId: string, body: GraphConversations, now:
   const newest = now.getTime() - window.graceMs;
   const oldest = now.getTime() - window.lookbackMs;
   for (const conversation of body.data ?? []) {
+    let lastPageAt = -Infinity;
+    for (const m of conversation.messages?.data ?? []) {
+      const at = m.created_time ? new Date(m.created_time).getTime() : NaN;
+      if (m.from?.id === pageId && !Number.isNaN(at)) lastPageAt = Math.max(lastPageAt, at);
+    }
     for (const m of conversation.messages?.data ?? []) {
       const fromId = m.from?.id;
       if (!m.id || !m.created_time || !fromId || fromId === pageId) continue;
       const createdAt = new Date(m.created_time);
       const at = createdAt.getTime();
-      if (Number.isNaN(at) || at > newest || at < oldest) continue;
+      if (Number.isNaN(at) || at > newest || at < oldest || at < lastPageAt) continue;
       out.push({ mid: m.id, createdAt, fromId, fromName: m.from?.name?.trim() || null, text: (m.message ?? "").trim() });
     }
   }
@@ -151,13 +163,22 @@ export interface MetaInboxReconcileResult {
   missed: number;
   people: number;
   failedPages: number;
+  /** Почему тик ничего не сверял: канал выключен или Meta сейчас повторяет доставку. */
+  skipped: "meta_disabled" | "webhook_retrying" | null;
 }
 
 /** Тик крона. Никогда не бросает: сбой одной Страницы — строка в журнале, остальные сверяются. */
 export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: GraphFetch = defaultFetch): Promise<MetaInboxReconcileResult> {
-  const result: MetaInboxReconcileResult = { pages: 0, missed: 0, people: 0, failedPages: 0 };
+  const result: MetaInboxReconcileResult = { pages: 0, missed: 0, people: 0, failedPages: 0, skipped: null };
   let pages: PageInbox[];
   try {
+    // Канал Meta выключен в Настройках — вебхук отвечает 503 намеренно, звать людей не о чем (ревью 192-9).
+    if (!(await isMetaEnabled())) return { ...result, skipped: "meta_disabled" };
+    const recentFailure = await prisma.errorLog.findFirst({
+      where: { dedupKey: { startsWith: "meta-webhook-503:" }, createdAt: { gte: new Date(now.getTime() - RECENT_WEBHOOK_FAILURE_MS) } },
+      select: { id: true },
+    });
+    if (recentFailure) return { ...result, skipped: "webhook_retrying" };
     pages = await listFacebookPageInboxes();
   } catch (err) {
     void logSystemError("meta", `Сверка переписок Страниц не запустилась: ${withoutToken(err)}`,
@@ -183,34 +204,48 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
       if (!missed.length) continue;
       // Один пуш на человека за тик, даже если он написал пять сообщений подряд.
       const byPerson = new Map<string, InboxMessage[]>();
-      for (const m of missed) {
-        if (!(await claimMissed(m.mid))) continue;
-        byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);
-      }
-      if (!byPerson.size) continue;
-      result.missed += [...byPerson.values()].reduce((n, list) => n + list.length, 0);
-      result.people += byPerson.size;
+      for (const m of missed) byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);
       recipients ??= await findAgentsWithPermission("messages.view");
+      if (!recipients.length) {
+        // Отметок не ставим: появится получатель — сигнал уйдёт (ревью 192-2).
+        void logSystemError("meta", `Страница «${page.title}»: ${byPerson.size} чел. не дошли до CRM, но в CRM нет никого с правом «Сообщения» — сказать некому.`,
+          { dedupKey: `meta-inbox-no-recipients:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000 });
+        continue;
+      }
+      let told = 0;
       for (const [fromId, list] of byPerson) {
-        list.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-        const last = list[list.length - 1]!;
+        // Отметка и пуш — по одному человеку; пуш не ушёл — отметки ЭТОГО человека снимаются,
+        // следующий тик попробует снова (ревью 192-2: раньше отметки всех ставились до пушей и терялись).
+        const fresh: InboxMessage[] = [];
+        for (const m of list) if (await claimMissed(m.mid)) fresh.push(m);
+        if (!fresh.length) continue;
+        fresh.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        const last = fresh[fresh.length - 1]!;
         const name = last.fromName ?? "Клиент";
         const excerpt = last.text ? `«${last.text.slice(0, 120)}»` : "вложение без текста";
-        if (recipients.length) {
+        try {
           await sendPushToAgents(recipients, {
             kind: "message",
             level: "CRITICAL",
             title: `Ответьте вручную: ${name} (Facebook «${page.title}»)`,
-            body: `${excerpt}${list.length > 1 ? ` и ещё ${list.length - 1}` : ""}. Сообщение не дошло до CRM, бот его не видел. ` +
+            body: `${excerpt}${fresh.length > 1 ? ` и ещё ${fresh.length - 1}` : ""}. Сообщение не дошло до CRM, бот его не видел. ` +
               `Ответьте в Meta Business Suite (business.facebook.com) → «Входящие» Страницы.`,
             // Ссылка внутри CRM: колокольчик открывает только свои адреса. Где отвечать — сказано в тексте.
             url: "/messages",
             tag: `meta-inbox-missed-${page.pageId}-${fromId}`,
           });
+          told++;
+          result.missed += fresh.length;
+          result.people++;
+        } catch (err) {
+          await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: fresh.map((m) => m.mid) } } }).catch(() => {});
+          void logSystemError("meta", `Пуш «Ответьте вручную» по Странице «${page.title}» не ушёл, повторим: ${withoutToken(err)}`,
+            { dedupKey: `meta-inbox-push-failed:${page.pageId}` });
         }
       }
+      if (!told) continue;
       void logSystemError("meta",
-        `Страница «${page.title}»: ${byPerson.size} чел. написали в Messenger, а до CRM сообщения не дошли — бот их не видел, ` +
+        `Страница «${page.title}»: ${told} чел. написали в Messenger, а до CRM сообщения не дошли — бот их не видел, ` +
           `сотрудникам ушёл пуш «Ответьте вручную». Частая причина — у приложения нет расширенного доступа к Messenger ` +
           `(Meta доставляет только людей с ролью в приложении): нужна проверка приложения (App Review).`,
         { dedupKey: `meta-inbox-missed:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000 });

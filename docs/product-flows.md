@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4052**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4050**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20333,46 +20333,6 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
-### comment-needs-human-sweep — 6-59/10 * * * *
-
-- пробует
-  - const { alerted } = await runCommentNeedsHumanSweep();
-    · зовёт runCommentNeedsHumanSweep()
-    - const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …
-      · обращается к базе своим SQL
-    - если !rows.length
-      - return { checked: 0, alerted: 0 };
-        · дословно из кода
-    - const recipients = await findAgentsWithPermission("messages.view");
-      · зовёт findAgentsWithPermission()
-    - если !recipients.length
-      - void logSystemError("meta", `Комментарии ждут человека (${rows.length}), но в CRM нет никого с правом «Сообще…
-        · запись в журнал ошибок
-    - для каждого: const row of rows
-      - пробует
-        - const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdA…
-          · обращается к базе своим SQL
-        - если claimed !== 1
-          - continue;
-            · переходит к следующему
-        - await sendPushToAgents(recipients, { kind: "message", title: `💬 ${PLACE[row.channel] ?? row.channel}: ответь…
-          · push-уведомление
-      - если сорвалось
-        - await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: row.commentId } }).cat…
-          · удаляет в базе: processedMessage
-        - void logSystemError("meta", `Пуш по комментарию ${row.commentId} не отправлен: ${err instanceof Error ? err.m…
-          · запись в журнал ошибок
-  - если alerted > 0
-    - console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
-      · пишет строку в журнал сервера
-- если сорвалось
-  - reportCronTickError("Ошибка сторожа комментариев без ответа", err);
-    · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
-
 ### contact-link-sweep — 10 3 * * *
 
 - пробует
@@ -22821,6 +22781,14 @@
   - const { people, missed } = await runMetaInboxReconcile();
     · зовёт runMetaInboxReconcile()
     - пробует
+      - если !(await isMetaEnabled())
+        - return { ...result, skipped: "meta_disabled" };
+          · дословно из кода
+      - const recentFailure = await prisma.errorLog.findFirst({ where: { dedupKey: { startsWith: "meta-webhook-503:" …
+        · читает в базе: errorLog
+      - если recentFailure
+        - return { ...result, skipped: "webhook_retrying" };
+          · дословно из кода
       - pages = await listFacebookPageInboxes();
         · зовёт listFacebookPageInboxes()
     - если сорвалось
@@ -22843,19 +22811,34 @@
           - continue;
             · переходит к следующему
         - для каждого: const m of missed
-          - если !(await claimMissed(m.mid))
-            - continue;
-              · переходит к следующему
-        - если !byPerson.size
-          - continue;
-            · переходит к следующему
+          - byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);
+            · дословно из кода
         - recipients ??= await findAgentsWithPermission("messages.view");
           · зовёт findAgentsWithPermission()
+        - если !recipients.length
+          - void logSystemError("meta", `Страница «${page.title}»: ${byPerson.size} чел. не дошли до CRM, но в CRM нет ни…
+            · запись в журнал ошибок
+          - continue;
+            · переходит к следующему
         - для каждого: const [fromId, list] of byPerson
-          - если recipients.length
+          - для каждого: const m of list
+            - if (await claimMissed(m.mid)) fresh.push(m);
+              · дословно из кода
+          - если !fresh.length
+            - continue;
+              · переходит к следующему
+          - пробует
             - await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL", title: `Ответьте вручную: ${name} (F…
               · push-уведомление
-        - void logSystemError("meta", `Страница «${page.title}»: ${byPerson.size} чел. написали в Messenger, а до CRM с…
+          - если сорвалось
+            - await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: fresh.map((m)
+              · удаляет в базе: processedMessage
+            - void logSystemError("meta", `Пуш «Ответьте вручную» по Странице «${page.title}» не ушёл, повторим: ${withoutT…
+              · запись в журнал ошибок
+        - если !told
+          - continue;
+            · переходит к следующему
+        - void logSystemError("meta", `Страница «${page.title}»: ${told} чел. написали в Messenger, а до CRM сообщения …
           · запись в журнал ошибок
       - если сорвалось
         - void logSystemError("meta", `Сверка переписок Страницы «${page.title}» оборвалась: ${withoutToken(err)}`, { d…

@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4052,
+  "forks": 4050,
   "mounts": 83,
-  "cron": 134,
+  "cron": 133,
   "jobs": 33,
   "hidden": 0
  },
@@ -90261,192 +90261,6 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "comment-needs-human-sweep",
-   "when": "6-59/10 * * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { alerted } = await runCommentNeedsHumanSweep();",
-       "a": [
-        "зовёт runCommentNeedsHumanSweep()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …",
-         "a": [
-          "обращается к базе своим SQL"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!rows.length",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return { checked: 0, alerted: 0 };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const recipients = await findAgentsWithPermission(\"messages.view\");",
-         "a": [
-          "зовёт findAgentsWithPermission()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!recipients.length",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError(\"meta\", `Комментарии ждут человека (${rows.length}), но в CRM нет никого с правом «Сообще…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const row of rows",
-         "a": [],
-         "c": [
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const claimed = await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdA…",
-             "a": [
-              "обращается к базе своим SQL"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "claimed !== 1",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "await sendPushToAgents(recipients, { kind: \"message\", title: `💬 ${PLACE[row.channel] ?? row.channel}: ответь…",
-             "a": [
-              "push-уведомление"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: row.commentId } }).cat…",
-             "a": [
-              "удаляет в базе: processedMessage"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "void logSystemError(\"meta\", `Пуш по комментарию ${row.commentId} не отправлен: ${err instanceof Error ? err.m…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "runCommentNeedsHumanSweep() — apps/api/src/lib/commentWaitingAlert.ts"
-      },
-      {
-       "k": "if",
-       "t": "alerted > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка сторожа комментариев без ответа\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
    "id": "contact-link-sweep",
    "when": "10 3 * * *",
    "tree": [
@@ -101963,6 +101777,44 @@
          "a": [],
          "c": [
           {
+           "k": "if",
+           "t": "!(await isMetaEnabled())",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { ...result, skipped: \"meta_disabled\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const recentFailure = await prisma.errorLog.findFirst({ where: { dedupKey: { startsWith: \"meta-webhook-503:\" …",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recentFailure",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { ...result, skipped: \"webhook_retrying\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "do",
            "t": "pages = await listFacebookPageInboxes();",
            "a": [
@@ -102065,32 +101917,10 @@
              "a": [],
              "c": [
               {
-               "k": "if",
-               "t": "!(await claimMissed(m.mid))",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "!byPerson.size",
-             "a": [],
-             "c": [
-              {
                "k": "do",
-               "t": "continue;",
+               "t": "byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);",
                "a": [
-                "переходит к следующему"
+                "дословно из кода"
                ],
                "c": []
               }
@@ -102105,13 +101935,66 @@
              "c": []
             },
             {
+             "k": "if",
+             "t": "!recipients.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"meta\", `Страница «${page.title}»: ${byPerson.size} чел. не дошли до CRM, но в CRM нет ни…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "loop",
              "t": "для каждого: const [fromId, list] of byPerson",
              "a": [],
              "c": [
               {
+               "k": "loop",
+               "t": "для каждого: const m of list",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "if (await claimMissed(m.mid)) fresh.push(m);",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
                "k": "if",
-               "t": "recipients.length",
+               "t": "!fresh.length",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "try",
+               "t": "пробует",
                "a": [],
                "c": [
                 {
@@ -102123,12 +102006,50 @@
                  "c": []
                 }
                ]
+              },
+              {
+               "k": "catch",
+               "t": "если сорвалось",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: fresh.map((m)",
+                 "a": [
+                  "удаляет в базе: processedMessage"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "void logSystemError(\"meta\", `Пуш «Ответьте вручную» по Странице «${page.title}» не ушёл, повторим: ${withoutT…",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!told",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
               }
              ]
             },
             {
              "k": "do",
-             "t": "void logSystemError(\"meta\", `Страница «${page.title}»: ${byPerson.size} чел. написали в Messenger, а до CRM с…",
+             "t": "void logSystemError(\"meta\", `Страница «${page.title}»: ${told} чел. написали в Messenger, а до CRM сообщения …",
              "a": [
               "запись в журнал ошибок"
              ],

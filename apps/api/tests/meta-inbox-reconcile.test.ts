@@ -5,6 +5,17 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/push.js")>()),
   sendPushToAgents,
 }));
+const metaEnabled = vi.fn(async () => true);
+vi.mock("../src/messengers/meta.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/messengers/meta.js")>()),
+  isMetaEnabled: metaEnabled,
+}));
+const recipientsOverride: { list: string[] | null } = { list: null };
+vi.mock("../src/lib/recipients.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/recipients.js")>();
+  return { ...actual, findAgentsWithPermission: async (p: Parameters<typeof actual.findAgentsWithPermission>[0]) =>
+    recipientsOverride.list ?? actual.findAgentsWithPermission(p) };
+});
 
 const { prisma } = await import("../src/db.js");
 const { encryptSecret } = await import("../src/crypto.js");
@@ -50,7 +61,7 @@ beforeAll(async () => {
   ).id;
 });
 
-beforeEach(() => sendPushToAgents.mockClear());
+beforeEach(() => { sendPushToAgents.mockClear(); metaEnabled.mockResolvedValue(true); recipientsOverride.list = null; });
 
 afterAll(async () => {
   await prisma.processedMessage.deleteMany({ where: { messageId: { startsWith: `m_${runId}` } } });
@@ -77,9 +88,9 @@ describe("incomingFromGraph — что считать входящим", () => {
 describe("runMetaInboxReconcile", () => {
   it("сообщение, которого нет в CRM, — один пуш «Ответьте вручную» на человека, второй тик молчит", async () => {
     const body = graph([
-      { id: `m_${runId}_a1`, created_time: ago(30), message: "Салом", from: { id: `psid-${runId}-owner`, name: "Клиент Арван" } },
-      { id: `m_${runId}_a2`, created_time: ago(20), message: "Ба ман хона лозим", from: { id: `psid-${runId}-owner`, name: "Клиент Арван" } },
-      { id: `m_${runId}_b1`, created_time: ago(15), message: "Хонаи фуруши дорам", from: { id: `psid-${runId}-second` } },
+      { id: `m_${runId}_a1`, created_time: ago(40), message: "Салом", from: { id: `psid-${runId}-owner`, name: "Клиент Арван" } },
+      { id: `m_${runId}_a2`, created_time: ago(30), message: "Ба ман хона лозим", from: { id: `psid-${runId}-owner`, name: "Клиент Арван" } },
+      { id: `m_${runId}_b1`, created_time: ago(20), message: "Хонаи фуруши дорам", from: { id: `psid-${runId}-second` } },
     ]);
     const { impl } = fakeFetch(body);
     const first = await runMetaInboxReconcile(now, impl);
@@ -132,6 +143,49 @@ describe("runMetaInboxReconcile", () => {
     }, { timeout: 5000, interval: 100 });
     expect(line.message).toContain("Arvan estate");
     expect(line.message).not.toContain("page-token-test");
+  });
+
+  it("192-3: сотрудник уже ответил в Business Suite — «ответьте вручную» не шлём", async () => {
+    const { impl } = fakeFetch(graph([
+      { id: `m_${runId}_r2`, created_time: ago(22), message: "Ассалому алейкум! Ҳозир мефиристем", from: { id: pageId } },
+      { id: `m_${runId}_r1`, created_time: ago(25), message: "Нарх чанд?", from: { id: `psid-${runId}-replied` } },
+    ]));
+    expect(await runMetaInboxReconcile(now, impl)).toMatchObject({ missed: 0, people: 0 });
+    expect(sendPushToAgents).not.toHaveBeenCalled();
+  });
+
+  it("192-2: пуш не ушёл — отметка снята, следующий тик говорит снова", async () => {
+    const { impl } = fakeFetch(graph([{ id: `m_${runId}_f1`, created_time: ago(25), message: "Хона лозим", from: { id: `psid-${runId}-fail` } }]));
+    sendPushToAgents.mockImplementationOnce(async () => { throw new Error("push down"); });
+    expect(await runMetaInboxReconcile(now, impl)).toMatchObject({ people: 0 });
+    expect(await prisma.processedMessage.count({ where: { channel: "meta-inbox-missed", messageId: `m_${runId}_f1` } })).toBe(0);
+    expect(await runMetaInboxReconcile(now, impl)).toMatchObject({ people: 1, missed: 1 });
+  });
+
+  it("192-2: некому сказать — отметку не ставим, появится получатель — сигнал уйдёт", async () => {
+    const { impl } = fakeFetch(graph([{ id: `m_${runId}_n1`, created_time: ago(25), message: "Салом", from: { id: `psid-${runId}-nobody` } }]));
+    recipientsOverride.list = [];
+    expect(await runMetaInboxReconcile(now, impl)).toMatchObject({ people: 0 });
+    expect(await prisma.processedMessage.count({ where: { channel: "meta-inbox-missed", messageId: `m_${runId}_n1` } })).toBe(0);
+    recipientsOverride.list = null;
+    expect(await runMetaInboxReconcile(now, impl)).toMatchObject({ people: 1 });
+  });
+
+  it("192-4: свежее сообщение (меньше 15 мин) и недавний 503 вебхука — не тревожим, Meta ещё дошлёт", async () => {
+    const { impl } = fakeFetch(graph([{ id: `m_${runId}_g1`, created_time: ago(10), message: "только что", from: { id: `psid-${runId}-grace` } }]));
+    expect(await runMetaInboxReconcile(now, impl)).toMatchObject({ people: 0 });
+    const late = fakeFetch(graph([{ id: `m_${runId}_g2`, created_time: ago(25), message: "после сбоя", from: { id: `psid-${runId}-retry` } }]));
+    const row = await prisma.errorLog.create({ data: { source: "meta", message: "Вебхук Meta ответил 503", dedupKey: "meta-webhook-503:dm:test", createdAt: new Date(now.getTime() - 5 * 60_000) } });
+    expect(await runMetaInboxReconcile(now, late.impl)).toMatchObject({ skipped: "webhook_retrying", people: 0 });
+    await prisma.errorLog.delete({ where: { id: row.id } });
+    expect(sendPushToAgents).not.toHaveBeenCalled();
+  });
+
+  it("192-9: канал Meta выключен в Настройках — сверка молчит", async () => {
+    metaEnabled.mockResolvedValue(false);
+    const { impl, urls } = fakeFetch(graph([{ id: `m_${runId}_d1`, created_time: ago(25), message: "x", from: { id: `psid-${runId}-off` } }]));
+    expect(await runMetaInboxReconcile(now, impl)).toMatchObject({ skipped: "meta_disabled" });
+    expect(urls).toHaveLength(0);
   });
 
   it("сетевой отказ не уносит ключ Страницы в журнал", () => {
