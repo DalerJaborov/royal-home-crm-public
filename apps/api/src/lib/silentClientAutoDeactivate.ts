@@ -166,7 +166,8 @@ export async function runSilentClientAutoDeactivate(
       where: {
         ...(afterId ? { id: { gt: afterId } } : {}),
         deletedAt: null,
-        kind: { not: "OTHER" },
+        // Продавцы в «Неактивные» не уходят вообще (владелец 03.11.2026).
+        kind: "BUYER",
         workStatus: "ACTIVE",
         status: { notIn: [...NOT_ELIGIBLE_STATUS] },
         assignedAgentId: { not: null },
