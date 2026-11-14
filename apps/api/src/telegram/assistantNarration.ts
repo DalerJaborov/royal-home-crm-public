@@ -243,7 +243,7 @@ async function clickerFor(chatId: string, propertyId: string): Promise<Clicker |
   const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { assignedAgentId: true, intakeAgentId: true, createdById: true, deletedAt: true } });
   if (!property || property.deletedAt) return null;
   if (!canManagePropertyAs({ agentId: agent.id, can: (perm: PermissionId) => access.permissions.has(perm) }, property)) return null;
-  return { agentId: agent.id, isManager: hasMarketingRole(access.role), role: access.role };
+  return { agentId: agent.id, isManager: hasMarketingRole(access), role: access.role };
 }
 
 const CALLBACK = /^nar:(a|e|v|t|p|m):([\da-f-]{36})(?::(\d{1,2}))?$/u;

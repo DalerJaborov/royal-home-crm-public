@@ -114,7 +114,7 @@ describe("pult inbox: нарушения", () => {
 
 describe("pult inbox: права и порядок", () => {
   it("очередь без права не заводится", () => {
-    const allowed = enabledInboxQueues((p) => p === "auditLog.view", "DIRECTOR");
+    const allowed = enabledInboxQueues((p) => p === "auditLog.view" || p === "marketing.access", "DIRECTOR");
     expect([...allowed].sort()).toEqual(["botAudit", "editor", "stuckConversations", "stuckWork", "videos", "violations"]);
     expect(enabledInboxQueues(() => true, "MANAGER").has("violations")).toBe(false);
     expect(enabledInboxQueues(() => false, "AGENT").size).toBe(0);

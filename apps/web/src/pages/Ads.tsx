@@ -68,7 +68,7 @@ import { MarketingTabs } from "../components/SectionTabs";
 export function Ads() {
   const can = useCan();
   const role = useAuthStore((s) => s.agent?.role);
-  if (role !== "MARKETING" && !can("finance.view")) return <div className="rh2 screens"><div className="scr">
+  if (role !== "MARKETING" && !can("finance.view") && !can("marketing.access")) return <div className="rh2 screens"><div className="scr">
     <div className="pg-h"><h1>Реклама</h1></div>
     <div className="card tight"><p>Недостаточно прав для просмотра расходов на рекламу.</p></div>
   </div></div>;

@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Property } from "../types";
 import { api } from "../lib/api";
-import { useAuthStore } from "../store/auth";
+import { useCan } from "../lib/permissions";
 
 /**
  * ОБЛОЖКА ОБЪЕКТА на карточке (25.09.2026, v2; 29.09.2026 — видно саму обложку
@@ -18,10 +18,8 @@ import { useAuthStore } from "../store/auth";
  * на сервере). Один компонент на оба вида карточки — PropertyDetail рендерит
  * его и на телефоне, и на компьютере. Идиома «Royal Home 2026»: `.quiet`, `.dot`, `.pill`.
  */
-const PUBLISH_ROLES = new Set(["MARKETING", "DIRECTOR", "ADMIN"]);
-
 export function PropertyCoverStatus({ property, readOnly }: { property: Property; readOnly: boolean }) {
-  const role = useAuthStore((s) => s.agent?.role);
+  const canPublishCover = useCan()("marketing.access");
   const qc = useQueryClient();
   const squareRef = useRef<HTMLInputElement>(null);
   const storyRef = useRef<HTMLInputElement>(null);
@@ -49,7 +47,7 @@ export function PropertyCoverStatus({ property, readOnly }: { property: Property
     onSettled: refresh,
   });
 
-  const canEdit = !readOnly && !!role && PUBLISH_ROLES.has(role);
+  const canEdit = !readOnly && canPublishCover;
   const error = property.socialCoverError;
   const hasCover = !!property.socialCoverSquareUrl;
   if (!error && !canEdit && !hasCover) return null;

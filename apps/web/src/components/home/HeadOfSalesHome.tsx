@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, CalendarDays, Check, ClipboardList, RefreshCw, Users } from "lucide-react";
-import type { SalesControlHome } from "@royal-home/shared";
+import { ArrowUpRight, CalendarDays, Check, ClipboardList, Compass, Megaphone, RefreshCw, Users } from "lucide-react";
+import type { ProblemReportMetrics, SalesControlHome } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { useAuthStore } from "../../store/auth";
 import { useCan } from "../../lib/permissions";
 import { useTeamLive } from "../../hooks/useTeamLive";
+import { useMarketingSummary } from "../../hooks/useMarketing";
 import { dushanbeDateTime } from "../../lib/date";
 import { CButton, CCard, CChip, CHead, CLink } from "../clean/ui";
 
@@ -19,6 +20,15 @@ export function HeadOfSalesHome() {
   const canSeeTeam = can("dashboard.analytics") && can("team.viewFull");
   const team = useTeamLive(canSeeTeam);
   const teamData = canSeeTeam ? team.data : undefined;
+  // «Где теряем клиентов» (владелец 14.11.2026: РОПу нужен разбор потерь на главной).
+  // Тот же запрос и ключ, что у «Разбора проблемных мест» в Отчётах — общий кэш.
+  const canSeeLosses = can("reports.view");
+  const losses = useQuery({ queryKey: ["problem-reports", "week"], enabled: canSeeLosses,
+    queryFn: () => api<{ id: string; metrics: ProblemReportMetrics }[]>("/reports/problems?period=week") });
+  const lossReport = losses.data?.[0]?.metrics;
+  const lossSection = lossReport?.sections.find(section => section.key === "clients");
+  const canSeeMarketing = can("marketing.access");
+  const marketing = useMarketingSummary(canSeeMarketing);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const reply = useMutation({ retry: false,
     mutationFn: (input: { taskId: string; action: "RECEIPT" | "ACTION"; requestKey: string; note?: string }) =>
@@ -65,6 +75,18 @@ export function HeadOfSalesHome() {
       </CCard>
       <div className="min-w-0 space-y-5">{canSeeTeam && <CCard className="p-4 sm:p-6"><CHead title="Нагрузка команды" right={<CLink to="/team" variant="soft" size="sm">Вся команда</CLink>} />
         {team.isPending ? <p role="status" className="mt-4 text-gray-500">Загружаем команду…</p> : team.isError ? <p role="alert" className="mt-4 text-gray-500">Данные команды пока недоступны.</p> : !teamData?.agents.length ? <p className="mt-4 text-gray-500">Сотрудников в этой очереди пока нет.</p> : <div className="mt-4 space-y-5">{teamData.agents.slice(0, 8).map(agent => <Link key={agent.id} to={`/team/${agent.id}`} className="block"><div className="flex min-w-0 items-center justify-between gap-3 text-[14px]"><span className="truncate font-medium">{agent.fullName}</span><span className="shrink-0 tabular-nums">{agent.activeLoad} клиентов</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-row-alt"><div className="h-full rounded-full bg-blue" style={{ width: `${agent.activeLoad / maximumLoad * 100}%` }} /></div><p className="mt-1 text-[13px] text-gray-500">Ждут принятия: {agent.pendingAccept}</p></Link>)}</div>}
+      </CCard>}
+      {canSeeLosses && <CCard className="p-4 sm:p-6"><CHead title="Где теряем клиентов" right={<CLink to="/reports" variant="soft" size="sm">Весь разбор</CLink>} />
+        {losses.isPending ? <p role="status" className="mt-4 text-gray-500">Загружаем разбор…</p> : losses.isError ? <p role="alert" className="mt-4 text-gray-500">Разбор пока недоступен.</p> : !lossReport ? <p className="mt-4 text-gray-500">Недельный разбор ещё не собран. Его можно собрать в Отчётах.</p> : <div className="mt-4 space-y-3">
+          <p className="text-[14px]">{lossSection?.headline ?? lossReport.headline}</p>
+          {lossSection?.metrics.slice(0, 5).map(metric => <Link key={metric.key} to={metric.href ?? "/reports"} className="flex min-w-0 items-center justify-between gap-3 text-[14px]"><span className="truncate">{metric.label}</span><span className="shrink-0 font-semibold tabular-nums">{metric.value}</span></Link>)}
+        </div>}
+      </CCard>}
+      {canSeeMarketing && <CCard className="p-4 sm:p-6"><CHead title="Маркетинг" right={<CLink to="/marketing" variant="soft" size="sm">Открыть</CLink>} />
+        {marketing.isPending ? <p role="status" className="mt-4 text-gray-500">Загружаем очередь…</p> : marketing.isError ? <p role="alert" className="mt-4 text-gray-500">Данные маркетинга пока недоступны.</p> : <div className="mt-4 grid grid-cols-2 gap-3 text-[14px]">
+          {[["В подготовке", marketing.data.total], ["Ждут проверки", marketing.data.awaitingReview], ["Ждут видео", marketing.data.awaitingVideo], ["Просрочено", marketing.data.overdue]].map(([label, value]) => <div key={String(label)} className="rounded-[16px] bg-row-alt p-3"><p className="text-[13px] text-gray-500">{label}</p><p className="mt-1 text-[22px] font-semibold tabular-nums">{value}</p></div>)}
+        </div>}
+        <div className="mt-4 flex flex-wrap gap-2">{can("reports.view") && <CLink to="/sources" variant="white"><Compass /> Источники лидов</CLink>}<CLink to="/ads" variant="white"><Megaphone /> Реклама</CLink></div>
       </CCard>}
       <CCard className="p-4 sm:p-6"><CHead title="Рабочие разделы" /><div className="mt-4 flex flex-wrap gap-2"><CLink to="/calendar" variant="white"><CalendarDays /> Календарь</CLink>{can("team.viewFull") && <CLink to="/team" variant="white"><Users /> Команда</CLink>}{can("reports.view") && <CLink to="/reports" variant="white"><ClipboardList /> Отчёты</CLink>}</div></CCard></div>
     </div>
