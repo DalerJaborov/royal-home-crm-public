@@ -313,7 +313,7 @@ function policySegment(value: CustomerAgentCompanyPolicyObservation, language: "
 }
 // Word-bounded so "участок" is not "час" and "суроға" is an address question (not hours).
 const word = (alternatives: string) => new RegExp(`${BW}(?:${alternatives})${EW}`, "iu");
-const HOURS_QUESTION = word(`час(?:ы|ов|ам|ах|а)?|соат${TAIL}|когда|скольки|кай|аз\\s+кай|то\\s+кай`);
+const HOURS_QUESTION = word(`час(?:ы|ов|ам|ах|а)?|график${TAIL}|режим${TAIL}|соат${TAIL}|когда|скольки|кай|аз\\s+кай|то\\s+кай`);
 const OFFICE_QUESTION = word(`где|адрес${TAIL}|офис${TAIL}|дафтар${TAIL}|идора${TAIL}|суроға${TAIL}|куҷо${TAIL}|кучо${TAIL}`);
 // "ҳаққи хизмат" is the commission topic, not a question about the services list.
 const SERVICES_QUESTION = word(`какие\\s+(?:у\\s+вас\\s+)?услуг${TAIL}|какими\\s+услугами|чем\\s+(?:вы\\s+)?занимаетесь|чем\\s+занимается\\s+(?:ваша\\s+)?(?:компания|агентство)|(?<!ҳаққи\\s)хизматҳо${TAIL}|кадом\\s+хизмат${TAIL}|шумо\\s+чӣ\\s+кор\\s+мекунед`);
@@ -332,8 +332,8 @@ export function customerCompanyInformationRequested(text: string): boolean {
   // "сожгу ваш офис" names the office but asks nothing about it.
   if (customerDmAbuseKind(own)) return false;
   const agencyLocation = /ваш(?:его|ем|им)?\s+офис|офис[ае]?\s+(?:ваш|агентств|royal\s*home)|адрес\s+агентства|где\s+вы\s+находитесь|как\s+к\s+вам\s+(?:добраться|пройти|проехать|доехать|попасть)|(?:дафтари|идораи)\s+шумо|суроғаи\s+(?:шумо|агент)/iu;
-  const agencyHours = /когда\s+(?:вы\s+)?работаете|до\s+скольки\s+(?:вы\s+)?работаете|во\s+сколько\s+(?:вы\s+)?открываетесь|ваши\s+часы\s+работы|у\s+вас\s+(?:часы|время)\s+работы|соат[иҳое]*\s+кор(?:иатон|и\s+шумо)/iu;
-  const standaloneHours = /^(?:(?:какие\s+)?часы\s+работы|соат[иҳое]*\s+кори?(?:\s+чанд)?)[?.!\s]*$/iu;
+  const agencyHours = /когда\s+(?:вы\s+)?работаете|до\s+скольки\s+(?:вы\s+)?работаете|во\s+сколько\s+(?:вы\s+)?открываетесь|ваш(?:и|е|его)?\s+(?:часы|график|режим)\s+работы|у\s+вас\s+(?:часы|время|график|режим)\s+работы|(?:график|режим)\s+работы\s+(?:у\s+вас|вашего\s+(?:офиса|агентства)|офиса|агентства)|соат[иҳое]*\s+кор(?:иатон|и\s+шумо)/iu;
+  const standaloneHours = /^(?:(?:какие\s+)?часы\s+работы|(?:какой\s+)?(?:график|режим)\s+работы|соат[иҳое]*\s+кори?(?:\s+чанд)?)[?.!\s]*$/iu;
   return agencyLocation.test(own) || agencyHours.test(own) || standaloneHours.test(own) || SERVICES_QUESTION.test(own);
 }
 function companyInformationLines(value: import("@royal-home/shared").CustomerAgentCompanyInformationObservation, language: "ru" | "tg", text: string): string[] {
@@ -452,7 +452,11 @@ function renderDecisionCore(input: {
   // no longer keeps it either (owner 10.11.2026): a vacancy answer is the role, two or three lines of its
   // published conditions and the phone — no office address or hours unless the candidate asks for them.
   const companyUnsolicited = !companyInformationAsked(input.inputText ?? "");
-  const recruitment = customerRecruitmentFactsRequested(input.inputText ?? "") || !input.inputText?.trim() && !!input.verifiedContext?.publicState.jobPositionKey
+  // «График», «офис», «выходные» — вопрос о вакансии только в разговоре о работе. Вне его
+  // это часы и адрес компании (живой случай 13.11.2026, Arvan: «какой у вас график работы?»).
+  const jobConversation = input.verifiedContext?.publicState.topic === "job" || !!input.verifiedContext?.publicState.jobPositionKey ||
+    customerRecruitmentRequested(input.inputText ?? "");
+  const recruitment = jobConversation && customerRecruitmentFactsRequested(input.inputText ?? "") || !input.inputText?.trim() && !!input.verifiedContext?.publicState.jobPositionKey
     ? input.evidence.filter(e => e.value.kind === "open_vacancies") : [];
   const refs = [...new Set([...mandatory.map(e => e.ref), ...selected, ...contact.map(e => e.ref), ...company.map(e => e.ref), ...recruitment.map(e => e.ref)])];
   const referenced = refs.map(ref => input.evidence.find(e => e.ref === ref));

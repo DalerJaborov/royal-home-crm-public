@@ -22,7 +22,7 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
 const { prisma } = await import("../src/db.js");
 const { runPaymentReminders, handlePaymentReminderCallback, addDays, amountLines } = await import("../src/lib/paymentReminders.js");
 const { dushanbeDateString } = await import("../src/lib/dushanbeTime.js");
-const { waitForSettled } = await import("./helpers/waitFor.js");
+const { waitForCount, waitForSettled } = await import("./helpers/waitFor.js");
 
 const runId = String(Date.now()).slice(-7);
 const today = dushanbeDateString();
@@ -122,17 +122,18 @@ describe("напоминания", () => {
 
   it("колокольчик CRM — всем: и с Telegram, и без него; выключившему — только он, как история", async () => {
     await prisma.agent.update({ where: { id: ag.viewer.id }, data: { pushMuted: ["payment"] } });
-    const t = await mkTemplate("Домен", addDays(today, 2));
+    const t = await mkTemplate(`Домен ${Date.now() % 100000}`, addDays(today, 2));
     await run();
     expect(sentTo("viewer")).toHaveLength(0);
     expect(await bell("viewer", t.title)).toBe(1);
     expect(textTo("boss")).toContain(t.title);
     expect(await bell("boss", t.title)).toBe(1);
-    expect(await bell("noTg", t.title)).toBe(1);
+    // Без Telegram колокольчик пишет push «в отрыве» (void createNotification) — ждать, а не читать сразу.
+    expect(await waitForCount(() => bell("noTg", t.title), 1)).toBe(1);
     // Повтор тика колокольчик второй раз не пишет.
     await run();
     expect(await bell("viewer", t.title)).toBe(1);
-    expect(await bell("noTg", t.title)).toBe(1);
+    expect(await waitForSettled(() => bell("noTg", t.title))).toBe(1);
     await prisma.agent.update({ where: { id: ag.viewer.id }, data: { pushMuted: [] } });
   });
 

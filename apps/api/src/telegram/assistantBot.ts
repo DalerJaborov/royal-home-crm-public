@@ -1,4 +1,4 @@
-import { assistantInstagramLink, renderAssistantForTelegram, requestedAssistantReplyMode, requestedAssistantReplyPreference, sanitizeAssistantReply, splitReaction,
+import { assistantInstagramLink, dropVoiceAvailabilityClaims, renderAssistantForTelegram, requestedAssistantReplyMode, requestedAssistantReplyPreference, sanitizeAssistantReply, splitReaction, splitVoiceMarker,
   type AssistantReplyMode, type AssistantSpeechLanguage } from "./assistantReply.js";
 import { assistantGroupClarification, sendAssistantReply } from "./assistantDelivery.js";
 import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
@@ -168,6 +168,8 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "add_client_note",
   // Сотрудники и права — только личка (владелец 10.11.2026): в группе ни читать, ни менять.
   ...STAFF_TOOL_NAMES,
+  // Личная настройка уведомлений (14.11.2026): только в личке; в группе — вторая стена к allowed().
+  "set_notification_pref",
   // Деньги в общей группе не показываются и не меняются (10.11.2026): все инструменты расходов.
   // Список буквами (не импортом): сверку с реестром держит тест assistant-expense-batch.
   "list_expenses", "get_expense_summary", "get_expense_forecast", "get_expense_pivot", "list_recurring_expenses",
@@ -277,6 +279,8 @@ interface TurnResult {
   propertyCard?: AssistantPropertyCard;
   failed?: true;
   structured?: boolean;
+  /** Модель поняла просьбу ответить голосом (метка `[голос]`, уже вырезанная из reply). */
+  voiceRequested?: boolean;
   propertySelection?: NonNullable<ReturnType<typeof propertySelection>>;
   /** Карточки, ждущие «Подтвердить» (уровень C). */
   pending: AssistantActionView[];
@@ -415,6 +419,14 @@ function formatMontageQueue(queue: Awaited<ReturnType<typeof getPropertyWorkList
   return lines.join("\n");
 }
 
+/**
+ * Вид ответа: метка модели `[голос]` — главное (она понимает просьбу любыми словами), разбор
+ * фраз — страховка. Язык голоса при метке — язык самого ответа (assistantDelivery берёт его первым).
+ */
+function replyPreference(result: TurnResult, fallback: ReturnType<typeof requestedAssistantReplyPreference> | undefined) {
+  return result.voiceRequested ? { mode: "voice" as const, voiceLanguage: fallback?.voiceLanguage } : fallback;
+}
+
 /** Общий ход: рубильник → права → потолок → быстрый путь → ядро. null — отказ уже отправлен. */
 async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   if (!(await isAiAssistantEnabled())) {
@@ -551,8 +563,12 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   if (!outcome.ok) {
     return { reply: assistantErrorMessage(outcome.code, params.history), pending, done, failed: true };
   }
+  // Модель не решает, работает ли голос: такие фразы вырезаются до отправки и до истории.
+  // Метку `[голос]` (модель поняла просьбу ответить голосом) снимаем здесь же — в историю и
+  // в текст она не попадает. Пересланное — чужие слова, не просьба этого человека.
+  const marked = splitVoiceMarker(outcome.reply);
   return {
-    reply: outcome.reply, pending, done, structured,
+    reply: dropVoiceAvailabilityClaims(marked.text), voiceRequested: marked.voice && !params.forwardedEvidence, pending, done, structured,
     propertySelection: !mixedRead && searches < 2 ? searchSelection ?? propertyLookup : undefined,
   };
 }
@@ -901,7 +917,7 @@ export async function handleAssistantPrivate(
     });
     if (!result) return;
     if (!await sendSelectedPropertyCards(cardScope, result, text)) {
-      const preference = forwardedEvidence ? undefined : requestedAssistantReplyPreference(text);
+      const preference = replyPreference(result, forwardedEvidence ? undefined : requestedAssistantReplyPreference(text));
       await sendTurnResult(chatId, result, {
         agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice,
         mode: preference?.mode ?? "auto", reactTo: msg.message_id, voiceLanguage: preference?.voiceLanguage,
@@ -1620,7 +1636,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       if (!result.failed && !forwardedEvidence) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
       if (cardScope?.group && await sendSelectedPropertyCards({ ...cardScope,
         group: { ...cardScope.group, addressed } }, result, words)) return true;
-      const preference = forwardedEvidence ? undefined : requestedAssistantReplyPreference(words);
+      const preference = replyPreference(result, forwardedEvidence ? undefined : requestedAssistantReplyPreference(words));
       await sendTurnResult(chatId, result, {
         agentId: sender.id,
         authorName: sender.fullName,

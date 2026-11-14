@@ -6,7 +6,6 @@ import { customerAgentEnrollmentSubjectSchema, customerAgentRolloutConfigSchema,
   type CustomerAgentEnrollmentSubject, type CustomerAgentRolloutAssignment } from "@royal-home/shared";
 import { Prisma } from "../generated/prisma/client.js";
 import type { TxClient } from "../db.js";
-import { logSystemError } from "./systemError.js";
 import { isActiveTransactionClient } from "./transactionScope.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { customerPropertyScopeKey } from "./customerPropertyScope.js";
@@ -155,30 +154,16 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
   const [policy] = await tx.$queryRaw<Policy[]>`SELECT "contractVersion","rolloutMode","activeAgentRevisionId","rolloutConfig"
     FROM "CustomerRuntimePolicy" WHERE "id"='singleton' FOR SHARE`;
   if (!policy || !["compat", "scoped"].includes(policy.contractVersion) || !["OFF", "SHADOW", "ACTIVE"].includes(policy.rolloutMode)) return held("policy_missing_or_invalid");
-  // Ядро (ai/customerAgentPrompt.ts) называет компанию «Royal Home» и подменять имя
-  // в нём нельзя: от текста промта зависят promptHash и payloadHash. Поэтому аккаунт
-  // со своим именем (MessengerAccount.brandName) ядро не получает, пока оно имя не
-  // умеет: новый субъект остаётся на прежнем пути, переход LEGACY -> CORE не делается.
-  const [brandRow] = e.accountId
-    ? await tx.$queryRaw<Array<{ brandName: string | null }>>`SELECT "brandName" FROM "MessengerAccount" WHERE "id"=${e.accountId}`
-    : [];
-  const brandBlocked = Boolean(brandRow?.brandName?.trim());
-  const brandBlockedLog = () =>
-    void logSystemError(
-      "ai",
-      `Аккаунт «${brandRow?.brandName}» зовётся своим именем, а клиентское ядро имя компании подменять не умеет: ` +
-        `переписка осталась на прежнем пути бота (зачисление в ядро отклонено). Включить ядро для этого аккаунта можно после того, как ядро научат имени.`,
-      { dedupKey: "customer-agent-brand-blocked", dedupScope: e.accountId ?? undefined }
-    );
+  // Один бот — разные бренды (владелец 13.11.2026): аккаунт со своим именем
+  // компании (MessengerAccount.brandName) идёт в ядро на общих правах; имя
+  // подставляет ядро само (lib/customerCompanyInformation.ts).
   const previous = await assignment(tx, s.surface, e.endpointScopeId, key);
   if (previous?.lane === "LEGACY") {
     // Owner 31.10: the NEXT genuinely new input (DM, or a new comment of a
     // public thread) of an idle legacy subject moves it to the core. History
     // rows and old sources keep generation 0.
     if (options.legacyCutover === true && customerAgentLegacyCutoverEnabled()) {
-      // Запрет проверяется ВНУТРИ, после «аккаунт в списке и попал в долю»: иначе при
-      // включённом переходе журнал шумел бы на каждое сообщение каждого аккаунта с именем.
-      const moved = await cutoverLegacySubjectTx(tx, s, key, previous, policy, brandBlocked ? brandBlockedLog : undefined);
+      const moved = await cutoverLegacySubjectTx(tx, s, key, previous, policy);
       if (moved) return moved;
     }
     return fromAssignment(previous);
@@ -189,10 +174,6 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
   if (!config.success && !unconfigured) return held("rollout_config_required");
   if (policy.rolloutMode === "SHADOW") return held("shadow_not_implemented");
   if (config.success && policy.activeAgentRevisionId !== config.data.candidateRevisionId) return held("candidate_policy_mismatch");
-  // Субъект уже в ядре (зачислен до того, как аккаунту задали имя). Назначение ядра
-  // дописывается только вперёд и в LEGACY не возвращается, поэтому тихо не оставляем:
-  // журнал. Сюда не попасть через настройки: saveAccount не даёт задать имя такому аккаунту.
-  if (previous && brandBlocked) brandBlockedLog();
   if (previous) return config.success && await customerAgentRevisionReachable(tx, previous, config.data.candidateRevisionId, config.data.cohortId) &&
     config.data.allowed.some(row => row.surface === s.surface && row.channel === e.channel && row.endpointScopeId === e.endpointScopeId)
     ? { lane: "CORE", assignment: previous, revisionId: config.data.candidateRevisionId } : held("pinned_campaign_unavailable");
@@ -239,8 +220,7 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
   const bucketBps = config.success ? Number.parseInt(sha([1, config.data.cohortId, key]).slice(0, 8), 16) % 10_000 : null;
   const eligibleByRollout = options.legacyOnly !== true && config.success && policy.contractVersion === "scoped" && policy.rolloutMode === "ACTIVE" && !baseline &&
     config.data.allowed.some(row => row.surface === s.surface && row.channel === e.channel && row.endpointScopeId === e.endpointScopeId);
-  if (eligibleByRollout && brandBlocked) brandBlockedLog();
-  const eligible = eligibleByRollout && !brandBlocked;
+  const eligible = eligibleByRollout;
   const lane = config.success && eligible && bucketBps !== null && bucketBps < config.data.percentBasisPoints ? "CORE" : "LEGACY";
   await tx.$executeRaw(Prisma.sql`INSERT INTO "CustomerAgentRolloutAssignment"
     ("id","cohortId","surface","endpointScopeId","subjectKey","bucketBps","lane","candidateRevisionId","createdAt","generation")
@@ -255,7 +235,7 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
  * holds the scope/policy share locks. Returns null when the subject must stay
  * LEGACY: current campaign does not cover it, manual mode, or unfinished legacy work. */
 async function cutoverLegacySubjectTx(tx: TxClient, s: CustomerAgentEnrollmentSubject, key: string,
-  previous: Assignment, policy: Policy, onBrandBlocked?: () => void): Promise<CustomerAgentExecution | null> {
+  previous: Assignment, policy: Policy): Promise<CustomerAgentExecution | null> {
   if (policy.contractVersion !== "scoped" || policy.rolloutMode !== "ACTIVE") return null;
   const config = customerAgentRolloutConfigSchema.safeParse(policy.rolloutConfig);
   if (!config.success || policy.activeAgentRevisionId !== config.data.candidateRevisionId) return null;
@@ -263,9 +243,6 @@ async function cutoverLegacySubjectTx(tx: TxClient, s: CustomerAgentEnrollmentSu
   if (!c.allowed.some(row => row.surface === s.surface && row.channel === e.channel && row.endpointScopeId === e.endpointScopeId)) return null;
   const bucketBps = Number.parseInt(sha([1, c.cohortId, key]).slice(0, 8), 16) % 10_000;
   if (bucketBps >= c.percentBasisPoints) return null;
-  // Аккаунт со своим именем компании в ядро не переводим (см. enrollCustomerAgentSubjectTx);
-  // пишем в журнал только здесь, когда перевод иначе состоялся бы.
-  if (onBrandBlocked) { onBrandBlocked(); return null; }
   const [different] = await tx.$queryRaw<Array<{ mismatch: boolean }>>`SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment"
     WHERE "cohortId"=${c.cohortId} AND "candidateRevisionId"<>${c.candidateRevisionId}) AS mismatch`;
   if (different?.mismatch) return null;
