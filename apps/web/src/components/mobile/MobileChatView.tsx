@@ -59,7 +59,6 @@ import { relativeTime } from "../../lib/format";
 import { dushanbeDate, dushanbeDayLabel, dushanbeTime } from "../../lib/date";
 import { stripBotHints, humanizeAttachmentTags } from "../../lib/botMessages";
 import { TranslatableMessageText } from "../MessageTranslateToggle";
-import { BotReplyFeedback } from "../BotReplyFeedback";
 import { PAUSE_OPTIONS, pausedUntilIso } from "../../lib/botPauseOptions";
 import { conversationBotState } from "../../lib/conversationBotState";
 import { useCan, useIsReadOnly } from "../../lib/permissions";
@@ -212,9 +211,6 @@ const MobileMessageList = memo(function MobileMessageList({
         // Ответ живого человека (агент из CRM или вручную из мессенджера) — тот же
         // пузырь `.me`, но без пунктира: пунктир в эталоне означает бота.
         const humanReply = m.role === "assistant" && (m.by?.kind === "agent" || m.by?.kind === "manual");
-        // Настоящий ответ бота — для кнопок оценки (BotReplyFeedback), тот же
-        // признак, что и в десктопном инбоксе (Messages.tsx).
-        const isBotAnswer = m.role === "assistant" && (!m.by || m.by.kind === "bot");
         // Абсолютный индекс в ПОЛНОЙ истории — для ключа (ниже), для ref
         // (скролл поиска) и чтобы понять, активное ли это совпадение.
         const absoluteIndex = hiddenCount + i;
@@ -272,16 +268,6 @@ const MobileMessageList = memo(function MobileMessageList({
                 attachments={m.attachments}
                 onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)}
               />
-              {/* Оценка ответа бота прямо в чате (17.09.2026) — тот же компонент,
-                  что и в десктопном инбоксе (Messages.tsx), не копия. */}
-              {isBotAnswer && !readOnly && m.sourceChannel !== "TELEGRAM_DIRECT" && (
-                <BotReplyFeedback
-                  conversationId={m.sourceConversationId ?? conversationId}
-                  message={m}
-                  messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? absoluteIndex}`}
-                  index={m.sourceMessageIndex ?? absoluteIndex}
-                />
-              )}
               <span className="tm" data-message-time-unknown={!m.at || undefined}>
                   {/* Бот помечен иконкой у времени, а не пунктирной рамкой на
                       весь пузырь (10.09.2026): рамка читалась как «черновик».

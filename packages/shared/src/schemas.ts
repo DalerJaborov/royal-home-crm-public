@@ -923,21 +923,6 @@ export const botPauseSchema = z.object({
 });
 
 /**
- * Оценка ответа бота прямо в чате (17.09.2026): руководитель нажимает «Верно»/
- * «Неверно» под пузырём ответа — и правило уходит в промт сразу, без отдельного
- * экрана «Обучение бота».
- *
- * `messageKey` — `mid` реплики, если он есть, иначе `"idx:<index>"` (индекс
- * реплики в массиве `messages`) — так помечают старые записи без `mid` (см.
- * ConversationMessage в conversationMessage.ts).
- */
-export const replyFeedbackSchema = z.object({
-  messageKey: z.string().trim().min(1),
-  verdict: z.enum(["good", "bad"]),
-  note: z.string().trim().max(300).optional(),
-});
-
-/**
  * «Ждёт показ» без даты и времени сохраняется в базу, но ничего не запускает —
  * ни календаря, ни напоминания (спецификация, «Путь покупателя»: доп. п. 36
  * в docs/spec-compliance). Дата+время обязательны именно для этого исхода —

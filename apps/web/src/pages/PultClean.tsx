@@ -579,14 +579,13 @@ export function PultClean() {
 
       <CleanControlTiles control={system?.control} allowed={hasRoute("/oversight")} />
       <CleanPultExtras key={agent?.id}
-        canTrainer={can("settings.manage")}
         canVacancies={can("vacancies.view") && hasRoute("/vacancies")}
         canSettings={can("settings.manage") && hasRoute("/settings")}
         newApplications={system?.newApplications}
       />
       <CleanSystemBotDetails
         system={system} bot={bot} canHealth={hasRoute("/health")}
-        canMessages={hasRoute("/messages")} canBotLearning={hasRoute("/ai-learning")}
+        canMessages={hasRoute("/messages")}
         canSeeMoney={!!data?.seesMoney && can("finance.view")}
       />
 

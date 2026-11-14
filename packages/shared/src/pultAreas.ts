@@ -80,7 +80,6 @@ export interface PultSnapshot {
   }>;
   bot?: Section<{
     ai: { requestsToday: number; errorRatePercent: number };
-    unresolvedFindings: number | null;
   }>;
   marketing?: Section<{
     instagramCommentsWaiting: number;
@@ -212,7 +211,6 @@ export function buildPultView(s: PultSnapshot, hourDushanbe: number): PultView {
   }
 
   if (!off.has("bot") && ok(s.bot)) {
-    const findings = s.bot.unresolvedFindings ?? 0;
     const err = s.bot.ai.errorRatePercent;
     areas.push({
       id: "bot",
@@ -222,10 +220,8 @@ export function buildPultView(s: PultSnapshot, hourDushanbe: number): PultView {
       line:
         err > 5
           ? `Ошибок ИИ ${err} % — выше нормы`
-          : findings > 0
-            ? `${findings} ${plural(findings, "замечание", "замечания", "замечаний")} по диалогам`
-            : "Бот отвечает без сбоев",
-      tone: err > 5 ? "crit" : findings > 0 ? "warn" : "ok",
+          : "Бот отвечает без сбоев",
+      tone: err > 5 ? "crit" : "ok",
     });
   }
 

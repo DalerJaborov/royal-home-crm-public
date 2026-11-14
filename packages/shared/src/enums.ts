@@ -558,24 +558,3 @@ export function instagramCommentNoteLabel(note: string | null | undefined): stri
     return INSTAGRAM_COMMENT_NOTE_LABELS[key] ?? key;
   }).join("; ");
 }
-/**
- * Шаг разговора, на котором человек ушёл и не вернулся (недельный разбор
- * оборванных переписок, apps/api/src/lib/lostConversations.ts).
- *
- * Порядок — это порядок самого разговора, от «поздоровались» до «попросили номер».
- * Он важен: экран строит по нему воронку, и переставлять элементы местами нельзя.
- */
-export const LOST_STAGES = [
-  "greeting",
-  "needs",
-  "budget",
-  "district",
-  "properties",
-  "phone",
-  "other",
-] as const;
-export type LostStage = (typeof LOST_STAGES)[number];
-
-/** Объективный признак, по которому переписка признана оборвавшейся. */
-export const LOST_REASONS = ["opted_out", "follow_ups_exhausted", "silent"] as const;
-export type LostReason = (typeof LOST_REASONS)[number];

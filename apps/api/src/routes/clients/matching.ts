@@ -279,8 +279,7 @@ matchingRouter.post("/:id/send-properties", requireAuth, async (req, res) => {
   }
 
   // Агент сам выбрал объекты и нажал «Отправить» — это его действие, не автоответ:
-  // бот здесь не ошибался (learnFromOverride не ставится), но подпись в переписке
-  // всё равно должна называть человека, а не молчаливое «система».
+  // подпись в переписке должна называть человека, а не молчаливое «система».
   const sender = await agentSender(req.agent!.id);
   const delivery = await deliverToConversation(target, text, undefined, { sender });
   if (!delivery.ok) {

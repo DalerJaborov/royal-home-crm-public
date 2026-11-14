@@ -125,7 +125,6 @@ describe("справочник консультанта — без рода о �
   const knowledge = buildLiveVoiceKnowledge({
     folkGeography: "",
     sellerRules: "",
-    learnedRules: "",
     usdToTjs: 10.5,
     wallClock: new Date("2026-10-02T10:00:00Z"),
   });

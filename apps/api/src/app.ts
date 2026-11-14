@@ -63,7 +63,6 @@ import { errorLogRouter } from "./routes/errorLog.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { stuckWorkRouter } from "./routes/stuckWork.js";
 import { backupsRouter } from "./routes/backups.js";
-import { botAuditRouter } from "./routes/botAudit.js";
 import { importRouter } from "./routes/import.js";
 import { siteNotificationsRouter } from "./routes/siteNotifications.js";
 import { contactsRouter } from "./routes/contacts.js";
@@ -71,10 +70,7 @@ import { conversationsRouter } from "./routes/conversations.js";
 import { auditLogRouter } from "./routes/auditLog.js";
 import { royalScoreEventsRouter } from "./routes/royalScoreEvents.js";
 import { morningReportRouter } from "./routes/morningReport.js";
-import { botLearningRouter } from "./routes/botLearning.js";
-import { botTrainerRouter } from "./routes/botTrainer.js";
 import { botScenariosRouter } from "./routes/botScenarios.js";
-import { botTrainingRouter } from "./routes/botTraining.js";
 import { attachmentsRouter } from "./routes/attachments.js";
 import { mediaProxyRouter } from "./routes/mediaProxy.js";
 import { instagramCommentsRouter } from "./routes/instagramComments.js";
@@ -772,15 +768,8 @@ app.use("/api/v1/errors", errorLogRouter);
 app.use("/api/v1/integrations", integrationsRouter);
 app.use("/api/v1/stuck-work", stuckWorkRouter);
 app.use("/api/v1/backups", backupsRouter);
-app.use("/api/v1/bot-audit", botAuditRouter);
-// Чему бот научился и о чём спрашивает владельца — окно «Бот» в Настройках.
-app.use("/api/v1/bot-learning", botLearningRouter);
-app.use("/api/v1/bot-trainer", botTrainerRouter);
 // Какая манера продажи приносит больше заявок — там же, в окне «Бот».
 app.use("/api/v1/bot-scenarios", botScenariosRouter);
-// Экран «Тренировка»: владелец учит бота на реальных вопросах клиентов, выбирая
-// или вписывая ответ (пункт 6 очереди ИИ 23.08.2026, за рубильником в Настройках).
-app.use("/api/v1/bot-training", botTrainingRouter);
 // Фото и голосовые из переписки. НЕ статика: закрытое хранилище вне uploads и
 // проверка права messages.viewAttachments на каждый файл.
 app.use("/api/v1/attachments", attachmentsRouter);

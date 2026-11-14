@@ -845,10 +845,6 @@ const settingsUpdateSchema = z.object({
    *  которому они нужны. Выключено — промт собирается как раньше, побайтово. */
   botPromptIntentEconomy: z.boolean().optional(),
   contactLinkSweepEnabled: z.boolean().optional(),
-  /** Экран «Тренировка» (23.08.2026): доступен владельцу, только пока включено.
-   *  Не влияет на то, участвуют ли уже накопленные StyleExample в промте бота —
-   *  это решает поле `enabled` у самого примера. */
-  botTrainingScreenEnabled: z.boolean().optional(),
   /** Глобальный рубильник входа по отпечатку/лицу — false отключает вход и
    *  привязку новых устройств на сервере для всех сотрудников сразу. */
   passkeyLoginEnabled: z.boolean().optional(),

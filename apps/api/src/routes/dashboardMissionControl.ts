@@ -498,7 +498,7 @@ async function buildZones(ctx: McContext) {
 
     // Бот/ИИ — «свободная победа №2» (AiLog) + «победа №3» (GuardHit).
     gated("bot", async () => {
-      const [aiAgg, aiErrorCount, aiTotalCount, guardRows, unresolvedFindings] = await Promise.all([
+      const [aiAgg, aiErrorCount, aiTotalCount, guardRows] = await Promise.all([
         prisma.aiLog.aggregate({
           where: { createdAt: { gte: startOfDay } },
           _sum: { costUsd: true },
@@ -507,7 +507,6 @@ async function buildZones(ctx: McContext) {
         prisma.aiLog.count({ where: { createdAt: { gte: startOfDay }, ok: false } }),
         prisma.aiLog.count({ where: { createdAt: { gte: startOfDay } } }),
         loadGuardStats(1),
-        prisma.botAuditFinding.count({ where: { resolvedAt: null } }).catch(() => null),
       ]);
       const guardToday = guardRows.filter((r) => r.day === today);
       return {
@@ -529,9 +528,6 @@ async function buildZones(ctx: McContext) {
          * владелец обязан увидеть это числом, а не по жалобам клиентов.
          */
         outboundShieldToday: guardToday.find((r) => r.guard === "outbound_shield")?.count ?? 0,
-        // Модель BotAuditFinding могла не иметь поля resolvedAt на момент выката —
-        // secция мягко деградирует до null, а не роняет весь бот-блок.
-        unresolvedFindings,
         // «Бот замолчал», «Клиент ждёт агента» и строка «Бот прямо сейчас» —
         // блоки, стоявшие пустыми с переноса артефакта (владелец 12.09.2026).
         attention: await loadBotAttention(now),

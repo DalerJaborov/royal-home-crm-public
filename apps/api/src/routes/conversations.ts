@@ -8,7 +8,6 @@ import { z } from "zod";
 import {
   conversationQuerySchema,
   botPauseSchema,
-  replyFeedbackSchema,
   conversationClientLinkSchema,
   maskPhonesForReader,
   clientDisplayName,
@@ -31,7 +30,6 @@ import { publishConversationUpdated } from "../lib/livePublish.js";
 import { anyParams } from "../lib/routeParams.js";
 import { logAudit } from "../lib/audit.js";
 import { TG_PREFIX } from "../lib/conversationId.js";
-import { applyReplyFeedback, ReplyFeedbackError } from "../lib/replyFeedback.js";
 import { ConversationClientLinkError, linkConversationClient } from "../lib/conversationClientLink.js";
 
 /**
@@ -1498,9 +1496,7 @@ conversationsRouter.post("/:id/reply", requireAuth, async (req, res) => {
     target,
     parsed.data.text,
     parsed.data.pausedUntil ? new Date(parsed.data.pausedUntil) : undefined,
-    // Сотрудник вмешался в разговор бота — самый честный признак, что бот не
-    // справился, а его собственный ответ и есть правильный (см. lib/botLessons.ts).
-    { learnFromOverride: true, sender: await agentSender(req.agent!.id) }
+    { sender: await agentSender(req.agent!.id) }
   );
   if (!delivery.ok) {
     return res.status(delivery.status).json({ error: delivery.error, code: delivery.code });
@@ -1722,49 +1718,3 @@ conversationsRouter.post("/:id/resume", requireAuth, requirePermission("messages
   res.json({ ok: true });
 });
 
-/**
- * ОЦЕНКА ОТВЕТА БОТА ПРЯМО В ЧАТЕ (17.09.2026).
- *
- * Владелец 17.09 разметил ответы бота на отдельных страницах — те правки сразу
- * пошли в промт. Тут то же самое, но без отдельного экрана «Обучение бота»:
- * нажал «Верно»/«Неверно» под пузырём ответа — и урок уходит в промт немедленно
- * (при «Неверно» с заметкой) или в очередь ночного разбора (без заметки).
- *
- * `bad` пишет прямо в `BotLesson` (не через `recordLesson()` — её дедуп по тексту
- * бота за 7 дней здесь мешает: два разных клиента могли получить одинаковый
- * неудачный ответ, а оценивает его человек за человеком, и каждая оценка должна
- * попасть в свою запись). `good` идёт через `rememberAgentReply()` с новым
- * источником `APPROVED` — источник у `StyleExample.source` в базе обычный String,
- * не enum, добавление значения миграции не требует (см. styleLearning.ts).
- *
- * Право — то же, что у `PATCH /bot-learning/:id` (`settings.manage`), но БЕЗ
- * `requireElevation`: там владелец меняет системный текст руками, здесь оценивает
- * уже случившийся ответ — не смена настроек, а разметка одного случая, ближе к
- * «взять диалог на себя» (`/reply`, тоже без повторного подтверждения личности).
- */
-conversationsRouter.post("/:id/reply-feedback", requireAuth, requirePermission("settings.manage"), async (req, res) => {
-  const parsed = replyFeedbackSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-  }
-  const { messageKey, verdict, note } = parsed.data;
-  const rawId = req.params.id;
-
-  try {
-    // Логика вынесена в lib/replyFeedback.ts (17.09.2026, «Тренажёр бота»):
-    // тренажёр оценивает те же ответы бота тем же способом, и без общего места
-    // обе точки входа разошлись бы молча.
-    const { feedback } = await applyReplyFeedback({ rawId, messageKey, verdict, note, userId: req.agent!.id });
-    logAudit(
-      req,
-      verdict === "bad" ? "BOT_REPLY_FEEDBACK_BAD" : "BOT_REPLY_FEEDBACK_GOOD",
-      rawId.startsWith(TG_PREFIX) ? "TelegramConversation" : "BotConversation",
-      rawId.startsWith(TG_PREFIX) ? rawId.slice(TG_PREFIX.length) : rawId,
-      { messageKey, hasNote: !!note }
-    );
-    res.json({ ok: true, feedback });
-  } catch (err) {
-    if (err instanceof ReplyFeedbackError) return res.status(err.status).json({ error: err.message });
-    throw err;
-  }
-});

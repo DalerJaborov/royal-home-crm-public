@@ -198,9 +198,6 @@ const Integrations = lazyWithReload(() =>
 );
 const Backups = lazyWithReload(() => import("./pages/Backups").then((m) => ({ default: m.Backups })));
 const StuckWork = lazyWithReload(() => import("./pages/StuckWork").then((m) => ({ default: m.StuckWork })));
-// «Обучение бота» — отдельно от «Здоровья системы» (19.08.2026, просьба владельца:
-// ошибки/сбои и то, чему бот учится сам, — разные вопросы, разные экраны).
-const AiLearning = lazyWithReload(() => import("./pages/AiLearning").then((m) => ({ default: m.AiLearning })));
 // «Инсайты от ИИ» — разбор звонков с подсветкой ошибок и рекомендациями.
 const Insights = lazyWithReload(() => import("./pages/Insights").then((m) => ({ default: m.Insights })));
 // «Ещё» — пятая вкладка нижней навигации телефона (прототип design_handoff,
@@ -503,13 +500,8 @@ export default function App() {
         <Route path="integrations/:name" element={<ChannelDetail />} />
         <Route path="backups" element={<Backups />} />
         <Route path="stuck-work" element={<StuckWork />} />
-        {/* Право settings.view — та же заглушка, что и у самой страницы. */}
-        <Route path="ai-learning" element={<AiLearning />} />
         {/* «Инсайты от ИИ» — разбор звонков с подсветкой ошибок и рекомендациями. */}
         <Route path="insights" element={<Insights />} />
-        {/* Слияние экранов 15.09.2026: «Тренировка» стала вкладкой «Манера» на
-            /ai-learning — редирект оставлен ради старых ссылок и закладок. */}
-        <Route path="bot-training" element={<Navigate to="/ai-learning?tab=manner" replace />} />
         {/* «Ещё» — меню разделов для телефона (вкладка нижней навигации);
             собирается из реестра lib/navigation.ts, прав своих не имеет. */}
         <Route path="more" element={<More />} />

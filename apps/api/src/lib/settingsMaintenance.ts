@@ -25,7 +25,7 @@ export function isSettingsMaintenancePath(originalUrl: string): boolean {
   const path = originalUrl.split("?")[0];
   // The People tab lives in CRM Settings but uses the separate agents router.
   // Keep the same actor, permission and fixed-expiry checks for its actions.
-  return ["/api/v1/settings", "/api/v1/agents", "/api/v1/vacancies/positions", "/api/v1/bot-training", "/api/v1/bot-learning", "/api/v1/dashboard/modules",
+  return ["/api/v1/settings", "/api/v1/agents", "/api/v1/vacancies/positions", "/api/v1/dashboard/modules",
     "/api/v1/ui-shell/config", "/api/v1/sms/settings", "/api/v1/sms/test"].some(
     prefix => path === prefix || path.startsWith(prefix + "/"));
 }

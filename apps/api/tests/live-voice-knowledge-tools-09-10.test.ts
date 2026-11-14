@@ -70,7 +70,6 @@ describe("часы и офис — из Настроек, без выдумки"
     const knowledge = buildLiveVoiceKnowledge({
       folkGeography: "",
       sellerRules: "",
-      learnedRules: "",
       usdToTjs: 10.9,
       wallClock: new Date("2026-10-09T12:00:00Z"),
       workHours: { start: "09:30", end: "18:00" },

@@ -1,31 +1,19 @@
 import { isPrivateSettingsField } from "./investigationSettingsAudit.js";
 import { canViewInvestigations } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
-import { prisma } from "../db.js";
 
-/** Deleted lesson audit rows retain their kind, so historical bumps can still be scoped. */
-export async function privateLessonAuditIds(role?: string | null): Promise<string[]> {
-  if (canViewInvestigations(role)) return [];
-  const [lessons, deleted] = await Promise.all([
-    prisma.botLesson.findMany({ where: { investigationOnly: true }, select: { id: true } }),
-    prisma.auditLog.findMany({ where: { entityType: "BotLesson", action: "BOT_LESSON_DELETE", OR: [
-      { meta: { path: ["kind"], equals: "audit_finding" } },
-      { meta: { path: ["kind"], equals: "audit" } },
-    ] }, select: { entityId: true } }),
-  ]);
-  return [...new Set([...lessons.map((row) => row.id), ...deleted.flatMap((row) => row.entityId ? [row.entityId] : [])])];
-}
-
-/** Persisted producer identity, never search narrative text for suspicious words. */
-export function visibleAuditWhere(role?: string | null, privateLessonIds: string[] = []): Prisma.AuditLogWhereInput {
+/**
+ * Persisted producer identity, never search narrative text for suspicious words.
+ *
+ * "BotLesson" history (13.11.2026): the bot-learning tables were dropped, so a
+ * lesson's investigationOnly flag can no longer be looked up. Its historical
+ * audit rows are hidden from every role without investigation access instead
+ * of guessing which ones were private.
+ */
+export function visibleAuditWhere(role?: string | null): Prisma.AuditLogWhereInput {
   if (canViewInvestigations(role)) return {};
   return { AND: [
-    ...(privateLessonIds.length ? [{ OR: [
-      { entityType: { not: "BotLesson" } },
-      { entityId: null },
-      { entityId: { notIn: privateLessonIds } },
-    ] }] : []),
-    { entityType: { notIn: ["PostShowingCall", "SellerProbeCall", "ShowingSurveyCall", "InvestigationControl"] } },
+    { entityType: { notIn: ["PostShowingCall", "SellerProbeCall", "ShowingSurveyCall", "InvestigationControl", "BotLesson"] } },
     { action: { notIn: ["CLIENT_SECURITY_REVIEW", "CLIENT_REFUSAL_SUSPECTED"] } },
     { OR: [
       { action: { notIn: ["BOT_AUDIT_RESOLVE", "BOT_AUDIT_RESOLVE_GROUP"] } },

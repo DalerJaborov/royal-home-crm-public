@@ -131,7 +131,6 @@ import { firstTouchAdPatch, persistFirstTouchAdAttribution } from "../lib/adAttr
 import { analyzeMessageForPropertyCounts } from "../ai/chatPropertyCount.js";
 import { scrubMentionedClientPhonesInText } from "../lib/clientPhoneMasking.js";
 import { isClosingMessage, isOptOutMessage } from "../lib/botFollowUps.js";
-import { isConfusedMessage, recordLesson } from "../lib/botLessons.js";
 import { resolveWhatsAppLeadIdentity } from "../lib/whatsappPhone.js";
 import { dedupePhones, pickFreeExtraPhones } from "../lib/clientPhones.js";
 import { maskClientPhone, maskPhonesInFreeText } from "../lib/clientPhone.js";
@@ -2774,22 +2773,6 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     await prisma.botConversation
       .update({ where: { id: conversation.id }, data: { offTopicReplies: 0 } })
       .catch(() => {});
-  }
-
-  // Клиент переспросил — значит бот выразился непонятно. Записываем случай на разбор.
-  // Только когда бот вёл диалог сам: на паузе последнюю реплику писал оператор
-  // (она хранится как assistant), и его ответ в вину боту ставить нельзя.
-  if (!isPaused && text && isConfusedMessage(text)) {
-    const lastBot = [...history].reverse().find((m) => m.role === "assistant");
-    if (lastBot?.content) {
-      void recordLesson({
-        kind: "client_confused",
-        channel,
-        conversationId: conversation.id,
-        botMessage: lastBot.content,
-        humanMessage: text,
-      });
-    }
   }
 
   // Оператор вручную взял диалог на себя (кнопка в CRM) — ИИ молчит, чтобы не

@@ -9,7 +9,7 @@ const { collectCandidates, rankAndPick, snapshotTimeline } = await import(
  * Тесты серверной логики отбора кейсов для «Инсайтов от ИИ» (аудит 02.09 §4.2).
  *
  * Проверяем:
- *   1. collectCandidates возвращает кандидатов из всех четырёх источников
+ *   1. collectCandidates возвращает кандидатов из трёх источников
  *   2. rankAndPick соблюдает квоты (≤3 на агента, ≥3 голосовых, ≥1 положительный)
  *   3. snapshotTimeline маскирует телефоны в тексте и метаданных
  */
@@ -21,9 +21,9 @@ const clientIds: string[] = [];
 const interactionIds: string[] = [];
 const callAnalysisIds: string[] = [];
 const scoreEventIds: string[] = [];
-const botFindingIds: string[] = [];
 let botConvId: string;
 const extraBotConvIds: string[] = [];
+let bypassClientId = "";
 const extraTgConvIds: string[] = [];
 
 async function makeClient(agentId: string, suffix: number) {
@@ -111,8 +111,9 @@ beforeAll(async () => {
     callAnalysisIds.push(ca.id);
   }
 
-  // --- Источник D: Положительные кейсы (2 штуки) ---
-  for (let i = 0; i < 2; i++) {
+  // --- Источник D: Положительные кейсы (3 штуки: третий заменил кейс обхода CRM,
+  // источник которого удалён 13.11.2026, — иначе выпуск не набирает шести) ---
+  for (let i = 0; i < 3; i++) {
     const client = await makeClient(agent2Id, 10 + i);
     const interaction = await makeCallInteraction(
       client.id,
@@ -166,8 +167,10 @@ beforeAll(async () => {
     scoreEventIds.push(ev.id);
   }
 
-  // --- Источник C: BotAuditFinding agent_bypassed_crm severity=high ---
+  // Диалог с номером в реплике агента — для проверки маскировки в кейсе agent_bypass
+  // (источник таких кейсов удалён 13.11.2026, собранные выпуски их ещё несут).
   const clientForBypass = await makeClient(agent2Id, 30);
+  bypassClientId = clientForBypass.id;
   const botConv = await prisma.botConversation.create({
     data: {
       channel: "INSTAGRAM",
@@ -189,23 +192,9 @@ beforeAll(async () => {
   });
   botConvId = botConv.id;
 
-  const finding = await prisma.botAuditFinding.create({
-    data: {
-      conversationId: botConv.id,
-      channel: "INSTAGRAM",
-      type: "agent_bypassed_crm",
-      quote: "Напишите мне в личку +992900111222",
-      why: "Агент уводит клиента из CRM в личный мессенджер",
-      severity: "high",
-    },
-  });
-  botFindingIds.push(finding.id);
 });
 
 afterAll(async () => {
-  await prisma.botAuditFinding.deleteMany({
-    where: { id: { in: botFindingIds } },
-  });
   await prisma.botConversation.deleteMany({ where: { id: { in: [botConvId, ...extraBotConvIds] } } });
   await prisma.telegramConversation.deleteMany({ where: { id: { in: extraTgConvIds } } });
   await prisma.royalScoreEvent.deleteMany({
@@ -224,7 +213,7 @@ afterAll(async () => {
 });
 
 describe("collectCandidates", () => {
-  it("возвращает кандидатов из всех четырёх источников", async () => {
+  it("возвращает кандидатов из трёх источников", async () => {
     const periodStart = new Date(Date.now() - 86400_000);
     const periodEnd = new Date(Date.now() + 86400_000);
 
@@ -234,8 +223,8 @@ describe("collectCandidates", () => {
     expect(kinds.has("call_low_score")).toBe(true);
     expect(kinds.has("score_penalty")).toBe(true);
     expect(kinds.has("positive")).toBe(true);
-    // Кейс обхода CRM: клиент берётся из BotConversation.clientId (HELPER-FINAL01).
-    expect(kinds.has("agent_bypass")).toBe(true);
+    // Источник «обход CRM» (находки ночного судьи) удалён 13.11.2026.
+    expect(kinds.has("agent_bypass")).toBe(false);
 
     // Минимум: 5 низких + 2 позитивных + 3 штрафа = 10 (bypass — бонус)
     const byKind = new Map<string, number>();
@@ -358,16 +347,15 @@ describe("snapshotTimeline", () => {
   });
 
   it("маскирует телефоны в мета-данных agent_bypass", async () => {
-    const periodStart = new Date(Date.now() - 86400_000);
-    const periodEnd = new Date(Date.now() + 86400_000);
-
-    const candidates = await collectCandidates(periodStart, periodEnd);
-    const bypassCandidate = candidates.find(
-      (c) => c.kind === "agent_bypass",
-    );
-    expect(bypassCandidate).toBeDefined();
-
-    const snapshot = await snapshotTimeline(bypassCandidate!);
+    const snapshot = await snapshotTimeline({
+      kind: "agent_bypass",
+      sourceKey: `audit:${runId}`,
+      agentId: agent2Id,
+      clientId: bypassClientId,
+      severity: 5,
+      rankScore: 1000,
+      raw: { findingId: `f-${runId}`, quote: "Напишите мне в личку +992900111222", why: "уводит", channel: "INSTAGRAM", conversationId: botConvId },
+    });
 
     // В meta.quote был номер +992900111222
     const metaQuote = (snapshot.meta as Record<string, unknown>).quote as string;
@@ -486,54 +474,3 @@ describe("collectCandidates: sourceId штрафа за потерю клиен�
   });
 });
 
-describe("collectAgentBypasses: реальная форма сообщений (HELPER-FINAL01)", () => {
-  const range = () => [new Date(Date.now() - 86400_000), new Date(Date.now() + 86400_000)] as const;
-
-  it("бот ответил раньше агента: автором нарушения берётся агент, а не бот", async () => {
-    const client = await makeClient(agent1Id, 41);
-    const conv = await prisma.botConversation.create({
-      data: {
-        channel: "INSTAGRAM",
-        subscriberId: `ig-botfirst-${runId}`,
-        clientId: client.id,
-        messages: [
-          { role: "user", content: "Здравствуйте" },
-          { role: "assistant", by: { kind: "bot" }, content: "Добрый день! Чем помочь?" },
-          { role: "assistant", by: { kind: "agent", agentId: agent1Id, agentName: "Агент А" }, content: "Пишите в Telegram" },
-        ] as unknown[],
-      },
-    });
-    extraBotConvIds.push(conv.id);
-    const finding = await prisma.botAuditFinding.create({
-      data: { conversationId: conv.id, channel: "INSTAGRAM", type: "agent_bypassed_crm", quote: "Пишите в Telegram", why: "уводит", severity: "high" },
-    });
-    botFindingIds.push(finding.id);
-
-    const found = (await collectCandidates(...range())).find((c) => c.sourceKey === `audit:${finding.id}`);
-    expect(found?.agentId).toBe(agent1Id);
-    expect(found?.clientId).toBe(client.id);
-  });
-
-  it("находка по диалогу Telegram: клиент и агент берутся из TelegramConversation по её id", async () => {
-    const client = await makeClient(agent1Id, 42);
-    const tg = await prisma.telegramConversation.create({
-      data: {
-        chatId: `tg-bypass-${runId}`,
-        clientId: client.id,
-        messages: [
-          { role: "user", content: "Здравствуйте" },
-          { role: "assistant", by: { kind: "agent", agentId: agent1Id, agentName: "Агент А" }, content: "Давайте в WhatsApp" },
-        ] as unknown[],
-      },
-    });
-    extraTgConvIds.push(tg.id);
-    const finding = await prisma.botAuditFinding.create({
-      data: { conversationId: tg.id, channel: "TELEGRAM", type: "agent_bypassed_crm", quote: "Давайте в WhatsApp", why: "уводит", severity: "high" },
-    });
-    botFindingIds.push(finding.id);
-
-    const found = (await collectCandidates(...range())).find((c) => c.sourceKey === `audit:${finding.id}`);
-    expect(found?.agentId).toBe(agent1Id);
-    expect(found?.clientId).toBe(client.id);
-  });
-});

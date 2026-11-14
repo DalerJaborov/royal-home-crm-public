@@ -6,7 +6,7 @@ const db = vi.hoisted(() => ({
   street: { findMany: vi.fn(async () => []) }, landmark: { findMany: vi.fn(async () => []) },
   district: { findMany: vi.fn(async () => []), findFirst: vi.fn(async () => ({ id: "synthetic-district" })) }, microdistrict: { findMany: vi.fn(async () => []) },
   livingArea: { findMany: vi.fn(async () => []) }, geoAlias: { findMany: vi.fn(async () => []) },
-  styleExample: { findMany: vi.fn(async () => []) }, botLesson: { findMany: vi.fn(async () => []) }, guardHit: { upsert: vi.fn() },
+  guardHit: { upsert: vi.fn() },
   property: { findMany: vi.fn(async () => []) },
   jobApplication: { findUnique: vi.fn(async () => ({ age: 32, studyingNow: false, employedNow: false, phone: "SYNTHETIC_OLD_PHONE" })) },
 }));
@@ -38,7 +38,7 @@ function context(knownPhoneSource: ScopedCustomerQualifierContext["knownPhoneSou
 }
 beforeEach(() => {
   vi.clearAllMocks(); fake.callAi.mockResolvedValue(valid); vi.stubGlobal("fetch", fake.fetch);
-  db.property.findMany.mockResolvedValue([]); db.styleExample.findMany.mockResolvedValue([]); db.botLesson.findMany.mockResolvedValue([]);
+  db.property.findMany.mockResolvedValue([]);
 });
 afterEach(() => { expect(fake.fetch).not.toHaveBeenCalled(); vi.unstubAllGlobals(); });
 function captured() {
@@ -96,8 +96,6 @@ describe("actual qualifier scoped customer invocation", () => {
       landmark: "PRIVATE_OWNER_LANDMARK", title: "PRIVATE_OWNER_TITLE", ownerPhone: "PRIVATE_OWNER_PHONE", notes: "PRIVATE_OWNER_NOTES",
       details: {}, lat: null, lng: null, createdAt: new Date() };
     db.property.findMany.mockResolvedValue([property] as never);
-    db.styleExample.findMany.mockResolvedValue([{ clientText: "PRIVATE_STYLE_NAME", agentText: "PRIVATE_STYLE_ADDRESS", source: "manual" }] as never);
-    db.botLesson.findMany.mockResolvedValue([{ lesson: "PRIVATE_LEARNED_ADDRESS", channel: "INSTAGRAM" }] as never);
     const input = context();
     const result = await runQualifyTurn([{ role: "user", content: "PRIVATE_OLD_MESSAGE" }], { stage: "done" }, {
       abilities, channel: "WEBSITE", customerContext: { ...input, history: [{ role: "user", content: "Какая цена и где находится квартира в Сино? Я смотрю дом CURRENT_INPUT_HOUSE_17." }],
@@ -110,13 +108,11 @@ describe("actual qualifier scoped customer invocation", () => {
     expect(JSON.stringify(prompt.messages)).toContain("CURRENT_INPUT_HOUSE_17");
     expect(db.property.findMany).toHaveBeenCalled();
     for (const [query] of db.property.findMany.mock.calls as unknown as [{ where: { status?: string } }][]) expect(query.where.status).toBe("AVAILABLE");
-    expect(db.styleExample.findMany).not.toHaveBeenCalled(); expect(db.botLesson.findMany).not.toHaveBeenCalled();
     // The same synthetic card still renders as before for a legacy invocation.
     fake.callAi.mockClear(); db.property.findMany.mockClear();
     expect((await runQualifyTurn([{ role: "user", content: "Квартира в Сино" }],
       { stage: "chatting", intent: "buy", districtName: "Сино", type: "APARTMENT" }, { abilities, channel: "WEBSITE" }))?.reply).toEqual(valid.reply);
     const legacy = captured(); expect(legacy.system).toContain("PRIVATE_OWNER_HOUSE_77_APT_9");
     expect(legacy.system).toContain("PRIVATE_OWNER_LANDMARK"); expect(legacy.systemStable).toContain("PRIVATE_OWNER_HOUSE_77_APT_9");
-    expect(db.styleExample.findMany).toHaveBeenCalled(); expect(db.botLesson.findMany).toHaveBeenCalled();
   });
 });

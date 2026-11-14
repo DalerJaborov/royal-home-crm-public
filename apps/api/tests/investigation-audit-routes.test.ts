@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
-const state = vi.hoisted(() => ({ role: "AGENT", broad: true, findMany: vi.fn(), count: vi.fn(), property: vi.fn(), privateLessons: vi.fn(), deletedLessons: vi.fn() }));
+const state = vi.hoisted(() => ({ role: "AGENT", broad: true, findMany: vi.fn(), count: vi.fn(), property: vi.fn() }));
 vi.mock("../src/db.js", () => ({ prisma: {
-  $disconnect: vi.fn(), auditLog: { findMany: (args: any) => args.select?.entityId ? state.deletedLessons(args) : state.findMany(args), count: state.count },
-  botLesson: { findMany: state.privateLessons },
+  $disconnect: vi.fn(), auditLog: { findMany: state.findMany, count: state.count },
   property: { findUnique: state.property, findMany: vi.fn().mockResolvedValue([]) },
 } }));
 vi.mock("../src/auth/middleware.js", async (importOriginal) => ({
@@ -29,7 +28,6 @@ describe("audit privacy before pagination", () => {
   beforeEach(() => {
     vi.clearAllMocks(); state.role = "AGENT"; state.broad = true;
     state.findMany.mockResolvedValue([]); state.count.mockResolvedValue(0);
-    state.privateLessons.mockResolvedValue([]); state.deletedLessons.mockResolvedValue([]);
     state.property.mockResolvedValue({ assignedAgentId: "staff" });
   });
   it("does not allow broad audit permission to disclose investigation rows/counts", async () => {
@@ -57,13 +55,11 @@ describe("audit privacy before pagination", () => {
     expect(state.findMany.mock.calls[0][0].where).toEqual({});
     expect(response.body.items[0].meta.securityReview).toBe(true);
   });
-  it("filters quarantined and previously deleted audit lesson history before count and page", async () => {
-    state.privateLessons.mockResolvedValue([{ id: "quarantined" }]);
-    state.deletedLessons.mockResolvedValue([{ entityId: "deleted-private" }]);
+  it("hides all historical bot-lesson audit rows (tables dropped 13.11.2026) before count and page", async () => {
     const response = await request(app).get("/audit");
     expect(response.status).toBe(200);
-    const expected = visibleAuditWhere("AGENT", ["quarantined", "deleted-private"]);
-    expect(state.findMany.mock.calls[0][0].where).toEqual(expected);
-    expect(state.count.mock.calls[0][0].where).toEqual(expected);
+    const where = state.findMany.mock.calls[0][0].where;
+    expect(JSON.stringify(where)).toContain('"BotLesson"');
+    expect(state.count.mock.calls[0][0].where).toEqual(where);
   });
 });

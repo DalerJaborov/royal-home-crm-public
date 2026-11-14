@@ -8,7 +8,6 @@ import { dushanbeDate, dushanbeHour } from "../../lib/date";
 import { useAuthStore } from "../../store/auth";
 import { useMobileUx } from "../../hooks/useMobileUx";
 import { mcOk, useMissionControl, type MissionControlData } from "../../hooks/useMissionControl";
-import { useBotTrainerQueue } from "../../hooks/useBotTrainer";
 import { Button, LinkButton } from "../rh2/Button";
 import { Card } from "../rh2/Card";
 import { Chip } from "../rh2/Chip";
@@ -21,7 +20,6 @@ import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { List, Row } from "../rh2/Row";
 import { Skeleton } from "../rh2/Skeleton";
 import { Tile, Tiles } from "../rh2/Tile";
-import { BotTrainer } from "../trainer/BotTrainer";
 import { ActionRowList } from "./ActionRow";
 import { DirectorAskSheet } from "./DirectorAskSheet";
 import { MorningBriefingCard } from "./MorningBriefingCard";
@@ -78,7 +76,6 @@ export function DirectorHome() {
   const mobile = useMobileUx();
   const qc = useQueryClient();
   const canView = can("dashboard.analytics");
-  const canTrainer = can("settings.manage");
   const agent = useAuthStore((s) => s.agent);
   const firstName = agent?.fullName?.split(" ")[0] ?? "";
   const { data, isLoading, isError, error, isFetching } = useMissionControl(canView);
@@ -86,7 +83,6 @@ export function DirectorHome() {
   const view = useMemo(() => (data ? buildPultView(data, dushanbeHour()) : null), [data]);
   const [open, setOpen] = useState<OpenSheet>(null);
   const [waiting, setWaiting] = useState<number | null>(null);
-  const trainerQueue = useBotTrainerQueue({ enabled: canTrainer });
 
   const title = `Здравствуйте${firstName ? `, ${firstName}` : ""}`;
   const today = dushanbeDate(new Date(), { weekday: "long", day: "numeric", month: "long" });
@@ -306,13 +302,8 @@ export function DirectorHome() {
             <Row title="Разбор к собранию" line="вчерашний разбор ИИ" href="/insights" />
             <Row title="Настройки пульта" line="какие блоки показывать" href="/settings" />
           </List>
-          {/* Брифинг и тренажёр бота ушли с главной сюда (контракт 06.10, п.6). */}
+          {/* Брифинг ушёл с главной сюда (контракт 06.10, п.6). Тренажёр бота удалён 13.11.2026. */}
           <MorningBriefingCard enabled={canView} />
-          {canTrainer ? (
-            <Card tight title={`Тренажёр бота${trainerQueue.data ? ` · ${trainerQueue.data.total} ждут` : ""}`}>
-              <BotTrainer compact />
-            </Card>
-          ) : null}
         </Rh2Sheet>
       ) : null}
       {/* Заголовок для скринридера: на телефоне видимый стоит в шапке оболочки. */}

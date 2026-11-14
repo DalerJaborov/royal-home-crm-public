@@ -19,7 +19,7 @@ import { requestedAgentStillAvailable } from "./requestedAgent.js";
  * enqueueBackgroundJob — повторный тик в ту же неделю (перезапуск процесса,
  * повторное срабатывание крона) не заводит вторую отправку тому же клиенту.
  * weekKey — дата понедельника этой недели по Душанбе, тот же приём, что у
- * lib/lostConversations.ts/duplicatesWeeklyDigest.ts.
+ * lib/duplicatesWeeklyDigest.ts.
  */
 
 export function reactivationWeekKey(at: Date): string {

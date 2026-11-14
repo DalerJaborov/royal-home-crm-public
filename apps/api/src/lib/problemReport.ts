@@ -45,8 +45,7 @@ import { computeDemandCounts } from "../routes/matching.js";
  * далее… красиво оформленное».
  *
  * ЗДЕСЬ ПОЧТИ НИЧЕГО НЕ СЧИТАЕТСЯ ЗАНОВО. Все четыре раздела собраны из того, что
- * CRM уже пишет по ходу работы: разборы оборванных переписок (lostConversations.ts),
- * журнал Royal Score (scoreJournal.ts — он и есть летопись просрочек, отказов и
+ * CRM уже пишет по ходу работы: журнал Royal Score (scoreJournal.ts — он и есть летопись просрочек, отказов и
  * сорванных первых звонков), журнал входящих, разбор разговоров (CallAnalysis),
  * конвейер подготовки объектов и счётчик спроса. Своя арифметика поверх этих
  * источников означала бы, что отчёт и экраны CRM показывают разные числа про одну
@@ -197,8 +196,6 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
   const prev = within(ctx.previous);
 
   const [
-    botLost,
-    botLostPrev,
     unaccepted,
     unacceptedPrev,
     missedCalls,
@@ -212,10 +209,6 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
     refusalRows,
     escalatedClients,
   ] = await Promise.all([
-    // Оборванные диалоги бота — уже разобраны ночным джобом (lostConversations.ts),
-    // считать их заново нечем и незачем.
-    prisma.lostConversation.count({ where: { lastMessageAt: cur } }),
-    prisma.lostConversation.count({ where: { lastMessageAt: prev } }),
     // Лид пришёл и остался непринятым: карточка есть, а работы по ней не начиналось.
     // kind OTHER не считается — такие обращения агентам не раздаются вовсе.
     // assignedAgentId: not null — иначе сюда попадали лиды, которые просто ждут
@@ -269,8 +262,6 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
     : null;
 
   const metrics = [
-    metric("botLost", "Диалоги бота оборвались без заявки", botLost, botLostPrev, "/settings?tab=bot",
-      "Человек написал, поговорил и ушёл, не оставив номер"),
     metric("unaccepted", "Лиды так и не приняты агентом", unaccepted, unacceptedPrev, "/clients",
       "Карточка заведена, но работа по ней не начиналась"),
     metric("missedCalls", "Первый звонок не сделан вовремя", missedCalls, missedCallsPrev, null,
@@ -296,7 +287,7 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
     headline: (worst, trend) =>
       worst
         ? `Больше всего теряем здесь: ${worst.label.toLowerCase()} — ${worst.value}. Всего потерь ${trend || "не с чем сравнить"}.`
-        : "Потерь за период не зафиксировано — ни оборванных диалогов, ни непринятых лидов.",
+        : "Потерь за период не зафиксировано — ни непринятых лидов, ни отказов.",
   });
 }
 

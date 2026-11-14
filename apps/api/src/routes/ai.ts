@@ -236,7 +236,7 @@ function extractClientIdFromArgsSummary(argsSummary: string | null): string | nu
  * случай подозрения, что кто-то собирает через ассистента чужие данные.
  *
  * ДОСТУП — то же право, что у «Здоровья системы» и аудита бота
- * (`auditLog.view`, routes/errorLog.ts, routes/botAudit.ts): это тот же
+ * (`auditLog.view`, routes/errorLog.ts): это тот же
  * служебный раздел «журналы», отдельное право под один экран не заводим.
  * По ролям это ADMIN (входит в ASSIGNABLE_PERMISSIONS) и DIRECTOR (всегда
  * все права) — как и остальные журналы.

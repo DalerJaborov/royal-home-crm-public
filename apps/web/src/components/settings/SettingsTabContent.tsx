@@ -28,8 +28,8 @@ import type { CleanSettingsTask } from "../../lib/cleanSettingsTasks";
 import { UiShellRolloutSection } from "./UiShellRolloutSection";
 import { SomonRecipientsSection } from "./SomonRecipientsSection";
 
-// BotTab — 295 КБ (3,9 тыс. строк форм бота): грузим только когда открыта вкладка «Бот»,
-// а не вместе со всеми Настройками. AiLearning импортирует его части напрямую — это отдельный маршрут.
+// BotTab — тысячи строк форм бота: грузим только когда открыта вкладка «Бот»,
+// а не вместе со всеми Настройками.
 const BotTabChunk = lazyWithReload(() => import("../../pages/settings/BotTab").then((m) => ({ default: m.BotTab })));
 
 function BotTab(props: ComponentProps<typeof BotTabChunk>) {

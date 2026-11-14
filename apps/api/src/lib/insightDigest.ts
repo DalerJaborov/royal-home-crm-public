@@ -20,8 +20,9 @@
  *   b) score_penalty — RoyalScoreEvent с отрицательной дельтой. Ранжирование
  *      по |delta| * вес вида (потерянные клиенты и пропуск окна важнее
  *      остальных штрафов).
- *   c) agent_bypass — BotAuditFinding type=agent_bypassed_crm severity=high.
- *      Всегда входят в выпуск без ограничений по квоте агента.
+ *   c) agent_bypass — источником были находки ночного судьи диалогов; судья
+ *      удалён 13.11.2026 вместе с «Обучением бота», новых таких кейсов нет.
+ *      Вид оставлен: его несут уже собранные выпуски.
  *   d) positive — CallAnalysis.score >= 85. Минимум 1 на выпуск, чтобы
  *      собрание не было только негативом.
  *
@@ -80,14 +81,13 @@ export async function collectCandidates(
   periodStart: Date,
   periodEnd: Date,
 ): Promise<CaseCandidate[]> {
-  const [callLow, scorePenalties, agentBypasses, positives] = await Promise.all([
+  const [callLow, scorePenalties, positives] = await Promise.all([
     collectCallLowScore(periodStart, periodEnd),
     collectScorePenalties(periodStart, periodEnd),
-    collectAgentBypasses(periodStart, periodEnd),
     collectPositives(periodStart, periodEnd),
   ]);
 
-  return [...callLow, ...scorePenalties, ...agentBypasses, ...positives];
+  return [...callLow, ...scorePenalties, ...positives];
 }
 
 // ---------------------------------------------------------------------------
@@ -247,80 +247,6 @@ async function collectScorePenalties(
         delta: e.delta,
         reason: e.reason,
         sourceId: e.sourceId,
-      },
-    });
-  }
-
-  return candidates;
-}
-
-// ---------------------------------------------------------------------------
-// Источник C: BotAuditFinding agent_bypassed_crm severity=high
-// ---------------------------------------------------------------------------
-
-async function collectAgentBypasses(
-  periodStart: Date,
-  periodEnd: Date,
-): Promise<CaseCandidate[]> {
-  const findings = await prisma.botAuditFinding.findMany({
-    where: {
-      type: "agent_bypassed_crm",
-      severity: "high",
-      createdAt: { gte: periodStart, lte: periodEnd },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 30,
-  });
-
-  const candidates: CaseCandidate[] = [];
-
-  for (const f of findings) {
-    // Диалог и клиента берём из таблицы, к которой относится находка (HELPER-FINAL01):
-    // BotConversation (Instagram/WhatsApp/Facebook) или TelegramConversation, id
-    // у них uuid и не пересекаются (ai/botAudit.ts судит обе таблицы). Клиент уже
-    // привязан к диалогу в clientId; прежний поиск по phone=subscriberId находил
-    // его только когда идентификатор канала случайно совпадал с телефоном карточки.
-    const conversation =
-      (await prisma.botConversation.findUnique({
-        where: { id: f.conversationId },
-        select: { messages: true, clientId: true },
-      })) ??
-      (await prisma.telegramConversation.findUnique({
-        where: { id: f.conversationId },
-        select: { messages: true, clientId: true },
-      }));
-
-    if (!conversation) continue;
-
-    // Реплики пишутся с `by` в форме MessageSender: бот {kind:"bot"}, сотрудник
-    // {kind:"agent", agentId, agentName} (conversationDelivery.ts). Автор нарушения
-    // это сотрудник, а не первая реплика assistant (она чаще принадлежит боту).
-    const messages = (conversation.messages ?? []) as Array<{
-      role?: string;
-      by?: { kind?: string; agentId?: string; agentName?: string };
-      content?: string;
-    }>;
-    const agentMessages = messages.filter((m) => m.by?.kind === "agent" && m.by.agentId);
-    // Если в диалоге несколько сотрудников — тот, чья реплика содержит цитату находки.
-    const agentMsg = (f.quote && agentMessages.find((m) => m.content?.includes(f.quote))) || agentMessages[0];
-
-    const agentId = agentMsg?.by?.agentId;
-    const clientId = conversation.clientId;
-    if (!agentId || !clientId) continue;
-
-    candidates.push({
-      kind: "agent_bypass",
-      sourceKey: `audit:${f.id}`,
-      agentId,
-      clientId,
-      severity: 5, // high severity всегда максимальный
-      rankScore: 1000, // гарантированно выше остальных при равном severity
-      raw: {
-        findingId: f.id,
-        quote: f.quote,
-        why: f.why,
-        channel: f.channel,
-        conversationId: f.conversationId,
       },
     });
   }

@@ -7,7 +7,7 @@ import { allowedQueueHref, buildCleanWorkQueues, CleanWorkQueues } from "./Clean
 
 const base: MissionControlData = { generatedAt: "2026-10-09T08:00:00Z", seesMoney: false, modulesOff: [], hero: { error: true } };
 const bot: NonNullable<MissionControlData["bot"]> = {
-  ai: { requestsToday: 0, errorsToday: 0, errorRatePercent: 0, costUsdToday: null, avgMs: 0 }, guardHitsToday: 0, outboundShieldToday: 0, unresolvedFindings: null,
+  ai: { requestsToday: 0, errorsToday: 0, errorRatePercent: 0, costUsdToday: null, avgMs: 0 }, guardHitsToday: 0, outboundShieldToday: 0,
   attention: { liveCount: 1, silent: { count: 0, items: [], reason: null }, waitingHuman: { count: 7, reason: null, items: [{ id: "dialog-1", kind: "TELEGRAM", channel: "TELEGRAM", title: "Ждёт агента", clientId: null, lastMessageAt: base.generatedAt, waitingMinutes: 15 }] } },
 };
 

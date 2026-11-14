@@ -14,7 +14,7 @@ vi.mock("../../lib/permissions", () => ({ useCan: () => () => true }));
 vi.mock("../../store/auth", () => ({ useAuthStore: () => "DIRECTOR" }));
 
 import {
-  byAge, enabledInboxQueues, formatAge, loadBotAudit, loadClips, loadComments, loadEditor, loadStuckConversations, loadUnassigned, loadViolations, loadWaiting,
+  byAge, enabledInboxQueues, formatAge, loadClips, loadComments, loadEditor, loadStuckConversations, loadUnassigned, loadViolations, loadWaiting,
 } from "../usePultInbox";
 
 const dialog = (id: string, over: Record<string, unknown> = {}) => ({
@@ -84,19 +84,6 @@ describe("pult inbox: загрузчики очередей", () => {
     expect(r.items[0]).toMatchObject({ type: "stuckConversations", count: 3, at: "2026-10-23T01:00:00Z" });
   });
 
-  it("судья бота: одна строка на группу, решение — по первой находке", async () => {
-    calls.replies.set("/bot-audit", {
-      groups: [
-        { id: "g1", type: "t", why: "Бот назвал неверную цену", severity: "high", count: 3, examples: [{ id: "f1", quote: "цена 5 сомони", createdAt: "2026-10-22T00:00:00Z" }] },
-        { id: "g2", type: "t", why: "пусто", severity: "low", count: 1, examples: [] },
-      ],
-      groupsTotal: 2,
-    });
-    const r = await loadBotAudit();
-    expect(r.items).toHaveLength(1);
-    expect(r.items[0]).toMatchObject({ type: "audit", findingId: "f1" });
-    expect(r.items[0].detail).toContain("ещё 2 такого же");
-  });
 });
 
 describe("pult inbox: нарушения", () => {
@@ -115,7 +102,7 @@ describe("pult inbox: нарушения", () => {
 describe("pult inbox: права и порядок", () => {
   it("очередь без права не заводится", () => {
     const allowed = enabledInboxQueues((p) => p === "auditLog.view", "DIRECTOR");
-    expect([...allowed].sort()).toEqual(["botAudit", "editor", "stuckConversations", "stuckWork", "videos", "violations"]);
+    expect([...allowed].sort()).toEqual(["editor", "stuckConversations", "stuckWork", "videos", "violations"]);
     expect(enabledInboxQueues(() => true, "MANAGER").has("violations")).toBe(false);
     expect(enabledInboxQueues(() => false, "AGENT").size).toBe(0);
     // «Ждут агента» — только с правом назначать, как и сам роут.

@@ -14,7 +14,6 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { MessageAttachments } from "./MessageAttachments";
 import { TranslatableMessageText } from "./MessageTranslateToggle";
 import { DeliveryTicks } from "./DeliveryTicks";
-import { BotReplyFeedback } from "./BotReplyFeedback";
 import { hasVoiceAttachment } from "../lib/voiceAttachment";
 import { MessageSenderBadge, senderPrefix } from "./MessageSenderBadge";
 import { MessageQuote, quotedMessage } from "./MessageQuote";
@@ -211,7 +210,6 @@ const ChatMessageList = memo(function ChatMessageList({
   messages,
   clientId,
   conversationId,
-  feedbackConversationId,
   readOnly,
 }: {
   messages: ConversationMessage[];
@@ -223,15 +221,6 @@ const ChatMessageList = memo(function ChatMessageList({
    *  BotConversation/TelegramConversation по префиксу, а без него Telegram-диалог
    *  тихо 404-ился вместо честного «перевод не поддержан». */
   conversationId?: string | null;
-  /**
-   * Для оценки ответа бота (BotReplyFeedback) — ОТДЕЛЬНО от `conversationId` выше:
-   * тот несёт «сырой» Conversation.id как есть (перевод и стоимость ИИ читают его
-   * так же для обеих таблиц), а маршрут `/conversations/:id/reply-feedback` живёт
-   * в общем инбоксе и различает BotConversation/TelegramConversation по префиксу
-   * `tg_` (см. routes/conversations.ts, TG_PREFIX). Без этого префикса оценка
-   * телеграм-диалога стучалась бы не в ту таблицу и всегда отвечала бы 404.
-   */
-  feedbackConversationId?: string | null;
   readOnly: boolean;
 }) {
   const viewerAgentId = useAuthStore((s) => s.agent?.id);
@@ -296,16 +285,6 @@ const ChatMessageList = memo(function ChatMessageList({
               {/* Фото и голосовые клиента видно прямо здесь: агенту со своим
                   клиентом инбокс закрыт правом, и это его единственное окно. */}
               <MessageAttachments attachments={m.attachments} rh2 />
-              {/* Оценка ответа бота прямо в чате (17.09.2026) — тот же компонент,
-                  что и в инбоксе (Messages.tsx), не копия. */}
-              {!readOnly && m.sourceChannel !== "TELEGRAM_DIRECT" && m.role === "assistant" && (!m.by || m.by.kind === "bot") && (m.sourceConversationId || feedbackConversationId) && (
-                <BotReplyFeedback
-                  conversationId={m.sourceConversationId ?? feedbackConversationId!}
-                  message={m}
-                  messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? index}`}
-                  index={m.sourceMessageIndex ?? index}
-                />
-              )}
               <span className="tm" data-message-time-unknown={!m.at || undefined}>
                   {messageTimeText(m.at)}
                   {/* Галочки доставки — как в инбоксе (аудит №4, 27.08): только у
@@ -317,7 +296,7 @@ const ChatMessageList = memo(function ChatMessageList({
         </>
       );
     },
-    [messages, clientId, conversationId, viewerAgentId, feedbackConversationId, readOnly]
+    [messages, clientId, conversationId, viewerAgentId, readOnly]
   );
 
   if (messages.length === 0) {
@@ -570,7 +549,6 @@ export function ClientChatPanel({
               readOnly={readOnly}
               clientId={clientId}
               conversationId={null}
-              feedbackConversationId={null}
             />
           </div>
 

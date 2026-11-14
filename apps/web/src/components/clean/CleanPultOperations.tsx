@@ -51,8 +51,8 @@ export function CleanFinancialPulse({ hero, canSeeMoney, moneyRoute }: { hero: M
   );
 }
 
-export function CleanSystemBotDetails({ system, bot, canHealth, canMessages, canBotLearning, canSeeMoney }: {
-  system: McSystem | null; bot: McBot | null; canHealth: boolean; canMessages: boolean; canBotLearning: boolean; canSeeMoney: boolean;
+export function CleanSystemBotDetails({ system, bot, canHealth, canMessages, canSeeMoney }: {
+  system: McSystem | null; bot: McBot | null; canHealth: boolean; canMessages: boolean; canSeeMoney: boolean;
 }) {
   const visibleSystem = canHealth ? system : null;
   if (!visibleSystem && !bot) return null;
@@ -89,7 +89,6 @@ export function CleanSystemBotDetails({ system, bot, canHealth, canMessages, can
             <dt>Средний ответ ИИ</dt><dd className="m-0 font-semibold">{bot.ai.requestsToday > 0 ? `${bot.ai.avgMs} мс` : "Нет запросов"}</dd>
             <dt>Срабатываний фильтров</dt><dd className="m-0 font-semibold">{bot.guardHitsToday}</dd>
             <dt>Сообщений остановил щит</dt><dd className="m-0 font-semibold">{bot.outboundShieldToday}</dd>
-            <dt>Неразобранных замечаний</dt><dd className="m-0 font-semibold">{bot.unresolvedFindings ?? "Проверка недоступна"}</dd>
             {canSeeMoney && bot.ai.costUsdToday !== null && <><dt>Расход на ИИ</dt><dd className="m-0 font-semibold">{formatMoney(bot.ai.costUsdToday, "USD")}</dd></>}
             {bot.attention && <>
               <dt>Активных диалогов</dt><dd className="m-0 font-semibold">{bot.attention.liveCount}</dd>
@@ -99,7 +98,6 @@ export function CleanSystemBotDetails({ system, bot, canHealth, canMessages, can
           </dl>
           <div className="mt-4 flex flex-wrap gap-2">
             {canMessages && <CLink to="/messages" variant="soft">Открыть диалоги</CLink>}
-            {canBotLearning && <CLink to="/ai-learning" variant="soft">Обучение бота</CLink>}
           </div>
         </details>}
       </div>
