@@ -27,6 +27,8 @@ import { runStationOutageProbeTick } from "./lib/stationOutage.js";
 import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
+import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
+import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
 import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
@@ -2743,6 +2745,37 @@ export function startCronJobs() {
       if (alerted > 0) console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа «клиент ждёт ответа»", err);
+    }
+  });
+
+  /**
+   * СВЕРКА ПЕРЕПИСОК СТРАНИЦ С META (15.11.2026, lib/metaInboxReconcile.ts).
+   * Сторож выше видит только то, что уже в CRM; сообщение, которое Meta не
+   * прислала вебхуком (у приложения базовый доступ к Messenger чужой Страницы,
+   * обрыв на перезапуске), он не видит. Раз в 10 минут, круглые сутки (пуш ночью
+   * молчит по тихим часам, запись в колокольчике остаётся): не дошедшее — пуш
+   * «Ответьте вручную» тем, кто читает переписки. Только чтение Graph API.
+   */
+  scheduleTracked("meta-inbox-reconcile", "3-59/10 * * * *", async () => {
+    try {
+      const { people, missed } = await runMetaInboxReconcile();
+      if (people > 0) console.log(`[cron] Сверка Страниц: не дошло до CRM ${missed} сообщ. от ${people} чел. — сотрудникам пуш`);
+    } catch (err) {
+      reportCronTickError("Ошибка сверки переписок Страниц", err);
+    }
+  });
+
+  /**
+   * КОММЕНТАРИЙ БЕЗ ОТВЕТА БОТА — ЧЕЛОВЕКУ (15.11.2026, lib/commentWaitingAlert.ts).
+   * Новое ядро ставит комментарию ESCALATED/FAILED и никого не зовёт; старый путь
+   * зовёт сам. Одна дверь для обоих: свежий ESCALATED/FAILED без уведомления — пуш.
+   */
+  scheduleTracked("comment-needs-human-sweep", "6-59/10 * * * *", async () => {
+    try {
+      const { alerted } = await runCommentNeedsHumanSweep();
+      if (alerted > 0) console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа комментариев без ответа", err);
     }
   });
 

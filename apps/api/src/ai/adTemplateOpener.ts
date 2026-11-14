@@ -160,9 +160,28 @@ export function isJobAdRef(ref: string | null | undefined): boolean {
   // не вакансия (13.11.2026: признак теперь доезжает и до нового ядра, и ложная
   // «вакансия» увела бы покупателя в разговор о работе). Глагол исключён, «работа»,
   // «работу», «на работу» — по-прежнему вакансия.
-  return new RegExp(`job|vacan|work|рабо(?!та(?:ем|ет|ют|ю)${EW})|вакан|${BW}кор${EW}|ҷои кор|кори`, "iu").test(
-    (ref ?? "").toLowerCase()
+  //
+  // Голое «кори» было признаком вакансии до 15.11.2026 — и это ошибка: рилс для
+  // собственников «Фуруши манзилро ба Royal Home бовар кунед… бокимондааш — кори
+  // мост» («остальное — НАША работа») делал каждого, кто хочет продать дом,
+  // соискателем, и бот спрашивал «информация или работа?» (аудит рекламы 15.11:
+  // буст 14.11, 4 из 4 переписок). Вакансию выдают «ҷои кор», «кор» отдельным
+  // словом, «ваканси», «работа» — они остаются.
+  return new RegExp(`job|vacan|work|рабо(?!та(?:ем|ет|ют|ю)${EW})|вакан|${BW}кор${EW}|чой?и\\s+кор`, "iu").test(
+    foldTajikLetters(ref)
   );
+}
+
+/**
+ * ТАДЖИКСКИЕ БУКВЫ НА РУССКОЙ РАСКЛАДКЕ (15.11.2026). Сотрудники и клиенты пишут
+ * «фуруш», «чои кор», «кабул» обычными буквами: у буста «Фуруши манзилро…»
+ * регулярка ждала «фурӯш» с «ӯ» и рекламу для собственников не узнавала. Метки
+ * рекламы (вакансия / собственники) сравниваются по этой свёртке, чтобы одна и
+ * та же надпись не значила разное в зависимости от раскладки.
+ */
+const TAJIK_TO_RUSSIAN_LAYOUT: Record<string, string> = { ӯ: "у", ӣ: "и", ҷ: "ч", қ: "к", ҳ: "х", ғ: "г" };
+export function foldTajikLetters(text: string | null | undefined): string {
+  return (text ?? "").toLowerCase().normalize("NFC").replace(/[ӯӣҷқҳғ]/gu, (ch) => TAJIK_TO_RUSSIAN_LAYOUT[ch] ?? ch);
 }
 
 /**
@@ -178,10 +197,10 @@ export function isJobAdRef(ref: string | null | undefined): boolean {
  */
 export function isSellerAdRef(ref: string | null | undefined): boolean {
   return new RegExp(
-    "приемк|приёмк|қабул|амволи худро|фурӯши амвол|фурӯш|продать|" +
+    "приемк|приёмк|кабул|амволи худро|фуруш|продать|" +
       "продаж[а-яёʼ]*\\s+свое[а-яё]*|собственник|seller|owner",
     "iu"
-  ).test((ref ?? "").toLowerCase());
+  ).test(foldTajikLetters(ref));
 }
 
 export type AdTopic = "job" | "property" | "seller";
@@ -208,7 +227,7 @@ export function classifyAdTopic(fields: {
   // Staff campaign names can be stale or copied from another ad. The actual
   // public creative's explicit hiring/seller message is stronger evidence.
   if (fields.caption) {
-    if (/ваканси|\bSMM\b|СММ|видеограф|ҷои\s+кор|ҷойи\s+кор|ба\s+кор\s+(?:қабул|кабул)|(?:ищем|набираем)\s+(?:агент|сотрудник)/iu.test(fields.caption)) return "job";
+    if (/ваканси|\bsmm\b|смм|видеограф|чой?и\s+кор|ба\s+кор\s+кабул|(?:ищем|набираем)\s+(?:агент|сотрудник)/iu.test(foldTajikLetters(fields.caption))) return "job";
     if (isSellerAdRef(fields.caption)) return "seller";
   }
   const combined = [fields.name, fields.campaignName, fields.groupName].filter(Boolean).join(" ");
