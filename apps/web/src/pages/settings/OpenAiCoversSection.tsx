@@ -146,6 +146,8 @@ export function OpenAiCoversSection({ templateHeading }: { templateHeading?: str
                     type="button"
                     className={`chip${data.provider === p ? " on" : ""}`}
                     aria-pressed={data.provider === p}
+                    // OpenAI выключен рубильником — выбрать ChatGPT нельзя (сервер всё равно рисует шаблоном).
+                    disabled={p === "OPENAI" && !data.openaiEnabled}
                     onClick={() => save({ provider: p })}
                   >
                     {p === "TEMPLATE" ? "Наш шаблон — цифры точные" : "ChatGPT — рисует всё, по ключу OpenAI"}

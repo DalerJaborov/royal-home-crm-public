@@ -29,6 +29,7 @@ import {
   logOpenAiCall,
   openAiPost,
   resolveOpenAiKey,
+  isOpenAiEnabled,
   type ImageUsage,
 } from "../ai/openaiClient.js";
 import { coverImageSize, loadCoverRuntimeSettings } from "./video/coverOpenAi.js";
@@ -709,6 +710,11 @@ export async function listCoverProviders(): Promise<SocialVideoAiProviderInfo[]>
   };
   return Promise.all([
     check("GEMINI", async () => (await resolveGeminiRuntime()).keys.length > 0, "Ключ Gemini не введён — Настройки → ИИ"),
-    check("OPENAI", async () => (await resolveOpenAiKey()) !== null, "Ключ OpenAI не введён — Настройки → ИИ"),
+    check(
+      "OPENAI",
+      async () => (await resolveOpenAiKey()) !== null,
+      // Рубильник OpenAI (14.11.2026) важнее ключа: выключен — так и пишем, а не «ключ не введён».
+      (await isOpenAiEnabled()) ? "Ключ OpenAI не введён — Настройки → ИИ" : "OpenAI выключен в Настройках → Каналы → Обложки"
+    ),
   ]);
 }
