@@ -55,7 +55,7 @@ import {
   type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton,
 } from "./api.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
-import { extractPropertyFields } from "./assistantPropertyFields.js";
+import { extractPropertyTurn } from "./assistantPropertyFields.js";
 import { sendPropertyMatchesCard } from "./assistantPropertyOffers.js";
 import {
   answerCompressedChoice, askAboutCompressedOnce, photoQualityCallback, photoQualityLine, recordDraftPhotoQuality,
@@ -68,13 +68,58 @@ type Lang = "ru" | "tg";
 type Values = PropertyWizardDraftValues;
 const kind = "property-draft";
 const expiresAt = () => new Date(Date.now() + 12 * 60 * 60_000);
+/** Что вносим: объект, квартира, дом, участок, коммерция (рус./тадж.). */
+const NEW_THING = String.raw`(?:объект|квартир\p{L}*|дом|домик|частн\p{L}*\s+дом|участ\p{L}*|коммерц\p{L}*|помещени\p{L}*|офис)`;
+const TJ_THING = String.raw`(?:объект(?:и)?|хона(?:и)?|ҳавлӣ|ҳавлии|квартира(?:и)?|замин(?:и)?)`;
+/**
+ * Начало мастера — фраза ЦЕЛИКОМ (14.11.2026: «хочу внести квартиру», «новая
+ * квартира», «хонаи нав илова кунам»). Только всё сообщение: «новая квартира в
+ * Сино до 50 000?» — это поиск, а не мастер.
+ */
 const isStart = new RegExp(
-  `^(?:\\/(?:new_property|object)(?:@[A-Za-z0-9_]+)?|(?:(?:давай|хочу)\\s+)?${BW}(?:добавь|добавим|добавить|создай|создадим|создать)\\s+(?:новый\\s+)?объект${EW}|объекти нав|объект илова кун(?:ед)?)[.!?]*$`, "iu");
+  `^(?:\\/(?:new_property|object)(?:@[A-Za-z0-9_]+)?`
+  + `|(?:(?:давай(?:те)?|хочу|надо|нужно|можно|могу)\\s+)?${BW}(?:добавь(?:те)?|добавим|добавить|создай(?:те)?|создадим|создать|внеси(?:те)?|внесём|внесем|внести|заведи(?:те)?|завести)\\s+(?:нов\\p{L}*\\s+)?${NEW_THING}${EW}`
+  + `|${BW}нов\\p{L}*\\s+${NEW_THING}${EW}`
+  + `|${TJ_THING}\\s+нав(?:\\s+илова\\s+кун(?:ам|ем|ед|им|)?)?`
+  + `|${TJ_THING}\\s+(?:нав\\s+)?илова\\s+кун(?:ам|ем|ед|им|)?`
+  + `|(?:мехоҳам|биёед)\\s+${TJ_THING}(?:\\s+нав)?\\s+илова\\s+кун(?:ам|ем|ед|им|)?`
+  + `)[.!?]*$`, "iu");
 /** «Добавь объект продавца ПР-000456» / «объекти фурӯшанда ПР-456 илова кунед». */
 const fromClientStart = new RegExp(
   `^(?:${BW}(?:добав(?:ь|ьте|ить)|созда(?:й|йте|ть)|завед(?:и|ите))\\s+объект${EW}\\s+(?:из\\s+карточки\\s+)?(?:продавца\\s+)?|объекти\\s+фурӯшанда\\s+)`
   + `((?:пр|пк|кл|pr|pk|kl)[\\s.\\-–—]*\\d{1,9})(?:\\s+илова\\s+кун(?:ед)?)?[.!?]*$`, "iu");
-const isExit = /^(?:\/(?:cancel|new|reset)|выход|выйти из черновика|баромадан)$/iu;
+/**
+ * Выход из мастера словами (14.11.2026: «отмени», «не надо», «хватит», «бекор
+ * кун», «давай потом»). Черновик при выходе сохраняется — ложное срабатывание
+ * стоит одной команды /new_property. Фраза целиком: «отмени показ завтра» — не выход.
+ */
+const isExit = new RegExp(
+  `^(?:(?:ну\\s+|ладно[,\\s]+|ой[,\\s]+)?(?:пожалуйста[,\\s]+)?)?(?:`
+  + `\\/(?:cancel|new|reset|exit|stop)`
+  + `|выход|выйти(?:\\s+из\\s+(?:черновика|мастера))?|выйди(?:те)?(?:\\s+из\\s+(?:черновика|мастера))?`
+  + `|отмен(?:а|и|ите|ить|яй)(?:\\s+(?:это|всё|все|черновик|добавление|объект))?|отбой|стоп|хватит|не\\s+надо|не\\s+нужно|передумал\\p{L}*`
+  + `|(?:давай(?:те)?\\s+)?(?:потом|позже|в\\s+другой\\s+раз)|закрой(?:те)?\\s+(?:черновик|мастер)`
+  + `|баромадан|бекор(?:\\s+кун(?:ед)?)?|лозим\\s+нест|даркор\\s+нест|баъдтар|дигар\\s+вақт|бас(?:\\s+аст)?|cancel|stop`
+  + `)[.!]*$`, "iu");
+/**
+ * Явный вопрос или просьба НЕ про этот черновик: другой объект или клиент по
+ * номеру, поиск, «найди клиента …». Быстрый путь без модели — сообщение идёт
+ * помощнице, черновик остаётся открытым. Всё неочевидное решает модель полем
+ * intent в разборе полей (extractPropertyTurn).
+ */
+const OTHER_REQUEST = new RegExp(
+  `(?:^|\\s)(?:ОБ|ПР|ПК|КЛ|OB|PR|PK|KL)[\\s.\\-–—]*\\d{1,9}${EW}`
+  + `|^(?:пожалуйста[,\\s]+)?(?:найди(?:те)?|найти|поищи(?:те)?|покажи(?:те)?\\s+(?:мне\\s+)?(?:клиент|задач|встреч|показ|сделк|расход|список|мои)\\p{L}*|напомни(?:те)?|позвони(?:те)?|ҷустуҷӯ\\s+кун(?:ед)?|ёфта\\s+деҳ(?:ед)?)${EW}`,
+  "iu");
+
+/** Для тестов: что мастер понимает по фразе без модели. */
+export function draftPhraseForTests(text: string): "start" | "exit" | "other" | null {
+  const flat = text.trim();
+  if (isStart.test(flat)) return "start";
+  if (isExit.test(flat)) return "exit";
+  if (OTHER_REQUEST.test(flat)) return "other";
+  return null;
+}
 /** nar — «Без озвучки» / «С озвучкой» в карточке проверки (12.11.2026). */
 const callback = /^pdt:(review|create|exit|edit|nar):([\da-f-]{36})$/u;
 const fieldCallback = /^pdt:f:([A-Za-z0-9_]{1,20}):([\da-f-]{36})$/u;
@@ -655,7 +700,18 @@ function documentsPatch(raw: string): Values {
  * поля сохранить, но карточку не слать (подпись к альбому: карточка придёт одна,
  * после всего альбома).
  */
-async function updateDescription(ctx: Context, draft: DraftRecord, text: string, wallet: AssistantMoneyWallet, options: { prefix?: string; silent?: boolean } = {}) {
+/**
+ * Итог разбора сообщения в черновике: поля записаны (или нечего записать) —
+ * "applied"; модель решила, что человек хочет выйти, — "cancel"; вопрос о другом —
+ * "other" (сообщение отдаётся помощнице, черновик остаётся открытым). "cancel" и
+ * "other" — только при `handOff`: подпись к фото и видео — всегда данные объекта.
+ */
+type DescriptionOutcome = "applied" | "cancel" | "other";
+
+async function updateDescription(
+  ctx: Context, draft: DraftRecord, text: string, wallet: AssistantMoneyWallet,
+  options: { prefix?: string; silent?: boolean; handOff?: boolean } = {},
+): Promise<DescriptionOutcome> {
   const lang = ctx.lang;
   const buttons = controls(draft.id, lang);
   const access = { agent: ctx.access };
@@ -664,14 +720,16 @@ async function updateDescription(ctx: Context, draft: DraftRecord, text: string,
   if (placement) {
     const saved = await saveFields(ctx, draft, { offSite: placement[1].toLowerCase() === "только crm" });
     if (!options.silent) await sendReview(ctx, saved, withPrefix());
-    return;
+    return "applied";
   }
   let extracted;
   try {
-    extracted = await extractPropertyFields(text.slice(0, 5000), ctx.agentId, wallet);
+    const turn = await extractPropertyTurn(text.slice(0, 5000), ctx.agentId, wallet);
+    if (options.handOff && turn.intent !== "field_update") return turn.intent === "cancel" ? "cancel" : "other";
+    extracted = turn.fields;
   } catch (error) {
     await sendMessageWithButtons(ctx.chatId, error instanceof Error && error.message === "draft_daily_limit" ? t(lang).dailyLimit : t(lang).parseFailed, buttons);
-    return;
+    return "applied";
   }
   const { districtName, intakeAgentName, placement: place, documents, details, ...patch } = extracted;
   const currentValues = propertyWizardDraftValuesSchema.parse(draft.values);
@@ -710,11 +768,12 @@ async function updateDescription(ctx: Context, draft: DraftRecord, text: string,
   if (!Object.keys(values).length) {
     if (options.prefix) await sendReview(ctx, draft, withPrefix(notes.join("\n")));
     else if (!options.silent || notes.length) await sendMessageWithButtons(ctx.chatId, notes.join("\n") || t(lang).nothingNew, buttons);
-    return;
+    return "applied";
   }
   const saved = await saveFields(ctx, draft, values);
   if (!options.silent) await sendReview(ctx, saved, withPrefix(notes.join("\n")));
   else if (notes.length) await sendMessageWithButtons(ctx.chatId, notes.join("\n"), buttons);
+  return "applied";
 }
 
 /* ─────────────────────────── видео ─────────────────────────── */
@@ -1176,10 +1235,22 @@ export async function handleTelegramPropertyDraft(
         const wallet = createAssistantMoneyWallet();
         const voice = await transcribe(msg, agent.id, wallet);
         if ("error" in voice) await sendMessageWithButtons(chatId, voice.error, controls(draft.id, lang));
-        else await updateDescription(ctx, draft, asField(voice.text), wallet);
+        else if (!editing && isExit.test(voice.text.trim())) await exitDraft(ctx, state.draftId);
+        else {
+          // Голос о другом отдаём помощнице целиком: она сама распознает его ещё раз.
+          const outcome = await updateDescription(ctx, draft, asField(voice.text), wallet, { handOff: true });
+          if (outcome === "cancel") await exitDraft(ctx, state.draftId);
+          else if (outcome === "other") return false;
+        }
       } else if (text && !text.startsWith("/")) {
         if (/^(?:черновик|проверь черновик|покажи черновик|сиёҳнавис)$/iu.test(text)) await sendReview(ctx, draft);
-        else await updateDescription(ctx, draft, asField(text), createAssistantMoneyWallet());
+        // Явный вопрос о другом (номер другого объекта, «найди клиента …») — помощнице, без модели разбора.
+        else if (!editing && OTHER_REQUEST.test(text)) return false;
+        else {
+          const outcome = await updateDescription(ctx, draft, asField(text), createAssistantMoneyWallet(), { handOff: true });
+          if (outcome === "cancel") await exitDraft(ctx, state.draftId);
+          else if (outcome === "other") return false;
+        }
       } else {
         await sendMessageWithButtons(chatId, t(lang).howTo, controls(draft.id, lang));
       }
