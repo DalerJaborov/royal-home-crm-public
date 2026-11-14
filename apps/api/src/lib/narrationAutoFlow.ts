@@ -23,6 +23,7 @@ import { NARRATION_CLOSED_STATUSES as CLOSED_STATUSES, retireNarrationsOfClosedP
 import { narrationLastChoiceFor, rememberNarrationChoice } from "./narrationLastChoice.js";
 import { VOICELESS_COPY_HINT } from "./narrationMontajerNote.js";
 import { sendToMontajer } from "./montageObservers.js";
+import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 
 /**
  * АВТООЗВУЧКА РОЛИКА ОБЪЕКТА (схема владельца 10.11.2026, сделано 11.11).
@@ -620,6 +621,12 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
     }
     if (outcome.status === "FAILED" && outcome.errorCode === NARRATION_QUOTA_EXCEEDED) {
       void logSystemError("ai", "Озвучка роликов: кредиты ElevenLabs закончились. Озвучки ждут пополнения, проверка раз в час; агентам ничего не отправлено", { dedupKey: "narration-quota-exceeded" });
+      // Срочная тревога директору (пуш «новая проблема» отключён с 02.10): без неё узнают по жалобе агента.
+      void raiseCriticalAlarm({
+        tag: ELEVENLABS_QUOTA_ALARM_TAG,
+        title: "Кончились кредиты ElevenLabs",
+        body: "Озвучка роликов остановлена: кредиты ElevenLabs закончились. Пополните баланс в кабинете ElevenLabs.",
+      });
       break;
     }
     if (outcome.status === "FAILED" && outcome.errorCode === "PROVIDER_HTTP_429" && row.generationAttempts + 1 < RETRY_429_LIMIT) {

@@ -7,7 +7,7 @@ import { getChatTitle, getChatMemberStatus, isTelegramEnabled, canBotWriteToChat
 import { parseTelegramChatIds } from "./telegramChats.js";
 import { loadCredentials, GRAPH_VERSION, instagramApiUrl, instagramRequest, fetchWithRetry } from "../messengers/meta.js";
 import { facebookPageTokenFor, instagramRouteForToken } from "./metaEternalTokens.js";
-import { isMetaAuthFailure, isMetaAuthFailureText, raiseChannelKeyAlarm } from "./channelKeyAlarm.js";
+import { isMetaAuthFailure, isMetaAuthFailureText, raiseChannelKeyAlarm, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { listAccounts, accountTokenById } from "../messengers/accounts.js";
 import { r2HealthCheck } from "./r2Client.js";
@@ -882,4 +882,42 @@ export async function runIntegrationHealthChecks(): Promise<IntegrationCheck[]> 
   }
 
   return results;
+}
+
+/**
+ * ПЕРЕХОД «ЖИВ → СЛОМАН» ДОХОДИТ ДО ДИРЕКТОРА (14.11.2026, №3).
+ *
+ * Проверки выше пишут отказ в журнал ошибок, а пуш «новая проблема» с 02.10
+ * отключён (спам): мёртвые ключи Gemini, TikTok, YouTube, R2, сайта видны были
+ * только цифрой в утренней сводке. Здесь, перед записью нового снимка, сверяем
+ * его с прошлым: тревога ставится только при ПЕРЕХОДЕ в «сломан» (раньше было
+ * «жив», «не настроен» или снимка не было), а не каждые сутки, пока поломка
+ * живёт: напомнит дверь не чаще, чем раз в 12 часов на метку. Вызывать ДО upsert
+ * снимка. Никогда не бросает. Возвращает число поставленных тревог.
+ */
+export async function alertOnIntegrationBreakage(checks: IntegrationCheck[]): Promise<number> {
+  try {
+    const broken = checks.filter((c) => c.ok === false);
+    if (broken.length === 0) return 0;
+    const previous = await prisma.integrationHealthSnapshot.findMany({
+      where: { name: { in: broken.map((c) => c.name) } },
+      select: { name: true, ok: true },
+    });
+    const wasBroken = new Set(previous.filter((p) => p.ok === false).map((p) => p.name));
+    let raised = 0;
+    for (const check of broken) {
+      if (wasBroken.has(check.name)) continue;
+      const { alerted } = await raiseCriticalAlarm({
+        tag: `integration:${check.name}`,
+        title: "Доступ к сервису перестал работать",
+        body: `${check.name}: ${(check.detail ?? "проверка не прошла").slice(0, 140)}. Настройки, Каналы.`,
+        url: "/settings?tab=channels",
+      });
+      if (alerted) raised++;
+    }
+    return raised;
+  } catch (err) {
+    console.error("[integrationHealth] тревога о переходе в «сломан» не поставлена:", describeError(err));
+    return 0;
+  }
 }

@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import cron from "node-cron";
 import { prisma } from "../db.js";
 import { logSystemError } from "./systemError.js";
+import { raiseCriticalAlarm } from "./channelKeyAlarm.js";
 import { isPultModuleEnabled } from "./pultModules.js";
 import { isShuttingDown, trackBackgroundTask } from "./shutdownState.js";
 import type { PultModuleId } from "@royal-home/shared";
@@ -82,10 +83,8 @@ export function reportCronRowError(label: string, rowRef: string | number | null
 }
 
 /** Что сторож знает о каждом тике: интервал считается из cron-выражения. */
-const registry = new Map<
-  string,
-  { expr: string; intervalMs: number; lowFrequency: boolean; timezone?: string }
->();
+type TickMeta = { expr: string; intervalMs: number; lowFrequency: boolean; timezone?: string; timeoutMs?: number };
+const registry = new Map<string, TickMeta>();
 
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
@@ -302,10 +301,10 @@ export function scheduleTracked(
     throw new Error(`scheduleTracked: имя "${name}" уже занято`);
   }
   const intervalMs = cronIntervalMs(expr);
-  registry.set(name, { expr, intervalMs, lowFrequency: isLowFrequency(expr), timezone: options?.timezone });
   // Явно заданный предел не обрезаем: долгая задача (недельный обход рынка — 3 ч) просит больше
   // общего потолка осознанно; потолок защищает только тики, которым предел не задан.
   const timeoutMs = trackedOptions?.timeoutMs ?? Math.min(intervalMs * 2, MAX_TICK_TIMEOUT_MS);
+  registry.set(name, { expr, intervalMs, lowFrequency: isLowFrequency(expr), timezone: options?.timezone, timeoutMs });
   /**
    * Гвард наложения ВСТРОЕН в обёртку — и это часть честности пульса (аудит №4).
    * Пока прошлый запуск не завершился, новые срабатывания пропускаются ЦЕЛИКОМ,
@@ -357,6 +356,16 @@ export function scheduleTracked(
         const message = `Крон «${name}» не завершил тик за ${minutes} мин — снят с замка`;
         beat(name, { lastError: message });
         await logSystemError(isPrivateCron(name) ? "investigation" : "cron", message).catch(() => {});
+        // Тик снят по таймауту: директору срочная тревога (раньше только журнал, пуш «новая проблема»
+        // отключён с 02.10). Закрытые крон-задачи расследований наружу не светим.
+        if (!isPrivateCron(name)) {
+          // Без await: замок тика снимается в finally ниже, а дверь ходит в базу (никогда не бросает).
+          void raiseCriticalAlarm({
+            tag: `cron-silent:${name}`,
+            title: "Фоновая задача зависла",
+            body: `Задача «${name}» не завершила работу за ${minutes} мин, её сняли с расписания. Подробности: Настройки, Система.`,
+          });
+        }
         console.error(`[cron:${name}] ${message}`);
         // Замок снимается ниже, в finally — следующий тик пойдёт по расписанию.
         // Сам зависший промис fn() продолжает висеть в фоне: его результат
@@ -380,6 +389,31 @@ export function scheduleTracked(
   };
   runners.set(name, run);
   return cron.schedule(expr, () => run(), options);
+}
+
+/**
+ * ПУЛЬС ДОЛГОЖИВУЩЕГО ЦИКЛА ВНЕ РАСПИСАНИЯ (Telegram-поллер, 14.11.2026, №7).
+ *
+ * Цикл не тик cron, но сторож должен видеть, что он крутится: поллер при старте
+ * регистрирует ожидание (`registerLoopHeartbeat`) и бьёт пульс каждый виток
+ * (`beatLoopHeartbeat`, не чаще раза в минуту). Завис разбор пачки: пульс встал,
+ * и обычное правило молчания поднимет тревогу. Ожидание ставит сам цикл, а не
+ * общий реестр: без токена Telegram поллер не стартует, и сторожить нечего.
+ */
+const LOOP_BEAT_EVERY_MS = MINUTE;
+const loopLastBeatAt = new Map<string, number>();
+
+export function registerLoopHeartbeat(name: string, expr: string): void {
+  if (registry.has(name)) return;
+  registry.set(name, { expr, intervalMs: cronIntervalMs(expr), lowFrequency: isLowFrequency(expr) });
+}
+
+export function beatLoopHeartbeat(name: string, ok: boolean, nowMs: number = Date.now()): void {
+  const last = loopLastBeatAt.get(name) ?? 0;
+  if (nowMs - last < LOOP_BEAT_EVERY_MS) return;
+  loopLastBeatAt.set(name, nowMs);
+  const now = new Date(nowMs);
+  beat(name, ok ? { lastRunAt: now, lastOkAt: now, lastError: null } : { lastRunAt: now });
 }
 
 /** Запуск тика вне расписания — тем же путём, с пульсом и замком (для догона). */
@@ -458,13 +492,18 @@ const processStartedAt = new Date();
  * (ENABLE_BACKGROUND не выключен), тики api уже в своём реестре — с его
  * часовым поясом, второй раз не добавляются.
  */
-function expectedTicks(): Map<string, { expr: string; intervalMs: number; lowFrequency: boolean; timezone?: string }> {
+function expectedTicks(): Map<string, TickMeta> {
   const expected = new Map(registry);
   for (const [name, expr] of Object.entries(API_PROCESS_TICKS)) {
     if (expected.has(name)) continue;
     expected.set(name, { expr, intervalMs: cronIntervalMs(expr), lowFrequency: isLowFrequency(expr) });
   }
   return expected;
+}
+
+/** Таймаут тика: заданный при регистрации, иначе то же умолчание, что у scheduleTracked. */
+function tickTimeoutMs(meta: TickMeta): number {
+  return meta.timeoutMs ?? Math.min(meta.intervalMs * 2, MAX_TICK_TIMEOUT_MS);
 }
 
 export async function checkCronHeartbeats(): Promise<number> {
@@ -489,20 +528,49 @@ export async function checkCronHeartbeats(): Promise<number> {
     const limit = meta.lowFrequency
       ? expectedNextRun.getTime() + SLACK_MS
       : lastSeen + meta.intervalMs * SILENCE_FACTOR + SLACK_MS;
-    if (now <= limit) continue;
+    const silent = now > limit;
+    /**
+     * «ТИК НАЧАЛСЯ И НЕ ЗАКОНЧИЛСЯ» (14.11.2026, №8). Перезапуск посреди тика
+     * оставляет `lastRunAt` свежее `lastOkAt` без `lastError` и без таймаута:
+     * по молчанию он «жив» (запуск был), а работа оборвана (месячный отчёт
+     * 05.11 стартовал и не дошёл, lastOk стоял на 01.10). Догон такой тик
+     * повторно не запускает (так задумано), значит, увидеть его должен сторож.
+     */
+    const startedAt = row?.lastRunAt?.getTime() ?? 0;
+    const unfinished =
+      !silent &&
+      startedAt > (row?.lastOkAt?.getTime() ?? 0) &&
+      !row?.lastError &&
+      now - startedAt > tickTimeoutMs(meta) + SLACK_MS;
+    if (!silent && !unfinished) continue;
     const alertedAt = row?.alertedAt?.getTime() ?? 0;
     // Уже поднимали тревогу по ЭТОМУ молчанию и недавно — не спамим.
-    if (alertedAt > lastSeen && now - alertedAt < REALERT_MS) continue;
+    if (silent && alertedAt > lastSeen && now - alertedAt < REALERT_MS) continue;
+    // Оборванный запуск: одна тревога на запуск, новый запуск сдвинет lastRunAt.
+    if (unfinished && alertedAt > startedAt) continue;
     alerts++;
     const silentMin = Math.round((now - lastSeen) / MINUTE);
-    await logSystemError(
-      isPrivateCron(name) ? "investigation" : "cron",
-      `Крон-тик «${name}» молчит ${silentMin} мин (расписание ${meta.expr}, ` +
+    const privateCron = isPrivateCron(name);
+    const message = silent
+      ? `Крон-тик «${name}» молчит ${silentMin} мин (расписание ${meta.expr}, ` +
         `следующий ожидался: ${expectedNextRun.toISOString()}; последний запуск: ` +
         `${row?.lastRunAt?.toISOString() ?? "ни разу с этого деплоя"}` +
         (row?.lastError ? `; последняя ошибка: ${row.lastError}` : "") +
         ")"
-    );
+      : `Крон-тик «${name}» начался ${row!.lastRunAt!.toISOString()} и не закончился: ` +
+        `нет ни успеха, ни ошибки, прошло ${Math.round((now - startedAt) / MINUTE)} мин ` +
+        `(расписание ${meta.expr}). Вероятно, его оборвал перезапуск; проверьте, что работа за ` +
+        `этот период сделана, и при необходимости запустите её заново.`;
+    await logSystemError(privateCron ? "investigation" : "cron", message);
+    if (!privateCron) {
+      await raiseCriticalAlarm({
+        tag: `cron-silent:${name}`,
+        title: silent ? "Фоновая задача замолчала" : "Фоновая задача не закончилась",
+        body: silent
+          ? `Задача «${name}» не запускалась ${silentMin} мин. Подробности: Настройки, Система.`
+          : `Задача «${name}» началась и не закончилась (оборвана перезапуском?). Проверьте, что работа сделана.`,
+      });
+    }
     await prisma.cronHeartbeat
       .updateMany({ where: { name }, data: { alertedAt: new Date() } })
       .catch(() => {});

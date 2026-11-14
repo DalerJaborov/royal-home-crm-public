@@ -1,6 +1,8 @@
 import { getUpdates, isTelegramEnabled, telegramUpdateChatId, type TelegramUpdate } from "./api.js";
 import { ASSISTANT_DEADLINE_SEC } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
+import { raiseCriticalAlarm } from "../lib/channelKeyAlarm.js";
+import { beatLoopHeartbeat, registerLoopHeartbeat } from "../lib/cronHeartbeat.js";
 import { isAlbumPart, startTelegramUpdate, telegramRepliesInFlight } from "./bot.js";
 import {
   isDuplicateDelivery,
@@ -12,6 +14,8 @@ import { prisma } from "../db.js";
 import { withTelegramUpdateRetry } from "./updateRetry.js";
 
 let running = false;
+/** Имя строки пульса поллера (тик worker: CronHeartbeat.name). */
+export const POLLER_HEARTBEAT = "telegram-poller";
 let pollingTask: Promise<void> | null = null;
 
 /**
@@ -37,6 +41,8 @@ export function startTelegramBot() {
   if (pollingTask) return;
   running = true;
   console.log("[telegram] Бот запущен (long polling)");
+  // Пульс поллера (14.11.2026, №7): завис разбор пачки: пульс встал, сторож пульса скажет.
+  registerLoopHeartbeat(POLLER_HEARTBEAT, "* * * * *");
   pollingTask = (async () => {
     // Незавершённые отметки канала TELEGRAM на этот момент — от мёртвого
     // предыдущего процесса (этот только что стартовал и ничего ещё не
@@ -176,6 +182,7 @@ async function pollLoop() {
         for (const id of settledIds) if (id < offset) settledIds.delete(id);
         processingBatch = false;
       }
+      beatLoopHeartbeat(POLLER_HEARTBEAT, true);
     } catch (err) {
       failures += 1;
       const silentMs = Date.now() - lastSuccessAt;
@@ -192,7 +199,15 @@ async function pollLoop() {
           "telegram",
           `Бот не получает сообщения ${silentSec} с подряд: ${reason} (неудачных опросов: ${failures})`
         );
+        // С 02.10 пуш «новая проблема» отключён: обрыв приёма сообщений шёл только в журнал.
+        void raiseCriticalAlarm({
+          tag: "telegram-poller",
+          title: "Telegram-бот не получает сообщения",
+          body: `Связь с Telegram потеряна на ${Math.round(silentSec / 60)} мин: ${reason.slice(0, 100)}. Подробности: Настройки, Система.`,
+        });
       }
+      // Цикл жив (повторяет опрос), но успеха нет: сторож пульса видит запуск, а не молчание.
+      beatLoopHeartbeat(POLLER_HEARTBEAT, false);
       // Пауза растёт: при долгом отказе Telegram не имеет смысла ломиться каждые 5 секунд.
       const delay = Math.min(RETRY_BASE_MS * 2 ** (failures - 1), RETRY_MAX_MS);
       await new Promise((r) => setTimeout(r, delay));

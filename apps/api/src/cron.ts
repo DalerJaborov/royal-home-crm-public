@@ -80,7 +80,8 @@ import { collectInstagramOnlineFollowers } from "./lib/instagramInsights.js";
 import { collectSiteStats } from "./lib/siteStats.js";
 import { notifyHotProperties } from "./lib/propertyHotAlert.js";
 import { runPublishedChannelsAuditTick } from "./lib/publishedChannelsAudit.js";
-import { runIntegrationHealthChecks } from "./lib/integrationHealth.js";
+import { checkBackupFreshness } from "./lib/backupFreshness.js";
+import { alertOnIntegrationBreakage, runIntegrationHealthChecks } from "./lib/integrationHealth.js";
 import { followUpLimit, isClosingMessage, isFollowUpDue } from "./lib/botFollowUps.js";
 import { distillLessons, EMPTY_LESSON } from "./lib/botLessons.js";
 import { runBotAudit } from "./ai/botAudit.js";
@@ -3149,6 +3150,9 @@ export function startCronJobs() {
           `[cron] Внешние доступы: живых ${alive}, сломанных ${broken.length}` +
             (broken.length ? ` (${broken.join(", ")})` : "")
         );
+        // Переход «жив → сломан» — срочная тревога директору (пуш «новая проблема» отключён);
+        // ДО записи нового снимка: сравнивает с прошлым.
+        await alertOnIntegrationBreakage(checks);
         // Снимок для экрана /integrations (перенос мобильного макета 14.09.2026,
         // шаг 5) — раньше результат нигде не оставался, кроме консоли и ErrorLog
         // при отказе; upsert по имени канала, старый снимок просто перезаписан.
@@ -3403,6 +3407,17 @@ export function startCronJobs() {
       if (alerts) console.log(`[cron] Сторож пульса: тревог поднято ${alerts}`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа пульса", err);
+    }
+  });
+
+  /** Сторож копий: нет удачной выгрузки наружу дольше 26 часов или последний прогон
+   *  вида провалился (lib/backupFreshness.ts). Раньше отчёт бэкапа оседал строкой на экране. */
+  scheduleTracked("backup-freshness", "17 * * * *", async () => {
+    try {
+      const alerts = await checkBackupFreshness();
+      if (alerts) console.log(`[cron] Сторож копий: тревог поднято ${alerts}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа свежести копий", err);
     }
   });
 

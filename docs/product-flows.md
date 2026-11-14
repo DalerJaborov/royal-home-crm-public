@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4042**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4050**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19607,6 +19607,45 @@
   - isBackgroundJobsTickRunning = false;
     · дословно из кода
 
+### backup-freshness — 17 * * * *
+
+- пробует
+  - const alerts = await checkBackupFreshness();
+    · зовёт checkBackupFreshness()
+    - const lastOffsiteOk = await prisma.backupRun.findFirst({ where: { kind: "OFFSITE", success: true }, orderBy: …
+      · читает в базе: backupRun
+    - если !lastOffsiteOk || lastOffsiteOk.finishedAt < since
+      - await logSystemError("api", `Копия данных наружу не создавалась больше 26 часов (${when}). Проверьте таймер и…
+        · запись в журнал ошибок
+      - const { alerted } = await raiseCriticalAlarm({ tag: "backup:OFFSITE", title: "Копия данных не создаётся", bod…
+        · зовёт raiseCriticalAlarm()
+      - если alerted
+        - alerts++;
+          · дословно из кода
+    - const latestPerKind = await prisma.backupRun.findMany({ where: { finishedAt: { gte: since } }, distinct: ["ki…
+      · читает в базе: backupRun
+    - для каждого: const run of latestPerKind
+      - если run.success
+        - continue;
+          · переходит к следующему
+      - await logSystemError("api", `Копия ${label} (${run.kind}) не удалась: ${detail}`, { dedupKey: `backup-failed:…
+        · запись в журнал ошибок
+      - const { alerted } = await raiseCriticalAlarm({ tag: `backup:${run.kind}`, title: "Копия данных не удалась", b…
+        · зовёт raiseCriticalAlarm()
+      - если alerted
+        - alerts++;
+          · дословно из кода
+  - если alerts
+    - console.log(`[cron] Сторож копий: тревог поднято ${alerts}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа свежести копий", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### bot-audit — 15 3 * * *
 
 - если isBotAuditRunning
@@ -20986,14 +21025,22 @@
     - для каждого: const [name, meta] of expected
       - const expectedNextRun = nextCronRun(meta.expr, new Date(lastSeen), meta.timezone);
         · зовёт nextCronRun()
-      - если now <= limit
+      - если !silent && !unfinished
         - continue;
           · переходит к следующему
-      - если alertedAt > lastSeen && now - alertedAt < REALERT_MS
+      - если silent && alertedAt > lastSeen && now - alertedAt < REALERT_MS
         - continue;
           · переходит к следующему
-      - await logSystemError( isPrivateCron(name) ? "investigation" : "cron", `Крон-тик «${name}» молчит ${silentMin}…
+      - если unfinished && alertedAt > startedAt
+        - continue;
+          · переходит к следующему
+      - const privateCron = isPrivateCron(name);
+        · зовёт isPrivateCron()
+      - await logSystemError(privateCron ? "investigation" : "cron", message);
         · запись в журнал ошибок
+      - если !privateCron
+        - await raiseCriticalAlarm({ tag: `cron-silent:${name}`, title: silent ? "Фоновая задача замолчала" : "Фоновая …
+          · зовёт raiseCriticalAlarm()
       - await prisma.cronHeartbeat .updateMany({ where: { name }, data: { alertedAt: new Date() } }) .catch(()
         · меняет в базе: cronHeartbeat
   - если alerts
@@ -25160,6 +25207,26 @@
         · запись в журнал ошибок
   - console.log( `[cron] Внешние доступы: живых ${alive}, сломанных ${broken.length}` + (broken.length ? ` (${bro…
     · пишет строку в журнал сервера
+  - await alertOnIntegrationBreakage(checks);
+    · зовёт alertOnIntegrationBreakage()
+    - пробует
+      - если broken.length === 0
+        - return 0;
+          · дословно из кода
+      - const previous = await prisma.integrationHealthSnapshot.findMany({ where: { name: { in: broken.map((c)
+        · читает в базе: integrationHealthSnapshot
+      - для каждого: const check of broken
+        - если wasBroken.has(check.name)
+          - continue;
+            · переходит к следующему
+        - const { alerted } = await raiseCriticalAlarm({ tag: `integration:${check.name}`, title: "Доступ к сервису пер…
+          · зовёт raiseCriticalAlarm()
+        - если alerted
+          - raised++;
+            · дословно из кода
+    - если сорвалось
+      - console.error("[integrationHealth] тревога о переходе в «сломан» не поставлена:", describeError(err));
+        · пишет строку в журнал сервера
   - пробует
     - await Promise.all( checks.map((c)
       · создаёт или меняет в базе: integrationHealthSnapshot
@@ -25177,15 +25244,6 @@
 - await step("Продление маркеров Facebook Login не удалось", "meta", async ()
   - const { refreshed } = await refreshMetaUserTokensIfDue();
     · зовёт refreshMetaUserTokensIfDue()
-    - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { metaIgManageToken: …
-      · читает в базе: settings
-    - если !settings
-      - return summary;
-        · дословно из кода
-    - для каждого: const field of ["metaIgManageToken", "metaPageToken"] as const
-      - если stored
-        - await refreshField(field, stored, summary);
-          · дословно из кода
   - если refreshed.length > 0
     - console.log(`[cron] Маркеры продлены: ${refreshed.join(", ")}`);
       · пишет строку в журнал сервера
