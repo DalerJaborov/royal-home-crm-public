@@ -57,7 +57,7 @@ expensesRouter.get("/archive", async (req, res) => {
 
 expensesRouter.patch("/:id/restore", requireFinanceWrite, async (req, res) => {
   try {
-    const expense = await restoreExpense(req.params.id);
+    const expense = await restoreExpense(req.params.id, { confirmAutoOverlap: req.body?.confirmAutoOverlap === true });
     logAudit(req, "RESTORE", "Expense", expense.id, { category: expense.category, amount: expense.amount.toString() });
     res.json(expense);
   } catch (err) {

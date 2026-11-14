@@ -1295,6 +1295,8 @@ function VideoHandoffFields() {
   const montajerId = settings?.videoMontajerAgentId ?? "";
   const rawReviewOn = settings?.rawReviewRequired ?? true;
   const clipReviewOn = settings?.clipReviewEnabled ?? false;
+  const clipOwnerOn = settings?.clipOwnerApproveEnabled ?? false;
+  const clipOwnerHours = settings?.clipOwnerAutoPublishHours ?? 3;
   const staffClipOn = settings?.staffClipIntakeEnabled !== false;
 
   return (
@@ -1375,6 +1377,44 @@ function VideoHandoffFields() {
             : "Принятый ролик сразу встаёт в расписание публикаций — монтажёр и есть последняя проверка."
         }
       />
+
+      {/* 11.11.2026, владелец: «все ролики что от монтажера обратно идут после
+          монтажа пусть идут к своим хозяином с кнопками подтвердить», страховка —
+          «автоматически поститься но не ночью с 12 по 7 утра». Сервер: lib/clipReview.ts. */}
+      <SwitchRow
+        title="Готовый ролик подтверждает хозяин объекта (в Telegram)"
+        on={clipOwnerOn}
+        onToggle={() => updateSettings.mutate({ clipOwnerApproveEnabled: !clipOwnerOn })}
+        hint={
+          clipOwnerOn
+            ? `Ролик от монтажёра приходит агенту, за которым объект, с кнопками «Подтвердить» и «Вернуть монтажёру». Не ответил за ${clipOwnerHours} ч — ролик публикуется сам, но не ночью: с 00:00 до 07:00 ждёт до 07:00. Руководство может решить в любой момент.`
+            : "Выключено — решение по готовому ролику за руководством (переключатель выше)."
+        }
+      />
+      {clipOwnerOn && (
+        <div className="mod">
+          <div className="t">
+            <b>Через сколько часов публиковать без ответа</b>
+            <span style={{ whiteSpace: "normal" }}>Если хозяин объекта молчит, ролик уходит в публикацию сам.</span>
+          </div>
+          <div className="acts">
+            <select
+              className="inp"
+              style={{ maxWidth: 140 }}
+              aria-label="Через сколько часов публиковать без ответа"
+              value={clipOwnerHours}
+              onChange={(e) => updateSettings.mutate({ clipOwnerAutoPublishHours: Number(e.target.value) })}
+              disabled={updateSettings.isPending}
+            >
+              {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
+                <option key={h} value={h}>
+                  {h} ч
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
     </>
   );
 }
