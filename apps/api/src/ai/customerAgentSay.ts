@@ -158,23 +158,39 @@ function opensWithQuestion(text: string): boolean {
 /** «ты» in Russian; «ту» (and its forms) only in Tajik, where it is the familiar «you» (in Russian «ту» is just «that»). */
 const INFORMAL_RU = w("ты|тебя|тебе|тобой|тобою|твой|твоя|твоё|твои|твоего|твоей|твоему|твоим|твоих|твою");
 const INFORMAL_TG = w("ту|туро|тую|барот|худат");
+/**
+ * «ТЫ» WITHOUT THE PRONOUN (review 14.11.2026): «Хочешь, подберём», «Напиши, пожалуйста», «Мехоҳӣ, бигӯ» are the familiar form too. Russian: present-tense
+ * verbs in -ешь/-ишь (the stem is two letters or more, so «лишь» stays) and the common imperatives without «-те». Tajik: «ме…ӣ» present forms of the
+ * second person singular, the bare imperatives («бигӯ», «навис», «бин») and «занг зан». «Хотите», «напишите», «мехоҳед» never match.
+ * The Tajik pattern is matched on the unfolded text: «ӣ» ends a verb, but the folded «и» is also the izafet («меваи», «мебели»).
+ */
+const INFORMAL_VERB_RU = w(`\\p{L}{2,}[еи]шь|\\p{L}*дашь|\\p{L}{3,}йся|напиши|скажи|посмотри|расскажи|подскажи|уточни|пришли|отправь|назови|сообщи|ответь|укажи|выбери|оставь|поделись|опиши|позвони|звони|пиши|смотри|давай|подумай|представь|знай|помни|слушай|жди|подожди|приходи|заходи|говори|дай|пойми|скинь|прими|возьми|иди|не\\s+переживай|не\\s+волнуйся`);
+const INFORMAL_VERB_TG = new RegExp(`${BW}(?:ме(?!ҳмон|ҳнат|ъмор|ҳрубон|збон|ҳвар)[\\p{L}]{2,}ӣ|бигӯ|бинавис|навис|бубин|бин|бигир|биё|бифирист|фирист|бидеҳ|бипурс|дорӣ|ҳастӣ|бошӣ|кардӣ|гуфтӣ|дидӣ|навиштӣ|омадӣ|хондӣ|гирифтӣ|додӣ|занг\\s+зан)${EW}`, "iu");
 
 const META = rx(`${BW}(?:ии|ai|api|llm|gpt|gemini|json|markdown|crm|bot|prompt|ref|нейросет${TAIL}|искусственн${TAIL}\\s+интеллект${TAIL}|интеллект${TAIL}|модел${TAIL}|бот(?:а|у|ом|е|ы|ов|ам|ами|ах)?|ассистент${TAIL}|виртуальн${TAIL}|автоответ${TAIL}|робот${TAIL}|систем${TAIL}|инструмент${TAIL}|алгоритм${TAIL}|шаблон${TAIL}|зеҳни\\s+сунъӣ|сунъӣ|нейро${TAIL}|шабакаи\\s+асаб${TAIL})${EW}|[*_\`#{}\\[\\]<>|~\\\\]`);
 
 const CONTACT = rx(`\\p{Script=Latin}|@|https?:|www\\.|${BW}(?:вотсап${TAIL}|ватсап${TAIL}|уотсап${TAIL}|телеграм${TAIL}|инстаграм${TAIL}|инста|фейсбук${TAIL}|мессенджер${TAIL}|директ|директе|директа|директом|сайт${TAIL}|ссылк${TAIL}|пайванд${TAIL}|почт(?:а|ы|у|е|ой|овый|овая|овых)|е-?мейл${TAIL}|точк${TAIL}\\s+(?:тж|ру|ком|нет|орг|рф)|тж|ком)${EW}|\\.\\s*(?:тж|ру|ком|рф)${EW}`);
 /**
- * «Номер», «телефон», «рақам» are NOT a contact by themselves (14.11.2026): «Спасибо, что оставили номер», «Понял, вам удобнее по телефону» are plain
- * acknowledgements, and every such drop counted as SERIOUS and paged the owner. They become a contact only when they point at OUR number («наш номер»,
- * «у нас», «рақами мо») and a request when they ask for the customer's («нужен ваш номер», «телефони шумо лозим»).
+ * THE BOT NEVER ASKS FOR OR POINTS AT A NUMBER ON ITS OWN (review 14.11.2026): «Дайте ваш номер», «Скиньте свой номер», «Рақаматонро диҳед» are requests
+ * that no request word catches. So «номер/телефон/рақам/контакт/смс» is a contact by itself, and only a narrow list of thanks and receipts is allowed
+ * («Спасибо, что оставили номер», «Номер получили», «Ташаккур, ки рақам фиристодед», «Рақамро гирифтем»): they are cut out before the check, and any
+ * mention of a number that is left over drops the phrase as `contact`.
  */
 const CONTACT_POINTER = w(`номер${TAIL}|телефон${TAIL}|контакт${TAIL}|мобильн${TAIL}|рақам${TAIL}|смс`);
-const OUR_SIDE = rx(`${BW}(?:наш${TAIL}|у\\s+нас|компани${TAIL}|агентств${TAIL}|ширкат${TAIL})${EW}|${BW}(?:номер|телефон|рақам|контакт)${TAIL}\\s+(?:мо|ширкат${TAIL})${EW}`);
+const POINTER_NOUN = `(?:номер|телефон|контакт|рақам)${TAIL}`;
+const ACK_NUMBER = new RegExp([
+  `${BW}(?:спасибо|благодарю|благодарим),?\\s+что\\s+(?:вы\\s+)?(?:оставили|дали|написали|прислали|отправили|сообщили|указали)\\s+(?:нам\\s+|мне\\s+)?(?:свой\\s+|ваш\\s+)?${POINTER_NOUN}(?:\\s+телефона)?${EW}`,
+  `${BW}${POINTER_NOUN}(?:\\s+телефона)?\\s+(?:получен${TAIL}|получил${TAIL})${EW}`,
+  `${BW}(?:мы\\s+)?(?:получили|приняли)\\s+(?:ваш\\s+)?${POINTER_NOUN}${EW}`,
+  `${BW}ташаккур,?\\s+ки\\s+(?:шумо\\s+)?(?:ба\\s+мо\\s+)?(?:рақам|телефон)${TAIL}(?:ро)?(?:\\s+ба\\s+мо)?\\s+(?:фиристодед|додед|гузоштед|навиштед|гуфтед)${EW}`,
+  `${BW}(?:рақам|телефон)${TAIL}(?:ро)?\\s+гирифтем${EW}`,
+].map(source => foldSource(source)).join("|"), "giu");
 const NEED = w(`нуж(?:ен|на|но|ны)|необходим${TAIL}|пожалуйста|лозим|даркор|бемалол|илтимос|лутфан`);
 
 // Gated promise words: a callback or handover receipt unlocks "call"; a saved-contact receipt unlocks "noted".
 const CALL_PROMISE = rx(`${BW}(?:(?:по|пере)?звон${TAIL}|свяж${TAIL}|связ${TAIL}|наберем|наберу|наберут|занг\\s+мезан${TAIL}|занг\\s+занем|занг\\s+занад|занг\\s+мекун${TAIL}|тамос\\s+мегир${TAIL})${EW}`);
 const SAVE_PROMISE = rx(`${BW}(?:записал${TAIL}|запишу|запишем|занес${TAIL}|внес${TAIL}|сохранил${TAIL}|сохраню|сохраним|зафиксир${TAIL}|зарегистрир${TAIL}|сабт\\s+кард${TAIL}|сабт\\s+мекун${TAIL}|сабт\\s+шуд${TAIL}|нигоҳ\\s+дошт${TAIL})${EW}`);
-const ALWAYS_PROMISE = rx(`${BW}(?:вернусь|вернемся|напомню|напомним|дам\\s+знать|дадим\\s+знать|буду\\s+на\\s+связи|будем\\s+на\\s+связи|оформлен${TAIL}|оформим|оформлю|подтвержд${TAIL}|подтверд${TAIL}|забронир${TAIL}|зарезервир${TAIL}|бронир${TAIL}|тасдиқ\\s+шуд${TAIL}|тасдиқ\\s+мекун${TAIL}|уточню|уточним|проверю|проверим|посмотрю|посмотрим|узнаю|узнаем|выясню|выясним|сообщу|сообщим|отправлю|отправим|пришлю|пришлем|подготовлю|подберу|подберем|найду|найдем|организую|договорюсь|передам|передадим|гарантир${TAIL}|обещаю|обещаем|занимусь|разберусь|помогу|поможем|мепурсам|мепурсем|мефиристам|мефиристем|хабар\\s+медиҳам|хабар\\s+медиҳем|санҷида\\s+мебинам|мебинам|меҷӯям|меҷӯем|кафолат\\s+медиҳам)${EW}|${BW}в\\s+ближайш${TAIL}\\s+врем${TAIL}${EW}|${BW}как\\s+можно\\s+скорее${EW}`);
+const ALWAYS_PROMISE = rx(`${BW}(?:вернусь|вернемся|напомню|напомним|дам\\s+знать|дадим\\s+знать|буду\\s+на\\s+связи|будем\\s+на\\s+связи|оформлен${TAIL}|оформим|оформлю|подтвержд${TAIL}|подтверд${TAIL}|забронир${TAIL}|зарезервир${TAIL}|бронир${TAIL}|тасдиқ\\s+шуд${TAIL}|тасдиқ\\s+мекун${TAIL}|уточню|уточним|проверю|проверим|посмотрю|посмотрим|узнаю|узнаем|выясню|выясним|сообщу|сообщим|отправлю|отправим|пришлю|пришлем|подготовлю|подберу|подберем|найду|найдем|организую|договорюсь|передам|передадим|гарантир${TAIL}|обещаю|обещаем|занимусь|разберусь|помогу|поможем|кӯмак\\s+(?:мекун|мерасон)(?:ам|ем)|ёфта\\s+медиҳ(?:ам|ем)|интихоб\\s+мекун(?:ам|ем)|мерасон(?:ам|ем)|нишон\\s+медиҳ(?:ам|ем)|мепурсам|мепурсем|мефиристам|мефиристем|хабар\\s+медиҳам|хабар\\s+медиҳем|санҷида\\s+мебинам|мебинам|меҷӯям|меҷӯем|кафолат\\s+медиҳам)${EW}|${BW}в\\s+ближайш${TAIL}\\s+врем${TAIL}${EW}|${BW}как\\s+можно\\s+скорее${EW}`);
 
 // Claims about availability, price and company policy belong to server facts, never to free words.
 const FACT_CLAIM = w([
@@ -253,11 +269,12 @@ export function validateCustomerAgentSay(input: CustomerAgentSayInput): Customer
   const folded = fold(text);
   // A question is judged by the sentence, not by a word: see opensWithQuestion.
   if (QUESTION_MARK.test(text) || QUESTION_PARTICLE.test(folded) || REQUEST.test(folded) || opensWithQuestion(text)) return bad("question");
-  if (CONTACT_POINTER.test(folded) && NEED.test(folded) && !OUR_SIDE.test(folded)) return bad("question");
-  if (INFORMAL_RU.test(folded) || input.language === "tg" && INFORMAL_TG.test(folded)) return bad("informal");
+  const foldedNoAck = folded.replace(ACK_NUMBER, " ");
+  if (CONTACT_POINTER.test(foldedNoAck) && NEED.test(folded)) return bad("question");
+  if (INFORMAL_RU.test(folded) || INFORMAL_VERB_RU.test(folded) || input.language === "tg" && (INFORMAL_TG.test(folded) || INFORMAL_VERB_TG.test(text.toLowerCase()))) return bad("informal");
   if (/\p{Nd}/u.test(text) || NUMBER_WORDS.test(folded) || CURRENCY.test(folded) || MONTHS.test(folded) || WEEKDAYS.test(folded) || RELATIVE_TIME.test(folded)) return bad("number_or_date");
   if (META.test(folded)) return bad("meta");
-  if (CONTACT.test(folded) || CONTACT_POINTER.test(folded) && OUR_SIDE.test(folded)) return bad("contact");
+  if (CONTACT.test(folded) || CONTACT_POINTER.test(foldedNoAck)) return bad("contact");
   const outcomes = new Set((input.selectedEvidence ?? []).filter(item => item.kind === "receipt").map(item => String(item.outcome)));
   const callUnlocked = outcomes.has("callback_requested") || outcomes.has("handover_requested");
   const saveUnlocked = outcomes.has("contact_saved") || outcomes.has("job_application_saved");

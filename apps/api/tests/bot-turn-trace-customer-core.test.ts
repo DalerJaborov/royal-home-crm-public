@@ -209,6 +209,17 @@ describe("grounded free phrase (say) in the managed core trace", () => {
     expect(sample).not.toMatch(/\d|a@b|@royal|https?:/u);
     expect(botTurnTracePayloadSchema.safeParse(f.rows.at(-1)).success).toBe(true);
   });
+  it("the sample hides the customer's name too: the whole name and each word of it, in any case and ending (review 14.11.2026)", async () => {
+    const f = recorder();
+    await withBotTurnTrace({ ...start, knownContacts: ["Алишер Ахмедов"], managed: { surface: "dm", phase: "planning" } }, async () => {
+      traceCustomerCoreResult({ status: "ready", decision: { kind: "reply" }, rounds: 1, toolCalls: 0, evidence: [],
+        say: { status: "dropped", reason: "contact", sample: "Алишер, спасибо. Понял вас, Ахмедов. Дайте ваш номер, АЛИШЕРУ будет удобно." } });
+      traceCustomerCoreDisposition("planned");
+    }, f.config);
+    const sample = f.rows.at(-1)!.customerCore?.saySample ?? "";
+    expect(sample).toContain("Понял вас");
+    expect(sample).not.toMatch(/алишер|ахмедов/iu);
+  });
   it("a used phrase leaves no sample even if one is handed over", async () => {
     const f = recorder();
     await withBotTurnTrace({ ...start, managed: { surface: "dm", phase: "planning" } }, async () => {

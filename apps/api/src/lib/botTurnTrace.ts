@@ -212,10 +212,11 @@ function stopCode(raw: unknown): { stopCode: string } | Record<string, never> {
   return parsed.success ? { stopCode: parsed.data } : {};
 }
 /** A free phrase that did not reach the customer, as a sample: digits masked to «#» (no phone or price survives), then links, e-mails and
- * handles redacted, 200 chars at most. */
-function saySample(raw: unknown): { saySample: string } | Record<string, never> {
+ * handles redacted, then the customer's own name (the whole name and each word of it, 3+ letters) and other known contacts, 200 chars at most. */
+function saySample(raw: unknown, knownContacts: readonly string[] = []): { saySample: string } | Record<string, never> {
   if (typeof raw !== "string") return {};
-  const text = sanitizeTraceText(raw.replace(/\p{Nd}/gu, "#")).text.replace(/\s+/gu, " ").trim().slice(0, 200);
+  const names = [...new Set(knownContacts.flatMap(name => [name, ...name.split(/[\s,.]+/u).filter(part => part.length >= 3)]))];
+  const text = sanitizeTraceText(raw.replace(/\p{Nd}/gu, "#"), names).text.replace(/\s+/gu, " ").trim().slice(0, 200);
   return text ? { saySample: text } : {};
 }
 /** The root coordinator supplies the actual validated Core result, never a
@@ -230,7 +231,7 @@ export function traceCustomerCoreResult(result: { status: "ready" | "held"; deci
   observe(ctx => {
     if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning") return;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ status: result.status,
-      ...(result.say ? { sayStatus: result.say.status, ...(result.say.status === "dropped" ? { sayDropReason: result.say.reason, ...saySample(result.say.sample) } : {}) } : {}),
+      ...(result.say ? { sayStatus: result.say.status, ...(result.say.status === "dropped" ? { sayDropReason: result.say.reason, ...saySample(result.say.sample, ctx.contacts) } : {}) } : {}),
       ...(result.status === "ready" && result.decision ? { decisionKind: result.decision.kind } : {}),
       rounds: result.rounds, toolCalls: result.toolCalls,
       receiptOutcomes: [...new Set(result.evidence.filter(e => e.value.kind === "receipt").map(e => e.value.outcome))],
