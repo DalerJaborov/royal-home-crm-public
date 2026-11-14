@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4042,
+  "forks": 4045,
   "mounts": 83,
   "cron": 132,
   "jobs": 33,
@@ -121357,9 +121357,24 @@
            "c": [
             {
              "k": "do",
-             "t": "await resumeDeferredCustomerInbox(eventKey);",
+             "t": "rearmed = await resumeDeferredCustomerInbox(eventKey);",
              "a": [
               "зовёт resumeDeferredCustomerInbox()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!rearmed",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void reportUnansweredCustomerTurn(eventKey, result.reason);",
+             "a": [
+              "зовёт reportUnansweredCustomerTurn()"
              ],
              "c": []
             }
@@ -121643,6 +121658,84 @@
         }
        ],
        "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      },
+      {
+       "k": "do",
+       "t": "void reportUnansweredCustomerTurn(payload.eventKey, \"consume_job_gave_up\", { gaveUp: true });",
+       "a": [
+        "зовёт reportUnansweredCustomerTurn()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "customerTurnSilenceIsIntended(reason)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: str…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!row || row.answered",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? \"\", peer: row.peer ?? \"\", conversationId…",
+           "a": [
+            "зовёт notifyUnansweredCustomerTurn()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Не удалось сообщить о неотвеченном ходе бота (${reason}): ${error instanceof Err…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "reportUnansweredCustomerTurn() — apps/api/src/lib/customerTurnSilence.ts"
       }
      ]
     }

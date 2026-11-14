@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4042**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4045**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -26970,8 +26970,11 @@
       - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${re…
         · обращается к базе своим SQL
       - если result.reason !== NEWER_INPUT_PENDING
-        - await resumeDeferredCustomerInbox(eventKey);
+        - rearmed = await resumeDeferredCustomerInbox(eventKey);
           · зовёт resumeDeferredCustomerInbox()
+      - если !rearmed
+        - void reportUnansweredCustomerTurn(eventKey, result.reason);
+          · зовёт reportUnansweredCustomerTurn()
   - const recovered = await recoverCustomerPendingEnvelope(eventKey);
     · зовёт recoverCustomerPendingEnvelope()
   - return prisma.$transaction(async tx
@@ -27029,6 +27032,22 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+  - void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up", { gaveUp: true });
+    · зовёт reportUnansweredCustomerTurn()
+    - если customerTurnSilenceIsIntended(reason)
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: str…
+        · обращается к базе своим SQL
+      - если !row || row.answered
+        - return;
+          · дальше не идёт, ничего не меняя
+      - await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? "", peer: row.peer ?? "", conversationId…
+        · зовёт notifyUnansweredCustomerTurn()
+    - если сорвалось
+      - void logSystemError("meta", `Не удалось сообщить о неотвеченном ходе бота (${reason}): ${error instanceof Err…
+        · запись в журнал ошибок
 
 ### customer-intake-notify
 

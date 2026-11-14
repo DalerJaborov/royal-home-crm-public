@@ -37,6 +37,15 @@ const REASON_TEXT: Record<string, string> = {
   owned_subject_stopped: "новый бот выключен, а переписка закреплена за ним",
   historical_subject_owned_or_closed: "переписка по старой записи закреплена за новым ботом",
 };
+/** A turn that has a text but no answer: the same words for the staff push. */
+const UNANSWERED_REASON_TEXT: Record<string, string> = {
+  round_limit: "бот не уложился в отведённые шаги и ответа не подготовил",
+  turn_unavailable: "у бота сорвался ход, ответа нет",
+  turn_deadline: "бот не успел подготовить ответ вовремя",
+  unsupported_decision_evidence: "бот не смог подтвердить ответ данными",
+  staff_or_supported_reply_required: "бот решил передать вопрос сотруднику",
+  sender_read_unavailable: "не удалось прочитать данные собеседника",
+};
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
 const tagOf = (conversationId: string) => `customer-held-${conversationId}`;
 
@@ -174,5 +183,28 @@ export async function notifyEscalatedCustomerTurn(input: { conversationId: strin
     void logSystemError("meta", `Уведомление о переданном боте разговоре не отправлено: ${error instanceof Error ? error.message : String(error)}`,
       { dedupKey: "customer-dm-escalated-notify-failed", quietPult: true });
     return "skipped";
+  }
+}
+
+/** Post-turn guard (13.11.2026): a core turn that ended HELD without an answer for a reason that is NOT an intended silence
+ * (customerTurnSilence.ts) reaches a person. The text is already in the CRM chat; this is the push plus one journal line per
+ * reason. Never throws. */
+export async function notifyUnansweredCustomerTurn(hold: { reason: string; channel: string; peer: string; conversationId: string | null;
+  excerpt: string }): Promise<void> {
+  const why = UNANSWERED_REASON_TEXT[hold.reason] ?? "бот не смог подготовить ответ"; // staff never see service codes
+  void logSystemError("meta", hold.conversationId
+    ? `Бот не ответил клиенту (причина «${hold.reason}»): ${why}. Текст в чате CRM, ответственный получил уведомление; ответить нужно вручную.`
+    : `Бот не ответил клиенту (причина «${hold.reason}», собеседник ${hold.peer || "неизвестен"}): текст не попал в чат CRM, уведомить некого. ` +
+      `Найдите человека в приложении и ответьте вручную.`,
+    { dedupKey: `customer-turn-unanswered:${hold.reason}`, dedupWindowMs: NOTIFY_WINDOW_MS, quietPult: true });
+  try {
+    if (!hold.conversationId) return;
+    // ONE door for "the customer is waiting" (#174): idempotent per silence episode, critical level, director fallback when
+    // nobody is assigned. The sweep of #174 finds the same chats later; the episode mark keeps it from a second push.
+    const { alertClientWaiting } = await import("./clientWaitingAlert.js");
+    await alertClientWaiting({ conversationId: hold.conversationId, trigger: "escalate" });
+  } catch (error) {
+    void logSystemError("meta", `Уведомление о неотвеченном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
+      { dedupKey: "customer-turn-unanswered-notify-failed", quietPult: true });
   }
 }
