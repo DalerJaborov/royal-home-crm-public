@@ -24,6 +24,7 @@ export async function fetchFacebookPublish(url: string, init: Omit<RequestInit, 
   const request: RequestInit = { ...init, redirect: "error" };
   for (let attempt = 0; ; attempt += 1) {
     try {
+      // fetch-timeout: allow signal приходит в init от вызывающего: сторож проверяет вызовы fetchFacebookPublish (scripts/audit-fetch-timeout.mjs)
       return await fetch(url, request);
     } catch (error) {
       if (attempt >= CONNECT_RETRY_DELAYS_MS.length || init.signal?.aborted || !failedBeforeConnect(error)) throw error;

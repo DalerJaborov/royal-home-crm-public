@@ -14,11 +14,11 @@
  "totals": {
   "screens": 53,
   "paths": 749,
-  "cron": 133,
+  "cron": 134,
   "jobs": 33,
-  "conditions": 4034,
-  "untranslatedUnique": 462,
-  "untranslatedTotal": 593,
+  "conditions": 4036,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 594,
   "partialUnique": 1094,
   "translatedShare": 85
  },
@@ -114,6 +114,7 @@
   "!prevAgentId || prevAgentId === t.agentId",
   "!property || property.deletedAt || property.videoHandoffFinalPath !== payload.videoPath",
   "!property.address?.trim()",
+  "!propertyVideoFileExists(property.videoHandoffFinalPath)",
   "!publicPath.startsWith(\"/uploads/handoff/\")",
   "!publishedSourceCutoff(candidate, now)",
   "!result || typeof result.firstShot !== \"string\"",
@@ -49911,6 +49912,26 @@
      ]
     },
     {
+     "t": "если !propertyVideoFileExists(property.videoHandoffFinalPath)",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "запись в журнал ошибок",
+       "k": "do",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "отказ: не нашли",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "!propertyVideoFileExists(property.videoHandoffFinalPath)"
+    },
+    {
      "t": "отказ: не нашли",
      "k": "do",
      "a": [
@@ -64759,6 +64780,73 @@
           {
            "t": "если есть разосланных тревог",
            "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если есть alerts",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "balance-watch",
+   "when": "20 9 * * *",
+   "label": "balance-watch",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
            "a": [],
            "c": [],
            "more": true
