@@ -68829,7 +68829,7 @@
     },
     {
      "k": "do",
-     "t": "logAudit(req, \"COVER_OPENAI_SETTINGS\", \"Settings\", \"singleton\", { keyChanged: apiKey !== undefined, ...(enabl…",
+     "t": "logAudit(req, \"COVER_OPENAI_SETTINGS\", \"Settings\", \"singleton\", { keyChanged: apiKey !== undefined, ...(opena…",
      "a": [
       "зовёт logAudit()"
      ],
