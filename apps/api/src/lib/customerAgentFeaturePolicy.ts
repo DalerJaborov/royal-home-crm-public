@@ -9,6 +9,18 @@ export function customerAgentSayMode(env: Readonly<Record<string, string | undef
   return env.CUSTOMER_AGENT_SAY_MODE === "live" ? "live" : "shadow";
 }
 
+/** Languages the free phrase may be written in (14.11.2026). Russian always; Tajik behind «Живые фразы по-таджикски» on the «Бот» screen
+ * (Settings.botSayTajik, on by default). A failed read narrows to Russian: a missing phrase costs nothing, an unchecked switch could. */
+export async function customerAgentSayLanguages(): Promise<readonly ("ru" | "tg")[]> {
+  try {
+    const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { botSayTajik: true } });
+    return row?.botSayTajik === false ? ["ru"] : ["ru", "tg"];
+  } catch (error) {
+    console.error("[say] settings read failed, Tajik phrase off for this turn:", error instanceof Error ? error.message : error);
+    return ["ru"];
+  }
+}
+
 /** Existing feature switches restrict implemented customer capabilities; a
  * legacy switch never grants a new tool, transport, identity or staff right. */
 export async function loadCustomerAgentFeaturePolicy(channel?: string) {

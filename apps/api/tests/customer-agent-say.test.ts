@@ -2,17 +2,18 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { CUSTOMER_AGENT_SYSTEM } from "../src/ai/customerAgentPrompt.js";
 import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
-import { validateCustomerAgentSay, validateCustomerAgentSayForDecision, normalizeSayText, SAY_ENABLED_LANGUAGES, CUSTOMER_AGENT_SAY_EXAMPLES, CUSTOMER_AGENT_SAY_GUIDANCE, SAY_ASKING_WORDS_RU,
-  type CustomerAgentSayInput } from "../src/ai/customerAgentSay.js";
+import { validateCustomerAgentSay, validateCustomerAgentSayForDecision, normalizeSayText, SAY_ENABLED_LANGUAGES, CUSTOMER_AGENT_SAY_EXAMPLES, CUSTOMER_AGENT_SAY_GUIDANCE,
+  SAY_QUESTION_WORDS_RU, SAY_QUESTION_WORDS_TG, SAY_QUESTION_PARTICLES, SAY_REQUEST_WORDS_RU, SAY_REQUEST_WORDS_TG, type CustomerAgentSayInput } from "../src/ai/customerAgentSay.js";
 import { summarizeCustomerAgentSayDay, reportCustomerAgentSayDay } from "../src/lib/customerAgentSayStats.js";
-import { customerAgentSayMode } from "../src/lib/customerAgentFeaturePolicy.js";
+import { customerAgentSayLanguages, customerAgentSayMode } from "../src/lib/customerAgentFeaturePolicy.js";
 import { wrapUntrusted } from "../src/ai/untrustedContent.js";
 import { logSystemError } from "../src/lib/systemError.js";
 
 vi.mock("../src/lib/systemError.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError: vi.fn(async () => {}) }));
-const guardRows = vi.hoisted(() => ({ rows: [] as Array<{ guard: string; count: number }> }));
+const guardRows = vi.hoisted(() => ({ rows: [] as Array<{ guard: string; count: number }>, settings: null as unknown }));
 vi.mock("../src/db.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/db.js")>()),
-  prisma: { guardHit: { findMany: vi.fn(async () => guardRows.rows), upsert: vi.fn(async () => ({})) }, $disconnect: async () => {} } }));
+  prisma: { guardHit: { findMany: vi.fn(async () => guardRows.rows), upsert: vi.fn(async () => ({})) }, settings: { findUnique: vi.fn(async () => guardRows.settings) },
+    $disconnect: async () => {} } }));
 
 const BOTH = ["ru", "tg"] as const;
 const check = (say: unknown, extra: Partial<CustomerAgentSayInput> = {}) =>
@@ -65,10 +66,11 @@ describe("say validator: every refusal code, Russian", () => {
     expect(reason("Понял вас.", { surface: "public_comment" })).toBe("surface_disabled");
     expect(reason("Понял вас.", { surface: "voice" })).toBe("surface_disabled");
   });
-  it("language_disabled: Tajik is off in v1", () => {
-    expect(SAY_ENABLED_LANGUAGES).toEqual(["ru"]);
-    const verdict = validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm", inputText: "Салом" });
-    expect(verdict).toEqual({ ok: false, reason: "language_disabled" });
+  it("language_disabled: only when the company switched the language off; by default both are checked (Tajik joined 14.11.2026)", () => {
+    expect(SAY_ENABLED_LANGUAGES).toEqual(["ru", "tg"]);
+    expect(validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm", inputText: "Салом" })).toEqual({ ok: true, text: "Ташаккур, ки навиштед." });
+    expect(validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm", inputText: "Салом", enabledLanguages: ["ru"] }))
+      .toEqual({ ok: false, reason: "language_disabled" });
     expect(validateCustomerAgentSay({ say: "Понял вас.", language: "ru", surface: "dm" }).ok).toBe(true);
   });
   it.each([
@@ -83,7 +85,7 @@ describe("say validator: every refusal code, Russian", () => {
   ])("length: %s", (_name, say) => { expect(reason(say)).toBe("length"); });
   it.each([
     "Какой район вам подходит.", "Расскажите подробнее о вашей ситуации.", "Что именно вас интересует?", "Вы ищете квартиру?", "Пришлите, пожалуйста, ссылку на объект.",
-    "Сколько вас человек в семье.", "Где вы хотели бы жить.",
+    "Сколько вас человек в семье.", "Где вы хотели бы жить.", "Оставьте телефон для связи.", "Нужен ваш номер, пожалуйста.",
   ])("question: %s", say => { expect(reason(say)).toBe("question"); });
   it.each([
     "Ищете за пять тысяч.", "Понял, нужно 3 комнаты.", "Нужны ５ комнат.", "Нужны ٣ комнаты.", "Давайте завтра.", "Лучше в понедельник.", "Это было в марте.", "Бюджет 100 долларов.",
@@ -95,7 +97,7 @@ describe("say validator: every refusal code, Russian", () => {
   });
   it.each(["Я бот и помогу вам.", "Я ИИ-ассистент компании.", "Работаю через CRM.", "Это **важно**.", "Я нейросеть.", "Вот ваш json.", "Я языковая модель.", "Это инструмент подбора.", "Смотрите ref."])(
     "meta: %s", say => { expect(reason(say)).toBe("meta"); });
-  it.each(["Пишите в вотсап.", "Мой сайт somon dot tj.", "Оставьте телефон для связи.", "Мы в Телеграм.", "Пишите на почту.", "Наш e-mail рабочий.", "Мы в @royalhome.", "См. https://x.tj",
+  it.each(["Пишите в вотсап.", "Мой сайт somon dot tj.", "Наш номер есть в профиле.", "Мы в Телеграм.", "Пишите на почту.", "Наш e-mail рабочий.", "Мы в @royalhome.", "См. https://x.tj",
     "Заходите на сайт.", "Вот ссылка на объект."])("contact: %s", say => { expect(reason(say)).toBe("contact"); });
   it.each(["Мы вам позвоним.", "Я уточню детали.", "Я проверю информацию.", "Посмотрю что можно сделать.", "Сообщу вам позже.", "Запись подтверждена.", "Всё оформлено.",
     "Я забронирую объект.", "Приняли, вернёмся к этому позже.", "Мы будем на связи.", "Я записал ваш запрос.", "Мы свяжемся с вами.", "Подберу вам лучшие варианты.", "Скоро всё узнаю."])("promise: %s", say => { expect(reason(say)).toBe("promise"); });
@@ -130,8 +132,8 @@ describe("say validator: every refusal code, Russian", () => {
 describe("say validator: every refusal code, Tajik", () => {
   it("accepts a plain Tajik acknowledgement", () => { expect(tg("Ташаккур, ки дар бораи вазъияти худ навиштед.")).toBe("ok"); });
   it("surface_disabled", () => { expect(tg("Ташаккур, ки навиштед.", { surface: "public_comment" })).toBe("surface_disabled"); });
-  it("language_disabled by default", () => {
-    expect(validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm" })).toEqual({ ok: false, reason: "language_disabled" });
+  it("language_disabled when the company switched Tajik off", () => {
+    expect(validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm", enabledLanguages: ["ru"] })).toEqual({ ok: false, reason: "language_disabled" });
   });
   it("length", () => { expect(tg("Ташаккур ки навиштед. Фаҳмидам. Бубахшед.")).toBe("length"); expect(tg("Ташаккур.\nФаҳмидам.")).toBe("length"); });
   it.each(["Шумо кадом ноҳияро дӯст медоред?", "Бигӯед, ки чӣ лозим аст.", "Кадом ноҳия мувофиқ аст."])("question: %s", say => { expect(tg(say)).toBe("question"); });
@@ -163,6 +165,76 @@ describe("say validator: every refusal code, Tajik", () => {
     expect(tg("Фаҳмидам, шуморо ин объект ҷалб кардааст.", { priorAssistantTurns: ["Фаҳмидам, шуморо ин объект ҷалб кардааст."] })).toBe("repeat");
   });
   it("double_greet", () => { expect(tg("Салом, хуш омадед.", { social: "greet" })).toBe("double_greet"); });
+});
+
+/**
+ * GOLDEN TABLE OF PHRASES BY DROP REASON (14.11.2026). The production trace never kept the text of a dropped phrase (checked read-only on the server:
+ * 0 of 717 traces since 13.11 hold one, only the reason codes), so these are realistic phrases per reason seen in the counters of 12–14.11
+ * (question 26, language 4, contact 3, cliche 5, double_greet 2), written the way the model writes them. From this release the trace keeps a masked
+ * sample of every phrase that did not reach the customer (customerCore.saySample), and real phrases should replace these rows.
+ */
+describe("say validator: golden table of statements that used to be dropped and phrases that must still be dropped", () => {
+  const ru = (say: string, inputText = "Здравствуйте, ищу квартиру для семьи") => reason(say, { inputText });
+  it.each([
+    // question: an interrogative INSIDE a statement (the main source of the 11 false drops on 13.11)
+    ["question", "Понимаю, как это важно для вашей семьи.", "ok"],
+    ["question", "Ясно, какая квартира вам нужна.", "ok"],
+    ["question", "Понимаю, почему вы решили переехать.", "ok"],
+    ["question", "Хорошо, что вы написали нам.", "ok"],
+    ["question", "Как важно найти дом рядом со школой.", "ok"],
+    ["question", "Как раз такой вариант многие и ищут.", "ok"],
+    ["question", "Где вам удобно, там и хорошо.", "ok"],
+    ["question", "Вряд ли это станет проблемой.", "ok"],
+    // question: real questions and requests stay dropped
+    ["question", "Какой район вам подходит.", "question"],
+    ["question", "А где вы хотели бы жить.", "question"],
+    ["question", "Интересно, как вы нас нашли.", "question"],
+    ["question", "Удобно ли вам говорить сейчас.", "question"],
+    ["question", "Расскажите, что для вас важно.", "question"],
+    ["question", "Понял вас, не подскажете район.", "question"],
+    // contact: a plain mention of the customer's number is an acknowledgement, our number or a request for his is not
+    ["contact", "Спасибо, что оставили номер.", "ok"],
+    ["contact", "Понял, вам удобнее по телефону.", "ok"],
+    ["contact", "Наш номер есть в профиле.", "contact"],
+    ["contact", "Нужен ваш телефон, пожалуйста.", "question"],
+    ["contact", "Пишите нам в вотсап.", "contact"],
+    // informal
+    ["informal", "Понял тебя, давайте разберёмся.", "informal"],
+    // cliche and double_greet are unchanged by design
+    ["cliche", "С радостью, давайте разберёмся.", "cliche"],
+    ["cliche", "Понимаю ваше беспокойство.", "cliche"],
+  ] as const)("%s: %s -> %s", (_reason, say, expected) => { expect(ru(say)).toBe(expected); });
+  it("double_greet stays: a greeting inside the phrase after the server greeted", () => {
+    expect(reason("Добрый день, рад, что вы написали.", { social: "greet" })).toBe("double_greet");
+    expect(tg("Ассалому алейкум, хуш омадед.", { social: "greet" })).toBe("double_greet");
+  });
+  it("language: a Russian phrase may carry the customer's own Tajik spelling of a place, but not Tajik of its own", () => {
+    expect(ru("Понял, вы ищете в Шоҳмансуре.", "Квартира в Шоҳмансуре нужна")).toBe("ok");
+    expect(ru("Понял, вы ищете в Шоҳмансуре.")).toBe("place");
+    expect(ru("Понял, ташаккур, ки навиштед.")).toBe("language");
+    expect(ru("Понял, рахмат.")).toBe("language");
+  });
+  it.each([
+    // Tajik statements with Russian loanwords are ordinary Dushanbe speech
+    ["Хуб, фаҳмидам, ба шумо квартира дар маркази шаҳр лозим аст.", "ok"],
+    ["Фаҳмидам, ки шумо куҷо зиндагӣ кардан мехоҳед.", "ok"],
+    ["Ташаккур, ки рақамро ба мо додед.", "ok"],
+    ["Чӣ хуб, ки навиштед.", "ok"],
+    ["Бубахшед барои таъхир.", "ok"],
+    // Tajik questions, requests and the familiar «ту»
+    ["Куҷо зиндагӣ мекунед.", "question"],
+    ["Шумо хона мехоҳедми.", "question"],
+    ["Шумо хона мехоҳед-ми.", "question"],
+    ["Оё шумо хона мехоҳед.", "question"],
+    ["Хуб, кай вохӯрем.", "question"],
+    ["Кӣ дар оила зиндагӣ мекунад.", "question"],
+    ["Телефони шумо лозим аст.", "question"],
+    ["Ташаккур, ки ба ту навиштам.", "informal"],
+    ["Рақами мо дар профил аст.", "contact"],
+    // a Russian phrase under a Tajik reply, and a blend carried by Russian
+    ["Понял, спасибо, что написали.", "language"],
+    ["Хорошо, понял, спасибо за ответ, рахмат.", "language"],
+  ] as const)("Tajik: %s -> %s", (say, expected) => { expect(tg(say)).toBe(expected); });
 });
 
 describe("say validator: attacks that must not pass", () => {
@@ -215,14 +287,29 @@ describe("model guidance", () => {
       for (const example of CUSTOMER_AGENT_SAY_EXAMPLES[language]) expect(CUSTOMER_AGENT_SAY_GUIDANCE).toContain(`"say":"${example}"`);
     }
   });
-  it("names the words the validator reads as a question, and every one of them really is dropped as a question", () => {
-    // 13.11.2026: 11 phrases a day were dropped as «question» although the model was only told «no questions». The word list in the guidance must never drift from ASKING.
-    // The list is cut out of the guidance and compared EXACTLY (a substring check would pass «скажите» inside «подскажите»).
-    const listed = /без слов (.+?) — сервер отбрасывает/u.exec(CUSTOMER_AGENT_SAY_GUIDANCE)?.[1]?.split(", ");
-    expect(listed).toEqual(["как (и любых на «как»: какой", "какая", "каким)", ...SAY_ASKING_WORDS_RU, "не подскажете"]);
-    for (const word of [...SAY_ASKING_WORDS_RU, "как", "какой", "какая", "каким", "не подскажете"]) expect(reason(`Понял, ${word} это важно.`)).toBe("question");
-    expect(reason("Понял, как это важно для семьи.")).toBe("question");
-    expect(reason("Понял, какая квартира вам нужна.")).toBe("question");
+  it("names exactly the lists the validator uses (one list per kind, 13.11 and 14.11.2026)", () => {
+    // Cut out of the guidance and compared EXACTLY (a substring check would pass «скажите» inside «подскажите»).
+    const cut = (re: RegExp) => re.exec(CUSTOMER_AGENT_SAY_GUIDANCE)?.[1]?.split(", ");
+    expect(cut(/не начинается со слов: (.+?); по-таджикски/u)).toEqual([...SAY_QUESTION_WORDS_RU]);
+    expect(cut(/по-таджикски: (.+?); нет частиц/u)).toEqual([...SAY_QUESTION_WORDS_TG]);
+    expect(cut(/нет частиц: (.+?)\. Внутри/u)).toEqual([...SAY_QUESTION_PARTICLES]);
+    expect(cut(/без просьб: (.+?); по-таджикски/u)).toEqual([...SAY_REQUEST_WORDS_RU]);
+    expect(cut(/без просьб: .+?; по-таджикски: (.+?);\n/u)).toEqual([...SAY_REQUEST_WORDS_TG]);
+  });
+  it("an interrogative opening a sentence is a question; the same word inside a sentence is not (the 13.11 false drops)", () => {
+    const cap = (word: string) => word[0]!.toUpperCase() + word.slice(1);
+    for (const word of SAY_QUESTION_WORDS_RU) {
+      expect(reason(`${cap(word)} вам удобно.`), word).toBe("question");
+      expect(reason(`Понимаю, ${word} вам удобно.`), word).toBe("ok");
+    }
+    for (const word of SAY_QUESTION_WORDS_TG) {
+      expect(tg(`${cap(word)} шумо хона мехоҳед.`), word).toBe("question");
+      expect(tg(`Фаҳмидам, ки шумо ${word} хона мехоҳед.`), word).toBe("ok");
+    }
+    for (const word of SAY_REQUEST_WORDS_RU) expect(reason(`Понял, ${word} это.`), word).toBe("question");
+    for (const word of SAY_REQUEST_WORDS_TG) expect(tg(`Фаҳмидам, ${word}.`), word).toBe("question");
+    // The example the guidance itself gives must pass.
+    expect(reason("Понимаю, как это важно для семьи.")).toBe("ok");
   });
   it("does not touch the pinned system prompt: its hash cannot ride the ordinary revision advance if it changes", () => {
     expect(CUSTOMER_AGENT_SYSTEM).not.toContain("replyLanguage");
@@ -237,6 +324,19 @@ describe("mode and daily statistics", () => {
     expect(customerAgentSayMode({ CUSTOMER_AGENT_SAY_MODE: "LIVE" })).toBe("shadow");
     expect(customerAgentSayMode({ CUSTOMER_AGENT_SAY_MODE: "true" })).toBe("shadow");
     expect(customerAgentSayMode({ CUSTOMER_AGENT_SAY_MODE: "live" })).toBe("live");
+  });
+  it("the Tajik switch on the «Бот» screen: on by default and without a row, off only when switched off, Russian-only on a failed read", async () => {
+    const { prisma } = await import("../src/db.js");
+    guardRows.settings = null;
+    expect(await customerAgentSayLanguages()).toEqual(["ru", "tg"]);
+    guardRows.settings = { botSayTajik: true };
+    expect(await customerAgentSayLanguages()).toEqual(["ru", "tg"]);
+    guardRows.settings = { botSayTajik: false };
+    expect(await customerAgentSayLanguages()).toEqual(["ru"]);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(prisma.settings.findUnique).mockRejectedValueOnce(new Error("db down"));
+    expect(await customerAgentSayLanguages()).toEqual(["ru"]);
+    spy.mockRestore(); guardRows.settings = null;
   });
   it("counts a shadowed valid phrase as accepted and a refusal as dropped", () => {
     const day = summarizeCustomerAgentSayDay([{ guard: "say_dropped_shadow", count: 6 }, { guard: "say_used", count: 2 }, { guard: "say_dropped_length", count: 2 }, { guard: "repeat_greeting", count: 40 }]);

@@ -196,6 +196,27 @@ describe("grounded free phrase (say) in the managed core trace", () => {
     }, f.config);
     expect(f.rows.at(-1)?.customerCore).not.toHaveProperty("sayStatus");
   });
+  it("keeps a masked sample of a phrase that did NOT reach the customer (14.11.2026): digits, links, e-mails and handles never survive", async () => {
+    const f = recorder();
+    const raw = "Понял, звоните +992 93 000 3726, пишите на a@b.tj или @royal, см. https://x.tj " + "длинно ".repeat(40);
+    await withBotTurnTrace({ ...start, managed: { surface: "dm", phase: "planning" } }, async () => {
+      traceCustomerCoreResult({ status: "ready", decision: { kind: "reply" }, rounds: 1, toolCalls: 0, evidence: [], say: { status: "dropped", reason: "contact", sample: raw } });
+      traceCustomerCoreDisposition("planned");
+    }, f.config);
+    const sample = f.rows.at(-1)!.customerCore?.saySample ?? "";
+    expect(sample.startsWith("Понял, звоните")).toBe(true);
+    expect(sample.length).toBeLessThanOrEqual(200);
+    expect(sample).not.toMatch(/\d|a@b|@royal|https?:/u);
+    expect(botTurnTracePayloadSchema.safeParse(f.rows.at(-1)).success).toBe(true);
+  });
+  it("a used phrase leaves no sample even if one is handed over", async () => {
+    const f = recorder();
+    await withBotTurnTrace({ ...start, managed: { surface: "dm", phase: "planning" } }, async () => {
+      traceCustomerCoreResult({ status: "ready", decision: { kind: "reply" }, rounds: 1, toolCalls: 0, evidence: [],
+        say: { status: "used", sample: "PRIVATE_SAY_TEXT_MUST_NOT_APPEAR" } as never });
+    }, f.config);
+    expect(JSON.stringify(f.rows)).not.toContain("PRIVATE_SAY_TEXT_MUST_NOT_APPEAR");
+  });
   it("the schema refuses a reason outside the closed set", () => {
     const base = { status: "ready", rounds: 1, toolCalls: 0, receiptOutcomes: [] };
     expect(traceCustomerCoreSchema.safeParse({ ...base, sayStatus: "dropped", sayDropReason: "not_a_reason" }).success).toBe(false);
