@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { leadOnlyAppliesTo, leadOnlyCallbackWhen, leadOnlyFilterReply, leadOnlyHotIntent, leadOnlyPhoneAskHistory, leadOnlyPhoneLine, leadOnlyReply,
   leadOnlyReplyAvoidingRepeat, leadOnlyScenario, clampMaxPhoneAsks, LEAD_ONLY_OFFICE_PHONE_TEXT } from "../src/ai/leadOnlyMode.js";
 import { leadOnlyPropertyAsked } from "../src/lib/leadOnlySettings.js";
+import { leadOnlyIntentFallback } from "../src/ai/leadOnlyIntent.js";
 
 /**
  * Режим «только заявки» (владелец 12–13.11.2026): одна дверь решений и текстов
@@ -9,6 +10,8 @@ import { leadOnlyPropertyAsked } from "../src/lib/leadOnlySettings.js";
  * в lead-only-mode-legacy-postgres.test.ts и lead-only-mode-core-postgres.test.ts.
  */
 const config = { hotIntentHandover: true };
+/** Сценарий по запасному пути двери намерения (регулярки, без модели): так решает код, когда модель не ответила. */
+const scenario = (input: Omit<Parameters<typeof leadOnlyScenario>[0], "intent">) => leadOnlyScenario({ ...input, intent: leadOnlyIntentFallback(input.text) });
 const soon = { kind: "soon" as const };
 
 describe("горячие слова → агенту сразу", () => {
@@ -30,32 +33,32 @@ describe("горячие слова → агенту сразу", () => {
     "Мо харидори воқеӣ ҳастем",
   ])("«%s» — горячие", text => {
     expect(leadOnlyHotIntent(text)).toBe(true);
-    expect(leadOnlyScenario({ text, propertyKnown: false, config })).toBe("hot");
+    expect(scenario({ text, propertyKnown: false, config })).toBe("hot");
   });
   // Второе ревью 13.11: голый вопрос об адресе — вопрос об объекте, «другие варианты» — просьба о подборке.
   it.each(["Здравствуйте", "Сколько стоит?", "Адрес вашего офиса?", "Где ваш офис находится, адрес?", "Нархаш чанд?",
     "Скажите адрес", "Какой адрес?", "Суроғаш куҷо аст?", "Можно посмотреть другие варианты?", "Можно посмотреть ещё варианты?"])(
     "«%s» — не горячие", text => expect(leadOnlyHotIntent(text)).toBe(false));
   it("рубильник горячих слов выключен — сценарий не «hot»", () => {
-    expect(leadOnlyScenario({ text: "Хотим посмотреть", propertyKnown: true, config: { hotIntentHandover: false } })).toBe("property");
+    expect(scenario({ text: "Хотим посмотреть", propertyKnown: true, config: { hotIntentHandover: false } })).toBe("property");
   });
 });
 
 describe("сценарий хода", () => {
-  it("продать квартиру — продавец", () => expect(leadOnlyScenario({ text: "Хочу продать свою квартиру", propertyKnown: false, config })).toBe("seller"));
-  it("нужна квартира — покупатель", () => expect(leadOnlyScenario({ text: "Ищу двухкомнатную квартиру в Сино", propertyKnown: false, config })).toBe("buyer"));
-  it("объект известен — сценарий объекта", () => expect(leadOnlyScenario({ text: "Интересует", propertyKnown: true, config })).toBe("property"));
+  it("продать квартиру — продавец", () => expect(scenario({ text: "Хочу продать свою квартиру", propertyKnown: false, config })).toBe("seller"));
+  it("нужна квартира — покупатель", () => expect(scenario({ text: "Ищу двухкомнатную квартиру в Сино", propertyKnown: false, config })).toBe("buyer"));
+  it("объект известен — сценарий объекта", () => expect(scenario({ text: "Интересует", propertyKnown: true, config })).toBe("property"));
   it("ясное «хочу продать» сильнее объекта в фокусе и слова «адрес»", () => {
-    expect(leadOnlyScenario({ text: "Хочу продать свою квартиру", propertyKnown: true, config })).toBe("seller");
-    expect(leadOnlyScenario({ text: "Продаю квартиру, адрес Сино 12", propertyKnown: false, config })).toBe("seller");
+    expect(scenario({ text: "Хочу продать свою квартиру", propertyKnown: true, config })).toBe("seller");
+    expect(scenario({ text: "Продаю квартиру, адрес Сино 12", propertyKnown: false, config })).toBe("seller");
   });
   it("вакансии остаются как были (Ноза)", () => {
-    expect(leadOnlyScenario({ text: "Есть вакансия? Ищу работу", propertyKnown: false, config })).toBeNull();
-    expect(leadOnlyScenario({ text: "Хочу купить квартиру", propertyKnown: false, jobTopic: true, config })).toBeNull();
+    expect(scenario({ text: "Есть вакансия? Ищу работу", propertyKnown: false, config })).toBeNull();
+    expect(scenario({ text: "Хочу купить квартиру", propertyKnown: false, jobTopic: true, config })).toBeNull();
   });
   it("аренда и просто приветствие — не заявка", () => {
-    expect(leadOnlyScenario({ text: "Сдаёте квартиру в аренду?", propertyKnown: false, config })).toBeNull();
-    expect(leadOnlyScenario({ text: "Здравствуйте", propertyKnown: false, config })).toBeNull();
+    expect(scenario({ text: "Сдаёте квартиру в аренду?", propertyKnown: false, config })).toBeNull();
+    expect(scenario({ text: "Здравствуйте", propertyKnown: false, config })).toBeNull();
   });
 });
 
@@ -154,15 +157,15 @@ describe("ревью 13.11: горячие слова не ловят отриц
 describe("ревью 13.11: объект, оставшийся в фокусе, не «залипает» (№2)", () => {
   it.each(["Где ваш офис?", "Спасибо", "Здравствуйте", "А вы работаете в субботу?"])(
     "«%s» при старом объекте — не сценарий объекта", text =>
-      expect(leadOnlyScenario({ text, propertyKnown: true, propertyInMessage: false, propertyAsked: leadOnlyPropertyAsked(text), config }))
+      expect(scenario({ text, propertyKnown: true, propertyInMessage: false, propertyAsked: leadOnlyPropertyAsked(text), config }))
         .not.toBe("property"));
   it("объект из этого сообщения или вопрос о нём — сценарий объекта", () => {
-    expect(leadOnlyScenario({ text: "Салом", propertyKnown: true, propertyInMessage: true, config })).toBe("property");
-    expect(leadOnlyScenario({ text: "Сколько стоит?", propertyKnown: true, propertyAsked: leadOnlyPropertyAsked("Сколько стоит?"), config })).toBe("property");
-    expect(leadOnlyScenario({ text: "Эта квартира ещё продаётся?", propertyKnown: true, config })).toBe("property");
+    expect(scenario({ text: "Салом", propertyKnown: true, propertyInMessage: true, config })).toBe("property");
+    expect(scenario({ text: "Сколько стоит?", propertyKnown: true, propertyAsked: leadOnlyPropertyAsked("Сколько стоит?"), config })).toBe("property");
+    expect(scenario({ text: "Эта квартира ещё продаётся?", propertyKnown: true, config })).toBe("property");
   });
   it("покупатель с новым запросом при старом объекте — покупатель, а не объект", () =>
-    expect(leadOnlyScenario({ text: "Хочу купить квартиру в Сино", propertyKnown: true, config })).toBe("buyer"));
+    expect(scenario({ text: "Хочу купить квартиру в Сино", propertyKnown: true, config })).toBe("buyer"));
 });
 
 describe("ревью 13.11: правда в текстах (№3, №6)", () => {

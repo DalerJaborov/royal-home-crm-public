@@ -497,7 +497,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       // person must learn about it (14.11.2026 — before, nobody was told).
       if (result.status === "ready" && result.decision.kind === "escalate") {
         await notifyEscalatedCustomerTurn({ conversationId: lane.ticket.conversationId, channel: lane.principal.scope.channel,
-          text: fullInput() });
+          text: fullInput(), jobTopic: remembered.context.publicState.topic === "job" });
       }
       return { status: "held", reason };
     }

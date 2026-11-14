@@ -28,6 +28,7 @@ import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyAppliesTo, leadOnlyCallbackNotedLine, l
   leadOnlyGivenLineAvoidingRepeat, leadOnlyNoCallNotedLine, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused,
   leadOnlyNoAgentLine, leadOnlyRecentCallbackTime, leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
   type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
+import { classifyLeadOnlyIntent, leadOnlyIntentOnce, type LeadOnlyIntent } from "../ai/leadOnlyIntent.js";
 import { customerSearchContinuation, customerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { customerRecruitmentRequested } from "../ai/customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
@@ -99,6 +100,8 @@ export interface CustomerLeadOnlyTurnInput {
   jobTopic: boolean;
   /** Модель решила «передать сотруднику» или фильтр вырезал подборку — в этом режиме это ответ (и заявка, если номер есть), а не молчание. */
   forced?: "escalate";
+  /** Только для тестов: подмена двери ai/leadOnlyIntent.ts (по умолчанию — она сама, с моделью). */
+  classifyIntent?: (text: string, earlier: readonly string[]) => Promise<LeadOnlyIntent>;
 }
 
 export interface CustomerLeadOnlyTurnPlan {
@@ -171,7 +174,11 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
   const knownPropertyId = input.focusPropertyId ?? pending?.propertyId ?? null;
   const propertyInput = { propertyKnown: !!knownPropertyId, propertyInMessage: input.focusFromThisMessage,
     propertyAsked: !!knownPropertyId && leadOnlyPropertyAsked(own), config: input.config };
-  let scenario: LeadOnlyScenario | "escalate" | null = input.forced ?? leadOnlyScenario({ text: own, ...propertyInput });
+  // Роль и горячесть — одна дверь (ai/leadOnlyIntent.ts): модель с проверкой цитаты, иначе запасные регулярки.
+  const intentOf = leadOnlyIntentOnce(input.classifyIntent ?? ((text, earlier) =>
+    classifyLeadOnlyIntent({ current: text, earlier, conversationId: input.conversationId })));
+  let scenario: LeadOnlyScenario | "escalate" | null = input.forced ??
+    leadOnlyScenario({ text: own, ...propertyInput, intent: await intentOf(own, userTexts) });
   // Тема пришла словами ЭТОГО сообщения: память о прежней просьбе номера больше не о том (если номер больше не просим).
   const topicNow = !!scenario && !input.forced;
   // «Соедините с человеком» (пятое ревью 13.11, №1): передачи сотруднику в режиме нет. Ответ сервера тот же, что у вопроса
@@ -198,7 +205,8 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput,
   if (!scenario && (volunteered || refusedNow && !linked)) {
     // Номер (или отказ) в ответ на «оставьте номер» сам сценария не несёт: тема — то, о чём бот просил номер,
     // иначе прежние слова клиента.
-    const earlier = leadOnlyScenario({ text: userTexts.join("\n"), ...propertyInput, propertyInMessage: false });
+    const joined = userTexts.join("\n");
+    const earlier = leadOnlyScenario({ text: joined, ...propertyInput, propertyInMessage: false, intent: await intentOf(joined) });
     fromPending = !!pending;
     if (volunteered && (pending || earlier || history.asksSoFar > 0 || linked)) { scenario = pending?.scenario ?? earlier ?? "escalate"; numberOnly = true; }
     else if (!volunteered && (pending || earlier)) scenario = pending?.scenario ?? earlier;

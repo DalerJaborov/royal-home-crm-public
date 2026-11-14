@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Дверь намерения (ai/leadOnlyIntent.ts) без модели: эти тесты — про решения кода, роль и горячесть дают запасные регулярки.
+// Модельный путь двери — tests/lead-only-intent.test.ts.
+vi.mock("../src/ai/leadOnlyIntent.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/ai/leadOnlyIntent.js")>();
+  return { ...actual, classifyLeadOnlyIntent: (input: Parameters<typeof actual.classifyLeadOnlyIntent>[0]) => actual.classifyLeadOnlyIntent(input, async () => null) };
+});
 import { prisma } from "../src/db.js";
 import { planCustomerLeadOnlyTurn, runCustomerLeadOnlyIntake, sealCustomerLeadOnlyIntake, type CustomerLeadOnlyTurnInput } from "../src/lib/customerLeadOnlyCore.js";
 import { alarmLeadOnlyIntake, leadOnlyAlarmTag } from "../src/lib/leadOnlyHandover.js";
@@ -69,6 +76,17 @@ describe("ядро: решения хода", () => {
     }
     const fresh = await planCustomerLeadOnlyTurn(input({ inputText: "Салом", focusPropertyId: propertyId, focusFromThisMessage: true }));
     expect(fresh?.scenario).toBe("property");
+  });
+
+  it("14.11: роль хода — из двери намерения: «подскажите, сколько стоит» после «хочу продать» — продавец; модель видит прежние слова", async () => {
+    const turns = [{ role: "user" as const, text: "Хочу продать свою квартиру" }, { role: "assistant" as const, text: "Понял вас." }];
+    const seen: Array<[string, readonly string[]]> = [];
+    const plan = await planCustomerLeadOnlyTurn(input({ inputText: "Подскажите, сколько стоит", turns,
+      classifyIntent: async (text, earlier) => { seen.push([text, earlier]);
+        return { role: "seller", hot: false, quote: "Хочу продать свою квартиру", hotQuote: null, source: "model" }; } }));
+    expect(plan?.scenario).toBe("seller");
+    expect(plan?.text).toMatch(/поможем продать/u);
+    expect(seen[0]).toEqual(["Подскажите, сколько стоит", ["Хочу продать свою квартиру"]]);
   });
 
   it("№4: вакансия никогда не становится заявкой покупателя, даже если модель «передала сотруднику»", async () => {

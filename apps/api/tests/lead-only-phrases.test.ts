@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LEAD_ONLY_CALLBACK_WINDOW_MS, LEAD_ONLY_DEFAULTS, leadOnlyCallbackTime, leadOnlyCallDeclined, leadOnlyCallRequested, leadOnlyHotIntent,
   leadOnlyNoCallNotedLine, leadOnlyPhoneRefused, leadOnlyRecentCallbackTime, leadOnlyServerLine, leadOnlyStripPhoneAsk } from "../src/ai/leadOnlyMode.js";
 import { legacyLeadOnlyDraftForPhone } from "../src/messengers/leadOnlyLegacy.js";
+import { leadOnlyIntentFallback } from "../src/ai/leadOnlyIntent.js";
 
 /**
  * ТАБЛИЦА ФРАЗ РЕЖИМА «ТОЛЬКО ЗАЯВКИ» (четвёртое ревью 13.11.2026). Одна таблица на все слова, по которым режим решает:
@@ -145,15 +146,17 @@ describe("№5: время звонка — только из сообщений
 
 describe("№5: тема этого сообщения важнее старой темы черновика модели", () => {
   const config = { ...LEAD_ONLY_DEFAULTS, enabled: true };
-  it("продавец с номером — пометка о продаже, а не прежнее «ищет 2-комнатную» из черновика", () => {
-    const draft = legacyLeadOnlyDraftForPhone({ config, history: [], text: "Хочу продать свою квартиру, 93 123 45 67",
+  // Решения кода: дверь намерения без модели (запасной путь) — ai/leadOnlyIntent.ts.
+  const noModel = async (text: string) => leadOnlyIntentFallback(text);
+  it("продавец с номером — пометка о продаже, а не прежнее «ищет 2-комнатную» из черновика", async () => {
+    const draft = await legacyLeadOnlyDraftForPhone({ config, classifyIntent: noModel, history: [], text: "Хочу продать свою квартиру, 93 123 45 67",
       draft: { stage: "chatting", callbackTopic: "Ищет 2-комнатную в Сино" }, freshPropertyId: null, carriedPropertyId: null, pending: null });
     expect(draft.intent).toBe("sell");
     expect(draft.callbackTopic).toMatch(/продать/u);
     expect(draft.callbackTopic).not.toMatch(/Сино/u);
   });
-  it("голый номер — тема по-прежнему из черновика", () => {
-    const draft = legacyLeadOnlyDraftForPhone({ config, history: [{ role: "user", content: "Ищу 2-комнатную в Сино" }], text: "93 123 45 67",
+  it("голый номер — тема по-прежнему из черновика", async () => {
+    const draft = await legacyLeadOnlyDraftForPhone({ config, classifyIntent: noModel, history: [{ role: "user", content: "Ищу 2-комнатную в Сино" }], text: "93 123 45 67",
       draft: { stage: "chatting", callbackTopic: "Ищет 2-комнатную в Сино" }, freshPropertyId: null, carriedPropertyId: null, pending: null });
     expect(draft.callbackTopic).toMatch(/Сино/u);
   });

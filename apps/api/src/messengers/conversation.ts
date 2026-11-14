@@ -3147,9 +3147,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       // счётчик времени ответа агенту шёл бы, пока тот спит.
       // Режим «только заявки»: тема и объект ЭТОГО сообщения сильнее памяти просьбы (третье ревью 13.11, №1); голый номер —
       // то, о чём бот просил номер (lib/leadOnlyPending.ts), иначе прежние слова клиента.
-      const draftForLead = leadOnlyChannel ? legacyLeadOnlyDraftForPhone({ config: leadOnlyConfig, history, text: saidWithPhone || text, draft,
+      const draftForLead = leadOnlyChannel ? await legacyLeadOnlyDraftForPhone({ config: leadOnlyConfig, history, text: saidWithPhone || text, draft,
         freshPropertyId: input.sharedPropertyId ?? input.adPropertyId ?? null, carriedPropertyId: draft.requestedPropertyId ?? null,
-        jobTopic: vacancyTopic, pending: await readLeadOnlyPending(conversation.id) }) : draft;
+        jobTopic: vacancyTopic, pending: await readLeadOnlyPending(conversation.id), conversationId: conversation.id }) : draft;
       return await acceptLead(conversation.id, channel, conversation.name ?? name, phoneForLead, draftForLead, history, {
         // Объект известен (сценарий 2) — его агенту сразу, в любое время; иначе ночью — утренней волной.
         deferAssignment: leadOnlyChannel && draftForLead.requestedPropertyId ? false : !(await isWithinWorkingHours()),
@@ -3350,7 +3350,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     return planLegacyLeadOnlyTurn({ config: leadOnlyConfig, channel, subscriberId, linked: !!conversation.clientId,
       cardAgent: conversation.clientId ? await leadOnlyCardAgentActive(conversation.clientId).catch(() => true) : false,
       text: merged, history, draft: turnDraft, propertyId: leadOnlyPropertyId, propertyInMessage: leadOnlyPropertyFresh, language: leadOnlyLanguage,
-      jobTopic: vacancyTopic, pending: leadOnlyPending, ...(forced ? { forced } : {}) });
+      jobTopic: vacancyTopic, pending: leadOnlyPending, conversationId: conversation.id, ...(forced ? { forced } : {}) });
   };
   /** Заявка (номер есть, карточки нет) или пометка в карточке. Без номера — никого: ни пушей, ни записей в ленте. */
   const settleLeadOnlyPlan = async (plan: LegacyLeadOnlyPlan): Promise<void> => {

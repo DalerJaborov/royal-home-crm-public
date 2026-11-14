@@ -13,6 +13,7 @@ import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyAppliesTo, leadOnlyCallbackNotedLine, l
   leadOnlyGivenLineAvoidingRepeat, leadOnlyNoAgentLine, leadOnlyNoCallNotedLine, leadOnlyNoteWithCallbackTime, leadOnlyPhoneAskHistory, leadOnlyPhoneRefused, leadOnlyRecentCallbackTime,
   leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
   type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
+import { classifyLeadOnlyIntent, leadOnlyIntentOnce, type LeadOnlyIntent } from "../ai/leadOnlyIntent.js";
 import { customerSearchContinuation, customerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
 import type { ChatMessage } from "../ai/shared.js";
@@ -69,6 +70,17 @@ const NOTE_CHAT: Record<LegacyScenario, string> = {
 const LABEL: Record<LegacyScenario, string> = { hot: "🔥 Готов смотреть", property: "Интересует конкретный объект", seller: "Хочет продать",
   buyer: "Ищет недвижимость", escalate: "Вопрос к агенту" };
 
+interface LegacyIntentInput {
+  /** Диалог — для журнала вызова модели. */
+  conversationId?: string | null;
+  /** Только для тестов: подмена двери ai/leadOnlyIntent.ts (по умолчанию — она сама, с моделью). */
+  classifyIntent?: (text: string, earlier: readonly string[]) => Promise<LeadOnlyIntent>;
+}
+function legacyIntentDoor(input: LegacyIntentInput) {
+  return leadOnlyIntentOnce(input.classifyIntent ?? ((text, earlier) =>
+    classifyLeadOnlyIntent({ current: text, earlier, conversationId: input.conversationId ?? null })));
+}
+
 /** Когда звонить — из этого сообщения, иначе из последнего сообщения клиента за сутки, где он это назвал (четвёртое ревью, №5). */
 function callbackTimeOf(own: string, history: readonly ChatMessage[], now: Date): string | null {
   const earlier = history.filter(m => m.role === "user").map(m => ({ text: clientOwnWords(String(m.content ?? "")), at: m.at ?? null }));
@@ -98,16 +110,19 @@ export async function planLegacyLeadOnlyTurn(input: {
   forced?: "escalate";
   /** Сейчас (время звонка берётся из сообщений за сутки). */
   now?: Date;
-}): Promise<LegacyLeadOnlyPlan | null> {
+} & LegacyIntentInput): Promise<LegacyLeadOnlyPlan | null> {
   if (!input.config.enabled || !leadOnlyAppliesTo(input.channel)) return null;
   const own = clientOwnWords(input.text);
   const jobTopic = input.jobTopic || input.draft.intent === "job";
   if (input.forced && jobTopic) return null;
+  const userWords = input.history.filter(m => m.role === "user").map(m => clientOwnWords(String(m.content ?? "")));
+  // Роль и горячесть — одна дверь (ai/leadOnlyIntent.ts), та же, что у ядра; разбор не повторяется в пределах хода.
+  const intentOf = legacyIntentDoor(input);
   let scenario: LegacyScenario | null = input.forced ?? leadOnlyScenario({ text: own, propertyKnown: !!input.propertyId,
-    propertyInMessage: input.propertyInMessage, propertyAsked: !!input.propertyId && leadOnlyPropertyAsked(own), jobTopic, config: input.config });
+    propertyInMessage: input.propertyInMessage, propertyAsked: !!input.propertyId && leadOnlyPropertyAsked(own), jobTopic, config: input.config,
+    intent: await intentOf(own, userWords) });
   // Тема пришла словами ЭТОГО сообщения (а не из памяти просьбы): прежняя просьба номера больше не о том.
   const topicNow = !!scenario && !input.forced;
-  const userWords = input.history.filter(m => m.role === "user").map(m => clientOwnWords(String(m.content ?? "")));
   const turns = input.history.map(m => ({ role: m.role === "user" ? "user" as const : "assistant" as const, text: String(m.content ?? "") }));
   const sent = turns.filter(t => t.role === "assistant").map(t => t.text);
   const callbackTime = jobTopic ? null : callbackTimeOf(own, input.history, input.now ?? new Date());
@@ -133,7 +148,9 @@ export async function planLegacyLeadOnlyTurn(input: {
   let propertyId = scenario === "property" || scenario === "hot" ? input.propertyId : null;
   if (!scenario && refusedNow && !input.linked && !jobTopic) {
     // Отказ сам темы не несёт: тема — то, о чём бот просил номер, иначе прежние слова клиента.
-    scenario = input.pending?.scenario ?? leadOnlyScenario({ text: userWords.join("\n"), propertyKnown: !!input.propertyId, jobTopic, config: input.config });
+    const joined = userWords.join("\n");
+    scenario = input.pending?.scenario ?? leadOnlyScenario({ text: joined, propertyKnown: !!input.propertyId, jobTopic, config: input.config,
+      intent: await intentOf(joined) });
     propertyId = input.pending ? input.pending.propertyId : scenario === "property" || scenario === "hot" ? input.propertyId : null;
   }
   // «Соедините с человеком» (пятое ревью 13.11, №1): передачи сотруднику и пуша дежурному в режиме нет. Ответ — как на вопрос
@@ -210,16 +227,17 @@ export async function planLegacyLeadOnlyTurn(input: {
  * а пост объекта B с номером — заявка по B. Память просьбы (lib/leadOnlyPending.ts) — тема только голого номера,
  * иначе прежние слова клиента. Черновик с намерением нужен приёму, иначе заявка уйдёт «прочим обращением».
  */
-export function legacyLeadOnlyDraftForPhone(input: { config: LeadOnlyConfig; history: ChatMessage[]; text: string; draft: LeadDraft;
+export async function legacyLeadOnlyDraftForPhone(input: { config: LeadOnlyConfig; history: ChatMessage[]; text: string; draft: LeadDraft;
   /** Объект ЭТОГО сообщения: пост, реклама, ссылка этого хода. */
   freshPropertyId: string | null;
   /** Объект, оставшийся с прошлых ходов (названный в черновике). */
   carriedPropertyId: string | null;
-  jobTopic?: boolean; pending?: LeadOnlyPending | null; now?: Date }): LeadDraft {
+  jobTopic?: boolean; pending?: LeadOnlyPending | null; now?: Date } & LegacyIntentInput): Promise<LeadDraft> {
   const jobTopic = input.jobTopic || input.draft.intent === "job";
   if (jobTopic) return input.draft;
   const own = clientOwnWords(input.text);
   const earlier = input.history.filter(m => m.role === "user").map(m => clientOwnWords(String(m.content ?? "")));
+  const intentOf = legacyIntentDoor(input);
   const callbackTime = callbackTimeOf(own, input.history, input.now ?? new Date());
   // `fresh` — тема этого сообщения: она важнее старой темы из черновика модели (четвёртое ревью 13.11, №5).
   const withTime = (draft: LeadDraft, note: string, fresh = false): LeadDraft =>
@@ -227,7 +245,7 @@ export function legacyLeadOnlyDraftForPhone(input: { config: LeadOnlyConfig; his
   // 1. Тема этого сообщения. Объект разговора: пришедший сейчас, иначе тот, о котором просили номер, иначе из черновика.
   const knownPropertyId = input.freshPropertyId ?? input.pending?.propertyId ?? input.carriedPropertyId;
   const current = leadOnlyScenario({ text: own, propertyKnown: !!knownPropertyId, propertyInMessage: !!input.freshPropertyId,
-    propertyAsked: !!knownPropertyId && leadOnlyPropertyAsked(own), jobTopic, config: input.config });
+    propertyAsked: !!knownPropertyId && leadOnlyPropertyAsked(own), jobTopic, config: input.config, intent: await intentOf(own, earlier) });
   if (current) {
     const propertyId = current === "property" || current === "hot" ? knownPropertyId : null;
     // Продавец говорит о СВОЁМ объекте: прежний чужой объект из черновика его заявку не уводит (правило 02.10.2026).
@@ -244,7 +262,7 @@ export function legacyLeadOnlyDraftForPhone(input: { config: LeadOnlyConfig; his
   // 3. Иначе — прежние слова клиента.
   const joined = [...earlier, own].join("\n");
   const scenario = leadOnlyScenario({ text: joined, propertyKnown: !!input.carriedPropertyId,
-    propertyAsked: !!input.carriedPropertyId && leadOnlyPropertyAsked(joined), jobTopic, config: input.config });
+    propertyAsked: !!input.carriedPropertyId && leadOnlyPropertyAsked(joined), jobTopic, config: input.config, intent: await intentOf(joined) });
   if (!scenario) return callbackTime ? withTime(input.draft, "Клиент оставил номер") : input.draft;
   const withProperty = (scenario === "property" || scenario === "hot") && input.carriedPropertyId && !input.draft.requestedPropertyId;
   return withTime({ ...input.draft, intent: input.draft.intent ?? (scenario === "seller" ? "sell" : "buy"), confident: true,

@@ -3,6 +3,7 @@ import { leadOnlyCallbackNotedLine, leadOnlyCallbackTime, leadOnlyHotIntent, lea
   leadOnlyPhoneRefused, leadOnlyServerLine, leadOnlyStripPhoneAsk, LEAD_ONLY_DEFAULTS } from "../src/ai/leadOnlyMode.js";
 import { LEAD_ONLY_PENDING_TTL_MS, leadOnlyPendingOf, leadOnlyPendingOfRow, parseLeadOnlyPending } from "../src/lib/leadOnlyPending.js";
 import { legacyLeadOnlyDraftForPhone } from "../src/messengers/leadOnlyLegacy.js";
+import { leadOnlyIntentFallback } from "../src/ai/leadOnlyIntent.js";
 
 /**
  * Третье ревью режима «только заявки» (13.11.2026): чистые решения. Стык с базой и маршрутами —
@@ -16,21 +17,22 @@ describe("№1: тема и объект ЭТОГО сообщения силь�
   const pendingA = leadOnlyPendingOf("property", A);
   const history = [{ role: "user" as const, content: "Здравствуйте" },
     { role: "assistant" as const, content: "Это объект №1, цена 400 000 сомони. Оставьте, пожалуйста, номер телефона, агент перезвонит." }];
-  const base = { config, history, draft: { stage: "chatting" as const }, carriedPropertyId: null };
-  it("через три дня после поста A «хочу продать свою квартиру, 93…» — продавец без объекта A", () => {
-    const draft = legacyLeadOnlyDraftForPhone({ ...base, text: "Хочу продать свою квартиру, 93 123 45 67", freshPropertyId: null, pending: pendingA });
+  // Решения кода: дверь намерения без модели (запасной путь) — ai/leadOnlyIntent.ts.
+  const base = { config, history, draft: { stage: "chatting" as const }, carriedPropertyId: null, classifyIntent: async (text: string) => leadOnlyIntentFallback(text) };
+  it("через три дня после поста A «хочу продать свою квартиру, 93…» — продавец без объекта A", async () => {
+    const draft = await legacyLeadOnlyDraftForPhone({ ...base, text: "Хочу продать свою квартиру, 93 123 45 67", freshPropertyId: null, pending: pendingA });
     expect(draft.intent).toBe("sell");
     expect(draft.requestedPropertyId).toBeUndefined();
   });
-  it("пост объекта B с номером — заявка по B, а не по запомненному A", () => {
-    const draft = legacyLeadOnlyDraftForPhone({ ...base, text: "93 123 45 67", freshPropertyId: B, pending: pendingA });
+  it("пост объекта B с номером — заявка по B, а не по запомненному A", async () => {
+    const draft = await legacyLeadOnlyDraftForPhone({ ...base, text: "93 123 45 67", freshPropertyId: B, pending: pendingA });
     expect(draft.requestedPropertyId).toBe(B);
   });
-  it("голый номер в ответ на просьбу — по-прежнему объект A из памяти", () => {
-    expect(legacyLeadOnlyDraftForPhone({ ...base, text: "93 123 45 67", freshPropertyId: null, pending: pendingA }).requestedPropertyId).toBe(A);
+  it("голый номер в ответ на просьбу — по-прежнему объект A из памяти", async () => {
+    expect((await legacyLeadOnlyDraftForPhone({ ...base, text: "93 123 45 67", freshPropertyId: null, pending: pendingA })).requestedPropertyId).toBe(A);
   });
-  it("продавец не уезжает агенту чужого объекта, оставшегося в черновике", () => {
-    const draft = legacyLeadOnlyDraftForPhone({ ...base, draft: { stage: "chatting", requestedPropertyId: A }, carriedPropertyId: A,
+  it("продавец не уезжает агенту чужого объекта, оставшегося в черновике", async () => {
+    const draft = await legacyLeadOnlyDraftForPhone({ ...base, draft: { stage: "chatting", requestedPropertyId: A }, carriedPropertyId: A,
       text: "Хочу продать свою квартиру, 93 123 45 67", freshPropertyId: null, pending: null });
     expect(draft.requestedPropertyId).toBeUndefined();
   });

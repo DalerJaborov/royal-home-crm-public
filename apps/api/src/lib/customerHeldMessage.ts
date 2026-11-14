@@ -22,6 +22,7 @@ import { scrubMentionedClientPhonesInText } from "./clientPhoneMasking.js";
 import { publishMessageNew } from "./livePublish.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
+import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
 
 export type CustomerHeldMessage = {
   reason: string; channel: string; peer: string; accountExternalId: string | null;
@@ -162,10 +163,15 @@ async function pushStaffAboutChat(input: { conversationId: string; channel: stri
  * reads all chats) gets the same once-per-chat-per-window push as a routing
  * hold. The text is already in the CRM chat. Never throws.
  */
-export async function notifyEscalatedCustomerTurn(input: { conversationId: string; channel: string; text: string }): Promise<"sent" | "skipped"> {
+export async function notifyEscalatedCustomerTurn(input: { conversationId: string; channel: string; text: string;
+  /** Разговор о вакансии: его ведёт рекрутер прежним путём, режим «только заявки» его не глушит. */
+  jobTopic?: boolean }): Promise<"sent" | "skipped"> {
   try {
     const chat = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: { clientId: true } });
     if (!chat) return "skipped";
+    // Режим «только заявки» (решение владельца 13.11.2026): до заявки людей не зовут вовсе — ни ботом, ни общими
+    // уведомлениями. Сюда это доходит, только если режим включили посреди хода (иначе ответ даёт сам режим).
+    if (!chat.clientId && !input.jobTopic && await leadOnlyQuietBeforeLead(input.channel)) return "skipped";
     const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[сообщение без текста]";
     const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
     return await pushStaffAboutChat({ conversationId: input.conversationId, channel: input.channel,

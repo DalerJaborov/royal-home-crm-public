@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Дверь намерения (ai/leadOnlyIntent.ts) без модели: эти тесты — про решения кода, роль и горячесть дают запасные регулярки.
+// Модельный путь двери — tests/lead-only-intent.test.ts.
+vi.mock("../src/ai/leadOnlyIntent.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/ai/leadOnlyIntent.js")>();
+  return { ...actual, classifyLeadOnlyIntent: (input: Parameters<typeof actual.classifyLeadOnlyIntent>[0]) => actual.classifyLeadOnlyIntent(input, async () => null) };
+});
 import { prisma } from "../src/db.js";
 import { planCustomerLeadOnlyTurn, runCustomerLeadOnlyIntake, type CustomerLeadOnlyTurnInput } from "../src/lib/customerLeadOnlyCore.js";
 import { leadOnlyNotificationsSince } from "./helpers/leadOnlyQuiet.js";

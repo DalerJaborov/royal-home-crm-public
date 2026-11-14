@@ -14,14 +14,31 @@
  * (lib/customerLeadOnlyCore.ts), и старый путь (messengers/conversation.ts), и
  * оно проверяется тестами без стенда.
  *
+ * Кто клиент (покупатель, продавец, аренда, работа) и готов ли он ехать, решает не этот файл, а одна дверь
+ * ai/leadOnlyIntent.ts (модель с проверкой цитаты, регулярки ниже — только её запасной путь, 14.11.2026).
+ *
  * Цифры в ответе — только из аргументов (данные базы), сам модуль их не придумывает.
  */
 import { BW, EW, TAIL } from "./wordBoundary.js";
-import { customerRoleSignals } from "./customerAgentRole.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
-import { customerSearchIntent } from "./customerAgentSearchIntent.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { looksLikeRentRequest } from "./rentGuard.js";
+
+/** Кто клиент — перечень ответа модели (ai/leadOnlyIntent.ts). Здесь, а не там: тип нужен сценарию, а круга импортов быть не должно. */
+export const LEAD_ONLY_ROLES = ["buyer", "seller", "renter", "landlord", "job", "other"] as const;
+export type LeadOnlyRole = typeof LEAD_ONLY_ROLES[number];
+export interface LeadOnlyIntent {
+  role: LeadOnlyRole;
+  /** Клиент готов действовать сейчас: хочет приехать / посмотреть, спрашивает, куда ехать. */
+  hot: boolean;
+  /** Слова клиента, на которых стоит роль (у модели — проверенная цитата; у запасного пути — null). */
+  quote: string | null;
+  /** Слова ЭТОГО сообщения, на которых стоит горячесть. */
+  hotQuote: string | null;
+  source: "model" | "fallback";
+  /** Почему запасной путь (для журнала): нет ответа модели, не прошла проверка, не о чем спрашивать. */
+  fallbackReason?: "no_letters" | "model_unavailable" | "invalid_answer" | "quote_not_found";
+}
 
 export type LeadOnlyLanguage = "ru" | "tg";
 export type LeadOnlyChannel = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "WEBSITE" | string;
@@ -291,6 +308,11 @@ export interface LeadOnlyScenarioInput {
   /** Разговор уже о работе (вакансии ведёт Ноза — не трогаем). */
   jobTopic?: boolean;
   config: Pick<LeadOnlyConfig, "hotIntentHandover">;
+  /**
+   * Роль и горячесть клиента — ТОЛЬКО из одной двери ai/leadOnlyIntent.ts (модель с проверкой цитаты, иначе запасные
+   * регулярки). Обязательное поле: решить сценарий в обход двери нельзя (аудит 14.11.2026, «подскажите» → покупатель).
+   */
+  intent: LeadOnlyIntent;
 }
 
 /**
@@ -299,19 +321,21 @@ export interface LeadOnlyScenarioInput {
  */
 export function leadOnlyScenario(input: LeadOnlyScenarioInput): LeadOnlyScenario | null {
   const own = clientOwnWords(input.text);
-  if (!own.trim() || input.jobTopic || customerRecruitmentRequested(own)) return null;
-  // Аренды у агентства нет: отказ — дело обычного пути (rentGuard / политика компании).
-  if (looksLikeRentRequest(own)) return null;
+  if (!own.trim() || input.jobTopic) return null;
+  // Запреты владельца решает код поверх любого ответа модели: вакансии ведёт рекрутер, аренды у агентства нет
+  // (ai/rentGuard.ts, решение 21.08.2026) — отказ дело обычного пути.
+  if (customerRecruitmentRequested(own) || looksLikeRentRequest(own)) return null;
+  const { role, hot } = input.intent;
+  if (role === "job" || role === "renter" || role === "landlord") return null;
   // Продавец — первым: «продаю, адрес такой-то» не горячий покупатель, а объект, оставшийся в фокусе
   // с прошлого разговора, не перебивает ясное «хочу продать свою квартиру».
-  const signals = customerRoleSignals(own);
-  if ((signals.sell || signals.landlord) && !signals.buyStrong) return "seller";
-  if (input.config.hotIntentHandover && leadOnlyHotIntent(own)) return "hot";
+  if (role === "seller") return "seller";
+  if (input.config.hotIntentHandover && hot) return "hot";
   // Объект, оставшийся в фокусе с прошлых ходов, не делает «спасибо» или «где офис?» вопросом об объекте
   // (ревью 13.11: «Это объект №N, цена X.» на любое сообщение). Объект — только если он пришёл в этом
   // сообщении или клиент говорит именно о нём.
   if (input.propertyKnown && (input.propertyInMessage || input.propertyAsked || PROPERTY_INTEREST.test(own))) return "property";
-  if (signals.buyStrong || signals.buyWeak || customerSearchIntent(own)) return "buyer";
+  if (role === "buyer") return "buyer";
   return null;
 }
 
