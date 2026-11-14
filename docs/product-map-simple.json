@@ -7556,47 +7556,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 433,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 434,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 435,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 436,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 437,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 438,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 439,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 440,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 441,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -7831,17 +7791,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 526,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 527,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 528,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -40134,9 +40084,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если !manager(req.agent?.role)",
@@ -40328,9 +40276,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если !manager(req.agent?.role)",
@@ -40450,9 +40396,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если роль (сотрудник) НЕ из списка: «ADMIN», «DIRECTOR»",
@@ -40552,9 +40496,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если !manager(req.agent?.role)",
@@ -40677,9 +40619,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если роль (сотрудник) НЕ из списка: «ADMIN», «DIRECTOR»",
@@ -40896,9 +40836,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если !manager(req.agent?.role)",
@@ -40951,9 +40889,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если !manager(req.agent?.role)",
@@ -41007,9 +40943,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если !manager(req.agent?.role)",
@@ -48857,9 +48791,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если роль (сотрудник) НЕ из списка: «ADMIN», «DIRECTOR»",
@@ -49040,9 +48972,7 @@
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
-   "screens": [
-    "/properties/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если роль (сотрудник) НЕ из списка: «ADMIN», «DIRECTOR»",

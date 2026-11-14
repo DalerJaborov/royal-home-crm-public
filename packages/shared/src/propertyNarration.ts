@@ -427,7 +427,8 @@ export type PropertyNarrationView = {
   readiness?: { voiceCount: number; modelConfigured: boolean; apiKeyConfigured: boolean };
   samples?: NarrationVoiceSampleRef[];
   /** Озвучку на этот ролик накладывает CRM (есть ролик без голоса от монтажёра); ошибка наложения — для руководства. */
-  mix?: { hasMaster: boolean; error: string | null };
+  /** problem (14.11.2026): последняя озвучка не легла на вышедший ролик — VOICE_LONGER (ушла монтажёру удлинить ролик) или FAILED. */
+  mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null };
 };
 /** Настройки CRM → «Озвучка роликов» (14.11.2026): вся техника, которую агент в карточке не видит. */
 export type NarrationSettingsView = {

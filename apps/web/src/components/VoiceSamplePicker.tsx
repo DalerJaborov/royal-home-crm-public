@@ -64,7 +64,7 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
       <legend className="sr-only">Голос</legend>
       {groups.map(([label, list]) => list.length > 0 && (
         <div key={label ?? "other"} className="space-y-1">
-          {label && <p className="text-sm text-slate-600">{label}</p>}
+          {label && <p className="text-sm text-[var(--muted)]">{label}</p>}
           {/* Плитки (14.11.2026): два в ряд на телефоне, четыре на ПК; вся плитка — выбор, кнопка — прослушать. */}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {list.map((voice) => {
@@ -75,7 +75,7 @@ export function VoiceSamplePicker({ voices, value, onChange, samples, lang, disa
                     <input type="radio" name={name} value={voice.id} checked={on} onChange={() => onChange(voice.id)} />
                     <span className="truncate font-medium">{voice.name}</span>
                   </label>
-                  {lastPickedId === voice.id && <span className="text-sm text-slate-600">последний раз выбран</span>}
+                  {lastPickedId === voice.id && <span className="text-sm text-[var(--muted)]">последний раз выбран</span>}
                   {has.has(voice.id) && (
                     <button type="button" className="pill sm" aria-pressed={playing === voice.id} aria-label={`${playing === voice.id ? "Остановить" : "Прослушать"} голос ${voice.name}`}
                       onClick={() => void play(voice)}>

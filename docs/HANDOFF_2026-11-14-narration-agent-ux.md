@@ -17,10 +17,8 @@ Worktree: `C:/Users/Daler/.claude/worktrees/narration-ux`, ветка `feat/narr
 - web: `VoiceSamplePicker` — плитки 2/4 в ряд; `property-wizard/NarrationChoice.tsx` на NarrationComposer.
 - Тесты: `apps/api/tests/narration-template-rotation.test.ts` (новый), `PropertyNarrationManager.test.tsx` (переписан), `NarrationChoice.test.tsx` (импорт parseVoiceLines).
 
-## Осталось
-1. Сборка shared/api/web, `test:web`, тесты narration-* в api (особенно `narration-montajer-audio`, `narration-auto-flow` — ротация шаблона могла поменять ожидания), тест для NarrationSettingsPanel.
-2. Проверка вопроса владельца про смену цены (см. ниже) — прочитать `lib/narrationMix.ts`, `narrationAutoFlow.ts::remixFromMasters/afterNarrationApproved`, `narrationVoicelessCopy.ts`, тест `narration-crm-mix.test.ts`; прогнать настоящий ffmpeg на образце: ролик с музыкой + mp3 → проверить ducking на слух/по громкости.
-3. Кадры ПК + телефон (карточка объекта, мастер, Настройки → Каналы), обе темы; `npm run map`, `map:check`, `gen:typeset` если CSS; журнал `docs/journal/2026-11-14-narration-agent-ux.md`; precheck; draft PR; ship по правилам проекта.
+## Статус 14.11 (второй чат)
+Сборки, test:web, api narration-* зелёные; тест панели настроек есть; звук перенастроен по замеру (см. docs/journal/2026-11-14-narration-agent-ux.md); агенту показывается «озвучка не легла на ролик»; кадры ПК/телефон/тёмная тема отправлены владельцу. Дальше: map, precheck, PR, ревью architect, ship.
 
 ## Что уже известно про смену цены (ФАКТ из кода)
 - `narrationMix.ts`: голос поверх, музыка ролика приглушается под голосом сама (sidechaincompress, ducking), между фразами возвращается; голос стартует через 0,3 с; озвучка длиннее ролика — отказ VOICE_LONGER (не обрезается).

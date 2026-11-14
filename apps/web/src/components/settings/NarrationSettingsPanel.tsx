@@ -44,13 +44,13 @@ export function NarrationSettingsPanel() {
 
   return (
     <div className="space-y-4">
-      {readOnly && <p className="rounded-lg bg-slate-50 p-3 text-sm" role="status">Менять настройки озвучки может директор или администратор.</p>}
+      {readOnly && <p className="rounded-lg bg-[var(--soft)] p-3 text-sm" role="status">Менять настройки озвучки может директор или администратор.</p>}
       <p className="text-sm">
         Ключ ElevenLabs: <b>{data.apiKeyConfigured ? "настроен" : "не настроен"}</b> · модель: <b>{config.modelId ? "выбрана" : "не выбрана"}</b> · голосов: <b>{config.voices.length}</b>
-        {" · "}автоозвучка: <b>{data.autoGenerate ? "работает" : "выключена"}</b>
+        {" · "}автоозвучка: <b>{data.autoGenerate ? (data.apiKeyConfigured ? "работает" : "включена, ждёт ключ") : "выключена"}</b>
       </p>
-      {data.quotaExceeded && <p className="rounded-lg bg-amber-50 p-3 text-sm" role="status">Кредиты ElevenLabs закончились. Озвучки ждут пополнения, проверка раз в час; агентам ничего не отправляется.</p>}
-      <p className="text-sm text-slate-600">Сегодня потрачено: {data.budget.usedChars} из {data.budget.dailyChars} символов, {data.budget.usedGenerations} из {data.budget.dailyGenerations} озвучек.</p>
+      {data.quotaExceeded && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Кредиты ElevenLabs закончились. Озвучки ждут пополнения, проверка раз в час; агентам ничего не отправляется.</p>}
+      <p className="text-sm text-[var(--muted)]">Сегодня потрачено: {data.budget.usedChars} из {data.budget.dailyChars} символов, {data.budget.usedGenerations} из {data.budget.dailyGenerations} озвучек.</p>
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Модель и голоса</legend>
@@ -69,7 +69,7 @@ export function NarrationSettingsPanel() {
             const result = await api<{ message: string }>("/properties/narration-voice-samples/prepare", { method: "POST", body: { confirmed: true }, timeoutMs: 150_000 });
             setMessage(result.message);
           })}>Подготовить образцы голосов</button>
-          <span className="text-sm text-slate-600">Одна фраза каждым голосом, платно один раз. Готово образцов: {data.samplesReady}. По ним агенты выбирают голос на слух.</span>
+          <span className="text-sm text-[var(--muted)]">Одна фраза каждым голосом, платно один раз. Готово образцов: {data.samplesReady}. По ним агенты выбирают голос на слух.</span>
         </div>
       </fieldset>
 
@@ -92,7 +92,7 @@ export function NarrationSettingsPanel() {
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Шаблоны текста</legend>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-[var(--muted)]">
           Агент выбирает голос, и текст ставится сам из шаблона этого языка. Несколько шаблонов на язык: у агента появляется кнопка «Другой вариант»,
           а каждый новый объект получает следующий вариант, чтобы ролики не звучали одинаково.
           Слова в фигурных скобках подставляются из объекта: {"{вид} {комнаты} {площадь} {этаж} {этаж_пор} {этажей} {район} {цена}"}. Квадратные скобки: «если есть».
@@ -112,7 +112,7 @@ export function NarrationSettingsPanel() {
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Словарь произношения</legend>
-        <p className="text-sm text-slate-600">Слово и как его читать. Сохраните, и CRM сама обновит словарь в ElevenLabs. Пометка «проверить носителем»: чтение собрано по правилам и на слух ещё не проверено.</p>
+        <p className="text-sm text-[var(--muted)]">Слово и как его читать. Сохраните, и CRM сама обновит словарь в ElevenLabs. Пометка «проверить носителем»: чтение собрано по правилам и на слух ещё не проверено.</p>
         {rules.map((r, i) => <div key={i} className="flex flex-wrap items-center gap-2 rounded border p-2">
           <input aria-label="Слово" className="min-w-0 flex-1 rounded border p-2 text-sm" value={r.word} onChange={(e) => setRulesDraft(rules.map((x, j) => j === i ? { ...x, word: e.target.value } : x))} />
           <input aria-label="Как читать" placeholder="как читать" className="min-w-0 flex-1 rounded border p-2 text-sm" value={r.alias ?? ""} onChange={(e) => setRulesDraft(rules.map((x, j) => j === i ? { ...x, alias: e.target.value || undefined } : x))} />
@@ -145,7 +145,7 @@ export function NarrationSettingsPanel() {
 }
 
 function Check({ checked, onChange, children }: { checked: boolean; onChange: (next: boolean) => void; children: ReactNode }) {
-  return <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={checked} onChange={(e) => onChange(e.target.checked)} /><span>{children}</span></label>;
+  return <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1 h-4 w-4 shrink-0" checked={checked} onChange={(e) => onChange(e.target.checked)} /><span>{children}</span></label>;
 }
 
 function voiceLines(config: NarrationConfig): string {

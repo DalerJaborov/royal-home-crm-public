@@ -43,7 +43,7 @@ export function NarrationChoice({ facts, value, onChange }: {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="font-semibold">Озвучка ролика</h3>
-          {!value.none && <p className="text-sm text-slate-600">Выберите голос, текст поставится сам. Его можно поправить.</p>}
+          {!value.none && <p className="text-sm text-[var(--muted)]">Выберите голос, текст поставится сам. Его можно поправить.</p>}
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={!!value.none} onChange={(e) => onChange(e.target.checked ? { none: true } : {})} />
@@ -51,7 +51,7 @@ export function NarrationChoice({ facts, value, onChange }: {
         </label>
       </div>
       {value.none ? (
-        <p className="text-sm text-slate-600">Озвучка не готовится и не тратит деньги, монтажёр получит пометку «без озвучки». Включить можно потом в карточке объекта.</p>
+        <p className="text-sm text-[var(--muted)]">Озвучка не готовится и не тратит деньги, монтажёр получит пометку «без озвучки». Включить можно потом в карточке объекта.</p>
       ) : <>
         <NarrationComposer name={`${ids}-voice`} templates={templates} voices={data?.voices ?? []} samples={data?.samples} facts={facts}
           value={value} onChange={(next) => onChange({ ...next })} defaultTemplateId={defaultTemplateId} defaultVoiceId={defaultVoiceId} lastPickedVoiceId={last.voiceId ?? null} />

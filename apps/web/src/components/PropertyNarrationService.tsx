@@ -40,10 +40,10 @@ export function PropertyNarrationService({ propertyId, data, busy, run, setMessa
     <details className="rounded-lg border p-3">
       <summary className="cursor-pointer text-sm font-medium">Служебное: маркетинг и руководство</summary>
       <div className="mt-3 space-y-3">
-        <p className="text-sm text-slate-600">Голоса, шаблоны, модель и пределы расхода: Настройки → Каналы → «Озвучка роликов».</p>
-        {!data.configured && <p className="rounded-lg bg-amber-50 p-3 text-sm" role="status">Генерация пока недоступна: в настройках нет ключа ElevenLabs, модели или голосов.</p>}
-        {data.quotaExceeded && <p className="rounded-lg bg-amber-50 p-3 text-sm" role="status">Кредиты ElevenLabs закончились. Озвучки ждут пополнения, проверка раз в час.</p>}
-        {data.mix?.error && <p className="rounded-lg bg-amber-50 p-3 text-sm" role="status">Новую озвучку на ролик наложить не получилось: {data.mix.error}</p>}
+        <p className="text-sm text-[var(--muted)]">Голоса, шаблоны, модель и пределы расхода: Настройки → Каналы → «Озвучка роликов».</p>
+        {!data.configured && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Генерация пока недоступна: в настройках нет ключа ElevenLabs, модели или голосов.</p>}
+        {data.quotaExceeded && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Кредиты ElevenLabs закончились. Озвучки ждут пополнения, проверка раз в час.</p>}
+        {data.mix?.error && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Новую озвучку на ролик наложить не получилось: {data.mix.error}</p>}
 
         {data.canApprove && latest && latest.status === "DRAFT" && !latest.generateAfter && <fieldset className="space-y-2 rounded-lg border p-3">
           <legend className="text-sm">Ручной путь: подтвердить текст и сгенерировать</legend>
@@ -104,7 +104,7 @@ export function PropertyNarrationService({ propertyId, data, busy, run, setMessa
           <textarea className="w-full rounded border p-2" aria-label="Результат сверки доставки" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} minLength={20} maxLength={2000} placeholder="Что проверено и что обнаружено (от 20 символов)" />
           {uncertain.map((d) => <button key={d.id} className="pill sm" disabled={busy || !deliveryChecked || deliveryNote.trim().length < 20} onClick={() => void run(async () => { const result = await api<{ message: string }>(`/properties/${propertyId}/narration/delivery-reconcile`, { method: "POST", body: { kind: d.kind, deliveryId: d.id, checkedProviderHistory: true, note: deliveryNote } }); setMessage(result.message); })}>Сохранить сверку {d.kind === "NARRATION" ? "передачи монтажёру" : "SMS"} · {d.id.slice(0, 8)}</button>)}
         </fieldset>}
-        <p className="text-sm text-slate-600">Предварительные планы сами не отправляются при включении сервера. Принятие сервисом не означает, что человек просмотрел материал.</p>
+        <p className="text-sm text-[var(--muted)]">Предварительные планы сами не отправляются при включении сервера. Принятие сервисом не означает, что человек просмотрел материал.</p>
       </div>
     </details>
   );

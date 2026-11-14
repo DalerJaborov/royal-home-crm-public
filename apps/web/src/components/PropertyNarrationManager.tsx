@@ -105,7 +105,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
     <section className="card space-y-4 p-4" aria-label="Озвучка объекта">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold">Озвучка ролика</h3>
-        {canEdit && !data.off && <button type="button" className="pill sm" disabled={busy} onClick={() => setMode(true)}>Без озвучки</button>}
+        {canEdit && !data.off && <button type="button" className="pill sm ghost" disabled={busy} onClick={() => setMode(true)}>Без озвучки</button>}
       </div>
 
       {data.off ? (
@@ -114,7 +114,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
           {canEdit && <button type="button" className="pill" disabled={busy} onClick={() => setMode(false)}>Включить озвучку</button>}
         </div>
       ) : <>
-        {!data.configured && <p className="rounded-lg bg-amber-50 p-3 text-sm" role="status">Озвучка ещё не настроена руководством. Голос и текст можно выбрать уже сейчас.</p>}
+        {!data.configured && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Озвучка ещё не настроена руководством. Голос и текст можно выбрать уже сейчас.</p>}
 
         {latest && !showComposer && <div className="space-y-3 rounded-xl border p-3" role="status">
           {pending && <p className="flex items-center gap-2 text-sm"><span className="inline-block h-3 w-3 animate-pulse rounded-full bg-blue" aria-hidden />Готовим озвучку. Обычно минута-две, придёт сюда и в Шабнам.</p>}
@@ -129,11 +129,13 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
                   })}>✓ Одобрить</button>
                   {canEdit && <button type="button" className="pill" disabled={busy} onClick={() => setEditing(true)}>Изменить голос или текст</button>}
                 </div>
-              : <p className="text-sm text-slate-600">Эту озвучку одобряет владелец.</p>}
+              : <p className="text-sm text-[var(--muted)]">Эту озвучку одобряет владелец.</p>}
           </>}
           {approved && <>
             <p className="font-medium">✓ Озвучка одобрена</p>
-            <p className="text-sm text-slate-600">{data.mix?.hasMaster ? "Озвучку на ролик накладывает CRM: поменяется цена, звук обновится сам." : "Монтажёр получает её вместе с заданием на ролик."}</p>
+            <p className="text-sm text-[var(--muted)]">{data.mix?.hasMaster ? "Озвучку на ролик накладывает CRM: поменяется цена, звук обновится сам." : "Монтажёр получает её вместе с заданием на ролик."}</p>
+            {data.mix?.problem === "VOICE_LONGER" && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Новая озвучка длиннее ролика, обрезать голос CRM не стала. Ролик ушёл монтажёру: он удлинит его под голос. Быстрее — сократить текст и озвучить заново.</p>}
+            {data.mix?.problem === "FAILED" && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Наложить новую озвучку на ролик не получилось, в соцсетях пока прежний ролик. Руководство видит ошибку.</p>}
             <div className="flex flex-wrap items-center gap-2">
               {player(latest.id, false)}
               {canEdit && <button type="button" className="pill sm" disabled={busy} onClick={() => setEditing(true)}>Изменить</button>}
@@ -146,7 +148,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
           {ready && !latest.approvedAt && !latest.stale && latest.source === "MANUAL" && <p className="text-sm">Аудио готово, его проверяет маркетинг.</p>}
         </div>}
 
-        {failed && <p className="rounded-lg bg-amber-50 p-3 text-sm" role="status">
+        {failed && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">
           {latest?.errorCode === QUOTA_EXCEEDED ? "Озвучка не получилась: закончились кредиты ElevenLabs. Руководство уже видит это." : "Озвучка не получилась. Проверьте голос и текст и нажмите «Озвучить» ещё раз."}
         </p>}
 
@@ -159,7 +161,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
               : <button type="button" className="pill" disabled={busy || !textOk} onClick={() => submit(false)}>Сохранить текст</button>}
             {editing && <button type="button" className="pill" disabled={busy} onClick={() => { setDraft({}); setEditing(false); }}>Отмена</button>}
           </div>
-          <p className="text-sm text-slate-600">{data.autoGenerate
+          <p className="text-sm text-[var(--muted)]">{data.autoGenerate
             ? "Озвучка придёт на прослушивание сюда и в Шабнам. Поменяется цена — обновится сама и снова придёт на одобрение."
             : "Автоозвучка выключена: аудио по этому тексту подготовит маркетинг."}</p>
         </>}

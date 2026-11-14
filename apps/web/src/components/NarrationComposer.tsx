@@ -60,7 +60,7 @@ export function NarrationComposer({ templates, voices, samples, facts, value, on
         {langs.length > 1 && (
           <div className="flex flex-wrap gap-2" role="group" aria-label="Язык озвучки">
             {langs.map((l) => (
-              <button key={l} type="button" className="pill sm" aria-pressed={l === lang} disabled={disabled}
+              <button key={l} type="button" className={l === lang ? "pill sm" : "pill sm ghost"} aria-pressed={l === lang} disabled={disabled}
                 onClick={() => l !== lang && pickTemplate(nextNarrationTemplateId(templates, l, null))}>
                 {l === lang ? "✓ " : ""}{LANG_LABEL[l]}
               </button>
@@ -70,7 +70,7 @@ export function NarrationComposer({ templates, voices, samples, facts, value, on
         {voices.length > 0
           ? <VoiceSamplePicker name={name} voices={voices} value={voiceId} samples={samples} lang={lang} disabled={disabled} lastPickedId={lastPickedVoiceId ?? null}
               onChange={(id) => onChange({ ...value, voiceId: id })} />
-          : <p className="text-sm text-slate-600">Голоса ещё не добавлены. Их добавляет руководство в Настройках → «Озвучка роликов».</p>}
+          : <p className="text-sm text-[var(--muted)]">Голоса ещё не добавлены. Их добавляет руководство в Настройках → «Озвучка роликов».</p>}
       </div>
 
       <div className="space-y-2">
@@ -78,18 +78,18 @@ export function NarrationComposer({ templates, voices, samples, facts, value, on
         {variants.length > 1 && (
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Вариант текста">
             {variants.map((t) => (
-              <button key={t.id} type="button" className="pill sm" aria-pressed={t.id === templateId && !edited} disabled={disabled} onClick={() => pickTemplate(t.id)}>
+              <button key={t.id} type="button" className={t.id === templateId && !edited ? "pill sm" : "pill sm ghost"} aria-pressed={t.id === templateId && !edited} disabled={disabled} onClick={() => pickTemplate(t.id)}>
                 {t.id === templateId && !edited ? "✓ " : ""}{t.name}
               </button>
             ))}
-            <button type="button" className="pill sm" disabled={disabled} onClick={() => pickTemplate(nextNarrationTemplateId(templates, lang, templateId))}>↻ Другой вариант</button>
+            <button type="button" className="pill sm ghost ml-auto" disabled={disabled} onClick={() => pickTemplate(nextNarrationTemplateId(templates, lang, templateId))}>↻ Другой вариант</button>
           </div>
         )}
         <textarea aria-label="Текст озвучки" rows={5} maxLength={5000} readOnly={disabled} className="w-full rounded-lg border p-3 text-base leading-relaxed"
           value={text} onChange={(e) => onChange({ ...value, templateId: templateId ?? undefined, script: e.target.value })} />
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--muted)]">
           <span>{edited ? "Текст изменён вами." : "Цифры и район подставлены из объекта, цена звучит словами. Можно поправить."}</span>
-          {edited && !disabled && <button type="button" className="pill sm" onClick={() => pickTemplate(templateId)}>Вернуть текст шаблона</button>}
+          {edited && !disabled && <button type="button" className="pill sm ghost" onClick={() => pickTemplate(templateId)}>Вернуть текст шаблона</button>}
         </div>
       </div>
     </div>
