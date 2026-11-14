@@ -116,7 +116,8 @@ describe("synthetic customer-agent stop diagnostics", () => {
       return { text: "", calls: [call], modelParts: [{ functionCall: call }] };
     });
 
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "round_limit", rounds: 3, toolCalls: 3 });
+    // 14.11: at the cap the server answers from the verified reads it already has (no extra model call or tool run).
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", rounds: 3, toolCalls: 3, fallbackCause: "round_limit_reads" });
     expect(f.modelTurn).toHaveBeenCalledTimes(3);
     expect(f.executeAllowedTool).toHaveBeenCalledTimes(3);
   });

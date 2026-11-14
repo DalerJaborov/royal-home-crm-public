@@ -521,11 +521,20 @@ describe("CustomerAgentCore draft bounded negative controls", () => {
     expect(f.executeAllowedTool).toHaveBeenCalledTimes(1); expect(f.modelTurn).toHaveBeenCalledTimes(1);
     expect(f.observeLateToolResult).not.toHaveBeenCalled();
   });
-  it("round cap stops a non-final loop", async () => {
+  it("round cap with verified reads gathered answers from them instead of silence (prod 14.11, J&N round_limit)", async () => {
     const f = fixture({ requestedFacts: [] });
     f.modelTurn.mockResolvedValue({ text: "", calls: [{ name: "get_property_facts", args: { kinds: ["price"] } }], modelParts: [{ functionCall: { name: "get_property_facts" } }] });
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "round_limit", rounds: 3 });
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "ready", rounds: 3, fallbackReason: "invalid_model_decision", fallbackCause: "round_limit_reads" });
+    if (result.status !== "ready") throw Error("Expected an answer");
+    expect(result.text.length).toBeGreaterThan(0);
     expect(f.modelTurn).toHaveBeenCalledTimes(3); expect(f.executeAllowedTool).toHaveBeenCalledTimes(3);
+  });
+  it("round cap with nothing renderable gathered stays HELD (and is reported to staff by the silence guard)", async () => {
+    const f = fixture({ requestedFacts: [] });
+    f.executeAllowedTool.mockResolvedValue({ status: "unavailable" });
+    f.modelTurn.mockResolvedValue({ text: "", calls: [{ name: "get_property_facts", args: { kinds: ["price"] } }], modelParts: [{ functionCall: { name: "get_property_facts" } }] });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "round_limit", rounds: 3 });
   });
   it("oversized input prevents the first model/effect", async () => {
     const f = fixture({ inputText: "x".repeat(25_000) });
@@ -748,7 +757,8 @@ describe("A committed write never ends in silence, and the loop recovers from fi
     expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", rounds: 3, toolCalls: 5 });
     const over = fixture({ requestedFacts: ["price"] });
     over.modelTurn.mockResolvedValueOnce(toolTurn([1, 2, 3, 4, 5].map(n => ({ name: "get_property_facts" as const, args: { kinds: ["price" as const] }, id: `x${n}` }))));
-    expect(await runCustomerAgentTurn(over.frame, over.ports)).toMatchObject({ status: "held", reason: "tool_limit" });
+    // 14.11: spent tool budget no longer ends in silence when verified reads exist: answer from them.
+    expect(await runCustomerAgentTurn(over.frame, over.ports)).toMatchObject({ status: "ready", fallbackReason: "invalid_model_decision", fallbackCause: "tool_limit_reads" });
   });
   it("a rejected batch does not spend the budget the corrected batch needs", async () => {
     const f = fixture({ requestedFacts: [] });
