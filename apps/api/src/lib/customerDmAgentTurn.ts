@@ -613,6 +613,16 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     if (outcome.status === "held" && "reason" in outcome && heldCause && ["turn_unavailable", "customer_core_unavailable", "turn_deadline", "round_limit", "tool_limit"].includes(outcome.reason)) {
       void logSystemError("ai", `Ход бота клиента остановлен: ${outcome.reason} (${heldCause})`, { dedupKey: `customer-core-held:${outcome.reason}:${heldCause}`, quietPult: true });
     }
+    // «Передать сотруднику» без оформленной передачи — клиенту тишина (аудит 14.11.2026, №4).
+    // Сотруднику — сразу сигнал через одну дверь; остальные причины молчания ловит
+    // сторож молчания через 30 минут. Ход не ждёт и из-за сигнала не падает.
+    if (outcome.status === "held") {
+      const reason = outcome.reason;
+      void import("./clientWaitingAlert.js")
+        .then(({ STAFF_NEEDED_NOW_REASONS, alertClientWaiting }) =>
+          STAFF_NEEDED_NOW_REASONS.has(reason) ? alertClientWaiting({ conversationId: lane.ticket.conversationId, trigger: "escalate" }) : undefined)
+        .catch(error => console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError"));
+    }
     return outcome;
   });
 }

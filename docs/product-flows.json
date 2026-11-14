@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4035,
+  "forks": 4037,
   "mounts": 83,
-  "cron": 130,
+  "cron": 131,
   "jobs": 33,
   "hidden": 0
  },
@@ -87236,6 +87236,14 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const lastCallByClient = await fetchLastCallContactByClient(clientIds);",
+         "a": [
+          "зовёт fetchLastCallContactByClient()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: const row of rows",
          "a": [],
@@ -89558,6 +89566,274 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "client-silence-sweep",
+   "when": "*/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alerted } = await runClientSilenceSweep();",
+       "a": [
+        "зовёт runClientSilenceSweep()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await isWithinWorkingHours(now))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: 0, alerted: 0, skippedOffHours: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const rows = await prisma.$queryRaw< Array<{ id: string; messages: unknown; leadDraft: unknown; silenceAlertF…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of rows",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const episode = waitingEpisodeOf(row.messages);",
+           "a": [
+            "зовёт waitingEpisodeOf()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!episode || episode.since.getTime() > threshold",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "due.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: rows.length, alerted: 0, skippedOffHours: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const tickets = keys.length ? await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: …",
+         "a": [
+          "читает в базе: customerPropertyIngressTicket"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d)",
+         "a": [
+          "зовёт fetchLastCallContactByClient()"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const d of due",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "allIntentional",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "called && called.getTime() > d.episode.since.getTime()",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const outcome = await alertClientWaiting({ conversationId: d.id, trigger: \"silence\", now });",
+             "a": [
+              "зовёт alertClientWaiting()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "outcome !== \"skipped\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "alerted++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "reportCronRowError(\"Сторож «клиент ждёт ответа»\", d.id, err);",
+             "a": [
+              "зовёт reportCronRowError()"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runClientSilenceSweep() — apps/api/src/lib/clientWaitingAlert.ts"
+      },
+      {
+       "k": "if",
+       "t": "alerted > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «клиент ждёт ответа»\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "clip-review-resend",
    "when": "*/5 * * * *",
    "tree": [
@@ -90886,7 +91162,7 @@
   },
   {
    "id": "director-alert-queue-flush",
-   "when": "*/10 * * * *",
+   "when": "* * * * *",
    "tree": [
     {
      "k": "try",
@@ -90901,23 +91177,16 @@
        ],
        "c": [
         {
-         "k": "if",
-         "t": "!(await isWithinAlarmHours(now))",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return 0;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
+         "k": "do",
+         "t": "const inWindow = await isWithinAlarmHours(now);",
+         "a": [
+          "зовёт isWithinAlarmHours()"
+         ],
+         "c": []
         },
         {
          "k": "do",
-         "t": "const pending = await prisma.pendingDirectorAlert.findMany({ where: { sentAt: null }, orderBy: { createdAt: \"…",
+         "t": "const pending = await prisma.pendingDirectorAlert.findMany({ where: inWindow ? { sentAt: null } : { sentAt: n…",
          "a": [
           "читает в базе: pendingDirectorAlert"
          ],
@@ -90993,26 +91262,40 @@
              "a": [],
              "c": [
               {
-               "k": "do",
-               "t": "await createNotifications(recipients, { kind: item.kind ?? \"oversight\", level: notificationLevelOf(item.kind,…",
-               "a": [
-                "зовёт createNotifications()"
-               ],
-               "c": []
+               "k": "if",
+               "t": "!item.feedAt",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await createNotifications(recipients, { kind: item.kind ?? \"oversight\", level: notificationLevelOf(item.kind,…",
+                 "a": [
+                  "зовёт createNotifications()"
+                 ],
+                 "c": []
+                }
+               ]
               },
               {
-               "k": "do",
-               "t": "void sendPushToAgents(recipients, { kind: pushKind, title: item.title, body: item.body, url: item.url ?? unde…",
-               "a": [
-                "push-уведомление"
-               ],
-               "c": []
+               "k": "if",
+               "t": "pushNow",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "void (item.feedAt ? sendDevicePushToAgents(recipients, payload) : sendPushToAgents(recipients, payload)).catc…",
+                 "a": [
+                  "push-уведомление"
+                 ],
+                 "c": []
+                }
+               ]
               }
              ]
             },
             {
              "k": "do",
-             "t": "await prisma.pendingDirectorAlert.update({ where: { id: item.id }, data: { sentAt: now } });",
+             "t": "await prisma.pendingDirectorAlert.update({ where: { id: item.id }, data: pushNow ? { feedAt: item.feedAt ?? n…",
              "a": [
               "меняет в базе: pendingDirectorAlert"
              ],
@@ -119862,53 +120145,7 @@
      "c": [
       {
        "k": "do",
-       "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
-       "a": [
-        "зовёт filterInvestigationRecipients()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "agentIds.length === 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return 0;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const { granted, denied } = await partitionByPermission(agentIds, \"clients.viewPhone\");",
-       "a": [
-        "зовёт partitionByPermission()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "granted.length > 0 && denied.length > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…",
-         "a": [
-          "push-уведомление"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));",
+       "t": "return sendPushToAgentsMasked(agentIds, payload, true);",
        "a": [
         "push-уведомление"
        ],
@@ -121526,53 +121763,7 @@
        "c": [
         {
          "k": "do",
-         "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
-         "a": [
-          "зовёт filterInvestigationRecipients()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "agentIds.length === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return 0;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const { granted, denied } = await partitionByPermission(agentIds, \"clients.viewPhone\");",
-         "a": [
-          "зовёт partitionByPermission()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "granted.length > 0 && denied.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…",
-           "a": [
-            "push-уведомление"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));",
+         "t": "return sendPushToAgentsMasked(agentIds, payload, true);",
          "a": [
           "push-уведомление"
          ],
@@ -123967,53 +124158,7 @@
      "c": [
       {
        "k": "do",
-       "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
-       "a": [
-        "зовёт filterInvestigationRecipients()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "agentIds.length === 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return 0;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const { granted, denied } = await partitionByPermission(agentIds, \"clients.viewPhone\");",
-       "a": [
-        "зовёт partitionByPermission()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "granted.length > 0 && denied.length > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…",
-         "a": [
-          "push-уведомление"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));",
+       "t": "return sendPushToAgentsMasked(agentIds, payload, true);",
        "a": [
         "push-уведомление"
        ],
@@ -130987,53 +131132,7 @@
          "c": [
           {
            "k": "do",
-           "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
-           "a": [
-            "зовёт filterInvestigationRecipients()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "agentIds.length === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const { granted, denied } = await partitionByPermission(agentIds, \"clients.viewPhone\");",
-           "a": [
-            "зовёт partitionByPermission()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "granted.length > 0 && denied.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…",
-             "a": [
-              "push-уведомление"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));",
+           "t": "return sendPushToAgentsMasked(agentIds, payload, true);",
            "a": [
             "push-уведомление"
            ],

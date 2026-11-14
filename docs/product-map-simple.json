@@ -14,12 +14,12 @@
  "totals": {
   "screens": 53,
   "paths": 749,
-  "cron": 130,
+  "cron": 131,
   "jobs": 33,
-  "conditions": 4019,
-  "untranslatedUnique": 460,
-  "untranslatedTotal": 591,
-  "partialUnique": 1087,
+  "conditions": 4021,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 594,
+  "partialUnique": 1086,
   "translatedShare": 85
  },
  "untranslated": [
@@ -81,6 +81,7 @@
   "!doc || doc.dealId !== deal.id",
   "!e.counterparty?.trim()",
   "!episode || episode.executionMode !== \"LIVE\" || episode.ropAgentId !== req.agent!.id",
+  "!episode || episode.since.getTime() > threshold",
   "!existing && await tx.recruitmentPosition.count() >= 24",
   "!expenseListQuerySchema.safeParse(req.query).success",
   "!filePath || !(await localVideoExists(video.storageKey))",
@@ -256,6 +257,7 @@
   "current[field.count] !== dispute.aiCount",
   "customerPropertyContextEnabled() && message.fromAd && message.accountExternalId && await verifyMetaCustomerRe…",
   "customerPropertyTurnTerminal(history)",
+  "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
   "customerTurnSilenceIsIntended(reason)",
   "d.media.some((m) => m.status === \"UPLOADING\" && m.updatedAt >= activeSince)",
   "data.assignedAgentId !== undefined && data.assignedAgentId !== existing.assignedAgentId",
@@ -437,6 +439,7 @@
   "row.doneAt || row.supersededAt || !intent || intent.status !== \"committed\" || intent.generation !== row.gener…",
   "row.groupChatId && row.groupChatId !== settings.discussionGroupId",
   "row.id === t.id",
+  "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
   "row.status !== status",
   "row.type in byType",
   "row?.factsInputHash === inputHash",
@@ -65852,6 +65855,117 @@
    ]
   },
   {
+   "id": "client-silence-sweep",
+   "when": "*/10 * * * *",
+   "label": "client-silence-sweep",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если это не внутри рабочие часы",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если !episode || episode.since.getTime() > threshold",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!episode || episode.since.getTime() > threshold",
+           "more": true
+          },
+          {
+           "t": "если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
+           "more": true
+          },
+          {
+           "t": "если customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если due количество — «0»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если разосланных тревог больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "clip-review-resend",
    "when": "*/5 * * * *",
    "label": "clip-review-resend",
@@ -66512,7 +66626,7 @@
   },
   {
    "id": "director-alert-queue-flush",
-   "when": "*/10 * * * *",
+   "when": "* * * * *",
    "label": "Доставляет руководству накопленные тревоги в разрешённые часы",
    "tree": [
     {
@@ -66525,12 +66639,6 @@
        "k": "do",
        "a": [],
        "c": [
-        {
-         "t": "если это не внутри тревога часы",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
         {
          "t": "если ожидает количество — «0»",
          "k": "if",
@@ -78369,25 +78477,6 @@
      "a": [],
      "c": [
       {
-       "t": "если сотрудник количество — «0»",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если granted количество больше 0 и denied количество больше 0",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "push-уведомление",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
        "t": "push-уведомление",
        "k": "do",
        "a": [],
@@ -79059,25 +79148,6 @@
        "k": "do",
        "a": [],
        "c": [
-        {
-         "t": "если сотрудник количество — «0»",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если granted количество больше 0 и denied количество больше 0",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "push-уведомление",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
         {
          "t": "push-уведомление",
          "k": "do",
@@ -80108,25 +80178,6 @@
      "k": "do",
      "a": [],
      "c": [
-      {
-       "t": "если сотрудник количество — «0»",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если granted количество больше 0 и denied количество больше 0",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "push-уведомление",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
       {
        "t": "push-уведомление",
        "k": "do",
@@ -83154,20 +83205,6 @@
          "k": "do",
          "a": [],
          "c": [
-          {
-           "t": "если сотрудник количество — «0»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если granted количество больше 0 и denied количество больше 0",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
           {
            "t": "push-уведомление",
            "k": "do",

@@ -893,6 +893,16 @@ describe("grounded free phrase (say): lifted before the strict parse, shadow by 
     await runCustomerAgentTurn(publicTurn.frame, publicTurn.ports);
     expect(modelText(publicTurn)).not.toContain("sayGuidance");
   });
+  it("does not ask for a say phrase while its reply language is switched off: Tajik gets no sayGuidance, Russian does", async () => {
+    const dmContext = { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } as const;
+    const tajik = fixture({ language: "tg", verifiedContext: dmContext });
+    await runCustomerAgentTurn(tajik.frame, tajik.ports);
+    expect(modelText(tajik)).toContain('"replyLanguage":"tg"');
+    expect(modelText(tajik)).not.toContain("sayGuidance");
+    const russian = fixture({ language: "ru", verifiedContext: dmContext });
+    await runCustomerAgentTurn(russian.frame, russian.ports);
+    expect(modelText(russian)).toContain("sayGuidance");
+  });
   it("delivery sealing re-renders the identical text from the stored decision (the print matches)", async () => {
     const { renderCustomerAgentDecision } = await import("../src/ai/customerAgentRenderer.js");
     const { result, f } = await run({ social: "greet", question: "location", say: GOOD }, { sayMode: "live" });

@@ -15,7 +15,7 @@ import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception }
 import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn, recruitmentMissingForTurn } from "./customerAgentRecruitmentProtocol.js";
 import { customerPropertyUrl } from "../lib/customerPropertyUrls.js";
 import { guardSellerDecision } from "./customerAgentSellerGuard.js";
-import { validateCustomerAgentSayForDecision, CUSTOMER_AGENT_SAY_GUIDANCE } from "./customerAgentSay.js";
+import { validateCustomerAgentSayForDecision, CUSTOMER_AGENT_SAY_GUIDANCE, SAY_ENABLED_LANGUAGES } from "./customerAgentSay.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 
@@ -83,9 +83,10 @@ export type CustomerCoreResult =
 
 function clone<T>(value: T): T { return structuredClone(value); }
 /** Splits the optional `say` off a raw model decision object. Anything that is not a plain object is returned untouched for the strict parse to judge. */
-/** Per-turn server facts about the surface. The `say` rules ride here (private messages only), not in the pinned system prompt: see CUSTOMER_AGENT_SAY_GUIDANCE. */
+/** Per-turn server facts about the surface. The `say` rules ride here (private messages only), not in the pinned system prompt: see CUSTOMER_AGENT_SAY_GUIDANCE.
+ *  They are left out while the reply language is switched off for `say` (Tajik in v1): the validator would drop the phrase anyway, so asking for it only spends output tokens. */
 function surfaceBlock(surface: CustomerAgentSurface, replyLanguage: "ru" | "tg") {
-  return { surface, replyLanguage, ...(surface === "dm" ? { sayGuidance: CUSTOMER_AGENT_SAY_GUIDANCE } : {}) };
+  return { surface, replyLanguage, ...(surface === "dm" && SAY_ENABLED_LANGUAGES.includes(replyLanguage) ? { sayGuidance: CUSTOMER_AGENT_SAY_GUIDANCE } : {}) };
 }
 function liftSay(raw: unknown): { say: unknown; rest: unknown } {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw) || !("say" in raw)) return { say: undefined, rest: raw };

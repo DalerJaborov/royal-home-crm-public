@@ -138,7 +138,7 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
 /** One push per chat per window to the responsible agent (or everyone who
  * reads all chats). Shared by a routing hold and a bot escalation, so a person
  * whose chat is both held and escalated is not called twice. */
-async function pushStaffAboutChat(input: { conversationId: string; channel: string; body: string; alarm?: boolean }): Promise<"sent" | "skipped"> {
+async function pushStaffAboutChat(input: { conversationId: string; channel: string; body: string }): Promise<"sent" | "skipped"> {
   const tag = tagOf(input.conversationId);
   const recent = await prisma.notification.findFirst({ where: { tag, createdAt: { gte: new Date(Date.now() - NOTIFY_WINDOW_MS) } },
     select: { id: true } });
@@ -158,8 +158,7 @@ async function pushStaffAboutChat(input: { conversationId: string; channel: stri
     VALUES (${randomUUID()},'customer-held-notify',${`${input.conversationId}:${Math.floor(Date.now() / NOTIFY_WINDOW_MS)}`},now())
     ON CONFLICT ("channel","messageId") DO NOTHING`;
   if (claimed !== 1) return "skipped";
-  // The unanswered-turn alarm has no kind, so a muted message category never silences it (like the AI budget alarm).
-  await sendPushToAgents(recipients, { ...(input.alarm ? {} : { kind: "message" as const }), title: `Ответьте вручную: ${name}`, body: input.body,
+  await sendPushToAgents(recipients, { kind: "message", title: `Ответьте вручную: ${name}`, body: input.body,
     url: `/messages?open=${input.conversationId}`, tag });
   return "sent";
 }
@@ -200,9 +199,10 @@ export async function notifyUnansweredCustomerTurn(hold: { reason: string; chann
     { dedupKey: `customer-turn-unanswered:${hold.reason}`, dedupWindowMs: NOTIFY_WINDOW_MS, quietPult: true });
   try {
     if (!hold.conversationId) return;
-    // The SAME door as the routing hold and the escalation: one push per chat per window, never two for one person.
-    await pushStaffAboutChat({ conversationId: hold.conversationId, channel: hold.channel, alarm: true,
-      body: `«${hold.excerpt}». Бот не ответит: ${why}.` });
+    // ONE door for "the customer is waiting" (#174): idempotent per silence episode, critical level, director fallback when
+    // nobody is assigned. The sweep of #174 finds the same chats later; the episode mark keeps it from a second push.
+    const { alertClientWaiting } = await import("./clientWaitingAlert.js");
+    await alertClientWaiting({ conversationId: hold.conversationId, trigger: "escalate" });
   } catch (error) {
     void logSystemError("meta", `Уведомление о неотвеченном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
       { dedupKey: "customer-turn-unanswered-notify-failed", quietPult: true });

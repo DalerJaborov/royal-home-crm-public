@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2476**; вместе с задачами по расписанию и фоновыми заданиями — **4035**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2476**; вместе с задачами по расписанию и фоновыми заданиями — **4037**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19691,6 +19691,8 @@
     - если rows.length === 0
       - return { alerted: 0, escalated: 0 };
         · дословно из кода
+    - const lastCallByClient = await fetchLastCallContactByClient(clientIds);
+      · зовёт fetchLastCallContactByClient()
     - для каждого: const row of rows
       - const stage = pauseWatchStageFor(waitingHours, cfg);
         · зовёт pauseWatchStageFor()
@@ -20182,6 +20184,62 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### client-silence-sweep — */10 * * * *
+
+- пробует
+  - const { alerted } = await runClientSilenceSweep();
+    · зовёт runClientSilenceSweep()
+    - если !(await isWithinWorkingHours(now))
+      - return { checked: 0, alerted: 0, skippedOffHours: true };
+        · дословно из кода
+    - const rows = await prisma.$queryRaw< Array<{ id: string; messages: unknown; leadDraft: unknown; silenceAlertF…
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - const episode = waitingEpisodeOf(row.messages);
+        · зовёт waitingEpisodeOf()
+      - если !episode || episode.since.getTime() > threshold
+        - continue;
+          · переходит к следующему
+      - если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()
+        - continue;
+          · переходит к следующему
+      - если customerSpamMuteActive(customerSpamMuteFrom(spam), now)
+        - continue;
+          · переходит к следующему
+    - если due.length === 0
+      - return { checked: rows.length, alerted: 0, skippedOffHours: false };
+        · дословно из кода
+    - const tickets = keys.length ? await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: …
+      · читает в базе: customerPropertyIngressTicket
+    - const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d)
+      · зовёт fetchLastCallContactByClient()
+    - для каждого: const d of due
+      - пробует
+        - если allIntentional
+          - continue;
+            · переходит к следующему
+        - если called && called.getTime() > d.episode.since.getTime()
+          - continue;
+            · переходит к следующему
+        - const outcome = await alertClientWaiting({ conversationId: d.id, trigger: "silence", now });
+          · зовёт alertClientWaiting()
+        - если outcome !== "skipped"
+          - alerted++;
+            · дословно из кода
+      - если сорвалось
+        - reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
+          · зовёт reportCronRowError()
+  - если alerted > 0
+    - console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «клиент ждёт ответа»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### clip-review-resend — */5 * * * *
 
 - пробует
@@ -20472,15 +20530,14 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
-### director-alert-queue-flush — */10 * * * *
+### director-alert-queue-flush — * * * * *
 
 - пробует
   - const sent = await flushDirectorAlertQueue();
     · зовёт flushDirectorAlertQueue()
-    - если !(await isWithinAlarmHours(now))
-      - return 0;
-        · дословно из кода
-    - const pending = await prisma.pendingDirectorAlert.findMany({ where: { sentAt: null }, orderBy: { createdAt: "…
+    - const inWindow = await isWithinAlarmHours(now);
+      · зовёт isWithinAlarmHours()
+    - const pending = await prisma.pendingDirectorAlert.findMany({ where: inWindow ? { sentAt: null } : { sentAt: n…
       · читает в базе: pendingDirectorAlert
     - если pending.length === 0
       - return 0;
@@ -20497,11 +20554,13 @@
           - continue;
             · переходит к следующему
         - если recipients.length > 0
-          - await createNotifications(recipients, { kind: item.kind ?? "oversight", level: notificationLevelOf(item.kind,…
-            · зовёт createNotifications()
-          - void sendPushToAgents(recipients, { kind: pushKind, title: item.title, body: item.body, url: item.url ?? unde…
-            · push-уведомление
-        - await prisma.pendingDirectorAlert.update({ where: { id: item.id }, data: { sentAt: now } });
+          - если !item.feedAt
+            - await createNotifications(recipients, { kind: item.kind ?? "oversight", level: notificationLevelOf(item.kind,…
+              · зовёт createNotifications()
+          - если pushNow
+            - void (item.feedAt ? sendDevicePushToAgents(recipients, payload) : sendPushToAgents(recipients, payload)).catc…
+              · push-уведомление
+        - await prisma.pendingDirectorAlert.update({ where: { id: item.id }, data: pushNow ? { feedAt: item.feedAt ?? n…
           · меняет в базе: pendingDirectorAlert
       - если сорвалось
         - console.error("[directorAlertQueue] доставка строки очереди:", err);
@@ -26652,17 +26711,7 @@
     · дальше не идёт, ничего не меняя
 - const acceptedDevices = await sendPushToAgents(recipients, { title: row.kind === "handover" ? "🙋 Клиент прос…
   · push-уведомление
-  - agentIds = await filterInvestigationRecipients(agentIds, payload);
-    · зовёт filterInvestigationRecipients()
-  - если agentIds.length === 0
-    - return 0;
-      · дословно из кода
-  - const { granted, denied } = await partitionByPermission(agentIds, "clients.viewPhone");
-    · зовёт partitionByPermission()
-  - если granted.length > 0 && denied.length > 0
-    - const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…
-      · push-уведомление
-  - return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));
+  - return sendPushToAgentsMasked(agentIds, payload, true);
     · push-уведомление
 - await prisma.$executeRaw`UPDATE "CustomerAction" SET "policyResult"=COALESCE("policyResult",'{}'::jsonb) || j…
   · обращается к базе своим SQL
@@ -27007,17 +27056,7 @@
       · ошибка Error — «Customer OTHER intake has no recipients»
   - await sendPushToAgents(recipients, { title: "🔔 Новое обращение", body: `${client.fullName} — «Прочие обращен…
     · push-уведомление
-    - agentIds = await filterInvestigationRecipients(agentIds, payload);
-      · зовёт filterInvestigationRecipients()
-    - если agentIds.length === 0
-      - return 0;
-        · дословно из кода
-    - const { granted, denied } = await partitionByPermission(agentIds, "clients.viewPhone");
-      · зовёт partitionByPermission()
-    - если granted.length > 0 && denied.length > 0
-      - const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…
-        · push-уведомление
-    - return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));
+    - return sendPushToAgentsMasked(agentIds, payload, true);
       · push-уведомление
 - иначе если outcome.mode === "unassigned" && !client.assignedAgentId
   - const recipients = await findAgentsWithPermission("clients.assign");
@@ -27531,17 +27570,7 @@
     · ошибка Error — «Owner question notification has no eligible recipients»
 - await sendPushToAgents(recipients, { title: "Нужно уточнить вопрос у собственника", body: "В CRM записан вопр…
   · push-уведомление
-  - agentIds = await filterInvestigationRecipients(agentIds, payload);
-    · зовёт filterInvestigationRecipients()
-  - если agentIds.length === 0
-    - return 0;
-      · дословно из кода
-  - const { granted, denied } = await partitionByPermission(agentIds, "clients.viewPhone");
-    · зовёт partitionByPermission()
-  - если granted.length > 0 && denied.length > 0
-    - const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…
-      · push-уведомление
-  - return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));
+  - return sendPushToAgentsMasked(agentIds, payload, true);
     · push-уведомление
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о вопросе собственнику не подтверждено; вопрос остаётся …
@@ -29049,17 +29078,7 @@
         · читает в базе: agent
     - await sendPushToAgents(recipients, { title: "🤖 Бот не может ответить — нужен человек", body: "Переписка в Te…
       · push-уведомление
-      - agentIds = await filterInvestigationRecipients(agentIds, payload);
-        · зовёт filterInvestigationRecipients()
-      - если agentIds.length === 0
-        - return 0;
-          · дословно из кода
-      - const { granted, denied } = await partitionByPermission(agentIds, "clients.viewPhone");
-        · зовёт partitionByPermission()
-      - если granted.length > 0 && denied.length > 0
-        - const [a, b] = await Promise.all([ sendPushToAgentsSameText(granted, payload), sendPushToAgentsSameText(denie…
-          · push-уведомление
-      - return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));
+      - return sendPushToAgentsMasked(agentIds, payload, true);
         · push-уведомление
   - если сорвалось
     - void logSystemError( "ai", `Не удалось позвать человека на непроходимый диалог Telegram ${payload.conversatio…
