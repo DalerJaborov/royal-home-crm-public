@@ -38,6 +38,14 @@ describe("conservative monetary policy", () => {
     await expect(wallet.reserve(1)).rejects.toThrow(/лимит/);
     expect(daily).toHaveBeenCalledWith(1_000_000, expect.any(String), 30_000_000);
   });
+  it("empty env strings (docker-compose `${VAR:-}`) fall back to the defaults", async () => {
+    vi.stubEnv("ASSISTANT_GEMINI_DAILY_USD", ""); vi.stubEnv("ASSISTANT_GEMINI_TURN_USD", "  ");
+    const daily = vi.fn(async () => true);
+    const wallet = createAssistantMoneyWallet({ now, reserveDaily: daily });
+    await wallet.reserve(1_000_000);
+    expect(daily).toHaveBeenCalledWith(1_000_000, expect.any(String), 30_000_000);
+    vi.unstubAllEnvs();
+  });
   it("does not refund an uncertain database outcome", async () => {
     const daily = vi.fn(async () => { throw new Error("uncertain"); });
     const wallet = createAssistantMoneyWallet({now,turnUsd:"0.10",dailyUsd:"3",reserveDaily:daily});

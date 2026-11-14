@@ -33,8 +33,9 @@ async function reserveDaily(amount: number, day: string, limit: number): Promise
  */
 export function createAssistantMoneyWallet(options: WalletOptions = {}): AssistantMoneyWallet {
   const now = options.now ?? Date.now;
-  const daily = dollarLimit(options.dailyUsd ?? process.env.ASSISTANT_GEMINI_DAILY_USD ?? "30");
-  const turn = dollarLimit(options.turnUsd ?? process.env.ASSISTANT_GEMINI_TURN_USD ?? "1");
+  // docker-compose пробрасывает незаданную переменную пустой строкой (`${VAR:-}`), поэтому `??` мало: пусто = не задано.
+  const daily = dollarLimit(options.dailyUsd?.trim() || process.env.ASSISTANT_GEMINI_DAILY_USD?.trim() || "30");
+  const turn = dollarLimit(options.turnUsd?.trim() || process.env.ASSISTANT_GEMINI_TURN_USD?.trim() || "1");
   const day = dushanbeDayKey(now());
   let used = 0;
   return { async reserve(amount, signal) {
