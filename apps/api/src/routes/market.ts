@@ -5,7 +5,7 @@ import { cardWhereFromParam } from "../lib/cardIdParam.js";
 import { emptyDynamics, findDynamics } from "../lib/market/dynamics.js";
 import { evaluatePropertyAgainstMarket, PROPERTY_MARKET_SELECT } from "../lib/market/propertyMarket.js";
 import { loadMoneyContext } from "../lib/money.js";
-import { findOverpricedProperties } from "../lib/market/overpriced.js";
+import { findOverpricedPropertiesCached } from "../lib/market/overpriced.js";
 import { findSegments } from "../lib/market/segments.js";
 import { marketSegmentsQuerySchema } from "@royal-home/shared";
 
@@ -65,8 +65,9 @@ marketRouter.get("/segments", requireAuth, async (req, res) => {
  * GET /api/v1/market/overpriced — наши объекты в продаже, которые просят дороже рынка (14.11.2026).
  * Права те же, что у блока «Рынок» и таблицы сегментов: любой вошедший сотрудник (в ответе только то, что
  * и так видно в карточках объектов, и цены чужих объявлений в сводке; телефонов нет). Сравнение одним
- * проходом по сегментам, предел выборки в lib/market/overpriced.ts. Ориентировочно: точный разбор — в карточке.
+ * проходом по сегментам, предел выборки в lib/market/overpriced.ts, ответ кэшируется на 10 минут (один на всех).
+ * Ориентировочно: точный разбор в карточке.
  */
 marketRouter.get("/overpriced", requireAuth, async (_req, res) => {
-  res.json(await findOverpricedProperties());
+  res.json(await findOverpricedPropertiesCached());
 });

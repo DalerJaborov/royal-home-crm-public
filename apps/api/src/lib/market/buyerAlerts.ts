@@ -16,15 +16,22 @@
  *    давних объявлений за «новые». Объявление, признанное нашим объектом (ownMatches), не считается.
  *  · ОДИН РАЗ НА ПАРУ клиент+объявление: уникальный ключ BuyerMarketAlert (clientId, listingId). Тот же
  *    объект на второй площадке или перевыложенный (dedupeListings, isDuplicateListing) повторного пуша не даёт.
- *  · Не больше BUYER_ALERT_MAX_PUSHES_PER_DAY пушей на клиента за сутки ПО ДУШАНБЕ (lib/dushanbeTime.ts);
- *    в одном пуше до BUYER_ALERT_PER_PUSH ближайших объявлений, остальные ждут следующего прогона в пределах окна.
+ *  · Не больше BUYER_ALERT_MAX_PUSHES_PER_DAY пушей на АГЕНТА за сутки ПО ДУШАНБЕ (lib/dushanbeTime.ts):
+ *    агент с десятью покупателями не получает тридцать пушей. В одном пуше до BUYER_ALERT_PER_PUSH ближайших
+ *    объявлений; те, что не влезли, ждут следующего прогона, пока не закрылось окно «нового».
+ *  · При первом включении рубильника всплеска за прошлые сутки нет: «новыми» считаются только объявления,
+ *    впервые увиденные ПОСЛЕ включения (Settings.marketBuyerAlertsEnabledAt; первый прогон после включения лишь
+ *    ставит эту отметку). Выключили рубильник: отметка сбрасывается, следующее включение снова считает с нуля.
+ *  · Покупатель без района (только бюджет) пушей не получает: по одному бюджету под него подходит полгорода,
+ *    и пуш приходил бы каждый день. Нужен район; комнаты, площадь и бюджет сужают дальше.
  *  · Без N+1: покупатели, районы, курс, политика, новые объявления, уже отправленное — по одному запросу на весь
  *    прогон; запись и пуш идут только по тем клиентам, у кого что-то нашлось.
- *  · Пара записывается ДО пуша (занята атомарно createMany + skipDuplicates), упал пуш — запись снимается
- *    и объявление уйдёт со следующим прогоном. Ошибки — в журнал через logSystemError, без номеров и текстов.
+ *  · Пара записывается ДО пуша (занята атомарно createMany + skipDuplicates). Упал пуш: запись снимается, и пока
+ *    окно «нового» (24 часа) не закрылось, объявление уйдёт со следующим прогоном; после окна оно не оповещается.
+ *    Ошибки в журнал через logSystemError, без номеров и текстов; итог прогона с failed > 0 тоже пишется в журнал.
  *  · В пуше нет телефонов продавцов и текста объявлений: площадка, комнаты, площадь, цена, район.
  */
-import { formatClientCode } from "@royal-home/shared";
+import { formatClientCode, isMarketRealtorListing } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { sendPushToAgent } from "../../push.js";
 import { currentBuyerMatchingCriteria } from "../clientPropertyMatching.js";
@@ -35,6 +42,7 @@ import { logSystemError } from "../systemError.js";
 import {
   buildBuyerWants, buyerDistance, hasBuyerCriteria, listingFitsBuyer, type BuyerRow, type BuyerWants,
 } from "./buyerMatch.js";
+import { loadOwnersFilter } from "./ownerFilter.js";
 import { plausibleSaleWhere } from "./plausible.js";
 import { dedupeListings, isDuplicateListing } from "./similarComps.js";
 import { marketCatalogWhere } from "./somonRubrics.js";
@@ -76,16 +84,18 @@ export interface BuyerAlertPlanInput {
   alreadyAlerted: ReadonlySet<string>;
   /** Ранее отправленные клиенту объявления: «двойник» уже отправленного не шлём. */
   previousByClient: ReadonlyMap<string, readonly AlertListing[]>;
-  /** Сколько пушей клиент получил с начала суток по Душанбе. */
-  pushesTodayByClient: ReadonlyMap<string, number>;
+  /** Сколько пушей агент получил с начала суток по Душанбе (по всем его клиентам). */
+  pushesTodayByAgent: ReadonlyMap<string, number>;
 }
 
 /** Чистая часть: кому что отправить. Без БД, без времени — тестируется отдельно. */
 export function planBuyerAlerts(input: BuyerAlertPlanInput): BuyerAlertPlanItem[] {
   const plan: BuyerAlertPlanItem[] = [];
+  // Счёт ведём и внутри прогона: два покупателя одного агента не дают вместе больше предела.
+  const used = new Map(input.pushesTodayByAgent);
   for (const buyer of input.buyers) {
-    if ((input.pushesTodayByClient.get(buyer.clientId) ?? 0) >= BUYER_ALERT_MAX_PUSHES_PER_DAY) continue;
-    if (!hasBuyerCriteria(buyer.wants)) continue;
+    if ((used.get(buyer.agentId) ?? 0) >= BUYER_ALERT_MAX_PUSHES_PER_DAY) continue;
+    if (!hasBuyerCriteria(buyer.wants) || buyer.wants.districtName == null) continue;
     const previous = input.previousByClient.get(buyer.clientId) ?? [];
     const fitting = input.listings
       .filter((l) => !input.alreadyAlerted.has(`${buyer.clientId}|${l.id}`) && listingFitsBuyer(l, buyer.wants))
@@ -96,6 +106,7 @@ export function planBuyerAlerts(input: BuyerAlertPlanInput): BuyerAlertPlanItem[
     const fresh = dedupeListings(fitting).filter((l) => !previous.some((p) => isDuplicateListing(l, p)));
     if (fresh.length === 0) continue;
     plan.push({ buyer, listings: fresh.slice(0, BUYER_ALERT_PER_PUSH) });
+    used.set(buyer.agentId, (used.get(buyer.agentId) ?? 0) + 1);
   }
   return plan;
 }
@@ -141,12 +152,13 @@ let running = false;
 const LISTING_SELECT = {
   id: true, source: true, sourceUrl: true, title: true, propertyType: true, priceTjs: true, pricePerSqmTjs: true, areaSqm: true,
   rooms: true, floor: true, totalFloors: true, districtName: true, city: true, repair: true, firstSeenAt: true, publishedAt: true, sellerId: true,
+  isAgency: true,
 } as const;
 
 function toAlertListing(r: {
   id: string; source: string; sourceUrl: string; title: string; propertyType: string; priceTjs: unknown; pricePerSqmTjs: unknown;
   areaSqm: unknown; rooms: number | null; floor: number | null; totalFloors: number | null; districtName: string | null; city: string | null;
-  repair: string | null; firstSeenAt: Date; publishedAt: Date | null; sellerId: string | null;
+  repair: string | null; firstSeenAt: Date; publishedAt: Date | null; sellerId: string | null; isAgency: boolean;
 }): AlertListing {
   return {
     ...r,
@@ -165,11 +177,26 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
   if (running) return stats;
   running = true;
   try {
-    const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { marketBuyerAlertsEnabled: true } });
-    if (!settings?.marketBuyerAlertsEnabled) return stats;
+    const settings = await prisma.settings.findUnique({
+      where: { id: "singleton" },
+      select: { marketBuyerAlertsEnabled: true, marketBuyerAlertsEnabledAt: true },
+    });
+    if (!settings?.marketBuyerAlertsEnabled) {
+      // Выключили: сбрасываем отметку, чтобы следующее включение снова не слало прошлое.
+      if (settings?.marketBuyerAlertsEnabledAt) {
+        await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: { not: null } }, data: { marketBuyerAlertsEnabledAt: null } });
+      }
+      return stats;
+    }
     stats.enabled = true;
+    if (!settings.marketBuyerAlertsEnabledAt) {
+      // Первый прогон после включения: только ставим отметку. «Новое» считается от неё, прошлых суток не будет.
+      await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: null }, data: { marketBuyerAlertsEnabledAt: now } });
+      return stats;
+    }
 
-    const since = new Date(now.getTime() - BUYER_ALERT_LOOKBACK_MS);
+    const windowStart = new Date(now.getTime() - BUYER_ALERT_LOOKBACK_MS);
+    const since = settings.marketBuyerAlertsEnabledAt > windowStart ? settings.marketBuyerAlertsEnabledAt : windowStart;
     const publishedAfter = new Date(since.getTime() - PUBLISHED_SLACK_MS);
     const rawListings = await prisma.marketListing.findMany({
       where: {
@@ -185,7 +212,12 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
     });
     stats.listings = rawListings.length;
     if (rawListings.length === 0) return stats;
-    const listings = rawListings.map(toAlertListing);
+    // «Только собственники» (рубильник в Настройках, по умолчанию включён): объявления агентств и риелторов
+    // под покупателя не шлём, тем же правилом, что подбор в карточке клиента (ownerFilter.ts).
+    const realtors = await loadOwnersFilter();
+    const listings = rawListings.map(toAlertListing).filter((l) => !realtors || !isMarketRealtorListing(l, realtors));
+    stats.listings = listings.length;
+    if (listings.length === 0) return stats;
 
     const policy = await loadMatchPolicy();
     const clients = await prisma.client.findMany({
@@ -221,7 +253,7 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
     const clientIds = buyers.map((b) => b.clientId);
     const dayStart = dushanbeStartOfToday(now);
     const duplicateSince = new Date(now.getTime() - DUPLICATE_LOOKBACK_DAYS * 24 * 3600_000);
-    const [pairs, recent] = await Promise.all([
+    const [pairs, recent, todayByAgent] = await Promise.all([
       prisma.buyerMarketAlert.findMany({
         where: { clientId: { in: clientIds }, listingId: { in: listings.map((l) => l.id) } },
         select: { clientId: true, listingId: true },
@@ -230,12 +262,18 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
         where: { clientId: { in: clientIds }, notifiedAt: { gte: duplicateSince } },
         select: { clientId: true, notifiedAt: true, listing: { select: LISTING_SELECT } },
       }),
+      // Предел на агента считается по ВСЕМ его пушам за сутки, а не только по покупателям этого прогона.
+      prisma.buyerMarketAlert.findMany({
+        where: { agentId: { in: [...new Set(buyers.map((b) => b.agentId))] }, notifiedAt: { gte: dayStart } },
+        select: { agentId: true, clientId: true, notifiedAt: true },
+      }),
     ]);
     const previousByClient = new Map<string, AlertListing[]>();
-    const pushTimesToday = new Map<string, Set<number>>();
-    for (const r of recent) {
-      previousByClient.set(r.clientId, [...(previousByClient.get(r.clientId) ?? []), toAlertListing(r.listing)]);
-      if (r.notifiedAt >= dayStart) pushTimesToday.set(r.clientId, (pushTimesToday.get(r.clientId) ?? new Set()).add(r.notifiedAt.getTime()));
+    for (const r of recent) previousByClient.set(r.clientId, [...(previousByClient.get(r.clientId) ?? []), toAlertListing(r.listing)]);
+    // Один пуш = одна пара (клиент, момент отправки): несколько объявлений пуша это строки с одним notifiedAt.
+    const pushKeysByAgent = new Map<string, Set<string>>();
+    for (const r of todayByAgent) {
+      pushKeysByAgent.set(r.agentId, (pushKeysByAgent.get(r.agentId) ?? new Set()).add(`${r.clientId}|${r.notifiedAt.getTime()}`));
     }
 
     const plan = planBuyerAlerts({
@@ -243,11 +281,11 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
       listings,
       alreadyAlerted: new Set(pairs.map((p) => `${p.clientId}|${p.listingId}`)),
       previousByClient,
-      pushesTodayByClient: new Map([...pushTimesToday].map(([id, times]) => [id, times.size])),
+      pushesTodayByAgent: new Map([...pushKeysByAgent].map(([id, keys]) => [id, keys.size])),
     });
 
     for (const item of plan) {
-      const at = new Date();
+      const at = new Date(now.getTime());
       const claimed = await prisma.buyerMarketAlert.createMany({
         data: item.listings.map((l) => ({ clientId: item.buyer.clientId, listingId: l.id, agentId: item.buyer.agentId, notifiedAt: at })),
         skipDuplicates: true,
@@ -263,7 +301,7 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
       const text = buyerAlertText(item.buyer, toTell);
       try {
         await sendPushToAgent(item.buyer.agentId, {
-          kind: "market",
+          kind: "market_buyer",
           title: text.title,
           body: text.body,
           url: `/clients/${item.buyer.shortId}`,
@@ -279,6 +317,9 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
           url: `/clients/${item.buyer.shortId}`,
         });
       }
+    }
+    if (stats.failed > 0) {
+      void logSystemError("api", `Оповещение о новых объявлениях: не ушло пушей ${stats.failed} из ${stats.failed + stats.pushed}`, { url: "/market" });
     }
     return stats;
   } finally {

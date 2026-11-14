@@ -9,7 +9,7 @@ const listing = (i: number): MarketBuyerListing => ({
   publishedAt: "2026-11-08T10:00:00.000Z",
 });
 const ok = (n: number, over: Partial<MarketBuyerListingsResponse> = {}): MarketBuyerListingsResponse => ({
-  status: "ok", criteria: ["район Сино", "2-комнатные"], total: n, totalIsLowerBound: false, budgetMaxTjs: 700000, market: null, listings: Array.from({ length: n }, (_, i) => listing(i)), ...over,
+  status: "ok", criteria: ["район Сино", "2-комнатные"], total: n, totalIsLowerBound: false, budgetMaxTjs: 700000, market: null, ownersOnly: null, listings: Array.from({ length: n }, (_, i) => listing(i)), ...over,
 });
 
 describe("MarketBuyerListingsView", () => {
@@ -73,5 +73,15 @@ describe("строка рынка над списком (14.11.2026)", () => {
     expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(1)} />)).not.toContain("market-buyer-line");
     // Строка видна и когда подходящих объявлений нет: рынок района известен.
     expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(0, { market: summary() })} />)).toContain("market-buyer-line");
+  });
+});
+
+describe("строка «только собственники» (14.11.2026)", () => {
+  it("честно говорит, сколько показано из скольких; без фильтра или без объявлений строки нет", () => {
+    const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(2, { ownersOnly: { enabled: true, kept: 2, total: 9 } })} />);
+    expect(html).toContain("Показаны только собственники: 2 из 9 объявлений.");
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(2, { ownersOnly: { enabled: false, kept: 9, total: 9 } })} />)).not.toContain("market-owners-only");
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(0, { ownersOnly: { enabled: true, kept: 0, total: 0 } })} />)).not.toContain("market-owners-only");
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(2)} />)).not.toContain("market-owners-only");
   });
 });

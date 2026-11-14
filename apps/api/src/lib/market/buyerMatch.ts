@@ -16,7 +16,7 @@
  * Один объект (на двух площадках или выложенный дважды) — одно объявление (dedupeListings). Порядок — близость к запросу.
  */
 
-import { propertyFieldShown, type MarketBuyerListing } from "@royal-home/shared";
+import { isMarketRealtorListing, propertyFieldShown, type MarketBuyerListing, type MarketOwnersOnlyInfo } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { areaMeetsMinimum, roomsWithinTolerance, type MatchingBuyerCriteria } from "../clientPropertyMatching.js";
@@ -87,6 +87,8 @@ export interface BuyerRow {
   publishedAt: Date | null;
   /** Продавец на площадке (для склейки повторов одной площадки); наружу не отдаётся. */
   sellerId?: string | null;
+  /** Площадка пометила продавца агентством (для фильтра «только собственники»); наружу не отдаётся. */
+  isAgency?: boolean | null;
 }
 
 /** Чем меньше, тем ближе к запросу: цена к «центру» бюджета, площадь к желаемой. */
@@ -185,31 +187,38 @@ export function buyerListingsWhere(w: BuyerWants, now = Date.now()): Prisma.Mark
   };
 }
 
+/**
+ * `realtors` — ключи продавцов-риелторов (ownerFilter.ts); null — фильтр «только собственники» выключен.
+ * Объявления риелторов отсекаются ДО порядка и склейки дублей, а в ответе честно сказано, сколько было до фильтра.
+ */
 export async function findBuyerListings(
   w: BuyerWants,
-  limit: number
-): Promise<{ total: number; totalIsLowerBound: boolean; listings: MarketBuyerListing[] }> {
+  limit: number,
+  realtors: ReadonlySet<string> | null = null
+): Promise<{ total: number; totalIsLowerBound: boolean; listings: MarketBuyerListing[]; ownersOnly: MarketOwnersOnlyInfo }> {
   const rows = await prisma.marketListing.findMany({
     where: buyerListingsWhere(w),
     select: {
       source: true, sourceUrl: true, title: true, propertyType: true, priceTjs: true, pricePerSqmTjs: true, areaSqm: true,
-      rooms: true, floor: true, totalFloors: true, districtName: true, firstSeenAt: true, publishedAt: true, sellerId: true,
+      rooms: true, floor: true, totalFloors: true, districtName: true, firstSeenAt: true, publishedAt: true, sellerId: true, isAgency: true,
     },
     // Свежие первыми: если запрос так широк, что упёрся в предел, теряются самые старые, а не самые дорогие.
     orderBy: { lastSeenAt: "desc" },
     take: BUYER_FETCH_LIMIT,
   });
-  const ranked = rankBuyerListings(
-    rows.map((r) => ({
-      ...r,
-      priceTjs: Number(r.priceTjs),
-      pricePerSqmTjs: r.pricePerSqmTjs != null ? Number(r.pricePerSqmTjs) : null,
-      areaSqm: r.areaSqm != null ? Number(r.areaSqm) : null,
-    })),
-    w,
-    limit
-  );
-  return { ...ranked, totalIsLowerBound: rows.length >= BUYER_FETCH_LIMIT };
+  const mapped = rows.map((r) => ({
+    ...r,
+    priceTjs: Number(r.priceTjs),
+    pricePerSqmTjs: r.pricePerSqmTjs != null ? Number(r.pricePerSqmTjs) : null,
+    areaSqm: r.areaSqm != null ? Number(r.areaSqm) : null,
+  }));
+  const all = rankBuyerListings(mapped, w, limit);
+  const kept = realtors ? rankBuyerListings(mapped.filter((r) => !isMarketRealtorListing(r, realtors)), w, limit) : all;
+  return {
+    ...kept,
+    totalIsLowerBound: rows.length >= BUYER_FETCH_LIMIT,
+    ownersOnly: { enabled: realtors != null, kept: kept.total, total: all.total },
+  };
 }
 
 /** Чистая часть: желания покупателя → условия выборки (район и общие деньги/политика уже загружены). */

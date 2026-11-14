@@ -169,6 +169,7 @@ const KIND_WORDS: { kind: PushKind; re: RegExp }[] = [
   { kind: "oversight", re: /контрол|разбор|потерянн/iu },
   { kind: "look", re: /подбор|подходящ|мувофиқ/iu },
   { kind: "hot", re: /загорел|просмотр/iu },
+  { kind: "market_buyer", re: /под\s+(?:вашего\s+)?покупател/iu },
   { kind: "market", re: /площадк|somon|сомон|paydo|пайдо/iu },
 ];
 

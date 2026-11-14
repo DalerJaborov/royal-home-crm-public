@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 750,
-  "forks": 4044,
+  "forks": 4047,
   "mounts": 83,
   "cron": 132,
   "jobs": 33,
@@ -14865,9 +14865,9 @@
     },
     {
      "k": "do",
-     "t": "const [{ total, totalIsLowerBound, listings }, market] = await Promise.all([ findBuyerListings(wants, parsed.…",
+     "t": "const [{ total, totalIsLowerBound, listings, ownersOnly }, market] = await Promise.all([ loadOwnersFilter().t…",
      "a": [
-      "зовёт findBuyerListings()"
+      "зовёт loadOwnersFilter()"
      ],
      "c": []
     },
@@ -39140,7 +39140,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json(await findOverpricedProperties());",
+     "t": "res.json(await findOverpricedPropertiesCached());",
      "a": [
       "ответ 200"
      ],
@@ -99785,10 +99785,32 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "settings?.marketBuyerAlertsEnabledAt",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await prisma.settings.updateMany({ where: { id: \"singleton\", marketBuyerAlertsEnabledAt: { not: null } }, dat…",
+               "a": [
+                "меняет в базе: settings"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!settings.marketBuyerAlertsEnabledAt",
+           "a": [],
+           "c": [
+            {
              "k": "do",
-             "t": "return stats;",
+             "t": "await prisma.settings.updateMany({ where: { id: \"singleton\", marketBuyerAlertsEnabledAt: null }, data: { mark…",
              "a": [
-              "дословно из кода"
+              "меняет в базе: settings"
              ],
              "c": []
             }
@@ -99805,6 +99827,29 @@
           {
            "k": "if",
            "t": "rawListings.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return stats;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const realtors = await loadOwnersFilter();",
+           "a": [
+            "зовёт loadOwnersFilter()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "listings.length === 0",
            "a": [],
            "c": [
             {
@@ -99927,7 +99972,7 @@
           },
           {
            "k": "do",
-           "t": "const [pairs, recent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where: { clientId: { in: clien…",
+           "t": "const [pairs, recent, todayByAgent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where: { clientI…",
            "a": [
             "читает в базе: buyerMarketAlert"
            ],
@@ -99939,19 +99984,27 @@
            "a": [],
            "c": [
             {
-             "k": "if",
-             "t": "r.notifiedAt >= dayStart",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "pushTimesToday.set(r.clientId, (pushTimesToday.get(r.clientId) ?? new Set()).add(r.notifiedAt.getTime()));",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
+             "k": "do",
+             "t": "previousByClient.set(r.clientId, [...(previousByClient.get(r.clientId) ?? []), toAlertListing(r.listing)]);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const r of todayByAgent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "pushKeysByAgent.set(r.agentId, (pushKeysByAgent.get(r.agentId) ?? new Set()).add(`${r.clientId}|${r.notifiedA…",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
             }
            ]
           },
@@ -100029,7 +100082,7 @@
              "c": [
               {
                "k": "do",
-               "t": "await sendPushToAgent(item.buyer.agentId, { kind: \"market\", title: text.title, body: text.body, url: `/client…",
+               "t": "await sendPushToAgent(item.buyer.agentId, { kind: \"market_buyer\", title: text.title, body: text.body, url: `/…",
                "a": [
                 "push-уведомление"
                ],
@@ -100059,6 +100112,21 @@
                "c": []
               }
              ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "stats.failed > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"api\", `Оповещение о новых объявлениях: не ушло пушей ${stats.failed} из ${stats.failed +…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
             }
            ]
           }

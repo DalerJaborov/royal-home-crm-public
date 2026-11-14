@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **750**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4044**. Модулей: **83**.
+Путей: **750**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4047**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3408,8 +3408,8 @@
 - если !hasBuyerCriteria(wants)
   - return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
     · ответ 200
-- const [{ total, totalIsLowerBound, listings }, market] = await Promise.all([ findBuyerListings(wants, parsed.…
-  · зовёт findBuyerListings()
+- const [{ total, totalIsLowerBound, listings, ownersOnly }, market] = await Promise.all([ loadOwnersFilter().t…
+  · зовёт loadOwnersFilter()
 - const body: MarketBuyerListingsResponse = { status: "ok", criteria, total, totalIsLowerBound, budgetMaxTjs: w…
   · зовёт phoneSafeText()
 - return res.json(body);
@@ -8698,7 +8698,7 @@
 
 `apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- res.json(await findOverpricedProperties());
+- res.json(await findOverpricedPropertiesCached());
   · ответ 200
 
 ### GET /api/v1/market/property/:id/dynamics
@@ -22368,11 +22368,20 @@
       - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { marketBuyerAlertsEn…
         · читает в базе: settings
       - если !settings?.marketBuyerAlertsEnabled
-        - return stats;
-          · дословно из кода
+        - если settings?.marketBuyerAlertsEnabledAt
+          - await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: { not: null } }, dat…
+            · меняет в базе: settings
+      - если !settings.marketBuyerAlertsEnabledAt
+        - await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: null }, data: { mark…
+          · меняет в базе: settings
       - const rawListings = await prisma.marketListing.findMany({ where: { dealType: "SALE", isActive: true, firstSee…
         · читает в базе: marketListing
       - если rawListings.length === 0
+        - return stats;
+          · дословно из кода
+      - const realtors = await loadOwnersFilter();
+        · зовёт loadOwnersFilter()
+      - если listings.length === 0
         - return stats;
           · дословно из кода
       - const policy = await loadMatchPolicy();
@@ -22399,12 +22408,14 @@
           · дословно из кода
       - const dayStart = dushanbeStartOfToday(now);
         · зовёт dushanbeStartOfToday()
-      - const [pairs, recent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where: { clientId: { in: clien…
+      - const [pairs, recent, todayByAgent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where: { clientI…
         · читает в базе: buyerMarketAlert
       - для каждого: const r of recent
-        - если r.notifiedAt >= dayStart
-          - pushTimesToday.set(r.clientId, (pushTimesToday.get(r.clientId) ?? new Set()).add(r.notifiedAt.getTime()));
-            · дословно из кода
+        - previousByClient.set(r.clientId, [...(previousByClient.get(r.clientId) ?? []), toAlertListing(r.listing)]);
+          · дословно из кода
+      - для каждого: const r of todayByAgent
+        - pushKeysByAgent.set(r.agentId, (pushKeysByAgent.get(r.agentId) ?? new Set()).add(`${r.clientId}|${r.notifiedA…
+          · дословно из кода
       - const plan = planBuyerAlerts({ buyers, listings, alreadyAlerted: new Set(pairs.map((p)
         · зовёт planBuyerAlerts()
       - для каждого: const item of plan
@@ -22421,13 +22432,16 @@
         - const text = buyerAlertText(item.buyer, toTell);
           · зовёт buyerAlertText()
         - пробует
-          - await sendPushToAgent(item.buyer.agentId, { kind: "market", title: text.title, body: text.body, url: `/client…
+          - await sendPushToAgent(item.buyer.agentId, { kind: "market_buyer", title: text.title, body: text.body, url: `/…
             · push-уведомление
         - если сорвалось
           - await prisma.buyerMarketAlert.deleteMany({ where: { clientId: item.buyer.clientId, notifiedAt: at } });
             · удаляет в базе: buyerMarketAlert
           - void logSystemError("api", `Пуш о новом объявлении под покупателя не ушёл: ${err instanceof Error ? err.name …
             · запись в журнал ошибок
+      - если stats.failed > 0
+        - void logSystemError("api", `Оповещение о новых объявлениях: не ушло пушей ${stats.failed} из ${stats.failed +…
+          · запись в журнал ошибок
     - в любом случае
       - running = false;
         · дословно из кода

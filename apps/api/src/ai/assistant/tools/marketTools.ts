@@ -5,6 +5,7 @@ import { cardWhereFromParam } from "../../../lib/cardIdParam.js";
 import { currentBuyerMatchingCriteria } from "../../../lib/clientPropertyMatching.js";
 import { buyerWantsFromCriteria, describeBuyerCriteria, findBuyerListings, hasBuyerCriteria } from "../../../lib/market/buyerMatch.js";
 import { findBuyerMarketSummary } from "../../../lib/market/buyerMarket.js";
+import { loadOwnersFilter } from "../../../lib/market/ownerFilter.js";
 import { evaluatePropertyAgainstMarket } from "../../../lib/market/propertyMarket.js";
 import { loadMoneyContext } from "../../../lib/money.js";
 import { findPropertiesByRef } from "../../../lib/propertyRefLookup.js";
@@ -67,19 +68,26 @@ export const marketForClientTool: AssistantReadToolPlugin = {
     if (!client || client.deletedAt || (ownScope && client.acceptedAt === null)) return { error: "Клиент не найден" };
     if (ownScope && client.assignedAgentId !== ownScope) return { error: FOREIGN_CLIENT_SCOPE_MESSAGE };
     const code = formatClientCode(client.shortId, client.kind);
-    if (!confirmedClientIntents(client).buys) return { code, status: "not_buyer", note: "Клиент не покупатель: рынок под запрос не считается." };
+    // shortId и href нужны сторожу ссылок на карточки (cardLinkEvidence): без них ответ со ссылкой на клиента отвергается.
+    const identity = { code, shortId: client.shortId, href: `/clients/${client.shortId}` };
+    if (!confirmedClientIntents(client).buys) return { ...identity, status: "not_buyer", note: "Клиент не покупатель: рынок под запрос не считается." };
 
     const wants = await buyerWantsFromCriteria(currentBuyerMatchingCriteria(client));
     const criteria = describeBuyerCriteria(wants);
     if (!hasBuyerCriteria(wants)) {
-      return { code, status: "no_criteria", note: "В пожеланиях нет ни района, ни бюджета: подбирать не из чего. Попросите агента уточнить." };
+      return { ...identity, status: "no_criteria", note: "В пожеланиях нет ни района, ни бюджета: подбирать не из чего. Попросите агента уточнить." };
     }
-    const [{ total, totalIsLowerBound, listings }, market] = await Promise.all([findBuyerListings(wants, MAX_LISTINGS), findBuyerMarketSummary(wants)]);
+    const [{ total, totalIsLowerBound, listings, ownersOnly }, market] = await Promise.all([
+      loadOwnersFilter().then((realtors) => findBuyerListings(wants, MAX_LISTINGS, realtors)),
+      findBuyerMarketSummary(wants),
+    ]);
     return {
-      code,
+      ...identity,
       status: "ok",
       criteria,
       listingsTotal: total,
+      // Агентства и риелторы в подборе скрыты (рубильник в Настройках): сколько отсеяно, говорим как есть. Медиана ниже считана по всем объявлениям.
+      ownersOnly: ownersOnly.enabled ? { shownOwners: ownersOnly.kept, foundTotal: ownersOnly.total } : { enabled: false },
       listingsTotalIsLowerBound: totalIsLowerBound,
       listings: listings.map((l) => ({
         source: l.source, url: l.sourceUrl, priceTjs: l.priceTjs, pricePerSqmTjs: l.pricePerSqmTjs,
@@ -133,7 +141,7 @@ export const marketPropertyPriceTool: AssistantReadToolPlugin = {
     if (!property) return { error: "Объект не найден — найдите его через find_property и передайте id или номер" };
 
     const result = await evaluatePropertyAgainstMarket(property, await loadMoneyContext());
-    const base = { code: formatPropertyCode(property.shortId), href: propertyHref(property.shortId) };
+    const base = { code: formatPropertyCode(property.shortId), shortId: property.shortId, href: propertyHref(property.shortId) };
     if (result.status === "unsupported") return { ...base, status: "unsupported", note: result.basis };
     if (result.status === "insufficient") {
       return {

@@ -64,6 +64,9 @@ export function createCardLinkEvidence() {
           break;
         case "get_client_last_call": card(value?.client, "clients"); break;
         case "get_property_card": card(result, "properties"); break;
+        // Рынок (14.11.2026): ответ несёт shortId/href той карточки, о которой речь.
+        case "market_property_price": card(result, "properties"); break;
+        case "market_for_client": card(result, "clients"); break;
         case "get_property_work_status":
           card(result, "properties");
           for (const item of rows(value?.items)) card(item, "properties");

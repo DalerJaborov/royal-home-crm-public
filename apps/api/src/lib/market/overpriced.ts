@@ -126,3 +126,31 @@ export async function findOverpricedProperties(): Promise<MarketOverpricedRespon
     items: all.slice(0, OVERPRICED_MAX_ITEMS),
   };
 }
+
+/**
+ * Кэш на сервере: список считается по всему каталогу (до 20 000 строк на город), а меняется он медленно, поэтому
+ * открытие страницы «Рынок» разными сотрудниками не должно каждый раз заново проходить весь каталог. Один ответ
+ * на всех (в нём нет данных, зависящих от человека), живёт OVERPRICED_CACHE_MS; свежее значение берёт первый запрос после срока.
+ */
+export const OVERPRICED_CACHE_MS = 10 * 60_000;
+let cache: { at: number; body: MarketOverpricedResponse } | null = null;
+let inflight: Promise<MarketOverpricedResponse> | null = null;
+
+export function resetOverpricedCache(): void {
+  cache = null;
+  inflight = null;
+}
+
+export async function findOverpricedPropertiesCached(now: number = Date.now()): Promise<MarketOverpricedResponse> {
+  if (cache && now - cache.at < OVERPRICED_CACHE_MS) return cache.body;
+  // Параллельные запросы в момент протухания делят один расчёт.
+  inflight ??= findOverpricedProperties()
+    .then((body) => {
+      cache = { at: now, body };
+      return body;
+    })
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
+}

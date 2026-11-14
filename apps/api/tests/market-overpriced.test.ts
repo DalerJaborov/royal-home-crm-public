@@ -3,7 +3,7 @@ import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { buildMarketIndex, type SegmentRow } from "../src/lib/market/segments.js";
-import { pickOverpriced, type OverpricedCandidate } from "../src/lib/market/overpriced.js";
+import { findOverpricedPropertiesCached, OVERPRICED_CACHE_MS, pickOverpriced, resetOverpricedCache, type OverpricedCandidate } from "../src/lib/market/overpriced.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 import { makeAgent, medianOf, seedMarketListings, segmentListingSpec } from "./helpers/marketFixtures.js";
 
@@ -58,6 +58,7 @@ beforeAll(async () => {
   await makeProperty("sold", { price: Math.round(estimate(60) * 2), status: "SOLD" });
   await makeProperty("noData", { price: 2_000_000, districtId: districtIds[1] });
   await makeProperty("threeRooms", { price: 2_000_000, rooms: 3 });
+  resetOverpricedCache();
 });
 
 afterAll(async () => {
@@ -94,6 +95,21 @@ describe("GET /market/overpriced", () => {
 
   it("без входа 401", async () => {
     expect((await get(false)).status).toBe(401);
+  });
+});
+
+describe("кэш списка на сервере (10 минут)", () => {
+  it("второй запрос в пределах срока отдаёт тот же ответ, не пересчитывая; после срока или сброса считает заново", async () => {
+    resetOverpricedCache();
+    const t0 = Date.now();
+    const first = await findOverpricedPropertiesCached(t0);
+    await makeProperty("late", { price: Math.round(estimate(60) * 2.5) });
+    const again = await findOverpricedPropertiesCached(t0 + OVERPRICED_CACHE_MS - 1000);
+    expect(again).toBe(first);
+    expect(again.items.some((i) => i.propertyId === ids.late)).toBe(false);
+    const after = await findOverpricedPropertiesCached(t0 + OVERPRICED_CACHE_MS + 1000);
+    expect(after.items[0].propertyId).toBe(ids.late);
+    resetOverpricedCache();
   });
 });
 

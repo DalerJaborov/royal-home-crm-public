@@ -34,6 +34,38 @@ export interface MarketBuyerListing {
   publishedAt: string;
 }
 
+/**
+ * ТОЛЬКО СОБСТВЕННИКИ В ПОДБОРЕ (владелец 14.11.2026: «агентства и риелторов нам не надо»).
+ * Риелтор: площадка пометила объявление агентством (isAgency) ИЛИ у того же продавца (площадка + id продавца)
+ * `MARKET_REALTOR_MIN_LISTINGS` и больше активных объявлений продажи. Правило ОДНО и для карточки клиента, и для пуша
+ * агенту, и для сервера, и для экрана. Объявление без id продавца по числу объявлений не проверить: его отсекает
+ * только пометка агентства. Применяется только к подбору покупателю; медиана рынка и список «дороже рынка» агентства
+ * учитывают (это цены рынка).
+ */
+export const MARKET_REALTOR_MIN_LISTINGS = 3;
+
+/** Ключ продавца для подсчёта объявлений: площадка + id продавца на ней. */
+export function marketSellerKey(source: string, sellerId: string): string {
+  return `${source}|${sellerId}`;
+}
+
+/** Риелтор ли продавец объявления. `realtorSellerKeys` — ключи продавцов с MARKET_REALTOR_MIN_LISTINGS+ активных объявлений. */
+export function isMarketRealtorListing(
+  row: { isAgency?: boolean | null; source: string; sellerId?: string | null },
+  realtorSellerKeys: ReadonlySet<string>
+): boolean {
+  if (row.isAgency) return true;
+  return row.sellerId != null && row.sellerId !== "" && realtorSellerKeys.has(marketSellerKey(row.source, row.sellerId));
+}
+
+/** Сколько подходящих объявлений осталось после фильтра «только собственники» и сколько было до него. */
+export interface MarketOwnersOnlyInfo {
+  /** Фильтр включён в Настройках (Подбор). */
+  enabled: boolean;
+  kept: number;
+  total: number;
+}
+
 export type MarketBuyerListingsStatus = "ok" | "no_criteria" | "not_buyer" | "pending_acceptance";
 
 /**
@@ -73,6 +105,8 @@ export interface MarketBuyerListingsResponse {
   budgetMaxTjs: number | null;
   /** Медиана рынка по району и комнатам покупателя; null, когда сравнивать невозможно (нет желаний, не покупатель). */
   market: MarketBuyerSummary | null;
+  /** Фильтр «только собственники» (null, когда подбор не считался). */
+  ownersOnly: MarketOwnersOnlyInfo | null;
   listings: MarketBuyerListing[];
 }
 

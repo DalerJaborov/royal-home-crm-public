@@ -55,6 +55,11 @@ export function MarketBuyerListingsView({ data }: { data: MarketBuyerListingsRes
         Чужие объявления с сайтов, не наши объекты. Цены в объявлениях — не цены сделок.
         {data.criteria.length > 0 ? ` Ищем: ${data.criteria.join(", ")}.` : ""}
       </p>
+      {data.ownersOnly?.enabled && data.ownersOnly.total > 0 && (
+        <p className="sub" data-testid="market-owners-only">
+          Показаны только собственники: {data.ownersOnly.kept} из {data.ownersOnly.total} объявлений.
+        </p>
+      )}
       {data.market && marketBuyerLineText(data.market) && (
         <p className="sub" style={{ marginTop: 10, fontWeight: 600 }} data-testid="market-buyer-line">{marketBuyerLineText(data.market)}</p>
       )}

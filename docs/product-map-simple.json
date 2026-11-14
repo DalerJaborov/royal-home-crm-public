@@ -16,10 +16,10 @@
   "paths": 750,
   "cron": 132,
   "jobs": 33,
-  "conditions": 4028,
+  "conditions": 4031,
   "untranslatedUnique": 462,
   "untranslatedTotal": 593,
-  "partialUnique": 1086,
+  "partialUnique": 1089,
   "translatedShare": 85
  },
  "untranslated": [
@@ -70039,7 +70039,21 @@
            "more": true
           },
           {
+           "t": "если нет: market покупатель alerts включено at",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
            "t": "если raw listings количество — «0»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если listings количество — «0»",
            "k": "if",
            "a": [],
            "c": [],
@@ -70069,6 +70083,20 @@
           {
            "t": "и так по каждому",
            "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если failed больше 0",
+           "k": "if",
            "a": [],
            "c": [],
            "more": true
