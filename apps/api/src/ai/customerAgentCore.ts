@@ -354,6 +354,26 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     if (!text) return held(reason);
     return ready(decision, text, { fallbackReason: "receipt_confirmation", fallbackCause: safeFallbackCause });
   };
+  /** A read-only turn must not end in silence because the model kept calling tools (prod 13-14.11: three rounds of searches, no
+   * final decision, the customer waited). When the budget is spent, the server answers from the closed, verified READ observations
+   * already gathered, through the normal renderer and delivery fence: a reply with the search cards or an honest "nothing found".
+   * No extra model request, no tool run, no write. Receipts first (confirmCommitted); with nothing renderable it stays HELD. */
+  const answerFromReads = async (reason: string): Promise<CustomerCoreResult> => {
+    const committed = await confirmCommitted(reason);
+    if (committed.status === "ready" || frame.surface !== "dm" || unsettledWrites.size || operation.stopped) return committed;
+    // Never answer around a write or a proposal: reconciliation/HELD owns those (architect review 14.11).
+    if (evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) return committed;
+    // ONE read only, the freshest the customer asked for: the last non-empty search, else the last search, else the last facts.
+    // Mixing several reads shows "nothing found" next to "consider these" and leaks company rules nobody asked about.
+    const searches = evidence.filter(e => e.value.kind === "property_search");
+    const nonEmpty = searches.filter(e => e.value.kind === "property_search" && e.value.cards.length > 0);
+    const chosen = nonEmpty.at(-1) ?? searches.at(-1) ?? evidence.filter(e => e.value.kind === "facts").at(-1);
+    const refs = chosen ? [chosen.ref] : [];
+    if (!refs.length) return committed;
+    const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs, social: "none", question: "none" });
+    const text = renderDecision(decision);
+    return text ? ready(decision, text, { fallbackReason: "invalid_model_decision", fallbackCause: `${reason}_reads` }) : committed;
+  };
   /** One structured correction per turn, only for a private DM, while rounds remain and no write is in doubt. No tool is run by it.
    * Public comments keep their "no extra model request" rule (they have the verified-refs fallback instead). */
   const canCorrect = () => frame.surface === "dm" && !corrected && rounds < revision.limits.maxRounds && !unsettledWrites.size;
@@ -476,7 +496,10 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       if (turn.calls.length) {
         // Explanatory prose beside function calls is common model behaviour. The calls decide the turn; the text is
         // never rendered or executed (it only stays inside the preserved model parts below).
-        if (budgetCalls + turn.calls.length > revision.limits.maxToolCalls) return await confirmCommitted("tool_limit");
+        if (budgetCalls + turn.calls.length > revision.limits.maxToolCalls) {
+          // A batch that asked for a WRITE (contact/callback/showing) must stay stopped and call a person, never turn into search cards.
+          return turn.calls.some(c => writeNames.has(c.name)) ? await confirmCommitted("tool_limit") : await answerFromReads("tool_limit");
+        }
         if (!turn.modelParts.length) return held("missing_model_parts");
         const batchIds = turn.calls.flatMap(c => c.id ? [c.id] : []);
         if (new Set(batchIds).size !== batchIds.length) return held("duplicate_call_id");
@@ -622,7 +645,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       const cause = sellerRepair ? sellerRepair.cause.replace(/:/g, "_") : fallbackCause;
       return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), ...(cause ? { fallbackCause: cause } : {}), say });
     }
-    return await confirmCommitted("round_limit");
+    return await answerFromReads("round_limit");
   } catch (error) {
     // Bounded reason only. Exceptions cannot become a customer success claim, but their SAFE cause code survives
     // for the trace, so "turn_unavailable" is no longer the only thing an operator can learn.
