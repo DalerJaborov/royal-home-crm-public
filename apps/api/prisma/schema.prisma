@@ -6618,6 +6618,9 @@ model Settings {
   openaiApiKey                      String?
   /// Обложки ChatGPT вообще: выключено — публикация идёт без обложки.
   coverGenerationEnabled            Boolean   @default(true)
+  /// Рубильник OpenAI целиком (14.11.2026, владелец: «Опен ии полностью выключи»).
+  /// false — никаких вызовов api.openai.com, обложки только шаблоном, без тревог об оплате OpenAI.
+  openaiEnabled                     Boolean   @default(false)
   /// Качество gpt-image-1: low | medium | high.
   openaiImageQuality                String    @default("high") // не используется с 01.11.2026, константа в коде
   /// Потолок картинок ChatGPT за сутки по Душанбе (обложка = 2 картинки, повтор — ещё одна).
