@@ -929,7 +929,7 @@ async function waitForFacebookReelReady(
  * доступ с VPS, что и у /videos, без прокси:
  *  1. `POST /{page-id}/video_reels` upload_phase=start → video_id + upload_url.
  *  2. `POST {upload_url}` (rupload.facebook.com) — заголовки Authorization:
- *     OAuth {token} и file_url: {videoUrl}, тело пустое.
+ *     OAuth {token}, offset: 0, file_size в байтах; тело — файл с диска.
  *  3. `POST /{page-id}/video_reels` upload_phase=finish, video_state=PUBLISHED
  *     → success. Затем опрос готовности (waitForFacebookReelReady).
  * Контракт результата и хуков — тот же, что у publishFacebookVideo: caption
@@ -946,11 +946,13 @@ async function waitForFacebookReelReady(
 export async function publishFacebookReel(
   pageId: string,
   token: string,
-  videoUrl: string,
+  localVideoPath: string,
   caption: string,
   hooks?: FacebookPublishHooks
 ): Promise<PublishResult> {
   try {
+    const video = await openAsBlob(localVideoPath);
+    if (video.size === 0) return { channel: "FACEBOOK", ok: false, error: "Файл Reels пуст" };
     await hooks?.onAttemptStarted?.();
 
     // Каждый шаг повторяется только при отказе ДО соединения; потерянный ответ
@@ -969,11 +971,23 @@ export async function publishFacebookReel(
       return { channel: "FACEBOOK", ok: false, error: graphErrorMessage(startBody, `HTTP ${startRes.status}`) };
     }
 
-    // Повтор загрузки использует тот же контейнер, start заново не вызывается.
+    if (!URL.canParse(uploadUrl) || new URL(uploadUrl).origin !== "https://rupload.facebook.com") {
+      await hooks?.onAnswered?.();
+      return { channel: "FACEBOOK", ok: false, error: "Facebook вернул неожиданный адрес загрузки Reels" };
+    }
+    // Meta can reject a hosted CRM URL because of its crawler policy. Send the
+    // file directly from disk; the Blob can be read again after a pre-connect error.
+    const uploadTimeoutMs = PUBLISH_TIMEOUT_MS + Math.ceil(video.size / (1024 * 1024)) * 1000;
     const uploadRes = await fetchFacebookPublish(uploadUrl, {
       method: "POST",
-      headers: { Authorization: `OAuth ${token}`, file_url: videoUrl },
-      signal: AbortSignal.timeout(PUBLISH_TIMEOUT_MS),
+      headers: {
+        Authorization: `OAuth ${token}`,
+        offset: "0",
+        file_size: String(video.size),
+        "Content-Type": "application/octet-stream",
+      },
+      body: video,
+      signal: AbortSignal.timeout(uploadTimeoutMs),
     });
     if (!uploadRes.ok) {
       await hooks?.onAnswered?.();
@@ -3294,7 +3308,7 @@ export async function publishApprovedPost(params: {
       };
       const result =
         format === "REEL"
-          ? await publishFacebookReel(creds.pageId, creds.pageToken, videoUrl, params.caption, facebookHooks)
+          ? await publishFacebookReel(creds.pageId, creds.pageToken, localVideoAbsolutePath, params.caption, facebookHooks)
           : await publishFacebookVideo(creds.pageId, creds.pageToken, videoUrl, params.caption, facebookHooks);
       if (result.ok && result.postId && squareAbsolutePath) {
         appendNote(result, await setFacebookVideoThumbnail(result.postId, creds.pageToken, squareAbsolutePath));

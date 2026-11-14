@@ -18,7 +18,7 @@ function failedBeforeConnect(error: unknown, seen = new Set<object>()): boolean 
 }
 
 /** Retry the current Facebook step, never the whole publication or a lost response. */
-export async function fetchFacebookPublish(url: string, init: Omit<RequestInit, "body"> & { body?: string }): Promise<Response> {
+export async function fetchFacebookPublish(url: string, init: RequestInit): Promise<Response> {
   // A redirected POST may have reached the first server before a later
   // connection fails. Refuse redirects so that replay safety remains provable.
   const request: RequestInit = { ...init, redirect: "error" };
