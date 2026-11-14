@@ -39,7 +39,8 @@ export function customerTurnSilenceIsIntended(reason: string): boolean {
 }
 
 /** Called once a core turn ended HELD for `reason`. Never throws. */
-export async function reportUnansweredCustomerTurn(eventKey: string, reason: string): Promise<void> {
+export async function reportUnansweredCustomerTurn(eventKey: string, reason: string, opts: { gaveUp?: boolean } = {}): Promise<void> {
+  const gaveUp = opts.gaveUp === true;
   if (customerTurnSilenceIsIntended(reason)) return;
   try {
     const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: string | null; excerpt: string | null;
@@ -52,7 +53,9 @@ export async function reportUnansweredCustomerTurn(eventKey: string, reason: str
         -- or a person already runs this chat (pause, opt-out, own agent, the last message is not the customer's).
         (EXISTS (SELECT 1 FROM "CustomerOutboxPart" p WHERE p."ticketEventKey"=t."eventKey") OR EXISTS (SELECT 1 FROM "CustomerPropertyIngressTicket" x
           WHERE x."scopeKey"=t."scopeKey" AND x."endpointScopeId"=t."endpointScopeId" AND x."order">t."order" AND x."processingState" IN ('PLANNED','RECEIVED','CLAIMED'))
-          OR t."processingState" IS DISTINCT FROM 'HELD' OR (t."leaseOwner" IS NOT NULL AND t."leaseUntil" > now())
+          -- after the queue job gave up, a ticket left in RECEIVED/CLAIMED is exactly the failure: only PLANNED means answered
+          OR (CASE WHEN ${gaveUp}::boolean THEN t."processingState"='PLANNED'
+                ELSE t."processingState" IS DISTINCT FROM 'HELD' OR (t."leaseOwner" IS NOT NULL AND t."leaseUntil" > now()) END)
           OR (c."id" IS NOT NULL AND (
             (c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()) OR c."optedOutAt" IS NOT NULL OR c."propertyChatAgentId" IS NOT NULL
             OR (c."messages" -> -1 ->> 'role') IS DISTINCT FROM 'user'

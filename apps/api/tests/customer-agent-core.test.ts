@@ -530,6 +530,12 @@ describe("CustomerAgentCore draft bounded negative controls", () => {
     expect(result.text.length).toBeGreaterThan(0);
     expect(f.modelTurn).toHaveBeenCalledTimes(3); expect(f.executeAllowedTool).toHaveBeenCalledTimes(3);
   });
+  it("an over-limit batch that asks for a WRITE stays HELD instead of turning into read cards (architect review 14.11)", async () => {
+    const f = fixture({ requestedFacts: ["price"] });
+    f.modelTurn.mockResolvedValueOnce(toolTurn([1, 2, 3, 4].map(n => ({ name: "get_property_facts" as const, args: { kinds: ["price" as const] }, id: `r${n}` }))
+      .concat([{ name: "save_contact" as never, args: {} as never, id: "w1" }])));
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "tool_limit" });
+  });
   it("round cap with nothing renderable gathered stays HELD (and is reported to staff by the silence guard)", async () => {
     const f = fixture({ requestedFacts: [] });
     f.executeAllowedTool.mockResolvedValue({ status: "unavailable" });

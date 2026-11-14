@@ -360,8 +360,14 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
   const answerFromReads = async (reason: string): Promise<CustomerCoreResult> => {
     const committed = await confirmCommitted(reason);
     if (committed.status === "ready" || frame.surface !== "dm" || unsettledWrites.size || operation.stopped) return committed;
-    const refs = evidence.filter(e => ["facts", "property_search", "company_policy", "property_unresolved", "publication_properties"].includes(e.value.kind))
-      .map(e => e.ref).slice(-8);
+    // Never answer around a write or a proposal: reconciliation/HELD owns those (architect review 14.11).
+    if (evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) return committed;
+    // ONE read only, the freshest the customer asked for: the last non-empty search, else the last search, else the last facts.
+    // Mixing several reads shows "nothing found" next to "consider these" and leaks company rules nobody asked about.
+    const searches = evidence.filter(e => e.value.kind === "property_search");
+    const nonEmpty = searches.filter(e => e.value.kind === "property_search" && e.value.cards.length > 0);
+    const chosen = nonEmpty.at(-1) ?? searches.at(-1) ?? evidence.filter(e => e.value.kind === "facts").at(-1);
+    const refs = chosen ? [chosen.ref] : [];
     if (!refs.length) return committed;
     const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs, social: "none", question: "none" });
     const text = renderDecision(decision);
@@ -489,7 +495,10 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       if (turn.calls.length) {
         // Explanatory prose beside function calls is common model behaviour. The calls decide the turn; the text is
         // never rendered or executed (it only stays inside the preserved model parts below).
-        if (budgetCalls + turn.calls.length > revision.limits.maxToolCalls) return await answerFromReads("tool_limit");
+        if (budgetCalls + turn.calls.length > revision.limits.maxToolCalls) {
+          // A batch that asked for a WRITE (contact/callback/showing) must stay stopped and call a person, never turn into search cards.
+          return turn.calls.some(c => writeNames.has(c.name)) ? await confirmCommitted("tool_limit") : await answerFromReads("tool_limit");
+        }
         if (!turn.modelParts.length) return held("missing_model_parts");
         const batchIds = turn.calls.flatMap(c => c.id ? [c.id] : []);
         if (new Set(batchIds).size !== batchIds.length) return held("duplicate_call_id");
