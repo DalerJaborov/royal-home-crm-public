@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { NarrationOptionsView } from "@royal-home/shared";
 vi.mock("../../lib/api", () => ({ api: vi.fn() }));
 import { NarrationChoice, narrationChoiceForCreate } from "./NarrationChoice";
-import { parseVoiceLines } from "../PropertyNarrationManager";
+import { parseVoiceLines } from "../settings/NarrationSettingsPanel";
 
 const facts = { type: "APARTMENT", rooms: 2, areaSqm: "62", floor: 3, totalFloors: 9, district: "Сино" };
 const options: NarrationOptionsView = {

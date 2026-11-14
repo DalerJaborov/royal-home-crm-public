@@ -31,7 +31,13 @@ const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, tot
 narrationRouter.get("/narration-settings", async (req, res) => {
   if (!manager(req.agent?.role)) return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
   const { config, key } = await configuration();
-  res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceededSince() });
+  // С 14.11.2026 техника озвучки живёт в Настройках CRM, а не в карточке объекта: всё, что раньше
+  // раздел брал из ответа карточки (расход, образцы, готовность), приходит здесь.
+  const limits = narrationLimits(config);
+  res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceededSince(),
+    canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), configured: !!key && !!config.modelId && config.voices.length > 0,
+    autoGenerate: narrationAutoEnabled(config), samplesReady: (await readyVoiceSamples(config)).length,
+    budget: { ...await narrationBudgetUsage(), dailyChars: limits.dailyChars, dailyGenerations: limits.dailyGenerations } });
 });
 /** Мастер объекта (CRM) и карточка: шаблоны и голоса без ключа и модели. Любой сотрудник. */
 narrationRouter.get("/narration-options", async (_req, res) => {
@@ -134,7 +140,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     approvedAt: v.approvedAt, stale: !narrationFactsCurrent(v, p), hasAudio: v.status === "READY" && !!v.storageKey, errorCode: v.errorCode, createdAt: v.createdAt,
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
     source: v.source, templateId: v.templateId, language: v.language, generateAfter: v.generateAfter })),
-    suggestedScript: suggestedNarration(facts), config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent?.role), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
+    suggestedScript: suggestedNarration(facts), facts, config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent?.role), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
     deliveries: deliveries.map(d => ({ id: d.id, status: d.status, mode: d.mode, versionId: d.versionId, createdAt: d.createdAt, lastError: d.lastError, planHash: d.plan ? narrationHash(d.plan) : null })),
     ownerReportsEnabled: mediaExecutionMode("OWNER_REPORT") === "LIVE",
     ownerReport: manager(req.agent?.role) ? { active: !!subscription?.active && subscription.sellerClientId === p.sellerClientId, revision: subscription?.revision ?? 0, executionMode: subscription?.executionMode ?? "PREVIEW", deliveries: reportViews } : undefined,
