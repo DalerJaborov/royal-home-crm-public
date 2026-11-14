@@ -3559,13 +3559,13 @@
   · зовёт listDealDocumentFileNames()
 - await prisma.$transaction(async (tx)
   · всё внутри — одной транзакцией
-  · меняет в базе: botConversation
+  · обращается к базе своим SQL
   · меняет в базе: telegramConversation
   · удаляет в базе: dealReview
   · удаляет в базе: deal
   · удаляет в базе: client
-  - await tx.botConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
-    · меняет в базе: botConversation
+  - await tx.$executeRaw`UPDATE "BotConversation" SET "clientId"=NULL, "leadDraft"=(CASE WHEN jsonb_typeof("leadD…
+    · обращается к базе своим SQL
   - await tx.telegramConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
     · меняет в базе: telegramConversation
   - await tx.dealReview.deleteMany({ where: { OR: [{ clientId: client.id }, { dealId: { in: client.deals.map((d)

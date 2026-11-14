@@ -9,6 +9,7 @@ import { type LeadDraft } from "../ai/leadDraft.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
 import { customerAgentIntake } from "../ai/customerAgentIntake.js";
+import { customerRoleSignals } from "../ai/customerAgentRole.js";
 import { phoneTail } from "./clientPhones.js";
 import { maskClientPhone } from "./clientPhone.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
@@ -156,7 +157,9 @@ export async function findPhonesWithoutLead(
   const found: PhoneWithoutLead[] = [];
   for (const row of rows) {
     const history = (row.messages as unknown as ConversationMessage[]) ?? [];
-    const texts = clientTexts(history, options.ignoreAttempts ? null : row.watchdogAttemptedAt);
+    // РЕШЕНИЕ ЧЕЛОВЕКА НЕ ОТМЕНЯЕТСЯ АВТОМАТИКОЙ (ревью 194-1, 15.11.2026): карточку, которую
+    // сотрудник удалил навсегда, сторож не заводит заново по тем же репликам — только по новым.
+    const texts = clientTexts(history, humanDecisionCutoff(row.leadDraft, options.ignoreAttempts ? null : row.watchdogAttemptedAt));
     let phone: string | null = null;
     let raw: string | null = null;
     let phoneText = "";
@@ -204,7 +207,48 @@ export async function findPhonesWithoutLead(
       inquiryId: row.customerInquiry?.id ?? null,
     });
   }
-  return withoutJobApplications(found);
+  const deleted = await deletedByHumanBefore(found);
+  return withoutJobApplications(found.filter((r) => !deleted.has(r.conversationId)));
+}
+
+/**
+ * С какого момента реплики клиента — «новые» для сторожа и добора.
+ *
+ * Карточку удалили навсегда — routes/clients/card.ts отвязывает диалог и ставит
+ * leadDraft.clientDeletedAt. Тот же номер в старых репликах — уже решённое человеком
+ * дело: смотрим только реплики новее удаления (и новее прошлой попытки сторожа).
+ * Удаления до этой правки отметки не имеют — их ловит deletedByHumanBefore ниже по
+ * журналу действий (номер удалённой карточки).
+ */
+export function humanDecisionCutoff(leadDraft: unknown, lastAttempt: Date | null): Date | null {
+  const deleted = clientDeletedAtOf(leadDraft);
+  if (!deleted) return lastAttempt;
+  return lastAttempt && lastAttempt > deleted ? lastAttempt : deleted;
+}
+
+function clientDeletedAtOf(leadDraft: unknown): Date | null {
+  const draft = (leadDraft && typeof leadDraft === "object" ? leadDraft : {}) as { clientDeletedAt?: unknown };
+  const at = typeof draft.clientDeletedAt === "string" ? new Date(draft.clientDeletedAt) : null;
+  return at && !Number.isNaN(at.getTime()) ? at : null;
+}
+
+/**
+ * Удаление карточки ДО отметки clientDeletedAt (до 15.11.2026): стадия `done` без
+ * карточки и без отметки — либо потерянная заявка (её надо завести), либо карточка,
+ * удалённая человеком (её заводить нельзя). Различаем по журналу действий: окончательное
+ * удаление пишет номер карточки (AuditLog PERMANENT_DELETE). Номер там есть — решение
+ * человека, пропуск. Один запрос на пачку.
+ */
+async function deletedByHumanBefore(rows: PhoneWithoutLead[]): Promise<Set<string>> {
+  const legacy = rows.filter((r) => r.phone && (r.draft as { stage?: unknown } | null)?.stage === "done" && !clientDeletedAtOf(r.draft));
+  const tails = [...new Set(legacy.map((r) => phoneTail(r.phone!)))];
+  if (!tails.length) return new Set();
+  const found = await prisma.$queryRaw<Array<{ tail: string }>>`
+    SELECT DISTINCT right(regexp_replace(coalesce("meta"->>'phone', ''), '[^0-9]', '', 'g'), 9) AS "tail" FROM "AuditLog"
+    WHERE "action"='PERMANENT_DELETE' AND "entityType"='Client'
+      AND right(regexp_replace(coalesce("meta"->>'phone', ''), '[^0-9]', '', 'g'), 9) = ANY(${tails})`;
+  const deletedTails = new Set(found.map((f) => f.tail));
+  return new Set(legacy.filter((r) => deletedTails.has(phoneTail(r.phone!))).map((r) => r.conversationId));
 }
 
 function coreTopicOf(publicState: unknown): string | null {
@@ -351,9 +395,15 @@ export function watchdogLeadDraft(row: Pick<PhoneWithoutLead, "draft" | "coreTop
   if (draft.intent || row.coreTopic === null) return draft;
   // Аренда — тем же отказом приёма, что у старого пути (заявки на аренду не берём, владелец 21.08.2026).
   const fromTopic = row.coreTopic === "buyer" ? "buy" : row.coreTopic === "seller" ? "sell" : row.coreTopic === "rent" ? "rent" : null;
-  const role = fromTopic ? null : customerAgentIntake(clientTexts(row.history).map((text) => ({ role: "user" as const, text }))).role;
-  const intent = fromTopic ?? (role === "buyer" ? "buy" : role === "seller" ? "sell" : null);
-  return intent ? { ...draft, intent, confident: true } : draft;
+  if (fromTopic) return { ...draft, intent: fromTopic, confident: true };
+  const texts = clientTexts(row.history);
+  // Сдающий/снимающий — аренда по ЛЮБОЙ реплике, не только по реплике с номером (ревью 194-2):
+  // словесный разбор ядра пишет арендодателя в «продавцы», а аренду не берём (владелец 21.08).
+  if (texts.some((text) => { const s = customerRoleSignals(text); return s.landlord || s.rent; })) return { ...draft, intent: "rent" };
+  const role = customerAgentIntake(texts.map((text) => ({ role: "user" as const, text }))).role;
+  const intent = role === "buyer" ? "buy" : role === "seller" ? "sell" : null;
+  // Разбор слов — догадка, не уверенность: без `confident` приём перепроверит направление сам.
+  return intent ? { ...draft, intent } : draft;
 }
 
 async function tryAcceptQuietly(row: PhoneWithoutLead): Promise<"accepted" | "declined" | "failed"> {

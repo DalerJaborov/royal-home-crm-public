@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
-import { backfillPhonesWithoutLead, runPhoneLeadWatchdogTick } from "../src/lib/phoneLeadWatchdog.js";
+import { backfillPhonesWithoutLead, humanDecisionCutoff, runPhoneLeadWatchdogTick, watchdogLeadDraft } from "../src/lib/phoneLeadWatchdog.js";
 
 /**
  * КЛИЕНТ ДАЛ НОМЕР — КАРТОЧКА ОБЯЗАНА БЫТЬ (14.11.2026, владелец: «если таких много,
@@ -95,15 +95,71 @@ afterAll(async () => {
 });
 
 describe("Номер от клиента не теряется", () => {
-  it("стадия «done» без карточки (карточку удалили): номер оформляется, а не только тревога", async () => {
+  it("карточку удалили навсегда, клиент ПОСЛЕ этого прислал номер — заявка оформляется", async () => {
     const id = await seed({
       messages: [{ role: "user", content: `Салом, хона даркор. Рақамам ${phone()}`, at: new Date().toISOString() }],
-      leadDraft: { stage: "done", intent: "buy", confident: true },
+      leadDraft: { stage: "done", intent: "buy", confident: true, clientDeletedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
     });
 
     await runPhoneLeadWatchdogTick();
 
     expect((await cardOf(id))?.clientId).toBeTruthy();
+  });
+
+  // Ревью 194-1 (15.11.2026): решение человека не отменяется автоматикой.
+  it("карточку удалили навсегда — сторож НЕ заводит её заново по старому номеру", async () => {
+    const id = await seed({
+      messages: [
+        { role: "user", content: `Салом, хона даркор. Рақамам ${phone()}`, at: new Date(Date.now() - 2 * 60 * 60_000).toISOString() },
+        { role: "user", content: "Раҳмат", at: new Date(Date.now() - 30 * 60_000).toISOString() },
+      ],
+      leadDraft: { stage: "done", intent: "buy", confident: true, clientDeletedAt: new Date(Date.now() - 60 * 60_000).toISOString() },
+    });
+
+    await runPhoneLeadWatchdogTick();
+
+    expect((await cardOf(id))?.clientId).toBeNull();
+    // И разовый добор (без учёта прошлых попыток) тоже не воскрешает.
+    const report = await backfillPhonesWithoutLead({ apply: false, windowHours: 24 });
+    expect(report.some((r) => r.conversationId === id)).toBe(false);
+  });
+
+  it("удаление до отметки: номер удалённой карточки в журнале действий — пропуск; без записи — потерянная заявка заводится", async () => {
+    const deletedPhone = phone();
+    const deleted = await seed({
+      messages: [{ role: "user", content: `Рақамам ${deletedPhone}`, at: new Date().toISOString() }],
+      leadDraft: { stage: "done", intent: "buy", confident: true },
+    });
+    const audit = await prisma.auditLog.create({ data: { action: "PERMANENT_DELETE", entityType: "Client", entityId: randomUUID(), agentName: "тест",
+      meta: { phone: `+992${deletedPhone.replace(/\D/g, "").slice(-9)}`, shortId: 1 } } });
+    const lost = await seed({
+      messages: [{ role: "user", content: `Рақамам ${phone()}`, at: new Date().toISOString() }],
+      leadDraft: { stage: "done", intent: "buy", confident: true },
+    });
+    try {
+      await runPhoneLeadWatchdogTick();
+      expect((await cardOf(deleted))?.clientId).toBeNull();
+      expect((await cardOf(lost))?.clientId).toBeTruthy();
+    } finally {
+      await prisma.auditLog.delete({ where: { id: audit.id } });
+    }
+    expect(humanDecisionCutoff({ stage: "done" }, null)).toBeNull();
+    const at = new Date("2026-11-15T00:00:00Z");
+    expect(humanDecisionCutoff({ stage: "done", clientDeletedAt: at.toISOString() }, null)).toEqual(at);
+  });
+
+  // Ревью 194-2: сдающий квартиру не становится продавцом из-за словесного разбора.
+  it("«сдам квартиру» в ранней реплике, номер — в поздней: намерение аренда, без «уверенно»", () => {
+    const draft = watchdogLeadDraft({ draft: { stage: "chatting" }, coreTopic: "unknown",
+      history: [
+        { role: "user", content: "Сдам 2-комнатную квартиру в Сино", at: new Date().toISOString() },
+        { role: "user", content: "+992 90 123 45 67", at: new Date().toISOString() },
+      ] as never });
+    expect(draft.intent).toBe("rent");
+    const seller = watchdogLeadDraft({ draft: { stage: "chatting" }, coreTopic: "unknown",
+      history: [{ role: "user", content: "Хочу продать квартиру, 3 комнаты", at: new Date().toISOString() }] as never });
+    expect(seller.intent).toBe("sell");
+    expect(seller.confident).toBeUndefined();
   });
 
   it("вернувшийся клиент: новый номер после прошлой попытки сторожа оформляется", async () => {

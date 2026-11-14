@@ -39,6 +39,9 @@ async function main(): Promise<void> {
   }
   const count = (action: string) => report.filter((r) => r.action === action).length;
   console.log(`\nзавести карточку: ${count("accept")}, привязать к известной: ${count("attach")}, пропустить: ${count("skip")}`);
+  // Выборка ограничена (MAX_CONVERSATIONS в phoneLeadWatchdog.ts) — молча резать окно нельзя (ревью 194-3).
+  if (report.length >= 500) console.log("ВНИМАНИЕ: выборка упёрлась в предел 500 диалогов — окно обрезано, уменьшите --days и повторите.");
+  if (!APPLY && count("accept") > 0) console.log("Каждая новая карточка придёт агенту штатным пушем как новый лид — показать список владельцу до --apply.");
   if (APPLY) {
     const file = `phone-leads-backfill-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
     writeFileSync(file, JSON.stringify(report.filter((r) => r.outcome).map(({ conversationId, outcome, clientId }) =>
