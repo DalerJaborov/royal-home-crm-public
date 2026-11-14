@@ -13,6 +13,7 @@ import { hasContactAttempt } from "./ownershipPolicy.js";
 import { loadOwnershipSnapshot, escalateInsteadOfTransfer } from "./ownershipLoad.js";
 import { logTimeline } from "../../lib/timeline.js";
 import { isWithinDushanbeWindow } from "../../lib/dushanbeTime.js";
+import { isWithinWorkingHours } from "../../lib/workingHours.js";
 import { isDayOff, type DaysOffCalendar } from "@royal-home/shared";
 import { loadDaysOffCalendar } from "../../lib/daysOffCalendar.js";
 import { reportCronRowError } from "../../lib/cronHeartbeat.js";
@@ -535,12 +536,10 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
  * уровень, и за обёрткой развилки круга пропали бы с карты.
  */
 export async function staleLeadCircleOpen(now: Date = new Date()): Promise<boolean> {
-  const settings = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: { workHoursStart: true, workHoursEnd: true },
-  });
-  const hours = leadHoursOf(settings);
-  return isWithinDushanbeWindow(hours.start, hours.end, now);
+  // ОДНО ОКНО НА КРУГ И НА ТИШИНУ ПУШЕЙ (14.11.2026): тот же isWithinWorkingHours
+  // решает в push.ts, что ночь ещё не наступила. Пока круг крутится, пуш о лиде
+  // не подавляется; подавлен — круг стоит (tests/push-quiet-hours-workday.test.ts).
+  return isWithinWorkingHours(now);
 }
 
 /**

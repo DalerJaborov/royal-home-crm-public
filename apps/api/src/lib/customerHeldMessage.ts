@@ -14,6 +14,7 @@ import { prisma } from "../db.js";
 import { sendPushToAgents } from "../push.js";
 import { appendConversationMessagesInTransaction } from "../messengers/appendMessages.js";
 import type { ChatMessage } from "../ai/client.js";
+import { clientOwnWords } from "../ai/untrustedContent.js";
 import { CustomerScopeDenied, ensureScopedBotConversation, findScopedBotConversation, type CustomerTransportReference } from "./customerConversationScope.js";
 import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
@@ -116,31 +117,62 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
       }
       if (seen.has(hold.conversationId)) continue;
       seen.add(hold.conversationId);
-      const tag = tagOf(hold.conversationId);
-      const recent = await prisma.notification.findFirst({ where: { tag, createdAt: { gte: new Date(Date.now() - NOTIFY_WINDOW_MS) } },
-        select: { id: true } });
-      if (recent) continue; // one call per chat per window, the chat itself shows every message
-      const chat = await prisma.botConversation.findUnique({ where: { id: hold.conversationId },
-        select: { name: true, client: { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } } });
-      // The client is in the trash: the text is kept in the hidden chat, nobody is called.
-      if (!chat || chat.client?.deletedAt) continue;
-      const name = chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[hold.channel] ?? hold.channel}`;
-      // An inactive (dismissed) responsible agent gets no push: fall back to everyone who reads all chats.
-      const owner = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
-      const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
-      if (!recipients.length) continue;
-      // Atomic claim per chat and window: two near-simultaneous batches must not
-      // both pass the "recent" check above (the feed row is written asynchronously).
-      const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt")
-        VALUES (${randomUUID()},'customer-held-notify',${`${hold.conversationId}:${Math.floor(Date.now() / NOTIFY_WINDOW_MS)}`},now())
-        ON CONFLICT ("channel","messageId") DO NOTHING`;
-      if (claimed !== 1) continue;
-      await sendPushToAgents(recipients, { kind: "message", title: `Ответьте вручную: ${name}`,
-        body: `«${hold.excerpt}». Бот не ответит: ${plainReason(hold.reason)}.`,
-        url: `/messages?open=${hold.conversationId}`, tag });
+      await pushStaffAboutChat({ conversationId: hold.conversationId, channel: hold.channel,
+        body: `«${hold.excerpt}». Бот не ответит: ${plainReason(hold.reason)}.` });
     } catch (error) {
       void logSystemError("meta", `Уведомление о непереданном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
         { dedupKey: "customer-dm-routing-held-notify-failed", quietPult: true });
     }
+  }
+}
+
+/** One push per chat per window to the responsible agent (or everyone who
+ * reads all chats). Shared by a routing hold and a bot escalation, so a person
+ * whose chat is both held and escalated is not called twice. */
+async function pushStaffAboutChat(input: { conversationId: string; channel: string; body: string }): Promise<"sent" | "skipped"> {
+  const tag = tagOf(input.conversationId);
+  const recent = await prisma.notification.findFirst({ where: { tag, createdAt: { gte: new Date(Date.now() - NOTIFY_WINDOW_MS) } },
+    select: { id: true } });
+  if (recent) return "skipped"; // one call per chat per window, the chat itself shows every message
+  const chat = await prisma.botConversation.findUnique({ where: { id: input.conversationId },
+    select: { name: true, client: { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } } });
+  // The client is in the trash: the text is kept in the hidden chat, nobody is called.
+  if (!chat || chat.client?.deletedAt) return "skipped";
+  const name = chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[input.channel] ?? input.channel}`;
+  // An inactive (dismissed) responsible agent gets no push: fall back to everyone who reads all chats.
+  const owner = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
+  const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
+  if (!recipients.length) return "skipped";
+  // Atomic claim per chat and window: two near-simultaneous batches must not
+  // both pass the "recent" check above (the feed row is written asynchronously).
+  const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt")
+    VALUES (${randomUUID()},'customer-held-notify',${`${input.conversationId}:${Math.floor(Date.now() / NOTIFY_WINDOW_MS)}`},now())
+    ON CONFLICT ("channel","messageId") DO NOTHING`;
+  if (claimed !== 1) return "skipped";
+  await sendPushToAgents(recipients, { kind: "message", title: `Ответьте вручную: ${name}`, body: input.body,
+    url: `/messages?open=${input.conversationId}`, tag });
+  return "sent";
+}
+
+/**
+ * THE NEW BOT ESCALATED A DM TURN TO STAFF (14.11.2026). Decision `escalate`
+ * sends the customer nothing (lib/customerDmAgentTurn.ts): the ticket is only
+ * marked HELD, and until this change nobody was told — the customer asked for a
+ * person and waited in silence. Now the responsible agent (or everyone who
+ * reads all chats) gets the same once-per-chat-per-window push as a routing
+ * hold. The text is already in the CRM chat. Never throws.
+ */
+export async function notifyEscalatedCustomerTurn(input: { conversationId: string; channel: string; text: string }): Promise<"sent" | "skipped"> {
+  try {
+    const chat = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: { clientId: true } });
+    if (!chat) return "skipped";
+    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[сообщение без текста]";
+    const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
+    return await pushStaffAboutChat({ conversationId: input.conversationId, channel: input.channel,
+      body: `«${excerpt}». Бот передал разговор человеку: ответьте клиенту сами.` });
+  } catch (error) {
+    void logSystemError("meta", `Уведомление о переданном боте разговоре не отправлено: ${error instanceof Error ? error.message : String(error)}`,
+      { dedupKey: "customer-dm-escalated-notify-failed", quietPult: true });
+    return "skipped";
   }
 }

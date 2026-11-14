@@ -1667,6 +1667,11 @@
       "label": "Ночная оценка ИИ всех активных клиентов"
     },
     {
+      "id": "client-silence-sweep",
+      "expr": "*/10 * * * *",
+      "label": null
+    },
+    {
       "id": "clip-review-resend",
       "expr": "*/5 * * * *",
       "label": null
@@ -1723,7 +1728,7 @@
     },
     {
       "id": "director-alert-queue-flush",
-      "expr": "*/10 * * * *",
+      "expr": "* * * * *",
       "label": "Доставляет руководству накопленные тревоги в разрешённые часы"
     },
     {

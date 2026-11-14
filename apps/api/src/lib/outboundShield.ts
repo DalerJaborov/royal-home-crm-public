@@ -441,6 +441,7 @@ async function raiseAlert(input: { tag: string; title: string; body: string; int
       body: input.body,
       kind: "system",
       level: "CRITICAL",
+      severity: "critical",
       tag: input.tag,
       recipientRoles: ["DIRECTOR", "ADMIN"],
     });
