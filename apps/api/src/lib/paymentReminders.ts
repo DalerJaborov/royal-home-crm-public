@@ -1,6 +1,7 @@
 import type { ExpenseUpcomingItem } from "@royal-home/shared";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
+import { isOpenAiEnabled } from "../ai/openaiClient.js";
 import { loadAgentAccess } from "../auth/middleware.js";
 import { sendPushToAgent } from "../push.js";
 import { createNotification } from "./notifications.js";
@@ -134,9 +135,13 @@ export async function billingFailures(now: Date = new Date()): Promise<{ service
   // Текст ошибки наружу НЕ уходит: в нём бывают ключи (?key=, token=) и чужие
   // данные. В сообщении — только название сервиса и код ответа.
   const found = new Map<string, { service: (typeof BILLING_SERVICES)[number]; code: string | null }>();
+  // OpenAI выключен рубильником (14.11.2026) — его «кончились деньги» не напоминаем:
+  // владелец отказался от сервиса, старые ошибки за сутки не должны будить Мушовир.
+  const openaiOff = !(await isOpenAiEnabled());
   for (const row of rows) {
     if (!BILLING_RE.test(row.message)) continue;
     const service = BILLING_SERVICES.find((s) => s.re.test(row.message));
+    if (openaiOff && service?.key === "openai") continue;
     const code = /\b(402|429|403)\b/.exec(row.message)?.[1] ?? null;
     if (service && !found.has(service.key)) found.set(service.key, { service, code });
   }

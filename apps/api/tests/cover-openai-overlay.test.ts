@@ -135,11 +135,11 @@ beforeAll(async () => {
   blankPng = await sharp({ create: { width: 1024, height: 1024, channels: 3, background: { r: 60, g: 55, b: 50 } } }).png().toBuffer();
   settingsBefore = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { coverProvider: true, openaiApiKey: true, coverGenerationEnabled: true, openaiCoverDailyLimit: true, openaiCandidates: true, openaiTextMode: true, openaiPhotoSource: true },
+    select: { coverProvider: true, openaiApiKey: true, openaiEnabled: true, coverGenerationEnabled: true, openaiCoverDailyLimit: true, openaiCandidates: true, openaiTextMode: true, openaiPhotoSource: true },
   });
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { openaiApiKey: encryptSecret("sk-test-overlay"), coverProvider: "OPENAI", coverGenerationEnabled: true, openaiCoverDailyLimit: 1000 },
+    data: { openaiApiKey: encryptSecret("sk-test-overlay"), openaiEnabled: true, coverProvider: "OPENAI", coverGenerationEnabled: true, openaiCoverDailyLimit: 1000 },
   });
 });
 

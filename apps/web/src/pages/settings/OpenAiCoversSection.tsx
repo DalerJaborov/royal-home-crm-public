@@ -111,6 +111,33 @@ export function OpenAiCoversSection({ templateHeading }: { templateHeading?: str
             </div>
 
             <div className="fld" style={{ marginTop: 12 }}>
+              <span className="lab">OpenAI (ChatGPT)</span>
+              <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <button
+                  type="button"
+                  className={`chip${data.openaiEnabled ? " on" : ""}`}
+                  aria-pressed={data.openaiEnabled}
+                  onClick={() => save({ openaiEnabled: true })}
+                >
+                  Включён
+                </button>
+                <button
+                  type="button"
+                  className={`chip${!data.openaiEnabled ? " on" : ""}`}
+                  aria-pressed={!data.openaiEnabled}
+                  onClick={() => save({ openaiEnabled: false })}
+                >
+                  Выключен
+                </button>
+                <span className="quiet">
+                  {data.openaiEnabled
+                    ? "CRM может обращаться к ChatGPT по ключу ниже."
+                    : "CRM не обращается к ChatGPT совсем: обложки рисует наш шаблон, напоминаний об оплате OpenAI нет."}
+                </span>
+              </div>
+            </div>
+
+            <div className="fld" style={{ marginTop: 12 }}>
               <span className="lab">Кто рисует</span>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {(["TEMPLATE", "OPENAI"] as const).map((p) => (
