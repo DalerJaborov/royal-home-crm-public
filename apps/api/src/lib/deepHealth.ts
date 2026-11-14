@@ -1,4 +1,5 @@
 import { prisma } from "../db.js";
+import { API_PROCESS_TICKS } from "./apiProcessTicks.js";
 
 /**
  * ГЛУБОКАЯ ПРОВЕРКА ЗДОРОВЬЯ ДЛЯ СТОРОЖА НА СЕРВЕРЕ (аудит 23.09.2026, круг 3,
@@ -35,10 +36,21 @@ export type DeepHealth = {
   workerLastBeatSec: number | null;
 };
 
-/** Последняя отметка любого тика в пульсе: запуск или пропуск выключенного модуля. */
+/**
+ * Последняя отметка тика WORKER в пульсе: запуск или пропуск выключенного модуля.
+ *
+ * Тики процесса API (`API_PROCESS_TICKS`, раз в минуту `live-voice-spend-ceiling`
+ * и др.) в расчёт НЕ входят (охота на тихие поломки 14.11.2026, №1): они идут,
+ * пока жив API, и зависший worker выглядел бы «живым» по их строке, а сторож
+ * сервера его не перезапускал. Тики расписания worker (`customer-inbox-jobs`
+ * раз в 5 с и др.) этой ложной жизни не дают.
+ */
 async function lastWorkerBeat(): Promise<Date | null> {
   const last = await withTimeout(
-    prisma.cronHeartbeat.aggregate({ _max: { lastRunAt: true, lastSkippedAt: true } }),
+    prisma.cronHeartbeat.aggregate({
+      where: { name: { notIn: Object.keys(API_PROCESS_TICKS) } },
+      _max: { lastRunAt: true, lastSkippedAt: true },
+    }),
     DB_TIMEOUT_MS
   ).catch(() => null);
   const beats = [last?._max.lastRunAt, last?._max.lastSkippedAt]

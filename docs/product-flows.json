@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4034,
+  "forks": 4042,
   "mounts": 83,
-  "cron": 131,
+  "cron": 132,
   "jobs": 33,
   "hidden": 0
  },
@@ -86813,6 +86813,185 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "backup-freshness",
+   "when": "17 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const alerts = await checkBackupFreshness();",
+       "a": [
+        "зовёт checkBackupFreshness()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const lastOffsiteOk = await prisma.backupRun.findFirst({ where: { kind: \"OFFSITE\", success: true }, orderBy: …",
+         "a": [
+          "читает в базе: backupRun"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!lastOffsiteOk || lastOffsiteOk.finishedAt < since",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await logSystemError(\"api\", `Копия данных наружу не создавалась больше 26 часов (${when}). Проверьте таймер и…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const { alerted } = await raiseCriticalAlarm({ tag: \"backup:OFFSITE\", title: \"Копия данных не создаётся\", bod…",
+           "a": [
+            "зовёт raiseCriticalAlarm()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "alerted",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "alerts++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const latestPerKind = await prisma.backupRun.findMany({ where: { finishedAt: { gte: since } }, distinct: [\"ki…",
+         "a": [
+          "читает в базе: backupRun"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const run of latestPerKind",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "run.success",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await logSystemError(\"api\", `Копия ${label} (${run.kind}) не удалась: ${detail}`, { dedupKey: `backup-failed:…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const { alerted } = await raiseCriticalAlarm({ tag: `backup:${run.kind}`, title: \"Копия данных не удалась\", b…",
+           "a": [
+            "зовёт raiseCriticalAlarm()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "alerted",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "alerts++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "checkBackupFreshness() — apps/api/src/lib/backupFreshness.ts"
+      },
+      {
+       "k": "if",
+       "t": "alerts",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Сторож копий: тревог поднято ${alerts}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа свежести копий\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "bot-audit",
    "when": "15 3 * * *",
    "tree": [
@@ -93095,7 +93274,7 @@
           },
           {
            "k": "if",
-           "t": "now <= limit",
+           "t": "!silent && !unfinished",
            "a": [],
            "c": [
             {
@@ -93110,7 +93289,22 @@
           },
           {
            "k": "if",
-           "t": "alertedAt > lastSeen && now - alertedAt < REALERT_MS",
+           "t": "silent && alertedAt > lastSeen && now - alertedAt < REALERT_MS",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "unfinished && alertedAt > startedAt",
            "a": [],
            "c": [
             {
@@ -93125,11 +93319,34 @@
           },
           {
            "k": "do",
-           "t": "await logSystemError( isPrivateCron(name) ? \"investigation\" : \"cron\", `Крон-тик «${name}» молчит ${silentMin}…",
+           "t": "const privateCron = isPrivateCron(name);",
+           "a": [
+            "зовёт isPrivateCron()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await logSystemError(privateCron ? \"investigation\" : \"cron\", message);",
            "a": [
             "запись в журнал ошибок"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!privateCron",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await raiseCriticalAlarm({ tag: `cron-silent:${name}`, title: silent ? \"Фоновая задача замолчала\" : \"Фоновая …",
+             "a": [
+              "зовёт raiseCriticalAlarm()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "do",
@@ -112683,6 +112900,106 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "await alertOnIntegrationBreakage(checks);",
+       "a": [
+        "зовёт alertOnIntegrationBreakage()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "broken.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return 0;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const previous = await prisma.integrationHealthSnapshot.findMany({ where: { name: { in: broken.map((c)",
+           "a": [
+            "читает в базе: integrationHealthSnapshot"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const check of broken",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "wasBroken.has(check.name)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const { alerted } = await raiseCriticalAlarm({ tag: `integration:${check.name}`, title: \"Доступ к сервису пер…",
+             "a": [
+              "зовёт raiseCriticalAlarm()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "alerted",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "raised++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(\"[integrationHealth] тревога о переходе в «сломан» не поставлена:\", describeError(err));",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "alertOnIntegrationBreakage() — apps/api/src/lib/integrationHealth.ts"
+      },
+      {
        "k": "try",
        "t": "пробует",
        "a": [],
@@ -112765,54 +113082,7 @@
        "a": [
         "зовёт refreshMetaUserTokensIfDue()"
        ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { metaIgManageToken: …",
-         "a": [
-          "читает в базе: settings"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!settings",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return summary;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const field of [\"metaIgManageToken\", \"metaPageToken\"] as const",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "stored",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await refreshField(field, stored, summary);",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "refreshMetaUserTokensIfDue() — apps/api/src/lib/metaUserTokenRefresh.ts"
+       "c": []
       },
       {
        "k": "if",

@@ -57,6 +57,75 @@ export interface ChannelKeyAlarmInput {
   now?: Date;
 }
 
+/**
+ * ОБЩАЯ ДВЕРЬ СРОЧНОЙ ТРЕВОГИ ДИРЕКТОРУ (14.11.2026, охота на «внезапно и молча», №3).
+ *
+ * Тот же приём, что у мёртвого ключа, но для любой тихой поломки: крон замолчал,
+ * внешний доступ перешёл в «сломан», кончились кредиты озвучки, не пришла копия
+ * базы, оборвался Telegram-бот. С 02.10 общий пуш «Новая проблема» отключён
+ * (владелец: спам) и возвращать его НЕЛЬЗЯ; вместо него такая поломка идёт сюда:
+ * CRITICAL (мимо часов алармов, см. directorAlertQueue.ts), одна метка на
+ * поломку, не чаще `everyMs` (по умолчанию 12 ч), пока она живёт.
+ *
+ * Метка — стабильная и несекретная: «cron-silent:<тик>», «integration:<имя>»,
+ * «backup:<вид>», «telegram-poller», «elevenlabs-quota». Журнал ошибок вызывающий
+ * код ведёт сам (своим источником и текстом); дверь только доставляет тревогу.
+ * Замок на метку внутри транзакции: проверка и запись идут по очереди и между
+ * процессами (api и worker). Никогда не бросает.
+ */
+export interface CriticalAlarmInput {
+  /** Метка поломки (до 160 знаков). */
+  tag: string;
+  title: string;
+  body: string;
+  /** Куда ведёт нажатие; по умолчанию Настройки, вкладка «Система». */
+  url?: string;
+  /** Повтор по той же метке не чаще; по умолчанию ALERT_EVERY_MS. */
+  everyMs?: number;
+  now?: Date;
+}
+
+export const SILENT_FAILURE_URL = "/settings?tab=system";
+/** Метка тревоги «кончились кредиты ElevenLabs»: озвучка, робозвонок и суточная проверка остатка делят её (не чаще раза в 12 ч). */
+export const ELEVENLABS_QUOTA_ALARM_TAG = "elevenlabs-quota";
+
+export async function raiseCriticalAlarm(input: CriticalAlarmInput): Promise<{ alerted: boolean }> {
+  try {
+    const tag = input.tag.slice(0, 160);
+    const now = input.now ?? new Date();
+    const everyMs = input.everyMs ?? ALERT_EVERY_MS;
+    const { enqueueDirectorAlert } = await import("./directorAlertQueue.js");
+    /**
+     * БЕЗ ГОНКИ (ревью #161): десять одновременных отказов одной метки иначе все
+     * видят «тревоги ещё нет» и ставят десять.
+     */
+    const alerted = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tag}))::text AS locked`;
+      const already = await tx.pendingDirectorAlert.findFirst({
+        where: { tag, createdAt: { gte: new Date(now.getTime() - everyMs) } },
+        select: { id: true },
+      });
+      if (already) return false;
+      return enqueueDirectorAlert(
+        {
+          title: input.title,
+          body: input.body.replace(/\s+/g, " ").slice(0, 220),
+          url: input.url ?? SILENT_FAILURE_URL,
+          level: "CRITICAL",
+          severity: "critical",
+          tag,
+          recipientRoles: ["DIRECTOR", "ADMIN"],
+        },
+        tx
+      );
+    });
+    return { alerted };
+  } catch (err) {
+    console.error("[criticalAlarm] тревога не поставлена:", err instanceof Error ? err.message : String(err));
+    return { alerted: false };
+  }
+}
+
 export async function raiseChannelKeyAlarm(input: ChannelKeyAlarmInput): Promise<{ alerted: boolean }> {
   try {
     const tag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}${input.key}`.slice(0, 160);
@@ -69,38 +138,13 @@ export async function raiseChannelKeyAlarm(input: ChannelKeyAlarmInput): Promise
       // Директору уходит своя тревога ниже — пуш «Новая проблема» был бы дублем.
       silent: true,
     });
-    // Очередь тревог (а с ней push.ts) — по требованию, а не при загрузке: сторож
-    // стоит в транспортах Telegram и Meta, и статический импорт тянул push.ts в
-    // каждый модуль, который их импортирует (подмены push.js в тестах падали на
-    // порядке инициализации — найдено полным прогоном 12.11).
-    const { enqueueDirectorAlert } = await import("./directorAlertQueue.js");
-    /**
-     * БЕЗ ГОНКИ (ревью #161): десять одновременных отказов одного ключа (бот
-     * отвечает пачкой) иначе все видят «тревоги ещё нет» и ставят десять.
-     * Замок на метку внутри транзакции — проверка и запись идут по очереди и
-     * между процессами (api и worker), не только внутри одного.
-     */
-    const alerted = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tag}))::text AS locked`;
-      const already = await tx.pendingDirectorAlert.findFirst({
-        where: { tag, createdAt: { gte: new Date(now.getTime() - ALERT_EVERY_MS) } },
-        select: { id: true },
-      });
-      if (already) return false;
-      return enqueueDirectorAlert(
-        {
-          title: "Ключ канала перестал работать",
-          body: `${input.label}: ${detail.slice(0, 160)}. ${fix}`,
-          url: "/settings?tab=channels",
-          level: "CRITICAL",
-          severity: "critical",
-          tag,
-          recipientRoles: ["DIRECTOR", "ADMIN"],
-        },
-        tx
-      );
+    return await raiseCriticalAlarm({
+      tag,
+      title: "Ключ канала перестал работать",
+      body: `${input.label}: ${detail.slice(0, 160)}. ${fix}`,
+      url: "/settings?tab=channels",
+      now,
     });
-    return { alerted };
   } catch (err) {
     console.error("[channelKeyAlarm] тревога о ключе не поставлена:", err instanceof Error ? err.message : String(err));
     return { alerted: false };

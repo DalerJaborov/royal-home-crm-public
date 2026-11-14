@@ -14,12 +14,12 @@
  "totals": {
   "screens": 53,
   "paths": 749,
-  "cron": 131,
+  "cron": 132,
   "jobs": 33,
-  "conditions": 4018,
+  "conditions": 4026,
   "untranslatedUnique": 462,
   "untranslatedTotal": 593,
-  "partialUnique": 1084,
+  "partialUnique": 1090,
   "translatedShare": 85
  },
  "untranslated": [
@@ -179,7 +179,6 @@
   "aiLimited(req.agent!.id, \"caption\")",
   "aiLimited(req.agent!.id, \"cover\")",
   "alarmStart !== undefined && alarmStart === alarmEnd",
-  "alertedAt > lastSeen && now - alertedAt < REALERT_MS",
   "alreadyHidden === hide",
   "alreadyStored.some((v) => v.propertyId !== property.id)",
   "alreadyThere && typeof alreadyThere !== \"string\"",
@@ -450,6 +449,7 @@
   "shootingDate > new Date(cutoff.getTime() - downMs)",
   "shouldCountOwnerReportView(link.id)",
   "shown !== existing.fullName && parsed.data.fullName.trim() === shown.trim()",
+  "silent && alertedAt > lastSeen && now - alertedAt < REALERT_MS",
   "skipped[0]?.reason === \"calling\"",
   "skipped[0]?.reason === \"not_found\"",
   "spokeAt && Date.now() - spokeAt.getTime() < BOT_JUST_SPOKE_MS",
@@ -64680,6 +64680,100 @@
    ]
   },
   {
+   "id": "backup-freshness",
+   "when": "17 * * * *",
+   "label": "backup-freshness",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: последний offsite получилось или finished at меньше since",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если есть разосланных тревог",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть success",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если есть разосланных тревог",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если есть alerts",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "bot-audit",
    "when": "15 3 * * *",
    "label": "Ночной судья диалогов: сверяет переписки с правилами и копит нарушения",
@@ -67501,18 +67595,25 @@
          "a": [],
          "c": [
           {
-           "t": "если сейчас не больше предел",
+           "t": "если нет: молчащие и нет: unfinished",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если alertedAt > lastSeen && now - alertedAt < REALERT_MS",
+           "t": "если silent && alertedAt > lastSeen && now - alertedAt < REALERT_MS",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "alertedAt > lastSeen && now - alertedAt < REALERT_MS",
+           "raw": "silent && alertedAt > lastSeen && now - alertedAt < REALERT_MS",
+           "more": true
+          },
+          {
+           "t": "если есть unfinished и разосланных тревог at больше started at",
+           "k": "if",
+           "a": [],
+           "c": [],
            "more": true
           },
           {
@@ -67520,6 +67621,13 @@
            "k": "do",
            "a": [],
            "c": []
+          },
+          {
+           "t": "если нет: private cron",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
           },
           {
            "t": "меняет: cron heartbeat",
@@ -75258,6 +75366,40 @@
        ]
       },
       {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если broken количество — «0»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
        "t": "пробует сделать",
        "k": "try",
        "a": [],
@@ -75311,33 +75453,6 @@
      "k": "do",
      "a": [],
      "c": [
-      {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "если нет: настройки",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "и так по каждому",
-         "k": "loop",
-         "a": [],
-         "c": [
-          {
-           "t": "если есть stored",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        }
-       ]
-      },
       {
        "t": "если refreshed количество больше 0",
        "k": "if",

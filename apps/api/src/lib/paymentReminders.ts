@@ -67,9 +67,10 @@ export const BILLING_SERVICES: { key: string; label: string; re: RegExp }[] = [
  * Признак сбоя ОПЛАТЫ, а не простого лимита скорости: голый 429 сюда не входит,
  * только с денежными словами. Тексты сверены с ai/openaiClient.ts
  * (OUT_OF_MONEY_TEXT, insufficient_quota, billing_hard_limit_reached),
- * ai/geminiClient.ts («prepayment credits depleted») и ai/liveVoiceClient.ts.
+ * ai/geminiClient.ts («prepayment credits depleted») и ai/liveVoiceClient.ts. 14.11.2026: «кредиты ElevenLabs
+ * закончились» (озвучка, narrationAutoFlow.ts) и `quota_exceeded` раньше напоминание не будили.
  */
-const BILLING_RE = /\b402\b|payment[\s_]required|billing|insufficient|prepayment|credits?\s+(?:are\s+)?depleted|no\s+credits|exceeded\s+your\s+current\s+quota|недостаточно\s+средств|закончились\s+деньги|пополните\s+баланс|credit\s+balance\s+is\s+too\s+low/i;
+export const BILLING_RE = /\b402\b|payment[\s_]required|billing|insufficient|prepayment|credits?\s+(?:are\s+)?depleted|no\s+credits|exceeded\s+your\s+current\s+quota|недостаточно\s+средств|закончились\s+деньги|пополните\s+баланс|credit\s+balance\s+is\s+too\s+low|quota_exceeded|кредит\S*\s+\S*\s*закончил|закончил\S*\s+(?:минуты|кредиты)/i;
 
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00.000Z`);

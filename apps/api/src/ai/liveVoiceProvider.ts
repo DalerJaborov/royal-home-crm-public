@@ -7,6 +7,7 @@ import { liveVoiceSpendCapHeld } from "../lib/liveVoiceSpendHold.js";
 import { LiveVoiceClient } from "./liveVoiceClient.js";
 import { ElevenLabsVoiceClient, fetchElevenLabsSignedUrl } from "./elevenLabsVoiceClient.js";
 import { elevenLabsRequest } from "./elevenLabsAgentSync.js";
+import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "../lib/channelKeyAlarm.js";
 import type { VoiceGender } from "@royal-home/shared";
 import type { LiveVoiceProviderClient } from "./liveVoiceProviderTypes.js";
 
@@ -205,6 +206,12 @@ export function noteElevenLabsQuotaExhausted(reason: string, apiKey?: string | n
       `Ответ ElevenLabs: ${reason.slice(0, 200)}`,
     { dedupKey: "elevenlabs-quota-exhausted" }
   );
+  // Срочная тревога директору (14.11.2026): пуш «новая проблема» отключён, а входящие уходят на автоответчик.
+  void raiseCriticalAlarm({
+    tag: ELEVENLABS_QUOTA_ALARM_TAG,
+    title: "Кончились минуты ElevenLabs",
+    body: "Робозвонки остановлены, входящие идут на автоответчик станции. Пополните баланс в кабинете ElevenLabs.",
+  });
 }
 
 /** Снять отметку «нет минут»: удачный разговор ElevenLabs, остаток снова есть, правка Настроек. */
