@@ -19,22 +19,38 @@
  * Решение атомарно: переход PENDING → APPROVED одной записью с условием,
  * проигравшему (второй модератор, второе нажатие) — «Уже решено …».
  * Файл в сети и на сервер уходит как есть — Telegram-видео только для просмотра.
+ *
+ * ПОДТВЕРЖДАЕТ ХОЗЯИН ОБЪЕКТА (11.11.2026, Settings.clipOwnerApproveEnabled;
+ * владелец: «все ролики что от монтажера обратно идут после монтажа пусть идут к
+ * своим хозяином с кнопками подтвердить и они сразу добавятся», страховка — «не
+ * руководству а автоматически поститься но не ночью с 12 по 7 утра»). Ролик так
+ * же ждёт решения (PENDING), но кнопки получает ещё и хозяин объекта
+ * (propertyOwnerAgentId). Молчит clipOwnerAutoPublishHours (3 ч) — ролик
+ * одобряется сам (runClipOwnerAutoPublishTick, byId = null, source "auto"), а срок,
+ * попавший на 00:00–07:00 по Душанбе, переносится на 07:00. У хозяина нет
+ * Telegram или он неактивен — тот же таймер: решение не встаёт на одном человеке.
+ * Руководство (clipReviewTelegram, право модерации) может решить в любой момент.
  */
 import type { VideoRemakeReason } from "@royal-home/shared";
 import { VIDEO_REMAKE_REASON_LABELS, parsePermissionOverrides, resolvePermissions, type Role } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import { logAgentAudit } from "./audit.js";
+import { logAgentAudit, logSystemAudit } from "./audit.js";
 import { schedulePublishAfterAccept } from "./videoHandoff.js";
 import { sendBackToMontajer, type SendBackResult } from "./publishedVideoFix.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { publishPropertyUpdated } from "./livePublish.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
+import { clampClipOwnerHours, clipOwnerDueFrom, isClipOwnerNight } from "./clipOwnerDue.js";
+
+export { CLIP_OWNER_HOURS_MAX, CLIP_OWNER_HOURS_MIN, CLIP_OWNER_NIGHT_END_HOUR, isClipOwnerNight } from "./clipOwnerDue.js";
 import { createNotifications, shouldAlert } from "./notifications.js";
 import { isWithinAlarmHours } from "./workingHours.js";
 import { montageNotificationRecipients } from "./montageObservers.js";
 import { sendPushToAgents } from "../push.js";
+import { propertyOwnerAgentId } from "./propertyOwner.js";
 
-export type ClipReviewSource = "crm" | "telegram";
+/** "auto" — хозяин не ответил вовремя, ролик одобрила сама CRM (runClipOwnerAutoPublishTick). */
+export type ClipReviewSource = "crm" | "telegram" | "auto";
 
 export interface ClipReviewer {
   id: string;
@@ -66,6 +82,96 @@ export async function clipReviewerByChat(chatId: string): Promise<ClipReviewer |
   });
   if (!a || !a.isActive || !canReviewClip(a)) return null;
   return { id: a.id, fullName: a.fullName, chatId };
+}
+
+// ─────────────────────────── хозяин объекта ───────────────────────────
+
+export interface ClipOwnerSettings {
+  enabled: boolean;
+  hours: number;
+}
+
+export async function getClipOwnerSettings(): Promise<ClipOwnerSettings> {
+  const s = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { clipOwnerApproveEnabled: true, clipOwnerAutoPublishHours: true },
+  });
+  return { enabled: s?.clipOwnerApproveEnabled ?? false, hours: clampClipOwnerHours(s?.clipOwnerAutoPublishHours) };
+}
+
+/** Срок автопубликации (та же формула, что пишет приём ролика в Property.clipOwnerDueAt). */
+export const clipOwnerAutoPublishAt = clipOwnerDueFrom;
+
+/**
+ * Хозяин объекта, который вправе решать по ролику: активный, не замороженный и не
+ * сам монтажёр (ревью 11.11.2026). Telegram здесь не нужен — решить можно и в
+ * карточке CRM (14.11.2026); для рассылки его требует clipOwnerRecipient ниже.
+ */
+async function clipOwnerAgent(propertyId: string): Promise<{ id: string; fullName: string; telegramChatId: string | null } | null> {
+  const p = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { intakeAgentId: true, assignedAgentId: true, createdById: true },
+  });
+  const ownerId = p ? propertyOwnerAgentId(p) : null;
+  if (!ownerId) return null;
+  const [a, settings] = await Promise.all([
+    prisma.agent.findUnique({
+      where: { id: ownerId },
+      select: { id: true, fullName: true, isActive: true, frozenAt: true, telegramChatId: true },
+    }),
+    prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } }),
+  ]);
+  if (!a || !a.isActive || a.frozenAt || a.id === settings?.videoMontajerAgentId) return null;
+  return { id: a.id, fullName: a.fullName, telegramChatId: a.telegramChatId };
+}
+
+/** Хозяин объекта, которому идёт ролик в Telegram: как clipOwnerAgent, плюс привязанный чат. */
+export async function clipOwnerRecipient(propertyId: string): Promise<ClipReviewer | null> {
+  const a = await clipOwnerAgent(propertyId);
+  if (!a || !a.telegramChatId) return null;
+  return { id: a.id, fullName: a.fullName, chatId: a.telegramChatId };
+}
+
+/**
+ * Хозяин решает, пока рубильник включён ИЛИ у ролика стоит срок автопубликации:
+ * выключили рубильник, а срок в силе — без кнопок хозяин не успел бы вернуть ролик.
+ * Возвращает id хозяина-решающего или null. Одно правило для Telegram и CRM.
+ */
+export async function clipOwnerDeciderId(propertyId: string): Promise<string | null> {
+  const [{ enabled }, due] = await Promise.all([
+    getClipOwnerSettings(),
+    prisma.property.findUnique({ where: { id: propertyId }, select: { clipOwnerDueAt: true } }),
+  ]);
+  if (!enabled && !due?.clipOwnerDueAt) return null;
+  return (await clipOwnerAgent(propertyId))?.id ?? null;
+}
+
+/**
+ * Кто может решить по ролику ЭТОГО объекта из Telegram: руководство/модератор
+ * (clipReviewerByChat) или — при включённом подтверждении хозяином — сам хозяин.
+ * Право проверяется заново на каждое нажатие: объект могли передать другому.
+ */
+export async function clipDeciderByChat(
+  chatId: string,
+  propertyId: string
+): Promise<(ClipReviewer & { asOwner: boolean }) | null> {
+  const reviewer = await clipReviewerByChat(chatId);
+  if (reviewer) return { ...reviewer, asOwner: false };
+  const ownerId = await clipOwnerDeciderId(propertyId);
+  if (!ownerId) return null;
+  const owner = await clipOwnerRecipient(propertyId);
+  if (!owner || owner.id !== ownerId || owner.chatId !== chatId) return null;
+  return { ...owner, asOwner: true };
+}
+
+/**
+ * Кто может решить по ролику из карточки CRM (14.11.2026, владелец: «каждый агент
+ * получал своё видео, просмотрел, одобрил или отклонил»): право модерации объектов
+ * или хозяин этого объекта по тому же правилу, что в Telegram (clipOwnerDeciderId).
+ */
+export async function canDecideClipInCrm(agentId: string, canModerate: boolean, propertyId: string): Promise<boolean> {
+  if (canModerate) return true;
+  return (await clipOwnerDeciderId(propertyId)) === agentId;
 }
 
 // ─────────────────────────── очередь «ждёт проверки» ───────────────────────────
@@ -136,7 +242,8 @@ export async function listPendingClips(limit = CLIP_REVIEW_PENDING_LIMIT): Promi
 export type ClipDecisionEvent = {
   propertyId: string;
   outcome: "approved" | "rejected";
-  byId: string;
+  /** null — одобрила сама CRM (хозяин не ответил вовремя). */
+  byId: string | null;
   source: ClipReviewSource;
   at: Date;
   reason?: string;
@@ -159,6 +266,10 @@ export async function clipAlreadyDecidedText(propertyId: string): Promise<string
     select: { clipReviewStatus: true, clipReviewDecidedAt: true, clipReviewDecidedById: true },
   });
   if (!p || p.clipReviewStatus === "NONE" || p.clipReviewStatus === "PENDING") return "Ролик сейчас не ждёт проверки.";
+  if (p.clipReviewStatus === "APPROVED" && !p.clipReviewDecidedById) {
+    const at = p.clipReviewDecidedAt ? ` в ${dushanbeDateTimeString(p.clipReviewDecidedAt)}` : "";
+    return `Уже решено: ролик ушёл в публикацию автоматически${at}.`;
+  }
   const who = p.clipReviewDecidedById
     ? await prisma.agent.findUnique({ where: { id: p.clipReviewDecidedById }, select: { fullName: true } })
     : null;
@@ -175,26 +286,51 @@ export type ApproveClipResult =
  * «Одобрить» — ролик уходит в расписание публикаций тем же хвостом, что и
  * приём без проверки (schedulePublishAfterAccept), без второй копии.
  */
-export async function approveClip(propertyId: string, byId: string, source: ClipReviewSource): Promise<ApproveClipResult> {
+export async function approveClip(
+  propertyId: string,
+  byId: string | null,
+  source: ClipReviewSource,
+  /** Момент решения для журнала «сколько ждали» — тик автопубликации передаёт свой. */
+  decidedAt?: Date
+): Promise<ApproveClipResult> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
-    select: { id: true, shortId: true, deletedAt: true, assignedAgentId: true, status: true },
+    select: {
+      id: true,
+      shortId: true,
+      deletedAt: true,
+      assignedAgentId: true,
+      intakeAgentId: true,
+      createdById: true,
+      status: true,
+      clipReviewRequestedAt: true,
+    },
   });
   if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект не найден или удалён." };
   const now = new Date();
   const claimed = await prisma.property.updateMany({
-    where: { id: propertyId, ...CLIP_REVIEW_PENDING_WHERE },
-    data: { clipReviewStatus: "APPROVED", clipReviewDecidedAt: now, clipReviewDecidedById: byId, clipReviewComment: null },
+    // Автопубликация перепроверяет срок в самой записи (ревью 12.11.2026): хозяин мог
+    // нажать «Вернуть» между выборкой тика и этой строкой — срок уже отодвинут.
+    where: { id: propertyId, ...CLIP_REVIEW_PENDING_WHERE, ...(source === "auto" ? { clipOwnerDueAt: { lte: decidedAt ?? new Date() } } : {}) },
+    data: { clipReviewStatus: "APPROVED", clipReviewDecidedAt: now, clipReviewDecidedById: byId, clipReviewComment: null, clipOwnerDueAt: null },
   });
   if (claimed.count === 0) return { ok: false, status: 409, error: await clipAlreadyDecidedText(propertyId) };
 
   const scheduled = await schedulePublishAfterAccept(propertyId);
-  logAgentAudit(byId, "PROPERTY_CLIP_APPROVED", "Property", propertyId, {
+  // Журнал (11.11.2026): кто решил — хозяин, руководство или сама CRM, — и
+  // сколько ролик ждал решения.
+  const meta = {
     shortId: property.shortId,
     source,
+    decidedAs: !byId ? "auto" : byId === propertyOwnerAgentId(property) ? "owner" : "reviewer",
+    waitedMinutes: property.clipReviewRequestedAt
+      ? Math.round(((decidedAt ?? now).getTime() - property.clipReviewRequestedAt.getTime()) / 60_000)
+      : null,
     scheduledPublishAt: scheduled.scheduledPublishAt?.toISOString() ?? null,
     notPublishingReason: scheduled.notPublishingReason ?? null,
-  });
+  };
+  if (byId) logAgentAudit(byId, "PROPERTY_CLIP_APPROVED", "Property", propertyId, meta);
+  else logSystemAudit("PROPERTY_CLIP_AUTO_APPROVED", "Property", propertyId, meta);
   emitClipDecision({ propertyId, outcome: "approved", byId, source, at: now });
   requestPultSnapshot(); // пульт: проверка ролика закрыта
   publishPropertyUpdated({ propertyId, agentId: property.assignedAgentId, stage: property.status, actorId: byId });
@@ -213,6 +349,7 @@ export function afterClipRejected(input: {
   source: ClipReviewSource;
   reason: VideoRemakeReason;
   comment: string | null;
+  decidedAs?: "owner" | "reviewer";
 }): void {
   const label = VIDEO_REMAKE_REASON_LABELS[input.reason];
   logAgentAudit(input.byId, "PROPERTY_CLIP_REJECTED", "Property", input.propertyId, {
@@ -220,6 +357,7 @@ export function afterClipRejected(input: {
     source: input.source,
     reason: input.reason,
     comment: input.comment,
+    ...(input.decidedAs ? { decidedAs: input.decidedAs } : {}),
   });
   emitClipDecision({
     propertyId: input.propertyId,
@@ -234,7 +372,13 @@ export function afterClipRejected(input: {
 /** «Вернуть монтажёру» с проверки — весь возврат делает sendBackToMontajer. */
 export async function rejectClip(
   propertyId: string,
-  input: { reason: VideoRemakeReason; comment: string | null; byId: string; source: ClipReviewSource }
+  input: {
+    reason: VideoRemakeReason;
+    comment: string | null;
+    byId: string;
+    source: ClipReviewSource;
+    decidedAs?: "owner" | "reviewer";
+  }
 ): Promise<SendBackResult> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
@@ -244,7 +388,15 @@ export async function rejectClip(
   if (property.clipReviewStatus !== "PENDING") return { ok: false, error: await clipAlreadyDecidedText(propertyId) };
   const result = await sendBackToMontajer(propertyId, input.byId, input.reason, input.comment);
   if (result.ok && result.clipReviewWasPending) {
-    afterClipRejected({ propertyId, shortId: property.shortId, byId: input.byId, source: input.source, reason: input.reason, comment: input.comment });
+    afterClipRejected({
+      propertyId,
+      shortId: property.shortId,
+      byId: input.byId,
+      source: input.source,
+      reason: input.reason,
+      comment: input.comment,
+      decidedAs: input.decidedAs,
+    });
   } else if (!result.ok) {
     // Второй модератор успел вернуть раньше — объект уже в очереди монтажёра.
     const fresh = await prisma.property.findUnique({ where: { id: propertyId }, select: { clipReviewStatus: true } });
@@ -275,8 +427,14 @@ export async function runClipReviewStaleTick(
   now: Date = new Date()
 ): Promise<{ reminded: number }> {
   if (!(await isWithinAlarmHours(now))) return { reminded: 0 };
+  // Хозяин подтверждает сам, а молчание закрывает автопубликация — напоминать
+  // руководству нечего («не руководству а автоматически поститься»).
+  // Ролик, который ждал решения ещё до включения (срока у него нет), напоминанием
+  // не теряется (ревью 12.11.2026): молчит только тот, чей срок закроет автопубликация.
+  const ownerOn = (await getClipOwnerSettings()).enabled;
   const stale = await prisma.property.findMany({
     where: {
+      ...(ownerOn ? { clipOwnerDueAt: null } : {}),
       deletedAt: null,
       videoHandoffStatus: "RECEIVED",
       clipReviewStatus: "PENDING",
@@ -316,3 +474,64 @@ export async function runClipReviewStaleTick(
   }
   return { reminded };
 }
+
+// ─────────────────────────── автопубликация без ответа хозяина ───────────────────────────
+
+/**
+ * АВТОПУБЛИКАЦИЯ (11.11.2026). Ролик ждёт решения дольше clipOwnerAutoPublishHours —
+ * одобряется тем же approveClip (byId = null, source "auto"), как будто нажали
+ * «Подтвердить». Ночью (00:00–07:00 по Душанбе) ничего не делает: срок, попавший в
+ * ночь, наступает в 07:00 (clipOwnerAutoPublishAt). Повторный тик и гонка с
+ * нажатием безопасны — переход PENDING → APPROVED в approveClip атомарный.
+ */
+export async function runClipOwnerAutoPublishTick(now: Date = new Date()): Promise<{ published: number }> {
+  if (isClipOwnerNight(now)) return { published: 0 };
+  const s = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { clipOwnerApproveEnabled: true, clipReviewEnabled: true },
+  });
+  // Рубильник выключили, пока ролики ждали: решают модераторы, если проверка
+  // ими включена; если выключена и она — решать некому, срок у объекта в силе
+  // (ревью 11.11.2026: иначе ролик повис бы навсегда).
+  if (!s?.clipOwnerApproveEnabled && s?.clipReviewEnabled) return { published: 0 };
+  const candidates = await prisma.property.findMany({
+    where: { ...CLIP_REVIEW_PENDING_WHERE, clipOwnerDueAt: { lte: now } },
+    select: { id: true, shortId: true },
+    orderBy: { clipOwnerDueAt: "asc" },
+    take: 50,
+  });
+  if (candidates.length === 0) return { published: 0 };
+  // Хозяин (или модератор) прямо сейчас пишет причину возврата — не перебивать
+  // его автопубликацией: диалог живёт 15 минут, после него срок снова в силе.
+  const dialogs = await prisma.telegramDialogState.findMany({
+    where: { kind: CLIP_REJECT_DIALOG_KIND, expiresAt: { gt: now } },
+    select: { payload: true },
+  });
+  const rejecting = new Set(dialogs.map((d) => Number((d.payload as { shortId?: unknown } | null)?.shortId)));
+  let published = 0;
+  for (const p of candidates) {
+    if (rejecting.has(p.shortId)) continue;
+    const result = await approveClip(p.id, null, "auto", now);
+    if (result.ok) published++;
+  }
+  return { published };
+}
+
+/** Сколько даём на выбор причины и комментарий при «Вернуть монтажёру». */
+export const CLIP_REJECT_GRACE_MS = 15 * 60_000;
+
+/**
+ * Нажали «Вернуть монтажёру» — срок автопубликации не раньше чем через 15 минут
+ * (ревью 11.11.2026: хозяин выбирает причину в 2:59, тик в 3:00 опубликовал бы
+ * ролик, который он возвращает). Только отодвигает, никогда не приближает.
+ */
+export async function holdClipOwnerDueForReject(propertyId: string, now: Date = new Date()): Promise<void> {
+  const hold = new Date(now.getTime() + CLIP_REJECT_GRACE_MS);
+  await prisma.property.updateMany({
+    where: { id: propertyId, ...CLIP_REVIEW_PENDING_WHERE, clipOwnerDueAt: { not: null, lt: hold } },
+    data: { clipOwnerDueAt: hold },
+  });
+}
+
+/** Вид состояния диалога «жду комментарий к возврату» (telegram/clipReviewBot.ts). */
+export const CLIP_REJECT_DIALOG_KIND = "clip_reject_comment";

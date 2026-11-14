@@ -30,6 +30,7 @@
  * файл плеером вместо загрузки).
  */
 import fs from "node:fs";
+import { clipOwnerDueFrom } from "./clipOwnerDue.js";
 import { rawVideoPublicationMarks } from "./publishedRawVideoRetention.js";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -79,6 +80,7 @@ import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { dropNarrationMaster, mixFromStoredMaster, planCrmMixOnReceive, storeNarrationMaster } from "./narrationMaster.js";
 import { narrationLineForMontajer } from "./narrationMontajerNote.js";
+import { propertyOwnerAgentId } from "./propertyOwner.js";
 
 /**
  * ЗАДАНИЕ «ПУБЛИКАЦИЯ ПРИНЯТОГО РОЛИКА» (21.09.2026, случай №114) — тип,
@@ -2169,11 +2171,16 @@ async function finishReceivingVideo(
   // монтажёра пусть проходят модерацию в Telegram»). Включена — ролик принят,
   // но слот публикации не считается и задание не ставится, пока модератор не
   // нажмёт «Одобрить» (lib/clipReview.ts::approveClip → schedulePublishAfterAccept).
-  const clipReviewSettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { clipReviewEnabled: true } });
+  // С 11.11.2026 решения ждёт и ролик, который подтверждает хозяин объекта
+  // (Settings.clipOwnerApproveEnabled, lib/clipReview.ts) — тот же PENDING.
+  const clipReviewSettings = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { clipReviewEnabled: true, clipOwnerApproveEnabled: true, clipOwnerAutoPublishHours: true },
+  });
   // Ролик загрузил из CRM сам модератор (26.10.2026, владелец: «я загружаю ролик сам
   // из CRM, а мне в Telegram приходит модерация — зачем, если я сам добавил») —
   // загрузка и есть его решение: APPROVED на его имя, без рассылки на проверку.
-  const reviewOn = clipReviewSettings?.clipReviewEnabled ?? false;
+  const reviewOn = (clipReviewSettings?.clipReviewEnabled ?? false) || (clipReviewSettings?.clipOwnerApproveEnabled ?? false);
   const selfApprovedById = reviewOn ? (opts.approvedById ?? null) : null;
   const clipReview = reviewOn && !selfApprovedById;
 
@@ -2214,6 +2221,10 @@ async function finishReceivingVideo(
           clipReviewDecidedAt: selfApprovedById ? now : null,
           clipReviewDecidedById: selfApprovedById,
           clipReviewComment: null,
+          clipOwnerDueAt:
+            clipReview && clipReviewSettings?.clipOwnerApproveEnabled
+              ? clipOwnerDueFrom(now, clipReviewSettings.clipOwnerAutoPublishHours)
+              : null,
         },
       });
       if (written.count !== 1) return null;
@@ -4089,6 +4100,11 @@ export interface VideoHandoffCardPropertyFields {
   clipReviewDecidedAt: Date | null;
   clipReviewDecidedById: string | null;
   clipReviewComment: string | null;
+  /** Срок автопубликации при подтверждении хозяином (есть — хозяин решает сам). */
+  clipOwnerDueAt?: Date | null;
+  intakeAgentId?: string | null;
+  assignedAgentId?: string | null;
+  createdById?: string | null;
 }
 
 /**
@@ -4155,6 +4171,9 @@ export async function videoHandoffCardForProperty(property: VideoHandoffCardProp
       decidedAt: property.clipReviewDecidedAt?.toISOString() ?? null,
       decidedBy: clipDecidedBy?.fullName ?? null,
       comment: property.clipReviewComment,
+      // Хозяин решает, только пока ролик ждёт и у него стоит срок автопубликации —
+      // тот же признак, что у кнопок в Telegram (lib/clipReview.ts::clipOwnerDeciderId).
+      ownerAgentId: property.clipReviewStatus === "PENDING" && property.clipOwnerDueAt ? propertyOwnerAgentId(property) : null,
     },
     videos: videos.map((v) => ({
       id: v.id,

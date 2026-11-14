@@ -2503,6 +2503,12 @@ model Property {
   /// Agent.id без FK — тот же приём, что у videoHandoffQueuePausedById.
   clipReviewDecidedById          String?
   clipReviewComment              String?
+  /// Когда ролик опубликуется сам, если хозяин объекта не ответит (11.11.2026,
+  /// lib/clipReview.ts::runClipOwnerAutoPublishTick). Пишется при приёме ролика,
+  /// только когда включено Settings.clipOwnerApproveEnabled: ролики, ждавшие
+  /// решения ДО включения, таймер не трогает, а срок в подписи хозяину не плывёт
+  /// от смены часов в Настройках. null — автопубликации нет.
+  clipOwnerDueAt                 DateTime?
   /// ID поста/видео на каждой площадке, где он реально числится редактируемым
   /// (16.09.2026) — {"FACEBOOK": videoId, "TELEGRAM": messageId, "YOUTUBE":
   /// videoId}. Instagram сюда не попадает: Graph API не даёт редактировать
@@ -6281,6 +6287,15 @@ model Settings {
   /// ГОТОВЫЙ РОЛИК ПРОВЕРЯЕТ МОДЕРАТОР ПЕРЕД ПУБЛИКАЦИЕЙ (25.09.2026,
   /// lib/clipReview.ts). false — принятый ролик сразу получает слот, как раньше.
   clipReviewEnabled                 Boolean   @default(false)
+  /// ГОТОВЫЙ РОЛИК ПОДТВЕРЖДАЕТ ХОЗЯИН ОБЪЕКТА (11.11.2026, владелец: «все ролики
+  /// что от монтажера обратно идут после монтажа пусть идут к своим хозяином с
+  /// кнопками подтвердить»; страховка — «автоматически поститься но не ночью с 12
+  /// по 7 утра»). Ролик ждёт решения, как при clipReviewEnabled, но идёт в Telegram
+  /// хозяину объекта (lib/propertyOwner.ts); не ответил за clipOwnerAutoPublishHours —
+  /// публикуется сам, ночью 00:00–07:00 по Душанбе ждёт до 07:00 (lib/clipReview.ts).
+  clipOwnerApproveEnabled           Boolean   @default(false)
+  /// Сколько часов ждать ответа хозяина до автопубликации (1–48).
+  clipOwnerAutoPublishHours         Int       @default(3)
   /// Кто модерирует фото/видео объектов ПО УМОЛЧАНИЮ — куда идёт пуш о новой
   /// заявке. Не заменяет право `properties.moderate` (действовать по-прежнему
   /// может любой его обладатель) — просто адресат, чтобы в команде не спорили,
