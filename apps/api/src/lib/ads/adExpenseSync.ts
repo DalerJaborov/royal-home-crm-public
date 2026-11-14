@@ -4,6 +4,7 @@ import { describeError } from "../describeError.js";
 import { centsToTjs, fromCents, loadMoneyContext, toCents } from "../money.js";
 import { dushanbeWallClock } from "../dushanbeTime.js";
 import { logSystemError } from "../systemError.js";
+import { warnManualOverlapsForAuto } from "../expenseAutoOverlap.js";
 
 /**
  * РЕКЛАМА И ИИ САМИ ПОПАДАЮТ В «ФИНАНСЫ → РАСХОДЫ».
@@ -203,6 +204,9 @@ async function upsertAutoExpense(row: {
         note: row.note,
       },
     });
+    // Обратная сторона правила «расход дважды» (14.11.2026): ручная строка того же вида за этот
+    // месяц уже была — тревога директору, какую из двух убрать, решает человек.
+    await warnManualOverlapsForAuto(row.autoKey, row.month.toISOString().slice(0, 7));
     return true;
   } catch (err) {
     void logSystemError("ads", `Автоматическая строка расхода ${row.autoKey} не записана: ${describeError(err)}`);
