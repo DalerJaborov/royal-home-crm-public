@@ -31,7 +31,8 @@ const QUOTA_EXCEEDED = "PROVIDER_QUOTA_EXCEEDED";
 
 /** Пока озвучка готовится, карточка сама спрашивает сервер раз в 5 секунд. */
 export function narrationIsPending(v: PropertyNarrationView["versions"][number] | undefined): boolean {
-  return !!v && (v.status === "GENERATING" || (v.status === "DRAFT" && !!v.generateAfter));
+  // Зависшая генерация (canReconcile) — уже не «готовится»: опрос раз в 5 с шёл бы бесконечно.
+  return !!v && ((v.status === "GENERATING" && !v.canReconcile) || (v.status === "DRAFT" && !!v.generateAfter));
 }
 
 export function PropertyNarrationManager({ propertyId }: { propertyId: string }) {
@@ -44,13 +45,13 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   });
   const [draft, setDraft] = useState<NarrationDraft>({});
   const [editing, setEditing] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  // Плеер привязан к версии (ревью 14.11): иначе после «Истории аудио» блок «послушайте и одобрите»
+  // играл бы старую запись, и одобряли бы новую версию, не услышав её.
+  const [audio, setAudio] = useState<{ versionId: string; url: string } | null>(null);
   const requestKey = useRef(crypto.randomUUID());
   const latest = data?.versions[0];
-  useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
-  useEffect(() => { setDraft({}); setEditing(false); setAudioUrl(null); setMessage(""); requestKey.current = crypto.randomUUID(); }, [propertyId]);
-  // Новая версия — прежний плеер относится к старой.
-  useEffect(() => { setAudioUrl(null); }, [latest?.id]);
+  useEffect(() => () => { if (audio) URL.revokeObjectURL(audio.url); }, [audio]);
+  useEffect(() => { setDraft({}); setEditing(false); setAudio(null); setMessage(""); requestKey.current = crypto.randomUUID(); }, [propertyId]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true); setMessage("");
@@ -61,7 +62,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   async function listen(versionId: string) {
     await run(async () => {
       const blob = await api<Blob>(`/properties/${propertyId}/narration/${versionId}/audio`, { responseType: "blob" });
-      setAudioUrl(URL.createObjectURL(blob));
+      setAudio({ versionId, url: URL.createObjectURL(blob) });
     });
   }
 
@@ -73,7 +74,12 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   const canEdit = data.canDraft !== false;
   const pending = narrationIsPending(latest);
   const ready = latest?.status === "READY" && latest.hasAudio;
-  const failed = !!latest && (latest.status === "FAILED" || latest.status === "UNKNOWN");
+  const failed = latest?.status === "FAILED";
+  // Результат у ElevenLabs неизвестен (или генерация зависла): новую озвучку сервер не примет (409),
+  // пока руководство не сверит итог в «Служебном». Агенту — понятный статус, без формы.
+  const uncertain = !!latest && (latest.status === "UNKNOWN" || (latest.status === "GENERATING" && !!latest.canReconcile));
+  // Устаревшая версия несёт прежнюю цену словами (ревью 14.11): её текст в форму не подставляем, только свежий шаблон.
+  const currentScript = latest && !latest.stale ? latest.script : null;
   const approved = !!ready && !!latest?.approvedAt && !latest.stale;
   const waitsForApproval = !!ready && !latest?.approvedAt && !latest?.stale && latest?.source !== "MANUAL";
   const showComposer = canEdit && !data.off && !!facts && (editing || !latest || failed || (latest.status === "DRAFT" && !latest.generateAfter));
@@ -81,7 +87,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   // Есть версия — её шаблон и текст; нет — следующий вариант после прошлого выбора, как в мастере.
   const defaultTemplateId = latest?.templateId ?? narrationRotatedTemplateId(templates, last.templateId) ?? pickNarrationTemplate(data.config)?.id ?? null;
   const defaultVoiceId = pickNarrationVoice(data.config, latest?.voiceId ?? last.voiceId);
-  const resolved = facts ? resolveNarrationDraft({ templates, facts, value: draft, defaultTemplateId, defaultVoiceId, defaultScript: latest?.script }) : null;
+  const resolved = facts ? resolveNarrationDraft({ templates, facts, value: draft, defaultTemplateId, defaultVoiceId, defaultScript: currentScript }) : null;
   const textOk = (resolved?.text.trim().length ?? 0) >= 10;
 
   const submit = (generate: boolean) => void run(async () => {
@@ -97,8 +103,8 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
     const result = await api<{ message: string }>(`/properties/${propertyId}/narration/mode`, { method: "POST", body: { off } });
     setMessage(result.message);
   });
-  const player = (versionId: string, primary: boolean) => audioUrl
-    ? <audio className="w-full" controls autoPlay src={audioUrl} />
+  const player = (versionId: string, primary: boolean) => audio?.versionId === versionId
+    ? <audio className="w-full" controls autoPlay src={audio.url} />
     : <button type="button" className={primary ? "pill" : "pill sm"} disabled={busy} onClick={() => void listen(versionId)}>▶ Прослушать</button>;
 
   return (
@@ -117,6 +123,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
         {!data.configured && <p className="rounded-lg bg-[var(--warn-bg)] p-3 text-sm" role="status">Озвучка ещё не настроена руководством. Голос и текст можно выбрать уже сейчас.</p>}
 
         {latest && !showComposer && <div className="space-y-3 rounded-xl border p-3" role="status">
+          {uncertain && <p className="text-sm">Результат озвучки уточняет руководство. Как только сверят, можно будет озвучить заново.</p>}
           {pending && <p className="flex items-center gap-2 text-sm"><span className="inline-block h-3 w-3 animate-pulse rounded-full bg-blue" aria-hidden />Готовим озвучку. Обычно минута-две, придёт сюда и в Шабнам.</p>}
           {waitsForApproval && <>
             <p className="font-medium">Озвучка готова: послушайте и одобрите</p>
@@ -154,7 +161,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
 
         {showComposer && facts && <>
           <NarrationComposer name={`${ids}-voice`} templates={templates} voices={data.config.voices} samples={data.samples} facts={facts} value={draft} onChange={setDraft}
-            defaultTemplateId={defaultTemplateId} defaultVoiceId={defaultVoiceId} defaultScript={latest?.script} lastPickedVoiceId={last.voiceId ?? null} disabled={busy} />
+            defaultTemplateId={defaultTemplateId} defaultVoiceId={defaultVoiceId} defaultScript={currentScript} lastPickedVoiceId={last.voiceId ?? null} disabled={busy} />
           <div className="flex flex-wrap items-center gap-2">
             {data.autoGenerate
               ? <button type="button" className="pill bg-blue! text-on-accent!" disabled={busy || !resolved?.voiceId || !textOk} onClick={() => submit(true)}>Озвучить</button>
@@ -168,7 +175,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
       </>}
 
       {message && <p className="text-sm" role="status">{message}</p>}
-      {!waitsForApproval && !approved && audioUrl && <audio className="w-full" controls src={audioUrl} />}
+      {audio && !((waitsForApproval || approved) && audio.versionId === latest?.id) && <audio className="w-full" controls src={audio.url} />}
       {(data.canApprove || data.canConfigure) && <PropertyNarrationService propertyId={propertyId} data={data} busy={busy} run={run} setMessage={setMessage} onListen={(id) => void listen(id)} />}
     </section>
   );

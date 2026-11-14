@@ -53,6 +53,17 @@ describe("карточка объекта: озвучка для агента", 
     expect(narrationIsPending(pending)).toBe(true);
     expect(narrationIsPending(version())).toBe(false);
   });
+  it("ревью 14.11: устаревший текст со старой ценой в форму не попадает; неизвестный итог — статус без формы; зависшая генерация не опрашивается вечно", () => {
+    const old = render({ versions: [version({ status: "FAILED", hasAudio: false, stale: true, script: "Нархаш СТАРАЯ ЦЕНА сомонӣ." })] });
+    expect(old).not.toContain("СТАРАЯ ЦЕНА");
+    expect(old).toContain("Квартира барои фурӯш. Масоҳаташ шасту ду метри мураббаъ.");
+    const unknown = render({ versions: [version({ status: "UNKNOWN", hasAudio: false })] });
+    expect(unknown).toContain("уточняет руководство");
+    expect(unknown).not.toContain(">Озвучить<");
+    expect(unknown).not.toContain("Озвучка не получилась");
+    expect(narrationIsPending(version({ status: "GENERATING", hasAudio: false, canReconcile: true }))).toBe(false);
+    expect(narrationIsPending(version({ status: "GENERATING", hasAudio: false }))).toBe(true);
+  });
   it("новая озвучка не легла на вышедший ролик — агенту сказано, что дальше", () => {
     const approved = [version({ approvedAt: "2026-11-14" })];
     expect(render({ versions: approved, mix: { hasMaster: true, error: null, problem: "VOICE_LONGER" } })).toContain("длиннее ролика, обрезать голос CRM не стала");
