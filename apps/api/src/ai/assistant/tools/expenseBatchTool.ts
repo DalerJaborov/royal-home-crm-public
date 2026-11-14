@@ -9,6 +9,7 @@ import type { Prisma } from "../../../generated/prisma/client.js";
 import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { canonicalJson } from "../../../lib/canonicalJson.js";
 import { createExpense } from "../../../lib/expenseCommands.js";
+import { findManualOverlap, newOverlapCache } from "../../../lib/expenseAutoOverlap.js";
 import { todayExpenseDay } from "../../../lib/expenseWorkspace.js";
 import { expenseCentsToTjs, fromCents, loadMoneyContext, loadUsdRateInfo, NO_USD_RATE_TEXT, roundMoney, type MoneyContext } from "../../../lib/money.js";
 import { plainField } from "./safeField.js";
@@ -71,6 +72,8 @@ const rowSchema = z.object({
   /** Хэш фото/файла этой строки и её номер в нём — ключ повтора по источнику. */
   sourceHash: opt(hash64),
   sourceIndex: opt(z.number().int().min(0).max(100_000)),
+  /** Человек подтвердил: это другой расход, не тот, что CRM уже считает сама (expenseAutoOverlap). */
+  confirmAutoOverlap: opt(z.boolean()),
 });
 
 export const BATCH_SOURCE_KINDS = ["photo", "album", "xlsx", "xls", "csv", "pdf", "chat"] as const;
@@ -93,7 +96,7 @@ export interface BatchRow {
   date?: string; category: ExpenseCategory; categoryTitle?: string; counterparty?: string;
   paymentMethod?: (typeof EXPENSE_PAYMENT_METHODS)[number]; source?: (typeof CLIENT_SOURCES)[number]; agentName?: string;
   sourceText?: string; currencyUnstated?: true; otherCurrency?: string; sourceHash?: string; sourceIndex?: number;
-  agentId?: string;
+  agentId?: string; confirmAutoOverlap?: true;
 }
 export interface BatchArgs {
   items: BatchRow[]; lang: ExpenseLang;
@@ -116,6 +119,13 @@ export function batchCurrency(rows: readonly { currency?: "TJS" | "USD"; currenc
 export function parseBatchArgs(raw: unknown, now = new Date()): BatchArgs {
   const parsed = argsSchema.safeParse(raw);
   if (!parsed.success) throw new AssistantActionError(400, "BAD_ARGS", "Не поняла строки расходов: нужны название и сумма у каждой");
+  // «Это другой расход» подтверждается отдельной карточкой ТОЛЬКО для пропущенных строк: смешанный
+  // вызов (вся пачка заново + флаг у одной) получил бы новые ключи и записал остальные второй раз
+  // (ревью 14.11.2026).
+  const confirmed = parsed.data.items.filter((row) => row.confirmAutoOverlap).length;
+  if (confirmed && confirmed !== parsed.data.items.length) {
+    throw new AssistantActionError(400, "MIXED_CONFIRM", "Подтверждение «это другой расход» — отдельным вызовом только с этими строками, остальные уже записаны");
+  }
   const today = todayExpenseDay(now);
   const currentMonth = today.slice(0, 7);
   // Валюту не угадываем молча: строка без валюты получает валюту пачки и пометку «проверьте».
@@ -139,6 +149,7 @@ export function parseBatchArgs(raw: unknown, now = new Date()): BatchArgs {
       ...(row.agentName ? { agentName: row.agentName } : {}),
       ...(row.agentId ? { agentId: row.agentId } : {}),
       ...(row.sourceText ? { sourceText: row.sourceText } : {}),
+      ...(row.confirmAutoOverlap ? { confirmAutoOverlap: true as const } : {}),
       ...(sourceHash ? { sourceHash, sourceIndex: row.sourceIndex ?? i } : {}),
     };
   });
@@ -202,6 +213,12 @@ export interface ResolvedRow {
   agentName?: string;
   source?: string;
   categoryTitle?: string;
+  /**
+   * Расход уже учтён автоматически (реклама Meta, ИИ, доля по сделкам, шаблон) — строку НЕ пишем,
+   * карточка показывает почему (14.11.2026, двойной таргет октября). Человек подтвердил «другой» —
+   * модель повторяет вызов с confirmAutoOverlap у этой строки.
+   */
+  autoOverlap?: string;
 }
 
 type AgentPick = { agent: { id: string; fullName: string } | null; candidates: { id: string; fullName: string }[] };
@@ -217,6 +234,7 @@ export async function resolveRows(args: BatchArgs, db: TxClient = prisma): Promi
   // Тысяча строк таблицы — не тысяча запросов: подраздел и сотрудник ищутся раз на имя.
   const definitions = new Map<string, Awaited<ReturnType<typeof findCategoryByTitle>>>();
   const picks = new Map<string, AgentPick>();
+  const overlapCache = newOverlapCache();
   for (const row of args.items) {
     const titleKey = row.categoryTitle?.toLowerCase() ?? "";
     if (!definitions.has(titleKey)) definitions.set(titleKey, await findCategoryByTitle(row.categoryTitle, db));
@@ -248,12 +266,20 @@ export async function resolveRows(args: BatchArgs, db: TxClient = prisma): Promi
       ...(category === "ADVERTISING" && source ? { source } : {}),
       ...(category === "SALARY" && pick.agent ? { agentId: pick.agent.id } : {}),
     };
+    if (row.confirmAutoOverlap) body.confirmAutoOverlap = true;
     const check = expenseCreateSchema.safeParse(body);
     const problem = row.otherCurrency
       ? `«${row.title}»: валюта ${row.otherCurrency} пока не поддерживается — укажите в сомони или $`
       : check.success ? undefined : `«${row.title}»: ${check.error.issues[0]?.message ?? "проверьте строку"}`;
+    // Та же проверка, что в createExpense, — заранее, чтобы карточка честно сказала, что не запишется.
+    const overlap = problem || row.confirmAutoOverlap ? null : await findManualOverlap(
+      row.status === "PAID" && row.date ? row.date.slice(0, 7) : row.month,
+      { category, source: source ?? null, agentId: pick.agent?.id ?? null, note: row.title, counterparty: row.counterparty ?? null, amount: row.amount, currency: row.currency },
+      { db, cache: overlapCache },
+    );
     out.push({
       body, ...(problem ? { problem } : {}), ...(downgraded ? { downgraded } : {}),
+      ...(overlap ? { autoOverlap: `«${row.title}» ${moneyText(row.amount, row.currency, args.lang)}: ${overlap.text}` } : {}),
       ...(downgraded === "salary" && pick.candidates.length ? { candidates: pick.candidates } : {}),
       ...(category === "SALARY" && pick.agent ? { agentName: pick.agent.fullName } : {}),
       ...(category === "ADVERTISING" && source ? { source } : {}),
@@ -307,6 +333,21 @@ async function lockSources(args: BatchArgs, agentId: string, tx: TxClient) {
   for (const key of locks) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
 }
 
+/**
+ * Снимок строк для брокера: тело и «не запишу — уже учтено» (смена любого — карточка устарела).
+ * Откат передаёт `skipped` из результата записи: автоматическая строка, появившаяся ПОСЛЕ записи,
+ * не должна делать карточку «устаревшей» и запрещать откат (ревью 14.11.2026).
+ */
+function snapshotRows(rows: ResolvedRow[], skipped?: readonly number[]) {
+  return rows.map((row, i) => (skipped ? skipped.includes(i) : row.autoOverlap) ? { ...row.body, skip: "auto_overlap" } : row.body);
+}
+
+/** Все строки пачки уже учтены автоматически — писать нечего, отвечаем словами, без карточки. */
+function allOverlapError(rows: ResolvedRow[]): AssistantActionError {
+  const texts = rows.flatMap(row => row.autoOverlap ? [row.autoOverlap] : []);
+  return new AssistantActionError(409, "AUTO_OVERLAP", texts.slice(0, 5).join("\n"), { overlaps: texts });
+}
+
 const executor: AssistantActionExecutor<BatchArgs> = {
   tool: ADD_EXPENSES_TOOL,
   requires: ["finance.view", "finance.manage"],
@@ -322,7 +363,7 @@ const executor: AssistantActionExecutor<BatchArgs> = {
     await assertFinanceWriter(actor, tx);
     if (tx) await lockSources(args, actor.agentId, tx);
     const [existing, rows] = await Promise.all([existingBatch(args, actor.agentId, tx), resolveRows(args, tx)]);
-    return { existing: recordedState(existing), rows: rows.map(row => row.body) };
+    return { existing: recordedState(existing), rows: snapshotRows(rows) };
   },
   async buildPreview(args, snapshot, actor) {
     if (Array.isArray(snapshot.existing) && snapshot.existing.length > 0) throw duplicateError(await existingBatch(args, actor.agentId));
@@ -331,12 +372,16 @@ const executor: AssistantActionExecutor<BatchArgs> = {
     if (problems.length) {
       throw new AssistantActionError(400, "ROWS_INVALID", `Не хватает данных: ${problems.slice(0, 5).join("; ")}`, { problems });
     }
+    if (rows.every(row => row.autoOverlap)) throw allOverlapError(rows);
     const labels = expenseLabels(args.lang);
     const money = await rateContextFor(args);
-    const totalCents = args.items.reduce((sum, row) => sum + expenseCentsToTjs({ amount: row.amount, currency: row.currency, exchangeRate: null }, money), 0);
+    const totalCents = args.items.reduce((sum, row, i) => rows[i]!.autoOverlap ? sum
+      : sum + expenseCentsToTjs({ amount: row.amount, currency: row.currency, exchangeRate: null }, money), 0);
+    const written = rows.filter(row => !row.autoOverlap).length;
     const becomes: Record<string, string> = {};
     args.items.forEach((row, i) => {
       const resolved = rows[i]!;
+      if (resolved.autoOverlap) { becomes[String(i + 1)] = `⏭ ${resolved.autoOverlap}`; return; }
       becomes[String(i + 1)] = [
         `${plainField(row.title, 80) ?? ""} — ${moneyText(row.amount, row.currency, args.lang)}`,
         row.date ?? row.month,
@@ -348,7 +393,7 @@ const executor: AssistantActionExecutor<BatchArgs> = {
     });
     const usd = args.items.some(row => row.currency === "USD");
     return {
-      title: `${labels.check(args.items.length)}, ${labels.total} ${moneyText(fromCents(totalCents), "TJS", args.lang)}`,
+      title: `${labels.check(written)}, ${labels.total} ${moneyText(fromCents(totalCents), "TJS", args.lang)}`,
       was: {},
       becomes,
       ...(usd ? { risk: `${labels.rate}: 1 $ = ${money.usdToTjs} с.` } : {}),
@@ -361,27 +406,32 @@ const executor: AssistantActionExecutor<BatchArgs> = {
     if (existing.length) throw duplicateError(existing);
     const rows = await resolveRows(args, tx);
     if (rows.some(row => row.problem)) throw new AssistantActionError(409, "STALE", "Данные изменились, проверьте ещё раз");
+    if (rows.every(row => row.autoOverlap)) throw allOverlapError(rows);
     const agent = await tx.agent.findUnique({ where: { id: actor.agentId }, select: { fullName: true } });
     // Тот же курс, что показан в карточке и что запишется в exchangeRate (lib/expenseCommands.ts).
     const money = await rateContextFor(args, tx);
     const keys = rowRequestKeys(args, actor.agentId);
     const ids: string[] = [];
+    const skipped: number[] = [];
+    const overlapCache = newOverlapCache();
     const audits: { action: string; entityType: string; entityId: string; agentId: string; agentName: string; meta: Prisma.InputJsonValue }[] = [];
     for (const [i, row] of rows.entries()) {
-      const { expense, month } = await createExpense(row.body, { agentId: actor.agentId, requestKey: keys[i]!, db: tx, money }).catch(asActionError);
+      // Уже учтено автоматически — карточка показала «⏭ не запишу», строка пропускается.
+      if (row.autoOverlap) { skipped.push(i); continue; }
+      const { expense, month } = await createExpense(row.body, { agentId: actor.agentId, requestKey: keys[i]!, db: tx, money, overlapCache }).catch(asActionError);
       ids.push(expense.id);
       audits.push(expenseCreateAudit(args, i, row, expense, month, actor, actionId, agent?.fullName ?? "Неизвестно"));
     }
     // След каждой строки, как у POST /expenses, — одной вставкой на пачку.
     await tx.auditLog.createMany({ data: audits });
-    return { result: { expenseIds: ids, count: ids.length }, audit: { entityType: "Expense", entityId: ids[0] ?? null } };
+    return { result: { expenseIds: ids, count: ids.length, skipped }, audit: { entityType: "Expense", entityId: ids[0] ?? null } };
   },
   transactionalUndo: {
     matches: (result) => Array.isArray((result as { expenseIds?: unknown } | null)?.expenseIds),
     async execute(args, actor, { tx, result, assertSnapshot }) {
       await assertFinanceWriter(actor, tx);
       await lockSources(args, actor.agentId, tx);
-      assertSnapshot({ existing: recordedState(await existingBatch(args, actor.agentId, tx)), rows: (await resolveRows(args, tx)).map(row => row.body) });
+      assertSnapshot({ existing: recordedState(await existingBatch(args, actor.agentId, tx)), rows: snapshotRows(await resolveRows(args, tx), (result as { skipped?: number[] }).skipped ?? []) });
       const ids = (result as { expenseIds: string[] }).expenseIds;
       // Откат = в корзину, как «Удалить» на экране: запись остаётся в архиве.
       await tx.expense.updateMany({ where: { id: { in: ids }, deletedAt: null }, data: { deletedAt: new Date(), version: { increment: 1 } } });
@@ -427,7 +477,10 @@ export const addExpensesPlugin: AssistantWriteToolPlugin = {
     "category: ADVERTISING (реклама, нужен source), SALARY (зарплата, нужен agentName), " +
     "OFFICE (аренда, интернет, связь, канцтовары, коммуналка), OTHER (остальное: бензин, такси, еда). " +
     "categoryTitle — только если человек назвал подраздел из справочника. lang — язык человека (ru, tg, uz, en). " +
-    "Сумм и строк не придумывай: чего не сказали — спроси. После вызова ответь одной фразой: проверьте и нажмите «Записать».",
+    "Сумм и строк не придумывай: чего не сказали — спроси. После вызова ответь одной фразой: проверьте и нажмите «Записать». " +
+    "Рекламу Meta (таргет Instagram/Facebook), расход на ИИ и долю агентов по сделкам CRM считает САМА: если ответ говорит, " +
+    "что расход уже учтён автоматически, перескажи человеку сумму и месяц и спроси, другой ли это платёж; только если человек " +
+    "подтвердил, что другой, вызови инструмент ещё раз ТОЛЬКО с этими строками и confirmAutoOverlap: true у каждой (остальные уже записаны).",
   parameters: {
     type: "object",
     properties: {
@@ -449,6 +502,7 @@ export const addExpensesPlugin: AssistantWriteToolPlugin = {
             status: { type: "string", enum: ["PAID", "PLANNED"], description: "PLANNED — ещё не оплачено" },
             source: { type: "string", enum: [...CLIENT_SOURCES], description: "Канал рекламы для ADVERTISING" },
             agentName: { type: "string", description: "Сотрудник для SALARY" },
+            confirmAutoOverlap: { type: "boolean", description: "Только если человек подтвердил: это другой расход, не учтённый автоматически" },
           },
           required: ["title", "amount"],
         },

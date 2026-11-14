@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Trash2, Receipt, CheckCircle2, ClipboardList, BarChart3 } from "lucide-react";
 import { useCan } from "../lib/permissions";
-import { useExpenseArchive, useRestoreExpense } from "../hooks/useFinance";
+import { autoOverlapMessage, useExpenseArchive, useRestoreExpense } from "../hooks/useFinance";
 import {
   useProperties,
   usePropertyTrash,
@@ -1033,7 +1033,15 @@ export function Archive() {
                         className="pill ghost sm"
                         type="button"
                         disabled={restoreExpense.isPending}
-                        onClick={() => restoreExpense.mutate(e.id)}
+                        onClick={() => restoreExpense.mutate(e.id, {
+                          // Пока строка лежала в корзине, CRM начала считать этот расход сама — спросить.
+                          onError: (err) => {
+                            const text = autoOverlapMessage(err);
+                            if (text && window.confirm(`${text}
+
+Всё равно вернуть?`)) restoreExpense.mutate({ id: e.id, confirmAutoOverlap: true });
+                          },
+                        })}
                       >
                         Восстановить
                       </button>
