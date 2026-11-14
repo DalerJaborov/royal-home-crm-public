@@ -22,7 +22,7 @@ const CHECK_EVERY_MS = 10 * 60_000;
 let lastCheckAt = 0;
 
 /**
- * Reasons that mean "switched off on purpose" (Tajik in v1, non-private surfaces), not "the model got it wrong". They stay out of the drop share and the
+ * Reasons that mean "switched off on purpose" (Tajik switched off on the «Бот» screen since 14.11.2026, non-private surfaces), not "the model got it wrong". They stay out of the drop share and the
  * alert: on 13.11.2026 the line read «отброшена в 83% ответов» while 38 of the 58 drops were the Tajik phrase that v1 drops by design.
  */
 const INTENTIONAL: readonly CustomerAgentSayDropReason[] = ["language_disabled", "surface_disabled"];

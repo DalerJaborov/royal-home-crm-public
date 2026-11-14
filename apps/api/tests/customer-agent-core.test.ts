@@ -797,13 +797,14 @@ describe("grounded free phrase (say): lifted before the strict parse, shadow by 
   it("shadow (the default): a valid phrase is counted as dropped with the code shadow and never sent", async () => {
     const { result, f } = await run({ social: "acknowledge", say: GOOD });
     expect(result.text).toBe(`Понял.\n${PRICE}`);
-    expect(result.say).toEqual({ status: "dropped", reason: "shadow" });
+    // The held-back phrase rides along for the trace sample only (masked there), never into the text or the decision.
+    expect(result.say).toEqual({ status: "dropped", reason: "shadow", sample: GOOD });
     expect(result.decision).not.toHaveProperty("say");
     expect(f.modelTurn).toHaveBeenCalledTimes(1);
   });
   it("shadow explicitly set behaves the same", async () => {
     const { result } = await run({ say: GOOD }, { sayMode: "shadow" });
-    expect(result.text).toBe(PRICE); expect(result.say).toEqual({ status: "dropped", reason: "shadow" });
+    expect(result.text).toBe(PRICE); expect(result.say).toEqual({ status: "dropped", reason: "shadow", sample: GOOD });
   });
   it("live: the phrase replaces «Понял.», and only the validated text reaches the decision", async () => {
     const { result } = await run({ social: "acknowledge", say: `  ${GOOD}  ` }, { sayMode: "live" });
@@ -826,12 +827,20 @@ describe("grounded free phrase (say): lifted before the strict parse, shadow by 
     expect(f.modelTurn).toHaveBeenCalledTimes(1);
   });
   it("reports the validator's reason code", async () => {
-    expect((await run({ say: "Это стоит пять тысяч." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "number_or_date" });
-    expect((await run({ say: "Мы вам позвоним." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "promise" });
+    expect((await run({ say: "Это стоит пять тысяч." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "number_or_date", sample: "Это стоит пять тысяч." });
+    expect((await run({ say: "Мы вам позвоним." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "promise", sample: "Мы вам позвоним." });
   });
-  it("Tajik is off in v1: language_disabled, and the Tajik template answer goes out as before", async () => {
-    const { result } = await run({ say: "Ташаккур, ки навиштед." }, { sayMode: "live", language: "tg", inputText: "Нархи объекти 123 чанд?" });
-    expect(result.say).toEqual({ status: "dropped", reason: "language_disabled" });
+  it("Tajik is on by default (14.11.2026): a valid Tajik phrase goes out in live mode and the delivery re-render reproduces it", async () => {
+    const { result, f } = await run({ say: "Ташаккур, ки навиштед." }, { sayMode: "live", language: "tg", inputText: "Нархи объекти 123 чанд?" });
+    expect(result.say).toEqual({ status: "used" });
+    expect(result.text.split("\n")[0]).toBe("Ташаккур, ки навиштед.");
+    const { renderCustomerAgentDecision } = await import("../src/ai/customerAgentRenderer.js");
+    expect(renderCustomerAgentDecision({ decision: result.decision, evidence: result.evidence, language: "tg", requestedFacts: f.frame.requestedFacts,
+      knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", inputText: f.frame.inputText })).toBe(result.text);
+  });
+  it("Tajik switched off on the «Бот» screen: language_disabled, and the Tajik template answer goes out as before", async () => {
+    const { result } = await run({ say: "Ташаккур, ки навиштед." }, { sayMode: "live", language: "tg", inputText: "Нархи объекти 123 чанд?", sayLanguages: ["ru"] });
+    expect(result.say).toEqual({ status: "dropped", reason: "language_disabled", sample: "Ташаккур, ки навиштед." });
     expect(result.text).not.toContain("Ташаккур, ки навиштед");
   });
   it("public comments never carry a phrase", async () => {
@@ -877,12 +886,15 @@ describe("grounded free phrase (say): lifted before the strict parse, shadow by 
     await runCustomerAgentTurn(publicTurn.frame, publicTurn.ports);
     expect(modelText(publicTurn)).not.toContain("sayGuidance");
   });
-  it("does not ask for a say phrase while its reply language is switched off: Tajik gets no sayGuidance, Russian does", async () => {
+  it("does not ask for a say phrase while its reply language is switched off: switched-off Tajik gets no sayGuidance, Russian and default Tajik do", async () => {
     const dmContext = { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } as const;
-    const tajik = fixture({ language: "tg", verifiedContext: dmContext });
+    const tajik = fixture({ language: "tg", verifiedContext: dmContext, sayLanguages: ["ru"] });
     await runCustomerAgentTurn(tajik.frame, tajik.ports);
     expect(modelText(tajik)).toContain('"replyLanguage":"tg"');
     expect(modelText(tajik)).not.toContain("sayGuidance");
+    const tajikOn = fixture({ language: "tg", verifiedContext: dmContext });
+    await runCustomerAgentTurn(tajikOn.frame, tajikOn.ports);
+    expect(modelText(tajikOn)).toContain("sayGuidance");
     const russian = fixture({ language: "ru", verifiedContext: dmContext });
     await runCustomerAgentTurn(russian.frame, russian.ports);
     expect(modelText(russian)).toContain("sayGuidance");

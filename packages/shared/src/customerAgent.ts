@@ -28,9 +28,9 @@ const refs = z.array(evidenceRef).max(8).refine(values => new Set(values).size =
  * parse (a bad `say` must never void the decision) and re-attaches it only after the server validator accepted it in live mode. */
 export const customerAgentSayTextSchema = z.string().min(2).max(200);
 const say = customerAgentSayTextSchema.optional();
-/** Why a model `say` did not reach the customer: the 14 validator verdicts plus `language_disabled` (tg is off in v1) and `shadow`
- * (valid, but the mode only counts it). One enum for the validator, the trace and the guard counters. */
-export const customerAgentSayDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "length", "question", "number_or_date", "contact", "promise",
+/** Why a model `say` did not reach the customer: the 15 validator verdicts plus `language_disabled` (the language is switched off on the «Бот» screen)
+ * and `shadow` (valid, but the mode only counts it). `informal` (14.11.2026): «ты»/«ту» instead of «вы»/«шумо». One enum for the validator, the trace and the guard counters. */
+export const customerAgentSayDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "length", "question", "informal", "number_or_date", "contact", "promise",
   "fact_claim", "place", "meta", "cliche", "language", "echo", "repeat", "double_greet", "shadow"]);
 export type CustomerAgentSayDropReason = z.infer<typeof customerAgentSayDropReasonSchema>;
 export const customerAgentSayStatusSchema = z.enum(["absent", "used", "dropped"]);

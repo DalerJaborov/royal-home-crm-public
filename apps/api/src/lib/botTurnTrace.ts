@@ -211,18 +211,26 @@ function stopCode(raw: unknown): { stopCode: string } | Record<string, never> {
   const parsed = traceCustomerCoreStopCodeSchema.safeParse(raw);
   return parsed.success ? { stopCode: parsed.data } : {};
 }
+/** A free phrase that did not reach the customer, as a sample: digits masked to «#» (no phone or price survives), then links, e-mails and
+ * handles redacted, 200 chars at most. */
+function saySample(raw: unknown): { saySample: string } | Record<string, never> {
+  if (typeof raw !== "string") return {};
+  const text = sanitizeTraceText(raw.replace(/\p{Nd}/gu, "#")).text.replace(/\s+/gu, " ").trim().slice(0, 200);
+  return text ? { saySample: text } : {};
+}
 /** The root coordinator supplies the actual validated Core result, never a
  * model/HTTP route JSON. Strict projection below still drops all text/args/IDs. */
 export function traceCustomerCoreResult(result: { status: "ready" | "held"; decision?: { kind: unknown };
   rounds: number; toolCalls: number; evidence: readonly { value: { kind: string; outcome?: unknown } }[]; reason?: unknown; cause?: string;
   rejectedDecisionKind?: unknown; skipReason?: unknown;
   fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string;
-  /** Verdict of the model's free phrase; the phrase itself never reaches the trace. */
-  say?: { status: "absent" | "used" | "dropped"; reason?: string } }): void {
+  /** Verdict of the model's free phrase. A phrase that reached the customer never enters the trace (the outbox has it); one that did NOT
+   * (dropped, or valid but held back by the shadow mode) is kept as a redacted sample, so drop reasons can be checked on real phrases (14.11.2026). */
+  say?: { status: "absent" | "used" | "dropped"; reason?: string; sample?: string } }): void {
   observe(ctx => {
     if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning") return;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ status: result.status,
-      ...(result.say ? { sayStatus: result.say.status, ...(result.say.status === "dropped" ? { sayDropReason: result.say.reason } : {}) } : {}),
+      ...(result.say ? { sayStatus: result.say.status, ...(result.say.status === "dropped" ? { sayDropReason: result.say.reason, ...saySample(result.say.sample) } : {}) } : {}),
       ...(result.status === "ready" && result.decision ? { decisionKind: result.decision.kind } : {}),
       rounds: result.rounds, toolCalls: result.toolCalls,
       receiptOutcomes: [...new Set(result.evidence.filter(e => e.value.kind === "receipt").map(e => e.value.outcome))],

@@ -3,7 +3,7 @@ import { hasNewerCustomerInboxInput, NEWER_INPUT_PENDING } from "./customerNewer
 import { loadDeferredCustomerInput } from "./customerDeferredInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn, safeCauseCode } from "../ai/customerAgentCore.js";
-import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
+import { customerAgentSayLanguages, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { recordCustomerAgentSay } from "./customerAgentSayStats.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
@@ -396,7 +396,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       // В режиме «только заявки» подборки нет вовсе: инструмент не предлагается модели (первый слой запрета).
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS.filter(name => !leadOnly.enabled || name !== "search_public_properties"),
         ...mutations.availableToolNames]),
-      verifiedContext: remembered.context, sayMode: customerAgentSayMode(),
+      verifiedContext: remembered.context, sayMode: customerAgentSayMode(), sayLanguages: await customerAgentSayLanguages(),
     }, {
       assertCurrent: async (evidence, wait) => { accumulated = evidence; return current(wait); },
       modelTurn: async input => {

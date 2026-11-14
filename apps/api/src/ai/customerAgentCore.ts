@@ -45,6 +45,8 @@ export interface CustomerCoreFrame {
   readonly publicationCardCount?: number;
   /** Grounded free-phrase channel. `shadow` (the default) validates and counts the model's `say` but never lets it reach the customer; `live` must be set explicitly. */
   readonly sayMode?: CustomerAgentSayMode;
+  /** Languages the company allows the free phrase in («Бот» screen, lib/customerAgentFeaturePolicy.ts); absent — every language the validator checks. */
+  readonly sayLanguages?: readonly ("ru" | "tg")[];
   /** Server reads run before the first model round (DM, never a job inquiry); e.g. "cheaper than the object in focus". */
   readonly preReads?: readonly CustomerAgentToolCall[];
   /** A bare "yes" after the bot's own clarifying question: the server re-asks, the model is not consulted. */
@@ -67,8 +69,9 @@ export interface CustomerCorePorts {
    * Must not send, reopen the turn, execute again or infer a new grant. */
   observeLateToolResult(input: CustomerUnknownToolCall & { result: CustomerAgentToolResult }): void;
 }
-/** What became of the model's free phrase. The text is never part of this: only the verdict reaches the trace and the counters. */
-export type CustomerCoreSay = { status: "absent" } | { status: "used" } | { status: "dropped"; reason: CustomerAgentSayDropReason };
+/** What became of the model's free phrase. The counters read only the verdict; a phrase that did not reach the customer also carries its raw text
+ * (`sample`) for the trace, which masks digits and contacts before storing it (lib/botTurnTrace.ts). */
+export type CustomerCoreSay = { status: "absent" } | { status: "used" } | { status: "dropped"; reason: CustomerAgentSayDropReason; sample?: string };
 export type CustomerCoreResult =
   | { status: "ready"; decision: CustomerAgentDecision; question: CustomerAgentRenderedQuestion; text: string; evidence: readonly CustomerAgentEvidence[]; rounds: number; toolCalls: number;
       say?: CustomerCoreSay;
@@ -84,9 +87,10 @@ export type CustomerCoreResult =
 function clone<T>(value: T): T { return structuredClone(value); }
 /** Splits the optional `say` off a raw model decision object. Anything that is not a plain object is returned untouched for the strict parse to judge. */
 /** Per-turn server facts about the surface. The `say` rules ride here (private messages only), not in the pinned system prompt: see CUSTOMER_AGENT_SAY_GUIDANCE.
- *  They are left out while the reply language is switched off for `say` (Tajik in v1): the validator would drop the phrase anyway, so asking for it only spends output tokens. */
-function surfaceBlock(surface: CustomerAgentSurface, replyLanguage: "ru" | "tg") {
-  return { surface, replyLanguage, ...(surface === "dm" && SAY_ENABLED_LANGUAGES.includes(replyLanguage) ? { sayGuidance: CUSTOMER_AGENT_SAY_GUIDANCE } : {}) };
+ *  They are left out while the reply language is switched off for `say` (Tajik switched off on the «Бот» screen): the validator would drop the phrase anyway,
+ *  so asking for it only spends output tokens. */
+function surfaceBlock(surface: CustomerAgentSurface, replyLanguage: "ru" | "tg", sayLanguages: readonly ("ru" | "tg")[]) {
+  return { surface, replyLanguage, ...(surface === "dm" && sayLanguages.includes(replyLanguage) ? { sayGuidance: CUSTOMER_AGENT_SAY_GUIDANCE } : {}) };
 }
 function liftSay(raw: unknown): { say: unknown; rest: unknown } {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw) || !("say" in raw)) return { say: undefined, rest: raw };
@@ -203,7 +207,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     ...(frame.publicationCardCount === undefined ? [] : [{ text: JSON.stringify({ serverPublication: {
       catalogCardCount: frame.publicationCardCount, readTool: "get_property_facts", source: "current_post" } }) }]),
     // Without a verified context the surface block does not exist, so the reply language (for the `say` phrase) rides in the current message.
-    ...(context ? [] : [{ text: JSON.stringify({ serverSurface: surfaceBlock(frame.surface, frame.language) }) }])];
+    ...(context ? [] : [{ text: JSON.stringify({ serverSurface: surfaceBlock(frame.surface, frame.language, frame.sayLanguages ?? SAY_ENABLED_LANGUAGES) }) }])];
   // These counters project existing caps; they do not create or extend budgets.
   let rounds = 0, toolCalls = 0, budgetCalls = 0, corrected = false, suppressionDecisionSeen = false;
   const serverTurnBudget = () => {
@@ -213,7 +217,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
   const contents: CustomerAgentContent[] = context ? [
     { role: "user", parts: [{ text: JSON.stringify({ serverPublicState: context.publicState,
       // The system prompt (and its hash) is one constant for every surface; the per-surface decision set travels here.
-      serverSurface: { ...surfaceBlock(frame.surface, frame.language), allowedDecisionKinds: decisionKindsFor(frame.surface) },
+      serverSurface: { ...surfaceBlock(frame.surface, frame.language, frame.sayLanguages ?? SAY_ENABLED_LANGUAGES), allowedDecisionKinds: decisionKindsFor(frame.surface) },
       serverTurnBudget: serverTurnBudget(),
       ...(frame.surface === "dm" && original.approvedFileState !== undefined ? { serverApprovedFileState: approvedFileState } : {}),
       ...(context.intake ? { conversationIntakeProgress: context.intake,
@@ -611,9 +615,11 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       let say: CustomerCoreSay = { status: "absent" }, planned: CustomerAgentDecision = d;
       if (modelSay !== undefined && (d.kind === "reply" || d.kind === "clarify" || d.kind === "propose")) {
         const verdict = validateCustomerAgentSayForDecision({ say: modelSay, decision: d, evidence, language: frame.language, surface: frame.surface,
-          inputText: frame.inputText, verifiedContext: context ?? undefined });
-        if (!verdict.ok) say = { status: "dropped", reason: verdict.reason };
-        else if ((frame.sayMode ?? "shadow") !== "live") say = { status: "dropped", reason: "shadow" };
+          inputText: frame.inputText, verifiedContext: context ?? undefined, enabledLanguages: frame.sayLanguages });
+        // The raw phrase rides along only for the trace sample (masked there); public surfaces never keep one.
+        const sample = typeof modelSay === "string" && frame.surface === "dm" ? { sample: modelSay.slice(0, 400) } : {};
+        if (!verdict.ok) say = { status: "dropped", reason: verdict.reason, ...sample };
+        else if ((frame.sayMode ?? "shadow") !== "live") say = { status: "dropped", reason: "shadow", ...sample };
         else { say = { status: "used" }; planned = { ...d, say: verdict.text }; }
       }
       const text = renderDecision(planned);
