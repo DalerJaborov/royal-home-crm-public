@@ -7686,6 +7686,10 @@ model Settings {
   /// сейчас»: иначе выключатель означал бы «не присылать пуш», а не «не собирать».
   problemReportWeeklyEnabled   Boolean  @default(true)
   problemReportMonthlyEnabled  Boolean  @default(true)
+  /// PDF финансового отчёта за прошлый месяц директорам в Telegram, 1-го числа (14.11.2026).
+  /// Выключено по умолчанию; LastSent — месяц «ГГГГ-ММ», уже разосланный (защита от повтора).
+  financePdfMonthlyEnabled     Boolean  @default(false)
+  financePdfMonthlyLastSent    String?
 
   /// ПОДСКАЗКА АГЕНТУ ПЕРЕД СОЕДИНЕНИЕМ (идея владельца 20.08.2026: «агент ответил на
   /// звонок, но даже не знает, с кем общается»). Станция играет агенту в ухо короткую

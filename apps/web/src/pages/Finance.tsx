@@ -32,6 +32,7 @@ import { MoneyTabs } from "../components/SectionTabs";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { financeWorkspace, financeWorkspaceSearch, type FinanceWorkspace } from "../lib/financeWorkspace";
 import { ClaudeMoneyPage } from "../components/finance/ClaudeMoneyPage";
+import { ReportPdfActions } from "../components/ReportPdfActions";
 
 /**
  * ФИНАНСЫ — экран /finance темы «Royal Home 2026», перенесённый из прототипа
@@ -215,7 +216,7 @@ function FinanceScreen() {
   // и нужны на обеих ширинах.
   const mhHeaderShown = mobile && !clean && current !== undefined;
 
-  if (clean) return <FinanceFrame clean><ClaudeMoneyPage month={month} onMonthChange={setSelectedMonth} workspace={workspace} onWorkspaceChange={setWorkspace} canManage={canManage} archiveAllowed={can("archive.view")} onExport={exportCsv} exporting={exporting} exportError={exportError} overview={<>
+  if (clean) return <FinanceFrame clean><ClaudeMoneyPage month={month} onMonthChange={setSelectedMonth} workspace={workspace} onWorkspaceChange={setWorkspace} canManage={canManage} archiveAllowed={can("archive.view")} onExport={exportCsv} exporting={exporting} exportError={exportError} pdfMonths={rangeMonths} overview={<>
     {error ? <CleanLoadError title="Финансовая сводка" retry={refetch} /> : isLoading ? <p className="cef-muted" role="status">Загружаем финансовую сводку…</p> : <>
       <div className="cef-overview-period"><label>Графики за<select value={rangeMonths} onChange={(event) => setRangeMonths(Number(event.target.value))}>{RANGE_OPTIONS.map((option) => <option key={option.months} value={option.months}>{option.label}</option>)}</select></label></div>
       {current ? <div className="cef-summary-grid">
@@ -298,6 +299,7 @@ function FinanceScreen() {
             >
               {exporting ? "Готовим файл…" : "Скачать CSV"}
             </button>
+            <ReportPdfActions kind="finance" params={{ month, months: rangeMonths }} layout="contents" />
             {can("archive.view") && (
               <Link className="pill ghost" to="/archive">
                 Архив

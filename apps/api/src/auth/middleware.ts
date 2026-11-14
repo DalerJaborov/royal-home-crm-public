@@ -114,6 +114,10 @@ const READ_ONLY_EXEMPT_WRITES = new Set([
   // собственных сессий. Это не данные компании (решение 10.10.2026).
   "PUT /api/v1/me/preferences",
   "POST /api/v1/me/avatar",
+  // PDF-отчёт себе в Telegram (14.11.2026): данные не меняются, файл уходит только в
+  // свой чат сотрудника, а право на сам отчёт проверяет маршрут.
+  "POST /api/v1/report-pdf/finance/telegram",
+  "POST /api/v1/report-pdf/team/telegram",
 ]);
 /** DELETE /api/v1/me/sessions/:id — тоже своё (завершить свою сессию на другом устройстве). */
 const READ_ONLY_EXEMPT_PREFIXES: ReadonlyArray<readonly [string, string]> = [["DELETE", "/api/v1/me/sessions/"]];

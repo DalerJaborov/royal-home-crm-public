@@ -3058,6 +3058,24 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" }
   );
 
+  /** Финансовый PDF за прошлый месяц директорам в Telegram (14.11.2026). Выключен по
+   *  умолчанию тумблером в Настройках. 1–3 числа в 09:10: если 1-го файл не собрался,
+   *  следующий день повторит; уже разосланный месяц второй раз не уходит. */
+  scheduleTracked(
+    "finance-pdf-monthly",
+    "10 9 1-3 * *",
+    async () => {
+      try {
+        const { sendMonthlyFinancePdf } = await import("./lib/reportPdf/monthlyFinance.js");
+        const result = await sendMonthlyFinancePdf();
+        if (result.status === "sent") console.log(`[cron] Финансовый PDF за ${result.month}: доставлено ${result.delivered}, не доставлено ${result.failed}`);
+      } catch (err) {
+        reportCronTickError("Финансовый PDF за месяц не разослан", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
   /** Курс USD→TJS с alif.tj — раз в сутки, ночью по Душанбе. Правится и вручную в
    *  Настройках в любой момент; этот job лишь освежает его официальным значением,
    *  если директор сам не переопределил (следующий automatic-тик всё равно перезапишет
