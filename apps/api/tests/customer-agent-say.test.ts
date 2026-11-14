@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { CUSTOMER_AGENT_SYSTEM } from "../src/ai/customerAgentPrompt.js";
 import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
-import { validateCustomerAgentSay, validateCustomerAgentSayForDecision, normalizeSayText, SAY_ENABLED_LANGUAGES, CUSTOMER_AGENT_SAY_EXAMPLES, CUSTOMER_AGENT_SAY_GUIDANCE,
+import { validateCustomerAgentSay, validateCustomerAgentSayForDecision, normalizeSayText, SAY_ENABLED_LANGUAGES, CUSTOMER_AGENT_SAY_EXAMPLES, CUSTOMER_AGENT_SAY_GUIDANCE, SAY_ASKING_WORDS_RU,
   type CustomerAgentSayInput } from "../src/ai/customerAgentSay.js";
 import { summarizeCustomerAgentSayDay, reportCustomerAgentSayDay } from "../src/lib/customerAgentSayStats.js";
 import { customerAgentSayMode } from "../src/lib/customerAgentFeaturePolicy.js";
@@ -215,6 +215,15 @@ describe("model guidance", () => {
       for (const example of CUSTOMER_AGENT_SAY_EXAMPLES[language]) expect(CUSTOMER_AGENT_SAY_GUIDANCE).toContain(`"say":"${example}"`);
     }
   });
+  it("names the words the validator reads as a question, and every one of them really is dropped as a question", () => {
+    // 13.11.2026: 11 phrases a day were dropped as «question» although the model was only told «no questions». The word list in the guidance must never drift from ASKING.
+    // The list is cut out of the guidance and compared EXACTLY (a substring check would pass «скажите» inside «подскажите»).
+    const listed = /без слов (.+?) — сервер отбрасывает/u.exec(CUSTOMER_AGENT_SAY_GUIDANCE)?.[1]?.split(", ");
+    expect(listed).toEqual(["как (и любых на «как»: какой", "какая", "каким)", ...SAY_ASKING_WORDS_RU, "не подскажете"]);
+    for (const word of [...SAY_ASKING_WORDS_RU, "как", "какой", "какая", "каким", "не подскажете"]) expect(reason(`Понял, ${word} это важно.`)).toBe("question");
+    expect(reason("Понял, как это важно для семьи.")).toBe("question");
+    expect(reason("Понял, какая квартира вам нужна.")).toBe("question");
+  });
   it("does not touch the pinned system prompt: its hash cannot ride the ordinary revision advance if it changes", () => {
     expect(CUSTOMER_AGENT_SYSTEM).not.toContain("replyLanguage");
     // The current prompt is the latest separately approved pinned edge; `say` guidance rides in per-turn server facts.
@@ -240,6 +249,15 @@ describe("mode and daily statistics", () => {
     expect(summarizeCustomerAgentSayDay([{ guard: "say_dropped_shadow", count: 99 }, { guard: "say_dropped_contact", count: 1 }]).alert).toBe(true);
     expect(summarizeCustomerAgentSayDay([]).alert).toBe(false);
   });
+  it("does not count a phrase switched off on purpose (Tajik in v1, non-private surfaces) as a drop or as a reason for the alert", () => {
+    const tajikOnly = summarizeCustomerAgentSayDay([{ guard: "say_dropped_language_disabled", count: 40 }, { guard: "say_used", count: 10 }, { guard: "say_dropped_surface_disabled", count: 5 }]);
+    expect(tajikOnly).toMatchObject({ total: 10, dropped: 0, share: 0, alert: false, intentional: 45, reasons: [] });
+    // The real day of 13.11.2026: 12 used, 58 dropped, of which 38 were the switched-off Tajik phrase. The honest rate is 18 of 30, and it still alerts.
+    const real = summarizeCustomerAgentSayDay([{ guard: "say_used", count: 12 }, { guard: "say_dropped_language_disabled", count: 38 }, { guard: "say_dropped_question", count: 11 },
+      { guard: "say_dropped_language", count: 3 }, { guard: "say_dropped_contact", count: 3 }, { guard: "say_dropped_cliche", count: 1 }]);
+    expect(real).toMatchObject({ total: 30, dropped: 18, share: 0.6, alert: true, intentional: 38 });
+    expect(real.reasons.map(item => item.reason)).not.toContain("language_disabled");
+  });
   it("writes one owner log line per day with the reasons, keyed by the day", async () => {
     vi.mocked(logSystemError).mockClear();
     guardRows.rows = [{ guard: "say_dropped_promise", count: 3 }, { guard: "say_used", count: 5 }, { guard: "say_dropped_contact", count: 1 }];
@@ -250,6 +268,21 @@ describe("mode and daily statistics", () => {
     expect(message).toContain("44%"); expect(message).toContain("promise 3"); expect(message).toContain("contact 1");
     expect(context).toEqual({ dedupKey: "customer-agent-say:2026-10-24" });
     expect(String(message)).not.toMatch(/Понял|Спасибо/);
+  });
+  it("tells the owner how many phrases were switched off on purpose, beside (not inside) the percentage", async () => {
+    vi.mocked(logSystemError).mockClear();
+    guardRows.rows = [{ guard: "say_used", count: 2 }, { guard: "say_dropped_question", count: 3 }, { guard: "say_dropped_language_disabled", count: 38 }];
+    await reportCustomerAgentSayDay(new Date("2026-10-24T10:00:00Z"));
+    const [, message] = vi.mocked(logSystemError).mock.calls[0]!;
+    expect(message).toContain("60%"); expect(message).toContain("3 из 5"); expect(message).toContain("question 3");
+    expect(message).toContain("выключено намеренно"); expect(message).toContain(": 38");
+    expect(String(message)).not.toContain("language_disabled");
+  });
+  it("stays silent when only the switched-off Tajik phrase was dropped", async () => {
+    vi.mocked(logSystemError).mockClear();
+    guardRows.rows = [{ guard: "say_used", count: 9 }, { guard: "say_dropped_language_disabled", count: 60 }];
+    await reportCustomerAgentSayDay(new Date("2026-10-24T10:00:00Z"));
+    expect(logSystemError).not.toHaveBeenCalled();
   });
   it("stays silent when nothing needs the owner", async () => {
     vi.mocked(logSystemError).mockClear();
