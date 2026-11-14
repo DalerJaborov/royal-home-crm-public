@@ -7,7 +7,8 @@ import { prisma } from "./db.js";
 import { logSystemError } from "./lib/systemError.js";
 import { createNotification, createNotifications } from "./lib/notifications.js";
 import type { SystemErrorSource } from "./lib/systemError.js";
-import { quietDecision, quietHoursEndAfter } from "./lib/pushQuietHours.js";
+import { isQuietHour, quietDecision, quietHoursDisabledByEnv, quietHoursEndAfter } from "./lib/pushQuietHours.js";
+import { isWithinWorkingHours } from "./lib/workingHours.js";
 import { enqueueBackgroundJob } from "./jobs/enqueue.js";
 import { publishNotificationNew } from "./lib/livePublish.js";
 import { maskPhonesInText } from "./lib/clientPhone.js";
@@ -226,8 +227,11 @@ async function deliverBodyToSubscriptions(subs: PushSubscriptionRow[], body: str
  * быстрее события»): `sendPushToAgents` сам пишет в ленту второй раз, без
  * ожидания, поверх уже сделанной вызывающим кодом записи.
  */
-export async function handledByQuietHours(agentIds: string[], payload: PushPayload): Promise<boolean> {
-  const decision = quietDecision(payload);
+export async function handledByQuietHours(agentIds: string[], payload: PushPayload, now: Date = new Date()): Promise<boolean> {
+  // Часы раздачи спрашиваем у базы только ночью: днём ответ не нужен (см.
+  // quietDecision, «рабочий день сильнее тишины», 14.11.2026).
+  const workdayOpen = !quietHoursDisabledByEnv() && isQuietHour(now) ? await isWithinWorkingHours(now) : false;
+  const decision = quietDecision(payload, now, workdayOpen);
   if (decision === "send") return false;
   if (decision === "drop") return true;
   // Постановка best-effort, как и у остальных заданий: сбой очереди не имеет
@@ -238,7 +242,7 @@ export async function handledByQuietHours(agentIds: string[], payload: PushPaylo
     type: "deferred-push",
     payload: queued,
     maxAttempts: 3,
-    runAt: quietHoursEndAfter(),
+    runAt: quietHoursEndAfter(now),
     // Одна тема — одно утреннее уведомление: за ночь один и тот же tag может
     // прийти десятки раз (клиент пишет подряд), и без ключа в 08:00 человек
     // получил бы стопку. Повторы схлопываются в одно задание.
@@ -330,6 +334,22 @@ export async function sendPushToAgent(agentId: string, payload: PushPayload): Pr
  * растёт произведением, а не суммой.
  */
 export async function sendPushToAgents(agentIds: string[], payload: PushPayload): Promise<number> {
+  return sendPushToAgentsMasked(agentIds, payload, true);
+}
+
+/**
+ * ТОЛЬКО ЗВОНОК ТЕЛЕФОНА — запись в колокольчике уже сделана раньше (14.11.2026).
+ * Очередь тревог руководству пишет колокольчик сразу, а пуш «к сведению» шлёт
+ * позже, в часы алармов (lib/directorAlertQueue.ts). Повторная запись в ленту
+ * через sendPushToAgents подняла бы уже прочитанную строку обратно в
+ * непрочитанные и прибавила бы ей «повтор», которого не было. Всё остальное —
+ * отбор получателей, телефон клиента по праву, тихие часы — как у sendPushToAgents.
+ */
+export async function sendDevicePushToAgents(agentIds: string[], payload: PushPayload): Promise<number> {
+  return sendPushToAgentsMasked(agentIds, payload, false);
+}
+
+async function sendPushToAgentsMasked(agentIds: string[], payload: PushPayload, feed: boolean): Promise<number> {
   agentIds = await filterInvestigationRecipients(agentIds, payload);
   if (agentIds.length === 0) return 0;
   // Телефон клиента — по получателю (см. maskPayloadPhones выше): один и тот же
@@ -338,30 +358,32 @@ export async function sendPushToAgents(agentIds: string[], payload: PushPayload)
   const { granted, denied } = await partitionByPermission(agentIds, "clients.viewPhone");
   if (granted.length > 0 && denied.length > 0) {
     const [a, b] = await Promise.all([
-      sendPushToAgentsSameText(granted, payload),
-      sendPushToAgentsSameText(denied, maskPayloadPhones(payload)),
+      sendPushToAgentsSameText(granted, payload, feed),
+      sendPushToAgentsSameText(denied, maskPayloadPhones(payload), feed),
     ]);
     return a + b;
   }
-  return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload));
+  return sendPushToAgentsSameText(agentIds, granted.length > 0 ? payload : maskPayloadPhones(payload), feed);
 }
 
 /** Рассылка одного и того же текста — то, чем `sendPushToAgents` была до
  *  разделения получателей по праву на телефон. */
-async function sendPushToAgentsSameText(agentIds: string[], payload: PushPayload): Promise<number> {
+async function sendPushToAgentsSameText(agentIds: string[], payload: PushPayload, feed: boolean): Promise<number> {
   if (agentIds.length === 0) return 0;
-  // Та же лента, что и в sendPushToAgent выше — единой записью на всех агентов.
-  void createNotifications(agentIds, {
-    kind: payload.kind ?? "other",
-    // См. PushPayload.level: без этого второй проход по тому же tag понижает
-    // важность до умолчания и вымывает раздел «Срочное».
-    level: payload.level,
-    title: payload.title,
-    body: payload.body,
-    url: payload.url,
-    tag: payload.tag,
-  });
-  publishNotificationNew(agentIds);
+  if (feed) {
+    // Та же лента, что и в sendPushToAgent выше — единой записью на всех агентов.
+    void createNotifications(agentIds, {
+      kind: payload.kind ?? "other",
+      // См. PushPayload.level: без этого второй проход по тому же tag понижает
+      // важность до умолчания и вымывает раздел «Срочное».
+      level: payload.level,
+      title: payload.title,
+      body: payload.body,
+      url: payload.url,
+      tag: payload.tag,
+    });
+    publishNotificationNew(agentIds);
+  }
   if (await handledByQuietHours(agentIds, payload)) return 0;
   return deliverPushToAgents(agentIds, payload);
 }

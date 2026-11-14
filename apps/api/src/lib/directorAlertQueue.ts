@@ -7,7 +7,7 @@ import {
   type Role,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import { sendPushToAgents } from "../push.js";
+import { sendDevicePushToAgents, sendPushToAgents } from "../push.js";
 import { createNotifications } from "./notifications.js";
 import { isWithinAlarmHours } from "./workingHours.js";
 import { findAgentsWithPermission } from "./recipients.js";
@@ -45,7 +45,29 @@ interface EnqueueParams {
   /** Не слать этому агенту, даже если он входит в право/роли выше (например,
    *  директор не должен получить дубль о своём же новом устройстве). */
   excludeAgentId?: string;
+  /**
+   * СРОЧНОСТЬ ДОСТАВКИ (14.11.2026, аудит скрытых механизмов №1) — не то же, что
+   * `level`. `level` решает, в каком разделе колокольчика лежит запись; `severity`
+   * решает, КОГДА звонит телефон.
+   *
+   *   "critical" — пуш сразу, мимо часов алармов: ключ канала умер, щит остановил
+   *                бота, бот молчит, кончились минуты робота, сообщение на
+   *                автоответчике. Через час такая тревога бесполезна.
+   *   "info"     — по умолчанию: пуш ждёт часов алармов (Settings.alarmHoursStart/End).
+   *
+   * Колокольчик пишется сразу в ОБОИХ случаях. Ночные тихие часы пушей
+   * (lib/pushQuietHours.ts) действуют и на срочные: ночью — только колокольчик,
+   * звонок в начале утра (правило владельца 12.09 «ночью пуши запрещены всем»).
+   *
+   * Почему не выводится из `level: "CRITICAL"`: тем же уровнем помечены антифрод и
+   * сторож номеров в переписке, которые владелец 07.09 сам отправил в окно.
+   * Срочность — отдельное решение, и место ему — в вызывающем коде; список срочных
+   * сторожит tests/director-alert-urgent.test.ts.
+   */
+  severity?: DirectorAlertSeverity;
 }
+
+export type DirectorAlertSeverity = "critical" | "info";
 
 /** true — строка в очереди; false — не встала (ошибка уже в журнале). */
 export async function enqueueDirectorAlert(
@@ -65,6 +87,7 @@ export async function enqueueDirectorAlert(
         recipientPermission: params.recipientPermission ?? null,
         recipientRoles: params.recipientRoles ?? [],
         excludeAgentId: params.excludeAgentId ?? null,
+        urgent: params.severity === "critical",
       },
     });
     return true;
@@ -94,17 +117,25 @@ const FALLBACK_ROLES: Role[] = ["DIRECTOR", "ADMIN"];
 const FALLBACK_CACHE_KEY = "fallback:director-admin";
 
 /**
- * СБОРЩИК: разбирает очередь, только пока идут часы алармов
- * (Settings.alarmHoursStart/End) — накопленное ночью уходит одной пачкой,
- * как только окно откроется. Получателей ищем СЕЙЧАС, а не берём снапшот из
- * момента постановки в очередь — состав правообладателей/директоров мог
- * измениться за время ожидания.
+ * СБОРЩИК. Два шага на каждую строку (14.11.2026, аудит скрытых механизмов №1):
+ *
+ *   1. КОЛОКОЛЬЧИК — сразу, в любой час (`feedAt`). Раньше и запись в ленту ждала
+ *      часов алармов: тревога в 15:00 появлялась у директора назавтра в 09:50 —
+ *      115 из 415 тревог за 30 дней опоздали больше чем на 12 часов.
+ *   2. ЗВОНОК ТЕЛЕФОНА (`sentAt`) — срочная (`urgent`) сразу, остальные только в
+ *      часы алармов (Settings.alarmHoursStart/End): накопленное «к сведению»
+ *      уходит одной пачкой, как только окно откроется.
+ *
+ * Получателей ищем СЕЙЧАС, а не берём снапшот из момента постановки в очередь —
+ * состав правообладателей/директоров мог измениться за время ожидания.
+ * Возвращает число строк, по которым ушёл пуш.
  */
 export async function flushDirectorAlertQueue(now: Date = new Date()): Promise<number> {
-  if (!(await isWithinAlarmHours(now))) return 0;
+  const inWindow = await isWithinAlarmHours(now);
 
   const pending = await prisma.pendingDirectorAlert.findMany({
-    where: { sentAt: null },
+    // Вне окна — только то, что ещё есть сделать: срочный пуш или запись в колокольчик.
+    where: inWindow ? { sentAt: null } : { sentAt: null, OR: [{ urgent: true }, { feedAt: null }] },
     orderBy: { createdAt: "asc" },
     take: 200,
   });
@@ -184,6 +215,7 @@ export async function flushDirectorAlertQueue(now: Date = new Date()): Promise<n
         }
         continue;
       }
+      const pushNow = inWindow || item.urgent;
       if (recipients.length > 0) {
         // Лента (Notification.kind) принимает любую строку — исторически сюда
         // писали и то, что вообще не push-уведомление, а только запись в ленте
@@ -205,26 +237,43 @@ export async function flushDirectorAlertQueue(now: Date = new Date()): Promise<n
         // свой не передал) — тогда оба прохода бьют в один и тот же
         // (agentId, tag) и upsertByTag схлопывает их в одну строку.
         const tag = item.tag ?? `director-alert-${item.id}`;
-        await createNotifications(recipients, {
-          kind: item.kind ?? "oversight",
-          // Уровень пролежал в очереди вместе с алармом: разбор ночного
-          // накопления не имеет права понизить срочность до умолчания.
-          level: notificationLevelOf(item.kind, item.level),
-          title: item.title,
-          body: item.body,
-          url: item.url,
-          tag,
-        });
-        void sendPushToAgents(recipients, {
-          kind: pushKind,
-          title: item.title,
-          body: item.body,
-          url: item.url ?? undefined,
-          tag,
-        }).catch((err) => console.error("[directorAlertQueue] push:", err));
-        sent++;
+        if (!item.feedAt) {
+          await createNotifications(recipients, {
+            kind: item.kind ?? "oversight",
+            // Уровень пролежал в очереди вместе с алармом: разбор ночного
+            // накопления не имеет права понизить срочность до умолчания.
+            level: notificationLevelOf(item.kind, item.level),
+            title: item.title,
+            body: item.body,
+            url: item.url,
+            tag,
+          });
+        }
+        if (pushNow) {
+          const payload = {
+            kind: pushKind,
+            // Тот же уровень и в проходе ленты, который делает сам sendPushToAgents.
+            level: notificationLevelOf(item.kind, item.level),
+            title: item.title,
+            body: item.body,
+            url: item.url ?? undefined,
+            tag,
+          };
+          // Колокольчик записан в ЭТОТ проход — прежний путь (лента + пуш одним вызовом).
+          // Записан раньше, вне окна, — только звонок: иначе прочитанная вечером строка
+          // утром снова стала бы непрочитанной с «повтором» (см. sendDevicePushToAgents).
+          void (item.feedAt ? sendDevicePushToAgents(recipients, payload) : sendPushToAgents(recipients, payload)).catch((err) =>
+            console.error("[directorAlertQueue] push:", err)
+          );
+          sent++;
+        }
       }
-      await prisma.pendingDirectorAlert.update({ where: { id: item.id }, data: { sentAt: now } });
+      // Колокольчик записан (или писать некому, кроме исключённого) — второй раз не пишем.
+      // Пуш ждёт окна — строка остаётся в очереди с sentAt: null.
+      await prisma.pendingDirectorAlert.update({
+        where: { id: item.id },
+        data: pushNow ? { feedAt: item.feedAt ?? now, sentAt: now } : { feedAt: item.feedAt ?? now },
+      });
     } catch (err) {
       console.error("[directorAlertQueue] доставка строки очереди:", err);
       // Свежую строку оставляем в очереди: временный отказ БД не должен молча терять
