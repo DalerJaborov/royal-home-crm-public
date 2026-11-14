@@ -73,8 +73,16 @@ export function num(value: number): string {
   return sign + String(Math.abs(rounded)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
+/**
+ * Деньги: с дирамами, когда они есть (ревью 14.11) — как экран (formatMoneyExact):
+ * «33,33 с.», иначе сумма строк расходится с «Итого» на округление.
+ */
 export function money(value: number): string {
-  return `${num(value)} с.`;
+  const totalCents = Math.round(value * 100);
+  const cents = Math.abs(totalCents) % 100;
+  if (cents === 0) return `${num(totalCents / 100)} с.`;
+  const whole = String(Math.trunc(Math.abs(totalCents) / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return `${totalCents < 0 ? "−" : ""}${whole},${String(cents).padStart(2, "0")} с.`;
 }
 
 export function percent(value: number | null | undefined): string {

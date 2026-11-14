@@ -26,7 +26,7 @@ export function previousMonthKey(now = new Date()): string {
 
 export interface MonthlyFinancePdfResult {
   month: string;
-  status: "disabled" | "already-sent" | "no-recipients" | "sent";
+  status: "disabled" | "already-sent" | "no-recipients" | "failed" | "sent";
   delivered: number;
   failed: number;
 }
@@ -46,47 +46,56 @@ export async function sendMonthlyFinancePdf(now = new Date()): Promise<MonthlyFi
     return { month, status: settings?.financePdfMonthlyEnabled ? "already-sent" : "disabled", delivered: 0, failed: 0 };
   }
 
-  const candidates = await prisma.agent.findMany({
-    where: { role: "DIRECTOR", isActive: true, telegramChatId: { not: null } },
-    select: { id: true, telegramChatId: true },
-    take: 20,
-  });
-  const recipients: { id: string; chatId: string }[] = [];
-  for (const c of candidates) {
-    const access = await loadAgentAccess(c.id);
-    if (access?.isActive && access.permissions.has("finance.view") && c.telegramChatId) recipients.push({ id: c.id, chatId: String(c.telegramChatId) });
-  }
-  if (recipients.length === 0) {
-    void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на финансы не привязан Telegram`);
-    return { month, status: "no-recipients", delivered: 0, failed: 0 };
-  }
-
-  // Один файл на всех: на обложке «CRM, по расписанию», а не имя получателя.
-  let pdf: Awaited<ReturnType<typeof buildReportPdf>>;
+  // Отметка стоит до отправки (чтобы два процесса не разослали дважды), поэтому
+  // любой исход «никому не дошло» её снимает: сбой Telegram, ни одного получателя,
+  // ошибка базы, файл не собрался. Крон стучится 1–3 числа — следующий день повторит
+  // (ревью 14.11: иначе месяц терялся молча). Дошло хоть одному — месяц закрыт.
+  const release = () =>
+    prisma.settings.updateMany({ where: { id: "singleton", financePdfMonthlyLastSent: month }, data: { financePdfMonthlyLastSent: null } });
   try {
-    pdf = await buildReportPdf("finance", { month, months: 6 }, {
+    const candidates = await prisma.agent.findMany({
+      where: { role: "DIRECTOR", isActive: true, telegramChatId: { not: null } },
+      select: { id: true, telegramChatId: true },
+      take: 20,
+    });
+    const recipients: { id: string; chatId: string }[] = [];
+    for (const c of candidates) {
+      const access = await loadAgentAccess(c.id);
+      if (access?.isActive && access.permissions.has("finance.view") && c.telegramChatId) recipients.push({ id: c.id, chatId: String(c.telegramChatId) });
+    }
+    if (recipients.length === 0) {
+      await release();
+      void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на финансы не привязан Telegram`);
+      return { month, status: "no-recipients", delivered: 0, failed: 0 };
+    }
+
+    // Один файл на всех: на обложке «CRM, по расписанию», а не имя получателя.
+    const pdf = await buildReportPdf("finance", { month, months: 6 }, {
       agentId: "system",
       name: "CRM Royal Home, ежемесячная рассылка",
       role: null,
       can: (p) => p === "finance.view",
     }, now);
+
+    let delivered = 0;
+    let failed = 0;
+    for (const r of recipients) {
+      try {
+        await sendDocumentFile(r.chatId, pdf.buffer, pdf.filename, `Финансовый отчёт · ${pdf.periodLabel}`);
+        delivered += 1;
+        logAgentAudit(r.id, "REPORT_PDF_EXPORT", "Report", "finance", { destination: "monthlyTelegram", period: pdf.periodKey, bytes: pdf.buffer.length, source: "cron" });
+      } catch (err) {
+        failed += 1;
+        void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(err)}`);
+      }
+    }
+    if (delivered === 0) {
+      await release();
+      return { month, status: "failed", delivered, failed };
+    }
+    return { month, status: "sent", delivered, failed };
   } catch (err) {
-    // Файл не собрался — отпускаем месяц: крон стучится 1–3 числа, следующий тик попробует снова.
-    await prisma.settings.updateMany({ where: { id: "singleton", financePdfMonthlyLastSent: month }, data: { financePdfMonthlyLastSent: null } });
+    await release().catch(() => undefined);
     throw err;
   }
-
-  let delivered = 0;
-  let failed = 0;
-  for (const r of recipients) {
-    try {
-      await sendDocumentFile(r.chatId, pdf.buffer, pdf.filename, `Финансовый отчёт · ${pdf.periodLabel}`);
-      delivered += 1;
-      logAgentAudit(r.id, "REPORT_PDF_EXPORT", "Report", "finance", { destination: "monthlyTelegram", period: pdf.periodKey, bytes: pdf.buffer.length, source: "cron" });
-    } catch (err) {
-      failed += 1;
-      void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(err)}`);
-    }
-  }
-  return { month, status: "sent", delivered, failed };
 }

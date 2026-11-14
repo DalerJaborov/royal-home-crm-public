@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FileDown, Send } from "lucide-react";
-import { REPORT_PDF_PERMISSION, type ReportPdfKind } from "@royal-home/shared";
+import { REPORT_PDF_PERMISSION, reportPdfFilename, type ReportPdfKind } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { useCan } from "../lib/permissions";
 
@@ -19,6 +19,7 @@ export function reportPdfPath(kind: ReportPdfKind, params: Record<string, string
 
 /** Большой отчёт собирается дольше обычного запроса. */
 const PDF_TIMEOUT_MS = 60_000;
+const TELEGRAM_TIMEOUT_MS = 120_000;
 
 export function ReportPdfActions({
   kind,
@@ -47,9 +48,11 @@ export function ReportPdfActions({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `royal-home-${kind}.pdf`;
+      // Имя с периодом — тем же правилом, что у сервера и Telegram.
+      a.download = reportPdfFilename(kind, Object.values(params).filter((v) => v !== undefined && v !== "").join("_") || "period");
       a.click();
-      URL.revokeObjectURL(url);
+      // Не сразу: Safari и PWA на iPhone начинают скачивание позже клика (ревью 14.11).
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (err) {
       setStatus({ ok: false, text: err instanceof Error ? err.message : "Не удалось собрать PDF" });
     } finally {
@@ -62,7 +65,9 @@ export function ReportPdfActions({
     setBusy("telegram");
     setStatus(null);
     try {
-      await api(reportPdfPath(kind, params, true), { method: "POST", timeoutMs: PDF_TIMEOUT_MS });
+      // Сборка (до 30 с) + отправка с повторами (до 60 с): ждём дольше, чем сервер
+      // может работать, иначе человек видит ошибку, жмёт снова и получает дубль.
+      await api(reportPdfPath(kind, params, true), { method: "POST", timeoutMs: TELEGRAM_TIMEOUT_MS });
       setStatus({ ok: true, text: "PDF отправлен вам в Telegram" });
     } catch (err) {
       setStatus({ ok: false, text: err instanceof Error ? err.message : "Не удалось отправить PDF" });

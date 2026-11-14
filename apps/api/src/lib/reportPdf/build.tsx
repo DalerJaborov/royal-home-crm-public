@@ -15,7 +15,7 @@ import { describeError } from "../describeError.js";
 import { buildAgentsReport, buildFunnelReport, buildSourcesReport, parseReportRange } from "../teamReports.js";
 import { FinanceReport } from "./financeDocument.js";
 import { TeamReport } from "./teamDocument.js";
-import { renderReportPdf } from "./render.js";
+import { renderReportPdf, withReportPdfSlot } from "./render.js";
 import { dayTitle, dushanbeStamp, monthTitle } from "./theme.js";
 
 /**
@@ -54,6 +54,11 @@ export function canExportReportPdf(kind: ReportPdfKind, viewer: Pick<ReportPdfVi
 
 export async function buildReportPdf(kind: ReportPdfKind, rawQuery: unknown, viewer: ReportPdfViewer, now = new Date()): Promise<BuiltReportPdf> {
   if (!canExportReportPdf(kind, viewer)) throw new ReportPdfInputError(403, "Недостаточно прав");
+  // Место в очереди занимается до запроса к базе: тяжёлая выборка тоже работа (render.ts).
+  return withReportPdfSlot(() => assembleReportPdf(kind, rawQuery, viewer, now));
+}
+
+async function assembleReportPdf(kind: ReportPdfKind, rawQuery: unknown, viewer: ReportPdfViewer, now: Date): Promise<BuiltReportPdf> {
   const generatedAtLabel = dushanbeStamp(now);
 
   if (kind === "finance") {

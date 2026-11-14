@@ -92,16 +92,46 @@ describe("Месячная рассылка финансового PDF", () => {
     expect(result.status).toBe("disabled");
   });
 
-  it("включена — месяц захватывается один раз, повтор не рассылает", async () => {
-    // Директоров с Telegram в тестовой базе может не быть — тогда «no-recipients»;
-    // главное, что второй запуск в тот же месяц не отправляет повторно.
+  it("уже разосланный месяц второй раз не уходит", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { financePdfMonthlyEnabled: true, financePdfMonthlyLastSent: previousMonthKey() } });
+    const result = await sendMonthlyFinancePdf();
+    expect(result.status).toBe("already-sent");
+  });
+
+  it("никому не дошло — месяц отпускается, следующий день повторит", async () => {
+    // В тестах ключа бота нет: директорам с чатом отправка падает («failed»), без
+    // чата — «no-recipients». В обоих случаях отметка месяца обязана сняться.
     await prisma.settings.update({ where: { id: "singleton" }, data: { financePdfMonthlyEnabled: true, financePdfMonthlyLastSent: null } });
     const first = await sendMonthlyFinancePdf();
-    expect(["sent", "no-recipients"]).toContain(first.status);
     expect(first.month).toBe(previousMonthKey());
-    const second = await sendMonthlyFinancePdf();
-    expect(second.status).toBe("already-sent");
+    expect(["no-recipients", "failed"]).toContain(first.status);
+    const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { financePdfMonthlyLastSent: true } });
+    expect(settings?.financePdfMonthlyLastSent).toBeNull();
   }, 60_000);
+
+  it("React в проекте один: PDF на сервере и экраны на одной версии", async () => {
+    // 14.11.2026: установка движка PDF подняла react до 19.3.1 при react-dom 19.3.0 —
+    // веб падал белым экраном. Сторож: react и react-dom одной версии и для API, и для веба.
+    const { createRequire } = await import("node:module");
+    const path = await import("node:path");
+    const fs = await import("node:fs");
+    const root = path.resolve(import.meta.dirname, "..", "..", "..");
+    const version = (from: string, pkg: string) => {
+      const req = createRequire(path.join(root, from, "package.json"));
+      const file = req.resolve(`${pkg}/package.json`);
+      return (JSON.parse(fs.readFileSync(file, "utf8")) as { version: string }).version;
+    };
+    const apiReact = version("apps/api", "react");
+    expect(version("apps/web", "react")).toBe(apiReact);
+    expect(version("apps/web", "react-dom")).toBe(apiReact);
+  });
+
+  it("деньги с дирамами печатаются с дирамами", async () => {
+    const { money } = await import("../src/lib/reportPdf/theme.js");
+    expect(money(33.33)).toBe("33,33 с.");
+    expect(money(1234567)).toBe("1 234 567 с.");
+    expect(money(-2967.5)).toBe("−2 967,50 с.");
+  });
 
   it("прошлый месяц считается по Душанбе, а не по UTC", () => {
     // 31 октября 20:00 UTC = 1 ноября 01:00 в Душанбе → прошлый месяц уже октябрь.
