@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
-import { Activity, Bot, CheckCircle2, ClipboardList, Compass, Fingerprint, History, KeyRound, OctagonAlert, RotateCw, UploadCloud } from "lucide-react";
+import { Activity, Bot, CheckCircle2, ClipboardList, Compass, FileText, Fingerprint, History, KeyRound, OctagonAlert, RotateCw, UploadCloud } from "lucide-react";
 import { api } from "../../lib/api";
 import { downloadFromApi } from "../../lib/downloadFile";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
@@ -1148,6 +1148,30 @@ export function ProblemReportsSection() {
           />
         );
       })}
+    </SettingsSection>
+  );
+}
+
+/**
+ * ФИНАНСОВЫЙ PDF РАЗ В МЕСЯЦ (14.11.2026). Выключен по умолчанию: включает директор,
+ * когда хочет получать готовый отчёт сам. Подпись — про текущее положение тумблера.
+ */
+export function FinancePdfMonthlySection() {
+  const { data: settings } = useSettings();
+  const save = useUpdateSettings();
+  const on = settings?.financePdfMonthlyEnabled ?? false;
+  return (
+    <SettingsSection icon={FileText} title="Финансовый отчёт в PDF раз в месяц">
+      <SwitchRow
+        title="Присылать директору в Telegram"
+        on={on}
+        hint={
+          on
+            ? "1-го числа утром директор получает в свой Telegram PDF с деньгами за прошлый месяц: прибыль, расходы, выплаты агентам."
+            : "Не присылается. PDF за любой месяц можно скачать в разделе «Финансы» кнопкой «Скачать PDF»."
+        }
+        onToggle={() => save.mutate({ financePdfMonthlyEnabled: !on })}
+      />
     </SettingsSection>
   );
 }
