@@ -221,6 +221,7 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
         // Что человек видел в превью: расхождение под замком объекта — STALE, заявка не создаётся.
         expect: { priceCents: toCents(before.price), currency: before.currency, status: before.status },
         auditSource: { source: "assistant", actionId: ctx.actionId, tool: spec.tool },
+        applyDirectly: isDirect(args, property, actor),
       });
       if (!created.ok) {
         throw created.code === "DUPLICATE" ? duplicateError(kindOf(args), property.shortId) : failureToError(created);

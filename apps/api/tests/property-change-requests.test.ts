@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
-import { waitFor } from "./helpers/waitFor.js";
+import { waitFor, waitForSettled } from "./helpers/waitFor.js";
 
 /**
  * ЗАЯВКИ АГЕНТА НА ИЗМЕНЕНИЕ ОПУБЛИКОВАННОГО ОБЪЕКТА (07.10.2026, решение владельца).
@@ -527,6 +527,17 @@ describe("Своё — сразу, без заявки (владелец 15.11.2
     // Очередь руководства пуста: ждать нечего.
     const queueRes = await request(app).get(`${api}/change-requests?limit=100`).set("Authorization", `Bearer ${directorToken}`);
     expect(queueRes.body.items.filter((i: { propertyId: string }) => i.propertyId === property.id)).toHaveLength(0);
+  });
+
+  it("«своё сразу»: директору в очередь пушей заявка не ставится (она уже принята); обычная заявка — ставится", async () => {
+    const property = await seedProperty();
+    const price = await post(agentToken, property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 360000 } });
+    expect(price.body.applied).toBe(true);
+    const queued = await queue(property.id, { kind: "OTHER", payload: { text: "Нужно что-то поменять в ролике" } });
+    const tagOf = (id: string) => `property-change-request-${id}`;
+    // Ждём, пока «отложенная» запись обычной заявки встанет; за это время запись «своей» тоже успела бы.
+    await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: tagOf(queued.body.request.id) } }));
+    expect(await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: tagOf(price.body.request.id) } }))).toBe(0);
   });
 
   it("хозяин: перемонтаж своего вышедшего объекта уходит монтажёру сразу", async () => {

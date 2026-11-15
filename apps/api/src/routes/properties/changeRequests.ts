@@ -190,28 +190,30 @@ changeRequestsRouter.post(
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Неверные данные заявки" });
     }
-    // Сама подача заявки (проверки по виду, замок, журнал, уведомление руководству) —
-    // lib/propertyChangeRequestService.ts: её же зовёт ИИ-помощник.
-    const result = await createPropertyChangeRequest({
-      propertyId: req.params.id,
-      actor: { agentId: req.agent!.id, can: (permission) => can(req, permission) },
-      body: parsed.data,
-    });
-    if (!result.ok) return res.status(result.status).json({ error: result.error });
-
     // СВОЁ — СРАЗУ (владелец 15.11.2026: «без неё можно менять любые свои данные»): цена, данные карточки
     // и перемонтаж своего объекта принимаются автором тем же исполнителем, что «Принять» директора;
     // чужой объект и «убрать из соцсетей» / «Другое» остаются заявкой. Правило одно с Шабнам.
+    const actor = { agentId: req.agent!.id, role: req.agent!.role, can: (permission: Parameters<typeof can>[1]) => can(req, permission) };
     const property = await prisma.property.findUnique({
       where: { id: req.params.id },
       select: { status: true, assignedAgentId: true, intakeAgentId: true, createdById: true },
     });
-    if (property && canApplyChangeDirectly(
-        { agentId: req.agent!.id, role: req.agent!.role, can: (permission) => can(req, permission) },
-        property,
-        parsed.data.kind,
-        { removeFromSocial: parsed.data.kind === "REMAKE_VIDEO" && parsed.data.payload.removeFromSocial }
-      )) {
+    const direct =
+      property !== null &&
+      canApplyChangeDirectly(actor, property, parsed.data.kind, {
+        removeFromSocial: parsed.data.kind === "REMAKE_VIDEO" && parsed.data.payload.removeFromSocial,
+      });
+    // Сама подача заявки (проверки по виду, замок, журнал, уведомление руководству) —
+    // lib/propertyChangeRequestService.ts: её же зовёт ИИ-помощник. Для «своё сразу» пуш директору не ставится.
+    const result = await createPropertyChangeRequest({
+      propertyId: req.params.id,
+      actor,
+      body: parsed.data,
+      applyDirectly: direct,
+    });
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+
+    if (direct) {
       const applied = await applyOwnChangeRequestNow(result.request.id, req.agent!.id);
       if (!applied.ok) return res.status(applied.status).json({ error: applied.error });
       return res.status(201).json({ request: applied.request, applied: applied.request.status === "APPROVED", message: applied.message });
