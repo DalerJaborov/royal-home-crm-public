@@ -961,7 +961,12 @@ cardRouter.delete("/:id/permanent", requireAuth, requirePermission("clients.purg
   // Аватар — в открытой uploads/avatars, после удаления строки его не найти (G10).
 
   await prisma.$transaction(async (tx) => {
-    await tx.botConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
+    // Отметка «карточку удалил человек» в черновике диалога (ревью 194-1, 15.11.2026): сторож
+    // «номер без карточки» и добор заводят заявку заново только по репликам НОВЕЕ этой отметки.
+    await tx.$executeRaw`UPDATE "BotConversation" SET "clientId"=NULL,
+      "leadDraft"=(CASE WHEN jsonb_typeof("leadDraft")='object' THEN "leadDraft" ELSE '{}'::jsonb END)
+        || jsonb_build_object('clientDeletedAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+      WHERE "clientId"=${client.id}`;
     await tx.telegramConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
     // ОТЗЫВЫ ПО СДЕЛКАМ (аудит 04.10.2026, SCHEMA01). DealReview ссылается на клиента и на
     // сделку обязательными связями (ON DELETE RESTRICT, миграция 20260911190100). Строка

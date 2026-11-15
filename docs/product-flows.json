@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 750,
-  "forks": 4055,
+  "forks": 4064,
   "mounts": 83,
-  "cron": 133,
+  "cron": 134,
   "jobs": 33,
   "hidden": 0
  },
@@ -15539,7 +15539,7 @@
      "t": "await prisma.$transaction(async (tx)",
      "a": [
       "всё внутри — одной транзакцией",
-      "меняет в базе: botConversation",
+      "обращается к базе своим SQL",
       "меняет в базе: telegramConversation",
       "удаляет в базе: dealReview",
       "удаляет в базе: deal",
@@ -15548,9 +15548,9 @@
      "c": [
       {
        "k": "do",
-       "t": "await tx.botConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });",
+       "t": "await tx.$executeRaw`UPDATE \"BotConversation\" SET \"clientId\"=NULL, \"leadDraft\"=(CASE WHEN jsonb_typeof(\"leadD…",
        "a": [
-        "меняет в базе: botConversation"
+        "обращается к базе своим SQL"
        ],
        "c": []
       },
@@ -90256,6 +90256,237 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "comment-needs-human-sweep",
+   "when": "6-59/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alerted } = await runCommentNeedsHumanSweep();",
+       "a": [
+        "зовёт runCommentNeedsHumanSweep()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!rows.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: 0, alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const claim = (commentId: string)",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of rows",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!commentNeedsHuman(row.status, row.note)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!due.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: rows.length, alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const recipients = await findAgentsWithPermission(\"messages.view\");",
+         "a": [
+          "зовёт findAgentsWithPermission()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!recipients.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Комментарии ждут человека (${due.length}), но в CRM нет никого с правом «Сообщен…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of due",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "if ((await claim(row.commentId)) === 1) claimed.push(row);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!claimed.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { checked: rows.length, alerted: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await sendPushToAgents(recipients, { kind: \"message\", title: claimed.length === 1 ? `💬 ${places}: ответьте н…",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: claimed.map((r)",
+           "a": [
+            "удаляет в базе: processedMessage"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Сводка «комментарии ждут человека» не отправлена: ${err instanceof Error ? err.m…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runCommentNeedsHumanSweep() — apps/api/src/lib/commentWaitingAlert.ts"
+      },
+      {
+       "k": "if",
+       "t": "alerted > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа комментариев без ответа\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "contact-link-sweep",
    "when": "10 3 * * *",
    "tree": [
@@ -121827,9 +122058,24 @@
            "c": [
             {
              "k": "do",
-             "t": "await resumeDeferredCustomerInbox(eventKey);",
+             "t": "rearmed = await resumeDeferredCustomerInbox(eventKey);",
              "a": [
               "зовёт resumeDeferredCustomerInbox()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!rearmed",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void reportUnansweredCustomerTurn(eventKey, result.reason);",
+             "a": [
+              "зовёт reportUnansweredCustomerTurn()"
              ],
              "c": []
             }
@@ -122113,6 +122359,84 @@
         }
        ],
        "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      },
+      {
+       "k": "do",
+       "t": "void reportUnansweredCustomerTurn(payload.eventKey, \"consume_job_gave_up\", { gaveUp: true });",
+       "a": [
+        "зовёт reportUnansweredCustomerTurn()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "customerTurnSilenceIsIntended(reason)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: str…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!row || row.answered",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? \"\", peer: row.peer ?? \"\", conversationId…",
+           "a": [
+            "зовёт notifyUnansweredCustomerTurn()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Не удалось сообщить о неотвеченном ходе бота (${reason}): ${error instanceof Err…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "reportUnansweredCustomerTurn() — apps/api/src/lib/customerTurnSilence.ts"
       }
      ]
     }

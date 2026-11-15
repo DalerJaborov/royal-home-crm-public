@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **750**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4055**. Модулей: **83**.
+Путей: **750**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4064**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3559,13 +3559,13 @@
   · зовёт listDealDocumentFileNames()
 - await prisma.$transaction(async (tx)
   · всё внутри — одной транзакцией
-  · меняет в базе: botConversation
+  · обращается к базе своим SQL
   · меняет в базе: telegramConversation
   · удаляет в базе: dealReview
   · удаляет в базе: deal
   · удаляет в базе: client
-  - await tx.botConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
-    · меняет в базе: botConversation
+  - await tx.$executeRaw`UPDATE "BotConversation" SET "clientId"=NULL, "leadDraft"=(CASE WHEN jsonb_typeof("leadD…
+    · обращается к базе своим SQL
   - await tx.telegramConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
     · меняет в базе: telegramConversation
   - await tx.dealReview.deleteMany({ where: { OR: [{ clientId: client.id }, { dealId: { in: client.deals.map((d)
@@ -20333,6 +20333,55 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### comment-needs-human-sweep — 6-59/10 * * * *
+
+- пробует
+  - const { alerted } = await runCommentNeedsHumanSweep();
+    · зовёт runCommentNeedsHumanSweep()
+    - const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …
+      · обращается к базе своим SQL
+    - если !rows.length
+      - return { checked: 0, alerted: 0 };
+        · дословно из кода
+    - const claim = (commentId: string)
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - если !commentNeedsHuman(row.status, row.note)
+        - continue;
+          · переходит к следующему
+    - если !due.length
+      - return { checked: rows.length, alerted: 0 };
+        · дословно из кода
+    - const recipients = await findAgentsWithPermission("messages.view");
+      · зовёт findAgentsWithPermission()
+    - если !recipients.length
+      - void logSystemError("meta", `Комментарии ждут человека (${due.length}), но в CRM нет никого с правом «Сообщен…
+        · запись в журнал ошибок
+    - для каждого: const row of due
+      - if ((await claim(row.commentId)) === 1) claimed.push(row);
+        · дословно из кода
+    - если !claimed.length
+      - return { checked: rows.length, alerted: 0 };
+        · дословно из кода
+    - пробует
+      - await sendPushToAgents(recipients, { kind: "message", title: claimed.length === 1 ? `💬 ${places}: ответьте н…
+        · push-уведомление
+    - если сорвалось
+      - await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: claimed.map((r)
+        · удаляет в базе: processedMessage
+      - void logSystemError("meta", `Сводка «комментарии ждут человека» не отправлена: ${err instanceof Error ? err.m…
+        · запись в журнал ошибок
+  - если alerted > 0
+    - console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа комментариев без ответа", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### contact-link-sweep — 10 3 * * *
 
 - пробует
@@ -27071,8 +27120,11 @@
       - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${re…
         · обращается к базе своим SQL
       - если result.reason !== NEWER_INPUT_PENDING
-        - await resumeDeferredCustomerInbox(eventKey);
+        - rearmed = await resumeDeferredCustomerInbox(eventKey);
           · зовёт resumeDeferredCustomerInbox()
+      - если !rearmed
+        - void reportUnansweredCustomerTurn(eventKey, result.reason);
+          · зовёт reportUnansweredCustomerTurn()
   - const recovered = await recoverCustomerPendingEnvelope(eventKey);
     · зовёт recoverCustomerPendingEnvelope()
   - return prisma.$transaction(async tx
@@ -27130,6 +27182,22 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+  - void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up", { gaveUp: true });
+    · зовёт reportUnansweredCustomerTurn()
+    - если customerTurnSilenceIsIntended(reason)
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: str…
+        · обращается к базе своим SQL
+      - если !row || row.answered
+        - return;
+          · дальше не идёт, ничего не меняя
+      - await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? "", peer: row.peer ?? "", conversationId…
+        · зовёт notifyUnansweredCustomerTurn()
+    - если сорвалось
+      - void logSystemError("meta", `Не удалось сообщить о неотвеченном ходе бота (${reason}): ${error instanceof Err…
+        · запись в журнал ошибок
 
 ### customer-intake-notify
 

@@ -1687,6 +1687,11 @@
       "label": null
     },
     {
+      "id": "comment-needs-human-sweep",
+      "expr": "6-59/10 * * * *",
+      "label": null
+    },
+    {
       "id": "contact-link-sweep",
       "expr": "10 3 * * *",
       "label": null
