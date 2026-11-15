@@ -67,8 +67,8 @@ let clientId = "";
 const propertyIds: string[] = [];
 
 const AGENT_PERMS: PermissionId[] = ["properties.requestChange"];
-const DIRECTOR_PERMS: PermissionId[] = ["properties.requestChange", "properties.editForeign", "properties.delete", "properties.moderate"];
-const MARKETING_PERMS: PermissionId[] = ["properties.requestChange", "properties.editForeign"];
+const DIRECTOR_PERMS: PermissionId[] = ["properties.requestChange", "properties.editForeign", "properties.delete", "properties.moderate", "marketing.access"];
+const MARKETING_PERMS: PermissionId[] = ["properties.requestChange", "properties.editForeign", "marketing.access"];
 
 async function seed(overrides: Record<string, unknown> = {}) {
   const property = await prisma.property.create({
