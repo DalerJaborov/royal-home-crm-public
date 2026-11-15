@@ -1,4 +1,5 @@
 import { PROPERTY_PUBLISHED_ACTION_DENIED_MESSAGE, propertyEditLocked, type PermissionId } from "@royal-home/shared";
+import { hasMarketingRole } from "./marketingRole.js";
 
 /**
  * КТО МОЖЕТ УПРАВЛЯТЬ ОБЪЕКТОМ — ОДНО ПРАВИЛО НА REST И НА ИИ-ПОМОЩНИКА
@@ -12,6 +13,8 @@ import { PROPERTY_PUBLISHED_ACTION_DENIED_MESSAGE, propertyEditLocked, type Perm
  */
 export interface PropertyAccessActor {
   agentId: string;
+  /** Роль сотрудника: нужна только там, где решает роль (снять из соцсетей — маркетинг/руководство). */
+  role?: string;
   can: (permission: PermissionId) => boolean;
 }
 
@@ -69,9 +72,13 @@ export const OWN_DIRECT_CHANGE_KINDS = ["PRICE_CHANGE", "CARD_DATA", "REMAKE_VID
 export function canApplyChangeDirectly(
   actor: PropertyAccessActor,
   property: { status: string; assignedAgentId?: string | null; intakeAgentId?: string | null; createdById?: string | null },
-  kind: string
+  kind: string,
+  options?: { removeFromSocial?: boolean }
 ): boolean {
   if (!(OWN_DIRECT_CHANGE_KINDS as readonly string[]).includes(kind)) return false;
+  // Перемонтаж со снятием постов видят подписчики, вернуть нельзя: «сразу» только тем, кому
+  // это доступно и в sendBackDenied (роль маркетинга/руководства), остальным — заявкой.
+  if (kind === "REMAKE_VIDEO" && options?.removeFromSocial && !hasMarketingRole(actor.role)) return false;
   if (kind === "PRICE_CHANGE" && property.status === "RESERVED" && !actor.can("properties.editForeign")) return false;
   return canManagePropertyAs(actor, property);
 }

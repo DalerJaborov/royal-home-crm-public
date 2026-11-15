@@ -538,6 +538,22 @@ describe("Своё — сразу, без заявки (владелец 15.11.2
     expect(sendBackToMontajer).toHaveBeenCalledTimes(1);
   });
 
+  it("перемонтаж со снятием из соцсетей (по умолчанию в форме): агент — заявкой руководителю, посты не тронуты; директор — сразу", async () => {
+    const property = await seedProperty();
+    sendBackToMontajer.mockClear();
+    const res = await post(agentToken, property.id, { kind: "REMAKE_VIDEO", payload: { reason: "NO_MUSIC" } });
+    expect(res.status).toBe(201);
+    expect(res.body.applied).toBeUndefined();
+    expect(res.body.request.status).toBe("PENDING");
+    expect(sendBackToMontajer).not.toHaveBeenCalled();
+
+    const own = await seedProperty();
+    const boss = await post(directorToken, own.id, { kind: "REMAKE_VIDEO", payload: { reason: "NO_MUSIC", removeFromSocial: true } });
+    expect(boss.status).toBe(201);
+    expect(boss.body.applied).toBe(true);
+    expect(sendBackToMontajer).toHaveBeenCalledTimes(1);
+  });
+
   it("чужой объект — по-прежнему 403, ничего не изменено; руководитель (editForeign) — сразу", async () => {
     const property = await seedProperty();
     const foreign = await post(otherToken, property.id, { kind: "CARD_DATA", payload: { patch: { floor: 8 } } });

@@ -206,7 +206,12 @@ changeRequestsRouter.post(
       where: { id: req.params.id },
       select: { status: true, assignedAgentId: true, intakeAgentId: true, createdById: true },
     });
-    if (property && canApplyChangeDirectly({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, property, parsed.data.kind)) {
+    if (property && canApplyChangeDirectly(
+        { agentId: req.agent!.id, role: req.agent!.role, can: (permission) => can(req, permission) },
+        property,
+        parsed.data.kind,
+        { removeFromSocial: parsed.data.kind === "REMAKE_VIDEO" && parsed.data.payload.removeFromSocial }
+      )) {
       const applied = await applyOwnChangeRequestNow(result.request.id, req.agent!.id);
       if (!applied.ok) return res.status(applied.status).json({ error: applied.error });
       return res.status(201).json({ request: applied.request, applied: applied.request.status === "APPROVED", message: applied.message });
