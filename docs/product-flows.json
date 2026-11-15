@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 754,
-  "forks": 4084,
+  "forks": 4097,
   "mounts": 84,
-  "cron": 138,
+  "cron": 141,
   "jobs": 33,
   "hidden": 0
  },
@@ -90128,187 +90128,6 @@
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "const rows = await prisma.$queryRaw< Array<{ id: string; messages: unknown; leadDraft: unknown; silenceAlertF…",
-         "a": [
-          "обращается к базе своим SQL"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const row of rows",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const episode = waitingEpisodeOf(row.messages);",
-           "a": [
-            "зовёт waitingEpisodeOf()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!episode || episode.since.getTime() > threshold",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "due.length === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return { checked: rows.length, alerted: 0, skippedOffHours: false };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const tickets = keys.length ? await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: …",
-         "a": [
-          "читает в базе: customerPropertyIngressTicket"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d)",
-         "a": [
-          "зовёт fetchLastCallContactByClient()"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const d of due",
-         "a": [],
-         "c": [
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "allIntentional",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "called && called.getTime() > d.episode.since.getTime()",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "const outcome = await alertClientWaiting({ conversationId: d.id, trigger: \"silence\", now });",
-             "a": [
-              "зовёт alertClientWaiting()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "outcome !== \"skipped\"",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "alerted++;",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "reportCronRowError(\"Сторож «клиент ждёт ответа»\", d.id, err);",
-             "a": [
-              "зовёт reportCronRowError()"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
         }
        ],
        "from": "runClientSilenceSweep() — apps/api/src/lib/clientWaitingAlert.ts"
@@ -91447,6 +91266,265 @@
       }
      ],
      "from": "runCustomerJobsTick() — apps/api/src/jobs/runner.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "customer-unrecorded-summary",
+   "when": "*/2 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { people } = await runUnrecordedCustomerSummary();",
+       "a": [
+        "зовёт runUnrecordedCustomerSummary()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const recipients = await findAgentsWithPermission(\"messages.view\");",
+         "a": [
+          "зовёт findAgentsWithPermission()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!recipients.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const waiting = await prisma.processedMessage.count({ where: { channel: UNRECORDED_PENDING } });",
+           "a": [
+            "считает в базе: processedMessage"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "waiting",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `Сообщения клиентов (${waiting}) не попали в чат CRM, а сказать некому: нет никог…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const taken = await prisma.$queryRaw<Array<{ messageId: string; createdAt: Date }>>`DELETE FROM \"ProcessedMes…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!taken.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { people: 0, sent: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of taken",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", \"Запись сводки «Ответьте вручную» не расшифровалась и пропущена.\", { dedupKey: \"c…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!people.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { people: 0, sent: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const p of people",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!p.accountExternalId || titles.has(`${p.channel}:${p.accountExternalId}`)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const row = await prisma.messengerAccount.findFirst({ where: { channel: p.channel, externalId: p.accountExter…",
+           "a": [
+            "читает в базе: messengerAccount"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "row?.title",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "titles.set(`${p.channel}:${p.accountExternalId}`, row.title);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await sendPushToAgents(recipients, { kind: \"message\", level: \"CRITICAL\", title: people.length === 1 ? `Ответь…",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.processedMessage.createMany({ data: taken.map(r",
+           "a": [
+            "создаёт в базе: processedMessage"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `Сводка «Ответьте вручную» по сообщениям вне чата CRM не отправлена, повторим: ${…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runUnrecordedCustomerSummary() — apps/api/src/lib/customerHeldMessage.ts"
+      },
+      {
+       "k": "if",
+       "t": "people > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Вне чата CRM: сводка «Ответьте вручную» по ${people} чел.`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сводки «сообщения вне чата CRM»\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -113205,6 +113283,168 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "telegram-delivery-watch",
+   "when": "4-59/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alarmed } = await runTelegramDeliveryWatch();",
+       "a": [
+        "зовёт runTelegramDeliveryWatch()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { telegramDeliveryWatchEnabl…",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!(s?.telegramDeliveryWatchEnabled ?? true)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { skipped: \"off\", alarmed: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!isTelegramEnabled()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { skipped: \"not_configured\", alarmed: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": []
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { skipped: \"read_failed\", alarmed: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const problem = telegramDeliveryProblem(info, now, previousPending);",
+         "a": [
+          "зовёт telegramDeliveryProblem()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!problem",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { skipped: null, alarmed: false };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"telegram\", `Telegram → CRM: ${problem.text}. Клиенты могут писать боту, а CRM их не види…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runTelegramDeliveryWatch() — apps/api/src/lib/telegramDeliveryWatch.ts"
+      },
+      {
+       "k": "if",
+       "t": "alarmed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(\"[cron] Telegram не доставляет сообщения в CRM — тревога руководству\");",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «Telegram не доставляет»\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "telegram-group-comments",
    "when": "* * * * *",
    "tree": [
@@ -117153,6 +117393,224 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка недельной сводки СБ\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "whatsapp-webhook-watch",
+   "when": "8-59/20 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alarmed, silenceMs } = await runWhatsappWebhookWatch();",
+       "a": [
+        "зовёт runWhatsappWebhookWatch()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { whatsappWebhookWatchEnable…",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!(s?.whatsappWebhookWatchEnabled ?? true)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"off\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!(await isMetaChannelEnabled(\"WHATSAPP\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"channel_off\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const creds = await loadCredentials();",
+         "a": [
+          "зовёт loadCredentials()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const token = creds.waPhoneId ? (await resolveIncomingAccount(\"WHATSAPP\", creds.waPhoneId)).token || creds.wa…",
+         "a": [
+          "зовёт resolveIncomingAccount()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!creds.waPhoneId || !token",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"not_configured\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!isWithinDushanbeWindow(window.start, window.end, now)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"off_hours\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "times.length < WA_MIN_HISTORY_MESSAGES",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"little_history\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "result.thresholdMs = silenceThresholdMs(longestWorkGapMs(times, window));",
+         "a": [
+          "зовёт silenceThresholdMs()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "result.silenceMs = workSilenceMs(last, now, window);",
+         "a": [
+          "зовёт workSilenceMs()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "result.silenceMs < result.thresholdMs",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return result;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const cause = await diagnoseWhatsappNumber({ phoneId: creds.waPhoneId, token, businessAccountId: s?.metaWaBus…",
+         "a": [
+          "зовёт diagnoseWhatsappNumber()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"meta\", `WhatsApp молчит: в рабочие часы нет ни одного входящего уже ${hours(result.silen…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runWhatsappWebhookWatch() — apps/api/src/lib/whatsappWebhookWatch.ts"
+      },
+      {
+       "k": "if",
+       "t": "alarmed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководств…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «вебхук WhatsApp замолчал»\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -123436,6 +123894,52 @@
            "t": "!row || row.answered",
            "a": [],
            "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "row.chatDeleted",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `Бот не ответил клиенту (причина «${reason}»): чат этого человека удалён сотрудни…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!row.conversationId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await notifyUnansweredCustomerTurn({ reason, channel: input?.channel ?? \"\", peer: input?.peer ?? \"\", conversa…",
+             "a": [
+              "зовёт notifyUnansweredCustomerTurn()"
+             ],
+             "c": []
+            },
             {
              "k": "do",
              "t": "return;",
