@@ -162,12 +162,15 @@ describe("dryRun: отказы те же, записи нет", () => {
 });
 
 describe("права: одна проверка на кнопку и на помощника", () => {
-  it("sendBackDenied: чужой, рядовой после публикации, снятие из соцсетей — только маркетингу", () => {
+  it("sendBackDenied: чужой — нет, свой после публикации — можно, снятие из соцсетей — только маркетингу", () => {
     const published = { status: "AVAILABLE", assignedAgentId: "a", intakeAgentId: null, createdById: "a" };
     const draft = { status: "EDITING", assignedAgentId: "a", intakeAgentId: null, createdById: "a" };
     const own = { agentId: "a", role: "AGENT", can: can([]) as never };
     expect(sendBackDenied({ ...own, agentId: "b" }, draft, undefined)).toMatchObject({ status: 403 });
-    expect(sendBackDenied(own, published, undefined)).toMatchObject({ status: 403 });
+    // Свой перемонтаж после публикации открыт хозяину (владелец 15.11.2026); чужому — по-прежнему нет.
+    expect(sendBackDenied(own, published, undefined)).toBeNull();
+    expect(sendBackDenied({ ...own, agentId: "b" }, published, undefined)).toMatchObject({ status: 403 });
+    expect(sendBackDenied(own, published, true)).toMatchObject({ status: 403 });
     expect(sendBackDenied(own, draft, undefined)).toBeNull();
     expect(sendBackDenied(own, draft, true)).toMatchObject({ status: 403 });
     expect(sendBackDenied({ ...own, role: "MARKETING", can: can(["marketing.access"]) as never }, draft, true)).toBeNull();
