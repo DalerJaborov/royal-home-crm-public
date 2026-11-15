@@ -32,6 +32,7 @@
 
 import { BW, EW } from "./wordBoundary.js";
 import { TAIL } from "./wordBoundary.js";
+import { RUDAKI_ANY_SOURCE } from "../lib/serviceArea.js";
 
 const rx = (parts: string[]): RegExp => new RegExp(parts.join("|"), "iu");
 
@@ -141,7 +142,8 @@ const DUSHANBE = rx([
   "душанбе|dushanbe|дюшамбе",
   // Район Рудаки (центр — Сомониён) — наша зона с 15.11.2026 («Да, Рудаки берём», владелец). Продавцу из Рудаки
   // бот не отказывает и ведёт анкету как обычно. Любое написание: «н. Рудаки», «Рӯдакӣ», «маркази н Рудаки».
-  `р[уӯ]да[кқ][иӣ]|rudaki|сомониён|сомониен|somoniyon`,
+  // Зона — одно место на все каналы (lib/serviceArea.ts), голос читает то же.
+  RUDAKI_ANY_SOURCE,
   `исмоили сомонӣ|исмоили сомони|${BW}сино${EW}|фирдавс[ӣи]|шо[ҳх]мансур`,
 ]);
 

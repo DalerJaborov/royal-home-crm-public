@@ -1,4 +1,5 @@
 import { geoMatchKey } from "./geoNormalize.js";
+import { mentionsRudakiDistrict } from "./serviceArea.js";
 
 /**
  * ЗА ГОРОДОМ — ОТДЕЛЬНЫЙ ПРИЗНАК, А НЕ ЧЕТВЕРТЬ ДУШАНБЕ (10.10.2026, аудит поиска
@@ -29,9 +30,8 @@ const SUBURB_PATTERNS: RegExp[] = [
   /(^| )пригород/u,
   /(^| )за город(ом)?( |$)/u,
   /(^| )берун аз шахр/u,
-  /(^| )(нохияи рудаки|рудакинск|район рудаки|района рудаки)/u,
   /(^| )(город|г|шахри) турсунзода/u,
-  /(^| )(шахринав|файзобод|кофарнихон|сомониен)/u,
+  /(^| )(шахринав|файзобод|кофарнихон)/u,
   // «9 км», «9-й км», «12 километр» — но не «1 2 км от» (после нормализации запятая — пробел).
   /(^| )\d{1,2} ?(й|ой|ом)? ?(км|километр\p{L}*)(?! от)( |$)/u,
 ];
@@ -40,7 +40,8 @@ const SUBURB_PATTERNS: RegExp[] = [
 export function textMentionsSuburb(text: string | null | undefined): boolean {
   if (!text) return false;
   const key = geoMatchKey(text);
-  return SUBURB_PATTERNS.some((re) => re.test(key));
+  // Район Рудаки (и Сомониён) — за городом, хоть и наша зона с 15.11.2026: зона — не карта (lib/serviceArea.ts).
+  return mentionsRudakiDistrict(text) || SUBURB_PATTERNS.some((re) => re.test(key));
 }
 
 export interface SuburbCheckFields {

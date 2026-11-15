@@ -26,6 +26,7 @@ import { propertyOwnerAgentId } from "../propertyOwner.js";
 import { BOT_OFFER_SELECT, botMayOffer, botOfferableWhere, botOfferLink, type BotOfferFields } from "../propertyMatch.js";
 import { bookShowing, resolveShowingSlot, SHOWING_CONFLICT_WINDOW_MS, type BookingProblem } from "../showingBooking.js";
 import { sendSms, toSmsPhone } from "../sms/index.js";
+import { mentionsRudakiDistrict } from "../serviceArea.js";
 import { logSystemError } from "../systemError.js";
 import { isWithinConsultantHours } from "./consultantHours.js";
 import type { LiveVoiceToolReply } from "./liveVoiceBridge.js";
@@ -107,7 +108,11 @@ export const CLIENT_TOOLS: LiveVoiceFunctionDeclaration[] = [
       type: "OBJECT",
       properties: {
         intent: { type: "STRING", description: "buy — покупает, sell — продаёт свою.", enum: ["buy", "sell"] },
-        district: { type: "STRING", description: "Официальный район Душанбе.", enum: [...LIVE_VOICE_DISTRICTS] },
+        district: {
+          type: "STRING",
+          description: "Официальный район Душанбе. Объект или поиск в районе Рудаки (наша зона, за городом) — district не передавай, а напиши «район Рудаки» в notes: район этим засчитан.",
+          enum: [...LIVE_VOICE_DISTRICTS],
+        },
         type: { type: "STRING", description: "APARTMENT, HOUSE, COMMERCIAL, LAND.", enum: ["APARTMENT", "HOUSE", "COMMERCIAL", "LAND"] },
         rooms: { type: "INTEGER", description: "Сколько комнат." },
         budget_min: { type: "NUMBER", description: "Бюджет от — числом." },
@@ -416,7 +421,9 @@ export function missingRequestFields(r: ClientCallRequest, declined: readonly st
   const missing: RequestField[] = [];
   if (!r.intent) missing.push("intent");
   if (!r.type) missing.push("type");
-  if (!r.districtName) missing.push("district");
+  // Район Рудаки — наша зона (lib/serviceArea.ts), но не район города: в перечне его нет, и без этого
+  // продавец из Рудаки слышал бы «не хватает: район» по кругу.
+  if (!r.districtName && !mentionsRudakiDistrict(r.notes)) missing.push("district");
   if (r.type === "APARTMENT" && !r.rooms) missing.push("rooms");
   if (!hasBudget) missing.push("budget");
   else if (!r.currency) missing.push("currency");

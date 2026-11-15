@@ -17,9 +17,11 @@
  *     по-русски, а она записала «am 20 Uhr», «Não, é para o próximo mês»; в таджикском звонке
  *     того же дня — латиница с ş ğ ı и арабская вязь). Пробовали считать арабицу и ş ğ ı
  *     «вероятно таджикским» — на русской речи владельца это дало бы таджикский. При
- *     неясности язык решает сама модель: она слышит звук (правило в промте).
- *  3. Язык меняется только после ДВУХ уверенных кириллических реплик подряд на другом
- *     языке (неясные между ними не считаются ни за, ни против). Уверенность — тот же
+ *     неясности язык решает сама модель по тексту распознавания, помня, что он ошибается
+ *     (правило в промте; с 11.11.2026 модель ElevenLabs звука не слышит).
+ *  3. Язык меняется после ДВУХ уверенных кириллических реплик подряд на другом
+ *     языке (неясные между ними не считаются ни за, ни против); на таджикский — уже после
+ *     ОДНОЙ твёрдо таджикской (16.11.2026, isConfidentTajik ниже). Уверенность — тот же
  *     определитель, что у чат-бота (ai/clientLanguage.ts::detectClientLanguage), плюс
  *     не меньше двух слов: одно «квартира» по-таджикски звучит так же, как по-русски.
  *  4. Если за CALLER_LANGUAGE_ASK_AFTER_UNCLEAR реплик язык так и не определился ни разу —
@@ -31,14 +33,24 @@
  * свой путь — извинение и передача человеку (liveVoiceBridge.ts::handleTajikOnRussianLock).
  */
 
-import { detectClientLanguage } from "../../ai/clientLanguage.js";
+import { clientLanguageScores, detectClientLanguage } from "../../ai/clientLanguage.js";
 import { foreignLetterShare } from "./liveVoiceGuards.js";
 
 export type CallLanguage = "ru" | "tg";
 export type CallerUtteranceLanguage = CallLanguage | "unclear";
 
-/** Сколько уверенных реплик подряд на другом языке переключают язык звонка. */
+/** Сколько уверенных реплик подряд на другом языке переключают язык звонка (на русский — всегда;
+ *  на таджикский — когда фраза не «твёрдо таджикская», см. isConfidentTajik). */
 export const CALLER_LANGUAGE_SWITCH_AFTER = 2;
+/**
+ * ПЕРЕХОД НА ТАДЖИКСКИЙ — С ПЕРВОЙ ТВЁРДОЙ ФРАЗЫ (16.11.2026, разбор звонков голоса Anna, п. 4).
+ * Пока звонок в ru, распознавание ElevenLabs пишет таджикскую речь русским мусором («Ча-чан смаи?»),
+ * и робот переспрашивал: на втором ходе было уже поздно. Владелец: таджикский — в приоритете.
+ * Защита от ложного перехода у русскоязычных: «твёрдо» — это не меньше стольких РАЗНЫХ таджикских
+ * слов без приветствий и «спасибо» (tajikWordCount ниже). «Рахмат, хорошо»,
+ * «Салом, мне двушку», «Да ака, в Сино» — не твёрдо: идут прежним путём, двумя фразами подряд.
+ */
+export const CALLER_TAJIK_CONFIDENT_WORDS = 2;
 /** Сколько неясных реплик (при ни одной уверенной) — повод один раз спросить язык. */
 export const CALLER_LANGUAGE_ASK_AFTER_UNCLEAR = 3;
 /** Меньше стольких букв — реплика неясная («Алло», «Да»). */
@@ -61,6 +73,26 @@ export function classifyCallerUtterance(text: string): CallerUtteranceLanguage {
   if (words < MIN_WORDS) return "unclear";
   const language = detectClientLanguage(trimmed);
   return language === "ru" || language === "tg" ? language : "unclear";
+}
+
+/**
+ * Сколько РАЗНЫХ слов фразы — таджикские, БЕЗ приветствий и «спасибо». Слово за словом через общий
+ * определитель (ai/clientLanguage.ts::clientLanguageScores): по всей фразе он считает «мехоҳам» дважды
+ * (по букве и по списку), а здесь важно, сколько таджикских слов человек сказал. Сам определитель не
+ * трогаем: его байты входят в отпечаток ядра чат-бота (customerAgentRegistration.ts, coreHash).
+ */
+export function tajikWordCount(text: string): number {
+  const words = new Set((text.match(/\p{L}+/gu) ?? []).map((w) => w.toLowerCase()));
+  return [...words].filter((w) => {
+    const s = clientLanguageScores(w);
+    return s.greetings === 0 && s.tajik > 0;
+  }).length;
+}
+
+/** Фраза твёрдо таджикская: определитель говорит «tg», и таджикских слов (не приветствий) не меньше
+ *  CALLER_TAJIK_CONFIDENT_WORDS. Такой одной хватает, чтобы перейти на таджикский. */
+export function isConfidentTajik(text: string): boolean {
+  return classifyCallerUtterance(text) === "tg" && tajikWordCount(text) >= CALLER_TAJIK_CONFIDENT_WORDS;
 }
 
 export type CallerLanguageAction =
@@ -111,7 +143,8 @@ export class CallerLanguageTracker {
       return null;
     }
     this.otherStreak += 1;
-    if (this.otherStreak < CALLER_LANGUAGE_SWITCH_AFTER) return null;
+    const needed = heard === "tg" && isConfidentTajik(this.turnText) ? 1 : CALLER_LANGUAGE_SWITCH_AFTER;
+    if (this.otherStreak < needed) return null;
     this.current = heard;
     this.otherStreak = 0;
     return { kind: "switch", to: heard };

@@ -78,6 +78,15 @@ import { attachGuardFacts, type GuardPropertyFacts } from "./liveVoiceGuards.js"
 
 export const LIVE_VOICE_DISTRICTS = ["Исмоили Сомони", "Сино", "Фирдавси", "Шохмансур"] as const;
 
+/**
+ * РАЙОН РУДАКИ — НАША ЗОНА, НО НЕ РАЙОН ГОРОДА (16.11.2026, решение владельца 15.11 «Да, Рудаки берём»;
+ * зона — lib/serviceArea.ts). В перечне районов выше его нет нарочно: это четыре района Душанбе из
+ * справочника District, а Рудаки вокруг города — для поиска «за городом». Голое «Рудаки» — ещё и
+ * проспект в центре, поэтому модель передаёт слова человека, а различает код (mentionsRudakiDistrict).
+ */
+export const RUDAKI_VOICE_HINT =
+  `Район Рудаки (Рӯдакӣ, Сомониён) — наша зона, но не район города: district не передавай, а слова человека «район Рудаки» — в landmark (поиск поймёт «за городом»). Просто «Рудаки» без слова «район» — это может быть проспект Рудаки в центре: уточни одним вопросом.`;
+
 /** Больше трёх вариантов на слух не запомнить. */
 const OPTIONS_PER_SEARCH = 3;
 /** В одном СМС — не больше трёх ссылок: кириллица по 70 знаков на платную часть. */
@@ -107,9 +116,9 @@ export const PROPERTY_TOOLS: LiveVoiceFunctionDeclaration[] = [
     parameters: {
       type: "OBJECT",
       properties: {
-        district: { type: "STRING", description: "Официальный район Душанбе, если назван словом.", enum: [...LIVE_VOICE_DISTRICTS] },
+        district: { type: "STRING", description: `Официальный район Душанбе, если назван словом. ${RUDAKI_VOICE_HINT}`, enum: [...LIVE_VOICE_DISTRICTS] },
         landmark: { type: "STRING", description: "Ориентир, микрорайон, улица или народное название — словами звонящего." },
-        suburban: { type: "BOOLEAN", description: "true — ищет за городом (Вахдат, Варзоб, Гиссар, дача)." },
+        suburban: { type: "BOOLEAN", description: "true — ищет за городом (район Рудаки, Сомониён, Вахдат, Варзоб, Гиссар, дача)." },
         sort: { type: "STRING", description: "cheap — просит подешевле / самое дешёвое.", enum: ["cheap"] },
         renovation: { type: "STRING", description: "with — с ремонтом, without — без ремонта (коробка).", enum: ["with", "without"] },
         market: { type: "STRING", description: "NEW_BUILD — новостройка, SECONDARY — вторичка.", enum: ["NEW_BUILD", "SECONDARY"] },
