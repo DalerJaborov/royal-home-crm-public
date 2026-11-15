@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { Request } from "express";
 import { loadCatalogProperties, renderHomeListingCsv } from "../lib/metaCatalogFeed.js";
 import { loadProductVideoRows, renderProductVideoCsv } from "../lib/metaProductVideoFeed.js";
-import { isPropertyVideoPublic } from "../lib/propertyPublicVideo.js";
+import { isPropertyVideoPublic, propertyVideoFileExists } from "../lib/propertyPublicVideo.js";
 import { logSystemError } from "../lib/systemError.js";
 import { videoHandoffDir } from "../upload.js";
 
@@ -93,6 +93,10 @@ const videoLimiter = rateLimit({
   message: { error: "Слишком много запросов, попробуйте позже" },
 });
 
+/** Журнал о недоступном ролике: одна запись на объект в сутки, счётчик растёт у неё же. */
+const PUBLIC_VIDEO_MISSING_DEDUP = "public-video-missing:";
+const PUBLIC_VIDEO_MISSING_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 const propertyVideoParam = z.object({ file: z.string().regex(/^\d{1,9}\.mp4$/) });
 
 publicFeedRouter.get("/property-video/:file", videoLimiter, async (req, res) => {
@@ -114,6 +118,15 @@ publicFeedRouter.get("/property-video/:file", videoLimiter, async (req, res) => 
     },
   });
   if (!property || !isPropertyVideoPublic(property)) return res.status(404).end();
+  // Файла нет на диске (потерян при переезде): тот же 404 без попытки отдать, и ОДНА строка в журнале
+  // на объект в сутки (раньше ~600 строк ENOENT на объект: каждый заход сайта или фида).
+  if (!propertyVideoFileExists(property.videoHandoffFinalPath)) {
+    void logSystemError("storage", `Публичный ролик объекта №${shortId}: файла нет на диске, ссылка отдаёт 404`, {
+      dedupKey: PUBLIC_VIDEO_MISSING_DEDUP + shortId,
+      dedupWindowMs: PUBLIC_VIDEO_MISSING_WINDOW_MS,
+    });
+    return res.status(404).end();
+  }
 
   const fileName = path.basename(property.videoHandoffFinalPath!);
   res.setHeader("Content-Type", "video/mp4");
@@ -121,7 +134,10 @@ publicFeedRouter.get("/property-video/:file", videoLimiter, async (req, res) => 
   // sendFile сам ставит Accept-Ranges и отвечает на Range — плееру это нужно.
   res.sendFile(fileName, { root: videoHandoffDir, maxAge: "1d" }, (err) => {
     if (err && !res.headersSent) {
-      void logSystemError("storage", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`);
+      void logSystemError("storage", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`, {
+        dedupKey: PUBLIC_VIDEO_MISSING_DEDUP + shortId,
+        dedupWindowMs: PUBLIC_VIDEO_MISSING_WINDOW_MS,
+      });
       res.removeHeader("Content-Type");
       res.status(404).end();
     }
