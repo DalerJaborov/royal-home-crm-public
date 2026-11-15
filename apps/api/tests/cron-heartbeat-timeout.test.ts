@@ -1,4 +1,5 @@
 import { describe, it, expect, afterAll, vi } from "vitest";
+import { waitFor } from "./helpers/waitFor.js";
 import { prisma } from "../src/db.js";
 import * as heartbeat from "../src/lib/cronHeartbeat.js";
 
@@ -18,6 +19,9 @@ const { scheduleTracked } = heartbeat;
 const NAME = "test-hang-tick";
 
 afterAll(async () => {
+  // Тик, снятый по таймауту, ставит срочную тревогу директору (14.11.2026): не оставляем её
+  // в общей базе, иначе очередь тревог следующего файла доставит чужую строку.
+  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: "cron-silent:test-" } } });
   await prisma.cronHeartbeat.deleteMany({ where: { name: { in: [NAME, "test-active-tick", "test-stopped-tick", "test-long-tick"] } } });
   await prisma.errorLog.deleteMany({ where: { source: "cron", message: { contains: NAME } } });
   await prisma.$disconnect();
@@ -53,10 +57,12 @@ describe("scheduleTracked — таймаут зависшего тика", () =>
       const row = await prisma.cronHeartbeat.findUnique({ where: { name: NAME } });
       expect(row?.lastError).toMatch(/не завершил тик/);
 
-      const logged = await prisma.errorLog.findFirst({
-        where: { source: "cron", message: { contains: NAME } },
-      });
+      // Журнал и тревога пишутся ПОСЛЕ отметки пульса, на нагруженной машине позже 400 мс.
+      const logged = await waitFor(() => prisma.errorLog.findFirst({ where: { source: "cron", message: { contains: NAME } } }), { timeoutMs: 8000 });
       expect(logged).not.toBeNull();
+      // Снятый по таймауту тик доходит до директора срочной тревогой (14.11.2026, №3).
+      const door = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `cron-silent:${NAME}` } }), { timeoutMs: 8000 });
+      expect(door).toMatchObject({ level: "CRITICAL", urgent: true });
 
       // Замок снят — следующее срабатывание должно выполниться (calls растёт).
       void task.execute();
