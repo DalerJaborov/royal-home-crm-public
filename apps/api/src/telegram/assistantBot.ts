@@ -170,6 +170,8 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   ...STAFF_TOOL_NAMES,
   // Личная настройка уведомлений (14.11.2026): только в личке; в группе — вторая стена к allowed().
   "set_notification_pref",
+  // Рынок под запрос клиента (14.11.2026): бюджет и пожелания клиента только в личке; цена объекта против рынка в группе допустима.
+  "market_for_client",
   // Деньги в общей группе не показываются и не меняются (10.11.2026): все инструменты расходов.
   // Список буквами (не импортом): сверку с реестром держит тест assistant-expense-batch.
   "list_expenses", "get_expense_summary", "get_expense_forecast", "get_expense_pivot", "list_recurring_expenses",

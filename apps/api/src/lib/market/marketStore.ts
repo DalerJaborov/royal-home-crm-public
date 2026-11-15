@@ -131,6 +131,11 @@ async function districtOf(l: ParsedListing): Promise<string | null> {
 
 export async function saveListings(source: string, listings: ParsedListing[]): Promise<SaveStats> {
   const stats: SaveStats = { created: 0, updated: 0, priceChanges: 0, skipped: 0 };
+  // Аренду каталог не ведёт (14.11.2026): последняя дверь записи отсекает всё, что не продажа,
+  // даже если разбор источника по ошибке вернул другое.
+  const sales = listings.filter((l) => (l.dealType as string) === "SALE");
+  stats.skipped += listings.length - sales.length;
+  listings = sales;
   if (listings.length === 0) return stats;
 
   const money = await loadMoneyContext();

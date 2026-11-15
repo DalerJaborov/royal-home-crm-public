@@ -1,6 +1,7 @@
 import { prisma } from "../db.js";
 import { sendPushToAgent } from "../push.js";
-import { SPAM_MUTED_NO_REPLY, customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
+import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
+import { CUSTOMER_TURN_INTENDED_SILENCE } from "./customerIntendedSilence.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { fetchLastCallContactByClient } from "./botPauseWatch.js";
 import { isWithinWorkingHours } from "./workingHours.js";
@@ -46,12 +47,9 @@ const LOOKBACK_MS = 24 * 60 * 60 * 1000;
 /** Предел выборки за тик (правило «у любой выборки есть предел»). */
 const SWEEP_LIMIT = 300;
 
-/** Ядро промолчало НАМЕРЕННО — это решение, а не сбой, человека не зовём. */
-export const INTENTIONAL_SILENCE_REASONS: ReadonlySet<string> = new Set([
-  "foreign_share_no_reply",
-  SPAM_MUTED_NO_REPLY,
-  "attachment_question_repeat_no_reply",
-]);
+/** Ядро промолчало НАМЕРЕННО — это решение, а не сбой, человека не зовём. Список один
+ *  на оба сторожа (lib/customerIntendedSilence.ts): мгновенный после хода и этот. */
+export const INTENTIONAL_SILENCE_REASONS: ReadonlySet<string> = new Set(CUSTOMER_TURN_INTENDED_SILENCE);
 
 /** Модель сама решила, что нужен сотрудник, а ответа клиенту нет — звать сразу, не ждать 30 минут. */
 export const STAFF_NEEDED_NOW_REASONS: ReadonlySet<string> = new Set(["staff_or_supported_reply_required"]);
@@ -105,7 +103,9 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
   return since ? { since, eventKeys, untracked } : null;
 }
 
-export type ClientWaitingTrigger = "escalate" | "silence";
+/** escalate — модель сама решила «нужен сотрудник»; failed — ход бота сломался (лимит шагов,
+ *  сбой, очередь сдалась); silence — сторож увидел молчание через 30 минут. */
+export type ClientWaitingTrigger = "escalate" | "failed" | "silence";
 export type ClientWaitingOutcome = "agent" | "director" | "skipped";
 
 const CHANNEL_NAME: Record<string, string> = {
@@ -124,6 +124,8 @@ const CHANNEL_NAME: Record<string, string> = {
 export async function alertClientWaiting(input: {
   conversationId: string;
   trigger: ClientWaitingTrigger;
+  /** Для failed: почему бот не ответил, простыми словами (без служебных кодов). */
+  why?: string;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
@@ -149,7 +151,7 @@ export async function alertClientWaiting(input: {
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
-  const since = episode?.since ?? (input.trigger === "escalate" ? now : null);
+  const since = episode?.since ?? (input.trigger !== "silence" ? now : null);
   if (!since) return "skipped";
   if (chat.silenceAlertFor && chat.silenceAlertFor.getTime() >= since.getTime()) return "skipped";
 
@@ -166,7 +168,10 @@ export async function alertClientWaiting(input: {
   const body =
     input.trigger === "escalate"
       ? `${name}: бот решил, что нужен сотрудник, и не ответил. Ответьте клиенту.`
-      : `${name}: ждёт ответа в переписке ${waitedMin} мин. Ни бот, ни сотрудник не ответили.`;
+      : input.trigger === "failed"
+        // Правда о причине (ревью 193-3, 15.11): бот сломался, а не «решил».
+        ? `${name}: ${input.why ?? "бот не смог подготовить ответ"} — клиент без ответа. Ответьте клиенту.`
+        : `${name}: ждёт ответа в переписке ${waitedMin} мин. Ни бот, ни сотрудник не ответили.`;
   const url = `/messages?open=${chat.id}`;
   const tag = `client-waiting-${chat.id}`;
   const agent = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
