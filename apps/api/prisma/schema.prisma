@@ -6001,6 +6001,10 @@ model Settings {
   /// пуш ответственному через ту же дверь, что у Meta. Включён: переписок в Telegram
   /// единицы в неделю, массовых пушей не бывает.
   telegramSilenceWatchEnabled       Boolean   @default(true)
+  /// СТОРОЖ «TELEGRAM НЕ ДОСТАВЛЯЕТ В CRM» (15.11.2026, lib/telegramDeliveryWatch.ts):
+  /// getWebhookInfo — вебхук не установлен, свежая ошибка доставки, очередь копится —
+  /// тревога руководству. Включён: пушей сотрудникам нет.
+  telegramDeliveryWatchEnabled      Boolean   @default(true)
   /// СТОРОЖ «ВЕБХУК WHATSAPP ЗАМОЛЧАЛ» (15.11.2026, lib/whatsappWebhookWatch.ts):
   /// входящие WhatsApp Meta отдаёт только вебхуком, сверить их не с чем. Номер жив,
   /// а входящих в рабочие часы нет дольше обычного — тревога руководству в «Здоровье

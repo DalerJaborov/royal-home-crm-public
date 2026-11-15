@@ -29,12 +29,22 @@ vi.mock("../src/messengers/meta.js", async (importOriginal) => {
   };
 });
 
+const scopeOverride = { deny: false };
+vi.mock("../src/lib/customerConversationScope.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/lib/customerConversationScope.js")>();
+  return { ...real, findScopedBotConversation: async (...args: Parameters<typeof real.findScopedBotConversation>) => {
+    if (scopeOverride.deny) throw new real.CustomerScopeDenied("account_mismatch");
+    return real.findScopedBotConversation(...args);
+  } };
+});
+
 const { prisma } = await import("../src/db.js");
 const { runClientSilenceSweep, CLIENT_WAITING_MINUTES } = await import("../src/lib/clientWaitingAlert.js");
 const wa = await import("../src/lib/whatsappWebhookWatch.js");
 const held = await import("../src/lib/customerHeldMessage.js");
 const { reportUnansweredCustomerTurn } = await import("../src/lib/customerTurnSilence.js");
 const payloadLib = await import("../src/lib/customerIngressPayload.js");
+const tgDelivery = await import("../src/lib/telegramDeliveryWatch.js");
 
 const runId = Date.now().toString(36);
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
@@ -137,10 +147,13 @@ describe("Telegram: клиент без ответа — та же дверь, �
 
   it("рубильник выключен — Telegram не проверяется", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { telegramSilenceWatchEnabled: false } });
-    const id = await tgChat([{ role: "user", content: "Ау", at: minutesAgo(50) }], { agent: true });
-    await runClientSilenceSweep();
-    expect(pushesFor(`tg_${id}`)).toHaveLength(0);
-    await prisma.settings.update({ where: { id: "singleton" }, data: { telegramSilenceWatchEnabled: true } });
+    try {
+      const id = await tgChat([{ role: "user", content: "Ау", at: minutesAgo(50) }], { agent: true });
+      await runClientSilenceSweep();
+      expect(pushesFor(`tg_${id}`)).toHaveLength(0);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { telegramSilenceWatchEnabled: true } });
+    }
   });
 });
 
@@ -215,8 +228,12 @@ describe("WhatsApp: вебхук замолчал", () => {
   });
 });
 
-describe("Сообщение без чата CRM — пуш «Ответьте вручную», а не строка в журнале (задача 5)", () => {
-  it("тикет ядра без переписки: кто и где — из зашифрованного входа тикета; один пуш на человека за окно", async () => {
+describe("Сообщение без чата CRM — сводка «Ответьте вручную», а не строка в журнале (задача 5)", () => {
+  const summaries = () => sendPushToAgents.mock.calls.filter(([, p]) => (p as { tag?: string }).tag === "customer-unrecorded");
+  const resetQueue = () => prisma.processedMessage.deleteMany({ where: { channel: { in: ["customer-unrecorded-notify", "customer-unrecorded-pending"] } } });
+
+  it("тикет ядра без переписки: кто и где — из зашифрованного входа тикета; сводка с текстом и просьбой проверить, не ответили ли уже", async () => {
+    await resetQueue();
     const source = { path: "entry.0.changes.0", frameHash: "c".repeat(64) };
     const payload = { version: 1 as const, channel: "WHATSAPP" as const, peer: "992900111222", accountExternalId: "wa-phone-test",
       eventKind: "message" as const, eventId: `wamid.${runId}`, inputText: "Сколько стоит квартира?", source,
@@ -230,43 +247,90 @@ describe("Сообщение без чата CRM — пуш «Ответьте �
       order: 7n, scopeKey: context.scopeKey, endpointScopeId: context.endpointScopeId, payloadVersion: 1, payloadCiphertext: ciphertext,
       payloadHash: context.payloadHash };
     const query = vi.spyOn(prisma, "$queryRaw");
-    query.mockResolvedValueOnce([ticketRow] as never);
-    await reportUnansweredCustomerTurn(context.eventKey, "sender_read_unavailable");
-    expect(sendPushToAgents).toHaveBeenCalledTimes(1);
-    const [recipients, push] = sendPushToAgents.mock.calls[0] as unknown as [string[], { title: string; body: string; level: string }];
+    try {
+      query.mockResolvedValueOnce([ticketRow] as never);
+      await reportUnansweredCustomerTurn(context.eventKey, "sender_read_unavailable");
+      // Тот же человек ещё раз — в очередь второй раз не встаёт (окно 6 ч от последней отметки).
+      query.mockResolvedValueOnce([ticketRow] as never);
+      await reportUnansweredCustomerTurn(context.eventKey, "sender_read_unavailable");
+      // Чат удалил сотрудник — его решение, человека не зовём.
+      query.mockResolvedValueOnce([{ ...ticketRow, chatDeleted: true }] as never);
+      await reportUnansweredCustomerTurn(context.eventKey, "sender_read_unavailable");
+    } finally {
+      query.mockRestore();
+    }
+    expect(sendPushToAgents).not.toHaveBeenCalled(); // сразу не шлём: сводка за тик
+    expect(await held.runUnrecordedCustomerSummary()).toMatchObject({ people: 1, sent: true });
+    const [recipients, push] = summaries()[0] as unknown as [string[], { title: string; body: string; level: string }];
     expect(recipients).toContain(ids.director);
     expect(push.title).toContain("+992900111222");
     expect(push.body).toContain("Сколько стоит квартира?");
+    expect(push.body).toContain("не ответили ли уже");
     expect(push.level).toBe("CRITICAL");
-
-    // Тот же человек ещё раз в том же окне — второго пуша нет.
-    query.mockResolvedValueOnce([ticketRow] as never);
-    await reportUnansweredCustomerTurn(context.eventKey, "sender_read_unavailable");
-    expect(sendPushToAgents).toHaveBeenCalledTimes(1);
-
-    // Чат удалил сотрудник — его решение, человека не зовём.
-    query.mockResolvedValueOnce([{ ...ticketRow, peer: null, chatDeleted: true }] as never);
-    await prisma.processedMessage.deleteMany({ where: { channel: "customer-unrecorded-notify" } });
-    await reportUnansweredCustomerTurn(context.eventKey, "sender_read_unavailable");
-    expect(sendPushToAgents).toHaveBeenCalledTimes(1);
-    query.mockRestore();
+    // Очередь пуста — второй тик молчит.
+    expect(await held.runUnrecordedCustomerSummary()).toMatchObject({ people: 0, sent: false });
   });
 
-  it("непереданное сообщение без записи в чат (scope_denied) — пуш; удалённый сотрудником чат — только журнал", async () => {
-    await held.notifyHeldCustomerMessages([
-      { reason: "owned_subject_stopped", channel: "INSTAGRAM", peer: `ig-${runId}`, accountExternalId: null, conversationId: null,
-        excerpt: "Здравствуйте", unrecorded: "scope_denied" },
-      { reason: "owned_subject_stopped", channel: "INSTAGRAM", peer: `ig2-${runId}`, accountExternalId: null, conversationId: null,
-        excerpt: "", unrecorded: "chat_deleted" },
-    ]);
-    expect(sendPushToAgents).toHaveBeenCalledTimes(1);
-    expect((sendPushToAgents.mock.calls[0] as unknown as [string[], { body: string }])[1].body).toContain("Здравствуйте");
+  it("198-2: непереданное с отказом области — в сводке НАСТОЯЩИЙ текст клиента (запись берётся из recordHeldCustomerMessage)", async () => {
+    await resetQueue();
+    const input = { version: 1 as const, channel: "INSTAGRAM" as const, peer: `ig-${runId}`, accountExternalId: `acc-${runId}`,
+      eventKind: "message" as const, eventId: `mid.${runId}`, inputText: "Есть квартира в Сино?", source: { path: "entry.0.messaging.0", frameHash: "f".repeat(64) },
+      observations: { providerEcho: false, referralOnly: false }, media: [], propertyEvidence: [] };
+    const transport = { endpointScopeId: randomUUID(), channel: "INSTAGRAM", accountId: null, transportKey: "t", scopeRevision: "0" };
+    scopeOverride.deny = true;
+    let hold;
+    try {
+      hold = await held.recordHeldCustomerMessage({ reason: "owned_subject_stopped", input, transport });
+    } finally {
+      scopeOverride.deny = false;
+    }
+    expect(hold).toMatchObject({ conversationId: null, unrecorded: "scope_denied", excerpt: "Есть квартира в Сино?" });
+    await held.notifyHeldCustomerMessages([hold, { reason: "owned_subject_stopped", channel: "INSTAGRAM", peer: `ig2-${runId}`,
+      accountExternalId: null, conversationId: null, excerpt: "", unrecorded: "chat_deleted" }]);
+    expect(await held.runUnrecordedCustomerSummary()).toMatchObject({ people: 1, sent: true });
+    expect((summaries()[0] as unknown as [string[], { body: string }])[1].body).toContain("Есть квартира в Сино?");
   });
 
-  it("пуш не ушёл — отметка снимается, следующий раз скажем", async () => {
+  it("198-1: волна из многих людей — ОДНА сводка за тик, а не пуш на каждого", async () => {
+    await resetQueue();
+    for (let i = 0; i < 5; i++) {
+      await held.queueUnrecordedCustomer({ channel: "FACEBOOK", peer: `wave-${runId}-${i}`, accountExternalId: null, excerpt: `Салом ${i}`, why: "бот не ответит" });
+    }
+    expect(await held.runUnrecordedCustomerSummary()).toMatchObject({ people: 5, sent: true });
+    expect(summaries()).toHaveLength(1);
+    expect((summaries()[0] as unknown as [string[], { title: string }])[1].title).toContain("5 чел.");
+  });
+
+  it("сводка не ушла — записи возвращаются в очередь, следующий тик скажет", async () => {
+    await resetQueue();
+    await held.queueUnrecordedCustomer({ channel: "FACEBOOK", peer: `fb-${runId}`, accountExternalId: null, excerpt: "Есть?", why: "бот не смог" });
     sendPushToAgents.mockRejectedValueOnce(new Error("push down"));
-    const hold = { channel: "FACEBOOK", peer: `fb-${runId}`, accountExternalId: null, excerpt: "Есть?", why: "бот не смог" };
-    expect(await held.pushStaffAboutUnrecorded(hold)).toBe("skipped");
-    expect(await held.pushStaffAboutUnrecorded(hold)).toBe("sent");
+    expect(await held.runUnrecordedCustomerSummary()).toMatchObject({ sent: false });
+    expect(await held.runUnrecordedCustomerSummary()).toMatchObject({ people: 1, sent: true });
+  });
+});
+
+describe("Telegram: доставка в CRM (getWebhookInfo)", () => {
+  const now = new Date("2026-11-15T12:00:00Z");
+  it("нет вебхука, свежая ошибка, очередь два тика подряд — тревога; старая ошибка и разовый всплеск — нет", () => {
+    expect(tgDelivery.telegramDeliveryProblem({ url: "" }, now, 0)?.key).toBe("no-webhook");
+    const fresh = Math.floor((now.getTime() - 5 * 60_000) / 1000);
+    expect(tgDelivery.telegramDeliveryProblem({ url: "https://crm/x", last_error_date: fresh, last_error_message: "Wrong response from the webhook: 503" }, now, 0)?.text)
+      .toContain("503");
+    const old = Math.floor((now.getTime() - 3 * 3_600_000) / 1000);
+    expect(tgDelivery.telegramDeliveryProblem({ url: "https://crm/x", last_error_date: old }, now, 0)).toBeNull();
+    expect(tgDelivery.telegramDeliveryProblem({ url: "https://crm/x", pending_update_count: 12 }, now, 0)).toBeNull();
+    expect(tgDelivery.telegramDeliveryProblem({ url: "https://crm/x", pending_update_count: 12 }, now, 9)?.key).toBe("queue");
+  });
+
+  it("рубильник выключен — Telegram не спрашиваем", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { telegramDeliveryWatchEnabled: false } });
+    try {
+      const read = vi.fn(async () => ({ url: "" }));
+      expect(await tgDelivery.runTelegramDeliveryWatch(now, read)).toMatchObject({ skipped: "off" });
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { telegramDeliveryWatchEnabled: true } });
+    }
   });
 });

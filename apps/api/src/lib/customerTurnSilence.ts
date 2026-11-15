@@ -58,6 +58,11 @@ export async function reportUnansweredCustomerTurn(eventKey: string, reason: str
           -- after the queue job gave up, a ticket left in RECEIVED/CLAIMED is exactly the failure: only PLANNED means answered
           OR (CASE WHEN ${gaveUp}::boolean THEN t."processingState"='PLANNED'
                 ELSE t."processingState" IS DISTINCT FROM 'HELD' OR (t."leaseOwner" IS NOT NULL AND t."leaseUntil" > now()) END)
+          -- No chat of its own (review 198-3): the same person may have a chat via another ticket; an answer there after this
+          -- ticket arrived means nobody needs to be called. Prod 15.11: 2 of 37 such people were answered another way.
+          OR (c."id" IS NULL AND EXISTS (SELECT 1 FROM "CustomerPropertyIngressTicket" s JOIN "BotConversation" sc ON sc."id"=s."conversationId"
+            WHERE s."scopeKey"=t."scopeKey" AND s."eventKey"<>t."eventKey"
+              AND (sc."messages" -> -1 ->> 'role') IS DISTINCT FROM 'user' AND sc."lastMessageAt" >= t."createdAt"))
           OR (c."id" IS NOT NULL AND (
             (c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()) OR c."optedOutAt" IS NOT NULL OR c."propertyChatAgentId" IS NOT NULL
             OR (c."messages" -> -1 ->> 'role') IS DISTINCT FROM 'user'))) AS "answered"

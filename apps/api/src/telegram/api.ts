@@ -1367,3 +1367,16 @@ export async function downloadFile(fileId: string, maxBytes: number = MAX_FILE_B
     return null;
   }
 }
+
+/** Состояние вебхука бота (core.telegram.org/bots/api#getwebhookinfo): адрес, очередь, последняя ошибка доставки. */
+export interface TelegramWebhookInfo {
+  url?: string;
+  pending_update_count?: number;
+  last_error_date?: number;
+  last_error_message?: string;
+}
+
+/** Только чтение: как Telegram доставляет обновления бота в CRM (сторож lib/telegramDeliveryWatch.ts). */
+export function getWebhookInfo(): Promise<TelegramWebhookInfo> {
+  return call<TelegramWebhookInfo>("getWebhookInfo", {}, 15_000, undefined, undefined, true);
+}

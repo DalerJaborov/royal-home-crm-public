@@ -323,6 +323,16 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
               : "Не следим: молчание в Telegram никто не заметит, пока не откроет переписку."
           }
         />
+        <SwitchRow
+          title="Следить, что Telegram доставляет сообщения"
+          on={settings?.telegramDeliveryWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramDeliveryWatchEnabled: !(settings?.telegramDeliveryWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramDeliveryWatchEnabled ?? true
+              ? "Раз в 10 минут CRM спрашивает у Telegram, доходят ли сообщения бота: если нет — руководство получает тревогу с причиной."
+              : "Не следим: если Telegram перестанет доставлять сообщения в CRM, это заметят только по жалобам клиентов."
+          }
+        />
       </SettingsSection>
 
       </>}

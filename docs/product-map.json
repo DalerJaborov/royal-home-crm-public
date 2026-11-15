@@ -1712,6 +1712,11 @@
       "label": null
     },
     {
+      "id": "customer-unrecorded-summary",
+      "expr": "*/2 * * * *",
+      "label": null
+    },
+    {
       "id": "daily-kpi",
       "expr": "5 0 * * *",
       "label": "Пересчитывает показатели всех агентов за вчера"
@@ -2104,6 +2109,11 @@
     {
       "id": "telegram-bot-api-volume-cleanup",
       "expr": "59 3 * * *",
+      "label": null
+    },
+    {
+      "id": "telegram-delivery-watch",
+      "expr": "4-59/10 * * * *",
       "label": null
     },
     {

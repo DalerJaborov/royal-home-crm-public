@@ -14,12 +14,12 @@
  "totals": {
   "screens": 53,
   "paths": 749,
-  "cron": 133,
+  "cron": 135,
   "jobs": 33,
-  "conditions": 4031,
-  "untranslatedUnique": 461,
-  "untranslatedTotal": 592,
-  "partialUnique": 1094,
+  "conditions": 4042,
+  "untranslatedUnique": 462,
+  "untranslatedTotal": 593,
+  "partialUnique": 1099,
   "translatedShare": 85
  },
  "untranslated": [
@@ -34,6 +34,7 @@
   "!(await setPausedUntil(req.params.id, pausedUntil))",
   "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
   "!(await shouldAlert(tag, DISAPPROVED_WINDOW_MS, now))",
+  "!(s?.telegramDeliveryWatchEnabled ?? true)",
   "!(s?.whatsappWebhookWatchEnabled ?? true)",
   "!/^[a-f0-9]{64}$/.test(eventKey)",
   "!/^[a-z0-9-]{8,64}$/.test(req.params.campaign)",
@@ -66358,6 +66359,152 @@
    ]
   },
   {
+   "id": "customer-unrecorded-summary",
+   "when": "*/2 * * * *",
+   "label": "customer-unrecorded-summary",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: recipients количество",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть ожидают",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если нет: taken количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если нет: people количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: account external или titles содержит «${p.channel}:${p.accountExternalId}»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть title",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "push-уведомление",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "заводит: processed сообщение",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если people больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "daily-kpi",
    "when": "5 0 * * *",
    "label": "Пересчитывает показатели всех агентов за вчера",
@@ -74601,6 +74748,90 @@
       },
       {
        "t": "если есть removed",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "telegram-delivery-watch",
+   "when": "4-59/10 * * * *",
+   "label": "telegram-delivery-watch",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(s?.telegramDeliveryWatchEnabled ?? true)",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(s?.telegramDeliveryWatchEnabled ?? true)"
+        },
+        {
+         "t": "если выключено: Telegram",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: проблема",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть alarmed",
        "k": "if",
        "a": [],
        "c": []
