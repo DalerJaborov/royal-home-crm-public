@@ -1,5 +1,5 @@
 import { geoMatchKey } from "./geoNormalize.js";
-import { mentionsRudakiDistrict } from "./serviceArea.js";
+import { mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME } from "./serviceArea.js";
 
 /**
  * ЗА ГОРОДОМ — ОТДЕЛЬНЫЙ ПРИЗНАК, А НЕ ЧЕТВЕРТЬ ДУШАНБЕ (10.10.2026, аудит поиска
@@ -49,9 +49,16 @@ export interface SuburbCheckFields {
   address?: string | null;
   landmark?: string | null;
   description?: string | null;
+  /** Район из справочника: «Рудаки» — за городом, даже если в тексте карточки слов района нет. */
+  district?: { name: string } | null;
 }
 
 /** Объект за городом — по словам самой карточки. */
 export function isSuburbanProperty(p: SuburbCheckFields): boolean {
-  return [p.title, p.address, p.landmark, p.description].some((t) => textMentionsSuburb(t));
+  return p.district?.name === RUDAKI_DISTRICT_NAME || [p.title, p.address, p.landmark, p.description].some((t) => textMentionsSuburb(t));
+}
+
+/** Объект именно в районе Рудаки: район в справочнике или слова района в карточке. */
+export function isRudakiProperty(p: SuburbCheckFields): boolean {
+  return p.district?.name === RUDAKI_DISTRICT_NAME || [p.title, p.address, p.landmark, p.description].some((t) => mentionsRudakiDistrict(t));
 }

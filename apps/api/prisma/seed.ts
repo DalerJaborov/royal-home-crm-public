@@ -7,7 +7,8 @@ async function main() {
   console.log("Сидирование базы данных...");
 
   const districts = await Promise.all(
-    ["Сино", "Исмоили Сомони", "Фирдавси", "Шохмансур"].map((name) =>
+    // Рудаки — пятым (зона с 15.11.2026, миграция 20261116120000_district_rudaki); порядок первых четырёх ниже важен.
+    ["Сино", "Исмоили Сомони", "Фирдавси", "Шохмансур", "Рудаки"].map((name) =>
       prisma.district.upsert({
         where: { name },
         update: {},

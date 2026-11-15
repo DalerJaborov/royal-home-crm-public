@@ -28814,6 +28814,8 @@
   - если !extract
     - return "ai-unavailable";
       · дословно из кода
+  - const pickedDistrict = typeof extract.districtName === "string" && districtPickAllowed(extract.districtName.t…
+    · зовёт districtPickAllowed()
   - если next.address && next.address !== base.address
     - пробует
       - const place = await resolveGeoText(next.address);

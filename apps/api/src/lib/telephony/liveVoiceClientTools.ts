@@ -26,7 +26,7 @@ import { propertyOwnerAgentId } from "../propertyOwner.js";
 import { BOT_OFFER_SELECT, botMayOffer, botOfferableWhere, botOfferLink, type BotOfferFields } from "../propertyMatch.js";
 import { bookShowing, resolveShowingSlot, SHOWING_CONFLICT_WINDOW_MS, type BookingProblem } from "../showingBooking.js";
 import { sendSms, toSmsPhone } from "../sms/index.js";
-import { mentionsRudakiDistrict } from "../serviceArea.js";
+import { mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME } from "../serviceArea.js";
 import { logSystemError } from "../systemError.js";
 import { isWithinConsultantHours } from "./consultantHours.js";
 import type { LiveVoiceToolReply } from "./liveVoiceBridge.js";
@@ -34,6 +34,7 @@ import { attachTranscriptLine } from "./liveVoiceGuards.js";
 import {
   AGENT_CALLBACK_ONCE,
   LIVE_VOICE_DISTRICTS,
+  RUDAKI_VOICE_HINT,
   streetWithoutHouse,
   type ClientCallRequest,
   type PropertyCallMemory,
@@ -110,7 +111,7 @@ export const CLIENT_TOOLS: LiveVoiceFunctionDeclaration[] = [
         intent: { type: "STRING", description: "buy — покупает, sell — продаёт свою.", enum: ["buy", "sell"] },
         district: {
           type: "STRING",
-          description: "Официальный район Душанбе. Объект или поиск в районе Рудаки (наша зона, за городом) — district не передавай, а напиши «район Рудаки» в notes: район этим засчитан.",
+          description: `Район Душанбе или район Рудаки (наша зона). ${RUDAKI_VOICE_HINT}`,
           enum: [...LIVE_VOICE_DISTRICTS],
         },
         type: { type: "STRING", description: "APARTMENT, HOUSE, COMMERCIAL, LAND.", enum: ["APARTMENT", "HOUSE", "COMMERCIAL", "LAND"] },
@@ -365,7 +366,8 @@ async function myStatusTool(memory: PropertyCallMemory): Promise<LiveVoiceToolRe
 export function sanitizeClientRequest(args: Record<string, unknown>): ClientCallRequest {
   const out: ClientCallRequest = {};
   if (args.intent === "buy" || args.intent === "sell") out.intent = args.intent;
-  const district = LIVE_VOICE_DISTRICTS.find((d) => d === args.district);
+  // «Рудаки» без слов района — только в перечне; «район Рудаки» в notes без district — тоже район (lib/serviceArea.ts).
+  const district = LIVE_VOICE_DISTRICTS.find((d) => d === args.district) ?? (mentionsRudakiDistrict(str(args.notes, 200)) ? RUDAKI_DISTRICT_NAME : undefined);
   if (district) out.districtName = district;
   if (typeof args.type === "string" && ["APARTMENT", "HOUSE", "COMMERCIAL", "LAND"].includes(args.type)) out.type = args.type;
   const rooms = positive(args.rooms);
@@ -421,9 +423,7 @@ export function missingRequestFields(r: ClientCallRequest, declined: readonly st
   const missing: RequestField[] = [];
   if (!r.intent) missing.push("intent");
   if (!r.type) missing.push("type");
-  // Район Рудаки — наша зона (lib/serviceArea.ts), но не район города: в перечне его нет, и без этого
-  // продавец из Рудаки слышал бы «не хватает: район» по кругу.
-  if (!r.districtName && !mentionsRudakiDistrict(r.notes)) missing.push("district");
+  if (!r.districtName) missing.push("district");
   if (r.type === "APARTMENT" && !r.rooms) missing.push("rooms");
   if (!hasBudget) missing.push("budget");
   else if (!r.currency) missing.push("currency");

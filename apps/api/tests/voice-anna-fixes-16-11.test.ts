@@ -8,16 +8,19 @@ import { TAJIK_PHONE_SPEECH_RULES } from "../src/ai/tajikPhoneSpeech.js";
 import { buildInterviewInviteCallPrompt } from "../src/ai/interviewInviteCallPersona.js";
 import { buildLiveVoiceKnowledge } from "../src/ai/liveVoiceKnowledge.js";
 
-import { CallerLanguageTracker, isConfidentTajik, tajikWordCount } from "../src/lib/telephony/liveVoiceCallerLanguage.js";
-import { poorLineBreakNote } from "../src/lib/telephony/liveVoicePoorLine.js";
+import { asksToSpeakTajik, CallerLanguageTracker, callerLanguageSwitchNote, isConfidentTajik, tajikWordCount } from "../src/lib/telephony/liveVoiceCallerLanguage.js";
+import { isRepromptReply, poorLineBreakNote } from "../src/lib/telephony/liveVoicePoorLine.js";
 import { ELEVENLABS_PHONE_AGENT_TUNING } from "../src/ai/elevenLabsAgentSync.js";
 import { detectOutsideCoverage } from "../src/ai/coverageGuard.js";
 import { SALES_FACTS } from "../src/ai/salesPlaybook.js";
 import { companyInfoBlock } from "../src/ai/agencyFacts.js";
 import { SCENARIO_SELL } from "../src/ai/leadQualifier.js";
-import { mentionsRudakiDistrict, RUDAKI_SELLER_RULE, SERVICE_AREA_RU, SERVICE_AREA_SALES_RULE } from "../src/lib/serviceArea.js";
-import { textMentionsSuburb } from "../src/lib/suburbanProperty.js";
-import { missingRequestFields } from "../src/lib/telephony/liveVoiceClientTools.js";
+import { BOT_DISTRICT_NAMES, submitReplyLeadSchema } from "@royal-home/shared";
+import { districtListForPrompt, districtPickAllowed, mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME, RUDAKI_SELLER_RULE, SERVICE_AREA_RU, SERVICE_AREA_SALES_RULE } from "../src/lib/serviceArea.js";
+import { isRudakiProperty, isSuburbanProperty, textMentionsSuburb } from "../src/lib/suburbanProperty.js";
+import { missingRequestFields, sanitizeClientRequest } from "../src/lib/telephony/liveVoiceClientTools.js";
+import { resolveDistrict } from "../src/routes/webhooks.js";
+import { officialDistrictIn } from "../src/lib/searchPlace.js";
 import { PROPERTY_TOOLS, RUDAKI_VOICE_HINT } from "../src/lib/telephony/liveVoicePropertyTools.js";
 
 /**
@@ -75,6 +78,19 @@ describe("п. 2: готовых фраз «плохо слышно / хуб на
     expect(tg).toContain("ТЕКСТОМ РАСПОЗНАВАНИЯ");
   });
 
+  it("сторож петли узнаёт таджикские переспросы, которые модель может сочинить сама (ревью #204, С1)", () => {
+    for (const line of ["Бубахшед, боз гӯед?", "Боз як маротиба гӯед", "Чӣ гуфтед?", "Чи гуфтед?", "Як маротиба дигар гӯед", "Дубора гӯед, бубахшед", "Ещё раз, пожалуйста?"]) {
+      expect(isRepromptReply(line), line).toBe(true);
+    }
+    expect(isRepromptReply("Хона дар Сино ҳаст, сеҳуҷрагӣ")).toBe(false);
+  });
+
+  it("догадку не записывать: перед показом, заявкой и звонком — вопрос «да/нет» (ревью #204, С2)", () => {
+    for (const [, prompt] of allVoicePrompts().filter(([name]) => !name.startsWith("приглашение"))) {
+      expect(prompt).toMatch(/ДОГАДКУ НЕ ЗАПИСЫВАЙ|понял только по догадке/u);
+    }
+  });
+
   it("служебная реплика разрыва петли — без запрещённых «лутфан» и «қулай»", () => {
     for (const tajikAllowed of [true, false]) {
       for (const numberKnown of [true, false]) {
@@ -109,8 +125,11 @@ describe("п. 4: переход на таджикский после одной 
     }
   });
 
-  it("русская фраза с одним таджикским словом («рахмат», «салом», «ака») — не переключает", () => {
-    for (const line of ["Рахмат, хорошо", "Салом, мне нужна двушка", "Рахмат, мне нужна квартира в Сино", "Да ака, в Сино", "Ассалому алейкум, сколько стоит?"]) {
+  it("русская фраза с таджикскими обращениями и поддакиваниями («ака», «хуб», «бале», «майлаш») — не переключает (ревью #204, В1)", () => {
+    for (const line of [
+      "Рахмат, хорошо", "Салом, мне нужна двушка", "Рахмат, мне нужна квартира в Сино", "Да ака, в Сино", "Ассалому алейкум, сколько стоит?",
+      "Ака хуб, давайте в Сино", "Мне двушку, ака, бисёр лозим", "Бале, бале, дорам", "Хуб, ака, майлаш",
+    ]) {
       const t = new CallerLanguageTracker("ru");
       t.onCallerText(line);
       t.onModelTurnComplete();
@@ -119,12 +138,26 @@ describe("п. 4: переход на таджикский после одной 
     }
   });
 
-  it("слабая таджикская фраза — прежний путь: две подряд", () => {
+  it("твёрдая таджикская фраза без русских слов — переключает", () => {
     const t = new CallerLanguageTracker("ru");
-    t.onCallerText("Да ака, в Сино");
+    expect(t.onCallerText("Хона дорам, мефурӯшам")).toEqual({ kind: "switch", to: "tg" });
+  });
+
+  it("одни поддакивания — не довод: даже две подряд русского звонящего не уводят на таджикский", () => {
+    const t = new CallerLanguageTracker("ru");
+    for (const line of ["Хуб, ака", "Бале, майлаш", "Ака хуб"]) {
+      expect(t.onCallerText(line), line).toBeNull();
+      t.onModelTurnComplete();
+    }
+    expect(t.language).toBe("ru");
+  });
+
+  it("слабая таджикская фраза (одно содержательное слово) — прежний путь: две подряд", () => {
+    const t = new CallerLanguageTracker("ru");
+    expect(t.onCallerText("Хона в Сино")).toBeNull();
     t.onModelTurnComplete();
     expect(t.language).toBe("ru");
-    expect(t.onCallerText("Хуб, ака")).toEqual({ kind: "switch", to: "tg" });
+    expect(t.onCallerText("Ака, хона дар Сино")).toEqual({ kind: "switch", to: "tg" });
   });
 
   it("на русский — по-прежнему только после двух русских фраз", () => {
@@ -132,6 +165,33 @@ describe("п. 4: переход на таджикский после одной 
     expect(t.onCallerText("Мне нужна квартира в Сино")).toBeNull();
     t.onModelTurnComplete();
     expect(t.language).toBe("tg");
+    expect(t.onCallerText("Сколько стоит двушка, скажите")).toEqual({ kind: "switch", to: "ru" });
+  });
+
+  it("«Вы говорите по-таджикски?» на любом языке — сразу таджикский вместе с распознаванием (ревью #204, В2)", () => {
+    for (const line of ["Вы говорите по-таджикски?", "А на таджикском можно?", "Можно по-таджикски?", "Таджикский понимаете?", "Тоҷикӣ медонед?", "Бо тоҷикӣ гап мезанед?", "Забони тоҷикиро медонед?"]) {
+      expect(asksToSpeakTajik(line), line).toBe(true);
+      const t = new CallerLanguageTracker("ru");
+      expect(t.onCallerText(line), line).toEqual({ kind: "switch", to: "tg", askedForTajik: true });
+      expect(t.language).toBe("tg");
+    }
+    for (const line of ["Я не говорю по-таджикски", "Не говорите по-таджикски, давайте по-русски", "Вы по-таджикски или по-русски?", "Мне нужна квартира"]) {
+      expect(asksToSpeakTajik(line), line).toBe(false);
+    }
+    // Пометка для ElevenLabs: «Ҳа» и вызов language_detection — распознавание переключается вместе с речью.
+    const note = callerLanguageSwitchNote("tg", { languageTool: true, askedForTajik: true });
+    expect(note).toContain("«Ҳа»");
+    expect(note).toContain('language_detection с language "tg"');
+  });
+
+  it("с замком «только русский» правила «Ҳа» в промте нет (ревью #204, Н1)", () => {
+    for (const prompt of [
+      buildConsultantSystemPrompt({ knowledge, caller: stranger, withinWorkingHours: true, forceRussianOnly: true }),
+      buildLiveVoiceSystemPrompt(undefined, { forceRussianOnly: true }),
+      buildLiveVoiceSystemPrompt(undefined, { roleOverride: "Ты звонишь клиенту.", forceRussianOnly: true }),
+    ]) {
+      expect(prompt).not.toContain("«Ҳа»");
+    }
   });
 
   it("tajikWordCount: приветствия и «спасибо» не в счёт, слово с ҳ и по списку — одно слово", () => {
@@ -139,7 +199,8 @@ describe("п. 4: переход на таджикский после одной 
     expect(tajikWordCount("Раҳмат, салом")).toBe(0);
     expect(tajikWordCount("мехоҳам")).toBe(1);
     expect(tajikWordCount("Ман хона мехоҳам")).toBe(3);
-    expect(tajikWordCount("Ака, ака, в Сино")).toBe(1);
+    expect(tajikWordCount("Хона, хона, в Сино")).toBe(1);
+    expect(tajikWordCount("Ака хуб, бале, майлаш")).toBe(0);
   });
 });
 
@@ -182,11 +243,35 @@ describe("Рудаки — зона работы (решение владель�
     }
   });
 
-  it("робот: продавец из района Рудаки не слышит «не хватает: район» по кругу", () => {
-    const base = { intent: "sell" as const, type: "HOUSE", budgetMax: 90_000, currency: "USD", timeframe: "в этом месяце" };
-    expect(missingRequestFields({ ...base, notes: "район Рудаки, Сомониён" })).not.toContain("district");
-    expect(missingRequestFields({ ...base, notes: "проспект Рудаки" })).toContain("district");
-    expect(missingRequestFields(base)).toContain("district");
+  it("Рудаки — район в справочнике: робот, чат-бот и схема ответа его принимают (ревью #204, С3)", () => {
+    expect(BOT_DISTRICT_NAMES).toContain(RUDAKI_DISTRICT_NAME);
+    expect(submitReplyLeadSchema.safeParse({ districtName: RUDAKI_DISTRICT_NAME }).success).toBe(true);
+    expect(sanitizeClientRequest({ intent: "sell", district: RUDAKI_DISTRICT_NAME }).districtName).toBe(RUDAKI_DISTRICT_NAME);
+    // Модель написала «район Рудаки» в notes, а не в district — район всё равно ставится, «не хватает: район» нет.
+    const fromNotes = sanitizeClientRequest({ intent: "sell", type: "HOUSE", budget_max: 90_000, currency: "USD", timeframe: "скоро", notes: "район Рудаки, Сомониён" });
+    expect(fromNotes.districtName).toBe(RUDAKI_DISTRICT_NAME);
+    expect(missingRequestFields(fromNotes)).not.toContain("district");
+    expect(sanitizeClientRequest({ intent: "sell", notes: "проспект Рудаки" }).districtName).toBeUndefined();
+  });
+
+  it("«район Рудаки» — район, а не проспект Рудаки; адрес «пр. Рудаки» в Рудаки не попадает", () => {
+    expect(mentionsRudakiDistrict("Рудаки, район")).toBe(true);
+    expect(mentionsRudakiDistrict("мкр-н Рудаки")).toBe(false);
+    const districts = [{ id: "rud", name: RUDAKI_DISTRICT_NAME }, { id: "sino", name: "Сино" }];
+    expect(resolveDistrict("Сино, пр. Рудаки 45", districts)).toEqual({ id: "sino", matched: true });
+    expect(resolveDistrict("ноҳияи Рӯдакӣ, Сомониён", districts)).toEqual({ id: "rud", matched: true });
+    expect(officialDistrictIn("район Рудаки")).toBeNull(); // официальные районы города — без Рудаки
+    expect(districtPickAllowed(RUDAKI_DISTRICT_NAME, "пр. Рудаки 45")).toBe(false);
+    expect(districtPickAllowed(RUDAKI_DISTRICT_NAME, "Сомониён, ҳавлӣ")).toBe(true);
+    expect(districtListForPrompt(BOT_DISTRICT_NAMES)).toContain("проспект и улица Рудаки в Душанбе — НЕ этот район");
+  });
+
+  it("объект района Рудаки — за городом и «рудакинский» даже без слов в тексте; объект города — нет", () => {
+    expect(isSuburbanProperty({ title: "Ҳавлӣ", district: { name: RUDAKI_DISTRICT_NAME } })).toBe(true);
+    expect(isRudakiProperty({ title: "Ҳавлӣ", district: { name: RUDAKI_DISTRICT_NAME } })).toBe(true);
+    expect(isRudakiProperty({ title: "Дача в Варзобе", district: { name: "Сино" } })).toBe(false);
+    expect(isRudakiProperty({ address: "ноҳияи Рӯдакӣ, Сомониён", district: { name: "Шохмансур" } })).toBe(true);
+    expect(isSuburbanProperty({ address: "пр. Рудаки 45", district: { name: "Сино" } })).toBe(false);
   });
 
   it("поиск робота: подсказка про район Рудаки в описании функции", () => {
@@ -196,13 +281,29 @@ describe("Рудаки — зона работы (решение владель�
     expect(props.suburban.description).toContain("район Рудаки");
   });
 
-  // Сторож одной двери: Рудаки распознаёт и описывает только lib/serviceArea.ts.
-  it("ни один модуль не держит свою копию правила о Рудаки", () => {
+  // Сторож одной двери (ревью #204, С4): фраза о зоне «только Душанбе» и копии правила о Рудаки — только в
+  // lib/serviceArea.ts. Проходит по ВСЕМУ src, а не по списку файлов: копия в новом файле тоже красная.
+  it("ни один модуль не держит свою копию зоны работы или правила о Рудаки", () => {
     const src = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src");
-    const read = (rel: string) => fs.readFileSync(path.join(src, rel), "utf8");
-    expect(read("ai/coverageGuard.ts")).not.toContain("р[уӯ]да[кқ][иӣ]");
-    expect(read("ai/leadQualifier.ts")).not.toContain("РАЙОН РУДАКИ (Рӯдакӣ");
-    expect(read("lib/suburbanProperty.ts")).not.toMatch(/нохияи рудаки|сомониен/u);
-    expect(read("ai/salesPlaybook.ts")).not.toContain("Только Душанбе");
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== "generated") walk(full); }
+        else if (e.name.endsWith(".ts")) files.push(full);
+      }
+    };
+    walk(src);
+    const ZONE = /только\s+(?:по|в)\s+(?:городе\s+)?Душанбе(?!\s+и\s+район)|Только Душанбе|танҳо\s+дар\s+Душанбе(?!\s+ва\s+ноҳия)|работаем по Душанбе(?!\s+и\s+район)|дар Душанбе кор мекунем|другие города не обслуживаем\)|р\[уӯ\]да\[кқ\]\[иӣ\]|нохияи рудаки/u;
+    const offenders: string[] = [];
+    for (const file of files) {
+      if (file.endsWith(path.join("lib", "serviceArea.ts"))) continue;
+      fs.readFileSync(file, "utf8").split("\n").forEach((line, i) => {
+        const code = line.trim();
+        if (code.startsWith("*") || code.startsWith("//") || code.startsWith("/*")) return; // комментарии — история, не текст клиенту
+        if (ZONE.test(line)) offenders.push(`${path.relative(src, file)}:${i + 1}`);
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });

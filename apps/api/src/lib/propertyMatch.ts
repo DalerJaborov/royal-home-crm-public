@@ -6,7 +6,8 @@ import { geoMatchKey } from "./geoNormalize.js";
 import { budgetWindowTjs, loadMatchPolicy } from "./matchPolicy.js";
 import { loadMoneyContext, priceCeilingFilter, toTjs } from "./money.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
-import { isSuburbanProperty } from "./suburbanProperty.js";
+import { isRudakiProperty, isSuburbanProperty } from "./suburbanProperty.js";
+import { RUDAKI_DISTRICT_NAME } from "./serviceArea.js";
 import { siteListingUrl } from "./siteListingUrl.js";
 import { resolveCallPropertyHint } from "./telephony/resolveCallProperty.js";
 
@@ -269,12 +270,16 @@ export async function findMatchingProperties(
   // Что ботам можно предлагать — одно правило (botOfferableWhere выше, P0-5).
   and.push(botOfferableWhere());
   const place = query.place ?? null;
+  // Район Рудаки — зона с 15.11.2026, но для поиска он за городом (lib/serviceArea.ts): «дом в районе Рудаки» —
+  // загородные объекты ИМЕННО этого района, а не весь пригород (Вахдат, Варзоб) по близости к проспекту Рудаки.
+  const rudakiAsked = query.districtName === RUDAKI_DISTRICT_NAME;
+  const suburbanAsked = !!query.suburban || rudakiAsked;
   const pool = await prisma.property.findMany({
     where: {
       status: "AVAILABLE",
       deletedAt: null,
       // Есть место с точкой или ищут за городом — район проверяем ниже (район ИЛИ радиус).
-      ...(districtId && !place && !query.suburban ? { districtId } : {}),
+      ...(districtId && !place && !suburbanAsked ? { districtId } : {}),
       ...(query.type ? { type: query.type as never } : {}),
       AND: and,
     },
@@ -299,9 +304,10 @@ export async function findMatchingProperties(
   const ranked: { p: (typeof pool)[number]; fit: MatchFit }[] = [];
   for (const p of pool) {
     const suburban = isSuburbanProperty(p);
-    if (query.suburban && !suburban) continue;
+    if (suburbanAsked && !suburban) continue;
+    if (rudakiAsked && !isRudakiProperty(p)) continue;
     // Район или место названы — загородный дом «в Шохмансуре» не предлагаем (P0-4).
-    if (!query.suburban && suburban && (districtId || place)) continue;
+    if (!suburbanAsked && suburban && (districtId || place)) continue;
 
     const lat = p.lat != null ? Number(p.lat) : NaN;
     const lng = p.lng != null ? Number(p.lng) : NaN;
@@ -310,7 +316,7 @@ export async function findMatchingProperties(
     const near = distanceM !== null && place !== null && distanceM <= place.radiusM;
     const inDistrict = !!districtId && p.districtId === districtId;
     // Район ИЛИ радиус — как у подбора агентам (routes/matching.ts::districtOrRadiusMatch).
-    if (place && districtId && !query.suburban && !inDistrict && !near) continue;
+    if (place && districtId && !suburbanAsked && !inDistrict && !near) continue;
 
     let score = 0;
     let roomsDelta: number | null = null;
@@ -353,7 +359,7 @@ export async function findMatchingProperties(
     if (query.material && material) score += material === query.material ? WISH_MATCH : WISH_MISMATCH;
 
     // Тип назван, района нет — загородное в хвост и с пометкой.
-    if (suburban && !query.suburban) score += SUBURB_UNASKED;
+    if (suburban && !suburbanAsked) score += SUBURB_UNASKED;
 
     ranked.push({
       p,

@@ -186,12 +186,12 @@ describe("the service area: «only Dushanbe» only for an object outside (live c
   const scope: CustomerAgentEvidence[] = [{ ref: "e0", value: policy("service_scope") }];
   it("a Dushanbe seller hears the area once, never «other cities»", () => {
     const first = render("Мехоҳам хонаамро фурӯшам", { evidence: scope, decision: { refs: ["e0"], question: "seller_details" } })!;
-    expect(first).toContain("Барои хариду фурӯши амвол дар Душанбе кӯмак мекунем.");
+    expect(first).toContain("Барои хариду фурӯши амвол дар Душанбе ва ноҳияи Рӯдакӣ кӯмак мекунем.");
     expect(first).not.toContain("шаҳрҳои дигар");
   });
   it("a seller whose flat is in Qayroqqum gets a short apology and no questionnaire", () => {
     expect(render("Мо дар шахри Кайрокум гулистон", { evidence: scope, decision: { refs: ["e0"], question: "seller_details" },
-      turns: [user("Мехоҳам хонаамро фурӯшам"), bot(`Салом!\n${SELLER_Q_TG}`)] })).toBe("Мутаассифона, мо танҳо дар Душанбе кор мекунем.");
+      turns: [user("Мехоҳам хонаамро фурӯшам"), bot(`Салом!\n${SELLER_Q_TG}`)] })).toBe("Мутаассифона, мо танҳо дар Душанбе ва ноҳияи Рӯдакӣ кор мекунем.");
   });
   it.each([["Ман аз Хуҷанд ҳастам, барои писарам хона мехарам", "tg"], ["Я живу в Худжанде, хочу купить квартиру сыну", "ru"]] as const)(
     "a buyer from elsewhere is our client, not refused: %s", (text, language) => {

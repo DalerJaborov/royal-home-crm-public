@@ -12,6 +12,7 @@ import {
   propertyHasMarket,
   visiblePropertyFacts,
 } from "@royal-home/shared";
+import { BOT_DISTRICT_NAMES } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import type { LiveVoiceFunctionDeclaration, LiveVoiceToolCall } from "../../ai/liveVoiceClient.js";
 import { recordContactFacts, setContactCategory } from "../contactProfiles.js";
@@ -76,16 +77,16 @@ import { attachGuardFacts, type GuardPropertyFacts } from "./liveVoiceGuards.js"
  * вслух не называет — то же правило, что у чат-бота.
  */
 
-export const LIVE_VOICE_DISTRICTS = ["Исмоили Сомони", "Сино", "Фирдавси", "Шохмансур"] as const;
+/** Районы, которые робот передаёт в функции: четыре района Душанбе и район Рудаки (одно место — packages/shared). */
+export const LIVE_VOICE_DISTRICTS = BOT_DISTRICT_NAMES;
 
 /**
- * РАЙОН РУДАКИ — НАША ЗОНА, НО НЕ РАЙОН ГОРОДА (16.11.2026, решение владельца 15.11 «Да, Рудаки берём»;
- * зона — lib/serviceArea.ts). В перечне районов выше его нет нарочно: это четыре района Душанбе из
- * справочника District, а Рудаки вокруг города — для поиска «за городом». Голое «Рудаки» — ещё и
- * проспект в центре, поэтому модель передаёт слова человека, а различает код (mentionsRudakiDistrict).
+ * РАЙОН РУДАКИ — НАША ЗОНА (16.11.2026, решение владельца 15.11 «Да, Рудаки берём»; lib/serviceArea.ts). В перечне
+ * районов он есть (строка District — миграция 20261116120000_district_rudaki), а для поиска он «за городом». Голое
+ * «Рудаки» — ещё и проспект в центре, поэтому модель различает по слову «район», а код сверяет (searchPlace).
  */
 export const RUDAKI_VOICE_HINT =
-  `Район Рудаки (Рӯдакӣ, Сомониён) — наша зона, но не район города: district не передавай, а слова человека «район Рудаки» — в landmark (поиск поймёт «за городом»). Просто «Рудаки» без слова «район» — это может быть проспект Рудаки в центре: уточни одним вопросом.`;
+  `«Рудаки» — только если человек говорит о РАЙОНЕ Рудаки (ноҳияи Рӯдакӣ, Сомониён, «район Рудаки»). Просто «Рудаки» без слова «район» — это может быть проспект Рудаки в центре: уточни одним вопросом.`;
 
 /** Больше трёх вариантов на слух не запомнить. */
 const OPTIONS_PER_SEARCH = 3;
@@ -116,7 +117,7 @@ export const PROPERTY_TOOLS: LiveVoiceFunctionDeclaration[] = [
     parameters: {
       type: "OBJECT",
       properties: {
-        district: { type: "STRING", description: `Официальный район Душанбе, если назван словом. ${RUDAKI_VOICE_HINT}`, enum: [...LIVE_VOICE_DISTRICTS] },
+        district: { type: "STRING", description: `Район Душанбе или район Рудаки, если назван словом. ${RUDAKI_VOICE_HINT}`, enum: [...LIVE_VOICE_DISTRICTS] },
         landmark: { type: "STRING", description: "Ориентир, микрорайон, улица или народное название — словами звонящего." },
         suburban: { type: "BOOLEAN", description: "true — ищет за городом (район Рудаки, Сомониён, Вахдат, Варзоб, Гиссар, дача)." },
         sort: { type: "STRING", description: "cheap — просит подешевле / самое дешёвое.", enum: ["cheap"] },
@@ -155,7 +156,7 @@ export const PROPERTY_TOOLS: LiveVoiceFunctionDeclaration[] = [
       properties: {
         query: { type: "STRING", description: "Номер объекта цифрами, название ЖК или улица с домом — словами звонящего." },
         landmark: { type: "STRING", description: "Ориентир словами звонящего: возле чего стоит дом." },
-        district: { type: "STRING", description: "Официальный район Душанбе, если назван.", enum: [...LIVE_VOICE_DISTRICTS] },
+        district: { type: "STRING", description: `Район, если назван. ${RUDAKI_VOICE_HINT}`, enum: [...LIVE_VOICE_DISTRICTS] },
         type: {
           type: "STRING",
           description: "APARTMENT — квартира, HOUSE — дом, COMMERCIAL — коммерческое, LAND — участок.",

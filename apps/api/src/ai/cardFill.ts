@@ -1,3 +1,4 @@
+import { districtListForPrompt, districtPickAllowed } from "../lib/serviceArea.js";
 import {
   CARD_NOTE_TAGS,
   PROPERTY_TYPES,
@@ -240,7 +241,7 @@ function buildSystemPrompt(districtNames: string[], usdToTjs: number): string {
     "АДРЕС И ОРИЕНТИР. В Душанбе место называют ориентиром: «ДОК», «напротив кинотеатра Зебунисо», " +
     "«за рынком Саховат», «ЖК Пойтахт». Это и есть address — записывай его отдельным полем словами клиента. " +
     "Район при этом всё равно указывай в districtName. " +
-    (districtNames.length > 0 ? `Районы агентства: ${districtNames.join(", ")}. Другие названия в districtName не пиши. ` : "") +
+    (districtNames.length > 0 ? `Районы агентства: ${districtListForPrompt(districtNames)}. Другие названия в districtName не пиши. ` : "") +
     `Типы недвижимости: ${PROPERTY_TYPES.map((t) => `${t} = ${PROPERTY_TYPE_LABELS[t]}`).join("; ")}. ` +
     "notes пиши по-русски, коротко и по делу, без вводных слов и без тире. " +
     "Ответ передавай через инструмент submit_reply."
@@ -430,7 +431,7 @@ export async function buildCardFillSuggestion(clientId: string): Promise<CardFil
   // предложения ради старых карточек, но всегда пустое.
   suggestion.urgency = null;
 
-  const aiDistrict = resolveDistrict(extract.districtName);
+  const aiDistrict = districtPickAllowed(extract.districtName, transcript) ? resolveDistrict(extract.districtName) : null;
   if (aiDistrict && (fromCall || !suggestion.districtId)) {
     suggestion.districtId = aiDistrict.id;
     suggestion.districtName = aiDistrict.name;

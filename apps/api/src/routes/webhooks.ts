@@ -1,3 +1,4 @@
+import { mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME } from "../lib/serviceArea.js";
 import { customerDmRoutingForIncoming, inspectCustomerDmRouting } from "../lib/customerAgentIngressRouting.js";
 import { createHash } from "node:crypto";
 import type { CustomerPropertyAdmissionResult } from "@royal-home/shared";
@@ -888,7 +889,8 @@ const siteListingUpsertSchema = z.object({
 export function resolveDistrict(location: string, districts: { id: string; name: string }[]): { id: string; matched: boolean } {
   const norm = location.toLowerCase();
   for (const d of districts) {
-    if (norm.includes(d.name.toLowerCase())) return { id: d.id, matched: true };
+    // «Сино, пр. Рудаки 45» — проспект, а не район Рудаки (зона с 15.11.2026, lib/serviceArea.ts).
+    if (d.name === RUDAKI_DISTRICT_NAME ? mentionsRudakiDistrict(location) : norm.includes(d.name.toLowerCase())) return { id: d.id, matched: true };
   }
   // «И. Сомони» на сайте = «Исмоили Сомони» в CRM
   if (norm.includes("сомони")) {

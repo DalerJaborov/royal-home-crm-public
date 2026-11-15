@@ -84,20 +84,54 @@ export function classifyCallerUtterance(text: string): CallerUtteranceLanguage {
 export function tajikWordCount(text: string): number {
   const words = new Set((text.match(/\p{L}+/gu) ?? []).map((w) => w.toLowerCase()));
   return [...words].filter((w) => {
+    if (TAJIK_FILLER_WORDS.test(w)) return false;
     const s = clientLanguageScores(w);
     return s.greetings === 0 && s.tajik > 0;
   }).length;
 }
 
-/** Фраза твёрдо таджикская: определитель говорит «tg», и таджикских слов (не приветствий) не меньше
- *  CALLER_TAJIK_CONFIDENT_WORDS. Такой одной хватает, чтобы перейти на таджикский. */
+/**
+ * Обращения и поддакивания — НЕ таджикская речь (ревью #204, В1): в Душанбе их вставляют и русскоязычные.
+ * «Ака хуб, давайте в Сино», «Хуб, ака, майлаш», «Бале, бале, дорам» с ними считались твёрдо таджикскими,
+ * и робот уводил русского звонящего на таджикское распознавание.
+ */
+const TAJIK_FILLER_WORDS =
+  /^(?:ака|акаҷон|акачон|апа|апаҷон|апачон|ҷон|чон|хуб|хоп|ҳа|ха|ҳаа|хаа|бале|балеъ|майлаш|майли|майлӣ|нест|не|ок|окей|аҳа|ахаа|ҳм|ҳмм|хм)$/u;
+
+/** Фраза твёрдо таджикская: определитель говорит «tg», содержательных таджикских слов (не приветствий,
+ *  не обращений и поддакиваний) не меньше CALLER_TAJIK_CONFIDENT_WORDS и НИ ОДНОГО русского слова.
+ *  Такой одной хватает, чтобы перейти на таджикский. */
 export function isConfidentTajik(text: string): boolean {
-  return classifyCallerUtterance(text) === "tg" && tajikWordCount(text) >= CALLER_TAJIK_CONFIDENT_WORDS;
+  return (
+    classifyCallerUtterance(text) === "tg" &&
+    clientLanguageScores(text).russian === 0 &&
+    tajikWordCount(text) >= CALLER_TAJIK_CONFIDENT_WORDS
+  );
+}
+
+/**
+ * «ВЫ ГОВОРИТЕ ПО-ТАДЖИКСКИ?» — СМЕНА ЯЗЫКА КОДОМ (ревью #204, В2). Вопрос обычно задают по-русски, трекер
+ * слышит русскую фразу и язык звонка не меняет: робот отвечал «Ҳа» и говорил по-таджикски, а распознавание
+ * оставалось русским — и таджикские ответы снова становились мусором («Ча-чан смаи?», причина №2 разбора).
+ * Теперь такой вопрос на любом языке сразу переключает звонок на таджикский вместе с распознаванием
+ * (служебная пометка с language_detection — liveVoiceBridge.ts::handleCallerLanguage). «Я не говорю
+ * по-таджикски», «не говорите по-таджикски», «по-таджикски или по-русски?» — не просьба.
+ */
+const ASKS_TAJIK_RU =
+  /(?<!не\s)(?:говорит[еь]|разговариваете|понимаете|знаете|можете|умеете|сможете)[^.?!]{0,25}(?:по[-\s]?таджикски|на\s+таджикском|таджикский)|(?:по[-\s]?таджикски|на\s+таджикском)[^.?!]{0,15}(?:можно|говорите|сможете|понимаете)|таджикский\s+(?:знаете|понимаете)|можно\s+(?:по[-\s]?таджикски|на\s+таджикском)/iu;
+const ASKS_TAJIK_TG =
+  /(?:то[ҷч]ик[ӣи]|забони\s+то[ҷч]ик[ӣи](?:ро)?)\s+(?:медонед|медонетон|мефа[ҳх]мед|гап\s+мезанед|гап\s+зада\s+метавонед)|бо\s+(?:забони\s+)?то[ҷч]ик[ӣи]\s+(?:гап|гуфтугӯ|гуфтугу)/iu;
+const MENTIONS_RUSSIAN = /по[-\s]?русски|на\s+русском|рус[ӣи](?!\p{L})|забони\s+рус/iu;
+
+export function asksToSpeakTajik(text: string): boolean {
+  if (!text.trim() || MENTIONS_RUSSIAN.test(text)) return false;
+  return ASKS_TAJIK_RU.test(text) || ASKS_TAJIK_TG.test(text);
 }
 
 export type CallerLanguageAction =
-  /** Звонящий уверенно говорит на другом языке — модели сказать перейти. */
-  | { kind: "switch"; to: CallLanguage }
+  /** Звонящий уверенно говорит на другом языке — модели сказать перейти. askedForTajik — он сам спросил,
+   *  говорит ли робот по-таджикски (тогда в пометке — «ответь «Ҳа»»). */
+  | { kind: "switch"; to: CallLanguage; askedForTajik?: boolean }
   /** Язык так и не ясен — один раз спросить на обоих языках. */
   | { kind: "ask" };
 
@@ -133,10 +167,21 @@ export class CallerLanguageTracker {
    */
   onCallerText(chunk: string): CallerLanguageAction | null {
     if (this.turnText.length < 2_000) this.turnText += chunk;
+    // «Вы говорите по-таджикски?» — сразу таджикский, без счёта фраз (В2).
+    if (this.current !== "tg" && asksToSpeakTajik(this.turnText)) {
+      this.current = "tg";
+      this.determined = true;
+      this.turnCounted = true;
+      this.otherStreak = 0;
+      return { kind: "switch", to: "tg", askedForTajik: true };
+    }
     if (this.turnCounted) return null;
     const heard = classifyCallerUtterance(this.turnText);
     if (heard === "unclear") return null;
     this.turnCounted = true;
+    // «Хуб, ака», «Бале, майлаш», «Рахмат» — одни поддакивания, обращения и приветствия: не довод ни за один язык
+    // (ревью #204, В1). Ни перехода, ни счёта: так говорят и русскоязычные душанбинцы.
+    if (heard === "tg" && tajikWordCount(this.turnText) === 0) return null;
     this.determined = true;
     if (heard === this.current) {
       this.otherStreak = 0;
@@ -184,10 +229,13 @@ export function createCallerLanguageTracker(forceRussianOnly: boolean, initial: 
  * распознаванием. Голос и распознавание языка tg (language_presets.tg) включаются только
  * этим инструментом (https://elevenlabs.io/docs/eleven-agents/customization/tools/system-tools/language-detection).
  */
-export function callerLanguageSwitchNote(to: CallLanguage, opts: { languageTool?: boolean } = {}): string {
+export function callerLanguageSwitchNote(to: CallLanguage, opts: { languageTool?: boolean; askedForTajik?: boolean } = {}): string {
   const tool = opts.languageTool
     ? ` Если язык разговора ещё не переключён — сразу вызови language_detection с language "${to}", без слов об этом.`
     : "";
+  if (to === "tg" && opts.askedForTajik) {
+    return `(Служебное: человек спрашивает, говоришь ли ты по-таджикски. Ответь «Ҳа» и дальше говори с ним по-таджикски, живым разговорным языком, пока он сам не перейдёт на русский.${tool} Эту пометку вслух не читай.)`;
+  }
   return to === "ru"
     ? `(Служебное: человек говорит по-русски — дальше говори с ним по-русски, пока он сам не перейдёт на таджикский.${tool} Об этом не говори и не извиняйся. Эту пометку вслух не читай.)`
     : `(Служебное: человек говорит по-таджикски — дальше говори с ним по-таджикски, живым разговорным языком, пока он сам не перейдёт на русский.${tool} Об этом не говори и не извиняйся. Эту пометку вслух не читай.)`;

@@ -196,7 +196,9 @@ describe("роль консультанта на входящих", () => {
       expect(prompt).toContain("ЯЗЫК — ТОЛЬКО РУССКИЙ ИЛИ ТАДЖИКСКИЙ");
       // 16.11.2026: готовой фразы «плохо слышно» нет, на «говорите по-таджикски?» — никогда «нет».
       expect(prompt).not.toMatch(/плохо слышно/iu);
-      expect(prompt).toContain("никогда не отвечай «нет»");
+      // «Ҳа» на «говорите по-таджикски?» — только без замка «только русский» (ревью #204, Н1).
+      if (forceRussianOnly) expect(prompt).not.toContain("«Ҳа»");
+      else expect(prompt).toContain("всегда «Ҳа»");
     }
     expect(LIVE_VOICE_SPEECH_RULES).toContain("ЯЗЫК — ТОЛЬКО РУССКИЙ ИЛИ ТАДЖИКСКИЙ");
   });
