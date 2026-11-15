@@ -52,3 +52,39 @@ export function publishedActionDeniedReasonAs(
 ): string | null {
   return propertyEditLocked(property, actor.can("properties.editForeign")) ? PROPERTY_PUBLISHED_ACTION_DENIED_MESSAGE : null;
 }
+
+/**
+ * СВОИ ДАННЫЕ МЕНЯЮТСЯ СРАЗУ — ОДНО ПРАВИЛО НА REST И НА ШАБНАМ (владелец 15.11.2026:
+ * «через Шабнам и без неё можно менять любые свои данные»).
+ *
+ * Свой объект (ведущий, приёмщик или создатель карточки; руководство с `properties.editForeign`
+ * — любой) меняет цену, данные карточки и просит перемонтаж БЕЗ ожидания чужого решения:
+ * заявка создаётся и тут же принимается автором тем же исполнителем, что кнопка «Принять»
+ * директора (routes/properties/changeRequestExecutor.ts) — журнал и эффекты те же.
+ * Чужой объект и виды «убрать из соцсетей» / «Другое» — по-прежнему заявкой руководителю.
+ * Объект в резерве (есть сделка): цена — по-прежнему руководству, она база комиссии.
+ */
+export const OWN_DIRECT_CHANGE_KINDS = ["PRICE_CHANGE", "CARD_DATA", "REMAKE_VIDEO"] as const;
+
+export function canApplyChangeDirectly(
+  actor: PropertyAccessActor,
+  property: { status: string; assignedAgentId?: string | null; intakeAgentId?: string | null; createdById?: string | null },
+  kind: string
+): boolean {
+  if (!(OWN_DIRECT_CHANGE_KINDS as readonly string[]).includes(kind)) return false;
+  if (kind === "PRICE_CHANGE" && property.status === "RESERVED" && !actor.can("properties.editForeign")) return false;
+  return canManagePropertyAs(actor, property);
+}
+
+/**
+ * ПЕРЕМОНТАЖ СВОЕГО ОБЪЕКТА — СРАЗУ, И ПОСЛЕ ПУБЛИКАЦИИ (владелец 15.11.2026, отменяет для
+ * хозяина запрет 07.10.2026 на «Вернуть монтажёру» у вышедшего объекта). Чужой объект и
+ * «снять из соцсетей» остаются за руководством/маркетингом: проверки по ним — в sendBackDenied.
+ */
+export function publishedSendBackDeniedReasonAs(
+  actor: PropertyAccessActor,
+  property: { status: string; offSite?: boolean | null; assignedAgentId?: string | null; intakeAgentId?: string | null; createdById?: string | null }
+): string | null {
+  if (canApplyChangeDirectly(actor, property, "REMAKE_VIDEO")) return null;
+  return publishedActionDeniedReasonAs(actor, property);
+}

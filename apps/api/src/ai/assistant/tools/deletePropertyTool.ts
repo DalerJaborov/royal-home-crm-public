@@ -5,6 +5,7 @@ import { AssistantActionError, type AssistantActionActor, type AssistantActionEx
 import { logAgentAudit } from "../../../lib/audit.js";
 import { publishPropertyUpdated } from "../../../lib/livePublish.js";
 import { trashProperty } from "../../../lib/trashProperty.js";
+import { notifyTrashRemoval } from "../../../telegram/trashRestoreNotice.js";
 import { loadWriterRole, resolveRefOrThrow } from "./propertyToolSupport.js";
 import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
@@ -72,7 +73,7 @@ export const deletePropertyExecutor: AssistantActionExecutor<Args> = {
         Объект: "в Корзине, снят с сайта",
         ...(args.reason ? { Причина: args.reason } : {}),
       },
-      risk: "Объект уйдёт в Корзину и пропадёт с сайта. Директор или админ может восстановить его оттуда; насовсем из чата не удаляется.",
+      risk: "Объект уйдёт в Корзину и пропадёт с сайта. Директор или админ может восстановить его оттуда (им придёт сообщение с кнопкой); насовсем из чата не удаляется.",
     };
   },
 
@@ -89,6 +90,13 @@ export const deletePropertyExecutor: AssistantActionExecutor<Args> = {
       publishedOnSite: result.property.publishedOnSite,
     });
     publishPropertyUpdated({ propertyId: result.property.id, actorId: actor.agentId, stage: "TRASHED" });
+    // Руководству (РОП, директор, админ) — одно сообщение с кнопкой «Восстановить» (владелец 15.11.2026).
+    void notifyTrashRemoval({
+      kind: "property",
+      entityId: result.property.id,
+      label: `${formatPropertyCode(result.property.shortId)} · ${plainField(result.property.title, 80) ?? ""}`.trim(),
+      byAgentId: actor.agentId,
+    });
     return {
       result: { trashed: true, propertyShortId: result.property.shortId, message: "Объект в Корзине" },
       audit: { entityType: "Property", entityId: result.property.id },

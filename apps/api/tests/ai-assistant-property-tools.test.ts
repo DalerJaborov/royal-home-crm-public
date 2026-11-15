@@ -837,7 +837,7 @@ describe("request_property_change", () => {
     expect((row.payload as { text: string }).text).toMatch(/убрать объект из рекламы/);
   });
 
-  it("CARD_DATA: поле из набора подписи принимается, постороннее — нет; было → станет в превью", async () => {
+  it("CARD_DATA своего объекта: поле из набора принимается и применяется сразу, постороннее — нет; было → станет в превью", async () => {
     const property = await seed();
     const ref = String(property.shortId);
     const pending = await preview(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "CARD_DATA", patch: { rooms: 3 } });
@@ -845,9 +845,47 @@ describe("request_property_change", () => {
     expect(pending.preview.becomes.rooms).toBe(3);
     await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
     expect((await requests(property.id, "CARD_DATA"))[0].payload).toMatchObject({ patch: { rooms: 3 } });
+    expect((await requests(property.id, "CARD_DATA"))[0].status).toBe("APPROVED");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).rooms).toBe(3);
 
     await expectRefused(ownerId, AGENT_PERMS, "request_property_change", { ref: String(property.shortId), kind: "CARD_DATA", patch: { assignedAgentId: otherId } }, 400);
     await expectRefused(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "CARD_DATA" }, 400);
+  });
+
+  it("СВОИ данные — сразу, ЧУЖИЕ — заявкой/отказом: чужой агент 403 и карточка не тронута; руководитель применяет сразу; превью своего без слова «заявка»", async () => {
+    const property = await seed();
+    const ref = String(property.shortId);
+    const mine = await preview(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "CARD_DATA", patch: { floor: 5 } });
+    expect(mine.preview.title).not.toMatch(/заявк/i);
+    expect(mine.preview.becomes.Заявка).toBeUndefined();
+    expect(mine.preview.risk).toMatch(/сразу/i);
+    expect(await requests(property.id)).toHaveLength(0);
+    expect(mine.undoUntil).toBeNull();
+
+    await expectRefused(otherId, AGENT_PERMS, "request_property_change", { ref, kind: "CARD_DATA", patch: { floor: 6 } }, 403);
+    expect(await requests(property.id)).toHaveLength(0);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).floor).toBe(3);
+
+    const boss = await preview(directorId, DIRECTOR_PERMS, "request_property_change", { ref, kind: "CARD_DATA", patch: { floor: 6 } });
+    await confirmAssistantAction(boss.id, actorFor(directorId, DIRECTOR_PERMS));
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).floor).toBe(6);
+    // «Другое» и «убрать из соцсетей» хозяина по-прежнему идут заявкой руководителю.
+    const other = await preview(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "OTHER", text: "Просьба по объекту, подробности по телефону" });
+    expect(other.preview.becomes.Заявка).toMatch(/руководител/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).floor).toBe(6);
+  });
+
+  it("применённые данные не откатываются «прежней ценой»: отката у них нет (и цену не трогает)", async () => {
+    const property = await seed();
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const pending = await preview(ownerId, AGENT_PERMS, "request_property_change", { ref: String(property.shortId), kind: "CARD_DATA", patch: { rooms: 4 } });
+    const done = await confirmAssistantAction(pending.id, actor);
+    expect(done.action.undoUntil).toBeNull();
+    const error = (await undoAssistantAction(pending.id, actor).catch((e: unknown) => e)) as InstanceType<typeof AssistantActionError>;
+    expect(error.code).toBe("NOT_UNDOABLE");
+    const row = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
+    expect(row.rooms).toBe(4);
+    expect(row.price.toString()).toBe("400000");
   });
 
   it("UNPUBLISH: нечего снимать — 409; чужие каналы — 400; чужой объект — 403", async () => {
@@ -905,10 +943,11 @@ describe("send_to_remake", () => {
     expect(error.code).toBe("NOT_UNDOABLE");
   });
 
-  it("права: рядовой агент после публикации — 403 (руководству), чужой — 403, акционер — 403", async () => {
+  it("права: СВОЙ объект после публикации — можно (владелец 15.11.2026); чужой — 403, акционер — 403, снять из соцсетей рядовому — 403", async () => {
     const property = await seed();
     const args = MARKETING_ROLE_ARGS(String(property.shortId));
-    await expectRefused(ownerId, AGENT_PERMS, "send_to_remake", args, 403);
+    await preview(ownerId, AGENT_PERMS, "send_to_remake", args);
+    await expectRefused(ownerId, AGENT_PERMS, "send_to_remake", { ...args, removeFromSocial: true }, 403);
     await expectRefused(otherId, AGENT_PERMS, "send_to_remake", args, 403);
     await expectRefused(shareholderId, DIRECTOR_PERMS, "send_to_remake", args, 403);
     // Объект ещё не опубликован: свой агент может вернуть монтажёру сам.

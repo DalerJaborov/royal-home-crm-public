@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4074**. Модулей: **84**.
+Путей: **752**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4065**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3793,58 +3793,13 @@
 
 `apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
 
-- const client = await prisma.client.findUnique({ where: { id: req.params.id } });
-  · читает в базе: client
-- если !client || !client.deletedAt
-  - return res.status(404).json({ error: "Клиент не найден в корзине" });
-    · ответ 404 — «Клиент не найден в корзине»
-- const owner = client.assignedAgentId ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId },…
-  · читает в базе: agent
-- const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…
-  · читает в базе: agent
-- const restored = await prisma.$transaction(async (tx)
-  · пробрасывает ошибку дальше
-  · всё внутри — одной транзакцией
-  · обращается к базе своим SQL
-  · читает в базе: client
-  · читает в базе: agent
-  · меняет в базе: client
-  - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
-    · обращается к базе своим SQL
-  - const current = await tx.client.findUnique({ where: { id: client.id } });
-    · читает в базе: client
-  - если !current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()
-    - return false;
-      · дословно из кода
-  - для каждого: const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? "").localeCompare(b[0] ?? ""))
-    - если id && !completedAssignment
-      - await tx.$queryRaw`SELECT id FROM "Agent" WHERE id = ${id} FOR SHARE`;
-        · обращается к базе своим SQL
-      - const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true…
-        · читает в базе: agent
-      - если eligible(agent) !== expected
-        - return false;
-          · дословно из кода
-  - await tx.client.update({ where: { id: client.id }, data: { deletedAt: null, deletedById: null, ...(ownerGone …
-    · меняет в базе: client
-  - если ownerGone || restoredAgentId
-    - const changed = await changeClientAgent({ clientId: client.id, toAgentId: restoredAgentId, reason: restoredAg…
-      · зовёт changeClientAgent()
-    - если !changed.ok
-      - throw restoreConflict;
-        · пробрасывает ошибку дальше
-- если !restored
-  - return res.status(409).json({ error: "Карточка изменилась. Обновите страницу" });
-    · ответ 409 — «Карточка изменилась. Обновите страницу»
-- если toQueue
-  - const supervisors = (await findAgentsWithPermission("clients.assign")).filter((id)
-    · зовёт findAgentsWithPermission()
-  - sendPushToAgents(supervisors, { title: "♻️ Карточка восстановлена без агента", body: `${client.fullName} — ве…
-    · push-уведомление
-- logAudit(req, "RESTORE", "Client", client.id, { shortId: client.shortId, fullName: client.fullName, phone: cl…
+- const result = await restoreClientFromTrash(req.params.id, req.agent!.id);
+  · зовёт restoreClientFromTrash()
+- если !result.ok
+  - return res.status(result.status).json({ error: result.error });
+    · ответ (код зависит от условия)
+- logAudit(req, "RESTORE", "Client", result.client.id, { shortId: result.client.shortId, fullName: result.clien…
   · зовёт logAudit()
-- publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId] });
-  · зовёт publishClientUpdated()
 - res.status(204).send();
   · ответ 204
 
@@ -10407,6 +10362,16 @@
 - если !result.ok
   - return res.status(result.status).json({ error: result.error });
     · ответ (код зависит от условия)
+- const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { status: true, ass…
+  · читает в базе: property
+- если property && canApplyChangeDirectly({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, pro…
+  - const applied = await applyOwnChangeRequestNow(result.request.id, req.agent!.id);
+    · зовёт applyOwnChangeRequestNow()
+  - если !applied.ok
+    - return res.status(applied.status).json({ error: applied.error });
+      · ответ (код зависит от условия)
+  - return res.status(201).json({ request: applied.request, applied: applied.request.status === "APPROVED", messa…
+    · ответ 201
 - res.status(201).json({ request: result.request });
   · ответ 201
 
@@ -14432,64 +14397,25 @@
 - res.json({ ok: true });
   · ответ 200
 
-## /api/v1/report-pdf
-
-### POST /api/v1/report-pdf/:kind/telegram
-
-`apps/api/src/routes/reportPdf.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- если !kind
-  - return;
-    · дальше не идёт, ничего не меняя
-- если !viewer.telegramChatId
-  - return res.status(409).json({ error: "Привяжите свой Telegram в профиле — туда придёт отчёт" });
-    · ответ 409 — «Привяжите свой Telegram в профиле — туда придёт отчёт»
-- пробует
-  - пробует
-    - await sendDocumentFile(viewer.telegramChatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.p…
-      · зовёт sendDocumentFile()
-  - если сорвалось
-    - void logSystemError("telegram", `PDF «${REPORT_PDF_TITLES[kind]}» не отправлен в Telegram: ${describeError(er…
-      · запись в журнал ошибок
-    - return res.status(503).json({ error: "Telegram не принял файл. Повторите позже или скачайте PDF" });
-      · ответ 503 — «Telegram не принял файл. Повторите позже или скачайте PDF»
-  - logAudit(req, "REPORT_PDF_EXPORT", "Report", kind, { destination: "ownTelegram", period: pdf.periodKey, bytes…
-    · зовёт logAudit()
-  - res.json({ ok: true });
-    · ответ 200
-- если сорвалось
-  - failed(res, kind, err);
-    · дословно из кода
-
-### GET /api/v1/report-pdf/:kind
-
-`apps/api/src/routes/reportPdf.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- если !kind
-  - return;
-    · дальше не идёт, ничего не меняя
-- пробует
-  - logAudit(req, "REPORT_PDF_EXPORT", "Report", kind, { destination: "download", period: pdf.periodKey, bytes: p…
-    · зовёт logAudit()
-  - res.setHeader("Content-Type", "application/pdf");
-    · ставит заголовок ответа
-  - res.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);
-    · ставит заголовок ответа
-  - res.setHeader("Cache-Control", "no-store");
-    · ставит заголовок ответа
-  - res.send(pdf.buffer);
-    · ответ 200
-- если сорвалось
-  - failed(res, kind, err);
-    · дословно из кода
-
 ## /api/v1/reports
 
 ### GET /api/v1/reports/agents
 
 `apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
-- res.json(await buildAgentsReport(parseReportRange(req.query), reportViewer(req)));
+- const agents = await prisma.agent.findMany({ where: { OR: [{ isActive: true }, { deals: { some: { stage: "COM…
+  · читает в базе: agent
+- const [showingCounts, showingCountsBySubject, deals, money] = await Promise.all([ prisma.interaction.groupBy(…
+  · считает в базе: interaction
+  · считает в базе: deal
+- для каждого: const s of showingCountsBySubject
+  - если !s.subjectAgentId
+    - continue;
+      · переходит к следующему
+- для каждого: const row of deals
+  - entry.commission += toTjs(row._sum.commissionAmount, row.currency, money);
+    · зовёт toTjs()
+- res.json(rows);
   · ответ 200
 
 ### GET /api/v1/reports/demand-supply
@@ -14516,9 +14442,11 @@
 
 `apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
-- const range = parseReportRange(req.query);
-  · зовёт parseReportRange()
-- res.json({ ...range, funnel: await buildFunnelReport(range, reportViewer(req)) });
+- const [newLeads, contactedClientIds, showings, negotiations, completedDeals, money] = await Promise.all([ pri…
+  · считает в базе: client
+  · считает в базе: interaction
+  · считает в базе: deal
+- res.json({ from, to, funnel: [ { key: "leads", label: "Новые лиды", count: newLeads }, { key: "contacted", la…
   · ответ 200
 
 ### GET /api/v1/reports/hot-properties
@@ -14746,7 +14674,27 @@
 
 `apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
-- res.json(await buildSourcesReport(parseReportRange(req.query)));
+- const clientCounts = await prisma.client.groupBy({ by: ["source", "status"], where: { createdAt: { gte: from,…
+  · считает в базе: client
+- для каждого: const row of clientCounts
+  - если row.status === "DEAL_CLOSED"
+    - entry.closed += row._count._all;
+      · дословно из кода
+- const [botConversations, telegramConversations] = await Promise.all([ prisma.botConversation.groupBy({ by: ["…
+  · считает в базе: botConversation
+  · считает в базе: telegramConversation
+- для каждого: const row of botConversations
+  - wroteBySource.set(row.channel, (wroteBySource.get(row.channel) ?? 0) + row._count._all);
+    · дословно из кода
+- если telegramConversations > 0
+  - wroteBySource.set("TELEGRAM", (wroteBySource.get("TELEGRAM") ?? 0) + telegramConversations);
+    · дословно из кода
+- const closedDeals = await prisma.deal.findMany({ where: { stage: "COMPLETED", closedAt: { gte: from, lte: to …
+  · читает в базе: deal
+- если closedDeals.length >= REPORTS_ROW_LIMIT
+  - void logSystemError( "api", `Отчёт «Источники»: закрытых сделок за период больше потолка ${REPORTS_ROW_LIMIT}…
+    · запись в журнал ошибок
+- res.json({ sources: Array.from(new Set([...bySource.keys(), ...wroteBySource.keys()])) .map((source)
   · ответ 200
 
 ### GET /api/v1/reports/waiting-now
@@ -21001,60 +20949,6 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка уборки черновиков объектов", err);
-    · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
-
-### finance-pdf-monthly — 10 9 1-3 * *
-
-- пробует
-  - const result = await sendMonthlyFinancePdf();
-    · зовёт sendMonthlyFinancePdf()
-    - const month = previousMonthKey(now);
-      · зовёт previousMonthKey()
-    - const claimed = await prisma.settings.updateMany({ where: { id: "singleton", financePdfMonthlyEnabled: true, …
-      · меняет в базе: settings
-    - если claimed.count === 0
-      - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { financePdfMonthlyEn…
-        · читает в базе: settings
-    - const release = ()
-      · меняет в базе: settings
-    - пробует
-      - const candidates = await prisma.agent.findMany({ where: { role: "DIRECTOR", isActive: true, telegramChatId: {…
-        · читает в базе: agent
-      - для каждого: const c of candidates
-        - const access = await loadAgentAccess(c.id);
-          · зовёт loadAgentAccess()
-        - если access?.isActive && access.permissions.has("finance.view") && c.telegramChatId
-          - recipients.push({ id: c.id, chatId: String(c.telegramChatId) });
-            · дословно из кода
-      - если recipients.length === 0
-        - void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…
-          · запись в журнал ошибок
-      - для каждого: const r of recipients
-        - пробует
-          - await sendDocumentFile(r.chatId, pdf.buffer, pdf.filename, `Финансовый отчёт · ${pdf.periodLabel}`);
-            · зовёт sendDocumentFile()
-          - logAgentAudit(r.id, "REPORT_PDF_EXPORT", "Report", "finance", { destination: "monthlyTelegram", period: pdf.p…
-            · зовёт logAgentAudit()
-        - если сорвалось
-          - void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…
-            · запись в журнал ошибок
-      - если delivered === 0
-        - await release();
-          · дословно из кода
-        - return { month, status: "failed", delivered, failed };
-          · дословно из кода
-    - если сорвалось
-      - throw err;
-        · пробрасывает ошибку дальше
-  - если result.status === "sent"
-    - console.log(`[cron] Финансовый PDF за ${result.month}: доставлено ${result.delivered}, не доставлено ${result…
-      · пишет строку в журнал сервера
-- если сорвалось
-  - reportCronTickError("Финансовый PDF за месяц не разослан", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()

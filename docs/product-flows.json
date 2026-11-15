@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 754,
-  "forks": 4074,
-  "mounts": 84,
-  "cron": 136,
+  "endpoints": 752,
+  "forks": 4065,
+  "mounts": 83,
+  "cron": 135,
   "jobs": 33,
   "hidden": 0
  },
@@ -16538,22 +16538,22 @@
    "tree": [
     {
      "k": "do",
-     "t": "const client = await prisma.client.findUnique({ where: { id: req.params.id } });",
+     "t": "const result = await restoreClientFromTrash(req.params.id, req.agent!.id);",
      "a": [
-      "читает в базе: client"
+      "зовёт restoreClientFromTrash()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!client || !client.deletedAt",
+     "t": "!result.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден в корзине\" });",
+       "t": "return res.status(result.status).json({ error: result.error });",
        "a": [
-        "ответ 404 — «Клиент не найден в корзине»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -16561,199 +16561,9 @@
     },
     {
      "k": "do",
-     "t": "const owner = client.assignedAgentId ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId },…",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const restored = await prisma.$transaction(async (tx)",
-     "a": [
-      "пробрасывает ошибку дальше",
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: client",
-      "читает в базе: agent",
-      "меняет в базе: client"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${client.id} FOR UPDATE`;",
-       "a": [
-        "обращается к базе своим SQL"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const current = await tx.client.findUnique({ where: { id: client.id } });",
-       "a": [
-        "читает в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return false;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "loop",
-       "t": "для каждого: const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? \"\").localeCompare(b[0] ?? \"\"))",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "id && !completedAssignment",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw`SELECT id FROM \"Agent\" WHERE id = ${id} FOR SHARE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true…",
-           "a": [
-            "читает в базе: agent"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "eligible(agent) !== expected",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return false;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "await tx.client.update({ where: { id: client.id }, data: { deletedAt: null, deletedById: null, ...(ownerGone …",
-       "a": [
-        "меняет в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "ownerGone || restoredAgentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const changed = await changeClientAgent({ clientId: client.id, toAgentId: restoredAgentId, reason: restoredAg…",
-         "a": [
-          "зовёт changeClientAgent()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!changed.ok",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw restoreConflict;",
-           "a": [
-            "пробрасывает ошибку дальше"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!restored",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Карточка изменилась. Обновите страницу\" });",
-       "a": [
-        "ответ 409 — «Карточка изменилась. Обновите страницу»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "toQueue",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const supervisors = (await findAgentsWithPermission(\"clients.assign\")).filter((id)",
-       "a": [
-        "зовёт findAgentsWithPermission()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "sendPushToAgents(supervisors, { title: \"♻️ Карточка восстановлена без агента\", body: `${client.fullName} — ве…",
-       "a": [
-        "push-уведомление"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"RESTORE\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullName, phone: cl…",
+     "t": "logAudit(req, \"RESTORE\", \"Client\", result.client.id, { shortId: result.client.shortId, fullName: result.clien…",
      "a": [
       "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId] });",
-     "a": [
-      "зовёт publishClientUpdated()"
      ],
      "c": []
     },
@@ -46122,6 +45932,52 @@
     },
     {
      "k": "do",
+     "t": "const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { status: true, ass…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "property && canApplyChangeDirectly({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, pro…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const applied = await applyOwnChangeRequestNow(result.request.id, req.agent!.id);",
+       "a": [
+        "зовёт applyOwnChangeRequestNow()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!applied.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(applied.status).json({ error: applied.error });",
+         "a": [
+          "ответ (код зависит от условия)"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return res.status(201).json({ request: applied.request, applied: applied.request.status === \"APPROVED\", messa…",
+       "a": [
+        "ответ 201"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
      "t": "res.status(201).json({ request: result.request });",
      "a": [
       "ответ 201"
@@ -63849,225 +63705,6 @@
    ]
   },
   {
-   "method": "POST",
-   "path": "/:kind/telegram",
-   "mount": "/api/v1/report-pdf",
-   "full": "/api/v1/report-pdf/:kind/telegram",
-   "file": "apps/api/src/routes/reportPdf.ts",
-   "router": "reportPdfRouter",
-   "top": "apps/api/src/routes/reportPdf.ts::reportPdfRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "if",
-     "t": "!kind",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return;",
-       "a": [
-        "дальше не идёт, ничего не меняя"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!viewer.telegramChatId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Привяжите свой Telegram в профиле — туда придёт отчёт\" });",
-       "a": [
-        "ответ 409 — «Привяжите свой Telegram в профиле — туда придёт отчёт»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "await sendDocumentFile(viewer.telegramChatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.p…",
-         "a": [
-          "зовёт sendDocumentFile()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void logSystemError(\"telegram\", `PDF «${REPORT_PDF_TITLES[kind]}» не отправлен в Telegram: ${describeError(er…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "return res.status(503).json({ error: \"Telegram не принял файл. Повторите позже или скачайте PDF\" });",
-         "a": [
-          "ответ 503 — «Telegram не принял файл. Повторите позже или скачайте PDF»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "logAudit(req, \"REPORT_PDF_EXPORT\", \"Report\", kind, { destination: \"ownTelegram\", period: pdf.periodKey, bytes…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.json({ ok: true });",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "failed(res, kind, err);",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/:kind",
-   "mount": "/api/v1/report-pdf",
-   "full": "/api/v1/report-pdf/:kind",
-   "file": "apps/api/src/routes/reportPdf.ts",
-   "router": "reportPdfRouter",
-   "top": "apps/api/src/routes/reportPdf.ts::reportPdfRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "if",
-     "t": "!kind",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return;",
-       "a": [
-        "дальше не идёт, ничего не меняя"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "logAudit(req, \"REPORT_PDF_EXPORT\", \"Report\", kind, { destination: \"download\", period: pdf.periodKey, bytes: p…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.setHeader(\"Content-Type\", \"application/pdf\");",
-       "a": [
-        "ставит заголовок ответа"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.setHeader(\"Content-Disposition\", `attachment; filename=\"${pdf.filename}\"`);",
-       "a": [
-        "ставит заголовок ответа"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.setHeader(\"Cache-Control\", \"no-store\");",
-       "a": [
-        "ставит заголовок ответа"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.send(pdf.buffer);",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "failed(res, kind, err);",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    }
-   ]
-  },
-  {
    "method": "GET",
    "path": "/agents",
    "mount": "/api/v1/reports",
@@ -64086,7 +63723,61 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json(await buildAgentsReport(parseReportRange(req.query), reportViewer(req)));",
+     "t": "const agents = await prisma.agent.findMany({ where: { OR: [{ isActive: true }, { deals: { some: { stage: \"COM…",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [showingCounts, showingCountsBySubject, deals, money] = await Promise.all([ prisma.interaction.groupBy(…",
+     "a": [
+      "считает в базе: interaction",
+      "считает в базе: deal"
+     ],
+     "c": []
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const s of showingCountsBySubject",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!s.subjectAgentId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "continue;",
+         "a": [
+          "переходит к следующему"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const row of deals",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "entry.commission += toTjs(row._sum.commissionAmount, row.currency, money);",
+       "a": [
+        "зовёт toTjs()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(rows);",
      "a": [
       "ответ 200"
      ],
@@ -64201,15 +63892,17 @@
    "tree": [
     {
      "k": "do",
-     "t": "const range = parseReportRange(req.query);",
+     "t": "const [newLeads, contactedClientIds, showings, negotiations, completedDeals, money] = await Promise.all([ pri…",
      "a": [
-      "зовёт parseReportRange()"
+      "считает в базе: client",
+      "считает в базе: interaction",
+      "считает в базе: deal"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "res.json({ ...range, funnel: await buildFunnelReport(range, reportViewer(req)) });",
+     "t": "res.json({ from, to, funnel: [ { key: \"leads\", label: \"Новые лиды\", count: newLeads }, { key: \"contacted\", la…",
      "a": [
       "ответ 200"
      ],
@@ -65176,7 +64869,99 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json(await buildSourcesReport(parseReportRange(req.query)));",
+     "t": "const clientCounts = await prisma.client.groupBy({ by: [\"source\", \"status\"], where: { createdAt: { gte: from,…",
+     "a": [
+      "считает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const row of clientCounts",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "row.status === \"DEAL_CLOSED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "entry.closed += row._count._all;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const [botConversations, telegramConversations] = await Promise.all([ prisma.botConversation.groupBy({ by: [\"…",
+     "a": [
+      "считает в базе: botConversation",
+      "считает в базе: telegramConversation"
+     ],
+     "c": []
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const row of botConversations",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "wroteBySource.set(row.channel, (wroteBySource.get(row.channel) ?? 0) + row._count._all);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "telegramConversations > 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "wroteBySource.set(\"TELEGRAM\", (wroteBySource.get(\"TELEGRAM\") ?? 0) + telegramConversations);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const closedDeals = await prisma.deal.findMany({ where: { stage: \"COMPLETED\", closedAt: { gte: from, lte: to …",
+     "a": [
+      "читает в базе: deal"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "closedDeals.length >= REPORTS_ROW_LIMIT",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError( \"api\", `Отчёт «Источники»: закрытых сделок за период больше потолка ${REPORTS_ROW_LIMIT}…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ sources: Array.from(new Set([...bySource.keys(), ...wroteBySource.keys()])) .map((source)",
      "a": [
       "ответ 200"
      ],
@@ -93362,260 +93147,6 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка уборки черновиков объектов\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
-   "id": "finance-pdf-monthly",
-   "when": "10 9 1-3 * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const result = await sendMonthlyFinancePdf();",
-       "a": [
-        "зовёт sendMonthlyFinancePdf()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const month = previousMonthKey(now);",
-         "a": [
-          "зовёт previousMonthKey()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const claimed = await prisma.settings.updateMany({ where: { id: \"singleton\", financePdfMonthlyEnabled: true, …",
-         "a": [
-          "меняет в базе: settings"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "claimed.count === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { financePdfMonthlyEn…",
-           "a": [
-            "читает в базе: settings"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const release = ()",
-         "a": [
-          "меняет в базе: settings"
-         ],
-         "c": []
-        },
-        {
-         "k": "try",
-         "t": "пробует",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const candidates = await prisma.agent.findMany({ where: { role: \"DIRECTOR\", isActive: true, telegramChatId: {…",
-           "a": [
-            "читает в базе: agent"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const c of candidates",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const access = await loadAgentAccess(c.id);",
-             "a": [
-              "зовёт loadAgentAccess()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "access?.isActive && access.permissions.has(\"finance.view\") && c.telegramChatId",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "recipients.push({ id: c.id, chatId: String(c.telegramChatId) });",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "recipients.length === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const r of recipients",
-           "a": [],
-           "c": [
-            {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "await sendDocumentFile(r.chatId, pdf.buffer, pdf.filename, `Финансовый отчёт · ${pdf.periodLabel}`);",
-               "a": [
-                "зовёт sendDocumentFile()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "logAgentAudit(r.id, \"REPORT_PDF_EXPORT\", \"Report\", \"finance\", { destination: \"monthlyTelegram\", period: pdf.p…",
-               "a": [
-                "зовёт logAgentAudit()"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…",
-               "a": [
-                "запись в журнал ошибок"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "delivered === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await release();",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "return { month, status: \"failed\", delivered, failed };",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "catch",
-         "t": "если сорвалось",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw err;",
-           "a": [
-            "пробрасывает ошибку дальше"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ],
-       "from": "sendMonthlyFinancePdf() — apps/api/src/lib/reportPdf/monthlyFinance.ts"
-      },
-      {
-       "k": "if",
-       "t": "result.status === \"sent\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Финансовый PDF за ${result.month}: доставлено ${result.delivered}, не доставлено ${result…",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Финансовый PDF за месяц не разослан\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
