@@ -27,6 +27,7 @@ import { runStationOutageProbeTick } from "./lib/stationOutage.js";
 import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
+import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
 import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
@@ -2743,6 +2744,20 @@ export function startCronJobs() {
       if (alerted > 0) console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа «клиент ждёт ответа»", err);
+    }
+  });
+
+  /**
+   * КОММЕНТАРИЙ БЕЗ ОТВЕТА БОТА — ЧЕЛОВЕКУ (15.11.2026, lib/commentWaitingAlert.ts).
+   * Новое ядро ставит комментарию ESCALATED/FAILED и никого не зовёт; старый путь
+   * зовёт сам. Одна дверь для обоих: свежий ESCALATED/FAILED без уведомления — пуш.
+   */
+  scheduleTracked("comment-needs-human-sweep", "6-59/10 * * * *", async () => {
+    try {
+      const { alerted } = await runCommentNeedsHumanSweep();
+      if (alerted > 0) console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа комментариев без ответа", err);
     }
   });
 

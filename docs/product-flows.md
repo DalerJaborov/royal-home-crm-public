@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4045**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4051**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20327,6 +20327,55 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка напоминания «ролик ждёт проверки»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### comment-needs-human-sweep — 6-59/10 * * * *
+
+- пробует
+  - const { alerted } = await runCommentNeedsHumanSweep();
+    · зовёт runCommentNeedsHumanSweep()
+    - const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …
+      · обращается к базе своим SQL
+    - если !rows.length
+      - return { checked: 0, alerted: 0 };
+        · дословно из кода
+    - const claim = (commentId: string)
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - если !commentNeedsHuman(row.status, row.note)
+        - continue;
+          · переходит к следующему
+    - если !due.length
+      - return { checked: rows.length, alerted: 0 };
+        · дословно из кода
+    - const recipients = await findAgentsWithPermission("messages.view");
+      · зовёт findAgentsWithPermission()
+    - если !recipients.length
+      - void logSystemError("meta", `Комментарии ждут человека (${due.length}), но в CRM нет никого с правом «Сообщен…
+        · запись в журнал ошибок
+    - для каждого: const row of due
+      - if ((await claim(row.commentId)) === 1) claimed.push(row);
+        · дословно из кода
+    - если !claimed.length
+      - return { checked: rows.length, alerted: 0 };
+        · дословно из кода
+    - пробует
+      - await sendPushToAgents(recipients, { kind: "message", title: claimed.length === 1 ? `💬 ${places}: ответьте н…
+        · push-уведомление
+    - если сорвалось
+      - await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: claimed.map((r)
+        · удаляет в базе: processedMessage
+      - void logSystemError("meta", `Сводка «комментарии ждут человека» не отправлена: ${err instanceof Error ? err.m…
+        · запись в журнал ошибок
+  - если alerted > 0
+    - console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа комментариев без ответа", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()

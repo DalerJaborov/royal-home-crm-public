@@ -14,12 +14,12 @@
  "totals": {
   "screens": 53,
   "paths": 749,
-  "cron": 132,
+  "cron": 133,
   "jobs": 33,
-  "conditions": 4029,
-  "untranslatedUnique": 463,
-  "untranslatedTotal": 594,
-  "partialUnique": 1090,
+  "conditions": 4035,
+  "untranslatedUnique": 464,
+  "untranslatedTotal": 595,
+  "partialUnique": 1093,
   "translatedShare": 85
  },
  "untranslated": [
@@ -63,6 +63,7 @@
   "!clientPropertyEligible(c, facts, money, policy)",
   "!commandFailed(res, err)",
   "!commandFailed(res, error)",
+  "!commentNeedsHuman(row.status, row.note)",
   "!confirmedClientIntents(client).buys",
   "!contact.success || !contact.data.name || !contact.data.phone || !intent || intent.status !== \"committed\" || …",
   "!contentType.startsWith(\"video/\")",
@@ -66154,6 +66155,137 @@
      "c": [
       {
        "t": "если reminded больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "comment-needs-human-sweep",
+   "when": "6-59/10 * * * *",
+   "label": "comment-needs-human-sweep",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: rows количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если !commentNeedsHuman(row.status, row.note)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!commentNeedsHuman(row.status, row.note)",
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если нет: due количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: recipients количество",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: claimed количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "push-уведомление",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "удаляет: processed сообщение",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если разосланных тревог больше 0",
        "k": "if",
        "a": [],
        "c": []
