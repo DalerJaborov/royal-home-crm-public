@@ -1,5 +1,5 @@
 import { ExternalLink, Search } from "lucide-react";
-import type { MarketBuyerListing, MarketBuyerListingsResponse } from "@royal-home/shared";
+import type { MarketBuyerListing, MarketBuyerListingsResponse, MarketBuyerSummary } from "@royal-home/shared";
 import { useMarketBuyerListings } from "../hooks/useMarket";
 import { dushanbeDate } from "../lib/date";
 import { formatArea, formatMoney } from "../lib/format";
@@ -25,6 +25,25 @@ function listingMain(l: MarketBuyerListing): string {
   return parts.length ? parts.join(" · ") : l.title;
 }
 
+/**
+ * Одна короткая строка над списком (14.11.2026): типичная цена объявлений в районе и с комнатами покупателя
+ * и как его бюджет к ней относится. Числа считает сервер (порог MIN_SAMPLE приходит как minSample); меньше
+ * порога строка честно говорит «данных мало» и чисел не показывает. Тот же узел на ПК и телефоне.
+ */
+export function marketBuyerLineText(m: MarketBuyerSummary): string | null {
+  const place = [m.districtName, m.rooms ? `${m.rooms}-комнатные` : null].filter(Boolean).join(", ");
+  if (m.status === "no_segment") return "Укажите район и число комнат в пожеланиях, тогда здесь появится типичная цена рынка.";
+  if (m.status === "insufficient") {
+    return `Рынок (${place}): данных мало, объявлений ${m.count}, для цены нужно от ${m.minSample}. Цен не называем.`;
+  }
+  const typical = `${formatMoney(m.medianPriceTjs ?? 0, "TJS")}${m.medianPerSqmTjs != null ? ` (${formatMoney(m.medianPerSqmTjs, "TJS")}/м²)` : ""}`;
+  const head = `Рынок (${place}): типичная цена ${typical} по ${m.count} объявл.`;
+  const p = m.budgetVsMedianPercent;
+  if (p == null) return head;
+  if (p === 0) return `${head} Бюджет клиента равен типичной цене.`;
+  return `${head} Бюджет клиента на ${Math.abs(p)}% ${p > 0 ? "выше" : "ниже"} типичной цены.`;
+}
+
 export function MarketBuyerListingsView({ data }: { data: MarketBuyerListingsResponse }) {
   if (data.status === "not_buyer" || data.status === "pending_acceptance") return null;
   return (
@@ -36,6 +55,14 @@ export function MarketBuyerListingsView({ data }: { data: MarketBuyerListingsRes
         Чужие объявления с сайтов, не наши объекты. Цены в объявлениях — не цены сделок.
         {data.criteria.length > 0 ? ` Ищем: ${data.criteria.join(", ")}.` : ""}
       </p>
+      {data.ownersOnly?.enabled && data.ownersOnly.total > 0 && (
+        <p className="sub" data-testid="market-owners-only">
+          Показаны только собственники: {data.ownersOnly.kept} из {data.ownersOnly.total} объявлений.
+        </p>
+      )}
+      {data.market && marketBuyerLineText(data.market) && (
+        <p className="sub" style={{ marginTop: 10, fontWeight: 600 }} data-testid="market-buyer-line">{marketBuyerLineText(data.market)}</p>
+      )}
       {data.status === "no_criteria" ? (
         <Rh2EmptyState
           icon={Search}

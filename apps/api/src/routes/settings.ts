@@ -733,6 +733,10 @@ const settingsUpdateSchema = z.object({
   matchIncludeInactive: z.boolean().optional(),
   matchIncludeDeferred: z.boolean().optional(),
   matchNotifyPropertyOwner: z.boolean().optional(),
+  /** Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026, lib/market/buyerAlerts.ts). */
+  marketBuyerAlertsEnabled: z.boolean().optional(),
+  /** Подбор покупателю с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
+  marketOwnersOnly: z.boolean().optional(),
   /** 0 = без срока. */
   matchRequirementTtlDays: z.number().int().min(0).max(365).optional(),
   matchBudgetTolerancePct: z.number().int().min(0).max(50).optional(),
@@ -1190,6 +1194,8 @@ const settingsUpdateSchema = z.object({
    *  сводок; отдельного списка не заводим, пока владелец не попросит. */
   problemReportWeeklyEnabled: z.boolean().optional(),
   problemReportMonthlyEnabled: z.boolean().optional(),
+  /** Финансовый PDF за прошлый месяц директорам в Telegram, 1-го числа (14.11.2026, lib/reportPdf/monthlyFinance.ts). */
+  financePdfMonthlyEnabled: z.boolean().optional(),
   /** Пауза перед ответом бота, секунды: сколько тишины ждать, пока клиент дописывает.
    *  0 — отвечать сразу; верхний предел — минута, дальше клиент решит, что его не читают. */
   botReplyDelaySec: z.number().int().min(0).max(60).optional(),

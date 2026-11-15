@@ -23,6 +23,18 @@ import { notifyFeedOnly } from "./notifications.js";
  *    подберёт на следующем тике: человек видит зависание, не дожидаясь автоподбора.
  */
 
+/** Задания, чей отказ значит «клиент остался без ответа»: хозяину карточки идёт ещё и пуш. */
+export const CLIENT_WAITING_JOB_TYPES: ReadonlySet<string> = new Set([
+  "ai-reply-retry",
+  "ai-turn-blocked-followup",
+  "telegram-reply-retry",
+  "telegram-dm-reply-retry",
+]);
+
+export function isClientWaitingJob(type: string): boolean {
+  return CLIENT_WAITING_JOB_TYPES.has(type) || type.startsWith("customer-");
+}
+
 /** PENDING старше своего runAt на этот срок — тик раз в минуту явно не успевает. */
 const PENDING_OVERDUE_MIN = 10;
 /** Тот же смысл, что STUCK_RUNNING_MIN в jobs/runner.ts — воркер умер между run и DONE. */
@@ -410,6 +422,11 @@ export async function countStuckWorkHangingNow(): Promise<number> {
  * push (notifyFeedOnly, П-20.09): директор и так видит экран «Что не доехало» —
  * будить телефон на КАЖДОЕ сдавшееся фоновое задание было бы тем самым лишним
  * звонком, который владелец просил убрать 20.09.2026.
+ *
+ * ИСКЛЮЧЕНИЕ: КЛИЕНТ ЖДЁТ ОТВЕТА (14.11.2026, охота на тихие поломки, №11). Когда
+ * сдалось задание из `CLIENT_WAITING_JOB_TYPES` (ответ бота клиенту так и не ушёл),
+ * ответственному агенту идёт ещё и звонок телефона: человек на том конце ждёт, и
+ * колокольчик с утренней строкой его не спасают. Директору по-прежнему только лента.
  */
 export async function notifyStuckWorkGivenUp(job: BackgroundJob): Promise<void> {
   try {
@@ -431,6 +448,16 @@ export async function notifyStuckWorkGivenUp(job: BackgroundJob): Promise<void> 
       url: "/stuck-work",
       tag: `${privateJob ? "investigation-" : ""}background-job-given-up:${job.id}`,
     });
+    if (ownerAgentId && !privateJob && isClientWaitingJob(job.type)) {
+      // Колокольчик уже записан строкой выше: здесь только звонок телефона (без второй записи в ленту).
+      const { sendDevicePushToAgents } = await import("../push.js");
+      await sendDevicePushToAgents([ownerAgentId], {
+        title: "Клиент остался без ответа",
+        body: `${label}: ответ клиенту не ушёл после ${job.attempts} попыток. Откройте переписку и ответьте сами.`,
+        url: "/stuck-work",
+        tag: `client-waiting-given-up:${job.id}`,
+      });
+    }
   } catch (err) {
     // Уведомление — довесок к уже случившемуся GIVEN_UP (тот уже в journal
     // через logSystemError в runner.ts), поэтому его собственный сбой не

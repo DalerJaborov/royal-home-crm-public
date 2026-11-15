@@ -11,6 +11,7 @@ import {
   Clapperboard,
   Megaphone,
   MessageSquare,
+  Mic,
   Music2,
   PhoneCall,
   PhoneIncoming,
@@ -69,6 +70,7 @@ const CHANNEL_NAMES: Record<string, string> = {
 };
 
 import { OpenAiCoversSection } from "./OpenAiCoversSection";
+import { NarrationSettingsPanel } from "../../components/settings/NarrationSettingsPanel";
 import { ReelsAutoBoostSection } from "./ReelsAutoBoostSection";
 
 export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "advertising" | "phone" } = {}) {
@@ -105,6 +107,12 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
       {/* Обложки (28.09.2026): переключатель «наш шаблон | ChatGPT»; при шаблоне
           раздел сам показывает список шаблонов (CoverTemplatesSection). */}
       {(!area || area === "publishing") && <OpenAiCoversSection templateHeading={area ? "Шаблоны обложек" : undefined} />}
+      {/* 14.11.2026, владелец: техника озвучки — только здесь, в карточке объекта агент видит голос и текст. */}
+      {(!area || area === "publishing") && (
+        <SettingsSection icon={Mic} title="Озвучка роликов" badge="ElevenLabs">
+          <NarrationSettingsPanel />
+        </SettingsSection>
+      )}
       {(!area || area === "messengers") && <>
       <SettingsGroupLabel>Мессенджеры</SettingsGroupLabel>
 
