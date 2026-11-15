@@ -7,6 +7,7 @@ import { useMarketSegments } from "../hooks/useMarket";
 import { dushanbeDate } from "../lib/date";
 import { formatMoney } from "../lib/format";
 import { marketSourceName } from "../lib/marketSource";
+import { MarketOverpriced } from "../components/MarketOverpriced";
 import { Filters } from "../components/rh2/Filters";
 import { PageHeader } from "../components/rh2/PageHeader";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
@@ -168,6 +169,7 @@ export function MarketSegments() {
           </label>
         }
       />
+      <MarketOverpriced />
       <div className="card tight">
         <Filters
           aria-label="Комнаты"
