@@ -25,6 +25,7 @@
  *   7б. audit:typeset            ~0 с    размеры и гарнитура не отстали от темы
  *   8. audit:rules               ~0 с    одно правило не написано дважды (сервер и сайт)
  *   8б. audit:mocks              ~1 с    нет новых узких подмен vi.mock без importOriginal (№204)
+ *   8в. audit:fetch-timeout      ~0 с    каждый fetch в apps/api/src с signal (таймаут), охота 14.11.2026 №12
  *   9. audit:журнал              ~0 с    у каждого действия журнала есть подпись по-русски
  *   9б. audit:secrets            ~1 с    нет ключей, .env и настоящих номеров клиентов в документах
  *  10. map:check                 ~0 с    карта продукта не отстала от кода (docs/product-map.md)
@@ -169,6 +170,7 @@ const steps = [
   // имён, чем у модуля есть, и первый же новый вывоз валит чужие тесты (#584,
   // находка №204). Известные подмены — .vi-mock-baseline.json, валят только новые.
   { name: "audit:mocks (подмены vi.mock)", cmd: "npm", args: ["run", "audit:mocks"] },
+  { name: "audit:fetch-timeout (fetch без таймаута)", cmd: "npm", args: ["run", "audit:fetch-timeout"] },
   { name: "audit:журнал", cmd: "npm", args: ["run", "audit:audit-labels"] },
   // Ни ключ, ни токен, ни файл .env, ни настоящий номер клиента в документе не
   // уходят в main (владелец 20.10.2026: «ни от тебя, ни от Codex»). Хук перед
