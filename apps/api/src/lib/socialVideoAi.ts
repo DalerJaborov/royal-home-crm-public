@@ -694,6 +694,8 @@ export async function generateSocialVideoCoverImage(input: SocialVideoCoverInput
  * оплата, так не узнать: об этом скажет первый вызов Gemini понятной ошибкой.
  */
 export async function listCoverProviders(): Promise<SocialVideoAiProviderInfo[]> {
+  // Сбой чтения рубильника не должен ронять весь список — подпись тогда общая, про ключ.
+  const openaiOn = await isOpenAiEnabled().catch(() => true);
   const check = async (
     provider: SocialVideoCoverProvider,
     hasKey: () => Promise<boolean>,
@@ -714,7 +716,7 @@ export async function listCoverProviders(): Promise<SocialVideoAiProviderInfo[]>
       "OPENAI",
       async () => (await resolveOpenAiKey()) !== null,
       // Рубильник OpenAI (14.11.2026) важнее ключа: выключен — так и пишем, а не «ключ не введён».
-      (await isOpenAiEnabled()) ? "Ключ OpenAI не введён — Настройки → ИИ" : "OpenAI выключен в Настройках → Каналы → Обложки"
+      openaiOn ? "Ключ OpenAI не введён — Настройки → ИИ" : "OpenAI выключен в Настройках → Каналы → Обложки"
     ),
   ]);
 }
