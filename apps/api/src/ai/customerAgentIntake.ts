@@ -47,9 +47,24 @@ export function customerSellerIntakeQuestion(known: readonly SellerFactKey[], la
   if (!missing.length) return language === "tg"
     ? "Аксҳо ё видеои хонаи худро дар ҳамин чат фиристода метавонед?"
     : "Можете прислать фото или видео вашей недвижимости в этот чат?";
+  if (language === "tg") {
+    // Live Tajik (audit 16.11.2026, language.md п.6; tajik-phrasebook live-agent-phrases: «Чанд ҳуҷра?», «Чанд квадрат аст?»,
+    // «Кадом ошёна?», «Бо таъмир ё каробка?», «Нархашро чанд мегӯед?», «Ҳамаи маълумотро дар як паём нависед.») instead of the
+    // book list «шумораи ҳуҷраҳо, масоҳат, … нарх бо асъор-ро нависед» that 12 sellers got in a week.
+    const asks = missing.map(key => liveTg[key]);
+    const list = asks.length > 1 ? `${asks.slice(0, -1).join(", ")} ва ${asks[asks.length - 1]}` : asks[0];
+    return `Хонаатон ${list}? Ҳамаи маълумотро дар як паём нависед.`;
+  }
   const fields = missing.map(key => labels[key][language]).join(", ");
-  return language === "tg" ? `Барои фурӯш ${fields}-ро нависед. Ҳамаашро дар як паём фиристода метавонед.`
-    : `Для продажи напишите ${fields}. Можно всё одним сообщением.`;
+  return `Для продажи напишите ${fields}. Можно всё одним сообщением.`;
+}
+const liveTg: Record<SellerFactKey, string> = { rooms: "чанд ҳуҷра", area: "чанд квадрат", district: "дар куҷо", floor: "кадом ошёна",
+  condition: "бо таъмир ё каробка", price: "нархаш чанд" };
+/** RETIRED Tajik wording (before 16.11.2026): kept for the memory of older chats only. */
+function retiredSellerIntakeTg(known: readonly SellerFactKey[]): string | null {
+  const missing = SELLER_FACT_ORDER.filter(key => !known.includes(key));
+  if (!missing.length) return null;
+  return `Барои фурӯш ${missing.map(key => labels[key].tg).join(", ")}-ро нависед. Ҳамаашро дар як паём фиристода метавонед.`;
 }
 
 /** Every wording customerSellerIntakeQuestion can produce (any subset of known facts), for the read-only memory allow-list. */
@@ -58,6 +73,8 @@ export function customerSellerIntakeQuestionLines(): string[] {
   for (let mask = 0; mask < 1 << keys.length; mask++) {
     const known = keys.filter((_, index) => mask & (1 << index));
     for (const language of ["ru", "tg"] as const) lines.push(customerSellerIntakeQuestion(known, language));
+    const retired = retiredSellerIntakeTg(known);
+    if (retired) lines.push(retired);
   }
   return lines;
 }

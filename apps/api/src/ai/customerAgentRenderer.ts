@@ -76,7 +76,7 @@ function adOpeningTurn(input: { surface: CustomerAgentSurface; decision: Custome
   inputText?: string; verifiedContext?: CustomerAgentVerifiedContext }): boolean {
   return input.surface === "dm" && input.decision.kind !== "propose" && !customerInputHasLink(input.inputText) &&
     !input.evidence.some(e => e.value.kind === "facts" || e.value.kind === "publication_properties" || e.value.kind === "receipt" ||
-      e.value.kind === "open_vacancies" && input.decision.kind !== "propose" && input.decision.refs.includes(e.ref)) &&
+      e.value.kind === "open_vacancies" && "refs" in input.decision && input.decision.refs.includes(e.ref)) &&
     customerAdOpening(input);
 }
 const VACANCY_LIST_HEADERS = ["Сейчас открыты вакансии:", "Открыта вакансия:", "Ҷойҳои кори кушода:", "Ҷойи кори кушода:"];
