@@ -17736,7 +17736,9 @@
 - если !req.file
   - return res.status(400).json({ error: "Аудио не передано" });
     · ответ 400 — «Аудио не передано»
-- const text = await transcribeAudio(req.file.buffer, req.file.originalname || "voice.webm", req.file.mimetype);
+- const mediaType = normalizeDictationMime(req.file.mimetype) ?? "audio/webm";
+  · зовёт normalizeDictationMime()
+- const text = await transcribeAudio(req.file.buffer, req.file.originalname || "voice.webm", mediaType);
   · зовёт transcribeAudio()
 - если text === null
   - return res.status(502).json({ error: "Не удалось распознать речь" });

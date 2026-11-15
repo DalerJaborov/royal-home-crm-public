@@ -78453,7 +78453,15 @@
     },
     {
      "k": "do",
-     "t": "const text = await transcribeAudio(req.file.buffer, req.file.originalname || \"voice.webm\", req.file.mimetype);",
+     "t": "const mediaType = normalizeDictationMime(req.file.mimetype) ?? \"audio/webm\";",
+     "a": [
+      "зовёт normalizeDictationMime()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const text = await transcribeAudio(req.file.buffer, req.file.originalname || \"voice.webm\", mediaType);",
      "a": [
       "зовёт transcribeAudio()"
      ],

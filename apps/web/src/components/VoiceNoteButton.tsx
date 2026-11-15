@@ -2,6 +2,7 @@ import { Mic, Send, X } from "lucide-react";
 import { useVoiceMessageRecorder } from "../hooks/useVoiceMessageRecorder";
 import { api } from "../lib/api";
 import { VoiceNotePlayer } from "./VoiceNotePlayer";
+import { audioFileNameFor } from "../lib/audioRecording";
 
 export type VoiceNote = { url: string; transcript: string | null };
 
@@ -39,7 +40,7 @@ export function VoiceNoteButton({
   const { supported, isRecording, isSending, elapsedMs, error, start, stop, cancel } = useVoiceMessageRecorder(
     async (blob) => {
       const form = new FormData();
-      form.append("audio", blob, "voice-note.webm");
+      form.append("audio", blob, audioFileNameFor(blob.type, "voice-note"));
       const result = await api<VoiceNote>(uploadUrl, { method: "POST", body: form });
       onChange(result);
     }
