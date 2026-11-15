@@ -149,11 +149,13 @@ describe("class г: a call only with a phone, the phone asked once (review С6)"
 });
 
 describe("class е: barter, narrowly (live case 5, review С2)", () => {
-  it.each(["Мошин хам кабул мекунед?", "машину в зачёт возьмёте?", "обмен квартиры на дом рассматриваете?", "Бартер бо мошин мешавад?"])("%s is barter", text => {
+  it.each(["Мошин хам кабул мекунед?", "машину в зачёт возьмёте?", "обмен квартиры на дом рассматриваете?", "Бартер бо мошин мешавад?",
+    "Хонаро бо мошин иваз мекунед?", "иваз ба ҳавлӣ мешавад?"])("%s is barter", text => {
     expect(customerTradeInQuestion(text)).toBe(true);
   });
   it.each(["Ищу дом плюс гараж для машины", "Есть парковка для машины? Принимаете наличные?", "Квартира с местом для авто, доплата за ремонт нужна?",
-    "Ҷои мошин ҳаст? Ба ҷои нақд корт қабул мекунед?", "обменять доллары где", "мошинаи худро мондан мумкин?", "скидка будет?"])("%s is not", text => {
+    "Ҷои мошин ҳаст? Ба ҷои нақд корт қабул мекунед?", "обменять доллары где", "мошинаи худро мондан мумкин?", "скидка будет?",
+    "Хонаамро иваз кардан мехоҳам", "рақамамро иваз кардам"])("%s is not", text => {
     expect(customerTradeInQuestion(text)).toBe(false);
   });
   it("drops the discount line, keeps one question (the phone), signals a person", () => {
@@ -167,6 +169,8 @@ describe("a partnership offer goes to management (live case 2, review С3)", () 
   const offer = "Здравствуйте! Меня зовут Шахноза, я менеджер дизайн-студии. Хотела бы предложить вам сотрудничество. Мы занимаемся дизайн-проектами квартир.";
   it("is recognised; a seller, a job seeker and a client are not partners", () => {
     expect(customerPartnershipOffer(offer)).toBe(true);
+    expect(customerPartnershipOffer("Здравствуйте! У меня к вам предложение о сотрудничестве, наша студия делает ремонт")).toBe(true);
+    expect(customerPartnershipOffer("Наша компания поможет продать квартиры быстрее, предлагаем партнёрство")).toBe(true);
     for (const text of ["Предлагаю сотрудничество: у меня квартира на продажу, продайте её", "Ман ба шумо ҳамкорӣ пешниҳод мекунам, хонаамро фурӯшед",
       "Хочу предложить сотрудничество, ищу работу агентом", "хочу продать квартиру через ваше агентство"]) expect(customerPartnershipOffer(text)).toBe(false);
   });
@@ -247,12 +251,15 @@ describe("the staff signal of a promise (review С4, С7)", () => {
     expect(source).toContain("if (customerReplyCallsStaff(sealed.text)) void signalStaffFollowUp(");
     expect(source).not.toContain("notifyStaffFollowUpCustomerTurn");
   });
-  it("no agent: management gets it; each new promise gets through, the same message is not signalled twice", async () => {
+  it("no agent: management gets it once per chat until a person answers, then again (re-review Н-нов-3)", async () => {
     const id = await chat();
-    const at = Date.now() - 60_000;
+    const at = Date.now() - 120_000;
     expect(await signalStaffFollowUp(id, at)).toBe("director");
     expect(await signalStaffFollowUp(id, at)).toBe("skipped");
-    expect(await signalStaffFollowUp(id, at + 30_000)).toBe("director"); // no 6 h window
+    expect(await signalStaffFollowUp(id, at + 20_000)).toBe("skipped"); // nobody answered yet: no second CRITICAL
+    await prisma.botConversation.update({ where: { id }, data: { messages: [
+      { role: "assistant", content: "Салом!", at: new Date(at + 40_000).toISOString(), by: { kind: "agent", agentId: "x", agentName: "Агент" } }] } });
+    expect(await signalStaffFollowUp(id, at + 60_000)).toBe("director"); // a person answered: a new promise is signalled
     const queued = await prisma.pendingDirectorAlert.findMany({ where: { tag: `client-waiting-${id}` } });
     expect(queued).toHaveLength(2);
     expect(queued[0].body).toContain("бот ответил клиенту, что это уточнит агент");

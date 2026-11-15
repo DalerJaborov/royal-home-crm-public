@@ -108,6 +108,17 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
 /** follow_up — бот ответил клиенту «это скажет агент» / «агент позвонит» (15.11.2026): обещание правдиво, только
  *  если ответственный узнал. Эпизод — эта реплика клиента (`since`), а не окно в 6 ч: каждое обещание доходит. */
 export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up";
+
+/** A person (an agent in the CRM or staff from the messenger app) answered in the chat after `since`. Pure. */
+export function humanRepliedSince(messages: unknown, since: Date): boolean {
+  if (!Array.isArray(messages)) return false;
+  return messages.some(raw => {
+    const m = raw as { role?: unknown; at?: unknown; by?: { kind?: unknown } | null } | null;
+    if (!m || m.role !== "assistant" || typeof m.at !== "string") return false;
+    const kind = m.by && typeof m.by === "object" ? m.by.kind : undefined;
+    return (kind === "agent" || kind === "manual") && new Date(m.at).getTime() > since.getTime();
+  });
+}
 export type ClientWaitingOutcome = "agent" | "director" | "skipped";
 
 const CHANNEL_NAME: Record<string, string> = {
@@ -158,6 +169,9 @@ export async function alertClientWaiting(input: {
   const since = input.since ?? episode?.since ?? (input.trigger !== "silence" ? now : null);
   if (!since) return "skipped";
   if (chat.silenceAlertFor && chat.silenceAlertFor.getTime() >= since.getTime()) return "skipped";
+  // «Агент уточнит» — one CRITICAL per chat until a person answers in the chat (re-review #201, Н-нов-3; owner: rarely
+  // disturb people): three empty searches in a row are one signal, not three.
+  if (input.trigger === "follow_up" && chat.silenceAlertFor && !humanRepliedSince(chat.messages, chat.silenceAlertFor)) return "skipped";
 
   // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба.
   const previous = chat.silenceAlertFor;

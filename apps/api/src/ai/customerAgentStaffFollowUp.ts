@@ -113,21 +113,27 @@ const VEHICLE = "(?:мошин|машин|автомоб|авто(?![\\p{L}]))\\
 const ACCEPT = "(?:қабул|кабул|принима|приним|возьм|бер[её]т|зач[её]т)\\p{L}*";
 const NEAR = (a: string, b: string) => new RegExp(`${a}(?:\\s+\\S+){0,3}?\\s+${b}|${b}(?:\\s+\\S+){0,3}?\\s+${a}`, "iu");
 const VEHICLE_ACCEPTED = NEAR(VEHICLE, ACCEPT);
-const EXCHANGE = /обмен|бартер|мубодил|иваз/u;
+const EXCHANGE = /обмен|бартер|мубодил/u;
 const EXCHANGE_OBJECT = new RegExp(`${VEHICLE}|квартир|дом(?![\\p{L}])|дома|хона|ҳавлӣ|хавли|участ|замин`, "iu");
+/** «иваз» is also "change/replace" («Хонаамро иваз кардан мехоҳам» — sell and buy another): an exchange only with
+ *  «бо/ба» + a second object («бо мошин иваз», «ба ҳавлӣ иваз») — re-review #201, Н-нов-2. */
+const IVAZ_OBJECT = `(?:${VEHICLE}|хона|ҳавлӣ|хавли|квартир|замин|участ)\\p{L}*`;
+const IVAZ_WITH = new RegExp(`(?:^|\\s)(?:бо|ба)\\s+${IVAZ_OBJECT}(?:\\s+\\S+){0,2}?\\s+иваз|иваз\\p{L}*(?:\\s+\\S+){0,2}?\\s+(?:бо|ба)\\s+${IVAZ_OBJECT}`, "iu");
 /**
  * "Мошин ҳам қабул мекунед?", "машину в зачёт возьмёте?", "обмен квартиры на дом": a deal term no catalog knows — the agent
  * answers. Narrow on purpose (review #201, С2): the car and "accept/take/offset" in one sentence within four words, an
  * exchange only together with a car or a property. "Есть парковка для машины? Принимаете наличные?" is not barter.
  */
 export function customerTradeInQuestion(text: string): boolean {
-  return sentences(own(text)).some(part => VEHICLE_ACCEPTED.test(part) || EXCHANGE.test(part) && EXCHANGE_OBJECT.test(part));
+  return sentences(own(text)).some(part => VEHICLE_ACCEPTED.test(part) || EXCHANGE.test(part) && EXCHANGE_OBJECT.test(part) || IVAZ_WITH.test(part));
 }
 
 const PARTNER_WORD = /сотрудничеств|партн[её]рств|коммерческ\S*\s+предложени|ҳамкор[иӣ]|хамкор[иӣ]/u;
 const OFFER_WORD = /предлага|предложи|предложени|пешниҳод|пешниход|мы\s+занимаемся|наша\s+(?:компания|студия|команда)|ширкати\s+мо/u;
 /** The writer's own sale, purchase or job search: a client, not a partner (review #201, С3). */
-const OWN_NEED = /у\s+меня|мо[яюй]\s+(?:квартир|дом|участ)|продайте|продаю|продать|продам|куплю|купить|хонаам|хонаи\s+ман|фур[ӯу]шед|мефур[ӯу]шам|фур[ӯу]шам|фрушам|мехарам|харидан\s+мехоҳам|ищу\s+(?:работ|квартир|дом)|работ\S*\s+агент|кор\s+(?:меҷӯям|мечуям|мекобам|кофта)|ваканси/u;
+// «у меня» only with the property, «продать» only with «мою/свою» (re-review #201, Н-нов-1): «У меня к вам предложение о
+// сотрудничестве» and «поможем продать квартиры, предлагаем партнёрство» ARE partner offers.
+const OWN_NEED = /у\s+меня\s+(?:есть\s+)?(?:квартир|дом|участ|хона|ҳавлӣ)|мо[яюй]\s+(?:квартир|дом|участ)|продайте|продаю|(?:мою|свою)\s+(?:\S+\s+)?продать|продать\s+(?:мою|свою)|продам|куплю|купить|хонаам|хонаи\s+ман|фур[ӯу]шед|мефур[ӯу]шам|фур[ӯу]шам|фрушам|мехарам|харидан\s+мехоҳам|ищу\s+(?:работ|квартир|дом)|работ\S*\s+агент|кор\s+(?:меҷӯям|мечуям|мекобам|кофта)|ваканси/u;
 /** Somebody offers US a partnership/service (design studio, agency, developer): management decides, a person is told. */
 export function customerPartnershipOffer(text: string): boolean {
   const t = own(text);
