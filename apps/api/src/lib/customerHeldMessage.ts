@@ -188,6 +188,26 @@ export async function notifyEscalatedCustomerTurn(input: { conversationId: strin
   }
 }
 
+/**
+ * THE BOT TOLD THE CUSTOMER «ЭТО СКАЖЕТ АГЕНТ» (15.11.2026, customerAgentStaffFollowUp.ts): nothing new to say, a barter
+ * question, an empty search, a partnership offer. The promise is true only if a person learns about it now: the same
+ * once-per-chat-per-window push as a hold or an escalation (one door, pushStaffAboutChat). Never throws.
+ */
+export async function notifyStaffFollowUpCustomerTurn(input: { conversationId: string; channel: string; text: string }): Promise<"sent" | "skipped"> {
+  try {
+    const chat = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: { clientId: true } });
+    if (!chat) return "skipped";
+    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[сообщение без текста]";
+    const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
+    return await pushStaffAboutChat({ conversationId: input.conversationId, channel: input.channel,
+      body: `«${excerpt}». Бот ответил клиенту, что это уточнит агент: ответьте клиенту сами.` });
+  } catch (error) {
+    void logSystemError("meta", `Уведомление «уточнит агент» не отправлено: ${error instanceof Error ? error.message : String(error)}`,
+      { dedupKey: "customer-dm-staff-follow-up-notify-failed", quietPult: true });
+    return "skipped";
+  }
+}
+
 /** Post-turn guard (13.11.2026): a core turn that ended HELD without an answer for a reason that is NOT an intended silence
  * (customerTurnSilence.ts) reaches a person. The text is already in the CRM chat; this is the push plus one journal line per
  * reason. Never throws. */

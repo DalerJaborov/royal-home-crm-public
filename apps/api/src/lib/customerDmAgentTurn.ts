@@ -41,7 +41,8 @@ import { customerAgentMarkForeignShare } from "../ai/customerAgentAttachmentInpu
 import { customerSpamMuteGate, customerSpamTurn, SPAM_MUTED_NO_REPLY } from "../ai/customerSpamMute.js";
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
-import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
+import { notifyEscalatedCustomerTurn, notifyStaffFollowUpCustomerTurn } from "./customerHeldMessage.js";
+import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
 import { reconcileCustomerShowcaseReply } from "./customerShowcaseReceipt.js";
@@ -595,6 +596,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       if (!sidecars.length) throw error;
       partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal, agentClaim: claim,
         parts: [textPart], receiptAuthorities: mutations.receiptAuthorities }));
+    }
+    // «Это скажет агент» is only true if a person learns about it now (15.11.2026). The reply is already planned; the push never blocks it.
+    if (customerReplyCallsStaff(sealed.text)) {
+      void notifyStaffFollowUpCustomerTurn({ conversationId: lane.ticket.conversationId, channel: lane.principal.scope.channel, text: fullInput() });
     }
     return { status: "planned", partIds };
   } catch (error) {
