@@ -4071,6 +4071,8 @@ model Client {
   /// по workStatus=DEFERRED + deferredUntil<=now — без составного индекса это
   /// полный проход по всей таблице клиентов на каждом тике.
   @@index([workStatus, deferredUntil])
+  /// Пуши «новое объявление на площадке подошло покупателю» (14.11.2026).
+  marketAlerts BuyerMarketAlert[]
 }
 
 /// Желаемое место поиска покупателя — координата с радиусом (владелец 12.09.2026,
@@ -7113,6 +7115,12 @@ model Settings {
   /// Только в режиме «только заявки»: «хотим посмотреть», «куда ехать», «адрес»
   /// и таджикские равные — заявка агенту сразу, с объектом, если он известен.
   botHotIntentHandover              Boolean   @default(true)
+  /// Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026). По умолчанию ВЫКЛ.
+  marketBuyerAlertsEnabled          Boolean   @default(false)
+  /// Когда рубильник пуша «объявление под покупателя» включили (ставит первый прогон; null при выключенном). «Новое» считается от неё.
+  marketBuyerAlertsEnabledAt        DateTime?
+  /// Подбор покупателю с площадок только от собственников: без агентств и продавцов с 3+ объявлениями. По умолчанию ВКЛ.
+  marketOwnersOnly                  Boolean   @default(true)
   /// ЯВНОЕ КЭШИРОВАНИЕ СИСТЕМНОГО ПРОМТА GEMINI (30.08.2026). Неявный кэш Google
   /// (по умолчанию, без этого тумблера) срабатывает где-то в половине случаев —
   /// задокументированное поведение самого Google, не наша недоработка. Явный кэш
@@ -11210,6 +11218,7 @@ model MarketListing {
   priceSnapshots MarketPriceSnapshot[]
   /// Совпадения с нашими объектами: только обратная сторона связи, колонок нет.
   ownMatches     PropertyMarketMatch[]
+  buyerAlerts    BuyerMarketAlert[]
 
   @@unique([source, sourceId])
   @@index([dealType, propertyType, isActive])
@@ -11238,6 +11247,39 @@ model MarketPriceSnapshot {
   @@index([listingId, seenAt])
 }
 
+/// ИСТОРИЯ МЕДИАН РЫНКА ПО СЕГМЕНТАМ (14.11.2026): ночной снимок «сколько стоит м² в районе».
+///
+/// Каталог хранит только сегодняшнее состояние; прошлую медиану из него не восстановить, и «динамика
+/// по району» без записи вперёд останется пустой. Раз в сутки (по Душанбе, после ночного сбора)
+/// пишем по строке на сегмент: район × комнаты × тип дома × аудитория. Строка ниже порога MIN_SAMPLE
+/// (8) не пишется вовсе: цифры по трём объявлениям — выдумка. Повторный запуск в те же сутки
+/// переписывает строки этого дня (удаляет и вставляет в одной транзакции), дублей не будет.
+/// Только квартиры-продажа (аренду каталог не ведёт).
+model MarketMedianDaily {
+  id                  String   @id @default(uuid())
+  /// Сутки по Душанбе, «ГГГГ-ММ-ДД» (границы только через lib/dushanbeTime.ts).
+  day                 String
+  city                String
+  /// Название района; «*» — весь город (сумма по районам, у которых район известен).
+  districtName        String
+  /// Число комнат; 0 — любое.
+  rooms               Int
+  /// NEW — новостройка (современный дом), SECONDARY — вторичка, ANY — любой (включая «не указан»).
+  building            String
+  /// ALL — весь рынок, OWNERS — только собственники (не агентство и меньше 3 активных объявлений у продавца).
+  audience            String
+  /// Сколько уникальных объявлений в выборке (после склейки дублей между площадками).
+  count               Int
+  medianPerSqmTjs     Int?
+  averagePerSqmTjs    Int?
+  medianPriceTjs      Int?
+  averagePriceTjs     Int?
+  createdAt           DateTime @default(now())
+
+  @@unique([day, city, districtName, rooms, building, audience])
+  @@index([city, districtName, rooms, building, audience, day])
+}
+
 /// НАШ ОБЪЕКТ НАЙДЕН НА ЧУЖОЙ ПЛОЩАДКЕ (02.11.2026).
 ///
 /// Клиент мог выставить квартиру ещё и на Somon/Paydo — агент должен знать и
@@ -11252,6 +11294,25 @@ model MarketPriceSnapshot {
 /// (агент сказал «не он» — больше не показываем и не уведомляем).
 /// notifiedAt — когда агенту ушёл пуш о находке; lastPriceTjs — цена на площадке
 /// в момент последнего пуша: повторно будим агента, только если она сдвинулась.
+/// Пуш агенту «новое объявление на площадке подошло вашему покупателю» (14.11.2026,
+/// lib/market/buyerAlerts.ts). Одна строка = одна пара клиент+объявление: по уникальному
+/// ключу пара уходит агенту ровно один раз. notifiedAt — когда ушёл пуш (общий у пачки
+/// объявлений одного пуша), по нему же считается суточный предел пушей на клиента.
+model BuyerMarketAlert {
+  id         String        @id @default(uuid())
+  clientId   String
+  client     Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  listingId  String
+  listing    MarketListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  /// Агент клиента на момент пуша.
+  agentId    String
+  notifiedAt DateTime      @default(now())
+
+  @@unique([clientId, listingId])
+  @@index([clientId, notifiedAt])
+  @@index([listingId])
+}
+
 model PropertyMarketMatch {
   id           String        @id @default(uuid())
   propertyId   String
