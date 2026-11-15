@@ -10,7 +10,7 @@ import { prisma } from "../db.js";
 import { callAiText } from "./client.js";
 import { loadMoneyContext } from "../lib/money.js";
 import type { LeadDraft } from "./leadDraft.js";
-import { clientSelfStatedName, normalizeClientName } from "./replyGuards.js";
+import { clientSelfStatedName, isAddresseeName, normalizeClientName } from "./replyGuards.js";
 import { clipHeadTail } from "./untrustedContent.js";
 
 /**
@@ -450,7 +450,9 @@ export async function buildCardFillSuggestion(clientId: string): Promise<CardFil
   // Имя от модели побеждает найденное шаблоном: её ответ учитывает контекст разговора,
   // шаблон — нет. Промолчала — остаётся то, что нашёл код перед вызовом.
   const aiName = typeof extract.clientName === "string" ? normalizeClientName(extract.clientName) : null;
-  if (aiName) suggestion.clientName = aiName;
+  // «акаи тохир» — так клиент обращается к сотруднику; это не его имя (16.11.2026, ai/replyGuards.ts).
+  const clientWords = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+  if (aiName && !isAddresseeName(aiName, clientWords)) suggestion.clientName = aiName;
 
   const aiNotes = typeof extract.notes === "string" && extract.notes.trim() ? extract.notes.trim().slice(0, 500) : null;
   if (aiNotes && (fromCall || !suggestion.notes)) {

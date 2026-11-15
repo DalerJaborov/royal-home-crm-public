@@ -77,6 +77,7 @@ import { extractPostAcceptFacts } from "../ai/postAcceptFacts.js";
 import { countNoContactComplaints, looksLikeNoContactComplaint, looksLikeWantsHumanAgent } from "../ai/complaintGuard.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
+import { requestAgentAttention } from "../lib/agentAttention.js";
 import { detectAgencyPitch } from "../ai/agencyPitchGuard.js";
 import { guardFired } from "../ai/guardMetrics.js";
 import { createLeadFromChannel } from "../leads.js";
@@ -3049,26 +3050,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * Без назначенного агента отмечать некого — обычная раздача заявки решит
      * этот случай сама.
      */
-    if (looksLikeWantsHumanAgent(text)) {
-      void (async () => {
-        const card = await prisma.client.findUnique({
-          where: { id: conversation.clientId! },
-          select: { shortId: true, fullName: true, assignedAgentId: true, agentAttentionRequestedAt: true },
-        });
-        if (!card?.assignedAgentId || card.agentAttentionRequestedAt) return;
-        await prisma.client
-          .update({ where: { id: conversation.clientId! }, data: { agentAttentionRequestedAt: new Date() } })
-          .catch(() => {});
-        await sendPushToAgent(card.assignedAgentId, {
-          kind: "message",
-          level: "CRITICAL",
-          title: `${card.fullName} хочет поговорить с вами`,
-          body: "Клиент попросил живого агента — бот отвечает вместо вас, пока вы не свяжетесь сами.",
-          url: `/clients/${card.shortId}`,
-          tag: `agent-attention-${conversation.clientId}`,
-        }).catch((err) => console.error("[push] просьба живого агента:", err instanceof Error ? err.message : err));
-      })();
-    }
+    // Одна дверь с обещанием звонка (lib/agentAttention.ts, 16.11.2026).
+    if (looksLikeWantsHumanAgent(text)) void requestAgentAttention(conversation.clientId!, "wants_human");
 
     // Дальше — никакого отдельного «гейта на закрытый разговор» и никакого
     // отдельного захвата хода: ниже по функции те же debounceAndMerge и
@@ -4027,10 +4010,34 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * протухшая пауза потерянного клиента, которую ход сознательно обошёл,
      * новой не считается.
      */
-    const pauseNow = await prisma.botConversation
-      .findUnique({ where: { id: conversation.id }, select: { pausedUntil: true } })
-      .then((row) => row?.pausedUntil ?? null)
+    const lateRow = await prisma.botConversation
+      .findUnique({ where: { id: conversation.id }, select: { pausedUntil: true, pendingSince: true, pendingMessages: true } })
       .catch(() => null);
+    const pauseNow = lateRow?.pausedUntil ?? null;
+    /**
+     * ПОКА БОТ ДУМАЛ, КЛИЕНТ НАПИСАЛ ЕЩЁ (16.11.2026, аудит tone.md п.15 / facts.md Ф4).
+     * Живые случаи старого бота: «Алфемо» → бот думает → «60 квадрата» → два ответа, первый
+     * уже устарел («Буҷетатон то чанд?»), а следом тот же вопрос ещё раз; «Ака ватсап дорен»
+     * получило два разных ответа за 4 секунды. Окно склейки (5 с) закрылось раньше, чем
+     * модель ответила, и следующее сообщение начало свой ход параллельно.
+     * Если в буфере уже ждёт НОВОЕ содержательное сообщение клиента — этот ответ не уходит:
+     * победитель того окна ответит за всё сразу, по истории, где лежат обе реплики.
+     * «Ок», «👍» в буфере не в счёт — их ход может промолчать (silentTurnReason), и тогда
+     * вопрос остался бы без ответа. Повтор хода (skipSaveIncoming) не трогаем.
+     */
+    const newerPending =
+      !input.skipSaveIncoming &&
+      !!lateRow?.pendingSince &&
+      Array.isArray(lateRow.pendingMessages) &&
+      (lateRow.pendingMessages as unknown[]).some(
+        (t) => typeof t === "string" && t.trim().length > 0 && !isAckOnlyMessage(t)
+      );
+    if (newerPending) {
+      guardFired("superseded_by_newer_message");
+      return { reply: "", ready: mergedDraft.stage === "awaiting_phone", shouldReply: false };
+    }
+    // Обещан звонок клиенту с номером — агенту сигнал той же дверью, что «позовите человека».
+    if (filtered.promisedCall && conversation.clientId) void requestAgentAttention(conversation.clientId, "call_promised");
     if (
       pauseNow &&
       pauseNow.getTime() > Date.now() &&

@@ -107,6 +107,30 @@ export function looksLikeRentBudget(budget: number | undefined, clientText: stri
 }
 
 /**
+ * «ТО 900–950» — ЭТО ТЫСЯЧИ СОМОНИ НА ПОКУПКУ, А НЕ АРЕНДА (16.11.2026, аудит facts.md Ф8).
+ *
+ * Живой случай Instagram Arvan 14.11: «Хона даркор… Маладёжный, Профсоюз ё Караболо… То 900и
+ * 950» → бот спросил «Ин ба доллар аст ё ҳазор сомонӣ?» → «Сомони» → «аренды у нас нет».
+ * Сумма 950 попала в вилку месячной платы (looksLikeRentBudget), разговор стал арендой, и
+ * покупатель с бюджетом ~950 000 ушёл. Так в Душанбе и говорят о цене квартиры: «900», «то
+ * 950» — тысячи сомони; квартира внаём за 900 сомони в месяц — редкость, а вот покупка за
+ * 900 тысяч — обычный клиент.
+ *
+ * Правило узкое: сумма от 100 до 2000 БЕЗ слов о месяце и аренде — тысячи. От 2000 остаётся
+ * решение владельца от 03.09.2026 («3000–4500» — месячная плата, отказ). Слово «в месяц»,
+ * «моҳона», «иҷора» рядом — аренда, как и прежде.
+ */
+export const THOUSANDS_SHORTHAND_MIN = 100;
+export const THOUSANDS_SHORTHAND_MAX = 2_000;
+const MONTH_WORDS = /(?<![\p{L}])(?:моҳ|мох)(?:она|и|е|й)?(?![\p{L}])|месяц|в\s+мес(?![\p{L}])|помесячн|ежемесячн|за\s+сутки|посуточн/iu;
+
+export function looksLikeThousandsShorthand(budget: number | undefined, clientText: string): boolean {
+  if (typeof budget !== "number" || !Number.isFinite(budget)) return false;
+  if (budget < THOUSANDS_SHORTHAND_MIN || budget >= THOUSANDS_SHORTHAND_MAX) return false;
+  return !MONTH_WORDS.test(clientText) && !looksLikeRentRequest(clientText);
+}
+
+/**
  * ОТКАЗ ПО АРЕНДЕ — НА ЯЗЫКЕ КЛИЕНТА И В ОДНОМ МЕСТЕ.
  *
  * Фраза была зашита таджикским текстом сразу в трёх файлах
