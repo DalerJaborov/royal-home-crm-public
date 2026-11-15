@@ -16,10 +16,10 @@
   "paths": 749,
   "cron": 133,
   "jobs": 33,
-  "conditions": 4032,
-  "untranslatedUnique": 463,
-  "untranslatedTotal": 594,
-  "partialUnique": 1091,
+  "conditions": 4035,
+  "untranslatedUnique": 464,
+  "untranslatedTotal": 595,
+  "partialUnique": 1093,
   "translatedShare": 85
  },
  "untranslated": [
@@ -259,6 +259,7 @@
   "customerPropertyContextEnabled() && message.fromAd && message.accountExternalId && await verifyMetaCustomerRe…",
   "customerPropertyTurnTerminal(history)",
   "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
+  "customerTurnSilenceIsIntended(reason)",
   "d.media.some((m) => m.status === \"UPLOADING\" && m.updatedAt >= activeSince)",
   "data.assignedAgentId !== undefined && data.assignedAgentId !== existing.assignedAgentId",
   "data.intakeAgentId !== undefined && data.intakeAgentId !== existing.intakeAgentId",
@@ -79097,6 +79098,13 @@
            "c": [],
            "raw": "result.reason !== NEWER_INPUT_PENDING",
            "more": true
+          },
+          {
+           "t": "если нет: rearmed",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
           }
          ]
         }
@@ -79211,6 +79219,47 @@
          "k": "catch",
          "a": [],
          "c": []
+        }
+       ]
+      },
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если customerTurnSilenceIsIntended(reason)",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "customerTurnSilenceIsIntended(reason)"
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: строка или есть answered",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
         }
        ]
       }
