@@ -450,29 +450,33 @@ export async function runClipReviewStaleTick(
     take: 100,
   });
   if (stale.length === 0) return { reminded: 0 };
-  const [reviewers, moderators] = ownerOnly
-    ? [[], []]
-    : await Promise.all([listClipReviewers(), montageNotificationRecipients()]);
+  // Руководство нужно всегда: без рубильника хозяина — по всем роликам, при нём — по роликам без хозяина
+  // (уволен, заморожен, сам монтажёр): иначе такой ролик не напомнит о себе никому.
+  const [reviewers, moderators] = await Promise.all([listClipReviewers(), montageNotificationRecipients()]);
   const defaultRecipients = Array.from(new Set([...reviewers.map((r) => r.id), ...moderators]));
-  if (!ownerOnly && defaultRecipients.length === 0) return { reminded: 0 };
 
   let reminded = 0;
   for (const p of stale) {
     const tag = `clip-review-stale-${p.id}`;
     let recipients = defaultRecipients;
     let onlyAgentId: string | undefined;
+    let ownerRemind = false;
     if (ownerOnly) {
       const ownerAgent = await clipOwnerAgent(p.id);
-      if (!ownerAgent) continue; // хозяина нет (уволен, заморожен, сам монтажёр) — напоминать некому
-      recipients = [ownerAgent.id];
-      onlyAgentId = ownerAgent.id;
+      if (ownerAgent) {
+        recipients = [ownerAgent.id];
+        onlyAgentId = ownerAgent.id;
+        ownerRemind = true;
+      }
+      // Хозяина нет — запасной путь: прежние получатели (руководство/проверяющие).
     }
+    if (recipients.length === 0) continue;
     if (!(await shouldAlert(tag, CLIP_REVIEW_REMIND_INTERVAL_MS, now))) continue;
     const hours = Math.floor((now.getTime() - p.clipReviewRequestedAt!.getTime()) / 3_600_000);
     const payload = {
       kind: "oversight" as const,
-      title: ownerOnly ? `🎬 Ролик ждёт вашего решения: объект №${p.shortId}` : `🎬 Ролик ждёт проверки: объект №${p.shortId}`,
-      body: ownerOnly
+      title: ownerRemind ? `🎬 Ролик ждёт вашего решения: объект №${p.shortId}` : `🎬 Ролик ждёт проверки: объект №${p.shortId}`,
+      body: ownerRemind
         ? `Готовый ролик вашего объекта ждёт решения уже ${hours} ч. Без «Подтвердить» он в сети не выйдет.`
         : `Готовый ролик от монтажёра ждёт решения уже ${hours} ч. Без «Одобрить» он в сети не выйдет.`,
       url: `/properties/${p.shortId}`,

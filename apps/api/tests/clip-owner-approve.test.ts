@@ -77,6 +77,7 @@ let reviewer: { id: string; chatId: string };
 let owner: { id: string; chatId: string };
 let stranger: { id: string; chatId: string };
 let ownerNoTgId: string;
+let ownerGone: { id: string; chatId: string };
 const agentIds: string[] = [];
 const propertyIds: string[] = [];
 const files: string[] = [];
@@ -185,6 +186,7 @@ beforeAll(async () => {
   owner = await makeAgent("3", "AGENT");
   stranger = await makeAgent("4", "AGENT");
   ownerNoTgId = (await makeAgent("5", "AGENT", {}, false)).id;
+  ownerGone = await makeAgent("6", "AGENT", { isActive: false });
   await prisma.settings.update({
     where: { id: "singleton" },
     data: {
@@ -561,6 +563,23 @@ describe("только хозяину: напоминания, весть об �
     expect((await jobFor(p.id))?.id).toBe(job!.id);
     await waitForSettled(async () => tg.sendMessage.mock.calls.length);
     expect(textsTo(owner.chatId).some((t) => t.includes("опубликован сам"))).toBe(false);
+  });
+
+  it("хозяина нет (уволен): ролик и напоминание идут прежним получателям — руководству, а не в пустоту", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerAutoPublishHours: 0 } });
+    try {
+      const p = await pendingClip("без хозяина", ownerGone.id, null, true);
+      expect(tg.sendVideoFromDisk.mock.calls.some((c) => String(c[0]) === ownerGone.chatId)).toBe(false);
+      await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: dushanbe("2026-11-10 08:00") } });
+      tg.sendMessageWithButtons.mockClear();
+      await bot.runClipReviewStaleAlarmTick(dushanbe("2026-11-11 12:00"));
+      const reminders = tg.sendMessageWithButtons.mock.calls.filter((c) => String(c[1]).includes(`объекту №${p.shortId} ждёт проверки`));
+      expect(reminders.map((c) => String(c[0]))).toEqual([reviewer.chatId]);
+      expect(await prisma.notification.count({ where: { agentId: reviewer.id, url: `/properties/${p.shortId}` } })).toBeGreaterThanOrEqual(1);
+      await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE", clipReviewStatus: "NONE" } });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerAutoPublishHours: 3 } });
+    }
   });
 
   it("0 часов: срока нет, ролик ждёт хозяина — таймер не публикует, напоминание только хозяину", async () => {

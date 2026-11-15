@@ -40,6 +40,7 @@ import {
   clipAlreadyDecidedText,
   CLIP_REJECT_DIALOG_KIND,
   clipDeciderByChat,
+  clipOwnerAgent,
   clipOwnerRecipient,
   holdClipOwnerDueForReject,
   getClipOwnerSettings,
@@ -202,8 +203,11 @@ export async function notifyClipReview(propertyId: string): Promise<void> {
     // Ролик, пришедший ДО включения подтверждения хозяином (срока нет), остаётся
     // за руководством — как был.
     const ownerMode = isClipOwnerMode(ownerSettings, p.clipOwnerDueAt);
-    const owner = ownerMode ? await clipOwnerRecipient(propertyId) : null;
-    const reviewers = ownerMode ? [] : await listClipReviewers();
+    // Хозяина нет вовсе (уволен, заморожен, сам монтажёр) — решать некому: ролик идёт прежним
+    // получателям (руководству/проверяющим), иначе он молча стоял бы до автопубликации.
+    const ownerOrphan = ownerMode && (await clipOwnerAgent(propertyId)) === null;
+    const owner = ownerMode && !ownerOrphan ? await clipOwnerRecipient(propertyId) : null;
+    const reviewers = ownerMode && !ownerOrphan ? [] : await listClipReviewers();
     if (reviewers.length === 0 && !owner) return;
     // Монтажёр переслал исправленный ролик (reopenForResend) — кнопки под прежним
     // видео решали бы уже за новый файл, которого модератор не видел.
