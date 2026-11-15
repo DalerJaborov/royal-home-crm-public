@@ -109,6 +109,14 @@ describe("Telegram: клиент без ответа — та же дверь, �
     expect(pushesFor(`tg_${answered}`)).toHaveLength(0);
   });
 
+  it("намеренное молчание бота Telegram («спасибо» без нашего вопроса) — не тревожим; вопрос клиента — тревожим", async () => {
+    const thanks = await tgChat([{ role: "assistant", content: "Агент свяжется с вами сегодня." }, { role: "user", content: "Спасибо", at: minutesAgo(50) }], { agent: true });
+    const question = await tgChat([{ role: "assistant", content: "Агент свяжется с вами сегодня." }, { role: "user", content: "А цена какая?", at: minutesAgo(50) }], { agent: true });
+    await runClientSilenceSweep();
+    expect(pushesFor(`tg_${thanks}`)).toHaveLength(0);
+    expect(pushesFor(`tg_${question}`)).toHaveLength(1);
+  });
+
   it("Telegram Direct без агента — руководству, с подсказкой отвечать в Telegram (из CRM туда не ответить)", async () => {
     const id = await tgChat([{ role: "user", content: "Есть 3-комн.?", at: minutesAgo(45) }], { direct: true });
     await runClientSilenceSweep();

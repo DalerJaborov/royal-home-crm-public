@@ -65,7 +65,11 @@ export async function reportUnansweredCustomerTurn(eventKey: string, reason: str
       WHERE t."eventKey"=${eventKey} AND t."tombstonedAt" IS NULL`;
     if (!row || row.answered) return; // gone, or the customer already got an answer to this or a newer input
     // A chat staff deleted stays deleted: their decision, the core does not resurrect it (customerIngressProducer.ts).
-    if (row.chatDeleted) return;
+    if (row.chatDeleted) {
+      void logSystemError("meta", `Бот не ответил клиенту (причина «${reason}»): чат этого человека удалён сотрудником — человека не зовём.`,
+        { dedupKey: `customer-turn-unanswered-deleted:${reason}`, quietPult: true });
+      return;
+    }
     if (!row.conversationId) {
       // No CRM chat (15.11.2026, task 5): who and where come from the ticket's own encrypted input, never from a guess.
       const input = ticketInput(eventKey, row);

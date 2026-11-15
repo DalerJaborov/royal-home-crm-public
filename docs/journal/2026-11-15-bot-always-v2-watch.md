@@ -7,7 +7,8 @@
   `alertClientWaiting` (`source: "telegram" | "telegramDirect"`): агенту клиента, без агента — руководству, раз на эпизод
   (отметка эпизода — `ProcessedMessage` канала `client-waiting-telegram`, миграции ради неё нет). Ссылка `/messages?open=tg_…`
   или `td_…`; для Telegram Direct подсказка «ответьте в Telegram» (из CRM туда не ответить). Прод: 10 переписок Telegram,
-  3 за неделю, Direct — 0. Рубильник `telegramSilenceWatchEnabled` (ВКЛ). Чат сайта уже в `BotConversation` — покрыт.
+  3 за неделю, Direct — 0. Намеренное молчание бота Telegram («спасибо» без нашего вопроса, повтор поста/фото) не тревожит —
+  тот же признак `silentTurnReason`, по которому молчит сам бот. Рубильник `telegramSilenceWatchEnabled` (ВКЛ). Чат сайта уже в `BotConversation`.
 - **WhatsApp (В4).** ФАКТ (developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-webhooks): входящие Cloud API
   приходят только вебхуком, метода «список входящих» нет — сверить по одному сообщению нельзя. Сделано лучшее доступное:
   `lib/whatsappWebhookWatch.ts`, крон раз в 20 мин в рабочие часы: входящих нет дольше обычного (самая длинная пауза в
@@ -21,4 +22,4 @@
   тикета. Раз на человека за 6 ч (атомарная отметка, при сбое снимается). Чат, удалённый сотрудником, не зовёт (его решение).
   Прод (30 дней): без чата и не намеренно — `own_identity_registry_incomplete` 56 (23 чел., 08–10.11), `sender_read_unavailable` 19 (14 чел.).
 - Тихие часы не менялись (В3 без ответа): ночные пуши откладываются, как и раньше.
-- Тест: `tests/bot-always-v2-watch.test.ts` (12 сценариев) + смежные `client-waiting-alert`, `customer-turn-silence*` зелёные.
+- Тест: `tests/bot-always-v2-watch.test.ts` (13 сценариев) + смежные `client-waiting-alert`, `customer-turn-silence*` зелёные.

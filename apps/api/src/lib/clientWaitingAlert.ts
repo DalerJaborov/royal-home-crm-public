@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { TG_PREFIX, TG_DIRECT_PREFIX } from "./conversationId.js";
+import { silentTurnReason } from "../messengers/replyChain.js";
+import type { ChatMessage } from "../ai/client.js";
 import { sendPushToAgent } from "../push.js";
 import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE } from "./customerIntendedSilence.js";
@@ -327,6 +329,9 @@ async function sweepTelegramConversations(now: Date): Promise<{ checked: number;
       const draft = row.leadDraft;
       const spam = draft && typeof draft === "object" && !Array.isArray(draft) ? (draft as Record<string, unknown>).spamMute : undefined;
       if (customerSpamMuteActive(customerSpamMuteFrom(spam), now)) continue;
+      // Бот Telegram промолчал НАМЕРЕННО («ок, спасибо» без нашего вопроса, повтор чужого поста, повтор фото) —
+      // тот же признак, по которому молчит сам бот (messengers/replyChain.ts::silentTurnReason), не второй список.
+      if (telegramSilenceIntended(row.messages, episode.since)) continue;
       due.push({ id: row.id, source, clientId: row.clientId, since: episode.since });
     }
   }
@@ -344,6 +349,20 @@ async function sweepTelegramConversations(now: Date): Promise<{ checked: number;
     }
   }
   return { checked: bots.length + direct.length, alerted };
+}
+
+/** Хвост реплик клиента — то, на что бот Telegram молчит по своему же правилу. Чистая функция. */
+export function telegramSilenceIntended(messages: unknown, since: Date): boolean {
+  if (!Array.isArray(messages)) return false;
+  const start = messages.findIndex((m) => {
+    const at = (m as { at?: unknown } | null)?.at;
+    return (m as { role?: unknown } | null)?.role === "user" && typeof at === "string" && new Date(at).getTime() === since.getTime();
+  });
+  if (start < 0) return false;
+  const tail = messages.slice(start) as Array<Record<string, unknown>>;
+  const text = tail.filter((m) => m.role === "user").map((m) => (typeof m.content === "string" ? m.content : "")).join("\n").trim();
+  const hasMedia = tail.some((m) => m.role === "user" && (m.attachments !== undefined || m.media !== undefined || m.photo !== undefined));
+  return silentTurnReason({ text, hasMedia, history: messages.slice(0, start) as ChatMessage[] }) !== null;
 }
 
 async function sweepBotConversations(now: Date): Promise<{ checked: number; alerted: number }> {

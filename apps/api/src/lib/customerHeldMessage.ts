@@ -255,10 +255,12 @@ export async function pushStaffAboutUnrecorded(input: { channel: string; peer: s
       : null;
     const who = input.channel === "WHATSAPP" && /^\d{8,15}$/.test(input.peer) ? `номер +${input.peer}`
       : input.displayName?.trim() || "клиент";
+    // Same masking as a recorded held message: numbers of OTHER clients mentioned in the text are not shown.
+    const excerpt = (await scrubMentionedClientPhonesInText(clientOwnWords(input.excerpt).replace(/\s+/gu, " ").trim(), null)).text.slice(0, 160);
     try {
       await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL",
         title: `Ответьте вручную: ${who} (${place}${account ? ` «${account}»` : ""})`,
-        body: `«${input.excerpt || "[сообщение без текста]"}». ${input.why[0]?.toUpperCase() ?? ""}${input.why.slice(1)}. ` +
+        body: `«${excerpt || "[сообщение без текста]"}». ${input.why[0]?.toUpperCase() ?? ""}${input.why.slice(1)}. ` +
           `Сообщение не попало в чат CRM — ответьте в приложении ${place}${account ? `, аккаунт «${account}»` : ""}.`,
         url: "/messages", tag: `customer-unrecorded-${input.channel}-${input.peer}` });
       return "sent";
