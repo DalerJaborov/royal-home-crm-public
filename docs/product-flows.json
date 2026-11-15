@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4051,
+  "forks": 4053,
   "mounts": 83,
   "cron": 133,
   "jobs": 33,
@@ -81566,20 +81566,27 @@
      "a": [],
      "c": [
       {
-       "k": "do",
-       "t": "console.log(`[вебхук] ${incoming[0]!.channel}: повтор ${incoming.length} сообщ., уже отданных сотруднику по с…",
-       "a": [
-        "пишет строку в журнал сервера"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return res.json({ ok: true });",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
+       "k": "if",
+       "t": "await staffAnsweredLate(incoming)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[вебхук] ${incoming[0]!.channel}: повтор ${incoming.length} сообщ., сотрудник уже ответил по све…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return res.json({ ok: true });",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -81673,6 +81680,21 @@
          "t": "await notifyHeldCustomerMessages(durableIngress.held);",
          "a": [
           "зовёт notifyHeldCustomerMessages()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "lateHanded",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await notifyLateDelivery(lateHanded);",
+         "a": [
+          "зовёт notifyLateDelivery()"
          ],
          "c": []
         }

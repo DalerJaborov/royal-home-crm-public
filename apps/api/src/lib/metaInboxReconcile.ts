@@ -49,6 +49,7 @@ import { GRAPH_VERSION, instagramApiUrl, instagramRequest } from "../messengers/
 import { sendPushToAgents } from "../push.js";
 import { isMetaChannelEnabled, isMetaEnabled } from "../messengers/meta.js";
 import { findAgentsWithPermission } from "./recipients.js";
+import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { logSystemError } from "./systemError.js";
 
 /** Пока вебхук мог ещё не дойти, Meta повторяет доставку после сбоя или бот ждёт склейки — не тревожим. */
@@ -83,6 +84,8 @@ export interface PageInbox {
   pageId: string;
   /** Все id, под которыми пишет сама Страница/аккаунт (у Instagram их два: user_id и id для переписки). */
   ownIds?: readonly string[];
+  /** Ник аккаунта Instagram: реплика с этим ником — своя, даже если id в ней незнакомый. */
+  ownUsername?: string;
   title: string;
   token: string;
 }
@@ -99,7 +102,7 @@ export interface InboxMessage {
 /** Ответ Graph `/{page}/conversations` с вложенными сообщениями (только нужные поля). */
 interface GraphConversations {
   data?: Array<{
-    messages?: { data?: Array<{ id?: string; created_time?: string; message?: string; from?: { id?: string; name?: string } }> };
+    messages?: { data?: Array<{ id?: string; created_time?: string; message?: string; from?: { id?: string; name?: string; username?: string } }> };
   }>;
   error?: { code?: number; error_subcode?: number; message?: string };
 }
@@ -156,7 +159,9 @@ export function incomingFromGraph(pageId: string | readonly string[], body: Grap
       if (pageTimes.some((p) => p >= at + AUTO_REPLY_WINDOW_MS)) continue;
       // Пришло до старта процесса — ждём, не дошлёт ли Meta (бот ответит сам).
       if (at < startedAt && now.getTime() < startedAt + AFTER_START_GRACE_MS) continue;
-      out.push({ mid: m.id, createdAt, fromId, fromName: m.from?.name?.trim() || null, text: (m.message ?? "").trim() });
+      // Instagram отдаёт в `from` ник (username), а не имя (ревью 199-4): по @нику человека найдут в Direct.
+      const fromName = m.from?.name?.trim() || (m.from?.username?.trim() ? `@${m.from.username.trim()}` : null);
+      out.push({ mid: m.id, createdAt, fromId, fromName, text: (m.message ?? "").trim() });
     }
   }
   return out;
@@ -184,13 +189,23 @@ export async function listFacebookPageInboxes(): Promise<PageInbox[]> {
 export async function listInstagramInboxes(): Promise<PageInbox[]> {
   const accounts = await prisma.messengerAccount.findMany({
     where: { channel: "INSTAGRAM", enabled: true },
-    select: { externalId: true, messagingId: true, title: true, token: true },
+    select: { externalId: true, messagingId: true, extraExternalIds: true, username: true, title: true, token: true },
   });
   const out: PageInbox[] = [];
   for (const account of accounts) {
     const token = decryptSecretSafe(account.token);
     if (!token) continue;
-    out.push({ channel: "INSTAGRAM", pageId: account.externalId, ownIds: [account.externalId, account.messagingId].filter((id): id is string => !!id),
+    // Без id для переписки свои ответы аккаунта не отличить от реплик клиента — была бы волна ложных
+    // «Ответьте вручную» нашим же текстом (ревью 199-2). Такой аккаунт не сверяем и говорим об этом.
+    if (!account.messagingId) {
+      void logSystemError("meta", `Сверка Direct: у аккаунта Instagram «${account.title}» не определён id для переписки — ` +
+        `его входящие с Meta не сверяются (проверка ника аккаунта в «Каналах» его заполнит).`,
+        { dedupKey: `meta-inbox-ig-no-messaging-id:${account.externalId}`, dedupWindowMs: 6 * 60 * 60_000 });
+      continue;
+    }
+    // Все «свои» id — те же, что считает своими остальной код (customerConversationScope, customerIngressClassification).
+    const ownIds = [...new Set([account.externalId, account.messagingId, ...account.extraExternalIds].filter((id): id is string => !!id))];
+    out.push({ channel: "INSTAGRAM", pageId: account.externalId, ownIds, ownUsername: account.username?.replace(/^@/, "").toLowerCase() || undefined,
       title: account.title, token });
   }
   return out;
@@ -213,7 +228,14 @@ export async function fetchPageInbox(page: PageInbox, fetchImpl: GraphFetch = de
     // Instagram — graph.instagram.com маркером аккаунта; с нашего сервера — через прокси, если он задан.
     const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me/conversations?platform=instagram&limit=${CONVERSATIONS_PER_PAGE}` +
       `&fields=${encodeURIComponent(fields)}`), page.token);
-    return (await (await fetchImpl(req.url, req.headers)).json()) as GraphConversations;
+    const body = (await (await fetchImpl(req.url, req.headers)).json()) as GraphConversations;
+    // Своя реплика по нику — приводим к основному id, дальше правила общие (ревью 199-2).
+    if (page.ownUsername) {
+      for (const conversation of body.data ?? []) for (const m of conversation.messages?.data ?? []) {
+        if (m.from?.username && m.from.username.toLowerCase() === page.ownUsername) m.from.id = page.pageId;
+      }
+    }
+    return body;
   }
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(page.pageId)}/conversations` +
     `?platform=messenger&limit=${CONVERSATIONS_PER_PAGE}&fields=${encodeURIComponent(fields)}` +
@@ -238,6 +260,23 @@ export async function knownMessageIds(messages: readonly InboxMessage[], channel
       jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages")='array' THEN c."messages" ELSE '[]'::jsonb END) AS m(elem)
     WHERE c."channel"=${channel} AND c."subscriberId" = ANY(${peers}::text[]) AND m.elem ->> 'mid' = ANY(${mids}::text[])`;
   for (const row of inChats) if (row.mid) known.add(row.mid);
+  // Сообщения нового ядра (ревью 199-3): mid попадает в чат, только когда ядро разберёт ход, а тикет пишется ДО ответа
+  // Meta. Есть тикет — сообщение в CRM, его судьбу ведёт сторож молчания ядра, сверка «не дошло» не нужна.
+  const unknown = messages.filter((m) => !known.has(m.mid));
+  if (unknown.length) {
+    const scopes = await prisma.customerEndpointScope.findMany({ where: { channel }, select: { id: true, messengerAccountId: true } });
+    const byKey = new Map<string, string>();
+    for (const m of unknown) for (const scope of scopes) {
+      const scopeKey = scope.messengerAccountId
+        ? customerPropertyScopeKey(channel, m.fromId, scope.messengerAccountId)
+        : customerPropertyScopeKey(channel, m.fromId, null, scope.id);
+      byKey.set(customerPropertyEventKey(scopeKey, "message", m.mid), m.mid);
+    }
+    if (byKey.size) {
+      const tickets = await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: [...byKey.keys()] } }, select: { eventKey: true } });
+      for (const t of tickets) known.add(byKey.get(t.eventKey)!);
+    }
+  }
   return known;
 }
 
@@ -257,6 +296,74 @@ export async function isHandedToStaff(mids: readonly string[]): Promise<boolean>
   if (!unique.length) return false;
   const marks = await prisma.processedMessage.count({ where: { channel: CLAIM_CHANNEL, messageId: { in: unique } } });
   return marks === unique.length;
+}
+
+let graphFetchOverride: GraphFetch | null = null;
+/** Только для тестов маршрута: подменить чтение Graph (null — вернуть настоящее). */
+export function setInboxGraphFetchForTests(fetchImpl: GraphFetch | null): void {
+  graphFetchOverride = fetchImpl;
+}
+const LATE_CHECK_TIMEOUT_MS = 4_000;
+/** Meta повторяет доставку до 36 часов (docs Graph API Webhooks) — глубже смотреть незачем. */
+const LATE_LOOKBACK_MS = 48 * 60 * 60_000;
+
+export interface LateMessage { channel: string; accountExternalId?: string; senderId: string; messageId?: string; text?: string; name?: string }
+
+/**
+ * ПОЗДНЯЯ ДОСТАВКА ПОСЛЕ «ОТВЕТЬТЕ ВРУЧНУЮ» (ревью 199-1). Meta дослала сообщение, о котором сверка уже сказала
+ * человеку. Человек ответил (живой ответ Страницы/аккаунта позже реплики, не шаблон) — true: бот молчит, второго
+ * ответа нет. Не ответил, Graph не ответил за 4 с или переписку не нашли — false: сообщение идёт обычным путём
+ * (текст в CRM, бот отвечает), чтобы ночью клиент не ждал до утра.
+ */
+export async function staffAnsweredLate(messages: readonly LateMessage[], now: Date = new Date()): Promise<boolean> {
+  const first = messages[0];
+  if (!first || (first.channel !== "FACEBOOK" && first.channel !== "INSTAGRAM")) return false;
+  try {
+    const inboxes = first.channel === "FACEBOOK" ? await listFacebookPageInboxes() : await listInstagramInboxes();
+    const inbox = inboxes.find((i) => i.pageId === first.accountExternalId || i.ownIds?.includes(first.accountExternalId ?? ""));
+    if (!inbox) return false;
+    const fetchImpl = graphFetchOverride ?? defaultFetch;
+    const body = await Promise.race([fetchPageInbox(inbox, fetchImpl),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), LATE_CHECK_TIMEOUT_MS))]);
+    if (!body || body.error) return false;
+    const mids = new Set(messages.map((m) => m.messageId).filter((id): id is string => !!id));
+    const seen = new Set<string>();
+    for (const conversation of body.data ?? []) for (const m of conversation.messages?.data ?? []) if (m.id && mids.has(m.id)) seen.add(m.id);
+    if (!seen.size) return false;
+    const stillWaiting = new Set(incomingFromGraph(inbox.ownIds?.length ? inbox.ownIds : inbox.pageId, body, now,
+      { graceMs: 0, lookbackMs: LATE_LOOKBACK_MS, processStartedAt: 0 }).map((m) => m.mid));
+    // Каждое из найденных сообщений уже получило живой ответ человека.
+    return [...seen].every((mid) => !stillWaiting.has(mid));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Сообщение всё-таки дошло — тот же тег, что у «Ответьте вручную»: запись в колокольчике заменяется,
+ * и человек видит текст и что бот отвечает сам. Не CRITICAL: срочность снята. Никогда не бросает.
+ */
+export async function notifyLateDelivery(messages: readonly LateMessage[]): Promise<void> {
+  const first = messages[0];
+  if (!first) return;
+  try {
+    const recipients = await findAgentsWithPermission("messages.view");
+    if (!recipients.length) return;
+    const inboxes = first.channel === "FACEBOOK" ? await listFacebookPageInboxes() : await listInstagramInboxes();
+    const inbox = inboxes.find((i) => i.pageId === first.accountExternalId || i.ownIds?.includes(first.accountExternalId ?? ""));
+    const place = first.channel === "INSTAGRAM" ? "Instagram" : "Facebook";
+    const text = messages.map((m) => (m.text ?? "").trim()).filter(Boolean).join(" / ").slice(0, 160);
+    await sendPushToAgents(recipients, {
+      kind: "message",
+      title: `Дошло до CRM: ${first.name?.trim() || "клиент"} (${place}${inbox ? ` «${inbox.title}»` : ""})`,
+      body: `«${text || "вложение без текста"}». Сообщение, по которому просили ответить вручную, всё-таки дошло — текст в CRM, ` +
+        `бот отвечает сам. Если вы уже ответили — проверьте переписку, чтобы не ответить дважды.`,
+      url: "/messages",
+      tag: `meta-inbox-missed-${inbox?.pageId ?? first.accountExternalId ?? "page"}-${first.senderId}`,
+    });
+  } catch (err) {
+    void logSystemError("meta", `Пуш «дошло до CRM» после сверки не ушёл: ${withoutToken(err)}`, { dedupKey: "meta-inbox-late-push-failed" });
+  }
 }
 
 /** Атомарно: true — этот mid ещё никому не показывали (двое не пройдут). */

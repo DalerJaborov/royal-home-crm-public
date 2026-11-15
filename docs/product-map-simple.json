@@ -16,10 +16,10 @@
   "paths": 749,
   "cron": 133,
   "jobs": 33,
-  "conditions": 4035,
-  "untranslatedUnique": 463,
-  "untranslatedTotal": 594,
-  "partialUnique": 1090,
+  "conditions": 4037,
+  "untranslatedUnique": 464,
+  "untranslatedTotal": 595,
+  "partialUnique": 1091,
   "translatedShare": 85
  },
  "untranslated": [
@@ -215,6 +215,7 @@
   "await removeStationObject(creds, \"bridge\", bridge.id)",
   "await removeStationObject(creds, \"channel\", channel.id)",
   "await sourceClosed(new Date())",
+  "await staffAnsweredLate(incoming)",
   "await staleLeadCircleOpen()",
   "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, status: { in: [\"QUEUED\", \"SENDING\", \"UN…",
   "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, versionId: row.versionId, editorId: row…",
@@ -62443,10 +62444,18 @@
      "a": [],
      "c": [
       {
-       "t": "всё хорошо, отвечает данными",
-       "k": "do",
+       "t": "если await staffAnsweredLate(incoming)",
+       "k": "if",
        "a": [],
-       "c": []
+       "c": [
+        {
+         "t": "всё хорошо, отвечает данными",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "await staffAnsweredLate(incoming)"
       }
      ],
      "raw": "incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…"
@@ -62479,6 +62488,12 @@
      "c": [
       {
        "t": "если (статус — «persisted» или статус — «bypass») и есть held количество",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть late handed",
        "k": "if",
        "a": [],
        "c": []

@@ -21,7 +21,8 @@ vi.mock("../src/lib/recipients.js", async (importOriginal) => {
 
 const { prisma } = await import("../src/db.js");
 const { encryptSecret } = await import("../src/crypto.js");
-const { incomingFromGraph, runMetaInboxReconcile, withoutToken, automatedTexts, GRACE_MS } = await import("../src/lib/metaInboxReconcile.js");
+const { incomingFromGraph, runMetaInboxReconcile, withoutToken, automatedTexts, knownMessageIds, GRACE_MS } = await import("../src/lib/metaInboxReconcile.js");
+const { customerPropertyEventKey, customerPropertyScopeKey } = await import("../src/lib/customerPropertyScope.js");
 
 /**
  * СВЕРКА ПЕРЕПИСОК СТРАНИЦЫ С META (15.11.2026). Живой случай: Страница «Arvan
@@ -287,13 +288,62 @@ describe("В4: Instagram и автоответы (15.11.2026)", () => {
 
   it("рубильники: выключен Instagram — его не читаем; выключены оба — сверка молчит", async () => {
     const { impl, urls } = fakeFetch({ data: [] }, { data: [] });
-    await prisma.settings.update({ where: { id: "singleton" }, data: { instagramInboxReconcileEnabled: false } });
-    await runMetaInboxReconcile(now, impl, STARTED_LONG_AGO);
-    expect(urls.some((u) => u.includes("platform=instagram"))).toBe(false);
-    expect(urls.some((u) => u.includes(encodeURIComponent(pageId)))).toBe(true);
-    await prisma.settings.update({ where: { id: "singleton" }, data: { messengerInboxReconcileEnabled: false } });
-    expect(await runMetaInboxReconcile(now, impl, STARTED_LONG_AGO)).toMatchObject({ skipped: "switched_off" });
-    await prisma.settings.update({ where: { id: "singleton" }, data: { messengerInboxReconcileEnabled: true, instagramInboxReconcileEnabled: true } });
+    try {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { instagramInboxReconcileEnabled: false } });
+      await runMetaInboxReconcile(now, impl, STARTED_LONG_AGO);
+      expect(urls.some((u) => u.includes("platform=instagram"))).toBe(false);
+      expect(urls.some((u) => u.includes(encodeURIComponent(pageId)))).toBe(true);
+      await prisma.settings.update({ where: { id: "singleton" }, data: { messengerInboxReconcileEnabled: false } });
+      expect(await runMetaInboxReconcile(now, impl, STARTED_LONG_AGO)).toMatchObject({ skipped: "switched_off" });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { messengerInboxReconcileEnabled: true, instagramInboxReconcileEnabled: true } });
+    }
+  });
+
+  it("199-2: запасной id аккаунта и его ник — свои реплики, не клиент; ник клиента виден как @ник", async () => {
+    await prisma.messengerAccount.update({ where: { id: igAccountId }, data: { extraExternalIds: [`igx-${runId}`], username: "arvan.estate" } });
+    try {
+      const ig = { data: [{ messages: { data: [
+        { id: `m_${runId}_ig_x1`, created_time: ago(30), message: "Наш ответ со старого id", from: { id: `igx-${runId}` } },
+        { id: `m_${runId}_ig_x2`, created_time: ago(29), message: "Наш ответ по нику", from: { id: `unknown-${runId}`, username: "Arvan.Estate" } },
+        { id: `m_${runId}_ig_x3`, created_time: ago(25), message: "Нарх?", from: { id: `igsid-${runId}-x`, username: "client_tj" } },
+      ] } }] };
+      const result = await runMetaInboxReconcile(now, fakeFetch({ data: [] }, ig).impl, STARTED_LONG_AGO);
+      expect(result).toMatchObject({ missed: 1, people: 1 });
+      const push = sendPushToAgents.mock.calls.find(([, p]) => String((p as { tag?: string }).tag).includes(`igsid-${runId}-x`))![1] as { title: string };
+      expect(push.title).toContain("@client_tj");
+    } finally {
+      await prisma.messengerAccount.update({ where: { id: igAccountId }, data: { extraExternalIds: [], username: null } });
+    }
+  });
+
+  it("199-2: у аккаунта нет id для переписки — его не сверяем (иначе наши ответы стали бы «клиентами»)", async () => {
+    await prisma.messengerAccount.update({ where: { id: igAccountId }, data: { messagingId: null } });
+    try {
+      const { impl, urls } = fakeFetch({ data: [] }, { data: [{ messages: { data: [
+        { id: `m_${runId}_ig_nm`, created_time: ago(25), message: "Наш ответ", from: { id: igScopedId } },
+      ] } }] });
+      expect(await runMetaInboxReconcile(now, impl, STARTED_LONG_AGO)).toMatchObject({ people: 0 });
+      expect(urls.some((u) => u.includes("platform=instagram"))).toBe(false);
+    } finally {
+      await prisma.messengerAccount.update({ where: { id: igAccountId }, data: { messagingId: igScopedId } });
+    }
+  });
+
+  it("199-3: сообщение, которое держит ядро (есть тикет), — дошло до CRM, «не дошло» не шлём", async () => {
+    const scope = await prisma.customerEndpointScope.create({ data: { realmKey: `realm-${runId}`, channel: "INSTAGRAM", transportKey: `tk-${runId}`,
+      messengerAccountId: igAccountId } });
+    const mid = `m_${runId}_core`, peer = `igsid-${runId}-core`;
+    const eventKey = customerPropertyEventKey(customerPropertyScopeKey("INSTAGRAM", peer, igAccountId), "message", mid);
+    await prisma.customerPropertyIngressTicket.create({ data: { eventKey, scopeKey: customerPropertyScopeKey("INSTAGRAM", peer, igAccountId),
+      endpointScopeId: scope.id } });
+    try {
+      const known = await knownMessageIds([{ mid, createdAt: new Date(), fromId: peer, fromName: null, text: "x" }], "INSTAGRAM");
+      expect(known.has(mid)).toBe(true);
+    } finally {
+      await prisma.customerPropertyIngressTicket.delete({ where: { eventKey } });
+      await prisma.customerEndpointScope.delete({ where: { id: scope.id } });
+    }
   });
 
   it("канал Instagram выключен в Настройках — Instagram не сверяем, Messenger сверяем", async () => {
