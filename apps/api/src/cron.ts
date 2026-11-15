@@ -81,7 +81,9 @@ import { collectInstagramOnlineFollowers } from "./lib/instagramInsights.js";
 import { collectSiteStats } from "./lib/siteStats.js";
 import { notifyHotProperties } from "./lib/propertyHotAlert.js";
 import { runPublishedChannelsAuditTick } from "./lib/publishedChannelsAudit.js";
-import { runIntegrationHealthChecks } from "./lib/integrationHealth.js";
+import { checkBackupFreshness } from "./lib/backupFreshness.js";
+import { runBalanceWatch } from "./lib/balanceWatch.js";
+import { alertOnIntegrationBreakage, runIntegrationHealthChecks } from "./lib/integrationHealth.js";
 import { followUpLimit, isClosingMessage, isFollowUpDue } from "./lib/botFollowUps.js";
 import { distillLessons, EMPTY_LESSON } from "./lib/botLessons.js";
 import { runBotAudit } from "./ai/botAudit.js";
@@ -510,9 +512,10 @@ export async function sendDirectorDigest(): Promise<number> {
     ...(reviewsYesterday > 0
       ? [`⭐ ${reviewsYesterday} ${pluralizeRu(reviewsYesterday, ["отзыв", "отзыва", "отзывов"])} после сделки за вчера`]
       : []),
-    // Пачка 18 (12.09.2026): пропущенные без перезвона за вчера, на сейчас — по
-    // каждому отдельному звонку уже напоминает/эскалирует отдельный крон каждые
-    // 30 минут (lib/telephony/missedCallEscalation.ts), здесь только общий счёт.
+    // Пачка 18 (12.09.2026): пропущенные без перезвона за вчера, на сейчас. Крона, который
+    // каждые 30 минут эскалировал каждый пропущенный руководству, больше нет (убран владельцем
+    // 20.09.2026, см. ниже «ЭСКАЛАЦИЯ ПРОПУЩЕННЫХ РУКОВОДСТВУ УДАЛЕНА»): общий счёт здесь
+    // (lib/telephony/missedCallEscalation.ts::countMissedCallsNoCallbackYesterday), и всё.
     ...(missedCallsNoCallbackYesterday > 0
       ? [
           `📵 ${missedCallsNoCallbackYesterday} ${pluralizeRu(missedCallsNoCallbackYesterday, ["пропущенный", "пропущенных", "пропущенных"])} без перезвона за вчера`,
@@ -3226,6 +3229,9 @@ export function startCronJobs() {
           `[cron] Внешние доступы: живых ${alive}, сломанных ${broken.length}` +
             (broken.length ? ` (${broken.join(", ")})` : "")
         );
+        // Переход «жив → сломан» — срочная тревога директору (пуш «новая проблема» отключён);
+        // ДО записи нового снимка: сравнивает с прошлым.
+        await alertOnIntegrationBreakage(checks);
         // Снимок для экрана /integrations (перенос мобильного макета 14.09.2026,
         // шаг 5) — раньше результат нигде не оставался, кроме консоли и ErrorLog
         // при отказе; upsert по имени канала, старый снимок просто перезаписан.
@@ -3482,6 +3488,28 @@ export function startCronJobs() {
       reportCronTickError("Ошибка сторожа пульса", err);
     }
   });
+
+  /** Сторож копий: нет удачной выгрузки наружу дольше 26 часов или последний прогон
+   *  вида провалился (lib/backupFreshness.ts). Раньше отчёт бэкапа оседал строкой на экране. */
+  scheduleTracked("backup-freshness", "17 * * * *", async () => {
+    try {
+      const alerts = await checkBackupFreshness();
+      if (alerts) console.log(`[cron] Сторож копий: тревог поднято ${alerts}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа свежести копий", err);
+    }
+  });
+
+  /** Остаток платных сервисов заранее: ElevenLabs по каждому ключу и счёт СМС (lib/balanceWatch.ts).
+   *  Раз в сутки, 09:20 Душанбе; только чтение остатка, ничего не тратит. */
+  scheduleTracked("balance-watch", "20 9 * * *", async () => {
+    try {
+      const alerts = await runBalanceWatch();
+      if (alerts) console.log(`[cron] Остатки платных сервисов: тревог поднято ${alerts}`);
+    } catch (err) {
+      reportCronTickError("Ошибка суточной проверки остатков", err);
+    }
+  }, { timezone: "Asia/Dushanbe" });
 
   // The ordinary durable queue still handles media once a minute. Customer
   // model turns and sends have separate bounded slots; both use runOne, DB
