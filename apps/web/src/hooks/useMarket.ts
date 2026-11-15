@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MarketBuyerListingsResponse, MarketSegmentsQuery, MarketSegmentsResponse } from "@royal-home/shared";
+import type { MarketBuyerListingsResponse, MarketOverpricedResponse, MarketSegmentsQuery, MarketSegmentsResponse } from "@royal-home/shared";
 import { api } from "../lib/api";
 import type { MarketDynamicsData, MarketPropertyEstimate, OwnMarketMatchesData } from "../types";
 
@@ -77,6 +77,16 @@ export function useMarketSegments(filters: Partial<Omit<MarketSegmentsQuery, "ci
   return useQuery({
     queryKey: ["market-segments", query],
     queryFn: () => api<MarketSegmentsResponse>(`/market/segments${query ? `?${query}` : ""}`),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+/** Наши объекты в продаже, которые просят дороже рынка (GET /market/overpriced): сравнение считает сервер. */
+export function useMarketOverpriced() {
+  return useQuery({
+    queryKey: ["market-overpriced"],
+    queryFn: () => api<MarketOverpricedResponse>("/market/overpriced"),
     staleTime: 5 * 60_000,
     retry: false,
   });
