@@ -60,6 +60,11 @@ import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
 import { enqueueCustomerLeadOnlyIntakeTx, planCustomerLeadOnlyTurn, readCustomerLeadOnlySentTexts,
   type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
 import { leadOnlyAppliesTo, leadOnlyFilterReply } from "../ai/leadOnlyMode.js";
+import { z } from "zod";
+import { customerDeliveryTransportSchema } from "./customerDeliveryContracts.js";
+import { coreReplyRepeatBlocked } from "./outboundShield.js";
+import { customerCoreRetryWorthwhile, customerHeldForChangedContext, customerSafetyCandidateLines, customerSafetyLine,
+  customerSafetyLineAllowed, customerSafetyMemory } from "./customerNoSilence.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -271,6 +276,26 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       });
       return { status: "planned", partIds };
     };
+    // The safety door (lib/customerNoSilence.ts): one hand-off line instead of silence, never a repeat the shield would
+    // cut, and the person learns through alertClientWaiting(follow_up). Null when it cannot be planned (claim lost,
+    // principal changed, every candidate line would be a repeat): the caller keeps the old held path.
+    const planSafetyLine = async (why: string): Promise<CustomerDmAgentTurnResult | null> => {
+      try {
+        const assistantTexts = remembered.context.turns.filter(turn => turn.role === "assistant").map(turn => turn.text);
+        const blocked = await customerReplyRepeatBlocked(mutations.principal, customerSafetyCandidateLines());
+        const line = customerSafetyLine(language, lane.context.knownPhoneSource, customerSafetyMemory(assistantTexts, l => blocked.has(l)));
+        if (blocked.has(line) || !await current(linkWait)) return null;
+        const partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
+          parts: [{ payload: { kind: "text" as const, text: line } }] }));
+        void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt);
+        void logSystemError("ai", `Бот не смог ответить по существу (${why}) — клиенту ушла короткая фраза «это скажет агент», ответственному — сигнал`,
+          { dedupKey: `customer-safety-line:${why}`, quietPult: true });
+        return { status: "planned", partIds };
+      } catch (error) {
+        heldCause = safeCauseCode(error);
+        return null;
+      }
+    };
     const leadOnlyTurn = (forced?: "escalate") => planCustomerLeadOnlyTurn({ config: leadOnly,
       channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer, conversationId: lane.ticket.conversationId,
       eventKey: claim.eventKey, language, inputText: fullInput(), focusPropertyId: leadOnlyFocusId, focusFromThisMessage: leadOnlyFocusFresh,
@@ -390,7 +415,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found";
     const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput,
       unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
-    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
+    const runCore = () => runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState, ...(followUp ? { followUp } : {}), ...(preReadCall ? { preReads: [preReadCall] } : {}),
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
@@ -436,6 +461,14 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       // neither re-enter the model nor enqueue a second customer response.
       observeLateToolResult: () => {},
     });
+    let result = await runCore();
+    // A provider failure with nothing written: ONE more try inside the same claim and the same provider operation (its
+    // attempt/money/deadline bounds still apply). The chat changing under the turn is not retried (16.11.2026).
+    if (customerCoreRetryWorthwhile(result, Math.min(runtime.operation.deadlineAt, claim.deadlineAt) - Date.now()) &&
+        mutations.committedReceipts.length === 0 && await current(linkWait)) {
+      witnesses.length = 0; accumulated = [];
+      result = await runCore();
+    }
     traceCustomerCoreResult(result);
     if (result.status === "ready") recordCustomerAgentSay(result.say);
     // Count a spam turn (a foreign reel / like-exchange words with nothing asked) toward the mute. Never allowed to break the turn.
@@ -471,6 +504,20 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     if (result.status !== "ready" || !result.text.trim() || result.decision.kind === "escalate") {
       const reason = result.status === "held" ? modelHeldReason ?? result.reason : "staff_or_supported_reply_required";
+      // The customer wrote again while this turn ran: the NEWER input answers and carries these words (the same door as
+      // `newer_input_pending` above; if that newer turn ends unanswered, resumeDeferredCustomerInbox re-arms). 16.11.2026.
+      if (customerHeldForChangedContext(reason, result.status === "held" ? result.cause : undefined) &&
+          await hasNewerCustomerInboxInput(claim.eventKey)) {
+        await releaseHeldClaim(claim, NEWER_INPUT_PENDING);
+        return { status: "held", reason: NEWER_INPUT_PENDING };
+      }
+      // Never silence (16.11.2026): nothing was written and the claim is still ours — one short verified line, and the
+      // responsible person is told through the one door (follow_up). Planning failing keeps the old path below.
+      if (customerSafetyLineAllowed(reason) && mutations.committedReceipts.length === 0 &&
+          !(result.status === "held" && result.unknownToolCalls.length)) {
+        const planned = await planSafetyLine(reason);
+        if (planned) return planned;
+      }
       await releaseHeldClaim(claim, reason);
       // The model handed the turn to staff and the customer gets no reply: a
       // person must learn about it (14.11.2026 — before, nobody was told).
@@ -495,6 +542,14 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     if (leadOnly.enabled && leadOnlyFilterReply(sealed.text).changed) {
       const plan = await leadOnlyTurn("escalate");
       if (plan) return await planLeadOnly(plan);
+    }
+    // The repeat shield would cut this reply at send time (the same threshold as the transport): the customer would get
+    // NOTHING (ФАКТ 11–15.11: 15 cut, 4 ended in silence). Say the hand-off line instead — only when the reply carries no
+    // receipt or property delivery that a plain line must not replace (then the old behaviour stays). 16.11.2026.
+    if (mutations.receipts.length === 0 && !result.evidence.some(e => ["receipt", "facts", "property_unresolved"].includes(e.value.kind)) &&
+        (await customerReplyRepeatBlocked(mutations.principal, [sealed.text])).has(sealed.text)) {
+      const planned = await planSafetyLine("repeat_shield");
+      if (planned) return planned;
     }
     const mediaMode = customerPropertyMediaExecutionMode();
     const photoRequested = mediaMode !== "OFF" && explicitCustomerPropertyPhotoRequest(text);
@@ -630,6 +685,22 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     return outcome;
   });
+}
+
+/** Which of these texts the repeat shield would cut if the core sent them now as a reply to this customer — the same
+ * key and threshold as the transport (messengers/meta.ts → admitOutbound with answersInbound). Read-only; a failure
+ * blocks nothing (the shield must never become the reason for silence). Exported for the class test. */
+export async function customerReplyRepeatBlocked(principal: CustomerAgentMutationSession["principal"], texts: readonly string[]): Promise<Set<string>> {
+  try {
+    const live = await revalidateCustomerPrincipal(principal);
+    if (live.status !== "current") return new Set();
+    const parsed = customerDeliveryTransportSchema.extend({ subscriberId: z.string() }).strict().safeParse(live.snapshot.transport);
+    if (!parsed.success) return new Set();
+    const { subscriberId: _peer, ...transport } = parsed.data;
+    return new Set(await coreReplyRepeatBlocked(principal.scope.channel, principal.scope.peer, [...texts], transport));
+  } catch {
+    return new Set();
+  }
 }
 
 /** The follow-up signal of a reply that promised an agent (15.11.2026). Exported for the class test; never throws. */
