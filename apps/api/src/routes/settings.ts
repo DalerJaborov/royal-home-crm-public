@@ -825,6 +825,8 @@ const settingsUpdateSchema = z.object({
   botCanConfirmShowings: z.boolean().optional(),
   botCanFollowUp: z.boolean().optional(),
   botCanAnswerComments: z.boolean().optional(),
+  /** Комментарий со сбоем бота (ИИ недоступен, отказ ядра, застрял) — сводкой человеку (15.11.2026). */
+  commentFailureWatchEnabled: z.boolean().optional(),
   /** «Соедините с оператором»: бот записывает запрос звонка и зовёт агентов. */
   botCanRequestCallback: z.boolean().optional(),
   /** Дежурный оператор обратных звонков (сейчас Нурмухаммад, потом сменится —

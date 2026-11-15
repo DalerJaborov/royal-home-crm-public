@@ -7,7 +7,7 @@ vi.mock("../src/push.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { runCommentNeedsHumanSweep, commentTag, plainCommentReason, commentNeedsHuman } = await import("../src/lib/commentWaitingAlert.js");
+const { runCommentNeedsHumanSweep, commentTag, plainCommentReason, commentNeed } = await import("../src/lib/commentWaitingAlert.js");
 
 /**
  * КОММЕНТАРИЙ БЕЗ ОТВЕТА БОТА — ЧЕЛОВЕКУ (15.11.2026). Живой случай: 14.11 новое
@@ -22,18 +22,23 @@ const minutesAgo = (n: number) => new Date(now.getTime() - n * 60_000);
 let staffId = "";
 const ids: string[] = [];
 
-async function comment(status: string, opts: { note?: string; updatedMinAgo?: number } = {}) {
+async function comment(status: string, opts: { note?: string; updatedMinAgo?: number; createdMinAgo?: number } = {}) {
   const commentId = `c-${runId}-${ids.length}`;
   ids.push(commentId);
   await prisma.instagramComment.create({
     data: { commentId, mediaId: `media-${runId}`, authorId: `a-${runId}`, authorName: "client_tj", text: "Нарх чанд?",
-      replyDueAt: minutesAgo(30), status, note: opts.note ?? null },
+      replyDueAt: minutesAgo(30), status, note: opts.note ?? null, createdAt: minutesAgo(opts.createdMinAgo ?? 30) },
   });
   // updatedAt ставит Prisma сама — двигаем в прошлое напрямую.
   await prisma.$executeRaw`UPDATE "InstagramComment" SET "updatedAt"=${minutesAgo(opts.updatedMinAgo ?? 10)} WHERE "commentId"=${commentId}`;
   return commentId;
 }
 const pushesFor = (commentId: string) => sendPushToAgents.mock.calls.filter(([, p]) => (p as { tag?: string }).tag === commentTag(commentId));
+/** Пуши этого тика про эти комментарии: сводка или одиночный пуш с их тегом. */
+const summariesWith = (commentIds: string[]) => sendPushToAgents.mock.calls.filter(([, p]) => {
+  const tag = (p as { tag?: string }).tag;
+  return tag === "comments-need-human" || commentIds.some((id) => tag === commentTag(id));
+});
 
 beforeAll(async () => {
   staffId = (
@@ -89,20 +94,60 @@ describe("runCommentNeedsHumanSweep", () => {
     for (const id of [replied, fresh, stale]) expect(pushesFor(id)).toHaveLength(0);
   });
 
-  it("192-1: ИИ недоступен, комментарий удалён, технический отказ ядра — человека не зовём (решение владельца 30.08)", async () => {
+  it("В2 (15.11): удалённый комментарий, спам и ответ сотрудника — человека не зовём", async () => {
     const quiet = [
-      await comment("FAILED", { note: "ai_down" }),
       await comment("FAILED", { note: "gone" }),
-      await comment("FAILED", { note: "managed_core:failed:public_core_unavailable" }),
-      await comment("FAILED", { note: "managed_core:failed:expired;first=managed_core:failed:turn_unavailable" }),
-      await comment("FAILED", { note: "что-то новое" }),
+      await comment("FAILED", { note: "spam: ссылка; hide:gone" }),
+      await comment("FAILED", { note: "manual_reply_unknown" }),
+      await comment("SKIPPED", { note: "bot_off" }),
     ];
     await runCommentNeedsHumanSweep(now);
     for (const id of quiet) expect(pushesFor(id), id).toHaveLength(0);
-    expect(sendPushToAgents.mock.calls.filter(([, p]) => (p as { tag?: string }).tag === "comments-need-human")).toHaveLength(0);
-    expect(commentNeedsHuman("FAILED", "no_answer")).toBe(true);
-    expect(commentNeedsHuman("ESCALATED", "managed_core:moderation_hide_spam")).toBe(true);
-    expect(commentNeedsHuman("ESCALATED", "x; gone")).toBe(false);
+    expect(summariesWith(quiet)).toHaveLength(0);
+    expect(commentNeed("ESCALATED", "x; gone")).toBe("no");
+  });
+
+  it("В2 (15.11): ИИ недоступен после повторов и технические отказы ядра — теперь человеку (решение 30.08 отменено)", async () => {
+    const technical = [
+      await comment("FAILED", { note: "ai_down" }),
+      await comment("FAILED", { note: "managed_core:failed:public_core_unavailable" }),
+      await comment("FAILED", { note: "managed_core:failed:expired;first=managed_core:failed:turn_unavailable" }),
+      await comment("FAILED", { note: "managed_core:failed:turn_deadline" }),
+    ];
+    await runCommentNeedsHumanSweep(now);
+    const summaries = summariesWith(technical);
+    expect(summaries).toHaveLength(1);
+    expect((summaries[0]![1] as { title: string }).title).toMatch(/4 комментариев ждут ответа/);
+    expect(commentNeed("FAILED", "ai_down")).toBe("technical");
+    expect(commentNeed("FAILED", "что-то новое")).toBe("human"); // незнакомый код по умолчанию зовёт человека
+    expect(commentNeed("FAILED", "no_answer")).toBe("human");
+    expect(plainCommentReason("FAILED", "ai_down")).toContain("ИИ был недоступен");
+  });
+
+  it("В2 (15.11): комментарий застрял в очереди дольше 30 минут — человеку; свежий в очереди — нет", async () => {
+    const stuck = await comment("PENDING", { createdMinAgo: 45 });
+    const working = await comment("WORKING", { createdMinAgo: 90 });
+    const fresh = await comment("PENDING", { createdMinAgo: 5 });
+    await runCommentNeedsHumanSweep(now);
+    expect(summariesWith([stuck, working])).toHaveLength(1);
+    expect(await prisma.processedMessage.count({ where: { channel: "comment-needs-human", messageId: { in: [stuck, working] } } })).toBe(2);
+    expect(await prisma.processedMessage.count({ where: { channel: "comment-needs-human", messageId: fresh } })).toBe(0);
+    expect(plainCommentReason("PENDING", null)).toContain("полчаса");
+  });
+
+  it("рубильник выключен — технические отказы и застрявшие не зовём и не отмечаем; передачу человеку (ESCALATED) — зовём", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { commentFailureWatchEnabled: false } });
+    try {
+      const tech = await comment("FAILED", { note: "ai_down" });
+      const stuck = await comment("PENDING", { createdMinAgo: 60 });
+      const escalated = await comment("ESCALATED", { note: "Спросили про рассрочку" });
+      await runCommentNeedsHumanSweep(now);
+      expect(pushesFor(escalated)).toHaveLength(1);
+      expect(summariesWith([tech, stuck])).toHaveLength(0);
+      expect(await prisma.processedMessage.count({ where: { channel: "comment-needs-human", messageId: { in: [tech, stuck] } } })).toBe(0);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { commentFailureWatchEnabled: true } });
+    }
   });
 
   it("192-6: много комментариев за тик — одна сводка, а не пуш на каждый", async () => {
