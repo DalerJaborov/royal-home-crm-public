@@ -16,10 +16,10 @@
   "paths": 749,
   "cron": 133,
   "jobs": 33,
-  "conditions": 4033,
-  "untranslatedUnique": 462,
-  "untranslatedTotal": 593,
-  "partialUnique": 1093,
+  "conditions": 4032,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 594,
+  "partialUnique": 1091,
   "translatedShare": 85
  },
  "untranslated": [
@@ -63,6 +63,7 @@
   "!clientPropertyEligible(c, facts, money, policy)",
   "!commandFailed(res, err)",
   "!commandFailed(res, error)",
+  "!commentNeedsHuman(row.status, row.note)",
   "!confirmedClientIntents(client).buys",
   "!contact.success || !contact.data.name || !contact.data.phone || !intent || intent.status !== \"committed\" || …",
   "!contentType.startsWith(\"video/\")",
@@ -66208,17 +66209,11 @@
          "a": [],
          "c": [
           {
-           "t": "если need — «technical» и нет: technical on",
+           "t": "если !commentNeedsHuman(row.status, row.note)",
            "k": "if",
            "a": [],
            "c": [],
-           "more": true
-          },
-          {
-           "t": "если need — «no»",
-           "k": "if",
-           "a": [],
-           "c": [],
+           "raw": "!commentNeedsHuman(row.status, row.note)",
            "more": true
           }
          ]

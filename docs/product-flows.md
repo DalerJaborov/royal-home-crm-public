@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4049**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4048**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20338,10 +20338,6 @@
 - пробует
   - const { alerted } = await runCommentNeedsHumanSweep();
     · зовёт runCommentNeedsHumanSweep()
-    - const technicalOn = await isCommentFailureWatchEnabled();
-      · зовёт isCommentFailureWatchEnabled()
-    - const queueRuns = technicalOn && (await loadBotCapabilities()).comments;
-      · зовёт loadBotCapabilities()
     - const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …
       · обращается к базе своим SQL
     - если !rows.length
@@ -20350,12 +20346,7 @@
     - const claim = (commentId: string)
       · обращается к базе своим SQL
     - для каждого: const row of rows
-      - const need = commentNeed(row.status, row.note);
-        · зовёт commentNeed()
-      - если need === "technical" && !technicalOn
-        - continue;
-          · переходит к следующему
-      - если need === "no"
+      - если !commentNeedsHuman(row.status, row.note)
         - continue;
           · переходит к следующему
     - если !due.length

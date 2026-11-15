@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4049,
+  "forks": 4048,
   "mounts": 83,
   "cron": 133,
   "jobs": 33,
@@ -90278,22 +90278,6 @@
        "c": [
         {
          "k": "do",
-         "t": "const technicalOn = await isCommentFailureWatchEnabled();",
-         "a": [
-          "зовёт isCommentFailureWatchEnabled()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const queueRuns = technicalOn && (await loadBotCapabilities()).comments;",
-         "a": [
-          "зовёт loadBotCapabilities()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
          "t": "const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …",
          "a": [
           "обращается к базе своим SQL"
@@ -90329,31 +90313,8 @@
          "a": [],
          "c": [
           {
-           "k": "do",
-           "t": "const need = commentNeed(row.status, row.note);",
-           "a": [
-            "зовёт commentNeed()"
-           ],
-           "c": []
-          },
-          {
            "k": "if",
-           "t": "need === \"technical\" && !technicalOn",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "need === \"no\"",
+           "t": "!commentNeedsHuman(row.status, row.note)",
            "a": [],
            "c": [
             {
