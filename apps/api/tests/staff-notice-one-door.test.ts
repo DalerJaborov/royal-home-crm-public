@@ -44,6 +44,8 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "messengers/telegramDirectMessages.ts": { calls: 5, why: "переписка с клиентом" },
   "messengers/telegramGroupComments.ts": { calls: 3, why: "комментарии под постами канала" },
   "routes/expenseWorkspace.ts": { calls: 1, why: "выгрузка CSV по кнопке самого человека" },
+  "routes/reportPdf.ts": { calls: 1, why: "PDF-отчёт себе в Telegram по кнопке самого человека (#189)" },
+  "lib/reportPdf/monthlyFinance.ts": { calls: 1, why: "месячный финансовый PDF директору 1–3 числа: рубильник в Настройках, по умолчанию выключен (#189)" },
   "telegram/bot.ts": { calls: 11, why: "ответы на сообщения и кнопки человека" },
   "telegram/assistantBot.ts": { calls: 35, why: "ответы помощницы на просьбу человека" },
   "telegram/assistantDelivery.ts": { calls: 7, why: "доставка ответа помощницы на просьбу" },
