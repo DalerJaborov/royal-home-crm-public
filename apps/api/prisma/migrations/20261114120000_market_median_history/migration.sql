@@ -17,6 +17,6 @@ CREATE TABLE "MarketMedianDaily" (
     CONSTRAINT "MarketMedianDaily_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "MarketMedianDaily_day_city_districtName_rooms_building_audience_key" ON "MarketMedianDaily"("day", "city", "districtName", "rooms", "building", "audience");
+CREATE UNIQUE INDEX "MarketMedianDaily_day_city_districtName_rooms_building_audi_key" ON "MarketMedianDaily"("day", "city", "districtName", "rooms", "building", "audience");
 
-CREATE INDEX "MarketMedianDaily_city_districtName_rooms_building_audience_day_idx" ON "MarketMedianDaily"("city", "districtName", "rooms", "building", "audience", "day");
+CREATE INDEX "MarketMedianDaily_city_districtName_rooms_building_audience_idx" ON "MarketMedianDaily"("city", "districtName", "rooms", "building", "audience", "day");
