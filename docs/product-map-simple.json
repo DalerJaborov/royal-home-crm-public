@@ -14,12 +14,12 @@
  "totals": {
   "screens": 53,
   "paths": 754,
-  "cron": 138,
+  "cron": 139,
   "jobs": 33,
-  "conditions": 4068,
-  "untranslatedUnique": 465,
-  "untranslatedTotal": 596,
-  "partialUnique": 1105,
+  "conditions": 4076,
+  "untranslatedUnique": 466,
+  "untranslatedTotal": 597,
+  "partialUnique": 1106,
   "translatedShare": 85
  },
  "untranslated": [
@@ -338,6 +338,7 @@
   "id === otherId",
   "ids.length !== existing.size || ids.some((id) => !existing.has(id))",
   "inNightFullCrawlWindow()",
+  "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
   "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
@@ -62580,6 +62581,20 @@
      "c": []
     },
     {
+     "t": "если incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…"
+    },
+    {
      "t": "если статус — «denied» или статус — «unavailable»",
      "k": "if",
      "a": [],
@@ -71545,6 +71560,101 @@
       },
       {
        "t": "если есть ответ",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "meta-inbox-reconcile",
+   "when": "3-59/10 * * * *",
+   "label": "meta-inbox-reconcile",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если выключено: Meta",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если people больше 0",
        "k": "if",
        "a": [],
        "c": []
