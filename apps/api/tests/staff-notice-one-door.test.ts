@@ -29,7 +29,7 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "lib/loginSmsCode.ts": { calls: 1, why: "код входа — безопасность учётки, выключать нельзя" },
   "lib/telegramAgentLink.ts": { calls: 1, why: "ответ на привязку чата, которую человек сам начал" },
   "lib/telegramModeration.ts": { calls: 11, why: "рабочая очередь модератора с кнопками решения" },
-  "telegram/clipReviewBot.ts": { calls: 3, why: "ролик на проверку модератору — рабочая очередь" },
+  "telegram/clipReviewBot.ts": { calls: 4, why: "ролик на проверку модератору — рабочая очередь, плюс одна весть хозяину «опубликован сам» (ответ по его ролику, не сам почин)" },
   "lib/montageObservers.ts": { calls: 3, why: "задание монтажёру и копия наблюдателю — рабочий канал монтажа" },
   "lib/videoHandoff.ts": { calls: 3, why: "передача исходников монтажёру — рабочий канал монтажа" },
   "lib/videoHandoffStaleAlarm.ts": { calls: 1, why: "копия напоминания монтажа наблюдателям (sendMontageCopies) — рабочий канал монтажа" },

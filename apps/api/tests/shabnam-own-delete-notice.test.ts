@@ -251,6 +251,9 @@ describe("сообщение РОП, директору и админу об у�
   it("отключается словами: «не присылай мне уведомления об удалениях» → вид trash, и выключившему сообщение не идёт", async () => {
     expect(PUSH_KINDS.map((k) => k.key)).toContain("trash");
     expect(parseNoticeIntent("не присылай мне уведомления об удалениях")).toMatchObject({ type: "mute", kind: "trash" });
+    // «заявки на удаление» — не про Корзину: вид trash они не выключают.
+    expect(parseNoticeIntent("не присылай заявки на удаление")).not.toMatchObject({ kind: "trash" });
+    expect(parseNoticeIntent("не присылай заявки на удаление")).toMatchObject({ type: "mute", kind: "lead" });
     await setKindMuted(ids.director, "trash", true);
     try {
       const client = await seedClient(ids.owner);
