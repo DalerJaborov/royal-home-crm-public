@@ -27,6 +27,7 @@ import { runStationOutageProbeTick } from "./lib/stationOutage.js";
 import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
+import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
 import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
@@ -2743,6 +2744,21 @@ export function startCronJobs() {
       if (alerted > 0) console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа «клиент ждёт ответа»", err);
+    }
+  });
+
+  /**
+   * ВЕБХУК WHATSAPP ЗАМОЛЧАЛ (15.11.2026, lib/whatsappWebhookWatch.ts). Входящие
+   * WhatsApp Meta отдаёт только вебхуком — сверить их, как Messenger, не с чем.
+   * Раз в 20 минут в рабочие часы: тишина дольше обычного — тревога руководству
+   * с причиной из Graph (только чтение). Рубильник Settings.whatsappWebhookWatchEnabled.
+   */
+  scheduleTracked("whatsapp-webhook-watch", "8-59/20 * * * *", async () => {
+    try {
+      const { alarmed, silenceMs } = await runWhatsappWebhookWatch();
+      if (alarmed) console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководству`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «вебхук WhatsApp замолчал»", err);
     }
   });
 

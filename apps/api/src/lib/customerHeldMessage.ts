@@ -124,6 +124,11 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
         void logSystemError("meta", `Сообщение клиента в ${CHANNEL_NAME[hold.channel] ?? hold.channel} не записано в чат CRM ` +
           `(${why}, собеседник ${hold.peer}). Если нужно, найдите его в приложении и ответьте вручную.`,
           { dedupKey: `customer-dm-routing-held-unrecorded:${hold.reason}`, dedupScope: `${hold.channel}:${hold.peer}`, quietPult: true });
+        // A chat staff deleted stays deleted (their decision); every other unrecorded message reaches a person (15.11.2026, task 5).
+        if (hold.unrecorded !== "chat_deleted") {
+          await pushStaffAboutUnrecorded({ channel: hold.channel, peer: hold.peer, accountExternalId: hold.accountExternalId,
+            excerpt: hold.excerpt, why: `бот не ответит: ${plainReason(hold.reason)}` });
+        }
         continue;
       }
       if (seen.has(hold.conversationId)) continue;
@@ -192,15 +197,24 @@ export async function notifyEscalatedCustomerTurn(input: { conversationId: strin
  * (customerTurnSilence.ts) reaches a person. The text is already in the CRM chat; this is the push plus one journal line per
  * reason. Never throws. */
 export async function notifyUnansweredCustomerTurn(hold: { reason: string; channel: string; peer: string; conversationId: string | null;
-  excerpt: string }): Promise<void> {
+  excerpt: string; accountExternalId?: string | null; displayName?: string | null }): Promise<void> {
   const why = UNANSWERED_REASON_TEXT[hold.reason] ?? "бот не смог подготовить ответ"; // staff never see service codes
   void logSystemError("meta", hold.conversationId
     ? `Бот не ответил клиенту (причина «${hold.reason}»): ${why}. Текст в чате CRM, ответственный получил уведомление; ответить нужно вручную.`
-    : `Бот не ответил клиенту (причина «${hold.reason}», собеседник ${hold.peer || "неизвестен"}): текст не попал в чат CRM, уведомить некого. ` +
-      `Найдите человека в приложении и ответьте вручную.`,
+    : `Бот не ответил клиенту (причина «${hold.reason}», собеседник ${hold.peer || "неизвестен"}): текст не попал в чат CRM, ` +
+      (hold.channel && hold.peer ? `всем, кто читает переписки, ушёл пуш «Ответьте вручную».`
+        : `а кто писал, прочитать не удалось — уведомить некого. Проверьте входящие в приложениях.`),
     { dedupKey: `customer-turn-unanswered:${hold.reason}`, dedupWindowMs: NOTIFY_WINDOW_MS, quietPult: true });
   try {
-    if (!hold.conversationId) return;
+    if (!hold.conversationId) {
+      // No CRM chat to open (15.11.2026, task 5): until now only the journal line above, nobody was told. The person is
+      // found by channel, account and (WhatsApp) number; once per person per window, like every "answer by hand" push.
+      if (hold.channel && hold.peer) {
+        await pushStaffAboutUnrecorded({ channel: hold.channel, peer: hold.peer, accountExternalId: hold.accountExternalId ?? null,
+          excerpt: hold.excerpt, why, displayName: hold.displayName ?? null });
+      }
+      return;
+    }
     // ONE door for "the customer is waiting" (#174): idempotent per silence episode, critical level, director fallback when
     // nobody is assigned. The sweep of #174 finds the same chats later; the episode mark keeps it from a second push.
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
@@ -211,5 +225,50 @@ export async function notifyUnansweredCustomerTurn(hold: { reason: string; chann
   } catch (error) {
     void logSystemError("meta", `Уведомление о неотвеченном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
       { dedupKey: "customer-turn-unanswered-notify-failed", quietPult: true });
+  }
+}
+
+const UNRECORDED_CLAIM = "customer-unrecorded-notify";
+
+/**
+ * A customer message that has NO CRM chat (routing could not record it, or a core ticket without a conversation) still
+ * reaches a person (15.11.2026, owner: "никого не пропускать"). There is no chat to open, so the push says where to answer:
+ * the channel, our account and, for WhatsApp, the number. Recipients: everyone who reads all chats (nobody is assigned to a
+ * person without a chat). One push per person per window (atomic claim). Never throws.
+ */
+export async function pushStaffAboutUnrecorded(input: { channel: string; peer: string; accountExternalId: string | null;
+  excerpt: string; why: string; displayName?: string | null }): Promise<"sent" | "skipped"> {
+  const key = `${input.channel}:${input.peer}:${Math.floor(Date.now() / NOTIFY_WINDOW_MS)}`;
+  try {
+    const recipients = await findAgentsWithPermission("messages.view");
+    if (!recipients.length) {
+      void logSystemError("meta", `Сообщение клиента не попало в чат CRM, а сказать некому: нет никого с правом «Сообщения».`,
+        { dedupKey: "customer-unrecorded-no-recipients", quietPult: true });
+      return "skipped";
+    }
+    const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+      VALUES (${randomUUID()},${UNRECORDED_CLAIM},${key},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
+    if (claimed !== 1) return "skipped";
+    const place = CHANNEL_NAME[input.channel] ?? input.channel;
+    const account = input.accountExternalId
+      ? (await prisma.messengerAccount.findFirst({ where: { channel: input.channel, externalId: input.accountExternalId }, select: { title: true } }))?.title
+      : null;
+    const who = input.channel === "WHATSAPP" && /^\d{8,15}$/.test(input.peer) ? `номер +${input.peer}`
+      : input.displayName?.trim() || "клиент";
+    try {
+      await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL",
+        title: `Ответьте вручную: ${who} (${place}${account ? ` «${account}»` : ""})`,
+        body: `«${input.excerpt || "[сообщение без текста]"}». ${input.why[0]?.toUpperCase() ?? ""}${input.why.slice(1)}. ` +
+          `Сообщение не попало в чат CRM — ответьте в приложении ${place}${account ? `, аккаунт «${account}»` : ""}.`,
+        url: "/messages", tag: `customer-unrecorded-${input.channel}-${input.peer}` });
+      return "sent";
+    } catch (error) {
+      await prisma.processedMessage.deleteMany({ where: { channel: UNRECORDED_CLAIM, messageId: key } }).catch(() => {});
+      throw error;
+    }
+  } catch (error) {
+    void logSystemError("meta", `Пуш «Ответьте вручную» по сообщению вне чата CRM не отправлен: ${error instanceof Error ? error.message : String(error)}`,
+      { dedupKey: "customer-unrecorded-notify-failed", quietPult: true });
+    return "skipped";
   }
 }

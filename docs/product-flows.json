@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4045,
+  "forks": 4047,
   "mounts": 83,
-  "cron": 132,
+  "cron": 133,
   "jobs": 33,
   "hidden": 0
  },
@@ -89623,187 +89623,6 @@
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "const rows = await prisma.$queryRaw< Array<{ id: string; messages: unknown; leadDraft: unknown; silenceAlertF…",
-         "a": [
-          "обращается к базе своим SQL"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const row of rows",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const episode = waitingEpisodeOf(row.messages);",
-           "a": [
-            "зовёт waitingEpisodeOf()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!episode || episode.since.getTime() > threshold",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "due.length === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return { checked: rows.length, alerted: 0, skippedOffHours: false };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const tickets = keys.length ? await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: …",
-         "a": [
-          "читает в базе: customerPropertyIngressTicket"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d)",
-         "a": [
-          "зовёт fetchLastCallContactByClient()"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const d of due",
-         "a": [],
-         "c": [
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "allIntentional",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "called && called.getTime() > d.episode.since.getTime()",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "const outcome = await alertClientWaiting({ conversationId: d.id, trigger: \"silence\", now });",
-             "a": [
-              "зовёт alertClientWaiting()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "outcome !== \"skipped\"",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "alerted++;",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "reportCronRowError(\"Сторож «клиент ждёт ответа»\", d.id, err);",
-             "a": [
-              "зовёт reportCronRowError()"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
         }
        ],
        "from": "runClientSilenceSweep() — apps/api/src/lib/clientWaitingAlert.ts"
@@ -115445,6 +115264,224 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "whatsapp-webhook-watch",
+   "when": "8-59/20 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { alarmed, silenceMs } = await runWhatsappWebhookWatch();",
+       "a": [
+        "зовёт runWhatsappWebhookWatch()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { whatsappWebhookWatchEnable…",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!(s?.whatsappWebhookWatchEnabled ?? true)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"off\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!(await isMetaChannelEnabled(\"WHATSAPP\"))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"channel_off\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const creds = await loadCredentials();",
+         "a": [
+          "зовёт loadCredentials()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const token = creds.waPhoneId ? (await resolveIncomingAccount(\"WHATSAPP\", creds.waPhoneId)).token || creds.wa…",
+         "a": [
+          "зовёт resolveIncomingAccount()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!creds.waPhoneId || !token",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"not_configured\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!isWithinDushanbeWindow(window.start, window.end, now)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"off_hours\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "times.length < WA_MIN_HISTORY_MESSAGES",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ...result, skipped: \"little_history\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "result.thresholdMs = silenceThresholdMs(longestWorkGapMs(times, window));",
+         "a": [
+          "зовёт silenceThresholdMs()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "result.silenceMs = workSilenceMs(last, now, window);",
+         "a": [
+          "зовёт workSilenceMs()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "result.silenceMs < result.thresholdMs",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return result;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const cause = await diagnoseWhatsappNumber({ phoneId: creds.waPhoneId, token, businessAccountId: s?.metaWaBus…",
+         "a": [
+          "зовёт diagnoseWhatsappNumber()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"meta\", `WhatsApp молчит: в рабочие часы нет ни одного входящего уже ${hours(result.silen…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runWhatsappWebhookWatch() — apps/api/src/lib/whatsappWebhookWatch.ts"
+      },
+      {
+       "k": "if",
+       "t": "alarmed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководств…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа «вебхук WhatsApp замолчал»\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "whisper-sync",
    "when": "*/5 * * * *",
    "tree": [
@@ -121699,6 +121736,44 @@
            "t": "!row || row.answered",
            "a": [],
            "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "row.chatDeleted",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!row.conversationId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await notifyUnansweredCustomerTurn({ reason, channel: input?.channel ?? \"\", peer: input?.peer ?? \"\", conversa…",
+             "a": [
+              "зовёт notifyUnansweredCustomerTurn()"
+             ],
+             "c": []
+            },
             {
              "k": "do",
              "t": "return;",

@@ -19,6 +19,21 @@ import { prisma } from "../db.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE, customerTurnSilenceIsIntended } from "./customerIntendedSilence.js";
 import { notifyUnansweredCustomerTurn } from "./customerHeldMessage.js";
 import { logSystemError } from "./systemError.js";
+import { decryptCustomerIngressPayload, type CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
+
+type TicketPayloadRef = { order: bigint | null; scopeKey: string | null; endpointScopeId: string | null; payloadVersion: number | null;
+  payloadCiphertext: string | null; payloadHash: string | null };
+
+/** The ticket's own normalized input (strict AES-GCM binding). Null when it is historical or does not decrypt. */
+function ticketInput(eventKey: string, row: TicketPayloadRef): CustomerNormalizedIngressInput | null {
+  if (row.payloadVersion !== 1 || !row.payloadCiphertext || !row.payloadHash || !row.endpointScopeId || !row.scopeKey || row.order === null) return null;
+  try {
+    return decryptCustomerIngressPayload({ version: 1, eventKey, order: row.order.toString(), scopeKey: row.scopeKey,
+      endpointScopeId: row.endpointScopeId, payloadHash: row.payloadHash }, row.payloadCiphertext);
+  } catch {
+    return null;
+  }
+}
 
 export { CUSTOMER_TURN_INTENDED_SILENCE, customerTurnSilenceIsIntended };
 
@@ -28,8 +43,10 @@ export async function reportUnansweredCustomerTurn(eventKey: string, reason: str
   if (customerTurnSilenceIsIntended(reason)) return;
   try {
     const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: string | null; excerpt: string | null;
-      answered: boolean }>>`
+      answered: boolean; chatDeleted: boolean } & TicketPayloadRef>>`
       SELECT t."conversationId", c."channel", c."subscriberId" AS "peer",
+        (t."originalConversationId" IS NOT NULL AND t."conversationId" IS NULL) AS "chatDeleted",
+        t."order", t."scopeKey", t."endpointScopeId", t."payloadVersion", t."payloadCiphertext", t."payloadHash",
         (SELECT left(CASE WHEN jsonb_typeof(m.elem -> 'content')='string' THEN m.elem ->> 'content' ELSE '' END, 160)
           FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages")='array' THEN c."messages" ELSE '[]'::jsonb END)
           WITH ORDINALITY AS m(elem, ord) WHERE m.elem ->> 'role'='user' ORDER BY m.ord DESC LIMIT 1) AS "excerpt",
@@ -47,6 +64,16 @@ export async function reportUnansweredCustomerTurn(eventKey: string, reason: str
       FROM "CustomerPropertyIngressTicket" t LEFT JOIN "BotConversation" c ON c."id"=t."conversationId"
       WHERE t."eventKey"=${eventKey} AND t."tombstonedAt" IS NULL`;
     if (!row || row.answered) return; // gone, or the customer already got an answer to this or a newer input
+    // A chat staff deleted stays deleted: their decision, the core does not resurrect it (customerIngressProducer.ts).
+    if (row.chatDeleted) return;
+    if (!row.conversationId) {
+      // No CRM chat (15.11.2026, task 5): who and where come from the ticket's own encrypted input, never from a guess.
+      const input = ticketInput(eventKey, row);
+      await notifyUnansweredCustomerTurn({ reason, channel: input?.channel ?? "", peer: input?.peer ?? "", conversationId: null,
+        accountExternalId: input?.accountExternalId ?? null, displayName: input?.displayName ?? null,
+        excerpt: input?.inputText.trim().slice(0, 160) || "[сообщение без текста]" });
+      return;
+    }
     await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? "", peer: row.peer ?? "", conversationId: row.conversationId,
       excerpt: (row.excerpt ?? "").trim() || "[сообщение без текста]" });
   } catch (error) {
