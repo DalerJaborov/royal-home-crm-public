@@ -170,6 +170,7 @@ const copy = {
   ru: {
     title: "📋 Проверьте объект",
     howTo: "Пришлите голосовое с описанием, фото, видео и точку на карте через скрепку. Исправить поле можно кнопкой «Исправить поле» или сообщением, например «Этаж: 5».",
+    startRestOther: "Открыла новый объект. Вторую просьбу из этого сообщения я не выполнила, чтобы не перепутать с данными объекта: напишите её отдельным сообщением.",
     stale: "Черновик изменился. Нажмите «Проверить» ещё раз или откройте мастер командой /new_property.",
     exited: "Вышли из мастера. Черновик сохранён. Вернуться можно командой /new_property.",
     busy: "Сначала завершите текущее действие в чате.",
@@ -253,6 +254,7 @@ const copy = {
   tg: {
     title: "📋 Объектро санҷед",
     howTo: "Тавсифи объектро бо овоз фиристед, акс, видео ва нуқтаро дар харита тавассути гиреҳ (скрепка) илова кунед. Барои ислоҳ «Ислоҳи майдон»-ро пахш кунед ё нависед, масалан «Ошёна: 5».",
+    startRestOther: "Объекти нав кушодам. Дархости дуюми ин паёмро иҷро накардам, то бо маълумоти объект омехта нашавад: онро бо паёми алоҳида нависед.",
     stale: "Сиёҳнавис тағйир ёфт. «Санҷидан»-ро боз пахш кунед ё бо фармони /new_property кушоед.",
     exited: "Аз иловаи объект баромадем. Сиёҳнавис нигоҳ дошта шуд. Бо фармони /new_property баргаштан мумкин аст.",
     busy: "Аввал амали ҷориро дар чат анҷом диҳед.",
@@ -1376,8 +1378,14 @@ export async function handleTelegramPropertyDraft(
         // фразы идут в тот же черновик, а не пропадают (15.11.2026).
         const carries = Boolean(intent.rest || msg.photo?.length || msg.document || msg.video || msg.video_note || msg.location || msg.venue);
         const fresh = carries ? await getState(prisma, chatId, agent.id) : null;
-        if (fresh) await handleInDraft(ctx, msg, fresh, intent.rest, transcribe, true);
-        else await sendReview(ctx, draft);
+        if (fresh) {
+          // Остаток — просьба не про объект («найди клиента …»): не терять молча, сказать прямо.
+          const handled = await handleInDraft(ctx, msg, fresh, intent.rest, transcribe, true);
+          if (!handled) {
+            await sendMessage(chatId, t(lang).startRestOther);
+            await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }));
+          }
+        } else await sendReview(ctx, draft);
       }
     } else if (state && isExit.test(text)) {
       await exitDraft(ctx, state.draftId);

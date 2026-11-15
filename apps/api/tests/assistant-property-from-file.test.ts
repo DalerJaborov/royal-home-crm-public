@@ -187,6 +187,13 @@ describe("файл с подписью «добавь объект»: масте
     await closeDraft("author");
   });
 
+  it("просьба после фразы-начала не про объект («найди клиента …») не пропадает молча: мастер открыт, человеку сказано, что её нужно отдельным сообщением", async () => {
+    expect(await send("author", { text: "Добавь объект\nнайди клиента Иван" })).toBe(true);
+    expect(sendMessage.mock.calls.map((c) => String(c[1])).join("\n")).toContain("Вторую просьбу");
+    expect(sendMessageWithButtons).toHaveBeenCalled();
+    await closeDraft("author");
+  });
+
   it("Word и PDF прямо в открытом черновике, без подписи", async () => {
     await send("author", { text: "добавь объект" });
     documentTurn.mockResolvedValue({ intent: "field_update", fields: { type: "HOUSE", price: "300000", currency: "USD" } });
