@@ -22,12 +22,12 @@ const minutesAgo = (n: number) => new Date(now.getTime() - n * 60_000);
 let staffId = "";
 const ids: string[] = [];
 
-async function comment(status: string, opts: { note?: string; updatedMinAgo?: number; createdMinAgo?: number } = {}) {
+async function comment(status: string, opts: { note?: string; updatedMinAgo?: number; createdMinAgo?: number; channel?: string } = {}) {
   const commentId = `c-${runId}-${ids.length}`;
   ids.push(commentId);
   await prisma.instagramComment.create({
     data: { commentId, mediaId: `media-${runId}`, authorId: `a-${runId}`, authorName: "client_tj", text: "Нарх чанд?",
-      replyDueAt: minutesAgo(30), status, note: opts.note ?? null, createdAt: minutesAgo(opts.createdMinAgo ?? 30) },
+      replyDueAt: minutesAgo(30), status, note: opts.note ?? null, createdAt: minutesAgo(opts.createdMinAgo ?? 30), channel: opts.channel ?? "INSTAGRAM" },
   });
   // updatedAt ставит Prisma сама — двигаем в прошлое напрямую.
   await prisma.$executeRaw`UPDATE "InstagramComment" SET "updatedAt"=${minutesAgo(opts.updatedMinAgo ?? 10)} WHERE "commentId"=${commentId}`;
@@ -148,6 +148,42 @@ describe("runCommentNeedsHumanSweep", () => {
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: { commentFailureWatchEnabled: true } });
     }
+  });
+
+  it("197-1: рубильник выключен и техотказов больше предела выборки — передача человеку (ESCALATED) всё равно доходит за один тик", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { commentFailureWatchEnabled: false } });
+    try {
+      // Пачка техотказов старше ESCALATED: при сортировке по времени они стояли бы первыми и съедали предел 50.
+      for (let i = 0; i < 55; i++) await comment("FAILED", { note: "managed_core:failed:turn_unavailable", updatedMinAgo: 120 });
+      const escalated = await comment("ESCALATED", { note: "Спросили про рассрочку", updatedMinAgo: 10 });
+      await runCommentNeedsHumanSweep(now);
+      expect(pushesFor(escalated)).toHaveLength(1);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { commentFailureWatchEnabled: true } });
+      // Техотказы этого теста — не мешать следующим.
+      await prisma.processedMessage.createMany({ data: ids.map((id) => ({ channel: "comment-needs-human", messageId: id, completedAt: new Date() })), skipDuplicates: true });
+    }
+  });
+
+  it("197-4: застрявшие YouTube и групп Telegram не судим (свои очереди); общий ползунок «Отвечать на комментарии» выключен — тоже", async () => {
+    const yt = await comment("PENDING", { createdMinAgo: 60, channel: "YOUTUBE" });
+    const tg = await comment("PENDING", { createdMinAgo: 60, channel: "TELEGRAM" });
+    await runCommentNeedsHumanSweep(now);
+    expect(await prisma.processedMessage.count({ where: { channel: "comment-needs-human", messageId: { in: [yt, tg] } } })).toBe(0);
+    const saved = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanAnswerComments: true } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botCanAnswerComments: false } });
+    try {
+      const ig = await comment("PENDING", { createdMinAgo: 60 });
+      await runCommentNeedsHumanSweep(now);
+      expect(await prisma.processedMessage.count({ where: { channel: "comment-needs-human", messageId: ig } })).toBe(0);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: saved });
+    }
+  });
+
+  it("197-2: список техотказов — один с ядром; «не смог подтвердить данными» зовёт человека и при выключенном рубильнике", () => {
+    expect(commentNeed("FAILED", "managed_core:failed:unsupported_decision_evidence")).toBe("human");
+    expect(commentNeed("FAILED", "managed_core:failed:round_limit")).toBe("technical");
   });
 
   it("192-6: много комментариев за тик — одна сводка, а не пуш на каждый", async () => {

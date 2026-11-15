@@ -23,6 +23,7 @@ import { sendPushToAgents } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
 import { loadBotCapabilities } from "../messengers/botCapabilities.js";
+import { PUBLIC_AGENT_TECHNICAL_FAILURES } from "./customerPublicAgentFailure.js";
 
 /** Старый путь шлёт пуш сам сразу — даём ему время, чтобы не продублировать. */
 const MIN_AGE_MS = 3 * 60_000;
@@ -52,9 +53,12 @@ export function commentTag(commentId: string): string {
  *    новый способ не ответить по умолчанию зовёт человека, а не молчит.
  */
 export type CommentNeed = "no" | "technical" | "human";
-const TECHNICAL_CORE_FAILURES = new Set(["public_core_unavailable", "turn_unavailable", "turn_deadline", "expired",
-  "invalid_model_turn", "mixed_model_protocol", "missing_model_parts", "duplicate_call_id", "invalid_model_call", "invalid_call_id",
-  "call_id_reused", "invalid_model_decision", "duplicate_tool_definition", "round_limit", "tool_limit", "output_limit"]);
+/**
+ * Технические отказы ядра — ОДИН список с самим ядром (customerPublicAgentFailure.ts, ревью 197-2), с одним
+ * осознанным исключением: `unsupported_decision_evidence` — бот не смог подтвердить ответ данными, это вопрос
+ * содержания, а не сбой, и человека зовём всегда (живой случай 14.11, ради которого сделан #195).
+ */
+const TECHNICAL_CORE_FAILURES: ReadonlySet<string> = new Set([...PUBLIC_AGENT_TECHNICAL_FAILURES].filter((r) => r !== "unsupported_decision_evidence"));
 /** Застрял в очереди: ни ответа, ни финала дольше этого — бот уже не справился сам. */
 export const COMMENT_STUCK_MS = 30 * 60_000;
 export function commentNeed(status: string, note: string | null): CommentNeed {
@@ -120,6 +124,10 @@ export async function runCommentNeedsHumanSweep(now: Date = new Date()): Promise
           AND c."createdAt" >= ${new Date(now.getTime() - STUCK_LOOKBACK_MS)}
           AND c."createdAt" <= ${new Date(now.getTime() - COMMENT_STUCK_MS)})
       )
+      -- Рубильник выключен: технические финалы не берём вовсе, иначе пачка таких (не отмечаемых) строк каждый тик
+      -- занимает предел выборки и вытесняет комментарии, где бот сам позвал человека (ревью 197-1).
+      AND (${technicalOn}::boolean OR NOT (coalesce(c."note",'') = 'ai_down'
+        OR coalesce(substring(coalesce(c."note",'') from '^managed_core:failed:([a-z_]+)') = ANY(${[...TECHNICAL_CORE_FAILURES]}::text[]), false)))
       AND NOT EXISTS (SELECT 1 FROM "Notification" n WHERE n."tag" = 'ig-comment-' || c."commentId")
       AND NOT EXISTS (SELECT 1 FROM "ProcessedMessage" p WHERE p."channel" = ${CLAIM_CHANNEL} AND p."messageId" = c."commentId")
     ORDER BY c."updatedAt" ASC

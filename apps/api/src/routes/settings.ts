@@ -1942,6 +1942,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Отключение транспорта обрывает связь с клиентами в Instagram и WhatsApp —
     // в журнале действий должно быть видно, кто и когда это сделал.
     ...(rest.metaEnabled !== undefined ? { metaEnabled: rest.metaEnabled } : {}),
+    // Выключенный сторож — «комментарий со сбоем бота никто не заметит»: кто и когда, должно быть видно.
+    ...(rest.commentFailureWatchEnabled !== undefined ? { commentFailureWatchEnabled: rest.commentFailureWatchEnabled } : {}),
     // Смена весов KPI меняет и рейтинг, и распределение лидов — в журнале
     // должно быть видно, кто и когда её сделал.
     ...(rest.kpiWeights !== undefined ? { kpiWeights: rest.kpiWeights } : {}),
