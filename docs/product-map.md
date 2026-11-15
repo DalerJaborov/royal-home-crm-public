@@ -156,7 +156,7 @@
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
 | `/api/v1/property-offers` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/propertyOffers.ts` |
-| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 129 | да (33 мест) | `apps/api/src/routes/properties.ts` |
+| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 129 | да (35 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 63 | да (14 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
