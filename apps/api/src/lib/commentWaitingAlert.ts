@@ -114,7 +114,9 @@ export async function runCommentNeedsHumanSweep(now: Date = new Date()): Promise
         (c."status" IN ('ESCALATED','FAILED')
           AND c."updatedAt" >= ${new Date(now.getTime() - LOOKBACK_MS)}
           AND c."updatedAt" <= ${new Date(now.getTime() - MIN_AGE_MS)})
-        OR (${queueRuns}::boolean AND c."status" IN ('PENDING','WORKING','ERROR')
+        -- Очередь Meta (Instagram, Facebook) разбирает processDueComments; у YouTube и групп Telegram свои очереди и
+        -- свои рубильники — их застрявшие здесь не судим, их финалы (FAILED/ESCALATED) — да.
+        OR (${queueRuns}::boolean AND c."status" IN ('PENDING','WORKING','ERROR') AND c."channel" IN ('INSTAGRAM','FACEBOOK')
           AND c."createdAt" >= ${new Date(now.getTime() - STUCK_LOOKBACK_MS)}
           AND c."createdAt" <= ${new Date(now.getTime() - COMMENT_STUCK_MS)})
       )
