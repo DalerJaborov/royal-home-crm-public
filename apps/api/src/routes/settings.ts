@@ -845,6 +845,8 @@ const settingsUpdateSchema = z.object({
   botCanSendLinks: z.boolean().optional(),
   /** Режим запуска: бот отвечает ровно на спрошенное и ничего не предлагает сверх. */
   botCautiousMode: z.boolean().optional(),
+  /** Склеивать быстрые дубли клиента с карточкой: окно 6 с вместо 0 (15.11.2026, по умолчанию вкл). */
+  botMergeQuickRepeats: z.boolean().optional(),
   /** Экономия промта по намерению: подробности сценария — только тому разговору,
    *  которому они нужны. Выключено — промт собирается как раньше, побайтово. */
   botPromptIntentEconomy: z.boolean().optional(),
@@ -1927,6 +1929,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     fields: Object.keys(parsed.data),
     ...(rest.leadDistributionStrategy !== undefined ? { leadDistributionStrategy: rest.leadDistributionStrategy } : {}),
     ...(rest.botEnabled !== undefined ? { botEnabled: rest.botEnabled } : {}),
+    // Рубильник меняет скорость ответа клиентам с карточкой: кто и когда включил — должно быть видно.
+    ...(rest.botMergeQuickRepeats !== undefined ? { botMergeQuickRepeats: rest.botMergeQuickRepeats } : {}),
     ...(rest.passkeyLoginEnabled !== undefined ? { passkeyLoginEnabled: rest.passkeyLoginEnabled } : {}),
     // Замолчавший канал выглядит как поломка («бот не отвечает в Instagram»), и
     // первым делом надо видеть, что его просто выключили — и кто именно.

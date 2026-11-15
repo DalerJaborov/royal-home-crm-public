@@ -30,7 +30,7 @@ import {
 } from "./conversationStore.js";
 export { ensureConversationId, markLastReplyUndelivered, markMessageDeliveryStatus, stampOutgoingMid };
 import { appendConversationMessages } from "./appendMessages.js";
-import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, takeStuckBuffers } from "./debounceBuffer.js";
+import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, quickRepeatMergeEnabled, takeStuckBuffers } from "./debounceBuffer.js";
 import { claimUnreadablePhoneAsk } from "./phoneRetryClaim.js";
 import { CLIENT_KIND_LABELS, CLIENT_SOURCES, formatClientCode, type ClientSource } from "@royal-home/shared";
 import { clientSelfStatedName, normalizeClientName } from "../ai/replyGuards.js";
@@ -3252,7 +3252,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
        * докстринг debounceAndMerge), которую раньше делал свой `replyClaimed`
        * прямо в блоке «заявка уже принята» — но полные 25 секунд обычного
        * окна здесь ни к чему: клиент, который уже оставил номер, ждёт ответа
-       * так же быстро, как ждал бы «агент свяжется» раньше. окно короткое (6 с с 15.11.2026, см. ACCEPTED_TEXT_DELAY_MS в debounceBuffer.ts) —
+       * так же быстро, как ждал бы «агент свяжется» раньше. 6 с по умолчанию (Settings.botMergeQuickRepeats, владелец 15.11 «Да, 6 секунд можно»; выключен — 0 с) —
        * не ждём НАРОЧНО, `maxWaitMs` небольшой — просто потолок на случай,
        * если несколько вебхуков всё же пришли не совсем одновременно.
        */
@@ -3268,6 +3268,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         accepted: !!conversation.clientId,
         hasMedia: images.length > 0 || saved.length > 0,
         greetingFast,
+        mergeQuickRepeats: !!conversation.clientId && (await quickRepeatMergeEnabled()),
       })
     );
     if (batch === null) return { reply: "", ready: true, accepted: !!conversation.clientId, shouldReply: false };

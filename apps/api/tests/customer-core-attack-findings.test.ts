@@ -92,10 +92,11 @@ describe("class 3: a position is never asked for, the vacancy is answered with t
 });
 
 describe("class 4: a repeated reply is varied, never silenced", () => {
-  // 15.11.2026 (owner): never «я уже писал выше»; a repeated question goes to a person, a different wording each time.
-  it("answers a repeated question with the hand-off to a person, a different one each time", () => {
+  // 15.11.2026 (owner + review #201): never «я уже писал выше»; the customer asked nothing, so a short acknowledgement
+  // (a person is called only for a real question the bot cannot answer), a different wording each time.
+  it("answers a repeated question with a short acknowledgement, a different one each time", () => {
     const first = render("job_position", "хочу работать", context([user("хочу работать"), bot("Какая должность вас интересует?")]))!;
-    expect(first).toContain("наш агент");
+    expect(first).toBe("Понял.");
     expect(first).not.toMatch(/выше|Повторю/u);
     const second = render("job_position", "хочу работать", context([user("хочу работать"), bot("Какая должность вас интересует?"),
       user("хочу работать"), bot(first)]))!;

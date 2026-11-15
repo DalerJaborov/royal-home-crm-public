@@ -155,8 +155,8 @@ describe("renderer: attachment templates are not repeated", () => {
   it("asks once, then says so instead of repeating the template", () => {
     expect(render("image", [])).toBe(asked("image"));
     const again = render("image", [{ role: "user", text: "photo" }, { role: "assistant", text: asked("image") }]);
-    // 15.11.2026: never «я уже писал выше»; the second time a person takes over and the phone is asked.
-    expect(again).not.toBe(asked("image")); expect(again).not.toMatch(/уже писал|выше/u); expect(again).toMatch(/номер телефона/u);
+    // 15.11.2026: never «я уже писал выше»; nothing was asked, so a short acknowledgement (no hand-off, no staff signal).
+    expect(again).not.toBe(asked("image")); expect(again).not.toMatch(/уже писал|выше/u); expect(again).toBe("Понял.");
   });
   it("the unknown attachment line is a human sentence", () => {
     expect(asked("unknown")).toBe("Что вас интересует: покупка или продажа недвижимости?");

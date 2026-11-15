@@ -41,7 +41,7 @@ import { customerAgentMarkForeignShare } from "../ai/customerAgentAttachmentInpu
 import { customerSpamMuteGate, customerSpamTurn, SPAM_MUTED_NO_REPLY } from "../ai/customerSpamMute.js";
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
-import { notifyEscalatedCustomerTurn, notifyStaffFollowUpCustomerTurn } from "./customerHeldMessage.js";
+import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
@@ -597,10 +597,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal, agentClaim: claim,
         parts: [textPart], receiptAuthorities: mutations.receiptAuthorities }));
     }
-    // «Это скажет агент» is only true if a person learns about it now (15.11.2026). The reply is already planned; the push never blocks it.
-    if (customerReplyCallsStaff(sealed.text)) {
-      void notifyStaffFollowUpCustomerTurn({ conversationId: lane.ticket.conversationId, channel: lane.principal.scope.channel, text: fullInput() });
-    }
+    // «Это скажет агент» / «агент позвонит» is only true if the responsible person learns about it now (15.11.2026): the one
+    // door alertClientWaiting (assigned agent, else management), keyed by THIS customer message, not a 6 h window.
+    // The reply is already planned; the signal never blocks it.
+    if (customerReplyCallsStaff(sealed.text)) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt);
     return { status: "planned", partIds };
   } catch (error) {
     heldCause = safeCauseCode(error);
@@ -630,4 +630,15 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     return outcome;
   });
+}
+
+/** The follow-up signal of a reply that promised an agent (15.11.2026). Exported for the class test; never throws. */
+export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number): Promise<"agent" | "director" | "skipped"> {
+  try {
+    const { alertClientWaiting } = await import("./clientWaitingAlert.js");
+    return await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs) });
+  } catch (error) {
+    console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError");
+    return "skipped";
+  }
 }

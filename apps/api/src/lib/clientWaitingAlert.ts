@@ -105,7 +105,9 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
 
 /** escalate — модель сама решила «нужен сотрудник»; failed — ход бота сломался (лимит шагов,
  *  сбой, очередь сдалась); silence — сторож увидел молчание через 30 минут. */
-export type ClientWaitingTrigger = "escalate" | "failed" | "silence";
+/** follow_up — бот ответил клиенту «это скажет агент» / «агент позвонит» (15.11.2026): обещание правдиво, только
+ *  если ответственный узнал. Эпизод — эта реплика клиента (`since`), а не окно в 6 ч: каждое обещание доходит. */
+export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up";
 export type ClientWaitingOutcome = "agent" | "director" | "skipped";
 
 const CHANNEL_NAME: Record<string, string> = {
@@ -126,6 +128,8 @@ export async function alertClientWaiting(input: {
   trigger: ClientWaitingTrigger;
   /** Для failed: почему бот не ответил, простыми словами (без служебных кодов). */
   why?: string;
+  /** Для follow_up: время реплики клиента, на которую бот пообещал агента (ключ эпизода). */
+  since?: Date;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
@@ -151,7 +155,7 @@ export async function alertClientWaiting(input: {
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
-  const since = episode?.since ?? (input.trigger !== "silence" ? now : null);
+  const since = input.since ?? episode?.since ?? (input.trigger !== "silence" ? now : null);
   if (!since) return "skipped";
   if (chat.silenceAlertFor && chat.silenceAlertFor.getTime() >= since.getTime()) return "skipped";
 
@@ -166,7 +170,9 @@ export async function alertClientWaiting(input: {
   const name = chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[chat.channel] ?? chat.channel}`;
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
   const body =
-    input.trigger === "escalate"
+    input.trigger === "follow_up"
+      ? `${name}: бот ответил клиенту, что это уточнит агент. Ответьте клиенту или позвоните.`
+      : input.trigger === "escalate"
       ? `${name}: бот решил, что нужен сотрудник, и не ответил. Ответьте клиенту.`
       : input.trigger === "failed"
         // Правда о причине (ревью 193-3, 15.11): бот сломался, а не «решил».

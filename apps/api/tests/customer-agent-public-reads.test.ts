@@ -105,7 +105,7 @@ describe("bounded public search DTO and useful truthful output, draft", () => {
     const text = render({ ...search(), cards: [] });
     // 15.11.2026: nothing fits → a person searches by hand; no phone yet, so the phone is asked.
     expect(text).toBe("В текущей подборке подходящих вариантов не найдено." + "\n" +
-      "Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил.");
+      "Агент подберёт варианты вручную. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил.");
   });
   it.each([
     { type: "APARTMENT", budget: { max: "100000" } },
