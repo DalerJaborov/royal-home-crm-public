@@ -1107,3 +1107,60 @@ describe("spammer mute", () => {
     expect(f.io.filter(value => value === "generate")).toHaveLength(2);
   });
 });
+
+// 16.11.2026 (аудит молчания 11–15.11): a core turn that cannot answer still gives the customer ONE verified line and tells the
+// responsible person; a reply the repeat shield would cut is replaced, not dropped. Real customer texts from the audit.
+describe("never silence (16.11.2026)", () => {
+  const textOf = async (result: Awaited<ReturnType<typeof runCustomerDmAgentTurn>>) => {
+    expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+    expect(result.partIds).toHaveLength(1);
+    return decodeCustomerOutboxPayload(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } }));
+  };
+  it("the model hands the turn to staff: the job candidate gets the hand-off line with ONE phone request, not silence", async () => {
+    const f = await fixture("Мне назначили собеседование сегодня в 11. Я подошёл, а тут никто не в курсе");
+    f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    expect(await textOf(await runCustomerDmAgentTurn(f.eventKey))).toEqual({ kind: "text",
+      text: "Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил." });
+  });
+  it("Tajik buyer ready to go to the showing: the Tajik line («шумо»), and the second time no second phone request", async () => {
+    const f = await fixture("Мо харидори аникем, фахмонен, рафта бинем, гучо равем?");
+    f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    const first = await textOf(await runCustomerDmAgentTurn(f.eventKey));
+    expect(first).toEqual({ kind: "text", text: "Инро аниқ агенти мо мегӯяд. Рақами телефонатонро нависед, то агенти мо занг занад." });
+    const parts = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: f.eventKey } });
+    await prisma.backgroundJob.updateMany({ where: { dedupeKey: { in: parts.map(p => `customer-outbox-dispatch:${p.id}`) } }, data: { runAt: new Date("2099-01-01") } });
+    expect(await dispatchCustomerOutboxPart(parts[0].id)).toEqual({ status: "accepted" });
+    f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    const second = await textOf(await runCustomerDmAgentTurn(await f.receive("Гучо равем?")));
+    expect(second).toEqual({ kind: "text", text: "Инро аниқ агенти мо мегӯяд." });
+  });
+  it("a reply the shield would cut as a third verbatim repeat becomes the hand-off line instead of nothing", async () => {
+    const same = { text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "budget" }) };
+    const f = await fixture("Хона даркор");
+    let key = f.eventKey; const texts: string[] = [];
+    for (const next of ["Хона даркор", "Хона даркор!", "Хона даркор!!"]) {
+      if (texts.length) key = await f.receive(next);
+      f.setReplies([[same]]);
+      const result = await runCustomerDmAgentTurn(key);
+      const payload = await textOf(result);
+      if (payload.kind !== "text") throw Error("text expected");
+      texts.push(payload.text);
+      if (result.status === "planned") {
+        await prisma.backgroundJob.updateMany({ where: { dedupeKey: { in: result.partIds.map(id => `customer-outbox-dispatch:${id}`) } }, data: { runAt: new Date("2099-01-01") } });
+        expect(await dispatchCustomerOutboxPart(result.partIds[0])).toEqual({ status: "accepted" });
+      }
+    }
+    // Each planned text reached the customer (nothing SUPPRESSED); the third is NOT the third copy of the same line.
+    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: key, status: "SUPPRESSED" } })).toBe(0);
+    if (texts[0] === texts[1]) expect(texts[2]).not.toBe(texts[0]);
+  });
+  it("an employee pausing the chat during generation still gets NO bot line (the person took over)", async () => {
+    const f = await fixture("Нарх 550000с"); f.setOnGenerate(async () => {
+      const row = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } });
+      await prisma.botConversation.update({ where: { id: row.conversationId! }, data: { pausedUntil: new Date(Date.now() + 60_000) } });
+    });
+    f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+    expect(await runCustomerDmAgentTurn(f.eventKey)).toMatchObject({ status: "held" });
+    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: f.eventKey } })).toBe(0);
+  });
+});

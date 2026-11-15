@@ -415,10 +415,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found";
     const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput,
       unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
+    const coreOperation = runtime.operation;
     const runCore = () => runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState, ...(followUp ? { followUp } : {}), ...(preReadCall ? { preReads: [preReadCall] } : {}),
-      startedAt: claim.pin.receivedAt, operation: runtime.operation,
+      startedAt: claim.pin.receivedAt, operation: coreOperation,
       // В режиме «только заявки» подборки нет вовсе: инструмент не предлагается модели (первый слой запрета).
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS.filter(name => !leadOnly.enabled || name !== "search_public_properties"),
         ...mutations.availableToolNames]),
@@ -464,7 +465,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     let result = await runCore();
     // A provider failure with nothing written: ONE more try inside the same claim and the same provider operation (its
     // attempt/money/deadline bounds still apply). The chat changing under the turn is not retried (16.11.2026).
-    if (customerCoreRetryWorthwhile(result, Math.min(runtime.operation.deadlineAt, claim.deadlineAt) - Date.now()) &&
+    if (customerCoreRetryWorthwhile(result, Math.min(linkWait.deadlineAt, claim.deadlineAt) - Date.now()) &&
         mutations.committedReceipts.length === 0 && await current(linkWait)) {
       witnesses.length = 0; accumulated = [];
       result = await runCore();
