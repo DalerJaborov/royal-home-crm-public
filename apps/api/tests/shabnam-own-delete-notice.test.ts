@@ -28,7 +28,7 @@ const { prisma } = await import("../src/db.js");
 await import("../src/ai/assistant/tools/index.js");
 const { createPendingAssistantAction, confirmAssistantAction, AssistantActionError } = await import("../src/lib/assistantActions.js");
 const { listAssistantToolPlugins } = await import("../src/ai/assistant/tools/index.js");
-const { handleTrashRestoreCallback, notifyTrashRemoval } = await import("../src/telegram/trashRestoreNotice.js");
+const { handleTrashRestoreCallback, notifyTrashRemoval, trashStamp } = await import("../src/telegram/trashRestoreNotice.js");
 const { setKindMuted } = await import("../src/lib/notificationPrefs.js");
 const { parseNoticeIntent } = await import("../src/telegram/staffNotice.js");
 const { PUSH_KINDS } = await import("@royal-home/shared");
@@ -290,6 +290,27 @@ describe("кнопка «Восстановить»: та же дверь, чт�
     // Уже восстановлен — понятный ответ, а не сбой.
     await press("admin", `tr:c:${client.id}`);
     expect(answerCallbackQuery.mock.calls.at(-1)?.[1]).toMatch(/Уже восстановлено/);
+  });
+
+  it("удалили, восстановили, удалили снова: кнопка из первого сообщения не поднимает, кнопка из нового — поднимает", async () => {
+    const client = await seedClient(ids.owner);
+    await run(ids.owner, "delete_client", { clientId: client.id });
+    await waitFor(() => (sentTo("director").length > 0 ? true : null));
+    const first = (JSON.stringify(sentTo("director")[0][3]).match(/tr:c:[^"]+/) ?? [])[0]!;
+    expect(first).toMatch(new RegExp(`^tr:c:${client.id}:[0-9a-z]+$`));
+    expect(Buffer.byteLength(first)).toBeLessThanOrEqual(64);
+
+    await press("director", first);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).deletedAt).toBeNull();
+    // Повторное удаление спустя время: другая метка.
+    await prisma.client.update({ where: { id: client.id }, data: { deletedAt: new Date(Date.now() + 60_000), deletedById: ids.owner } });
+    await press("admin", first);
+    expect(answerCallbackQuery.mock.calls.at(-1)?.[1]).toMatch(/устарело/);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).deletedAt).not.toBeNull();
+
+    const fresh = (await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).deletedAt!;
+    await press("admin", `tr:c:${client.id}:${trashStamp(fresh)}`);
+    expect(answerCallbackQuery.mock.calls.at(-1)?.[1]).toBe("Клиент восстановлен");
   });
 
   it("клиент: РОП без права «восстанавливать» и посторонний агент — отказ, карточка остаётся в Корзине", async () => {

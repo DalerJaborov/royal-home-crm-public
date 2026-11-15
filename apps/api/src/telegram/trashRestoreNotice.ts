@@ -34,6 +34,12 @@ export const TRASH_NOTICE_ROLES = ["HEAD_OF_SALES", "DIRECTOR", "ADMIN"] as cons
 
 const PROPERTY_PREFIX = "tr:p:";
 const CLIENT_PREFIX = "tr:c:";
+/**
+ * В кнопке стоит и метка удаления (`deletedAt` в мс, base36): `tr:p:<id>:<метка>`. Объект могли
+ * восстановить и удалить снова — старая кнопка тогда не должна поднимать то, что удалили заново.
+ * Лимит callback_data Telegram — 64 байта: 5 + id (≤36) + 1 + метка (≤9) = 51.
+ */
+export const trashStamp = (deletedAt: Date): string => deletedAt.getTime().toString(36);
 
 export type TrashedKind = "property" | "client";
 
@@ -73,10 +79,15 @@ export async function notifyTrashRemoval(input: TrashRemovalInput): Promise<void
     const html = `🗑 <b>${escapeHtml(who)} удалил(а) ${what}</b>\n${escapeHtml(input.label)}\n\nЛежит в Корзине, нигде не пропало. Если это ошибка — верните одной кнопкой.`;
     const restoreRight = input.kind === "property" ? "properties.delete" : "clients.delete";
     const url = "/archive";
+    const trashed =
+      input.kind === "property"
+        ? await prisma.property.findUnique({ where: { id: input.entityId }, select: { deletedAt: true } })
+        : await prisma.client.findUnique({ where: { id: input.entityId }, select: { deletedAt: true } });
+    const stamp = trashed?.deletedAt ? `:${trashStamp(trashed.deletedAt)}` : "";
     for (const recipient of recipients) {
       const canRestore = recipient.permissions.has(restoreRight);
       const buttons: TelegramInlineButton[][] = canRestore
-        ? [[{ text: "♻️ Восстановить", callback_data: `${input.kind === "property" ? PROPERTY_PREFIX : CLIENT_PREFIX}${input.entityId}` }]]
+        ? [[{ text: "♻️ Восстановить", callback_data: `${input.kind === "property" ? PROPERTY_PREFIX : CLIENT_PREFIX}${input.entityId}${stamp}` }]]
         : [];
       const status = await sendStaffNotice({
         agentId: recipient.id,
@@ -117,7 +128,7 @@ export async function handleTrashRestoreCallback(query: TelegramCallbackQuery): 
     await answerCallbackQuery(query.id);
     return true;
   }
-  const entityId = data.slice((isProperty ? PROPERTY_PREFIX : CLIENT_PREFIX).length);
+  const [entityId, stamp] = data.slice((isProperty ? PROPERTY_PREFIX : CLIENT_PREFIX).length).split(":");
   try {
     const clicker = await clickerOf(query);
     if (!clicker) {
@@ -131,6 +142,19 @@ export async function handleTrashRestoreCallback(query: TelegramCallbackQuery): 
       return true;
     }
     const can = (permission: Parameters<typeof access.permissions.has>[0]) => access.permissions.has(permission);
+    if (stamp) {
+      const current = isProperty
+        ? await prisma.property.findUnique({ where: { id: entityId }, select: { deletedAt: true } })
+        : await prisma.client.findUnique({ where: { id: entityId }, select: { deletedAt: true } });
+      if (!current?.deletedAt) {
+        await answerCallbackQuery(query.id, "Уже восстановлено или не в Корзине");
+        return true;
+      }
+      if (trashStamp(current.deletedAt) !== stamp) {
+        await answerCallbackQuery(query.id, "Это сообщение устарело: удалили заново — нажмите кнопку в новом сообщении");
+        return true;
+      }
+    }
     if (isProperty) {
       const result = await restorePropertyFromTrash(entityId, { agentId: clicker.id, can });
       if (!result.ok) {
