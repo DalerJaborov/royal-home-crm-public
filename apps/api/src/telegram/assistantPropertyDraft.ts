@@ -55,7 +55,8 @@ import {
   type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton,
 } from "./api.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
-import { extractPropertyTurn } from "./assistantPropertyFields.js";
+import { extractPropertyDocument, extractPropertyTurn } from "./assistantPropertyFields.js";
+import { propertyFileKind, propertyFileLimit, readPhotoDocumentText, readPropertyFileText, type PropertyFileKind } from "./assistantPropertyDocument.js";
 import { sendPropertyMatchesCard } from "./assistantPropertyOffers.js";
 import {
   answerCompressedChoice, askAboutCompressedOnce, photoQualityCallback, photoQualityLine, recordDraftPhotoQuality,
@@ -72,22 +73,43 @@ const expiresAt = () => new Date(Date.now() + 12 * 60 * 60_000);
 const NEW_THING = String.raw`(?:объект|квартир\p{L}*|дом|домик|частн\p{L}*\s+дом|участ\p{L}*|коммерц\p{L}*|помещени\p{L}*|офис)`;
 const TJ_THING = String.raw`(?:объект(?:и)?|хона(?:и)?|ҳавлӣ|ҳавлии|квартира(?:и)?|замин(?:и)?)`;
 /**
- * Начало мастера — фраза ЦЕЛИКОМ (14.11.2026: «хочу внести квартиру», «новая
- * квартира», «хонаи нав илова кунам»). Только всё сообщение: «новая квартира в
- * Сино до 50 000?» — это поиск, а не мастер.
+ * Начало мастера. Три вида фразы (14–15.11.2026):
+ *  · «голая» — «новая квартира», «объекти нав»: только фраза целиком, иначе
+ *    «новая квартира в Сино до 50 000?» — это поиск;
+ *  · явная — «добавь объект», «хочу внести квартиру», «/new_property»;
+ *  · явная с хвостом-просьбой — «добавь объект и сразу выпусти», «хонаи нав илова
+ *    кунам ва фавран нашр кунам»: хвост — только после «и / а / потом / чтобы / ва …»,
+ *    без вопроса и без номера другого объекта. «добавь объект в подборку Азизу» — не
+ *    начало: после «объект» стоит «в», а не союз.
+ * У явной фразы следующие строки и текст после двоеточия — уже данные объекта
+ * («Добавь объект», дальше строка «Цена: 750000»); у «голой» — нет.
  */
-const isStart = new RegExp(
-  `^(?:\\/(?:new_property|object)(?:@[A-Za-z0-9_]+)?`
-  + `|(?:(?:давай(?:те)?|хочу|надо|нужно|можно|могу)\\s+)?${BW}(?:добавь(?:те)?|добавим|добавить|создай(?:те)?|создадим|создать|внеси(?:те)?|внесём|внесем|внести|заведи(?:те)?|завести)\\s+(?:нов\\p{L}*\\s+)?${NEW_THING}${EW}`
-  + `|${BW}нов\\p{L}*\\s+${NEW_THING}${EW}`
-  + `|${TJ_THING}\\s+нав(?:\\s+илова\\s+кун(?:ам|ем|ед|им|)?)?`
-  + `|${TJ_THING}\\s+(?:нав\\s+)?илова\\s+кун(?:ам|ем|ед|им|)?`
-  + `|(?:мехоҳам|биёед)\\s+${TJ_THING}(?:\\s+нав)?\\s+илова\\s+кун(?:ам|ем|ед|им|)?`
-  + `)[.!?]*$`, "iu");
+const RU_START_VERB = String.raw`(?:(?:давай(?:те)?|хочу|надо|нужно|можно|могу)\s+)?${BW}(?:добавь(?:те)?|добавим|добавить|создай(?:те)?|создадим|создать|внеси(?:те)?|внесём|внесем|внести|заведи(?:те)?|завести)\s+(?:нов\p{L}*\s+)?${NEW_THING}${EW}`;
+const TJ_START_VERB = String.raw`${TJ_THING}\s+(?:нав\s+)?илова\s+кун(?:ам|ем|ед|им|)?|(?:мехоҳам|биёед)\s+${TJ_THING}(?:\s+нав)?\s+илова\s+кун(?:ам|ем|ед|им|)?`;
+const START_SLASH = String.raw`\/(?:new_property|object)(?:@[A-Za-z0-9_]+)?`;
+const START_BARE = String.raw`${BW}нов\p{L}*\s+${NEW_THING}${EW}|${TJ_THING}\s+нав(?:\s+илова\s+кун(?:ам|ем|ед|им|)?)?`;
+const START_TAIL = String.raw`[\s,;—–-]+(?:и|а|да|потом|затем|чтобы|сразу|ва|баъд|сипас|фавран)${EW}[^?\n]{0,100}`;
+const isExplicitStart = new RegExp(`^(?:${START_SLASH}|${RU_START_VERB}|${TJ_START_VERB})[.!?]*$`, "iu");
+const isBareStart = new RegExp(`^(?:${START_BARE})[.!?]*$`, "iu");
+const isStartWithTail = new RegExp(`^(?:${RU_START_VERB}|${TJ_START_VERB})(?:${START_TAIL})[.!?]*$`, "iu");
+
+/** Начало мастера в сообщении; `rest` — то, что идёт после первой строки или двоеточия, данные объекта. */
+function startIntent(text: string): { start: boolean; rest: string } {
+  const [first = "", ...others] = text.trim().split(/\r?\n/u);
+  const line = first.trim();
+  const below = others.join("\n").trim();
+  if (isExplicitStart.test(line)) return { start: true, rest: below };
+  if (!others.length && isBareStart.test(line)) return { start: true, rest: "" };
+  // Хвост-просьба не должен прятать вопрос о другом объекте или клиенте.
+  if (isStartWithTail.test(line) && !OTHER_REQUEST.test(line)) return { start: true, rest: below };
+  const colon = /^([^:\n]{3,60}):\s*(\S.*)$/u.exec(line);
+  if (colon && isExplicitStart.test(colon[1].trim())) return { start: true, rest: [colon[2].trim(), below].filter(Boolean).join("\n") };
+  return { start: false, rest: "" };
+}
 /** «Добавь объект продавца ПР-000456» / «объекти фурӯшанда ПР-456 илова кунед». */
 const fromClientStart = new RegExp(
   `^(?:${BW}(?:добав(?:ь|ьте|ить)|созда(?:й|йте|ть)|завед(?:и|ите))\\s+объект${EW}\\s+(?:из\\s+карточки\\s+)?(?:продавца\\s+)?|объекти\\s+фурӯшанда\\s+)`
-  + `((?:пр|пк|кл|pr|pk|kl)[\\s.\\-–—]*\\d{1,9})(?:\\s+илова\\s+кун(?:ед)?)?[.!?]*$`, "iu");
+  + `((?:пр|пк|кл|pr|pk|kl)[\\s.\\-–—]*\\d{1,9})(?:\\s+илова\\s+кун(?:ед)?)?(?:${START_TAIL})?[.!?]*$`, "iu");
 /**
  * Выход из мастера словами (14.11.2026: «отмени», «не надо», «хватит», «бекор
  * кун», «давай потом»). Черновик при выходе сохраняется — ложное срабатывание
@@ -115,7 +137,7 @@ const OTHER_REQUEST = new RegExp(
 /** Для тестов: что мастер понимает по фразе без модели. */
 export function draftPhraseForTests(text: string): "start" | "exit" | "other" | null {
   const flat = text.trim();
-  if (isStart.test(flat)) return "start";
+  if (startIntent(flat).start || fromClientStart.test(flat)) return "start";
   if (isExit.test(flat)) return "exit";
   if (OTHER_REQUEST.test(flat)) return "other";
   return null;
@@ -210,6 +232,17 @@ const copy = {
     rejected403: "CRM отклонила создание. Проверьте права и карточку продавца.",
     rejected: "CRM отклонила черновик. Проверьте поля и продавца в мастере.",
     confirmFailed: "Не удалось подтвердить результат. Проверьте список объектов в CRM перед повтором.",
+    docRead: "Прочитала файл. Вот что подтянулось, проверьте.",
+    docNoProperty: "В файле не нашла данных объекта. Пришлите описание словами или другой файл.",
+    docTooBig: (mb: number) => `Файл больше ${mb} МБ. Пришлите файл поменьше или опишите объект словами.`,
+    docRefused: {
+      empty: "В файле не нашла текста. Пришлите другой файл, фото листа или опишите объект словами.",
+      unreadable: "Не получилось прочитать файл. Пришлите его ещё раз или опишите объект словами.",
+      encrypted: "Файл закрыт паролем. Снимите пароль и пришлите ещё раз.",
+      oldWord: "Старый Word (.doc) я не читаю. Сохраните файл как .docx или PDF и пришлите ещё раз.",
+    },
+    videoHint: "🎥 Пришлите исходное видео объекта: без него ролик не начнут монтировать, объект будет ждать.",
+    noVideoAfterCreate: "Видео пока нет: загрузите исходное видео в карточке объекта, и он сам уйдёт в монтаж.",
     seller: "Продавец", intake: "Принял объект", files: "Файлы", photo: "фото", video: "видео", point: "Точка на карте",
     yes: "есть", addressSet: "указан", floorWord: "этаж", narration: "Озвучка ролика (голос и текст поменяете, когда она придёт)",
     placeSite: "На сайт и в соцсети", placeCrm: "Только CRM (закрытый)",
@@ -282,6 +315,17 @@ const copy = {
     rejected403: "CRM сохтанро рад кард. Ҳуқуқҳо ва корти фурӯшандаро санҷед.",
     rejected: "CRM сиёҳнависро рад кард. Майдонҳо ва фурӯшандаро дар CRM санҷед.",
     confirmFailed: "Натиҷаро тасдиқ карда натавонистам. Пеш аз такрор рӯйхати объектҳоро дар CRM санҷед.",
+    docRead: "Файлро хондам. Инак чӣ ёфт шуд, санҷед.",
+    docNoProperty: "Дар файл маълумоти объект наёфтам. Тавсифро бо калима фиристед ё файли дигар.",
+    docTooBig: (mb: number) => `Файл аз ${mb} МБ калон аст. Файли хурдтар фиристед ё объектро бо калима тавсиф кунед.`,
+    docRefused: {
+      empty: "Дар файл матн наёфтам. Файли дигар, акси варақ фиристед ё объектро бо калима тавсиф кунед.",
+      unreadable: "Файлро хонда натавонистам. Онро боз фиристед ё объектро бо калима тавсиф кунед.",
+      encrypted: "Файл бо парол пӯшида аст. Паролро бардоред ва боз фиристед.",
+      oldWord: "Word-и кӯҳна (.doc)-ро намехонам. Файлро ҳамчун .docx ё PDF нигоҳ доред ва боз фиристед.",
+    },
+    videoHint: "🎥 Видеои аслии объектро фиристед: бе он видео монтаж намешавад, объект интизор мемонад.",
+    noVideoAfterCreate: "Видео ҳоло нест: видеои аслиро дар корти объект бор кунед, объект худаш ба монтаж меравад.",
     seller: "Фурӯшанда", intake: "Кӣ қабул кард", files: "Файлҳо", photo: "акс", video: "видео", point: "Нуқта дар харита",
     yes: "ҳаст", addressSet: "нишон дода шуд", floorWord: "ошёна", narration: "Овози видео (овоз ва матнро вақте ки меояд, иваз карда метавонед)",
     placeSite: "Ба сайт ва шабакаҳо", placeCrm: "Танҳо CRM (пӯшида)",
@@ -570,6 +614,8 @@ async function review(ctx: Context, draft: DraftRecord) {
       first.distanceM != null && first.matchedBy !== "address" && `${first.distanceM} м`].filter(Boolean).join(", ");
     lines.push(`\n⚠️ ${c.duplicate(formatPropertyCode(first.shortId), facts, duplicates.length - 1)}`);
   }
+  // Монтаж стартует сам, когда у объекта есть фото и видео (проверка исходников выключена): без видео объект ждёт.
+  if (!readyMedia(draft, "VIDEO").length && !queuedFiles.length) lines.push(`\n${c.videoHint}`);
   lines.push(missing.size ? `\n${c.needMore}: ${[...missing.values()].join(", ")}.\n${c.howTo}` : `\n${c.ready}`);
   // Обязательное поле с готовыми вариантами — спрашиваем сразу кнопками.
   const firstChoice = [...missing.keys()].map(fieldById).find(field => field?.choices && field.shown(values, ctx));
@@ -710,13 +756,13 @@ type DescriptionOutcome = "applied" | "cancel" | "other";
 
 async function updateDescription(
   ctx: Context, draft: DraftRecord, text: string, wallet: AssistantMoneyWallet,
-  options: { prefix?: string; silent?: boolean; handOff?: boolean } = {},
+  options: { prefix?: string; silent?: boolean; handOff?: boolean; document?: boolean } = {},
 ): Promise<DescriptionOutcome> {
   const lang = ctx.lang;
   const buttons = controls(draft.id, lang);
   const access = { agent: ctx.access };
   const withPrefix = (note?: string) => [options.prefix, note].filter(Boolean).join("\n") || undefined;
-  const placement = /^(?:размещение:\s*)?(только crm|обычный объект)$/iu.exec(text);
+  const placement = options.document ? null : /^(?:размещение:\s*)?(только crm|обычный объект)$/iu.exec(text);
   if (placement) {
     const saved = await saveFields(ctx, draft, { offSite: placement[1].toLowerCase() === "только crm" });
     if (!options.silent) await sendReview(ctx, saved, withPrefix());
@@ -724,15 +770,36 @@ async function updateDescription(
   }
   let extracted;
   try {
-    const turn = await extractPropertyTurn(text.slice(0, 5000), ctx.agentId, wallet);
+    const turn = options.document
+      ? await extractPropertyDocument(text, ctx.agentId, wallet)
+      : await extractPropertyTurn(text.slice(0, 5000), ctx.agentId, wallet);
+    if (options.document && turn.intent !== "field_update") {
+      await sendMessageWithButtons(ctx.chatId, t(lang).docNoProperty, buttons);
+      return "applied";
+    }
     if (options.handOff && turn.intent !== "field_update") return turn.intent === "cancel" ? "cancel" : "other";
     extracted = turn.fields;
   } catch (error) {
     await sendMessageWithButtons(ctx.chatId, error instanceof Error && error.message === "draft_daily_limit" ? t(lang).dailyLimit : t(lang).parseFailed, buttons);
     return "applied";
   }
-  const { districtName, intakeAgentName, placement: place, documents, details, ...patch } = extracted;
+  const { districtName: foundDistrict, intakeAgentName, placement: place, documents: foundDocuments, details: foundDetails, ...patch } = extracted;
   const currentValues = propertyWizardDraftValuesSchema.parse(draft.values);
+  let { districtName, documents, details } = { districtName: foundDistrict, documents: foundDocuments, details: foundDetails };
+  if (options.document) {
+    // Файл заполняет только ПУСТОЕ: то, что сотрудник уже ввёл или поправил, он не затирает.
+    const filled = (key: string) => { const v = (currentValues as Record<string, unknown>)[key]; return v !== undefined && v !== null && v !== ""; };
+    for (const key of Object.keys(patch)) if (filled(key)) delete (patch as Record<string, unknown>)[key];
+    if (currentValues.districtId) districtName = undefined;
+    if (currentValues.documentsPreset) documents = undefined;
+    if (details) {
+      const kept = Object.fromEntries(Object.entries(details).filter(([key]) => {
+        const now = currentValues.details?.[key];
+        return !now || now === DETAIL_NOT_SET;
+      }));
+      details = Object.keys(kept).length ? kept : undefined;
+    }
+  }
   const values: Values = { ...patch };
   if (patch.type && patch.type !== currentValues.type) Object.assign(values, typePatch(currentValues, patch.type), patch);
   if (place) values.offSite = place === "CRM_ONLY";
@@ -1132,6 +1199,151 @@ async function contextFor(agentId: string, fullName: string, chatId: string, lan
   return access && { chatId, agentId, fullName, lang, access: { ...access, id: agentId, can: (permission: PermissionId) => access.permissions.has(permission) } };
 }
 
+/**
+ * PDF, Word или таблица в черновике (15.11.2026): файл → текст (assistantPropertyDocument.ts) → поля
+ * тем же разбором, что слова сотрудника, но только в ПУСТЫЕ поля. Подпись разбирается раньше и тоже
+ * не затирается файлом. Что не нашлось, мастер спрашивает сам — карточкой «Нужно ещё».
+ */
+async function handlePropertyFile(ctx: Context, draft: DraftRecord, msg: TelegramIncomingMessage, file: PropertyFileKind, caption: string) {
+  const c = t(ctx.lang);
+  const buttons = controls(draft.id, ctx.lang);
+  const doc = msg.document!;
+  if (file.kind === "oldWord") { await sendMessageWithButtons(ctx.chatId, c.docRefused.oldWord, buttons); return; }
+  const limit = Math.min(propertyFileLimit(file), TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES);
+  if (doc.file_size && doc.file_size > limit) { await sendMessageWithButtons(ctx.chatId, c.docTooBig(Math.floor(limit / (1024 * 1024))), buttons); return; }
+  const wallet = createAssistantMoneyWallet();
+  let read: Awaited<ReturnType<typeof readPropertyFileText>>;
+  try {
+    read = await readPropertyFileText(file, await downloadAssistantMedia(doc.file_id, limit), wallet);
+  } catch {
+    await sendMessageWithButtons(ctx.chatId, c.docRefused.unreadable, buttons);
+    return;
+  }
+  if (!read.ok) { await sendMessageWithButtons(ctx.chatId, c.docRefused[read.reason], buttons); return; }
+  if (caption) await updateDescription(ctx, draft, caption, createAssistantMoneyWallet(), { silent: true });
+  await updateDescription(ctx, await assertActiveDraft(prisma, ctx.agentId, { draftId: draft.id }), read.text, wallet, { document: true, prefix: c.docRead });
+}
+
+/**
+ * Сообщение в ОТКРЫТОМ черновике: фото, видео, файл-документ, точка, голос или текст.
+ * `text` — слова сообщения (при старте мастера: то, что идёт после фразы-начала). Возвращает
+ * false, когда сообщение не про черновик и его должна получить помощница.
+ */
+async function handleInDraft(
+  ctx: Context, msg: TelegramIncomingMessage, state: State, text: string, transcribe: Transcribe, started = false,
+): Promise<boolean> {
+  const { chatId, lang } = ctx;
+  const agent = { id: ctx.agentId };
+  const plainText = msg.text !== undefined ? text : "";
+  const draft = await assertActiveDraft(prisma, agent.id, { draftId: state.draftId });
+  const compressed = msg.photo?.at(-1);
+  const photoFile = compressed ? null : incomingPhotoDocument(msg);
+  const picture = compressed ?? photoFile;
+  const video = picture ? null : incomingVideo(msg);
+  const textPoint = plainText && !picture && !video ? await mapPointFromText(plainText) : null;
+  const point = msg.location ?? msg.venue?.location ?? (textPoint && { latitude: textPoint.lat, longitude: textPoint.lng });
+  // Ссылка на карту среди описания: точку берём из ссылки, остальное разбираем как обычно.
+  const textAfterPoint = textPoint && plainText ? plainText.replace(firstLinkIn(plainText) ?? plainText, "").trim() : "";
+  const editing = state.editing ? fieldById(state.editing) : undefined;
+  // Поле выбрано кнопкой «Исправить поле» — ответ становится «Поле: значение».
+  const asField = (value: string) => editing ? `${editing.label}: ${value.replace(/\s*\n\s*/gu, " ")}` : value;
+  if (picture) {
+    const album = msg.media_group_id;
+    if (album) holdAlbum(ctx.chatId, album);
+    let accepted = false;
+    try {
+      const maxBytes = TELEGRAM_DRAFT_PHOTO_LIMIT_BYTES;
+      const compressedByTelegram = Boolean(compressed) && isTelegramCompressed(msg.photo);
+      if (compressedByTelegram && rejectsCompressed(draft)) {
+        // Подпись (у альбома — только у первого фото) разбираем ДО отказа: фото не
+        // берём, а описание объекта терять нельзя (повторное ревью 10.11).
+        if (text) await updateDescription(ctx, draft, text, createAssistantMoneyWallet(), { silent: true });
+        await tellCompressedRejected(chatId, lang, album);
+        return true;
+      }
+      if (picture.file_size && picture.file_size > maxBytes) throw new Error("photo_too_large");
+      const buffer = await downloadAssistantMedia(picture.file_id, maxBytes);
+      // Первое сообщение мастера — снимок ЛИСТА с описанием (много читаемого текста), а не фото квартиры:
+      // поля берём из текста, в галерею объекта такой снимок не кладём. Снимок квартиры идёт обычным путём.
+      if (started && compressed && !album) {
+        const wallet = createAssistantMoneyWallet();
+        const page = await readPhotoDocumentText(buffer, wallet).catch(() => null);
+        if (page) {
+          if (text) await updateDescription(ctx, draft, text, wallet, { silent: true });
+          await updateDescription(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), page, wallet, { document: true, prefix: t(lang).docRead });
+          return true;
+        }
+      }
+      const uploadKey = `tg:${draft.id}:${msg.message_id}`;
+      const saved = await savePropertyDraftPhotos(agent.id, draft.id, [{
+        buffer, mimetype: photoFile?.mime_type || "image/jpeg", size: buffer.length,
+        originalname: photoFile?.file_name?.slice(0, 255) || `telegram-${msg.message_id}.jpg`,
+      }], [uploadKey]);
+      accepted = saved.status === 201 || saved.status === 200;
+      if (accepted) {
+        // Пометки качества — до карточки, чтобы она их уже показала. Файл-фото
+        // (document) — оригинал: сжатым его не считаем.
+        await recordDraftPhotoQuality(uploadKey, buffer, compressedByTelegram);
+        if (compressedByTelegram) await askAboutCompressedOnce(chatId, draft.id, lang);
+      }
+      if (!accepted) {
+        await sendMessageWithButtons(chatId, "error" in saved.body ? saved.body.error : t(lang).genericError, controls(draft.id, lang));
+      } else if (text) {
+        // Подпись альбома приходит только у первого фото: поля сохраняем, карточка — одна, после альбома.
+        await updateDescription(ctx, draft, text, createAssistantMoneyWallet(), { silent: Boolean(album) });
+      } else if (!album) {
+        await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), t(lang).photoAdded);
+      }
+    } finally {
+      if (album) finishAlbumPhoto(ctx, draft.id, album, accepted);
+    }
+  } else if (video) {
+    const opened = await openTelegramVideo(ctx, draft, msg, video);
+    if (opened.kind === "message") {
+      if (text) await updateDescription(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), text, createAssistantMoneyWallet(), { prefix: opened.text });
+      else await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), opened.text);
+    } else {
+      // Подпись разбирается сразу: иначе через минуты загрузки она затёрла бы
+      // поправку, которую агент успел сделать за это время. В фоне — только файл.
+      const queued = !canStartVideo(agent.id);
+      queueVideoTransfer(ctx, draft.id, video.file_id, opened);
+      const note = queued ? t(lang).videoQueued : t(lang).videoUploading;
+      if (text) await updateDescription(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), text, createAssistantMoneyWallet(), { prefix: note });
+      else await sendMessageWithButtons(chatId, note, controls(draft.id, lang));
+    }
+  } else if (propertyFileKind(msg.document)) {
+    await handlePropertyFile(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), msg, propertyFileKind(msg.document)!, text);
+  } else if (point) {
+    const located = await updateLocation(ctx, draft, location.parse(point), Boolean(textPoint?.approximate));
+    if (textAfterPoint) await updateDescription(ctx, located.next, textAfterPoint, createAssistantMoneyWallet(), { prefix: located.note });
+    else await sendReview(ctx, located.next, located.note);
+  } else if (msg.voice || msg.audio) {
+    const wallet = createAssistantMoneyWallet();
+    const voice = await transcribe(msg, agent.id, wallet);
+    if ("error" in voice) await sendMessageWithButtons(chatId, voice.error, controls(draft.id, lang));
+    else if (!editing && isExit.test(voice.text.trim())) await exitDraft(ctx, state.draftId);
+    else {
+      // Голос о другом отдаём помощнице целиком: она сама распознает его ещё раз.
+      const outcome = await updateDescription(ctx, draft, asField(voice.text), wallet, { handOff: true });
+      if (outcome === "cancel") await exitDraft(ctx, state.draftId);
+      else if (outcome === "other") return false;
+    }
+  } else if (text && !text.startsWith("/")) {
+    if (/^(?:черновик|проверь черновик|покажи черновик|сиёҳнавис)$/iu.test(text)) await sendReview(ctx, draft);
+    // Явный вопрос о другом (номер другого объекта, «найди клиента …») — помощнице, без модели разбора.
+    else if (!editing && OTHER_REQUEST.test(text)) return false;
+    else {
+      const outcome = await updateDescription(ctx, draft, asField(text), createAssistantMoneyWallet(), { handOff: !started });
+      if (outcome === "cancel") await exitDraft(ctx, state.draftId);
+      else if (outcome === "other") return false;
+    }
+  } else {
+    await sendMessageWithButtons(chatId, t(lang).howTo, controls(draft.id, lang));
+  }
+
+  return true;
+}
+
 export async function handleTelegramPropertyDraft(
   msg: TelegramIncomingMessage, agent: { id: string; fullName: string }, transcribe: Transcribe,
 ): Promise<boolean> {
@@ -1139,7 +1351,8 @@ export async function handleTelegramPropertyDraft(
   const chatId = String(msg.chat.id);
   const text = (msg.text ?? msg.caption ?? "").trim();
   const sellerCode = fromClientStart.exec(text)?.[1];
-  const start = isStart.test(text) || Boolean(sellerCode);
+  const intent = startIntent(text);
+  const start = intent.start || Boolean(sellerCode);
   const state = await getState(prisma, chatId, agent.id);
   if (!start && !state) return false;
   const ctx = await contextFor(agent.id, agent.fullName, chatId, languageOf(text, state?.lang ?? "ru"));
@@ -1158,102 +1371,18 @@ export async function handleTelegramPropertyDraft(
         const client = shortId ? await prisma.client.findUnique({ where: { shortId }, select: { id: true, deletedAt: true } }) : null;
         if (!client || client.deletedAt) await sendMessageWithButtons(chatId, t(lang).clientNotFound, controls(draft.id, lang));
         else await importSeller(ctx, draft, client.id);
-      } else await sendReview(ctx, draft);
+      } else {
+        // Фраза-начало не единственное в сообщении: файл, фото, видео, точка или данные после
+        // фразы идут в тот же черновик, а не пропадают (15.11.2026).
+        const carries = Boolean(intent.rest || msg.photo?.length || msg.document || msg.video || msg.video_note || msg.location || msg.venue);
+        const fresh = carries ? await getState(prisma, chatId, agent.id) : null;
+        if (fresh) await handleInDraft(ctx, msg, fresh, intent.rest, transcribe, true);
+        else await sendReview(ctx, draft);
+      }
     } else if (state && isExit.test(text)) {
       await exitDraft(ctx, state.draftId);
     } else if (state) {
-      const draft = await assertActiveDraft(prisma, agent.id, { draftId: state.draftId });
-      const compressed = msg.photo?.at(-1);
-      const photoFile = compressed ? null : incomingPhotoDocument(msg);
-      const picture = compressed ?? photoFile;
-      const video = picture ? null : incomingVideo(msg);
-      const textPoint = msg.text && !picture && !video ? await mapPointFromText(msg.text) : null;
-      const point = msg.location ?? msg.venue?.location ?? (textPoint && { latitude: textPoint.lat, longitude: textPoint.lng });
-      // Ссылка на карту среди описания: точку берём из ссылки, остальное разбираем как обычно.
-      const textAfterPoint = textPoint && msg.text ? msg.text.replace(firstLinkIn(msg.text) ?? msg.text, "").trim() : "";
-      const editing = state.editing ? fieldById(state.editing) : undefined;
-      // Поле выбрано кнопкой «Исправить поле» — ответ становится «Поле: значение».
-      const asField = (value: string) => editing ? `${editing.label}: ${value.replace(/\s*\n\s*/gu, " ")}` : value;
-      if (picture) {
-        const album = msg.media_group_id;
-        if (album) holdAlbum(ctx.chatId, album);
-        let accepted = false;
-        try {
-          const maxBytes = TELEGRAM_DRAFT_PHOTO_LIMIT_BYTES;
-          const compressedByTelegram = Boolean(compressed) && isTelegramCompressed(msg.photo);
-          if (compressedByTelegram && rejectsCompressed(draft)) {
-            // Подпись (у альбома — только у первого фото) разбираем ДО отказа: фото не
-            // берём, а описание объекта терять нельзя (повторное ревью 10.11).
-            if (text) await updateDescription(ctx, draft, text, createAssistantMoneyWallet(), { silent: true });
-            await tellCompressedRejected(chatId, lang, album);
-            return true;
-          }
-          if (picture.file_size && picture.file_size > maxBytes) throw new Error("photo_too_large");
-          const buffer = await downloadAssistantMedia(picture.file_id, maxBytes);
-          const uploadKey = `tg:${draft.id}:${msg.message_id}`;
-          const saved = await savePropertyDraftPhotos(agent.id, draft.id, [{
-            buffer, mimetype: photoFile?.mime_type || "image/jpeg", size: buffer.length,
-            originalname: photoFile?.file_name?.slice(0, 255) || `telegram-${msg.message_id}.jpg`,
-          }], [uploadKey]);
-          accepted = saved.status === 201 || saved.status === 200;
-          if (accepted) {
-            // Пометки качества — до карточки, чтобы она их уже показала. Файл-фото
-            // (document) — оригинал: сжатым его не считаем.
-            await recordDraftPhotoQuality(uploadKey, buffer, compressedByTelegram);
-            if (compressedByTelegram) await askAboutCompressedOnce(chatId, draft.id, lang);
-          }
-          if (!accepted) {
-            await sendMessageWithButtons(chatId, "error" in saved.body ? saved.body.error : t(lang).genericError, controls(draft.id, lang));
-          } else if (text) {
-            // Подпись альбома приходит только у первого фото: поля сохраняем, карточка — одна, после альбома.
-            await updateDescription(ctx, draft, text, createAssistantMoneyWallet(), { silent: Boolean(album) });
-          } else if (!album) {
-            await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), t(lang).photoAdded);
-          }
-        } finally {
-          if (album) finishAlbumPhoto(ctx, draft.id, album, accepted);
-        }
-      } else if (video) {
-        const opened = await openTelegramVideo(ctx, draft, msg, video);
-        if (opened.kind === "message") {
-          if (text) await updateDescription(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), text, createAssistantMoneyWallet(), { prefix: opened.text });
-          else await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), opened.text);
-        } else {
-          // Подпись разбирается сразу: иначе через минуты загрузки она затёрла бы
-          // поправку, которую агент успел сделать за это время. В фоне — только файл.
-          const queued = !canStartVideo(agent.id);
-          queueVideoTransfer(ctx, draft.id, video.file_id, opened);
-          const note = queued ? t(lang).videoQueued : t(lang).videoUploading;
-          if (text) await updateDescription(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), text, createAssistantMoneyWallet(), { prefix: note });
-          else await sendMessageWithButtons(chatId, note, controls(draft.id, lang));
-        }
-      } else if (point) {
-        const located = await updateLocation(ctx, draft, location.parse(point), Boolean(textPoint?.approximate));
-        if (textAfterPoint) await updateDescription(ctx, located.next, textAfterPoint, createAssistantMoneyWallet(), { prefix: located.note });
-        else await sendReview(ctx, located.next, located.note);
-      } else if (msg.voice || msg.audio) {
-        const wallet = createAssistantMoneyWallet();
-        const voice = await transcribe(msg, agent.id, wallet);
-        if ("error" in voice) await sendMessageWithButtons(chatId, voice.error, controls(draft.id, lang));
-        else if (!editing && isExit.test(voice.text.trim())) await exitDraft(ctx, state.draftId);
-        else {
-          // Голос о другом отдаём помощнице целиком: она сама распознает его ещё раз.
-          const outcome = await updateDescription(ctx, draft, asField(voice.text), wallet, { handOff: true });
-          if (outcome === "cancel") await exitDraft(ctx, state.draftId);
-          else if (outcome === "other") return false;
-        }
-      } else if (text && !text.startsWith("/")) {
-        if (/^(?:черновик|проверь черновик|покажи черновик|сиёҳнавис)$/iu.test(text)) await sendReview(ctx, draft);
-        // Явный вопрос о другом (номер другого объекта, «найди клиента …») — помощнице, без модели разбора.
-        else if (!editing && OTHER_REQUEST.test(text)) return false;
-        else {
-          const outcome = await updateDescription(ctx, draft, asField(text), createAssistantMoneyWallet(), { handOff: true });
-          if (outcome === "cancel") await exitDraft(ctx, state.draftId);
-          else if (outcome === "other") return false;
-        }
-      } else {
-        await sendMessageWithButtons(chatId, t(lang).howTo, controls(draft.id, lang));
-      }
+      return await handleInDraft(ctx, msg, state, text, transcribe);
     }
   } catch (error) {
     const message = error instanceof DraftConflictError ? t(lang).stale
@@ -1467,9 +1596,10 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
     const buttons = [[{ text: `${t(lang).open} ${number}`, url: `${base}/properties/${created.id}` }]];
     const media = "media" in result.body ? result.body.media : undefined;
     const skipped = (media?.skipped.photos ?? 0) + (media?.skipped.videos ?? 0);
-    const createdText = media?.error || skipped
+    const baseText = media?.error || skipped
       ? `${t(lang).createdPrefix} ${media?.error ?? t(lang).createdPartly(skipped)}`
       : t(lang).created;
+    const createdText = readyMedia(claimed.draft, "VIDEO").length ? baseText : `${baseText}\n${t(lang).noVideoAfterCreate}`;
     try { await editMessageText(chatId, messageId, createdText, buttons); }
     catch { await sendMessageWithButtons(chatId, createdText, buttons); }
     // Кому подходит объект — одно сообщение, клиентам ничего не уходит.
