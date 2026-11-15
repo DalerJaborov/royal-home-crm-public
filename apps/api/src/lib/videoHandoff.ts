@@ -30,7 +30,7 @@
  * файл плеером вместо загрузки).
  */
 import fs from "node:fs";
-import { clipOwnerDueFrom } from "./clipOwnerDue.js";
+import { clampClipOwnerHours, clipOwnerDueOrNull, isClipOwnerMode } from "./clipOwnerDue.js";
 import { rawVideoPublicationMarks } from "./publishedRawVideoRetention.js";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -2223,7 +2223,7 @@ async function finishReceivingVideo(
           clipReviewComment: null,
           clipOwnerDueAt:
             clipReview && clipReviewSettings?.clipOwnerApproveEnabled
-              ? clipOwnerDueFrom(now, clipReviewSettings.clipOwnerAutoPublishHours)
+              ? clipOwnerDueOrNull(now, clipReviewSettings.clipOwnerAutoPublishHours)
               : null,
         },
       });
@@ -4118,7 +4118,10 @@ export async function videoHandoffCardForProperty(property: VideoHandoffCardProp
   if (property.videoHandoffStatus === "NONE") return null;
   const [positions, settings, videos] = await Promise.all([
     videoHandoffQueuePositions(),
-    prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } }),
+    prisma.settings.findUnique({
+      where: { id: "singleton" },
+      select: { videoMontajerAgentId: true, clipOwnerApproveEnabled: true, clipOwnerAutoPublishHours: true },
+    }),
     prisma.propertyVideo.findMany({
       where: { propertyId: property.id },
       orderBy: { uploadedAt: "asc" },
@@ -4173,7 +4176,14 @@ export async function videoHandoffCardForProperty(property: VideoHandoffCardProp
       comment: property.clipReviewComment,
       // Хозяин решает, только пока ролик ждёт и у него стоит срок автопубликации —
       // тот же признак, что у кнопок в Telegram (lib/clipReview.ts::clipOwnerDeciderId).
-      ownerAgentId: property.clipReviewStatus === "PENDING" && property.clipOwnerDueAt ? propertyOwnerAgentId(property) : null,
+      ownerAgentId:
+        property.clipReviewStatus === "PENDING" &&
+        isClipOwnerMode(
+          { enabled: settings?.clipOwnerApproveEnabled ?? false, hours: clampClipOwnerHours(settings?.clipOwnerAutoPublishHours) },
+          property.clipOwnerDueAt ?? null
+        )
+          ? propertyOwnerAgentId(property)
+          : null,
     },
     videos: videos.map((v) => ({
       id: v.id,
