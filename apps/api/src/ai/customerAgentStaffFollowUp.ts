@@ -23,6 +23,7 @@
  */
 import { clientOwnWords } from "./untrustedContent.js";
 import { priceMentions } from "./priceGuard.js";
+import { RECRUITMENT_FOLLOW_UP_LINES } from "./customerAgentLiveWording.js";
 
 type Lang = "ru" | "tg";
 type KnownPhone = "none" | "current_input" | "scoped_contact";
@@ -92,7 +93,8 @@ export function customerStaffFollowUpFixedLines(): string[] {
 export function customerPhoneAskLines(): string[] { return [...PHONE_ASK_LINES]; }
 /** The reply told the customer that a person takes over: the turn must actually tell a person (one door). */
 export function customerReplyCallsStaff(text: string): boolean {
-  return text.split("\n").some(line => STAFF_LINES.has(line.trim()));
+  // A candidate's number passed to Noza / "nobody answers" (16.11.2026) is the same promise: a person must learn about it.
+  return text.split("\n").some(line => STAFF_LINES.has(line.trim()) || RECRUITMENT_FOLLOW_UP_LINES.includes(line.trim()));
 }
 /** Any earlier bot text that asked for the customer's phone (ours or the model-era wording). */
 export const PHONE_ASK_TEXT = /рақами\s+телефон\S*\s+(?:нав|гуз|ф)|рақам(?:атон|тон)\S*\s+нав|номер\S*\s+телефон|оставьте[^.\n]*номер|напишите[^.\n]*номер|кадом\s+рақами\s+телефон/iu;

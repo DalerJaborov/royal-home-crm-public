@@ -2,6 +2,7 @@ import { clientLanguageScores, detectClientLanguage as detectRawClientLanguage, 
 import { foldCustomerText } from "./customerAgentRole.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { BW, EW } from "./wordBoundary.js";
+import { adTemplateLanguage, isAdTemplateOpener } from "./adTemplatePhrase.js";
 
 /** Customer-core view of the detector: Latin noise is no evidence of Tajik (the legacy detector guesses "tg"). */
 function detectClientLanguage(input: string): ClientLanguage {
@@ -101,15 +102,34 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
   text = customerHistoryOwnWords(text);
   const preference = customerDmLanguagePreference(text);
   if (preference) return preference;
-  const prior = [...priorUserTexts].reverse().map(customerHistoryOwnWords).filter(Boolean);
+  // The ad button text («Привет! Можно узнать об этом подробнее?») is not the customer's words (audit 16.11.2026:
+  // «Салом» after it was answered in Russian). It is never evidence; its own language is the last resort only.
+  const prior = [...priorUserTexts].reverse().map(customerHistoryOwnWords).filter(value => value && !isAdTemplateOpener(value));
   const stored = storedLanguage === "ru" || storedLanguage === "tg" ? storedLanguage : undefined;
   // Window evidence is fresher than the stored value; the stored one keeps the language across a revision
   // change (the window drops older tickets) and in long dialogues.
   const earlier = prior.map(decisiveLanguage).find((value): value is "ru" | "tg" => value !== null) ?? stored
     ?? prior.filter(isNeutralShortReply).map(detectClientLanguage).find((value): value is "ru" | "tg" => value === "ru" || value === "tg");
+  if (isAdTemplateOpener(text)) return earlier ?? adTemplateLanguage(text);
   if (isNeutralShortReply(text)) return earlier ?? (detectClientLanguage(text) === "tg" ? "tg" : "ru");
   if (customerColloquialTajikLanguage(text)) return "tg";
   const detected = detectClientLanguage(text);
   if (detected === "ru" || detected === "tg") return detected;
   return earlier ?? (detected === "mixed" ? majority(text) : null) ?? "ru";
+}
+
+/**
+ * Language of the whole dialogue so far (audit 16.11.2026, chats 5a5de705 and 5e961b62): the six-turn memory holds ~3 customer
+ * turns, so a dot, a phone number or a pack of photos pushed the Tajik words out and the reply fell back to Russian. This reads
+ * the customer's own words of the wider history (the loader passes up to 50 inputs, oldest first) and returns the language of
+ * the last decisive one. The ad button text and short neutral words never decide. Null when nothing decided yet.
+ */
+export function customerDmDialogueLanguage(userTextsOldestFirst: readonly string[]): "ru" | "tg" | null {
+  for (const raw of [...userTextsOldestFirst].reverse()) {
+    const text = customerHistoryOwnWords(raw);
+    if (!text || isAdTemplateOpener(text)) continue;
+    const decided = decisiveLanguage(text);
+    if (decided) return decided;
+  }
+  return null;
 }

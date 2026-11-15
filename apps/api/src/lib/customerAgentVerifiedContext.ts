@@ -16,6 +16,7 @@ import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvi
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
+import { customerDmDialogueLanguage } from "../ai/customerDmLanguage.js";
 import { renderCustomerAgentDecision, customerAgentFixedLines, customerAgentLineDigest, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentInput.js";
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
@@ -329,6 +330,12 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
       const recruitmentAnswerTo = native ? await readRecruitmentAnsweredFactTx(prisma, {
         fence: principal.authority.fence, eventKey: ticket.eventKey, order: ticket.order.toString(),
       }, native.messages) : null;
+      // The customer's own words of the wider history, oldest first: the intake and the dialogue language read the same list.
+      const ownHistory = [...history].reverse().flatMap(row => {
+        const text = historicalText(row, current, true, priorRevisions, intakeContinuity);
+        return text ? [minimizeCustomerAgentMemoryText(text)] : [];
+      });
+      const dialogueLanguage = customerDmDialogueLanguage(ownHistory);
       if (!alive()) return { status: "held", reason: "context_deadline" };
       const after = await revalidateCustomerPrincipal(principal);
       if (!alive() || after.status !== "current" || !isDeepStrictEqual(after.snapshot.state.fence, before.snapshot.state.fence)) {
@@ -339,10 +346,8 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
         ...(recruitmentAnswerTo ? { recruitmentAnswerTo } : {}),
         ...(sentLineDigests.length ? { sentLineDigests } : {}),
         turns: projectCustomerAgentMemory(candidates, revision.limits.maxInputChars),
-        intake: customerAgentIntake([...history].reverse().flatMap(row => {
-          const text = historicalText(row, current, true, priorRevisions, intakeContinuity);
-          return text ? [{ role: "user" as const, text: minimizeCustomerAgentMemoryText(text) }] : [];
-        }), minimizeCustomerAgentMemoryText(currentInput.inputText)),
+        ...(dialogueLanguage ? { dialogueLanguage } : {}),
+        intake: customerAgentIntake(ownHistory.map(text => ({ role: "user" as const, text })), minimizeCustomerAgentMemoryText(currentInput.inputText)),
         publicState: customerPublicStateSchema.parse(after.snapshot.state.publicState) }) };
     } catch { return { status: "held", reason: "storage_unavailable" }; }
   };

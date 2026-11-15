@@ -175,8 +175,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // customer's last decisive USER turn (never the bot's prose or another inquiry's language); a full
     // sentence in another language, or an explicit request, switches the dialogue. The deferred block
     // is part of the current words, so the whole block decides.
+    // The stored language is never written for DM (audit 16.11.2026), so the wider history decides after the six-turn window.
+    const storedLanguage = remembered.context.publicState.language;
     language = resolveCustomerDmLanguage(fullInput(), remembered.context.turns.filter(turn => turn.role === "user").map(turn => turn.text),
-      remembered.context.publicState.language);
+      storedLanguage === "ru" || storedLanguage === "tg" ? storedLanguage : remembered.context.dialogueLanguage);
     let turnBudgetSpent = false, modelHeldReason: string | undefined;
     const spendTurnBudget = async (wait: { signal: AbortSignal; deadlineAt: number }) => {
       if (turnBudgetSpent) return;
