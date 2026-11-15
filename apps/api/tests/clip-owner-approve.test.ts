@@ -64,6 +64,7 @@ vi.mock("../src/lib/ffmpeg.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
+const { clampClipOwnerHours, clipOwnerDueOrNull } = await import("../src/lib/clipOwnerDue.js");
 const { videoHandoffDir } = await import("../src/upload.js");
 const { localVideoFilePath } = await import("../src/lib/localVideoStorage.js");
 const vh = await import("../src/lib/videoHandoff.js");
@@ -145,7 +146,7 @@ async function makeHolder(label: string, ownerId: string) {
   return p;
 }
 
-async function pendingClip(label: string, ownerId: string, expectOwnerChat: string | null) {
+async function pendingClip(label: string, ownerId: string, expectOwnerChat: string | null, expectReviewerCopy = false) {
   const p = await makeHolder(label, ownerId);
   const result = await vh.receiveEditedVideo(p.id, randomBytes(vh.SAME_FINAL_MIN_BYTES + 4096), "final.mp4");
   expect(result.ok).toBe(true);
@@ -153,10 +154,13 @@ async function pendingClip(label: string, ownerId: string, expectOwnerChat: stri
   expect(row.clipReviewStatus).toBe("PENDING");
   if (row.videoHandoffFinalPath) files.push(path.join(videoHandoffDir, path.basename(row.videoHandoffFinalPath)));
   await vh.settleBackgroundHandoffDispatches();
-  // Рассылка идёт в отрыве — дождаться копии руководству (и хозяину, если ждём).
-  await waitFor(() => prisma.telegramModerationMessage.findFirst({ where: { propertyId: p.id, kind: "CLIP", chatId: reviewer.chatId } }), {
-    timeoutMs: 10_000,
-  });
+  // Рассылка идёт в отрыве — дождаться хозяина и/или копии руководству, если ждём.
+  // С 15.11.2026 при подтверждении хозяином руководству копия НЕ уходит.
+  if (expectReviewerCopy) {
+    await waitFor(() => prisma.telegramModerationMessage.findFirst({ where: { propertyId: p.id, kind: "CLIP", chatId: reviewer.chatId } }), {
+      timeoutMs: 10_000,
+    });
+  }
   if (expectOwnerChat) {
     await waitFor(() => prisma.telegramModerationMessage.findFirst({ where: { propertyId: p.id, kind: "CLIP", chatId: expectOwnerChat } }), {
       timeoutMs: 10_000,
@@ -237,8 +241,23 @@ describe("срок автопубликации (юнит)", () => {
   });
 });
 
+describe("0 часов — «сам не публиковать» (юнит)", () => {
+  it("0 остаётся нулём, срока нет; 1–48 как раньше", () => {
+    expect(cr.CLIP_OWNER_HOURS_MIN).toBe(0);
+    expect(clampClipOwnerHours(0)).toBe(0);
+    expect(clampClipOwnerHours(null)).toBe(3);
+    expect(clampClipOwnerHours(99)).toBe(48);
+    expect(clipOwnerDueOrNull(dushanbe("2026-11-11 12:00"), 0)).toBeNull();
+    expect(clipOwnerDueOrNull(dushanbe("2026-11-11 12:00"), 3)?.toISOString()).toBe(dushanbe("2026-11-11 15:00").toISOString());
+    expect(cr.isClipOwnerMode({ enabled: true, hours: 0 }, null)).toBe(true);
+    expect(cr.isClipOwnerMode({ enabled: true, hours: 3 }, null)).toBe(false);
+    expect(cr.isClipOwnerMode({ enabled: false, hours: 0 }, null)).toBe(false);
+    expect(cr.isClipOwnerMode({ enabled: true, hours: 3 }, new Date())).toBe(true);
+  });
+});
+
 describe("ролик идёт хозяину объекта", () => {
-  it("хозяину — видео с «Подтвердить» и сроком автопубликации; руководству — своя копия", async () => {
+  it("хозяину — видео с «Подтвердить» и сроком автопубликации; руководство и админ не получают ничего", async () => {
     const p = await pendingClip("рассылка", owner.id, owner.chatId);
     const toOwner = tg.sendVideoFromDisk.mock.calls.find((c) => String(c[0]) === owner.chatId);
     expect(toOwner).toBeTruthy();
@@ -247,7 +266,11 @@ describe("ролик идёт хозяину объекта", () => {
     expect(String(toOwner![2])).toContain("ночью с 00:00 до 07:00 не публикуем");
     expect(JSON.stringify(toOwner![4])).toContain("Подтвердить");
     expect(JSON.stringify(toOwner![4])).toContain(`cr:a:${p.shortId}`);
-    expect(tg.sendVideoFromDisk.mock.calls.some((c) => String(c[0]) === reviewer.chatId)).toBe(true);
+    // Админ с включённой рассылкой («даже мне как админу не отправляй») — ни видео, ни текста.
+    await waitForSettled(async () => tg.sendVideoFromDisk.mock.calls.length + tg.sendMessageWithButtons.mock.calls.length);
+    expect(tg.sendVideoFromDisk.mock.calls.some((c) => String(c[0]) === reviewer.chatId)).toBe(false);
+    expect(textsTo(reviewer.chatId)).toEqual([]);
+    expect(await prisma.telegramModerationMessage.count({ where: { propertyId: p.id, chatId: reviewer.chatId } })).toBe(0);
     // Посторонний агент ничего не получил.
     expect(tg.sendVideoFromDisk.mock.calls.some((c) => String(c[0]) === stranger.chatId)).toBe(false);
   });
@@ -415,8 +438,9 @@ describe("автопубликация без ответа", () => {
 
   it("у хозяина нет Telegram — ему ничего не уходит, ролик закрывает тот же таймер", async () => {
     const p = await pendingClip("без телеграма", ownerNoTgId, null);
-    const recipients = new Set(tg.sendVideoFromDisk.mock.calls.map((c) => String(c[0])));
-    expect([...recipients]).toEqual([reviewer.chatId]);
+    // Хозяин без Telegram: руководству ролик тоже не уходит (15.11.2026) — решает CRM-карточка или таймер.
+    await waitForSettled(async () => tg.sendVideoFromDisk.mock.calls.length);
+    expect(tg.sendVideoFromDisk.mock.calls.length).toBe(0);
     const now = dushanbe("2026-11-11 15:00");
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipOwnerDueAt).not.toBeNull();
     await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: new Date(now.getTime() - 60_000) } });
@@ -445,7 +469,7 @@ describe("автопубликация без ответа", () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: false, clipReviewEnabled: true } });
     let p: Awaited<ReturnType<typeof pendingClip>>;
     try {
-      p = await pendingClip("до включения", owner.id, null);
+      p = await pendingClip("до включения", owner.id, null, true);
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: true } });
     }
@@ -465,7 +489,7 @@ describe("автопубликация без ответа", () => {
   });
 
   it("автопубликация перепроверяет срок в самой записи: срок отодвинули после выборки тика — не одобряет", async () => {
-    const p = await pendingClip("срок отодвинут", owner.id, null);
+    const p = await pendingClip("срок отодвинут", owner.id, owner.chatId);
     await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: new Date(Date.now() + 15 * 60_000) } });
     const result = await cr.approveClip(p.id, null, "auto", new Date());
     expect(result.ok).toBe(false);
@@ -495,5 +519,78 @@ describe("автопубликация без ответа", () => {
     expect(await bot.handleClipReviewText(owner.chatId, "Звук тихий, переделайте")).toBe(true);
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("REJECTED");
     await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE" } });
+  });
+});
+
+describe("только хозяину: напоминания, весть об автопубликации, выключенный таймер (15.11.2026)", () => {
+  it("напоминание «ждёт 3 ч»: у ролика со сроком руководству и монтажным копиям ничего (таймер закроет)", async () => {
+    const p = await pendingClip("напоминание-со-сроком", owner.id, owner.chatId);
+    await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: dushanbe("2026-11-11 08:00") } });
+    const remind = vi.fn(async () => {});
+    await cr.runClipReviewStaleTick(remind, dushanbe("2026-11-11 13:00"));
+    expect(remind.mock.calls.some((c) => c[0] === p.id)).toBe(false);
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE", clipReviewStatus: "NONE" } });
+  });
+
+  it("автопубликация ушла — хозяину одно короткое сообщение, руководству нет; повторный тик и запоздалое «да» не добавляют", async () => {
+    const p = await pendingClip("весть", owner.id, owner.chatId);
+    const now = dushanbe("2026-11-11 12:00");
+    await prisma.property.update({
+      where: { id: p.id },
+      data: { clipReviewRequestedAt: new Date(now.getTime() - 181 * 60_000), clipOwnerDueAt: new Date(now.getTime() - 60_000) },
+    });
+    await cr.runClipOwnerAutoPublishTick(now);
+    await waitFor(() => textsTo(owner.chatId).some((t) => t.includes(`Ролик объекта №${p.shortId} опубликован сам`)) || null);
+    await cr.runClipOwnerAutoPublishTick(now);
+    await tap(owner.chatId, `cr:a:${p.shortId}`);
+    await waitForSettled(async () => tg.sendMessage.mock.calls.length);
+    expect(textsTo(owner.chatId).filter((t) => t.includes("опубликован сам")).length).toBe(1);
+    expect(textsTo(owner.chatId).find((t) => t.includes("опубликован сам"))).toContain("вы не ответили за 3 ч");
+    expect(textsTo(reviewer.chatId)).toEqual([]);
+  });
+
+  it("хозяин нажал «Подтвердить» до срока — таймер ничего не публикует и «опубликован сам» не шлёт", async () => {
+    const p = await pendingClip("раньше срока", owner.id, owner.chatId);
+    await tap(owner.chatId, `cr:a:${p.shortId}`);
+    const job = await jobFor(p.id);
+    expect(job).not.toBeNull();
+    // Срок (на всякий случай) уже прошёл — запись ролика его гасит при одобрении, но проверяем и так.
+    await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: dushanbe("2026-11-11 09:00") } });
+    const result = await cr.runClipOwnerAutoPublishTick(dushanbe("2026-11-11 12:00"));
+    expect(result.published).toBe(0);
+    expect((await jobFor(p.id))?.id).toBe(job!.id);
+    await waitForSettled(async () => tg.sendMessage.mock.calls.length);
+    expect(textsTo(owner.chatId).some((t) => t.includes("опубликован сам"))).toBe(false);
+  });
+
+  it("0 часов: срока нет, ролик ждёт хозяина — таймер не публикует, напоминание только хозяину", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerAutoPublishHours: 0 } });
+    try {
+      const p = await pendingClip("ноль", owner.id, owner.chatId);
+      const row = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+      expect(row.clipOwnerDueAt).toBeNull();
+      const toOwner = tg.sendVideoFromDisk.mock.calls.find((c) => String(c[0]) === owner.chatId);
+      expect(String(toOwner![2])).toContain("Сам он не опубликуется");
+      expect(String(toOwner![2])).not.toContain("опубликуется сам");
+      // Хозяин решает и из карточки CRM.
+      const card = await vh.videoHandoffCardForProperty(row);
+      expect(card?.clipReview.ownerAgentId).toBe(owner.id);
+      // Через сутки тик ничего не публикует.
+      await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: dushanbe("2026-11-10 08:00") } });
+      expect((await cr.runClipOwnerAutoPublishTick(dushanbe("2026-11-11 12:00"))).published).toBe(0);
+      expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
+      // Напоминание — только хозяину, с его кнопками; админу с рассылкой ничего.
+      tg.sendMessageWithButtons.mockClear();
+      const sent = await bot.runClipReviewStaleAlarmTick(dushanbe("2026-11-11 12:00"));
+      expect(sent.reminded).toBeGreaterThanOrEqual(1);
+      const reminders = tg.sendMessageWithButtons.mock.calls.filter((c) => String(c[1]).includes(`объекту №${p.shortId} ждёт проверки`));
+      expect(reminders.map((c) => String(c[0]))).toEqual([owner.chatId]);
+      expect(JSON.stringify(reminders[0][2])).toContain(`cr:a:${p.shortId}`);
+      expect(await prisma.notification.count({ where: { agentId: reviewer.id, url: `/properties/${p.shortId}` } })).toBe(0);
+      expect(await prisma.notification.count({ where: { agentId: owner.id, url: `/properties/${p.shortId}` } })).toBeGreaterThanOrEqual(1);
+      await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE", clipReviewStatus: "NONE" } });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerAutoPublishHours: 3 } });
+    }
   });
 });

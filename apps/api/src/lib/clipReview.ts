@@ -40,9 +40,9 @@ import { sendBackToMontajer, type SendBackResult } from "./publishedVideoFix.js"
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { publishPropertyUpdated } from "./livePublish.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
-import { clampClipOwnerHours, clipOwnerDueFrom, isClipOwnerNight } from "./clipOwnerDue.js";
+import { clampClipOwnerHours, clipOwnerDueFrom, isClipOwnerMode, isClipOwnerNight } from "./clipOwnerDue.js";
 
-export { CLIP_OWNER_HOURS_MAX, CLIP_OWNER_HOURS_MIN, CLIP_OWNER_NIGHT_END_HOUR, isClipOwnerNight } from "./clipOwnerDue.js";
+export { CLIP_OWNER_HOURS_MAX, CLIP_OWNER_HOURS_MIN, CLIP_OWNER_NIGHT_END_HOUR, isClipOwnerMode, isClipOwnerNight } from "./clipOwnerDue.js";
 import { createNotifications, shouldAlert } from "./notifications.js";
 import { isWithinAlarmHours } from "./workingHours.js";
 import { montageNotificationRecipients } from "./montageObservers.js";
@@ -107,7 +107,7 @@ export const clipOwnerAutoPublishAt = clipOwnerDueFrom;
  * сам монтажёр (ревью 11.11.2026). Telegram здесь не нужен — решить можно и в
  * карточке CRM (14.11.2026); для рассылки его требует clipOwnerRecipient ниже.
  */
-async function clipOwnerAgent(propertyId: string): Promise<{ id: string; fullName: string; telegramChatId: string | null } | null> {
+export async function clipOwnerAgent(propertyId: string): Promise<{ id: string; fullName: string; telegramChatId: string | null } | null> {
   const p = await prisma.property.findUnique({
     where: { id: propertyId },
     select: { intakeAgentId: true, assignedAgentId: true, createdById: true },
@@ -423,7 +423,7 @@ export const CLIP_REVIEW_REMIND_INTERVAL_MS = 6 * 60 * 60 * 1000;
  * вызывающим, чтобы сервис не тянул бота.
  */
 export async function runClipReviewStaleTick(
-  remind: (propertyId: string, shortId: number, hours: number) => Promise<void>,
+  remind: (propertyId: string, shortId: number, hours: number, onlyAgentId?: string) => Promise<void>,
   now: Date = new Date()
 ): Promise<{ reminded: number }> {
   if (!(await isWithinAlarmHours(now))) return { reminded: 0 };
@@ -431,7 +431,12 @@ export async function runClipReviewStaleTick(
   // руководству нечего («не руководству а автоматически поститься»).
   // Ролик, который ждал решения ещё до включения (срока у него нет), напоминанием
   // не теряется (ревью 12.11.2026): молчит только тот, чей срок закроет автопубликация.
-  const ownerOn = (await getClipOwnerSettings()).enabled;
+  // Автопубликация выключена (0 часов, 15.11.2026) — срока нет ни у кого, и ролик
+  // ждёт хозяина: напоминание уходит ТОЛЬКО ему, руководству и админу — ничего
+  // («даже мне как админу не отправляй»).
+  const owner = await getClipOwnerSettings();
+  const ownerOn = owner.enabled;
+  const ownerOnly = ownerOn && isClipOwnerMode(owner, null);
   const stale = await prisma.property.findMany({
     where: {
       ...(ownerOn ? { clipOwnerDueAt: null } : {}),
@@ -445,19 +450,31 @@ export async function runClipReviewStaleTick(
     take: 100,
   });
   if (stale.length === 0) return { reminded: 0 };
-  const [reviewers, moderators] = await Promise.all([listClipReviewers(), montageNotificationRecipients()]);
-  const recipients = Array.from(new Set([...reviewers.map((r) => r.id), ...moderators]));
-  if (recipients.length === 0) return { reminded: 0 };
+  const [reviewers, moderators] = ownerOnly
+    ? [[], []]
+    : await Promise.all([listClipReviewers(), montageNotificationRecipients()]);
+  const defaultRecipients = Array.from(new Set([...reviewers.map((r) => r.id), ...moderators]));
+  if (!ownerOnly && defaultRecipients.length === 0) return { reminded: 0 };
 
   let reminded = 0;
   for (const p of stale) {
     const tag = `clip-review-stale-${p.id}`;
+    let recipients = defaultRecipients;
+    let onlyAgentId: string | undefined;
+    if (ownerOnly) {
+      const ownerAgent = await clipOwnerAgent(p.id);
+      if (!ownerAgent) continue; // хозяина нет (уволен, заморожен, сам монтажёр) — напоминать некому
+      recipients = [ownerAgent.id];
+      onlyAgentId = ownerAgent.id;
+    }
     if (!(await shouldAlert(tag, CLIP_REVIEW_REMIND_INTERVAL_MS, now))) continue;
     const hours = Math.floor((now.getTime() - p.clipReviewRequestedAt!.getTime()) / 3_600_000);
     const payload = {
       kind: "oversight" as const,
-      title: `🎬 Ролик ждёт проверки: объект №${p.shortId}`,
-      body: `Готовый ролик от монтажёра ждёт решения уже ${hours} ч. Без «Одобрить» он в сети не выйдет.`,
+      title: ownerOnly ? `🎬 Ролик ждёт вашего решения: объект №${p.shortId}` : `🎬 Ролик ждёт проверки: объект №${p.shortId}`,
+      body: ownerOnly
+        ? `Готовый ролик вашего объекта ждёт решения уже ${hours} ч. Без «Подтвердить» он в сети не выйдет.`
+        : `Готовый ролик от монтажёра ждёт решения уже ${hours} ч. Без «Одобрить» он в сети не выйдет.`,
       url: `/properties/${p.shortId}`,
       tag,
       level: "APPROVAL" as const,
@@ -469,7 +486,7 @@ export async function runClipReviewStaleTick(
       continue;
     }
     void sendPushToAgents(recipients, payload).catch((err) => console.error("[clip-review] пуш напоминания:", err));
-    await remind(p.id, p.shortId, hours).catch((err) => console.error("[clip-review] напоминание в Telegram:", err));
+    await remind(p.id, p.shortId, hours, onlyAgentId).catch((err) => console.error("[clip-review] напоминание в Telegram:", err));
     reminded++;
   }
   return { reminded };
