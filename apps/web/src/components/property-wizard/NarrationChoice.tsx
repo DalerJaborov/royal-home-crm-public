@@ -1,8 +1,8 @@
 import { useId } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { narrationDraftText, pickNarrationVoice, type NarrationFacts, type NarrationOptionsView, type NarrationWizardChoice } from "@royal-home/shared";
+import { narrationRotatedTemplateId, pickNarrationTemplate, pickNarrationVoice, type NarrationFacts, type NarrationOptionsView, type NarrationWizardChoice } from "@royal-home/shared";
 import { api } from "../../lib/api";
-import { VoiceSamplePicker } from "../VoiceSamplePicker";
+import { NarrationComposer } from "../NarrationComposer";
 
 /**
  * КОНЕЦ МАСТЕРА — ОЗВУЧКА РОЛИКА (схема владельца 10.11.2026). Текст собирается
@@ -10,6 +10,10 @@ import { VoiceSamplePicker } from "../VoiceSamplePicker";
  * правит руководство в настройках озвучки. Выбор уходит полем `narration` запроса
  * создания объекта, генерация и одобрение — после сохранения (lib/narrationAutoFlow.ts).
  * Один адаптивный блок для ПК и телефона.
+ *
+ * С 14.11.2026 — общий NarrationComposer (тот же, что в карточке): сначала голос, потом текст по
+ * шаблону; не выбрал шаблон — следующий вариант после прошлого (narrationRotatedTemplateId, сервер
+ * ставит тот же).
  */
 /** Что уходит в запрос создания: короткий или пустой текст не шлём — сервер соберёт по шаблону. */
 export function narrationChoiceForCreate(value: NarrationWizardChoice): NarrationWizardChoice | undefined {
@@ -28,46 +32,34 @@ export function NarrationChoice({ facts, value, onChange }: {
   const ids = useId();
   const { data } = useQuery({ queryKey: ["narration-options"], queryFn: () => api<NarrationOptionsView>("/properties/narration-options"), staleTime: 5 * 60_000, retry: false });
   const templates = data?.templates ?? [];
-  // Последний выбор этого сотрудника стоит заранее (сервер сам подставит его же, если не трогать).
+  // Голос — последний выбор сотрудника; шаблон — следующий вариант после прошлого (сервер ставит тот же).
   const last = data?.lastChoice ?? {};
-  const drafted = narrationDraftText({ templates, defaultTemplateId: last.templateId ?? data?.defaultTemplateId ?? undefined }, facts, value.templateId);
-  const text = value.script ?? drafted.text;
-  const voiceId = data ? pickNarrationVoice({ voices: data.voices, defaultVoiceId: last.voiceId ?? data.defaultVoiceId ?? undefined }, value.voiceId) : null;
+  const defaultTemplateId = narrationRotatedTemplateId(templates, last.templateId)
+    ?? pickNarrationTemplate({ templates, defaultTemplateId: data?.defaultTemplateId ?? undefined })?.id ?? null;
+  const defaultVoiceId = data ? pickNarrationVoice({ voices: data.voices, defaultVoiceId: last.voiceId ?? data.defaultVoiceId ?? undefined }) : null;
 
   return (
-    <section className="card mt-4 space-y-3 p-4" aria-label="Озвучка ролика">
+    <section className="card mt-4 space-y-4 p-4" aria-label="Озвучка ролика">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-semibold">Озвучка ролика</h3>
+        <div>
+          <h3 className="font-semibold">Озвучка ролика</h3>
+          {!value.none && <p className="text-sm text-[var(--muted)]">Выберите голос, текст поставится сам. Его можно поправить.</p>}
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={!!value.none} onChange={(e) => onChange(e.target.checked ? { none: true } : {})} />
           Без озвучки
         </label>
       </div>
       {value.none ? (
-        <p className="text-sm text-slate-600">Озвучка не готовится и не тратит деньги, монтажёр получит пометку «без озвучки». Включить можно потом в карточке объекта.</p>
+        <p className="text-sm text-[var(--muted)]">Озвучка не готовится и не тратит деньги, монтажёр получит пометку «без озвучки». Включить можно потом в карточке объекта.</p>
       ) : <>
-      {templates.length > 1 && (
-        <label className="block text-sm" htmlFor={`${ids}-tpl`}>Шаблон
-          <select id={`${ids}-tpl`} className="mt-1 w-full rounded-lg border p-2" value={drafted.templateId ?? ""}
-            onChange={(e) => onChange({ ...value, templateId: e.target.value, script: undefined })}>
-            {templates.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.lang === "tg" ? "по-таджикски" : "по-русски"}{t.id === last.templateId ? " · последний раз выбран" : ""}</option>)}
-          </select>
-        </label>
-      )}
-      <label className="block text-sm" htmlFor={`${ids}-text`}>Текст
-        <textarea id={`${ids}-text`} rows={5} maxLength={5000} className="mt-1 w-full rounded-lg border p-3" value={text}
-          onChange={(e) => onChange({ ...value, script: e.target.value, templateId: drafted.templateId ?? undefined })} />
-      </label>
-      {!!data?.voices.length && (
-        // Голос выбирают на слух: у каждого «▶ Прослушать» одной и той же фразой на языке шаблона.
-        <VoiceSamplePicker name={`${ids}-voice`} voices={data.voices} value={voiceId} samples={data.samples} lang={drafted.lang} lastPickedId={last.voiceId ?? null}
-          onChange={(id) => onChange({ ...value, voiceId: id })} />
-      )}
-      <p className="text-sm text-slate-600">
-        {data?.autoGenerate
-          ? "После сохранения озвучка придёт вам на прослушивание в CRM и в Шабнам. Цена звучит словами; поменяется цена — озвучка обновится и снова придёт на одобрение."
-          : "Озвучку можно будет подготовить в карточке объекта."}
-      </p>
+        <NarrationComposer name={`${ids}-voice`} templates={templates} voices={data?.voices ?? []} samples={data?.samples} facts={facts}
+          value={value} onChange={(next) => onChange({ ...next })} defaultTemplateId={defaultTemplateId} defaultVoiceId={defaultVoiceId} lastPickedVoiceId={last.voiceId ?? null} />
+        <p className="rounded-lg bg-blue/10 p-3 text-sm">
+          {data?.autoGenerate
+            ? "После сохранения объекта озвучка придёт вам на прослушивание в CRM и в Шабнам. Поменяется цена — озвучка обновится сама и снова придёт на одобрение."
+            : "Озвучку можно будет подготовить в карточке объекта."}
+        </p>
       </>}
     </section>
   );

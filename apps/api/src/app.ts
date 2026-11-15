@@ -45,6 +45,7 @@ import { callsRouter } from "./routes/calls.js";
 import { aiRouter } from "./routes/ai.js";
 import { transcribeRouter } from "./routes/transcribe.js";
 import { reportsRouter } from "./routes/reports.js";
+import { reportPdfRouter } from "./routes/reportPdf.js";
 import { settingsRouter } from "./routes/settings.js";
 import { uiShellRouter } from "./routes/uiShell.js";
 import { liveVoiceListenRouter } from "./routes/liveVoiceListen.js";
@@ -722,6 +723,7 @@ app.use("/api/v1/live-voice", liveVoiceListenRouter);
 app.use("/api/v1/ai", aiRouter);
 app.use("/api/v1/transcribe", transcribeRouter);
 app.use("/api/v1/reports", reportsRouter);
+app.use("/api/v1/report-pdf", reportPdfRouter);
 // Раньше общего роутера настроек: у того нет своих путей под /restore-points,
 // но порядок здесь и читается как «частное перед общим».
 app.use("/api/v1/telephony/whisper", telephonyWhisperRouter);
