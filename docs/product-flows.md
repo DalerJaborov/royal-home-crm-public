@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **752**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4070**. Модулей: **83**.
+Путей: **752**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4065**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3793,58 +3793,13 @@
 
 `apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
 
-- const client = await prisma.client.findUnique({ where: { id: req.params.id } });
-  · читает в базе: client
-- если !client || !client.deletedAt
-  - return res.status(404).json({ error: "Клиент не найден в корзине" });
-    · ответ 404 — «Клиент не найден в корзине»
-- const owner = client.assignedAgentId ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId },…
-  · читает в базе: agent
-- const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…
-  · читает в базе: agent
-- const restored = await prisma.$transaction(async (tx)
-  · пробрасывает ошибку дальше
-  · всё внутри — одной транзакцией
-  · обращается к базе своим SQL
-  · читает в базе: client
-  · читает в базе: agent
-  · меняет в базе: client
-  - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
-    · обращается к базе своим SQL
-  - const current = await tx.client.findUnique({ where: { id: client.id } });
-    · читает в базе: client
-  - если !current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()
-    - return false;
-      · дословно из кода
-  - для каждого: const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? "").localeCompare(b[0] ?? ""))
-    - если id && !completedAssignment
-      - await tx.$queryRaw`SELECT id FROM "Agent" WHERE id = ${id} FOR SHARE`;
-        · обращается к базе своим SQL
-      - const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true…
-        · читает в базе: agent
-      - если eligible(agent) !== expected
-        - return false;
-          · дословно из кода
-  - await tx.client.update({ where: { id: client.id }, data: { deletedAt: null, deletedById: null, ...(ownerGone …
-    · меняет в базе: client
-  - если ownerGone || restoredAgentId
-    - const changed = await changeClientAgent({ clientId: client.id, toAgentId: restoredAgentId, reason: restoredAg…
-      · зовёт changeClientAgent()
-    - если !changed.ok
-      - throw restoreConflict;
-        · пробрасывает ошибку дальше
-- если !restored
-  - return res.status(409).json({ error: "Карточка изменилась. Обновите страницу" });
-    · ответ 409 — «Карточка изменилась. Обновите страницу»
-- если toQueue
-  - const supervisors = (await findAgentsWithPermission("clients.assign")).filter((id)
-    · зовёт findAgentsWithPermission()
-  - sendPushToAgents(supervisors, { title: "♻️ Карточка восстановлена без агента", body: `${client.fullName} — ве…
-    · push-уведомление
-- logAudit(req, "RESTORE", "Client", client.id, { shortId: client.shortId, fullName: client.fullName, phone: cl…
+- const result = await restoreClientFromTrash(req.params.id, req.agent!.id);
+  · зовёт restoreClientFromTrash()
+- если !result.ok
+  - return res.status(result.status).json({ error: result.error });
+    · ответ (код зависит от условия)
+- logAudit(req, "RESTORE", "Client", result.client.id, { shortId: result.client.shortId, fullName: result.clien…
   · зовёт logAudit()
-- publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId] });
-  · зовёт publishClientUpdated()
 - res.status(204).send();
   · ответ 204
 
@@ -10407,6 +10362,16 @@
 - если !result.ok
   - return res.status(result.status).json({ error: result.error });
     · ответ (код зависит от условия)
+- const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { status: true, ass…
+  · читает в базе: property
+- если property && canApplyChangeDirectly({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, pro…
+  - const applied = await applyOwnChangeRequestNow(result.request.id, req.agent!.id);
+    · зовёт applyOwnChangeRequestNow()
+  - если !applied.ok
+    - return res.status(applied.status).json({ error: applied.error });
+      · ответ (код зависит от условия)
+  - return res.status(201).json({ request: applied.request, applied: applied.request.status === "APPROVED", messa…
+    · ответ 201
 - res.status(201).json({ request: result.request });
   · ответ 201
 

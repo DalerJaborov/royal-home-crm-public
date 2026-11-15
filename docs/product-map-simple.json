@@ -16,10 +16,10 @@
   "paths": 752,
   "cron": 135,
   "jobs": 33,
-  "conditions": 4054,
-  "untranslatedUnique": 464,
-  "untranslatedTotal": 595,
-  "partialUnique": 1099,
+  "conditions": 4049,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 594,
+  "partialUnique": 1096,
   "translatedShare": 85
  },
  "untranslated": [
@@ -72,7 +72,6 @@
   "!current || (current.status !== \"UNKNOWN\" && !(current.status === \"GENERATING\" && current.generationStartedAt…",
   "!current || current.effectiveAgentId !== agent.id || current.clientAssignedAgentId !== first.clientAssignedAg…",
   "!current || current.fence.nativeId !== row.conversationId || current.closedAt || !managedCustomerCallbackWitn…",
-  "!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()",
   "!current?.isActive || !canViewInvestigations(current.role) || !resolvePermissions(current.role, parsePermissi…",
   "!currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…",
   "!customerManagedTraceEnabled()",
@@ -284,7 +283,6 @@
   "delivery.propertyId !== p.id || delivery.versionId !== row.id || delivery.createdById !== req.agent!.id || de…",
   "digits.replace(/\\D/g, \"\").length < 5",
   "dispatchLikelyInProgress(p.videoHandoffDispatchStartedAt, now)",
-  "eligible(agent) !== expected",
   "err instanceof AssistantActionError",
   "err instanceof ClientMergeOpenDealError",
   "err instanceof ClientMergeTrashedError",
@@ -406,6 +404,7 @@
   "properties.length === MAX_PROPERTIES_PER_SWEEP",
   "properties.some((p) => !p.district)",
   "properties.some((p) => p.currency === \"USD\")",
+  "property && canApplyChangeDirectly({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, pro…",
   "property.clipVideoUrl && property.clipVideoUrl !== targetUrl",
   "property.deletedAt && !canOpenTrashedPropertyPage({ agentId: req.agent!.id, can: (permission) => can(req, per…",
   "property.videoHandoffDispatchStartedAt && Date.now() - property.videoHandoffDispatchStartedAt.getTime() < HAN…",
@@ -19825,95 +19824,12 @@
    ],
    "tree": [
     {
-     "t": "если нет: клиент или нет: удалён at",
+     "t": "если не получилось",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Клиент не найден в корзине»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "все изменения разом: либо всё, либо ничего",
-     "k": "do",
-     "a": [
-      "меняет: клиент"
-     ],
-     "c": [
-      {
-       "t": "если !current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()",
-       "k": "if",
-       "a": [],
-       "c": [],
-       "raw": "!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()"
-      },
-      {
-       "t": "и так по каждому",
-       "k": "loop",
-       "a": [],
-       "c": [
-        {
-         "t": "если есть id и нет: завершён assignment",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "если eligible(agent) !== expected",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "eligible(agent) !== expected",
-           "more": true
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "t": "меняет: клиент",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если есть владелец gone или есть restored сотрудник",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если нет: получилось (изменённые)",
-         "k": "if",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если нет: restored",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Карточка изменилась. Обновите страницу»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть в очередь",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "push-уведомление",
+       "t": "ответ (код зависит от условия)",
        "k": "do",
        "a": [],
        "c": []
@@ -38761,6 +38677,33 @@
        "c": []
       }
      ]
+    },
+    {
+     "t": "если property && canApplyChangeDirectly({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, pro…",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: получилось",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "ответ (код зависит от условия)",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "создано",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "property && canApplyChangeDirectly({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, pro…"
     },
     {
      "t": "создано",

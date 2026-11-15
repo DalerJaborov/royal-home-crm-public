@@ -36,7 +36,8 @@ import {
   createPropertyChangeRequest,
 } from "../../lib/propertyChangeRequestService.js";
 import { canManageProperty } from "./shared.js";
-import { approvePropertyChangeRequest } from "./changeRequestExecutor.js";
+import { applyOwnChangeRequestNow, approvePropertyChangeRequest } from "./changeRequestExecutor.js";
+import { canApplyChangeDirectly } from "../../lib/propertyAccess.js";
 
 export const changeRequestsRouter = Router();
 
@@ -197,6 +198,19 @@ changeRequestsRouter.post(
       body: parsed.data,
     });
     if (!result.ok) return res.status(result.status).json({ error: result.error });
+
+    // СВОЁ — СРАЗУ (владелец 15.11.2026: «без неё можно менять любые свои данные»): цена, данные карточки
+    // и перемонтаж своего объекта принимаются автором тем же исполнителем, что «Принять» директора;
+    // чужой объект и «убрать из соцсетей» / «Другое» остаются заявкой. Правило одно с Шабнам.
+    const property = await prisma.property.findUnique({
+      where: { id: req.params.id },
+      select: { status: true, assignedAgentId: true, intakeAgentId: true, createdById: true },
+    });
+    if (property && canApplyChangeDirectly({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, property, parsed.data.kind)) {
+      const applied = await applyOwnChangeRequestNow(result.request.id, req.agent!.id);
+      if (!applied.ok) return res.status(applied.status).json({ error: applied.error });
+      return res.status(201).json({ request: applied.request, applied: applied.request.status === "APPROVED", message: applied.message });
+    }
     res.status(201).json({ request: result.request });
   }
 );
