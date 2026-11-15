@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4052**. Модулей: **83**.
+Путей: **754**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4082**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3408,8 +3408,8 @@
 - если !hasBuyerCriteria(wants)
   - return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
     · ответ 200
-- const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);
-  · зовёт findBuyerListings()
+- const [{ total, totalIsLowerBound, listings, ownersOnly }, market] = await Promise.all([ loadOwnersFilter().t…
+  · зовёт loadOwnersFilter()
 - const body: MarketBuyerListingsResponse = { status: "ok", criteria, total, totalIsLowerBound, budgetMaxTjs: w…
   · зовёт phoneSafeText()
 - return res.json(body);
@@ -3559,13 +3559,13 @@
   · зовёт listDealDocumentFileNames()
 - await prisma.$transaction(async (tx)
   · всё внутри — одной транзакцией
-  · меняет в базе: botConversation
+  · обращается к базе своим SQL
   · меняет в базе: telegramConversation
   · удаляет в базе: dealReview
   · удаляет в базе: deal
   · удаляет в базе: client
-  - await tx.botConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
-    · меняет в базе: botConversation
+  - await tx.$executeRaw`UPDATE "BotConversation" SET "clientId"=NULL, "leadDraft"=(CASE WHEN jsonb_typeof("leadD…
+    · обращается к базе своим SQL
   - await tx.telegramConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
     · меняет в базе: telegramConversation
   - await tx.dealReview.deleteMany({ where: { OR: [{ clientId: client.id }, { dealId: { in: client.deals.map((d)
@@ -8644,6 +8644,20 @@
 
 ## /api/v1/market
 
+### GET /api/v1/market/history
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = marketHistoryQuerySchema.safeParse(req.query);
+  · проверяет данные схемой marketHistoryQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- const points = await readMedianHistory({ city: q.city, districtName: q.districtName, rooms: q.rooms ?? ANY_RO…
+  · зовёт readMedianHistory()
+- res.json(body);
+  · ответ 200
+
 ### POST /api/v1/market/listing-contact
 
 `apps/api/src/routes/marketContact.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -8694,6 +8708,13 @@
   - return res.status(502).json({ error: "Не удалось получить номер — откройте объявление на сайте" });
     · ответ 502 — «Не удалось получить номер — откройте объявление на сайте»
 
+### GET /api/v1/market/overpriced
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- res.json(await findOverpricedPropertiesCached());
+  · ответ 200
+
 ### GET /api/v1/market/property/:id/dynamics
 
 `apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -8714,6 +8735,25 @@
 - res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…
   · ответ 200
 
+### GET /api/v1/market/property/:id/history
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const where = cardWhereFromParam(String(req.params.id));
+  · зовёт cardWhereFromParam()
+- если !where
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, deletedAt: true, distr…
+  · читает в базе: property
+- если !p || (p.deletedAt && !can(req, "archive.view"))
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const points = p.type === "APARTMENT" && districtName && rooms ? await readMedianHistory({ city: "Душанбе", d…
+  · зовёт readMedianHistory()
+- res.json(body);
+  · ответ 200
+
 ### GET /api/v1/market/property/:id
 
 `apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -8723,19 +8763,12 @@
 - если !where
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- const p = await prisma.property.findUnique({ where, select: { id: true, type: true, rooms: true, areaSqm: tru…
+- const p = await prisma.property.findUnique({ where, select: PROPERTY_MARKET_SELECT });
   · читает в базе: property
 - если !p || (p.deletedAt && !can(req, "archive.view"))
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- const money = await loadMoneyContext();
-  · зовёт loadMoneyContext()
-- если (p.type !== "APARTMENT" && p.type !== "HOUSE") || !(subjectBase.areaSqm > 0)
-  - return res.json({ subject: { ...subjectBase, propertyType: p.type }, ...emptyResult("для этого типа объекта р…
-    · ответ 200
-- const result = await findSimilar({ ...subjectBase, propertyType: p.type }, { propertyId: p.id });
-  · зовёт findSimilar()
-- res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === "ok" ?…
+- res.json(await evaluatePropertyAgainstMarket(p, await loadMoneyContext()));
   · ответ 200
 
 ### GET /api/v1/market/segments
@@ -14227,18 +14260,13 @@
 - если !property || !isPropertyVideoPublic(property)
   - return res.status(404).end();
     · ответ 404
-- если !propertyVideoFileExists(property.videoHandoffFinalPath)
-  - void logSystemError("storage", `Публичный ролик объекта №${shortId}: файла нет на диске, ссылка отдаёт 404`, …
-    · запись в журнал ошибок
-  - return res.status(404).end();
-    · ответ 404
 - res.setHeader("Content-Type", "video/mp4");
   · ставит заголовок ответа
 - res.sendFile(fileName, { root: videoHandoffDir, maxAge: "1d" }, (err)
   · ответ 404
   · запись в журнал ошибок
   - если err && !res.headersSent
-    - void logSystemError("storage", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`, { dedupKey: PU…
+    - void logSystemError("storage", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`);
       · запись в журнал ошибок
     - res.status(404).end();
       · ответ 404
@@ -14404,25 +14432,64 @@
 - res.json({ ok: true });
   · ответ 200
 
+## /api/v1/report-pdf
+
+### POST /api/v1/report-pdf/:kind/telegram
+
+`apps/api/src/routes/reportPdf.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !kind
+  - return;
+    · дальше не идёт, ничего не меняя
+- если !viewer.telegramChatId
+  - return res.status(409).json({ error: "Привяжите свой Telegram в профиле — туда придёт отчёт" });
+    · ответ 409 — «Привяжите свой Telegram в профиле — туда придёт отчёт»
+- пробует
+  - пробует
+    - await sendDocumentFile(viewer.telegramChatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.p…
+      · зовёт sendDocumentFile()
+  - если сорвалось
+    - void logSystemError("telegram", `PDF «${REPORT_PDF_TITLES[kind]}» не отправлен в Telegram: ${describeError(er…
+      · запись в журнал ошибок
+    - return res.status(503).json({ error: "Telegram не принял файл. Повторите позже или скачайте PDF" });
+      · ответ 503 — «Telegram не принял файл. Повторите позже или скачайте PDF»
+  - logAudit(req, "REPORT_PDF_EXPORT", "Report", kind, { destination: "ownTelegram", period: pdf.periodKey, bytes…
+    · зовёт logAudit()
+  - res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - failed(res, kind, err);
+    · дословно из кода
+
+### GET /api/v1/report-pdf/:kind
+
+`apps/api/src/routes/reportPdf.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !kind
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - logAudit(req, "REPORT_PDF_EXPORT", "Report", kind, { destination: "download", period: pdf.periodKey, bytes: p…
+    · зовёт logAudit()
+  - res.setHeader("Content-Type", "application/pdf");
+    · ставит заголовок ответа
+  - res.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);
+    · ставит заголовок ответа
+  - res.setHeader("Cache-Control", "no-store");
+    · ставит заголовок ответа
+  - res.send(pdf.buffer);
+    · ответ 200
+- если сорвалось
+  - failed(res, kind, err);
+    · дословно из кода
+
 ## /api/v1/reports
 
 ### GET /api/v1/reports/agents
 
 `apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
-- const agents = await prisma.agent.findMany({ where: { OR: [{ isActive: true }, { deals: { some: { stage: "COM…
-  · читает в базе: agent
-- const [showingCounts, showingCountsBySubject, deals, money] = await Promise.all([ prisma.interaction.groupBy(…
-  · считает в базе: interaction
-  · считает в базе: deal
-- для каждого: const s of showingCountsBySubject
-  - если !s.subjectAgentId
-    - continue;
-      · переходит к следующему
-- для каждого: const row of deals
-  - entry.commission += toTjs(row._sum.commissionAmount, row.currency, money);
-    · зовёт toTjs()
-- res.json(rows);
+- res.json(await buildAgentsReport(parseReportRange(req.query), reportViewer(req)));
   · ответ 200
 
 ### GET /api/v1/reports/demand-supply
@@ -14449,11 +14516,9 @@
 
 `apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
-- const [newLeads, contactedClientIds, showings, negotiations, completedDeals, money] = await Promise.all([ pri…
-  · считает в базе: client
-  · считает в базе: interaction
-  · считает в базе: deal
-- res.json({ from, to, funnel: [ { key: "leads", label: "Новые лиды", count: newLeads }, { key: "contacted", la…
+- const range = parseReportRange(req.query);
+  · зовёт parseReportRange()
+- res.json({ ...range, funnel: await buildFunnelReport(range, reportViewer(req)) });
   · ответ 200
 
 ### GET /api/v1/reports/hot-properties
@@ -14681,27 +14746,7 @@
 
 `apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
-- const clientCounts = await prisma.client.groupBy({ by: ["source", "status"], where: { createdAt: { gte: from,…
-  · считает в базе: client
-- для каждого: const row of clientCounts
-  - если row.status === "DEAL_CLOSED"
-    - entry.closed += row._count._all;
-      · дословно из кода
-- const [botConversations, telegramConversations] = await Promise.all([ prisma.botConversation.groupBy({ by: ["…
-  · считает в базе: botConversation
-  · считает в базе: telegramConversation
-- для каждого: const row of botConversations
-  - wroteBySource.set(row.channel, (wroteBySource.get(row.channel) ?? 0) + row._count._all);
-    · дословно из кода
-- если telegramConversations > 0
-  - wroteBySource.set("TELEGRAM", (wroteBySource.get("TELEGRAM") ?? 0) + telegramConversations);
-    · дословно из кода
-- const closedDeals = await prisma.deal.findMany({ where: { stage: "COMPLETED", closedAt: { gte: from, lte: to …
-  · читает в базе: deal
-- если closedDeals.length >= REPORTS_ROW_LIMIT
-  - void logSystemError( "api", `Отчёт «Источники»: закрытых сделок за период больше потолка ${REPORTS_ROW_LIMIT}…
-    · запись в журнал ошибок
-- res.json({ sources: Array.from(new Set([...bySource.keys(), ...wroteBySource.keys()])) .map((source)
+- res.json(await buildSourcesReport(parseReportRange(req.query)));
   · ответ 200
 
 ### GET /api/v1/reports/waiting-now
@@ -19651,27 +19696,6 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
-### balance-watch — 20 9 * * *
-
-- пробует
-  - const alerts = await runBalanceWatch();
-    · зовёт runBalanceWatch()
-    - для каждого: const run of [() => checkElevenLabsBalances(deps), () => checkSmsBalance(deps)]
-      - пробует
-      - если сорвалось
-        - void logSystemError("cron", `Проверка остатка платных сервисов не выполнена: ${describeError(err)}`, { dedupK…
-          · запись в журнал ошибок
-  - если alerts
-    - console.log(`[cron] Остатки платных сервисов: тревог поднято ${alerts}`);
-      · пишет строку в журнал сервера
-- если сорвалось
-  - reportCronTickError("Ошибка суточной проверки остатков", err);
-    · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
-
 ### bot-audit — 15 3 * * *
 
 - если isBotAuditRunning
@@ -20398,6 +20422,55 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### comment-needs-human-sweep — 6-59/10 * * * *
+
+- пробует
+  - const { alerted } = await runCommentNeedsHumanSweep();
+    · зовёт runCommentNeedsHumanSweep()
+    - const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …
+      · обращается к базе своим SQL
+    - если !rows.length
+      - return { checked: 0, alerted: 0 };
+        · дословно из кода
+    - const claim = (commentId: string)
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - если !commentNeedsHuman(row.status, row.note)
+        - continue;
+          · переходит к следующему
+    - если !due.length
+      - return { checked: rows.length, alerted: 0 };
+        · дословно из кода
+    - const recipients = await findAgentsWithPermission("messages.view");
+      · зовёт findAgentsWithPermission()
+    - если !recipients.length
+      - void logSystemError("meta", `Комментарии ждут человека (${due.length}), но в CRM нет никого с правом «Сообщен…
+        · запись в журнал ошибок
+    - для каждого: const row of due
+      - if ((await claim(row.commentId)) === 1) claimed.push(row);
+        · дословно из кода
+    - если !claimed.length
+      - return { checked: rows.length, alerted: 0 };
+        · дословно из кода
+    - пробует
+      - await sendPushToAgents(recipients, { kind: "message", title: claimed.length === 1 ? `💬 ${places}: ответьте н…
+        · push-уведомление
+    - если сорвалось
+      - await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: claimed.map((r)
+        · удаляет в базе: processedMessage
+      - void logSystemError("meta", `Сводка «комментарии ждут человека» не отправлена: ${err instanceof Error ? err.m…
+        · запись в журнал ошибок
+  - если alerted > 0
+    - console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа комментариев без ответа", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### contact-link-sweep — 10 3 * * *
 
 - пробует
@@ -20967,6 +21040,60 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка уборки черновиков объектов", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### finance-pdf-monthly — 10 9 1-3 * *
+
+- пробует
+  - const result = await sendMonthlyFinancePdf();
+    · зовёт sendMonthlyFinancePdf()
+    - const month = previousMonthKey(now);
+      · зовёт previousMonthKey()
+    - const claimed = await prisma.settings.updateMany({ where: { id: "singleton", financePdfMonthlyEnabled: true, …
+      · меняет в базе: settings
+    - если claimed.count === 0
+      - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { financePdfMonthlyEn…
+        · читает в базе: settings
+    - const release = ()
+      · меняет в базе: settings
+    - пробует
+      - const candidates = await prisma.agent.findMany({ where: { role: "DIRECTOR", isActive: true, telegramChatId: {…
+        · читает в базе: agent
+      - для каждого: const c of candidates
+        - const access = await loadAgentAccess(c.id);
+          · зовёт loadAgentAccess()
+        - если access?.isActive && access.permissions.has("finance.view") && c.telegramChatId
+          - recipients.push({ id: c.id, chatId: String(c.telegramChatId) });
+            · дословно из кода
+      - если recipients.length === 0
+        - void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…
+          · запись в журнал ошибок
+      - для каждого: const r of recipients
+        - пробует
+          - await sendDocumentFile(r.chatId, pdf.buffer, pdf.filename, `Финансовый отчёт · ${pdf.periodLabel}`);
+            · зовёт sendDocumentFile()
+          - logAgentAudit(r.id, "REPORT_PDF_EXPORT", "Report", "finance", { destination: "monthlyTelegram", period: pdf.p…
+            · зовёт logAgentAudit()
+        - если сорвалось
+          - void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…
+            · запись в журнал ошибок
+      - если delivered === 0
+        - await release();
+          · дословно из кода
+        - return { month, status: "failed", delivered, failed };
+          · дословно из кода
+    - если сорвалось
+      - throw err;
+        · пробрасывает ошибку дальше
+  - если result.status === "sent"
+    - console.log(`[cron] Финансовый PDF за ${result.month}: доставлено ${result.delivered}, не доставлено ${result…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Финансовый PDF за месяц не разослан", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -22471,6 +22598,148 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### market-buyer-alerts — 12,27,42,57 * * * *
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await runBuyerMarketAlerts();
+    · зовёт runBuyerMarketAlerts()
+    - если running
+      - return stats;
+        · дословно из кода
+    - пробует
+      - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { marketBuyerAlertsEn…
+        · читает в базе: settings
+      - если !settings?.marketBuyerAlertsEnabled
+        - если settings?.marketBuyerAlertsEnabledAt
+          - await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: { not: null } }, dat…
+            · меняет в базе: settings
+      - если !settings.marketBuyerAlertsEnabledAt
+        - await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: null }, data: { mark…
+          · меняет в базе: settings
+      - const rawListings = await prisma.marketListing.findMany({ where: { dealType: "SALE", isActive: true, firstSee…
+        · читает в базе: marketListing
+      - если rawListings.length === 0
+        - return stats;
+          · дословно из кода
+      - const realtors = await loadOwnersFilter();
+        · зовёт loadOwnersFilter()
+      - если listings.length === 0
+        - return stats;
+          · дословно из кода
+      - const policy = await loadMatchPolicy();
+        · зовёт loadMatchPolicy()
+      - const clients = await prisma.client.findMany({ where: { ...waitingBuyerWhere(policy, now), assignedAgentId: {…
+        · читает в базе: client
+      - если clients.length === 0
+        - return stats;
+          · дословно из кода
+      - const [districts, money] = await Promise.all([ districtIds.length ? prisma.district.findMany({ where: { id: {…
+        · читает в базе: district
+      - const buyers: AlertBuyer[] = clients.flatMap((c)
+        - если !c.assignedAgentId
+          - return [];
+            · дословно из кода
+        - const criteria = currentBuyerMatchingCriteria(c);
+          · зовёт currentBuyerMatchingCriteria()
+        - const wants = buildBuyerWants(criteria, criteria.desiredDistrictId ? districtById.get(criteria.desiredDistric…
+          · зовёт buildBuyerWants()
+        - return hasBuyerCriteria(wants) ? [{ clientId: c.id, shortId: c.shortId, kind: c.kind, agentId: c.assignedAgen…
+          · зовёт hasBuyerCriteria()
+      - если buyers.length === 0
+        - return stats;
+          · дословно из кода
+      - const dayStart = dushanbeStartOfToday(now);
+        · зовёт dushanbeStartOfToday()
+      - const [pairs, recent, todayByAgent] = await Promise.all([ prisma.buyerMarketAlert.findMany({ where: { clientI…
+        · читает в базе: buyerMarketAlert
+      - для каждого: const r of recent
+        - previousByClient.set(r.clientId, [...(previousByClient.get(r.clientId) ?? []), toAlertListing(r.listing)]);
+          · дословно из кода
+      - для каждого: const r of todayByAgent
+        - pushKeysByAgent.set(r.agentId, (pushKeysByAgent.get(r.agentId) ?? new Set()).add(`${r.clientId}|${r.notifiedA…
+          · дословно из кода
+      - const plan = planBuyerAlerts({ buyers, listings, alreadyAlerted: new Set(pairs.map((p)
+        · зовёт planBuyerAlerts()
+      - для каждого: const item of plan
+        - const claimed = await prisma.buyerMarketAlert.createMany({ data: item.listings.map((l)
+          · создаёт в базе: buyerMarketAlert
+        - если claimed.count === 0
+          - continue;
+            · переходит к следующему
+        - const owned = claimed.count === item.listings.length ? new Set(item.listings.map((l)
+          · читает в базе: buyerMarketAlert
+        - если toTell.length === 0
+          - continue;
+            · переходит к следующему
+        - const text = buyerAlertText(item.buyer, toTell);
+          · зовёт buyerAlertText()
+        - пробует
+          - await sendPushToAgent(item.buyer.agentId, { kind: "market_buyer", title: text.title, body: text.body, url: `/…
+            · push-уведомление
+        - если сорвалось
+          - await prisma.buyerMarketAlert.deleteMany({ where: { clientId: item.buyer.clientId, notifiedAt: at } });
+            · удаляет в базе: buyerMarketAlert
+          - void logSystemError("api", `Пуш о новом объявлении под покупателя не ушёл: ${err instanceof Error ? err.name …
+            · запись в журнал ошибок
+      - если stats.failed > 0
+        - void logSystemError("api", `Оповещение о новых объявлениях: не ушло пушей ${stats.failed} из ${stats.failed +…
+          · запись в журнал ошибок
+    - в любом случае
+      - running = false;
+        · дословно из кода
+- если сорвалось
+  - markCronTickFailed("Ошибка оповещения о новых объявлениях под покупателей", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
+
+### market-median-history — 30 6 * * *
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await recordMedianHistory();
+    · зовёт recordMedianHistory()
+    - const day = dushanbeDateString(now);
+      · зовёт dushanbeDateString()
+    - const listings = await prisma.marketListing.findMany({ where: { AND: [segmentsWhere({ city }, now.getTime()),…
+      · читает в базе: marketListing
+    - const [byId, byPhone] = await Promise.all([ ids.length ? prisma.marketListing.groupBy({ by: ["source", "selle…
+      · считает в базе: marketListing
+    - для каждого: const g of byId
+      - if (g.sellerId) counts.set(`${g.source}:${g.sellerId}`, g._count._all);
+        · дословно из кода
+    - для каждого: const g of byPhone
+      - if (g.sellerPhone) counts.set(`ph:${g.sellerPhone}`, g._count._all);
+        · дословно из кода
+    - const rows: HistoryInputRow[] = listings.map((r)
+      - const key = sellerKey(r);
+        · зовёт sellerKey()
+    - const built = buildMedianHistory(rows);
+      · зовёт buildMedianHistory()
+    - если built.length === 0
+      - return { day, fetched: listings.length, written: 0, skipped: "no-data" };
+        · дословно из кода
+    - await prisma.$transaction([ prisma.marketMedianDaily.deleteMany({ where: { day, city } }), prisma.marketMedia…
+      · всё внутри — одной транзакцией
+      · удаляет в базе: marketMedianDaily
+      · создаёт в базе: marketMedianDaily
+- если сорвалось
+  - markCronTickFailed("Ошибка ночной записи истории медиан рынка", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
 
 ### market-own-match — */30 * * * *
 
@@ -27054,8 +27323,11 @@
       - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${re…
         · обращается к базе своим SQL
       - если result.reason !== NEWER_INPUT_PENDING
-        - await resumeDeferredCustomerInbox(eventKey);
+        - rearmed = await resumeDeferredCustomerInbox(eventKey);
           · зовёт resumeDeferredCustomerInbox()
+      - если !rearmed
+        - void reportUnansweredCustomerTurn(eventKey, result.reason);
+          · зовёт reportUnansweredCustomerTurn()
   - const recovered = await recoverCustomerPendingEnvelope(eventKey);
     · зовёт recoverCustomerPendingEnvelope()
   - return prisma.$transaction(async tx
@@ -27113,6 +27385,22 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+  - void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up", { gaveUp: true });
+    · зовёт reportUnansweredCustomerTurn()
+    - если customerTurnSilenceIsIntended(reason)
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: str…
+        · обращается к базе своим SQL
+      - если !row || row.answered
+        - return;
+          · дальше не идёт, ничего не меняя
+      - await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? "", peer: row.peer ?? "", conversationId…
+        · зовёт notifyUnansweredCustomerTurn()
+    - если сорвалось
+      - void logSystemError("meta", `Не удалось сообщить о неотвеченном ходе бота (${reason}): ${error instanceof Err…
+        · запись в журнал ошибок
 
 ### customer-intake-notify
 

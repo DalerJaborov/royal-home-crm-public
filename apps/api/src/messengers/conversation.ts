@@ -1276,6 +1276,14 @@ export async function acceptLead(
    * по параметру draft, который у обоих вызовов одинаково устаревший) — тот же
    * приём, что и захват буфера дебаунса (debounceAndMerge): забирает ход ровно
    * один раз, опоздавший тихо уходит без второго ответа клиенту.
+   *
+   * «done» БЕЗ КАРТОЧКИ — НЕ ЗАНЯТО, А БРОШЕНО (14.11.2026, живой случай Instagram 10.11:
+   * бот ответил «Приняли ваш номер», карточки нет). Победитель ставит «done» ВМЕСТЕ с
+   * clientId одной записью (ниже), поэтому «done» при пустом clientId гонкой не бывает:
+   * это след удалённой карточки (routes/clients/card.ts отвязывает диалог, стадию не
+   * трогает) или любой другой отвязки. Раньше такой диалог не мог принять номер НИКОГДА:
+   * ни живой ход, ни сторож лидов — только тревога руководству. Защита по умолчанию:
+   * условие здесь, а не сброс стадии в каждом месте, где диалог отвязывают.
    */
   let claimed = await prisma.$executeRaw`
     UPDATE "BotConversation"
@@ -1283,7 +1291,8 @@ export async function acceptLead(
       jsonb_set(COALESCE("leadDraft", '{}'::jsonb), '{stage}', '"accepting"'),
       '{acceptingAt}', to_jsonb((extract(epoch from clock_timestamp()) * 1000)::bigint))
     WHERE "id" = ${conversationId}
-      AND COALESCE("leadDraft"->>'stage', '') NOT IN ('done', 'accepting')`;
+      AND (COALESCE("leadDraft"->>'stage', '') NOT IN ('done', 'accepting')
+        OR ("leadDraft"->>'stage' = 'done' AND "clientId" IS NULL))`;
   if (claimed === 0) {
     /**
      * ЗАВИСШИЙ ЗАХВАТ — ПЕРЕЗАХВАТ (AI-DIALOGUE01, аудит 04.10.2026).
@@ -1321,6 +1330,8 @@ export async function acceptLead(
      * что бот промолчал. Теперь во втором случае реплику сохраняем (кроме повтора
      * по уже сохранённой истории, см. `fromHistory`) и пишем в журнал; ответа
      * клиенту по-прежнему нет — карточку в такой переписке заводит человек.
+     * С 14.11.2026 «done» БЕЗ карточки захватывается выше и сюда не доходит; ветка
+     * осталась для «done» при живой карточке (приём сюда звать не должны) — след в журнале.
      */
     const stale = await prisma.botConversation
       .findUnique({ where: { id: conversationId }, select: { leadDraft: true } })

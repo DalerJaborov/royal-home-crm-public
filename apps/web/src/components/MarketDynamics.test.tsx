@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MarketDynamicsView, dynamicsTiles } from "./MarketDynamics";
+import { MarketDynamicsView, dynamicsTiles, historyTile } from "./MarketDynamics";
 import type { MarketDynamicsData } from "../types";
 
 const base: MarketDynamicsData = {
@@ -49,6 +49,35 @@ describe("dynamicsTiles", () => {
       price: { ...base.price, diffPercent: null, cutSharePercent: null, avgCutPercent: null },
     });
     expect(tiles.map((t) => t.key)).toEqual(["sellers"]);
+  });
+});
+
+describe("historyTile (ряд «по району»)", () => {
+  const pt = (day: string, m: number, count = 12) => ({ day, count, medianPerSqmTjs: m, averagePerSqmTjs: m, medianPriceTjs: m * 60, averagePriceTjs: m * 60 });
+  const h = (points: ReturnType<typeof pt>[]) => ({ minSample: 8, city: "Душанбе", districtName: "Сино", rooms: 2, building: null, audience: "all" as const, points });
+
+  it("нет записей — плитки нет", () => {
+    expect(historyTile(undefined)).toBeNull();
+    expect(historyTile(h([]))).toBeNull();
+  });
+
+  it("одна запись — только цифра и «копится», без выдуманной динамики", () => {
+    const t = historyTile(h([pt("2026-11-14", 12400)]))!;
+    expect(t.text).toContain("/м²");
+    expect(t.text).not.toContain("%");
+    expect(t.hint).toContain("копится с 2026-11-14");
+  });
+
+  it("две и больше — изменение в процентах от первой записи", () => {
+    const t = historyTile(h([pt("2026-11-14", 10000), pt("2026-11-20", 10500)]))!;
+    expect(t.text).toContain("+5% с 2026-11-14");
+    expect(t.label).toContain("Сино, 2-комн.");
+    expect(historyTile(h([pt("2026-11-14", 10000), pt("2026-11-20", 9000)]))!.text).toContain("−10%");
+  });
+
+  it("плитка показывается в блоке динамики", () => {
+    const html = renderToStaticMarkup(<MarketDynamicsView data={base} history={h([pt("2026-11-14", 12400)])} />);
+    expect(html).toContain("Цена за м²: Сино, 2-комн.");
   });
 });
 
