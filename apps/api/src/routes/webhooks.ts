@@ -1680,9 +1680,9 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // сверка Страниц не дождалась вебхука и сказала сотруднику «Ответьте вручную»; если Meta
   // дошлёт это сообщение позже (после простоя сервера), бот ответил бы второй раз. Только
   // если в запросе одни такие личные сообщения Messenger — без эха, статусов и комментариев.
-  if (incoming.length > 0 && incoming.every((m) => m.channel === "FACEBOOK" && !m.isEcho && m.messageId) &&
+  if (incoming.length > 0 && incoming.every((m) => (m.channel === "FACEBOOK" || m.channel === "INSTAGRAM") && !m.isEcho && m.messageId) &&
       !metaBodyHasChanges(req.body) && await isHandedToStaff(incoming.map((m) => m.messageId!))) {
-    console.log(`[вебхук] FACEBOOK: повтор ${incoming.length} сообщ., уже отданных сотруднику по сверке Страниц — бот молчит`);
+    console.log(`[вебхук] ${incoming[0]!.channel}: повтор ${incoming.length} сообщ., уже отданных сотруднику по сверке — бот молчит`);
     return res.json({ ok: true });
   }
   // Short durable intake precedes the provider ACK when the scoped rollout

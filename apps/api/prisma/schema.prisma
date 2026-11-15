@@ -5995,6 +5995,12 @@ model Settings {
   botWhatsappEnabled                Boolean   @default(true)
   botInstagramEnabled               Boolean   @default(true)
   botFacebookEnabled                Boolean   @default(true)
+  /// СВЕРКА ПЕРЕПИСОК С META (15.11.2026, lib/metaInboxReconcile.ts): сообщение, которое
+  /// видно в Messenger Страницы / Direct Instagram, но не дошло до CRM вебхуком, — пуш
+  /// «Ответьте вручную» тем, кто читает переписки. Свой рубильник у каждой площадки
+  /// (правило владельца). Включены: пушей единицы в день (Arvan Messenger ~4 чел./сутки).
+  messengerInboxReconcileEnabled    Boolean   @default(true)
+  instagramInboxReconcileEnabled    Boolean   @default(true)
   botTelegramEnabled                Boolean   @default(true)
   /// ЧАТ НА САЙТЕ (23.08.2026) — виджет в углу royalhome.tj, тот же бот, что и в
   /// мессенджерах (см. messengers/websiteChat.ts). Отдельный рубильник, а не общий

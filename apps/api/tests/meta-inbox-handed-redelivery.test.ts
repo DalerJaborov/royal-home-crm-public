@@ -53,6 +53,28 @@ describe("повтор Meta по сообщению, уже отданному �
     expect(await prisma.botConversation.count({ where: { channel: "FACEBOOK", subscriberId: psid } })).toBe(0);
   });
 
+  it("Instagram (В4, 15.11): повтор по сообщению, отданному человеку сверкой Direct, — тоже 200 без бота", async () => {
+    const igUser = `${tag}-ig`, igSecret = `${tag}-igsecret`, igsid = `${tag}-igsid`;
+    const ig = await prisma.messengerAccount.create({ data: { channel: "INSTAGRAM", externalId: igUser, title: "Arvan IG test",
+      enabled: true, token: encryptSecret(`${tag}-igtoken`), appSecret: encryptSecret(igSecret) } });
+    resetMetaAccountCredsCache();
+    try {
+      const mid = `m_${tag}_ig1`; mids.push(mid);
+      await prisma.processedMessage.create({ data: { channel: "meta-inbox-missed", messageId: mid, completedAt: new Date() } });
+      const raw = JSON.stringify({ object: "instagram", entry: [{ id: igUser, time: Date.now(),
+        messaging: [{ sender: { id: igsid }, recipient: { id: igUser }, timestamp: Date.now(), message: { mid, text: "Нархи хона?" } }] }] });
+      const res = await request(app).post("/api/v1/webhooks/meta").set("Content-Type", "application/json")
+        .set("x-hub-signature-256", `sha256=${createHmac("sha256", igSecret).update(raw).digest("hex")}`).send(raw);
+      expect(res.status).toBe(200);
+      await drainBackgroundTasks(15000);
+      expect(await prisma.processedMessage.count({ where: { channel: "INSTAGRAM", messageId: mid } })).toBe(0);
+      expect(await prisma.botConversation.count({ where: { channel: "INSTAGRAM", subscriberId: igsid } })).toBe(0);
+    } finally {
+      await prisma.messengerAccount.delete({ where: { id: ig.id } }).catch(() => {});
+      resetMetaAccountCredsCache();
+    }
+  });
+
   it("смешанный запрос (одно отдано, другое нет) обрабатывается целиком — новое сообщение не теряется", async () => {
     const handed = `m_${tag}_2`, fresh = `m_${tag}_3`; mids.push(handed, fresh);
     await prisma.processedMessage.create({ data: { channel: "meta-inbox-missed", messageId: handed, completedAt: new Date() } });

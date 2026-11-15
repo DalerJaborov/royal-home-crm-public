@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **749**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4050**. Модулей: **83**.
+Путей: **749**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4051**. Модулей: **83**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18439,8 +18439,8 @@
 - если !(await isMetaEnabled())
   - return res.status(503).json({ error: "Канал Meta выключен в Настройках CRM" });
     · ответ 503 — «Канал Meta выключен в Настройках CRM»
-- если incoming.length > 0 && incoming.every((m) => m.channel === "FACEBOOK" && !m.isEcho && m.messageId) && !metaBo…
-  - console.log(`[вебхук] FACEBOOK: повтор ${incoming.length} сообщ., уже отданных сотруднику по сверке Страниц —…
+- если incoming.length > 0 && incoming.every((m) => (m.channel === "FACEBOOK" || m.channel === "INSTAGRAM") && !m.is…
+  - console.log(`[вебхук] ${incoming[0]!.channel}: повтор ${incoming.length} сообщ., уже отданных сотруднику по с…
     · пишет строку в журнал сервера
   - return res.json({ ok: true });
     · ответ 200
@@ -22789,7 +22789,12 @@
       - если !(await isMetaEnabled())
         - return { ...result, skipped: "meta_disabled" };
           · дословно из кода
-      - pages = await listFacebookPageInboxes();
+      - const switches = await inboxReconcileSwitches();
+        · зовёт inboxReconcileSwitches()
+      - если !switches.FACEBOOK && !switches.INSTAGRAM
+        - return { ...result, skipped: "switched_off" };
+          · дословно из кода
+      - pages = [ ...(switches.FACEBOOK ? await listFacebookPageInboxes() : []), ...(switches.INSTAGRAM && (await isM…
         · зовёт listFacebookPageInboxes()
     - если сорвалось
       - void logSystemError("meta", `Сверка переписок Страниц не запустилась: ${withoutToken(err)}`, { dedupKey: "met…
@@ -22803,9 +22808,9 @@
             · запись в журнал ошибок
           - continue;
             · переходит к следующему
-        - const incoming = incomingFromGraph(page.pageId, body, now, { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS, proc…
+        - const incoming = incomingFromGraph(page.ownIds?.length ? page.ownIds : page.pageId, body, now, { graceMs: GRA…
           · зовёт incomingFromGraph()
-        - const known = await knownMessageIds(incoming);
+        - const known = await knownMessageIds(incoming, channel);
           · зовёт knownMessageIds()
         - если !missed.length
           - continue;
@@ -22828,7 +22833,7 @@
             - continue;
               · переходит к следующему
           - пробует
-            - await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL", title: `Ответьте вручную: ${name} (F…
+            - await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL", title: `Ответьте вручную: ${name} ($…
               · push-уведомление
           - если сорвалось
             - await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: fresh.map((m)
@@ -22838,7 +22843,7 @@
         - если !told
           - continue;
             · переходит к следующему
-        - void logSystemError("meta", `Страница «${page.title}»: ${told} чел. написали в Messenger, а до CRM сообщения …
+        - void logSystemError("meta", `${channel === "INSTAGRAM" ? "Instagram" : "Страница"} «${page.title}»: ${told} ч…
           · запись в журнал ошибок
       - если сорвалось
         - void logSystemError("meta", `Сверка переписок Страницы «${page.title}» оборвалась: ${withoutToken(err)}`, { d…

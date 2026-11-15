@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 749,
-  "forks": 4050,
+  "forks": 4051,
   "mounts": 83,
   "cron": 133,
   "jobs": 33,
@@ -81562,12 +81562,12 @@
     },
     {
      "k": "if",
-     "t": "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
+     "t": "incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "console.log(`[вебхук] FACEBOOK: повтор ${incoming.length} сообщ., уже отданных сотруднику по сверке Страниц —…",
+       "t": "console.log(`[вебхук] ${incoming[0]!.channel}: повтор ${incoming.length} сообщ., уже отданных сотруднику по с…",
        "a": [
         "пишет строку в журнал сервера"
        ],
@@ -101816,7 +101816,30 @@
           },
           {
            "k": "do",
-           "t": "pages = await listFacebookPageInboxes();",
+           "t": "const switches = await inboxReconcileSwitches();",
+           "a": [
+            "зовёт inboxReconcileSwitches()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!switches.FACEBOOK && !switches.INSTAGRAM",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { ...result, skipped: \"switched_off\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "pages = [ ...(switches.FACEBOOK ? await listFacebookPageInboxes() : []), ...(switches.INSTAGRAM && (await isM…",
            "a": [
             "зовёт listFacebookPageInboxes()"
            ],
@@ -101882,7 +101905,7 @@
             },
             {
              "k": "do",
-             "t": "const incoming = incomingFromGraph(page.pageId, body, now, { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS, proc…",
+             "t": "const incoming = incomingFromGraph(page.ownIds?.length ? page.ownIds : page.pageId, body, now, { graceMs: GRA…",
              "a": [
               "зовёт incomingFromGraph()"
              ],
@@ -101890,7 +101913,7 @@
             },
             {
              "k": "do",
-             "t": "const known = await knownMessageIds(incoming);",
+             "t": "const known = await knownMessageIds(incoming, channel);",
              "a": [
               "зовёт knownMessageIds()"
              ],
@@ -101999,7 +102022,7 @@
                "c": [
                 {
                  "k": "do",
-                 "t": "await sendPushToAgents(recipients, { kind: \"message\", level: \"CRITICAL\", title: `Ответьте вручную: ${name} (F…",
+                 "t": "await sendPushToAgents(recipients, { kind: \"message\", level: \"CRITICAL\", title: `Ответьте вручную: ${name} ($…",
                  "a": [
                   "push-уведомление"
                  ],
@@ -102049,7 +102072,7 @@
             },
             {
              "k": "do",
-             "t": "void logSystemError(\"meta\", `Страница «${page.title}»: ${told} чел. написали в Messenger, а до CRM сообщения …",
+             "t": "void logSystemError(\"meta\", `${channel === \"INSTAGRAM\" ? \"Instagram\" : \"Страница\"} «${page.title}»: ${told} ч…",
              "a": [
               "запись в журнал ошибок"
              ],

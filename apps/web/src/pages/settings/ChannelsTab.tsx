@@ -283,6 +283,28 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
           onSave={(list) => updateSettings.mutate({ facebookShareGroups: list })}
         />
 
+        {/* Сверка с Meta (15.11.2026, lib/metaInboxReconcile.ts): то, что видно у Meta, но не дошло до CRM. */}
+        <SwitchRow
+          title="Messenger: сверять, всё ли дошло"
+          on={settings?.messengerInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ messengerInboxReconcileEnabled: !(settings?.messengerInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.messengerInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет переписки Страниц с Meta: если человек написал, а до CRM сообщение не дошло, всем, кто читает переписки, приходит «Ответьте вручную»."
+              : "Не сверяем: сообщение в Messenger, которое Meta не прислала в CRM, никто не увидит, пока не откроет Business Suite."
+          }
+        />
+        <SwitchRow
+          title="Instagram: сверять, всё ли дошло"
+          on={settings?.instagramInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ instagramInboxReconcileEnabled: !(settings?.instagramInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.instagramInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет Direct аккаунтов Instagram с Meta: не дошедшее до CRM — «Ответьте вручную» тем, кто читает переписки."
+              : "Не сверяем: сообщение в Direct, которое Meta не прислала в CRM, никто не увидит, пока не откроет Instagram."
+          }
+        />
+
         <div className="quiet">
           <span className="dot" />
           <span className="txt">

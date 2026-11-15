@@ -872,6 +872,9 @@ const settingsUpdateSchema = z.object({
   botWebsiteChatEnabled: z.boolean().optional(),
   /** Рубильник прямой интеграции с Meta (WhatsApp, Instagram, Messenger). */
   metaEnabled: z.boolean().optional(),
+  /** Сверка переписок с Meta: не дошедшее до CRM — «Ответьте вручную» (15.11.2026), по площадке. */
+  messengerInboxReconcileEnabled: z.boolean().optional(),
+  instagramInboxReconcileEnabled: z.boolean().optional(),
   /** Ключи Meta. Пустая строка — очистить и вернуться на переменную окружения. */
   metaAppSecret: secretField(500),
   /** Номер приложения Meta — нужен, чтобы обменять маркер рекламы на 60-дневный. */

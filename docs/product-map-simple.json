@@ -16,10 +16,10 @@
   "paths": 749,
   "cron": 133,
   "jobs": 33,
-  "conditions": 4034,
+  "conditions": 4035,
   "untranslatedUnique": 463,
   "untranslatedTotal": 594,
-  "partialUnique": 1089,
+  "partialUnique": 1090,
   "translatedShare": 85
  },
  "untranslated": [
@@ -336,7 +336,7 @@
   "id === otherId",
   "ids.length !== existing.size || ids.some((id) => !existing.has(id))",
   "inNightFullCrawlWindow()",
-  "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
+  "incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…",
   "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
@@ -62438,7 +62438,7 @@
      "c": []
     },
     {
-     "t": "если incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
+     "t": "если incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…",
      "k": "if",
      "a": [],
      "c": [
@@ -62449,7 +62449,7 @@
        "c": []
       }
      ],
-     "raw": "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…"
+     "raw": "incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…"
     },
     {
      "t": "если статус — «denied» или статус — «unavailable»",
@@ -70851,6 +70851,13 @@
          "c": [
           {
            "t": "если выключено: Meta",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: facebook и нет: Instagram",
            "k": "if",
            "a": [],
            "c": [],

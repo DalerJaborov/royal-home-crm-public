@@ -236,6 +236,9 @@ export interface Settings {
   botWhatsappEnabled: boolean;
   botInstagramEnabled: boolean;
   botFacebookEnabled: boolean;
+  /** Сверка с Meta: сообщение в Messenger / Instagram не дошло до CRM — «Ответьте вручную» (15.11.2026). */
+  messengerInboxReconcileEnabled: boolean;
+  instagramInboxReconcileEnabled: boolean;
   botTelegramEnabled: boolean;
   botWebsiteChatEnabled: boolean;
   /** Задан ли маркер бота Telegram в окружении сервера. Без него канала нет. */
