@@ -11,6 +11,7 @@ import {
   Clapperboard,
   Megaphone,
   MessageSquare,
+  Mic,
   Music2,
   PhoneCall,
   PhoneIncoming,
@@ -69,6 +70,7 @@ const CHANNEL_NAMES: Record<string, string> = {
 };
 
 import { OpenAiCoversSection } from "./OpenAiCoversSection";
+import { NarrationSettingsPanel } from "../../components/settings/NarrationSettingsPanel";
 import { ReelsAutoBoostSection } from "./ReelsAutoBoostSection";
 
 export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "advertising" | "phone" } = {}) {
@@ -105,6 +107,12 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
       {/* Обложки (28.09.2026): переключатель «наш шаблон | ChatGPT»; при шаблоне
           раздел сам показывает список шаблонов (CoverTemplatesSection). */}
       {(!area || area === "publishing") && <OpenAiCoversSection templateHeading={area ? "Шаблоны обложек" : undefined} />}
+      {/* 14.11.2026, владелец: техника озвучки — только здесь, в карточке объекта агент видит голос и текст. */}
+      {(!area || area === "publishing") && (
+        <SettingsSection icon={Mic} title="Озвучка роликов" badge="ElevenLabs">
+          <NarrationSettingsPanel />
+        </SettingsSection>
+      )}
       {(!area || area === "messengers") && <>
       <SettingsGroupLabel>Мессенджеры</SettingsGroupLabel>
 
@@ -1379,7 +1387,11 @@ function VideoHandoffFields() {
         onToggle={() => updateSettings.mutate({ clipOwnerApproveEnabled: !clipOwnerOn })}
         hint={
           clipOwnerOn
-            ? `Ролик от монтажёра приходит агенту, за которым объект, с кнопками «Подтвердить» и «Вернуть монтажёру». Не ответил за ${clipOwnerHours} ч — ролик публикуется сам, но не ночью: с 00:00 до 07:00 ждёт до 07:00. Руководство может решить в любой момент.`
+            ? `Ролик от монтажёра приходит только агенту, за которым объект, с кнопками «Подтвердить» и «Вернуть монтажёру»; руководству и админу в Telegram он не приходит (в карточке объекта кнопки есть). ${
+                clipOwnerHours > 0
+                  ? `Не ответил за ${clipOwnerHours} ч — ролик публикуется сам, но не ночью: с 00:00 до 07:00 ждёт до 07:00.`
+                  : "Сам ролик не опубликуется, пока агент не решит; раз в 6 часов ему придёт напоминание."
+              }`
             : "Выключено — решение по готовому ролику за руководством (переключатель выше)."
         }
       />
@@ -1387,20 +1399,20 @@ function VideoHandoffFields() {
         <div className="mod">
           <div className="t">
             <b>Через сколько часов публиковать без ответа</b>
-            <span style={{ whiteSpace: "normal" }}>Если хозяин объекта молчит, ролик уходит в публикацию сам.</span>
+            <span style={{ whiteSpace: "normal" }}>Если хозяин объекта молчит, ролик уходит в публикацию сам. «Не публиковать сам» — ролик ждёт ответа хозяина.</span>
           </div>
           <div className="acts">
             <select
               className="inp"
-              style={{ maxWidth: 140 }}
+              style={{ maxWidth: 200 }}
               aria-label="Через сколько часов публиковать без ответа"
               value={clipOwnerHours}
               onChange={(e) => updateSettings.mutate({ clipOwnerAutoPublishHours: Number(e.target.value) })}
               disabled={updateSettings.isPending}
             >
-              {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
+              {[0, 1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
                 <option key={h} value={h}>
-                  {h} ч
+                  {h === 0 ? "Не публиковать сам" : `${h} ч`}
                 </option>
               ))}
             </select>

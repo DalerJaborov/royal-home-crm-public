@@ -15,6 +15,7 @@ import {
   ImportSection,
   PasskeyToggleSection,
   ProblemReportsSection,
+  FinancePdfMonthlySection,
   StuckConversationsSection,
   SystemHealthSection,
   SiteAdminSection,
@@ -64,7 +65,7 @@ export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSetti
     case "bot/learning": return <BotTab area="learning" />;
     case "bot/models": return <BotTab area="models" />;
     case "bot/rollout": return agentRole === "DIRECTOR" || agentRole === "ADMIN" ? <CustomerAgentRolloutSection /> : null;
-    case "system/monitoring": return <><SystemHealthSection /><AssistantAuditSection /><StuckConversationsSection /><ProblemReportsSection /></>;
+    case "system/monitoring": return <><SystemHealthSection /><AssistantAuditSection /><StuckConversationsSection /><ProblemReportsSection /><FinancePdfMonthlySection /></>;
     case "system/workspace": return <><UiShellRolloutSection /><PultModulesSection /></>;
     case "system/security": return <PasskeyToggleSection />;
     case "system/data": return <><RestorePointsSection /><ImportSection /></>;
@@ -146,6 +147,7 @@ export function SettingsTabContent({ tab, agentRole }: { tab: SettingsTabId; age
       <PultModulesSection />
       <StuckConversationsSection />
       <ProblemReportsSection />
+      <FinancePdfMonthlySection />
 
       <SettingsGroupLabel>Безопасность</SettingsGroupLabel>
       <PasskeyToggleSection />

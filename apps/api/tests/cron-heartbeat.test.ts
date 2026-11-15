@@ -17,6 +17,9 @@ const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
 afterAll(async () => {
+  await prisma.pendingDirectorAlert.deleteMany({
+    where: { OR: [{ tag: { startsWith: "cron-silent:test-" } }, { tag: "cron-silent:live-calls-sweep" }] },
+  });
   await prisma.cronHeartbeat.deleteMany({ where: { name: { startsWith: "test-" } } });
   await prisma.errorLog.deleteMany({ where: { source: "cron", message: { contains: "test-" } } });
   await prisma.$disconnect();
@@ -96,6 +99,9 @@ describe("checkCronHeartbeats", () => {
         where: { source: "cron", message: { contains: "test-silent-tick" } },
       });
       expect(logged).not.toBeNull();
+      // Молчание доходит до директора срочной тревогой мимо часов алармов (14.11.2026, №3).
+      const door = await prisma.pendingDirectorAlert.findFirst({ where: { tag: "cron-silent:test-silent-tick" } });
+      expect(door).toMatchObject({ level: "CRITICAL", urgent: true });
       const aliveLogged = await prisma.errorLog.findFirst({
         where: { source: "cron", message: { contains: "test-alive-tick" } },
       });
@@ -122,8 +128,9 @@ describe("checkCronHeartbeats", () => {
     try {
       await prisma.cronHeartbeat.upsert({
         where: { name: "test-monthly-tick-20d" },
-        update: { lastRunAt: lastRun, alertedAt: null },
-        create: { name: "test-monthly-tick-20d", expr: "10 9 1 * *", lastRunAt: lastRun },
+        // Здоровый месячный тик: запуск ЗАКОНЧИЛСЯ (lastOkAt), иначе это «начался и не закончился».
+        update: { lastRunAt: lastRun, lastOkAt: lastRun, alertedAt: null },
+        create: { name: "test-monthly-tick-20d", expr: "10 9 1 * *", lastRunAt: lastRun, lastOkAt: lastRun },
       });
       // Не проверяем общий счётчик `alerts`: registry — общий модульный
       // синглтон на весь файл тестов, в нём к этому моменту уже есть записи
@@ -184,6 +191,58 @@ describe("checkCronHeartbeats", () => {
     } finally {
       nowSpy.mockRestore();
       task.stop();
+    }
+  });
+});
+
+/**
+ * №8 охоты 14.11.2026: тик, оборванный перезапуском посреди работы, оставляет
+ * lastRunAt свежее lastOkAt без lastError. По «молчанию» он жив, а работа не
+ * сделана (месячный отчёт 05.11: запуск есть, lastOk стоял на 01.10).
+ */
+describe("checkCronHeartbeats: тик начался и не закончился", () => {
+  const mk = async (name: string, data: { lastRunAt: Date; lastOkAt?: Date | null; lastError?: string | null }) => {
+    await prisma.cronHeartbeat.upsert({
+      where: { name },
+      update: { expr: "0 3 * * *", alertedAt: null, lastOkAt: null, lastError: null, ...data },
+      create: { name, expr: "0 3 * * *", ...data },
+    });
+  };
+  const unfinishedLogged = (name: string) =>
+    prisma.errorLog.findFirst({ where: { source: "cron", message: { contains: `«${name}» начался` } } });
+
+  it("суточный тик: запуск 2 часа назад, ни успеха, ни ошибки — тревога один раз и срочная директору", async () => {
+    const name = "test-unfinished-daily";
+    const task = scheduleTracked(name, "0 3 * * *", () => {});
+    try {
+      await mk(name, { lastRunAt: new Date(Date.now() - 120 * MINUTE), lastOkAt: new Date(Date.now() - 26 * 60 * MINUTE) });
+      await checkCronHeartbeats();
+      expect(await unfinishedLogged(name)).not.toBeNull();
+      const door = await prisma.pendingDirectorAlert.findFirst({ where: { tag: `cron-silent:${name}` } });
+      expect(door).toMatchObject({ level: "CRITICAL", urgent: true });
+      expect(door?.body).toContain("не закончилась");
+      // Второй проход по тому же запуску: тишина.
+      await checkCronHeartbeats();
+      expect(await prisma.errorLog.count({ where: { source: "cron", message: { contains: `«${name}» начался` } } })).toBe(1);
+    } finally {
+      task.stop();
+    }
+  });
+
+  it("не тревожит: запуск закончился успехом, закончился ошибкой или ещё идёт в пределах таймаута", async () => {
+    const ok = "test-unfinished-ok";
+    const failed = "test-unfinished-failed";
+    const running = "test-unfinished-running";
+    const tasks = [ok, failed, running].map((n) => scheduleTracked(n, "0 3 * * *", () => {}));
+    try {
+      const started = new Date(Date.now() - 120 * MINUTE);
+      await mk(ok, { lastRunAt: started, lastOkAt: new Date(started.getTime() + MINUTE) });
+      await mk(failed, { lastRunAt: started, lastError: "упал сам" });
+      await mk(running, { lastRunAt: new Date(Date.now() - 5 * MINUTE) });
+      await checkCronHeartbeats();
+      for (const n of [ok, failed, running]) expect(await unfinishedLogged(n)).toBeNull();
+    } finally {
+      tasks.forEach((t) => t.stop());
     }
   });
 });

@@ -84,6 +84,10 @@ export interface Settings {
   matchIncludeDeferred: boolean;
   /** Хозяину объекта приходит пуш, когда его объект предложили чужому клиенту. */
   matchNotifyPropertyOwner: boolean;
+  /** Пуш агенту, когда на Somon/Paydo появилось объявление под его покупателя (по умолчанию выключено). */
+  marketBuyerAlertsEnabled: boolean;
+  /** Подбор с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
+  marketOwnersOnly: boolean;
   /** Срок жизни пожелания покупателя от последнего касания, дней; 0 — без срока. */
   matchRequirementTtlDays: number;
   /** Допуск по бюджету клиента, % сверх названной суммы. */
@@ -549,6 +553,8 @@ export interface Settings {
    *  выключателем. Выключенный отчёт не собирается вовсе. */
   problemReportWeeklyEnabled: boolean;
   problemReportMonthlyEnabled: boolean;
+  /** Финансовый PDF за прошлый месяц директорам в Telegram (выключен по умолчанию). */
+  financePdfMonthlyEnabled?: boolean;
   /** Рабочие часы распределения лидов, "HH:MM" по Душанбе. Бот отвечает 24/7 —
    * это влияет только на то, когда новый лид уходит агенту. */
   workHoursStart: string;

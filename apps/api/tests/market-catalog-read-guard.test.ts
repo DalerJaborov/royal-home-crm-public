@@ -25,6 +25,8 @@ const ALLOWED: Record<string, { count: number; why: string }> = {
   "lib/market/marketStore.ts#findMany": { count: 1, why: "запись обхода: свои же строки по source + sourceId, чтобы обновить, а не создать дубль" },
   "lib/market/paydoIncremental.ts#findMany": { count: 1, why: "только Paydo, по sourceId: известна ли страница" },
   "lib/market/purgeSomonJunk.ts#findMany": { count: 1, why: "скрипт чистки читает мусор нарочно" },
+  "lib/market/purgeMarketRent.ts#findMany": { count: 2, why: "скрипт чистки аренды (выгрузка и пачки удаления) читает аренду нарочно" },
+  "lib/market/purgeMarketRent.ts#groupBy": { count: 1, why: "скрипт чистки аренды считает, сколько её лежит, по площадкам" },
   "lib/market/runCrawl.ts#count": { count: 1, why: "ручной обход печатает размер таблицы целиком" },
   "routes/marketContact.ts#findFirst": { count: 1, why: "номер продавца по id объявления, которое агенту уже показали" },
 };

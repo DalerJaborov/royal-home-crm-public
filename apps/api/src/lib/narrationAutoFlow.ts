@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  hasVideoHistory, narrationDraftText, narrationLimits, narrationMixByCrm, narrationModelSupportsTajik, narrationWizardChoiceSchema, pickNarrationTemplate, pickNarrationVoice,
+  hasVideoHistory, narrationDraftText, narrationLimits, narrationMixByCrm, narrationModelSupportsTajik, narrationRotatedTemplateId, narrationWizardChoiceSchema, pickNarrationTemplate, pickNarrationVoice,
   type NarrationConfig, type NarrationFacts, type NarrationWizardChoice,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -23,6 +23,7 @@ import { NARRATION_CLOSED_STATUSES as CLOSED_STATUSES, retireNarrationsOfClosedP
 import { narrationLastChoiceFor, rememberNarrationChoice } from "./narrationLastChoice.js";
 import { VOICELESS_COPY_HINT } from "./narrationMontajerNote.js";
 import { sendToMontajer } from "./montageObservers.js";
+import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 
 /**
  * АВТООЗВУЧКА РОЛИКА ОБЪЕКТА (схема владельца 10.11.2026, сделано 11.11).
@@ -131,10 +132,12 @@ export async function startNarrationForNewProperty(propertyId: string, actorId: 
       await setPropertyNarrationOff(propertyId, true, actorId);
       return { status: "DISABLED" };
     }
-    // Не выбрал голос или шаблон — ставим его последний выбор (если он ещё в настройках).
+    // Не выбрал голос — его последний голос. Не выбрал шаблон — СЛЕДУЮЩИЙ вариант после прошлого на том
+    // же языке (14.11.2026, владелец: «чтобы не каждый раз одинаковые»); мастер CRM показывает его же.
     const { config } = await loadNarrationConfiguration();
     const last = await narrationLastChoiceFor(actorId, config);
-    const filled = { ...choice, voiceId: choice.voiceId ?? last.voiceId, templateId: choice.templateId ?? (choice.script ? undefined : last.templateId) };
+    const rotated = narrationRotatedTemplateId(config.templates ?? [], last.templateId) ?? last.templateId;
+    const filled = { ...choice, voiceId: choice.voiceId ?? last.voiceId, templateId: choice.templateId ?? (choice.script ? undefined : rotated) };
     let outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", ...filled, debounceMs: 0, config });
     // Текст агента не прошёл проверку (например, вписал цену) — озвучка всё равно готовится по шаблону.
     if (outcome.status === "INVALID" && choice.script) outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", templateId: filled.templateId ?? last.templateId, voiceId: filled.voiceId, debounceMs: 0, config });
@@ -620,6 +623,12 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
     }
     if (outcome.status === "FAILED" && outcome.errorCode === NARRATION_QUOTA_EXCEEDED) {
       void logSystemError("ai", "Озвучка роликов: кредиты ElevenLabs закончились. Озвучки ждут пополнения, проверка раз в час; агентам ничего не отправлено", { dedupKey: "narration-quota-exceeded" });
+      // Срочная тревога директору (пуш «новая проблема» отключён с 02.10): без неё узнают по жалобе агента.
+      void raiseCriticalAlarm({
+        tag: ELEVENLABS_QUOTA_ALARM_TAG,
+        title: "Кончились кредиты ElevenLabs",
+        body: "Озвучка роликов остановлена: кредиты ElevenLabs закончились. Пополните баланс в кабинете ElevenLabs.",
+      });
       break;
     }
     if (outcome.status === "FAILED" && outcome.errorCode === "PROVIDER_HTTP_429" && row.generationAttempts + 1 < RETRY_429_LIMIT) {

@@ -327,3 +327,20 @@ export function changeResultView(
     failed: null,
   };
 }
+
+/**
+ * Что сказать после «Отправить»: ответ сервера на «своё — сразу» (applied + message) или просто заявка.
+ * Не применилось (`applied: false`, статус FAILED) — показать причину сервера, а не «отправлена директору»:
+ * директору ничего не ушло.
+ */
+export function createdChangeRequestNotice(done: {
+  request: { status: string; error?: string | null };
+  applied?: boolean;
+  message?: string;
+}): { tone: "success" | "error"; text: string } {
+  if (done.applied === true) return { tone: "success", text: done.message?.trim() || "Готово — изменено сразу" };
+  if (done.applied === false || done.request.status === "FAILED") {
+    return { tone: "error", text: done.message?.trim() || done.request.error?.trim() || "Не удалось применить изменение" };
+  }
+  return { tone: "success", text: "Заявка отправлена директору" };
+}

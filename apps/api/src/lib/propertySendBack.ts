@@ -16,7 +16,7 @@ import { prisma } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { afterClipRejected, type ClipReviewSource } from "./clipReview.js";
 import { hasMarketingRole } from "./marketingRole.js";
-import { canManagePropertyAs, publishedActionDeniedReasonAs } from "./propertyAccess.js";
+import { canManagePropertyAs, publishedSendBackDeniedReasonAs } from "./propertyAccess.js";
 import { sendBackToMontajer, type SendBackResult } from "./publishedVideoFix.js";
 
 export interface SendBackActor {
@@ -40,7 +40,7 @@ export function sendBackDenied(
   removeFromSocial: boolean | undefined
 ): { status: 403; error: string } | null {
   if (!canManagePropertyAs(actor, property)) return { status: 403, error: "Недостаточно прав" };
-  const published = publishedActionDeniedReasonAs(actor, property);
+  const published = publishedSendBackDeniedReasonAs(actor, property);
   if (published) return { status: 403, error: published };
   // Право на removeFromSocial:true — то же, что у кнопки «Убрать из соцсетей»
   // (requireMarketingRole): снятие вышедшего поста видно подписчикам так же, как
