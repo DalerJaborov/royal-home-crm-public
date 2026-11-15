@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4079**. Модулей: **84**.
+Путей: **754**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4085**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -29224,9 +29224,26 @@
     - если draft.intent !== "sell" && draft.intent !== "job"
       - const claims = findOffCatalogClaims({ text: result.reply.join("\n"), allowedText: propsBlock + "\n" + history…
         · зовёт findOffCatalogClaims()
+      - если claims.streets.length > 0
+        - const kept = stripOffCatalogStreets(result.reply, claims.streets);
+          · зовёт stripOffCatalogStreets()
+        - result.reply = kept.length > 0 ? kept : [placeAskAgentReply(lastClientLanguage(history))];
+          · зовёт placeAskAgentReply()
+        - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "place");
+          · зовёт traceFilterDelta()
       - если what.length > 0
         - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
           · запись в журнал ошибок
+    - если draft.intent !== "sell" && draft.intent !== "job"
+      - const renovation = guardRenovationClaims(result.reply, propsBlock);
+        · зовёт guardRenovationClaims()
+      - если renovation.removed > 0
+        - result.reply = renovation.bubbles.length > 0 ? renovation.bubbles : [placeAskAgentReply(lastClientLanguage(hi…
+          · зовёт placeAskAgentReply()
+        - void logSystemError( "ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза вырез…
+          · запись в журнал ошибок
+        - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "renovation");
+          · зовёт traceFilterDelta()
     - result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…
       · зовёт applyAvailabilityGuard()
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "availability");
@@ -29399,9 +29416,26 @@
     - если draft.intent !== "sell" && draft.intent !== "job"
       - const claims = findOffCatalogClaims({ text: result.reply.join("\n"), allowedText: propsBlock + "\n" + history…
         · зовёт findOffCatalogClaims()
+      - если claims.streets.length > 0
+        - const kept = stripOffCatalogStreets(result.reply, claims.streets);
+          · зовёт stripOffCatalogStreets()
+        - result.reply = kept.length > 0 ? kept : [placeAskAgentReply(lastClientLanguage(history))];
+          · зовёт placeAskAgentReply()
+        - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "place");
+          · зовёт traceFilterDelta()
       - если what.length > 0
         - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
           · запись в журнал ошибок
+    - если draft.intent !== "sell" && draft.intent !== "job"
+      - const renovation = guardRenovationClaims(result.reply, propsBlock);
+        · зовёт guardRenovationClaims()
+      - если renovation.removed > 0
+        - result.reply = renovation.bubbles.length > 0 ? renovation.bubbles : [placeAskAgentReply(lastClientLanguage(hi…
+          · зовёт placeAskAgentReply()
+        - void logSystemError( "ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза вырез…
+          · запись в журнал ошибок
+        - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "renovation");
+          · зовёт traceFilterDelta()
     - result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…
       · зовёт applyAvailabilityGuard()
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "availability");

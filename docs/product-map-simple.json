@@ -16,10 +16,10 @@
   "paths": 754,
   "cron": 138,
   "jobs": 33,
-  "conditions": 4063,
+  "conditions": 4069,
   "untranslatedUnique": 463,
   "untranslatedTotal": 594,
-  "partialUnique": 1103,
+  "partialUnique": 1105,
   "translatedShare": 85
  },
  "untranslated": [
@@ -83575,7 +83575,28 @@
          "a": [],
          "c": [
           {
+           "t": "если streets количество больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
            "t": "если what количество больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если intent не «sell» и intent не «job»",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если removed больше 0",
            "k": "if",
            "a": [],
            "c": [],
@@ -83871,7 +83892,28 @@
          "a": [],
          "c": [
           {
+           "t": "если streets количество больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
            "t": "если what количество больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если intent не «sell» и intent не «job»",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если removed больше 0",
            "k": "if",
            "a": [],
            "c": [],

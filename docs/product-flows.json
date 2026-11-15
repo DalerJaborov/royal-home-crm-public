@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 754,
-  "forks": 4079,
+  "forks": 4085,
   "mounts": 84,
   "cron": 138,
   "jobs": 33,
@@ -131801,6 +131801,37 @@
           },
           {
            "k": "if",
+           "t": "claims.streets.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const kept = stripOffCatalogStreets(result.reply, claims.streets);",
+             "a": [
+              "зовёт stripOffCatalogStreets()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "result.reply = kept.length > 0 ? kept : [placeAskAgentReply(lastClientLanguage(history))];",
+             "a": [
+              "зовёт placeAskAgentReply()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"place\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "what.length > 0",
            "a": [],
            "c": [
@@ -131809,6 +131840,52 @@
              "t": "void logSystemError( \"ai\", `Бот назвал вне подборки: ${what.join(\"; \")} — этого нет ни в подборке объектов, н…",
              "a": [
               "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "draft.intent !== \"sell\" && draft.intent !== \"job\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const renovation = guardRenovationClaims(result.reply, propsBlock);",
+           "a": [
+            "зовёт guardRenovationClaims()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "renovation.removed > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "result.reply = renovation.bubbles.length > 0 ? renovation.bubbles : [placeAskAgentReply(lastClientLanguage(hi…",
+             "a": [
+              "зовёт placeAskAgentReply()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError( \"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза вырез…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"renovation\");",
+             "a": [
+              "зовёт traceFilterDelta()"
              ],
              "c": []
             }
@@ -132602,6 +132679,37 @@
           },
           {
            "k": "if",
+           "t": "claims.streets.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const kept = stripOffCatalogStreets(result.reply, claims.streets);",
+             "a": [
+              "зовёт stripOffCatalogStreets()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "result.reply = kept.length > 0 ? kept : [placeAskAgentReply(lastClientLanguage(history))];",
+             "a": [
+              "зовёт placeAskAgentReply()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"place\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "what.length > 0",
            "a": [],
            "c": [
@@ -132610,6 +132718,52 @@
              "t": "void logSystemError( \"ai\", `Бот назвал вне подборки: ${what.join(\"; \")} — этого нет ни в подборке объектов, н…",
              "a": [
               "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "draft.intent !== \"sell\" && draft.intent !== \"job\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const renovation = guardRenovationClaims(result.reply, propsBlock);",
+           "a": [
+            "зовёт guardRenovationClaims()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "renovation.removed > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "result.reply = renovation.bubbles.length > 0 ? renovation.bubbles : [placeAskAgentReply(lastClientLanguage(hi…",
+             "a": [
+              "зовёт placeAskAgentReply()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError( \"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза вырез…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"renovation\");",
+             "a": [
+              "зовёт traceFilterDelta()"
              ],
              "c": []
             }

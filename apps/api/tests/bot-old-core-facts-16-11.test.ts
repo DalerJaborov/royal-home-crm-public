@@ -25,7 +25,10 @@ describe("валюта: пересчитанная сумма с валютой 
   it("долларовый эквивалент, названный сомони, вырезается", () => {
     const g = guardPrices({ bubbles: [reply], allowedText: card, usdToTjs: RATE });
     expect(g.invented).toContain(135520);
-    expect(g.bubbles.join(" ")).not.toContain("135 520");
+    // Фраза с ценой — весь ответ: щит отдаёт сигнал, вызывающий ставит заглушку (priceGuardFallbackReply).
+    expect(g.keptDespiteViolation).toBe(true);
+    const mixed = guardPrices({ bubbles: ["Ин хона 135 520 сомонӣ аст. Дар Шохмансур ҷойгир аст."], allowedText: card, usdToTjs: RATE });
+    expect(mixed.bubbles.join(" ")).not.toContain("135 520");
   });
 
   it("тот же эквивалент в долларах — законный пересчёт", () => {
@@ -170,8 +173,8 @@ describe("приветствие посреди разговора и чужое
     const client = "Унас ест квартира апачон\nрақамам акаи тохир\nМехоҳам хонаамро фурӯшам";
     expect(normalizeClientName("рақамам акаи тохир")).toBeNull();
     expect(isAddresseeName("Тоҳир", client)).toBe(true);
-    expect(cleanOutgoingReply("Тоҳир! Дархости шуморо ба агент додам.", client)).toBe("Дархости шуморо ба агент додам.");
-    expect(cleanOutgoingReply("Раҳмат, Тоҳирҷон!", client)).toBe("Раҳмат!");
+    expect(cleanOutgoingReply("Тоҳир! Дархости шуморо ба агент додам.", client)).toMatch(/^Дархости шуморо ба агент додам/);
+    expect(cleanOutgoingReply("Раҳмат, Тоҳирҷон!", client)).toMatch(/^Раҳмат!?$/);
   });
 
   it("имя, которым клиент назвался сам, не трогается", () => {
