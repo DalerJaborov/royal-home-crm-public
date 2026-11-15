@@ -12,8 +12,10 @@ import {
   propertyHasMarket,
   visiblePropertyFacts,
 } from "@royal-home/shared";
-import { BOT_DISTRICT_NAMES } from "@royal-home/shared";
+import { BOT_DISTRICT_NAMES, RUDAKI_DISTRICT_NAME } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { districtPickAllowed, SUBURB_SEARCH_REFUSAL } from "../serviceArea.js";
+import { queryOutsideServiceArea } from "../suburbanProperty.js";
 import type { LiveVoiceFunctionDeclaration, LiveVoiceToolCall } from "../../ai/liveVoiceClient.js";
 import { recordContactFacts, setContactCategory } from "../contactProfiles.js";
 import { loadMoneyContext } from "../money.js";
@@ -86,7 +88,16 @@ export const LIVE_VOICE_DISTRICTS = BOT_DISTRICT_NAMES;
  * «Рудаки» — ещё и проспект в центре, поэтому модель различает по слову «район», а код сверяет (searchPlace).
  */
 export const RUDAKI_VOICE_HINT =
-  `«Рудаки» — только если человек говорит о РАЙОНЕ Рудаки (ноҳияи Рӯдакӣ, Сомониён, «район Рудаки»). Просто «Рудаки» без слова «район» — это может быть проспект Рудаки в центре: уточни одним вопросом.`;
+  `«${RUDAKI_DISTRICT_NAME}» — только если человек говорит о РАЙОНЕ Рудаки (ноҳияи Рӯдакӣ, Сомониён, «район Рудаки»). Просто «Рудаки» без слова «район» — это может быть проспект Рудаки в центре: уточни одним вопросом.`;
+
+/**
+ * Район от модели — из перечня, и «Рудаки (район)» только если звонящий сам говорил о РАЙОНЕ Рудаки
+ * (lib/serviceArea.ts::districtPickAllowed). Одна проверка на поиск, «найди объект» и заявку.
+ */
+export function voiceDistrictFromModel(value: unknown, callerWords: string | null | undefined): (typeof LIVE_VOICE_DISTRICTS)[number] | null {
+  const district = LIVE_VOICE_DISTRICTS.find((d) => d === value) ?? null;
+  return district && districtPickAllowed(district, callerWords) ? district : null;
+}
 
 /** Больше трёх вариантов на слух не запомнить. */
 const OPTIONS_PER_SEARCH = 3;
@@ -119,7 +130,7 @@ export const PROPERTY_TOOLS: LiveVoiceFunctionDeclaration[] = [
       properties: {
         district: { type: "STRING", description: `Район Душанбе или район Рудаки, если назван словом. ${RUDAKI_VOICE_HINT}`, enum: [...LIVE_VOICE_DISTRICTS] },
         landmark: { type: "STRING", description: "Ориентир, микрорайон, улица или народное название — словами звонящего." },
-        suburban: { type: "BOOLEAN", description: "true — ищет за городом (район Рудаки, Сомониён, Вахдат, Варзоб, Гиссар, дача)." },
+        suburban: { type: "BOOLEAN", description: "true — ищет в районе Рудаки (Сомониён), за городом. Другие пригороды (Вахдат, Варзоб, Гиссар, дачи) — не наша зона: поиск ответит отказом." },
         sort: { type: "STRING", description: "cheap — просит подешевле / самое дешёвое.", enum: ["cheap"] },
         renovation: { type: "STRING", description: "with — с ремонтом, without — без ремонта (коробка).", enum: ["with", "without"] },
         market: { type: "STRING", description: "NEW_BUILD — новостройка, SECONDARY — вторичка.", enum: ["NEW_BUILD", "SECONDARY"] },
@@ -193,6 +204,9 @@ export const PROPERTY_TOOLS: LiveVoiceFunctionDeclaration[] = [
 
 /** Что осталось от квартир после звонка — для агента и для СМС. */
 export interface PropertyCallMemory {
+  /** Последние реплики звонящего («Клиент: …») на момент вызова функции — по ним код сверяет район «Рудаки (район)»
+   *  от модели: голое «Рудаки» — проспект (повторное ревью #204, Н-3). Кладёт консультант (liveVoiceConsultant.ts). */
+  callerWords?: string;
   /** Номера объектов, которые консультант назвал или о которых рассказывал, по порядку. */
   discussedShortIds: number[];
   /** Номер, на который звонят (со звонка) — для СМС. */
@@ -440,7 +454,8 @@ const ASSUMED_DOLLARS_NOTE = (assumed: boolean): string =>
  * точка с карты, народное название, «за городом». Без бюджета — он ниже, с валютой.
  */
 export async function voiceSearchQuery(
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  callerWords?: string | null
 ): Promise<{ query: Omit<PropertyMatchQuery, "budgetMax" | "budgetMin">; landmark: string | null }> {
   const landmark = typeof args.landmark === "string" && args.landmark.trim() ? args.landmark.trim() : null;
   const resolved = await resolveSearchPlace(landmark);
@@ -450,7 +465,7 @@ export async function voiceSearchQuery(
   return {
     landmark,
     query: {
-      districtName: LIVE_VOICE_DISTRICTS.find((d) => d === args.district) ?? resolved.districtName ?? resolved.placeDistrictName,
+      districtName: voiceDistrictFromModel(args.district, callerWords) ?? resolved.districtName ?? resolved.placeDistrictName,
       type,
       rooms: typeof args.rooms === "number" && args.rooms > 0 ? Math.round(args.rooms) : null,
       place: resolved.place,
@@ -466,9 +481,11 @@ export async function voiceSearchQuery(
 }
 
 async function searchTool(memory: PropertyCallMemory, args: Record<string, unknown>): Promise<LiveVoiceToolReply> {
-  const { query: baseQuery, landmark } = await voiceSearchQuery(args);
+  const { query: baseQuery, landmark } = await voiceSearchQuery(args, memory.callerWords);
   // Как у чат-бота: без района, места и типа не ищем — «что у вас есть» это весь каталог,
   // и первые три строки из него ничего не говорят человеку.
+  // Пригород не в районе Рудаки — не зона (владелец 16.11.2026): не ищем, а говорим, где работаем.
+  if (queryOutsideServiceArea(baseQuery)) return { response: { ok: false, error: SUBURB_SEARCH_REFUSAL }, scheduling: "WHEN_IDLE" };
   if (!baseQuery.districtName && !baseQuery.type && !baseQuery.place && !baseQuery.suburban) {
     return {
       response: {
@@ -594,7 +611,7 @@ async function askedPlaceLine(p: MatchPlace): Promise<string> {
 /** Приметы из аргументов модели — в вопрос общему узнаванию (lib/propertyMatch.ts),
  *  тому же, что разбирает звонок оператору: консультант и оператор узнают объект
  *  одинаково. */
-async function cluesFromArgs(args: Record<string, unknown>): Promise<PropertyClues> {
+async function cluesFromArgs(args: Record<string, unknown>, callerWords?: string | null): Promise<PropertyClues> {
   const str = (v: unknown) => (typeof v === "string" ? v.trim() || null : typeof v === "number" ? String(v) : null);
   const int = (v: unknown) => {
     const n = num(v);
@@ -608,7 +625,7 @@ async function cluesFromArgs(args: Record<string, unknown>): Promise<PropertyClu
   return {
     text: str(args.query),
     place: str(args.landmark),
-    districtName: LIVE_VOICE_DISTRICTS.find((d) => d === args.district) ?? null,
+    districtName: voiceDistrictFromModel(args.district, callerWords),
     type: typeof args.type === "string" && ["APARTMENT", "HOUSE", "COMMERCIAL", "LAND"].includes(args.type) ? args.type : null,
     rooms: int(args.rooms),
     floor: int(args.floor),
@@ -652,7 +669,7 @@ async function candidatesForAsking(ids: string[], tajik: boolean, usdToTjs: numb
 }
 
 async function getTool(memory: PropertyCallMemory, args: Record<string, unknown>): Promise<LiveVoiceToolReply> {
-  const clues = await cluesFromArgs(args);
+  const clues = await cluesFromArgs(args, memory.callerWords);
   if (!clues.text && !clues.place && !clues.priceTjs && !clues.rooms && !clues.areaSqm) {
     return {
       response: { ok: false, error: "нечего искать: спроси номер объявления, адрес или ориентир, цену, комнаты" },

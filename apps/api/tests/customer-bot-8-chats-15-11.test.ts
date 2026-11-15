@@ -199,6 +199,13 @@ describe("the service area: «only Dushanbe» only for an object outside (live c
       expect(out).not.toMatch(/Мутаассифона|К сожалению/u);
       expect(out).toBeTruthy();
     });
+  // Owner 16.11.2026 verbatim: «Загород не берём, только Душанбе» — a buyer looking OUTSIDE the area hears the area and an offer.
+  it.each([["Хона дар Ваҳдат мехарам", "tg", "Дар Душанбе ё ноҳияи Рӯдакӣ"], ["Хочу купить дачу в Варзобе", "ru", "Можем подобрать в Душанбе или районе Рудаки"]] as const)(
+    "a buyer looking in the suburbs: the area and an offer — %s", (text, language, offer) => {
+      const out = render(text, { language, evidence: scope, decision: { refs: ["e0"], question: "budget" } })!;
+      expect(out).toMatch(/Мутаассифона|К сожалению/u);
+      expect(out).toContain(offer);
+    });
   // Owner 15.11.2026 verbatim: «Да, Рудаки берём» — the Rudaki district is in the service area, like Dushanbe.
   it.each(["Дар н Рудаки карор дорад", "н. Рудаки", "Рӯдакӣ", "маркази н Рудаки", "район Рудаки", "Rudaki", "Сомониён"])(
     "Rudaki is in the area: %s", text => {

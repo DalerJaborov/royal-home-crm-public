@@ -4,7 +4,9 @@ const storedInt = z.number().int().nonnegative().max(2_147_483_647);
 const money = z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 /** Район Рудаки — зона агентства с 15.11.2026 (владелец: «Да, Рудаки берём»); строка District — миграция 20261116120000_district_rudaki. */
-export const RUDAKI_DISTRICT_NAME = "Рудаки";
+/** Имя строки District — «Рудаки (район)», а не «Рудаки»: голое «Рудаки» — главный проспект Душанбе, и «квартира на
+ *  Рудаки» не должна находить им район (повторное ревью #204, Н-3). */
+export const RUDAKI_DISTRICT_NAME = "Рудаки (район)";
 /** Районы, которые бот и робот вправе назвать заявке: четыре района Душанбе и район Рудаки. */
 export const BOT_DISTRICT_NAMES = ["Исмоили Сомони", "Сино", "Фирдавси", "Шохмансур", RUDAKI_DISTRICT_NAME] as const;
 

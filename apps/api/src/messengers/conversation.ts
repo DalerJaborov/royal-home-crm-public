@@ -1,3 +1,4 @@
+import { districtPickAllowed } from "../lib/serviceArea.js";
 import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import { readCustomerDmSubjectExecution } from "../lib/customerAgentEnrollment.js";
 import { prisma } from "../db.js";
@@ -856,7 +857,9 @@ export async function acceptLead(
   // Без учёта регистра, общим правилом на все каналы (ночная проверка
   // 24.09.2026): раньше здесь стояло точное сравнение, и «сино» из разговора
   // не находило «Сино» в справочнике — район молча не попадал в карточку.
-  const districtId = await findDistrictIdByName(draft.districtName);
+  // «Рудаки (район)» от модели — только если клиент сам говорил о районе Рудаки, а не о проспекте (lib/serviceArea.ts).
+  const districtSourceWords = [...history.filter((m) => m.role === "user").map((m) => (typeof m.content === "string" ? m.content : "")), options?.clientText ?? ""].join("\n");
+  const districtId = districtPickAllowed(draft.districtName, districtSourceWords) ? await findDistrictIdByName(draft.districtName) : undefined;
 
   // Продажа объекта ЗА ПРЕДЕЛАМИ Таджикистана (Россия и т.п.) — не принимаем вообще:
   // заявку не заводим и телефон не сохраняем, даже если клиент сам его прислал.

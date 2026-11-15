@@ -28,7 +28,7 @@ import { customerStaffFollowUpLine, customerStaffFollowUpFixedLines, customerTha
   customerPartnershipOffer, customerPartnershipReply, customerCommissionAmountLine, customerSearchHandOffLine, customerPhoneAskLines,
   PHONE_ASK_TEXT, CUSTOMER_SELLER_WORDS, type FollowUpMemory } from "./customerAgentStaffFollowUp.js";
 import { detectOutsideCoverage } from "./coverageGuard.js";
-import { serviceAreaIn } from "../lib/serviceArea.js";
+import { serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 
 export type CustomerReceiptOutcome = CustomerMutationReceipt["outcome"];
 export type CustomerAgentObservation =
@@ -344,24 +344,35 @@ const BUYER_WORDS = /харид|мехарам|харам|харидан|куп�
  * "Ман аз Хуҷанд ҳастам, хона мехарам" (a buyer from elsewhere) is our client, never refused. Rudaki stays the model's
  * matter (owner 15.11.2026: "Да, Рудаки берём"; lib/serviceArea.ts): coverageGuard never reports it as outside.
  */
-function customerObjectOutsideArea(input: { inputText?: string; verifiedContext?: CustomerAgentVerifiedContext }): boolean {
+function customerObjectOutsideArea(input: { inputText?: string; verifiedContext?: CustomerAgentVerifiedContext }): "seller" | "buyer" | null {
   const current = clientOwnWords(input.inputText ?? "").toLowerCase().replace(/ё/gu, "е");
   const history = (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "user").map(turn => clientOwnWords(turn.text)).join("\n");
   const all = `${history}\n${current}`.toLowerCase();
   const hit = detectOutsideCoverage(current);
-  if (!hit || !detectOutsideCoverage(all)) return false;
+  if (!hit || !detectOutsideCoverage(all)) return null;
   const seller = intakeProgress(input).role === "seller" || CUSTOMER_SELLER_WORDS.test(all);
-  if (!seller || BUYER_WORDS.test(all)) return false;
+  // Покупатель, который ищет ВНЕ зоны («дар Ваҳдат мехарам»), — тот же ответ и предложение зоны (владелец 16.11.2026:
+  // «Загород не берём»). Покупатель ИЗ другого города («аз Хуҷанд») — наш клиент: «аз/из» перед местом ниже не отказ.
+  const buyerWords = BUYER_WORDS.test(all);
+  // Продавец, который и покупает («продам и куплю»), — как раньше, не отказ.
+  if (seller && buyerWords) return null;
+  const buyer = !seller && buyerWords;
+  if (!seller && !buyer) return null;
   const at = current.indexOf(hit.place.toLowerCase());
   const before = at >= 0 ? current.slice(Math.max(0, at - 30), at) : "";
-  return /(?:^|[\s,])(?:дар|в|во)(?:\s+\S+){0,2}\s*$/u.test(before) && !/(?:^|[\s,])(?:аз|из)\s*$/u.test(before);
+  const inPlace = /(?:^|[\s,])(?:дар|в|во)(?:\s+\S+){0,2}\s*$/u.test(before) && !/(?:^|[\s,])(?:аз|из)\s*$/u.test(before);
+  // «Я живу в Худжанде, хочу купить» — место жительства, а не место покупки: не отказ.
+  if (/(?:жив[уеё]|прожива|зиндаг|истиқомат|истикомат)\S*\s+\S*\s*$/iu.test(before)) return null;
+  return inPlace ? (seller ? "seller" : "buyer") : null;
 }
 function serviceScopeLines(value: CustomerAgentCompanyPolicyObservation, language: "ru" | "tg", input: { inputText?: string;
   verifiedContext?: CustomerAgentVerifiedContext }, saidBefore: (line: string) => boolean): { lines: string[]; outside: boolean } {
   const k = value.knowledge, tg = language === "tg";
   const own = clientOwnWords(input.inputText ?? "");
-  if (!k.otherCities && customerObjectOutsideArea(input)) return { outside: true, lines: [tg
-    ? `Мутаассифона, мо танҳо ${serviceAreaIn(k.city, "tg")} кор мекунем.` : `К сожалению, мы работаем только ${serviceAreaIn(k.city, "ru")}.`] };
+  const outsideRole = k.otherCities ? null : customerObjectOutsideArea(input);
+  if (outsideRole) return { outside: true, lines: [(tg
+    ? `Мутаассифона, мо танҳо ${serviceAreaIn(k.city, "tg")} кор мекунем.` : `К сожалению, мы работаем только ${serviceAreaIn(k.city, "ru")}.`) +
+    (outsideRole === "buyer" ? ` ${serviceAreaBuyerOffer(language)}` : "")] };
   const asked = CITY_QUESTION.test(own);
   const area = tg ? `Барои хариду фурӯши амвол ${serviceAreaIn(k.city, "tg")} кӯмак мекунем.` : `Помогаем с покупкой и продажей недвижимости ${serviceAreaIn(k.city, "ru")}.`;
   const other = k.otherCities ? "" : tg ? " Дар шаҳрҳои дигар кор намекунем." : " Другие города не обслуживаем.";

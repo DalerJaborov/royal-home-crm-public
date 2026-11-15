@@ -16,12 +16,14 @@ import { SALES_FACTS } from "../src/ai/salesPlaybook.js";
 import { companyInfoBlock } from "../src/ai/agencyFacts.js";
 import { SCENARIO_SELL } from "../src/ai/leadQualifier.js";
 import { BOT_DISTRICT_NAMES, submitReplyLeadSchema } from "@royal-home/shared";
-import { districtListForPrompt, districtPickAllowed, mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME, RUDAKI_SELLER_RULE, SERVICE_AREA_RU, SERVICE_AREA_SALES_RULE } from "../src/lib/serviceArea.js";
-import { isRudakiProperty, isSuburbanProperty, textMentionsSuburb } from "../src/lib/suburbanProperty.js";
+import { districtListForPrompt, districtPickAllowed, mentionsRudakiDistrict, stripRudakiDistrictWords, RUDAKI_DISTRICT_NAME, RUDAKI_SELLER_RULE, SERVICE_AREA_RU, SERVICE_AREA_SALES_RULE } from "../src/lib/serviceArea.js";
+import { isRudakiProperty, isSuburbanProperty, propertyOutsideServiceArea, queryOutsideServiceArea, textMentionsSuburb } from "../src/lib/suburbanProperty.js";
+import { SUBURB_SEARCH_REFUSAL, SUBURBS_OWNER_WORDS } from "../src/lib/serviceArea.js";
 import { missingRequestFields, sanitizeClientRequest } from "../src/lib/telephony/liveVoiceClientTools.js";
 import { resolveDistrict } from "../src/routes/webhooks.js";
+import { geoMatchKey } from "../src/lib/geoNormalize.js";
 import { officialDistrictIn } from "../src/lib/searchPlace.js";
-import { PROPERTY_TOOLS, RUDAKI_VOICE_HINT } from "../src/lib/telephony/liveVoicePropertyTools.js";
+import { PROPERTY_TOOLS, RUDAKI_VOICE_HINT, voiceDistrictFromModel } from "../src/lib/telephony/liveVoicePropertyTools.js";
 
 /**
  * РАЗБОР ЗВОНКОВ ГОЛОСА ANNA 16.11.2026 (D:/TASKS-2026-11-14/reports/voice-anna-2026-11-16.md):
@@ -169,13 +171,18 @@ describe("п. 4: переход на таджикский после одной 
   });
 
   it("«Вы говорите по-таджикски?» на любом языке — сразу таджикский вместе с распознаванием (ревью #204, В2)", () => {
-    for (const line of ["Вы говорите по-таджикски?", "А на таджикском можно?", "Можно по-таджикски?", "Таджикский понимаете?", "Тоҷикӣ медонед?", "Бо тоҷикӣ гап мезанед?", "Забони тоҷикиро медонед?"]) {
+    for (const line of ["Вы говорите по-таджикски?", "А на таджикском можно?", "Можно по-таджикски?", "Таджикский понимаете?", "Знаете таджикский?", "Мама понимает только по-таджикски, можно с ней?", "Тоҷикӣ медонед?", "Бо тоҷикӣ гап мезанед?", "Забони тоҷикиро медонед?"]) {
       expect(asksToSpeakTajik(line), line).toBe(true);
       const t = new CallerLanguageTracker("ru");
       expect(t.onCallerText(line), line).toEqual({ kind: "switch", to: "tg", askedForTajik: true });
       expect(t.language).toBe("tg");
     }
-    for (const line of ["Я не говорю по-таджикски", "Не говорите по-таджикски, давайте по-русски", "Вы по-таджикски или по-русски?", "Мне нужна квартира"]) {
+    // Повторное ревью #204, Н-2: отрицание, неспособность и просьба о документе — не просьба говорить по-таджикски.
+    for (const line of [
+      "Я не говорю по-таджикски", "Не говорите по-таджикски, давайте по-русски", "Вы по-таджикски или по-русски?", "Мне нужна квартира",
+      "Я не могу говорить по-таджикски", "Мне сложно говорить по-таджикски", "Я плохо умею говорить по-таджикски",
+      "Можете прислать таджикский вариант договора?", "Вы можете по-таджикски или по-русски?",
+    ]) {
       expect(asksToSpeakTajik(line), line).toBe(false);
     }
     // Пометка для ElevenLabs: «Ҳа» и вызов language_detection — распознавание переключается вместе с речью.
@@ -245,10 +252,17 @@ describe("Рудаки — зона работы (решение владель�
 
   it("Рудаки — район в справочнике: робот, чат-бот и схема ответа его принимают (ревью #204, С3)", () => {
     expect(BOT_DISTRICT_NAMES).toContain(RUDAKI_DISTRICT_NAME);
+    expect(RUDAKI_DISTRICT_NAME).toBe("Рудаки (район)");
     expect(submitReplyLeadSchema.safeParse({ districtName: RUDAKI_DISTRICT_NAME }).success).toBe(true);
-    expect(sanitizeClientRequest({ intent: "sell", district: RUDAKI_DISTRICT_NAME }).districtName).toBe(RUDAKI_DISTRICT_NAME);
+    const said = "Клиент: Ҳавлӣ дар ноҳияи Рӯдакӣ мефурӯшам";
+    expect(sanitizeClientRequest({ intent: "sell", district: RUDAKI_DISTRICT_NAME }, said).districtName).toBe(RUDAKI_DISTRICT_NAME);
+    // Повторное ревью #204, Н-3: «квартира на Рудаки» без слова «район» — проспект, район от модели не принимается.
+    expect(sanitizeClientRequest({ intent: "buy", district: RUDAKI_DISTRICT_NAME }, "Клиент: Двушку на Рудаки хочу").districtName).toBeUndefined();
+    expect(sanitizeClientRequest({ intent: "buy", district: RUDAKI_DISTRICT_NAME }).districtName).toBeUndefined();
+    expect(voiceDistrictFromModel("Рудаки", said)).toBeNull(); // старое имя без «(район)» в перечне не существует
+    expect(voiceDistrictFromModel("Сино", "Клиент: Двушку на Рудаки хочу")).toBe("Сино");
     // Модель написала «район Рудаки» в notes, а не в district — район всё равно ставится, «не хватает: район» нет.
-    const fromNotes = sanitizeClientRequest({ intent: "sell", type: "HOUSE", budget_max: 90_000, currency: "USD", timeframe: "скоро", notes: "район Рудаки, Сомониён" });
+    const fromNotes = sanitizeClientRequest({ intent: "sell", type: "HOUSE", budget_max: 90_000, currency: "USD", timeframe: "скоро", notes: "район Рудаки, Сомониён" }, said);
     expect(fromNotes.districtName).toBe(RUDAKI_DISTRICT_NAME);
     expect(missingRequestFields(fromNotes)).not.toContain("district");
     expect(sanitizeClientRequest({ intent: "sell", notes: "проспект Рудаки" }).districtName).toBeUndefined();
@@ -257,6 +271,13 @@ describe("Рудаки — зона работы (решение владель�
   it("«район Рудаки» — район, а не проспект Рудаки; адрес «пр. Рудаки» в Рудаки не попадает", () => {
     expect(mentionsRudakiDistrict("Рудаки, район")).toBe(true);
     expect(mentionsRudakiDistrict("мкр-н Рудаки")).toBe(false);
+    expect(mentionsRudakiDistrict("Рудаки (район)")).toBe(true);
+    // Повторное ревью #204, Н-1: проспект или улица Рудаки и другой район города рядом — не район Рудаки.
+    for (const address of ["пр. Рудаки, район Сино", "Шохмансур район, Рудаки 30", "ул. Рудаки, районе Фирдавси"]) {
+      expect(mentionsRudakiDistrict(address), address).toBe(false);
+      expect(textMentionsSuburb(address), address).toBe(false);
+      expect(stripRudakiDistrictWords(geoMatchKey(address)), address).toBe(geoMatchKey(address));
+    }
     const districts = [{ id: "rud", name: RUDAKI_DISTRICT_NAME }, { id: "sino", name: "Сино" }];
     expect(resolveDistrict("Сино, пр. Рудаки 45", districts)).toEqual({ id: "sino", matched: true });
     expect(resolveDistrict("ноҳияи Рӯдакӣ, Сомониён", districts)).toEqual({ id: "rud", matched: true });
@@ -278,7 +299,33 @@ describe("Рудаки — зона работы (решение владель�
     const search = PROPERTY_TOOLS.find((t) => t.name === "search_properties");
     const props = (search?.parameters as { properties: Record<string, { description?: string }> }).properties;
     expect(props.district.description).toContain(RUDAKI_VOICE_HINT);
-    expect(props.suburban.description).toContain("район Рудаки");
+    expect(props.suburban.description).toContain("районе Рудаки");
+  });
+
+  // Решение владельца 16.11.2026 по С5: «Загород не берём, только Душанбе». Рудаки — зона (15.11).
+  it("пригороды (Вахдат, Варзоб, Гиссар, дачи) — не зона: не предлагаем, не ищем, продавцу и покупателю — зона и предложение", () => {
+    expect(SUBURBS_OWNER_WORDS).toBe("Загород не берём, только Душанбе");
+    // Объекты: загород не в Рудаки — вне зоны; Рудаки и город — в зоне.
+    for (const p of [{ title: "Дача в Варзобе" }, { address: "Вахдат, кишлак" }, { title: "Ҳавлӣ, Гиссар" }, { landmark: "12 км" }]) {
+      expect(propertyOutsideServiceArea(p), JSON.stringify(p)).toBe(true);
+    }
+    for (const p of [{ address: "ноҳияи Рӯдакӣ, Сомониён" }, { title: "Ҳавлӣ", district: { name: RUDAKI_DISTRICT_NAME } }, { address: "пр. Рудаки 45" }]) {
+      expect(propertyOutsideServiceArea(p), JSON.stringify(p)).toBe(false);
+    }
+    // Запросы: «дача в Варзобе» — не ищем; «район Рудаки» — ищем.
+    expect(queryOutsideServiceArea({ suburban: true, districtName: null })).toBe(true);
+    expect(queryOutsideServiceArea({ suburban: true, districtName: RUDAKI_DISTRICT_NAME })).toBe(false);
+    expect(queryOutsideServiceArea({ suburban: false, districtName: "Сино" })).toBe(false);
+    // Отсечка: дача в Варзобе больше не исключение; Рудаки — зона.
+    expect(detectOutsideCoverage("Дача дар Варзоб, 10 сотих, лаби дарё")).not.toBeNull();
+    expect(detectOutsideCoverage("Хона дар Ваҳдат мехарам")).not.toBeNull();
+    expect(detectOutsideCoverage("Ҳавлӣ дар ноҳияи Рӯдакӣ")).toBeNull();
+    // Тексты: правило пригородов — в общем справочнике обоих ботов и робота; функция поиска робота не зовёт пригороды.
+    expect(SALES_FACTS).toContain("ПРИГОРОДЫ — НЕ НАША ЗОНА");
+    expect(SUBURB_SEARCH_REFUSAL).toContain("только Душанбе и район Рудаки");
+    const search = PROPERTY_TOOLS.find((tool) => tool.name === "search_properties");
+    const suburbanDescription = (search?.parameters as { properties: Record<string, { description?: string }> }).properties.suburban.description ?? "";
+    expect(suburbanDescription).toContain("не наша зона");
   });
 
   // Сторож одной двери (ревью #204, С4): фраза о зоне «только Душанбе» и копии правила о Рудаки — только в

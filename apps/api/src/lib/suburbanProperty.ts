@@ -62,3 +62,16 @@ export function isSuburbanProperty(p: SuburbCheckFields): boolean {
 export function isRudakiProperty(p: SuburbCheckFields): boolean {
   return p.district?.name === RUDAKI_DISTRICT_NAME || [p.title, p.address, p.landmark, p.description].some((t) => mentionsRudakiDistrict(t));
 }
+
+/**
+ * ВНЕ ЗОНЫ — ЗАГОРОД НЕ В РАЙОНЕ РУДАКИ (владелец 16.11.2026: «Загород не берём, только Душанбе»; Рудаки — зона с 15.11).
+ * Одна дверь для всех ботов и робота: такой объект не предлагается (lib/propertyMatch.ts), такой запрос не ищется.
+ */
+export function propertyOutsideServiceArea(p: SuburbCheckFields): boolean {
+  return isSuburbanProperty(p) && !isRudakiProperty(p);
+}
+
+/** Запрос «за городом» не в районе Рудаки — вне зоны. */
+export function queryOutsideServiceArea(q: { suburban?: boolean | null; districtName?: string | null }): boolean {
+  return q.suburban === true && q.districtName !== RUDAKI_DISTRICT_NAME;
+}

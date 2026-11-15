@@ -26,7 +26,7 @@ import { propertyOwnerAgentId } from "../propertyOwner.js";
 import { BOT_OFFER_SELECT, botMayOffer, botOfferableWhere, botOfferLink, type BotOfferFields } from "../propertyMatch.js";
 import { bookShowing, resolveShowingSlot, SHOWING_CONFLICT_WINDOW_MS, type BookingProblem } from "../showingBooking.js";
 import { sendSms, toSmsPhone } from "../sms/index.js";
-import { mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME } from "../serviceArea.js";
+import { districtPickAllowed, mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME } from "../serviceArea.js";
 import { logSystemError } from "../systemError.js";
 import { isWithinConsultantHours } from "./consultantHours.js";
 import type { LiveVoiceToolReply } from "./liveVoiceBridge.js";
@@ -35,6 +35,7 @@ import {
   AGENT_CALLBACK_ONCE,
   LIVE_VOICE_DISTRICTS,
   RUDAKI_VOICE_HINT,
+  voiceDistrictFromModel,
   streetWithoutHouse,
   type ClientCallRequest,
   type PropertyCallMemory,
@@ -363,11 +364,14 @@ async function myStatusTool(memory: PropertyCallMemory): Promise<LiveVoiceToolRe
 // ── save_client_request ───────────────────────────────────────────────────────
 
 /** Белый список условий — каждое поле проверено, свободный текст обрезан. */
-export function sanitizeClientRequest(args: Record<string, unknown>): ClientCallRequest {
+export function sanitizeClientRequest(args: Record<string, unknown>, callerWords?: string | null): ClientCallRequest {
   const out: ClientCallRequest = {};
   if (args.intent === "buy" || args.intent === "sell") out.intent = args.intent;
   // «Рудаки» без слов района — только в перечне; «район Рудаки» в notes без district — тоже район (lib/serviceArea.ts).
-  const district = LIVE_VOICE_DISTRICTS.find((d) => d === args.district) ?? (mentionsRudakiDistrict(str(args.notes, 200)) ? RUDAKI_DISTRICT_NAME : undefined);
+  // «Рудаки (район)» — только если звонящий сам говорил о районе (voiceDistrictFromModel); «район Рудаки» в notes — тоже.
+  const district =
+    voiceDistrictFromModel(args.district, callerWords) ??
+    (mentionsRudakiDistrict(str(args.notes, 200)) && districtPickAllowed(RUDAKI_DISTRICT_NAME, callerWords) ? RUDAKI_DISTRICT_NAME : undefined);
   if (district) out.districtName = district;
   if (typeof args.type === "string" && ["APARTMENT", "HOUSE", "COMMERCIAL", "LAND"].includes(args.type)) out.type = args.type;
   const rooms = positive(args.rooms);
@@ -453,7 +457,7 @@ export function clientRequestText(r: ClientCallRequest): string {
 }
 
 async function saveRequestTool(memory: PropertyCallMemory, args: Record<string, unknown>): Promise<LiveVoiceToolReply> {
-  const fresh = sanitizeClientRequest(args);
+  const fresh = sanitizeClientRequest(args, memory.callerWords);
   if (Object.keys(fresh).length === 0) return reply({ ok: false, error: "нечего записать: передай то, что человек сказал" });
   // ОДНО условие на звонок: повторный вызов дописывает поля в то же memory.request, а не заводит второе
   // (на конец звонка в досье и агенту уходит один набор). Неполное тоже сохраняется — звонящий мог повесить

@@ -6,7 +6,7 @@ import { geoMatchKey } from "./geoNormalize.js";
 import { budgetWindowTjs, loadMatchPolicy } from "./matchPolicy.js";
 import { loadMoneyContext, priceCeilingFilter, toTjs } from "./money.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
-import { isRudakiProperty, isSuburbanProperty } from "./suburbanProperty.js";
+import { isRudakiProperty, isSuburbanProperty, propertyOutsideServiceArea, queryOutsideServiceArea } from "./suburbanProperty.js";
 import { RUDAKI_DISTRICT_NAME } from "./serviceArea.js";
 import { siteListingUrl } from "./siteListingUrl.js";
 import { resolveCallPropertyHint } from "./telephony/resolveCallProperty.js";
@@ -273,6 +273,8 @@ export async function findMatchingProperties(
   // Район Рудаки — зона с 15.11.2026, но для поиска он за городом (lib/serviceArea.ts): «дом в районе Рудаки» —
   // загородные объекты ИМЕННО этого района, а не весь пригород (Вахдат, Варзоб) по близости к проспекту Рудаки.
   const rudakiAsked = query.districtName === RUDAKI_DISTRICT_NAME;
+  // Пригород (Вахдат, Варзоб, Гиссар) — не зона (владелец 16.11.2026): такой запрос не ищем вовсе.
+  if (queryOutsideServiceArea({ suburban: query.suburban, districtName: query.districtName })) return [];
   const suburbanAsked = !!query.suburban || rudakiAsked;
   const pool = await prisma.property.findMany({
     where: {
@@ -305,6 +307,8 @@ export async function findMatchingProperties(
   for (const p of pool) {
     const suburban = isSuburbanProperty(p);
     if (suburbanAsked && !suburban) continue;
+    // Объект за городом не в районе Рудаки не предлагаем никогда (владелец 16.11.2026: «Загород не берём»).
+    if (propertyOutsideServiceArea(p)) continue;
     if (rudakiAsked && !isRudakiProperty(p)) continue;
     // Район или место названы — загородный дом «в Шохмансуре» не предлагаем (P0-4).
     if (!suburbanAsked && suburban && (districtId || place)) continue;
