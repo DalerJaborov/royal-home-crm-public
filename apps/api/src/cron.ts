@@ -27,6 +27,7 @@ import { runStationOutageProbeTick } from "./lib/stationOutage.js";
 import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
+import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
 import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
@@ -2005,6 +2006,50 @@ export function startCronJobs() {
   );
 
   /**
+   * ИСТОРИЯ МЕДИАН РЫНКА (14.11.2026): раз в сутки в 06:30 по Душанбе — после ночных обходов (Paydo
+   * 03:00 идёт до 3 часов) — пишем медиану и усечённое среднее цены и цены за м² по сегментам
+   * район × комнаты × тип дома, «весь рынок» и «собственники» (lib/market/medianHistory.ts).
+   * Только чтение каталога и запись в свою таблицу, в сеть не ходит; повторный запуск в те же
+   * сутки переписывает строки суток. Тот же флаг MARKET_CRAWL_ENABLED=1: без сбора писать нечего.
+   */
+  scheduleTracked(
+    "market-median-history",
+    "30 6 * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { recordMedianHistory } = await import("./lib/market/medianHistory.js");
+        await recordMedianHistory();
+      } catch (err) {
+        markCronTickFailed("Ошибка ночной записи истории медиан рынка", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
+   * НОВОЕ ОБЪЯВЛЕНИЕ ПОД ПОКУПАТЕЛЯ (14.11.2026): через 5 минут после инкрементов Somon (7/22/37/52) и Paydo
+   * агенту уходит пуш, если в каталоге появилось объявление под его активного покупателя. Один раз на пару
+   * клиент+объявление, не больше 3 пушей на клиента за сутки по Душанбе. Только по каталогу, в сеть не ходит.
+   * Включается рубильником в Настройках (marketBuyerAlertsEnabled, по умолчанию выключен) и тем же
+   * MARKET_CRAWL_ENABLED=1. Вся логика и тест — lib/market/buyerAlerts.ts.
+   */
+  scheduleTracked(
+    "market-buyer-alerts",
+    "12,27,42,57 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runBuyerMarketAlerts } = await import("./lib/market/buyerAlerts.js");
+        await runBuyerMarketAlerts();
+      } catch (err) {
+        markCronTickFailed("Ошибка оповещения о новых объявлениях под покупателей", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
    * ЕЖЕНЕДЕЛЬНОЕ НАПОМИНАНИЕ О ВЕРОЯТНЫХ ДУБЛИКАТАХ (владелец 06.09.2026, разбор
    * слепых зон п.3) — тот же понедельник, что у «Разбора недели» выше, но на
    * 10 минут позже (та же причина: не складывать тяжёлые задачи в одну минуту)
@@ -2748,6 +2793,20 @@ export function startCronJobs() {
   });
 
   /**
+   * КОММЕНТАРИЙ БЕЗ ОТВЕТА БОТА — ЧЕЛОВЕКУ (15.11.2026, lib/commentWaitingAlert.ts).
+   * Новое ядро ставит комментарию ESCALATED/FAILED и никого не зовёт; старый путь
+   * зовёт сам. Одна дверь для обоих: свежий ESCALATED/FAILED без уведомления — пуш.
+   */
+  scheduleTracked("comment-needs-human-sweep", "6-59/10 * * * *", async () => {
+    try {
+      const { alerted } = await runCommentNeedsHumanSweep();
+      if (alerted > 0) console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа комментариев без ответа", err);
+    }
+  });
+
+  /**
    * АЛАРМ «ЗАЯВЛЕНО N, СДЕЛАНО M» — ПРОДАВЕЦ И ПОКУПАТЕЛЬ, ОДНО УВЕДОМЛЕНИЕ НА
    * КЛИЕНТА (владелец 06.09.2026 п.3, объединено 07.09.2026, срок растянут по
    * числу объектов 07.09.2026). Число ИИ услышал из разговора или переписки
@@ -3054,6 +3113,24 @@ export function startCronJobs() {
         if (created) console.log(`[cron] Месячный отчёт составлен за ${dushanbeWallClock(periodStart).toISOString().slice(0, 7)}`);
       } catch (err) {
         reportCronTickError("Ошибка месячного отчёта", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /** Финансовый PDF за прошлый месяц директорам в Telegram (14.11.2026). Выключен по
+   *  умолчанию тумблером в Настройках. 1–3 числа в 09:10: если 1-го файл не собрался,
+   *  следующий день повторит; уже разосланный месяц второй раз не уходит. */
+  scheduleTracked(
+    "finance-pdf-monthly",
+    "10 9 1-3 * *",
+    async () => {
+      try {
+        const { sendMonthlyFinancePdf } = await import("./lib/reportPdf/monthlyFinance.js");
+        const result = await sendMonthlyFinancePdf();
+        if (result.status === "sent") console.log(`[cron] Финансовый PDF за ${result.month}: доставлено ${result.delivered}, не доставлено ${result.failed}`);
+      } catch (err) {
+        reportCronTickError("Финансовый PDF за месяц не разослан", err);
       }
     },
     { timezone: "Asia/Dushanbe" }

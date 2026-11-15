@@ -30,6 +30,7 @@ import { MoneyTabs } from "../components/SectionTabs";
 import { scrollableRegion } from "../lib/a11y";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { StatTile } from "../components/ui/StatTile";
+import { ReportPdfActions } from "../components/ReportPdfActions";
 
 /**
  * ОТЧЁТЫ — экран /reports темы «Royal Home 2026», перенесённый из прототипа
@@ -296,8 +297,11 @@ function ReportsScreen() {
           )}
           {/* Выгрузки — под своим правом: сервер их всё равно закроет, а кнопка,
               дающая отказ, только раздражает. */}
+          <div className="acts">
+            {/* PDF отчёта за выбранный период (14.11.2026): кнопки скрыты без права reports.view. */}
+            <ReportPdfActions kind="team" params={{ from, to }} disabled={!!rangeError} layout="contents" />
           {can("properties.export") && (
-            <div className="acts">
+            <>
               {clean && <details className="relative text-sm">
                 <summary className="min-h-11 cursor-pointer rounded-xl px-4 py-3">Вспомогательная выгрузка объектов</summary>
                 <div className="flex flex-wrap gap-2 py-3">
@@ -324,8 +328,9 @@ function ReportsScreen() {
                 Объекты JSON
               </button>
               </>}
-            </div>
+            </>
           )}
+          </div>
         </div>
 
         <MoneyTabs />
