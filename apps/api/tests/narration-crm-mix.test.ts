@@ -141,6 +141,23 @@ describe.skipIf(!ffmpegReady)("CRM сама накладывает озвучк�
     expect(await exists(path.join(tmp, "mixed3.mp4"))).toBe(false);
   });
 
+  it("музыка не мешает голосу (замер 14.11.2026): под голосом музыка глубоко тише, после голоса возвращается; тихий mp3 не ломает приглушение", async () => {
+    // Музыка — низкий тон 120 Гц (громко), «голос» — 2 кГц, нарочно тихий (≈ −30 dBFS), 4 с с паузами.
+    // Частоты разные: после сведения музыку меряем фильтром ниже 300 Гц по секундам.
+    const master = path.join(tmp, "loud-music.mp4"), voice = path.join(tmp, "quiet-voice.mp3"), out = path.join(tmp, "ducked.mp4");
+    ff(["-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=8", "-f", "lavfi", "-i", "sine=frequency=120:duration=8", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", master]);
+    ff(["-f", "lavfi", "-i", "sine=frequency=2000:duration=4", "-af", "volume='if(lt(mod(t,1),0.8),0.045,0)':eval=frame", "-c:a", "libmp3lame", voice]);
+    expect((await mixNarrationOntoMaster({ masterPath: master, voicePath: voice, outPath: out })).ok).toBe(true);
+    const r = spawnSync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-nostats", "-i", out, "-af",
+      "lowpass=f=300,lowpass=f=300,aformat=channel_layouts=mono,asetnsamples=48000,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-",
+      "-f", "null", "-"], { encoding: "utf8" });
+    const perSecond = [...r.stdout.matchAll(/RMS_level=(-?[\d.]+)/g)].map((m) => Number(m[1]));
+    expect(perSecond.length).toBeGreaterThanOrEqual(7);
+    const underVoice = Math.max(perSecond[1], perSecond[2], perSecond[3]); // голос звучит с 0,3 до 4,3 с
+    const afterVoice = Math.min(perSecond[6], perSecond[7]);               // release 800 мс давно прошёл
+    expect(afterVoice - underVoice).toBeGreaterThan(12);
+  });
+
   it("монтажёру не говорили «без голоса» — прежний путь: ролик без звука не принимается, с музыкой принимается без мастера", async () => {
     const p = await seedProperty({ videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date() });
     await seedVersion(p.id, 1, media.voice);

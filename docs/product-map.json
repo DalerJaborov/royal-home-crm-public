@@ -989,7 +989,7 @@
       "file": "apps/api/src/routes/properties.ts",
       "endpoints": 129,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 33
+      "usedBy": 35
     },
     {
       "mount": "/api/v1/clients",
@@ -1539,7 +1539,7 @@
       "mount": "/api/v1/market",
       "router": "marketRouter",
       "file": "apps/api/src/routes/market.ts",
-      "endpoints": 5,
+      "endpoints": 4,
       "label": null,
       "usedBy": 1
     },
@@ -1684,6 +1684,11 @@
     {
       "id": "clip-review-stale-alarm",
       "expr": "15 * * * *",
+      "label": null
+    },
+    {
+      "id": "comment-needs-human-sweep",
+      "expr": "6-59/10 * * * *",
       "label": null
     },
     {
@@ -1862,8 +1867,8 @@
       "label": "Убирает в корзину потерянных и неактивных старше трёх месяцев"
     },
     {
-      "id": "market-median-history",
-      "expr": "30 6 * * *",
+      "id": "market-buyer-alerts",
+      "expr": "12,27,42,57 * * * *",
       "label": null
     },
     {

@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MarketBuyerListingsResponse, MarketHistoryResponse, MarketSegmentsQuery, MarketSegmentsResponse } from "@royal-home/shared";
+import type {
+  MarketBuyerListingsResponse,
+  MarketHistoryResponse,
+  MarketOverpricedResponse,
+  MarketSegmentsQuery,
+  MarketSegmentsResponse,
+} from "@royal-home/shared";
 import { api } from "../lib/api";
 import type { MarketDynamicsData, MarketPropertyEstimate, OwnMarketMatchesData } from "../types";
 
@@ -89,6 +95,16 @@ export function useMarketHistory(propertyId: string | null | undefined) {
     queryFn: () => api<MarketHistoryResponse>(`/market/property/${propertyId}/history`),
     enabled: !!propertyId,
     staleTime: 30 * 60_000,
+    retry: false,
+  });
+}
+
+/** Наши объекты в продаже, которые просят дороже рынка (GET /market/overpriced): сравнение считает сервер. */
+export function useMarketOverpriced() {
+  return useQuery({
+    queryKey: ["market-overpriced"],
+    queryFn: () => api<MarketOverpricedResponse>("/market/overpriced"),
+    staleTime: 5 * 60_000,
     retry: false,
   });
 }
