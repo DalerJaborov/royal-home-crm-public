@@ -409,23 +409,35 @@ export function liveModelSupportsAsyncTools(model: string): boolean {
  * на следующую модель ТОЛЬКО на HTTP 404 — «этой модели больше нет» — а не на любую
  * ошибку, чтобы не прятать реальные сбои (квота, сеть) переходом на другую модель.
  *
- * СЕГОДНЯ В ЦЕПОЧКЕ РОВНО ОДНО ИМЯ, И ОНО PREVIEW (обе TTS-линейки Gemini на день
- * написания существуют только в статусе preview — стабильной TTS-модели Google пока
- * не выпустил, сверено на ai.google.dev/gemini-api/docs/models). Чем дальше preview
- * закроют, файл узнает об этом через logSystemError с понятным текстом (см.
- * synthesizeSpeech), а не тишиной. Как только Google выпустит стабильную версию,
- * добавить её ПЕРВОЙ строкой через запятую в GEMINI_TTS_MODELS / GEMINI_WHISPER_TTS_MODELS
- * (.env) — имя сверить живым запросом, не выдумывать (см. предупреждение у GEMINI_MODEL).
+ * С 16.11.2026 В ЦЕПОЧКЕ ДВЕ МОДЕЛИ: `gemini-3.8-flash-lite-tts` (основная, дешевле) и
+ * `gemini-3.8-flash-tts` (запасная). Прежняя `gemini-2.5-flash-preview-tts` отключается
+ * Google 18.12.2026 (ai.google.dev/gemini-api/docs/deprecations). Две модели нужны,
+ * чтобы 404 одной из них не обрывал озвучку: synthesizeSpeech перейдёт ко второй и
+ * один раз в час запишет переход в журнал (logSystemError). Имена сверены с
+ * aistudio.google.com/docs/models 16.11.2026. Сменить модель без правки кода:
+ * GEMINI_TTS_MODELS в .env.production (переменная проброшена в api и worker через
+ * docker-compose.prod.yml) и перезапуск api и worker. Имя сверять живым запросом.
  */
-export const GEMINI_TTS_MODELS = (process.env.GEMINI_TTS_MODELS || process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts")
-  .split(",")
-  .map((m) => m.trim())
-  .filter(Boolean);
+export const DEFAULT_GEMINI_TTS_MODELS = "gemini-3.8-flash-lite-tts,gemini-3.8-flash-tts";
+export const GEMINI_TTS_MODELS = parseGeminiModelList(
+  process.env.GEMINI_TTS_MODELS || process.env.GEMINI_TTS_MODEL,
+  DEFAULT_GEMINI_TTS_MODELS
+);
+
+
+/** Список моделей через запятую → массив без пустых имён; пусто → умолчание. */
+export function parseGeminiModelList(raw: string | undefined, fallback: string): string[] {
+  const list = (raw || fallback)
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  return list.length > 0 ? list : fallback.split(",");
+}
 
 /**
  * Модель озвучки телефонной подсказки — своя цепочка (см. WHISPER_TTS_MODEL было в
- * lib/telephony/whisperAudio.ts): таджикский текст на `gemini-2.5-flash-preview-tts`
- * молчит без ошибки (проверено 20.08.2026), нужна отдельная модель.
+ * lib/telephony/whisperAudio.ts): таджикский текст на старой 2.5-preview TTS
+ * молчил без ошибки (проверено 20.08.2026), нужна отдельная модель.
  */
 export const GEMINI_WHISPER_TTS_MODELS = (
   process.env.GEMINI_WHISPER_TTS_MODELS || process.env.GEMINI_WHISPER_TTS_MODEL || "gemini-3.1-flash-tts-preview"
@@ -440,7 +452,7 @@ export const GEMINI_WHISPER_TTS_MODELS = (
  * КАЖДОМ вызове synthesizeSpeech, пока основную модель не вернут/не поправят в
  * .env, — без ограничения это тот же журнал-спам, что был у 429 до 21.08.2026
  * (см. QUOTA_PAUSE_STEPS_MS в ai/tts.ts). Ключ — своя строка на каждую точку
- * перехода (например "tts:gemini-2.5-flash-preview-tts"), чтобы переход одной
+ * перехода (например "tts:gemini-3.8-flash-lite-tts"), чтобы переход одной
  * модели не глушил запись про переход другой.
  */
 const modelFallbackLoggedAt = new Map<string, number>();
