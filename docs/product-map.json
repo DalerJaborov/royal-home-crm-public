@@ -1539,7 +1539,7 @@
       "mount": "/api/v1/market",
       "router": "marketRouter",
       "file": "apps/api/src/routes/market.ts",
-      "endpoints": 4,
+      "endpoints": 6,
       "label": null,
       "usedBy": 1
     },
@@ -1869,6 +1869,11 @@
     {
       "id": "market-buyer-alerts",
       "expr": "12,27,42,57 * * * *",
+      "label": null
+    },
+    {
+      "id": "market-median-history",
+      "expr": "30 6 * * *",
       "label": null
     },
     {
