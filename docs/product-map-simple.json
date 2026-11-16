@@ -16,10 +16,10 @@
   "paths": 754,
   "cron": 142,
   "jobs": 33,
-  "conditions": 4084,
-  "untranslatedUnique": 462,
-  "untranslatedTotal": 593,
-  "partialUnique": 1113,
+  "conditions": 4087,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 594,
+  "partialUnique": 1115,
   "translatedShare": 85
  },
  "untranslated": [
@@ -215,6 +215,7 @@
   "await removeStationObject(creds, \"bridge\", bridge.id)",
   "await removeStationObject(creds, \"channel\", channel.id)",
   "await sourceClosed(new Date())",
+  "await staffAnsweredLate(incoming)",
   "await staleLeadCircleOpen()",
   "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, status: { in: [\"QUEUED\", \"SENDING\", \"UN…",
   "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, versionId: row.versionId, editorId: row…",
@@ -335,7 +336,7 @@
   "id === otherId",
   "ids.length !== existing.size || ids.some((id) => !existing.has(id))",
   "inNightFullCrawlWindow()",
-  "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
+  "incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…",
   "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
@@ -62535,18 +62536,26 @@
      "c": []
     },
     {
-     "t": "если incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…",
+     "t": "если incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "всё хорошо, отвечает данными",
-       "k": "do",
+       "t": "если await staffAnsweredLate(incoming)",
+       "k": "if",
        "a": [],
-       "c": []
+       "c": [
+        {
+         "t": "всё хорошо, отвечает данными",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "await staffAnsweredLate(incoming)"
       }
      ],
-     "raw": "incoming.length > 0 && incoming.every((m) => m.channel === \"FACEBOOK\" && !m.isEcho && m.messageId) && !metaBo…"
+     "raw": "incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…"
     },
     {
      "t": "если статус — «denied» или статус — «unavailable»",
@@ -62576,6 +62585,12 @@
      "c": [
       {
        "t": "если (статус — «persisted» или статус — «bypass») и есть held количество",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть late handed",
        "k": "if",
        "a": [],
        "c": []
@@ -71658,6 +71673,13 @@
          "c": [
           {
            "t": "если выключено: Meta",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: facebook и нет: Instagram",
            "k": "if",
            "a": [],
            "c": [],
