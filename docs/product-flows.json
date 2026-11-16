@@ -12752,7 +12752,7 @@
     },
     {
      "k": "if",
-     "t": "archiveReview",
+     "t": "archiveReview && (result.ok || result.status === 502)",
      "a": [],
      "c": [
       {
@@ -19828,6 +19828,14 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p)",
+       "a": [
+        "зовёт canCallArchivedClient()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "!canAccessAssignedAgent(req, full.assignedAgentId)",
        "a": [],
@@ -19915,7 +19923,7 @@
     },
     {
      "k": "if",
-     "t": "archiveReview",
+     "t": "archiveReview && (result.ok || result.status === 502)",
      "a": [],
      "c": [
       {
@@ -20989,18 +20997,19 @@
     },
     {
      "k": "do",
-     "t": "const [request, audit, rows, total] = await Promise.all([ prisma.clientDeleteRequest.findFirst({ where: { cli…",
+     "t": "const [request, audit, rows, total, manualTrash] = await Promise.all([ prisma.clientDeleteRequest.findFirst({…",
      "a": [
       "читает в базе: clientDeleteRequest",
       "читает в базе: auditLog",
       "читает в базе: interaction",
-      "считает в базе: interaction"
+      "считает в базе: interaction",
+      "считает в базе: auditLog"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "res.json({ client: { id: client.id, shortId: client.shortId, fullName: client.fullName, kind: client.kind, st…",
+     "t": "res.json({ client: { id: client.id, shortId: client.shortId, fullName: clientNamePhoneSafe(client.fullName, p…",
      "a": [
       "ответ 200"
      ],
@@ -88562,7 +88571,7 @@
         },
         {
          "k": "do",
-         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", clientId: { in: withClient.map((r)",
+         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", archiveReview: false, clientId: { in…",
          "a": [
           "читает в базе: interaction"
          ],

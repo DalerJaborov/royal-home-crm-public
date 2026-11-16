@@ -2933,7 +2933,7 @@
       · дословно из кода
 - const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });
   · команда телефонии
-- если archiveReview
+- если archiveReview && (result.ok || result.status === 502)
   - logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, { shortId: client.shortId, fullName: client.fullNam…
     · зовёт logAudit()
 - если !result.ok
@@ -4540,6 +4540,8 @@
 - если existing
   - const full = await prisma.client.findUniqueOrThrow({ where: { id: existing.id }, select: { id: true, shortId:…
     · читает в базе: client
+  - archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p)
+    · зовёт canCallArchivedClient()
   - если !canAccessAssignedAgent(req, full.assignedAgentId)
     - return res.status(403).json({ error: "Этот номер уже принадлежит другому клиенту — недостаточно прав" });
       · ответ 403 — «Этот номер уже принадлежит другому клиенту — недостаточно прав»
@@ -4558,7 +4560,7 @@
     · создаёт в базе: client
 - const result = await originateCallToClient(req.agent!.id, client, { archiveReview });
   · команда телефонии
-- если archiveReview
+- если archiveReview && (result.ok || result.status === 502)
   - logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, { shortId: client.shortId, fullName: client.fullNam…
     · зовёт logAudit()
 - если !result.ok
@@ -4810,12 +4812,13 @@
     · ответ 404 — «Клиент не найден в Корзине»
 - const interactionWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id };
   · зовёт visibleInteractionWhere()
-- const [request, audit, rows, total] = await Promise.all([ prisma.clientDeleteRequest.findFirst({ where: { cli…
+- const [request, audit, rows, total, manualTrash] = await Promise.all([ prisma.clientDeleteRequest.findFirst({…
   · читает в базе: clientDeleteRequest
   · читает в базе: auditLog
   · читает в базе: interaction
   · считает в базе: interaction
-- res.json({ client: { id: client.id, shortId: client.shortId, fullName: client.fullName, kind: client.kind, st…
+  · считает в базе: auditLog
+- res.json({ client: { id: client.id, shortId: client.shortId, fullName: clientNamePhoneSafe(client.fullName, p…
   · ответ 200
 
 ### GET /api/v1/clients/trash
@@ -19977,7 +19980,7 @@
     - если withClient.length === 0
       - return { byCall: 0, expired };
         · дословно из кода
-    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", clientId: { in: withClient.map((r)
+    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", archiveReview: false, clientId: { in…
       · читает в базе: interaction
     - если calls.length === 0
       - return { byCall: 0, expired };
