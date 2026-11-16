@@ -153,7 +153,7 @@ export function MarketingTabs() {
         // Тот же круг ролей, что у реестра меню и сервера: монтажёру вкладка не нужна.
         {
           to: "/social-videos",
-          label: "Ролики в соцсети",
+          label: "Публикации в соцсети",
           when: can("marketing.access"),
         },
         { to: "/pipeline", label: "Подготовка объектов", when: marketingVisible },
