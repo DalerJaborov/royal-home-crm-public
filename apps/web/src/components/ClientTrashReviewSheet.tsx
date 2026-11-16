@@ -121,12 +121,13 @@ export function ClientTrashReviewSheet({
             {data.interactions.length === 0 ? (
               <p className="quiet">Записей нет.</p>
             ) : (
-              <InteractionTimeline interactions={data.interactions} total={data.interactionsTotal} />
-            )}
-            {data.interactionsTotal > data.interactions.length && (
-              <p className="quiet">
-                Показаны последние {data.interactions.length} из {data.interactionsTotal} записей.
-              </p>
+              <InteractionTimeline
+                interactions={data.interactions}
+                clientId={clientId}
+                total={data.interactionsTotal}
+                truncated={data.hasMore === true}
+                timelinePath={`/clients/trash/${clientId}/review/timeline`}
+              />
             )}
           </section>
         </div>

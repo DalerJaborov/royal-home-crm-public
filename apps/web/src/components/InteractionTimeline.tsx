@@ -579,12 +579,15 @@ export function InteractionTimeline({
   total,
   truncated = false,
   type,
+  timelinePath,
 }: {
   interactions: Interaction[];
   clientId?: string;
   total?: number;
   truncated?: boolean;
   type?: Interaction["type"];
+  /** Куда ходить за более ранними записями; по умолчанию лента карточки. Для карточки из Корзины — разбор. */
+  timelinePath?: string;
 }) {
   const [limit, setLimit] = useState(INITIAL_EVENTS);
   // Догруженное держим вместе с ключом клиента/среза: другой клиент или срез —
@@ -627,7 +630,7 @@ export function InteractionTimeline({
         limit: String(OLDER_BATCH),
       });
       if (type) params.set("type", type);
-      const page = await api<OlderPage>(`/clients/${clientId}/timeline?${params.toString()}`);
+      const page = await api<OlderPage>(`${timelinePath ?? `/clients/${clientId}/timeline`}?${params.toString()}`);
       setOlder({
         key: ownerKey,
         pinned: state.pinned.length > 0 ? state.pinned : interactions,
