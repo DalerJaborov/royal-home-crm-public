@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 760,
-  "forks": 4123,
+  "forks": 4128,
   "mounts": 85,
   "cron": 143,
   "jobs": 33,
@@ -83503,6 +83503,21 @@
                 },
                 {
                  "k": "if",
+                 "t": "providerAcceptedReply && result.agentSignal",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "void requestAgentAttention(result.agentSignal.clientId, result.agentSignal.reason);",
+                   "a": [
+                    "зовёт requestAgentAttention()"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "if",
                  "t": "result.reply2",
                  "a": [],
                  "c": [
@@ -127387,9 +127402,9 @@
              "c": [
               {
                "k": "do",
-               "t": "await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…",
+               "t": "await markAgentAttention(client.id);",
                "a": [
-                "меняет в базе: client"
+                "зовёт markAgentAttention()"
                ],
                "c": []
               }
@@ -133486,11 +133501,49 @@
          "c": [
           {
            "k": "do",
-           "t": "const claims = findOffCatalogClaims({ text: result.reply.join(\"\\n\"), allowedText: propsBlock + \"\\n\" + history…",
+           "t": "const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…",
            "a": [
-            "зовёт findOffCatalogClaims()"
+            "зовёт applyObjectFactGuards()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "facts.streets.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.afterPlace.join(\"\\n\"), \"place\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "facts.renovationRemoved > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.reply.join(\"\\n\"), \"renovation\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError(\"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -134287,11 +134340,49 @@
          "c": [
           {
            "k": "do",
-           "t": "const claims = findOffCatalogClaims({ text: result.reply.join(\"\\n\"), allowedText: propsBlock + \"\\n\" + history…",
+           "t": "const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…",
            "a": [
-            "зовёт findOffCatalogClaims()"
+            "зовёт applyObjectFactGuards()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "facts.streets.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.afterPlace.join(\"\\n\"), \"place\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "facts.renovationRemoved > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.reply.join(\"\\n\"), \"renovation\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError(\"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
