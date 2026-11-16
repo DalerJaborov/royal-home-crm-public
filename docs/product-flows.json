@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 757,
-  "forks": 4111,
+  "forks": 4113,
   "mounts": 85,
   "cron": 143,
   "jobs": 33,
@@ -18086,6 +18086,21 @@
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!can(req, \"clients.assign\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Передавать клиентов может только руководитель\" });",
+       "a": [
+        "ответ 403 — «Передавать клиентов может только руководитель»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const parsed = clientTransferSchema.safeParse(req.body);",
@@ -115807,7 +115822,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const { stuck } = await runTransferRequestTick();",
+       "t": "const { stuck, reminded } = await runTransferRequestTick();",
        "a": [
         "зовёт runTransferRequestTick()"
        ],
@@ -115849,18 +115864,64 @@
            ]
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "const due = await prisma.ownershipTransferRequest.findMany({ where: { status: \"PENDING\", remindCount: { lt: T…",
+         "a": [
+          "читает в базе: ownershipTransferRequest"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of due",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"PENDING\", remi…",
+           "a": [
+            "меняет в базе: ownershipTransferRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claim.count === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await notifyReviewers(row);",
+           "a": [
+            "зовёт notifyReviewers()"
+           ],
+           "c": []
+          }
+         ]
         }
        ],
        "from": "runTransferRequestTick() — apps/api/src/lib/ownershipTransferRequest.ts"
       },
       {
        "k": "if",
-       "t": "stuck > 0",
+       "t": "stuck + reminded > 0",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "console.log(`[cron] Передачи РОП: не завершён возврат у ${stuck}`);",
+         "t": "console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);",
          "a": [
           "пишет строку в журнал сервера"
          ],

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **757**. Развилок в самих путях: **2483**; вместе с задачами по расписанию и фоновыми заданиями — **4111**. Модулей: **85**.
+Путей: **757**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4113**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4151,6 +4151,9 @@
 
 `apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
+- если !can(req, "clients.assign")
+  - return res.status(403).json({ error: "Передавать клиентов может только руководитель" });
+    · ответ 403 — «Передавать клиентов может только руководитель»
 - const parsed = clientTransferSchema.safeParse(req.body);
   · проверяет данные схемой clientTransferSchema
 - если !parsed.success
@@ -25786,7 +25789,7 @@
 ### transfer-request-tick — */5 * * * *
 
 - пробует
-  - const { stuck } = await runTransferRequestTick();
+  - const { stuck, reminded } = await runTransferRequestTick();
     · зовёт runTransferRequestTick()
     - const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: "DECLINED", resultNote: EXECU…
       · читает в базе: ownershipTransferRequest
@@ -25796,8 +25799,18 @@
       - если claim.count
         - publishTransferChanged([row.requestedById], row.id);
           · зовёт publishTransferChanged()
-  - если stuck > 0
-    - console.log(`[cron] Передачи РОП: не завершён возврат у ${stuck}`);
+    - const due = await prisma.ownershipTransferRequest.findMany({ where: { status: "PENDING", remindCount: { lt: T…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of due
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "PENDING", remi…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count === 0
+        - continue;
+          · переходит к следующему
+      - await notifyReviewers(row);
+        · зовёт notifyReviewers()
+  - если stuck + reminded > 0
+    - console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка тика запросов передачи", err);

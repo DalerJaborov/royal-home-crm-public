@@ -7,6 +7,7 @@ import { logAgentAudit } from "./audit.js";
 import {
   EXECUTING_MARK,
   isTransferReviewer,
+  notifyReviewers,
   publishTransferChanged,
   pushTag,
   reviewerAgents,
@@ -224,7 +225,12 @@ export async function listOutgoingTransferRequests(actor: TransferReviewer): Pro
 }
 
 /** Тик: отклонённые, но не доведённые до конца (падение процесса между захватом и возвратом) → FAILED. */
-export async function runTransferRequestTick(now = new Date()): Promise<{ stuck: number }> {
+/** Через сколько после передачи и как часто напоминать директору, пока он не решил; не больше стольких напоминаний. */
+export const TRANSFER_REVIEW_REMIND_AFTER_MS = 3 * 3_600_000;
+export const TRANSFER_REVIEW_REMIND_EVERY_MS = 6 * 3_600_000;
+export const TRANSFER_REVIEW_REMIND_MAX = 3;
+
+export async function runTransferRequestTick(now = new Date()): Promise<{ stuck: number; reminded: number }> {
   const stuck = await prisma.ownershipTransferRequest.findMany({
     where: { status: "DECLINED", resultNote: EXECUTING_MARK, decidedAt: { lte: new Date(now.getTime() - 5 * 60_000) } },
     take: 100,
@@ -240,5 +246,26 @@ export async function runTransferRequestTick(now = new Date()): Promise<{ stuck:
       publishTransferChanged([row.requestedById], row.id);
     }
   }
-  return { stuck: n };
+
+  // Напоминание директору (владелец 16.11.2026): если не решил, раз в несколько часов, но немного.
+  const due = await prisma.ownershipTransferRequest.findMany({
+    where: {
+      status: "PENDING",
+      remindCount: { lt: TRANSFER_REVIEW_REMIND_MAX },
+      createdAt: { lte: new Date(now.getTime() - TRANSFER_REVIEW_REMIND_AFTER_MS) },
+      OR: [{ lastRemindedAt: null }, { lastRemindedAt: { lte: new Date(now.getTime() - TRANSFER_REVIEW_REMIND_EVERY_MS) } }],
+    },
+    take: 50,
+  });
+  let reminded = 0;
+  for (const row of due) {
+    const claim = await prisma.ownershipTransferRequest.updateMany({
+      where: { id: row.id, status: "PENDING", remindCount: row.remindCount },
+      data: { lastRemindedAt: now, remindCount: { increment: 1 } },
+    });
+    if (claim.count === 0) continue;
+    reminded += 1;
+    await notifyReviewers(row);
+  }
+  return { stuck: n, reminded };
 }

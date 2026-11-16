@@ -18,6 +18,14 @@ export function usePendingTransferReviews(enabled = true) {
   });
 }
 
+export function useOutgoingTransferRequests(enabled = true) {
+  return useQuery({
+    queryKey: ["transfer-requests", "outgoing"],
+    queryFn: () => api<{ items: TransferRequestView[] }>("/transfer-requests/outgoing").then((r) => r.items),
+    enabled,
+  });
+}
+
 export function useRespondTransferRequest(id: string) {
   const qc = useQueryClient();
   return useMutation({

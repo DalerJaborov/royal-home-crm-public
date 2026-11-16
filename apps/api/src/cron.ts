@@ -2879,8 +2879,8 @@ export function startCronJobs() {
    */
   scheduleTracked("transfer-request-tick", "*/5 * * * *", async () => {
     try {
-      const { stuck } = await runTransferRequestTick();
-      if (stuck > 0) console.log(`[cron] Передачи РОП: не завершён возврат у ${stuck}`);
+      const { stuck, reminded } = await runTransferRequestTick();
+      if (stuck + reminded > 0) console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
     } catch (err) {
       reportCronTickError("Ошибка тика запросов передачи", err);
     }

@@ -112,7 +112,7 @@ function crmUrlFor(row: Pick<RequestRow, "propertyId" | "clientId">): string {
 }
 
 /** Уведомить директора и администратора: окно в CRM (живое событие), пуш и Telegram с кнопками. */
-async function notifyReviewers(row: RequestRow): Promise<void> {
+export async function notifyReviewers(row: RequestRow): Promise<void> {
   const [view] = await toViews([row]);
   const reviewers = await reviewerAgents();
   const text =

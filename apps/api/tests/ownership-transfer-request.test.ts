@@ -247,6 +247,23 @@ describe("РОП передаёт объект сразу, директору у
     expect(await ownerOf(p.id)).toBe(ownerId);
   });
 
+  it("директор не решает — через 3 часа тик напоминает, потом не чаще раза в 6 часов", async () => {
+    const p = await mkProperty(ownerId);
+    await transferProperty("rop", p.id, targetId);
+    const row = (await waitRow({ propertyId: p.id, status: "PENDING" }))!;
+    await runTransferRequestTick();
+    expect((await reviewRow({ id: row.id }))?.remindCount).toBe(0);
+    await prisma.ownershipTransferRequest.update({ where: { id: row.id }, data: { createdAt: new Date(Date.now() - 4 * 3_600_000) } });
+    tgSend.mockClear();
+    await runTransferRequestTick();
+    expect((await reviewRow({ id: row.id }))?.remindCount).toBe(1);
+    await vi.waitFor(() => expect(tgSend).toHaveBeenCalled());
+    tgSend.mockClear();
+    await runTransferRequestTick();
+    expect((await reviewRow({ id: row.id }))?.remindCount).toBe(1);
+    expect(tgSend).not.toHaveBeenCalled();
+  });
+
   it("отклонение, зависшее на возврате, тик добивает в FAILED", async () => {
     const p = await mkProperty(ownerId);
     await transferProperty("rop", p.id, targetId);
@@ -326,6 +343,16 @@ describe("агенты и директор", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(await reviewRow({ propertyId: p.id })).toBeNull();
     expect(tgSend).not.toHaveBeenCalled();
+  });
+
+  it("агентская «Передача» клиента закрыта: рядовой агент — 403", async () => {
+    const c = await mkClient(ownerId);
+    const res = await request(app)
+      .post(`/api/v1/clients/${c.id}/transfer`)
+      .set("Authorization", `Bearer ${tokens.owner}`)
+      .send({ reason: "NO_TRUST" });
+    expect(res.status).toBe(403);
+    expect((await prisma.client.findUnique({ where: { id: c.id } }))?.assignedAgentId).toBe(ownerId);
   });
 
   it("РОП не меняет ответственного правкой карточки (PATCH): передача только через передачу", async () => {

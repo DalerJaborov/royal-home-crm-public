@@ -16,9 +16,9 @@
   "paths": 757,
   "cron": 143,
   "jobs": 33,
-  "conditions": 4095,
-  "untranslatedUnique": 467,
-  "untranslatedTotal": 598,
+  "conditions": 4097,
+  "untranslatedUnique": 468,
+  "untranslatedTotal": 599,
   "partialUnique": 1118,
   "translatedShare": 85
  },
@@ -463,6 +463,7 @@
   "state?.contactKeyFingerprint && state.contactKeyFingerprint !== fingerprint",
   "stillTalking(c, shootingDate)",
   "stopping || customerBusy[lane]",
+  "stuck + reminded > 0",
   "targetId === actor.id",
   "ticket?.agentRevisionId === row.agentRevisionId && ticket.providerOperationId && ticket.originalConversationI…",
   "tiktokRefreshToken && !skip.has(\"TIKTOK\") && params.localVideoPath.startsWith(\"/uploads/\")",
@@ -20844,6 +20845,19 @@
     "/properties/:id"
    ],
    "tree": [
+    {
+     "t": "если нет: право «clients.assign»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не хватает прав: «Передавать клиентов может только руководитель»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
     {
      "t": "если данные заполнены неправильно",
      "k": "if",
@@ -76787,14 +76801,35 @@
            "more": true
           }
          ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: владение клиентом передать заявка",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если количество — «0»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
         }
        ]
       },
       {
-       "t": "если застрявшие больше 0",
+       "t": "если stuck + reminded > 0",
        "k": "if",
        "a": [],
-       "c": []
+       "c": [],
+       "raw": "stuck + reminded > 0"
       }
      ]
     },
