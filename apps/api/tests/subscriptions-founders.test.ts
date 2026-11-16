@@ -4,7 +4,7 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
 import { upsertAiExpenses } from "../src/lib/ads/adExpenseSync.js";
-import { createExpense, deleteExpense } from "../src/lib/expenseCommands.js";
+import { createExpense, deleteExpense, updateExpense } from "../src/lib/expenseCommands.js";
 import { confirmAssistantAction, createPendingAssistantAction, undoAssistantAction } from "../src/lib/assistantActions.js";
 import { parseBatchArgs, resolveRows } from "../src/ai/assistant/tools/expenseBatchTool.js";
 import { waitFor } from "./helpers/waitFor.js";
@@ -76,6 +76,19 @@ describe("счёт поставщика сильнее оценки ИИ", () =>
   it("«Оплата ИИ» без названия сервиса — по-прежнему «уже учтено»", async () => {
     const err = await createExpense({ category: "OTHER", amount: 2000, currency: "TJS", month: M, note: "ОПЛАТА ИИ" }, { agentId: directorId }).catch((e: unknown) => e);
     expect(err).toMatchObject({ status: 409 });
+  });
+});
+
+describe("правка автоматической строки", () => {
+  it("заметка без смены суммы не замораживает строку ИИ; смена суммы — замораживает", async () => {
+    await upsertAiExpenses([M]);
+    const row = (await prisma.expense.findUnique({ where: { autoKey: `ai:${M}` } }))!;
+    const same = await updateExpense(row.id, { amount: Number(row.amount), note: "Пометка директора", version: row.version });
+    expect(same.expense.manualEditedAt).toBeNull();
+    const changed = await updateExpense(row.id, { amount: Number(row.amount) + 1, version: same.expense.version });
+    expect(changed.expense.manualEditedAt).not.toBeNull();
+    await prisma.expense.update({ where: { id: row.id }, data: { manualEditedAt: null, note: "авто" } });
+    await upsertAiExpenses([M]);
   });
 });
 

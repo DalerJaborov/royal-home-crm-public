@@ -6,7 +6,7 @@ import {
 } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { Prisma, type Expense, type RecurringExpense } from "../generated/prisma/client.js";
-import { NO_USD_RATE_TEXT, roundMoney, usdRateForWrite, type MoneyContext } from "./money.js";
+import { NO_USD_RATE_TEXT, roundMoney, toCents, usdRateForWrite, type MoneyContext } from "./money.js";
 import {
   changeExpensePayment, expenseDay, ExpenseLifecycleError, materializeOccurrence, occurrenceDates, todayExpenseDay,
   validateExpenseCategory,
@@ -219,7 +219,10 @@ export async function updateExpense(id: string, raw: unknown): Promise<{ expense
         // Правку СУММЫ у авто-строки помечаем: ночная автоматика (зарплаты,
         // реклама, ИИ) такую строку больше не пересчитывает — раньше она молча
         // откатывала исправление директора ближайшей ночью (аудит №4).
-        ...(rest.amount !== undefined && row.autoKey ? { manualEditedAt: new Date() } : {}),
+        // Только НАСТОЯЩАЯ смена суммы или валюты (ревью 17.11): форма шлёт сумму всегда, и правка
+        // заметки или чека у строки рекламы/ИИ «замораживала» её — ночной пересчёт больше не догонял.
+        ...(row.autoKey && ((rest.amount !== undefined && toCents(rest.amount) !== toCents(row.amount))
+          || (rest.currency !== undefined && rest.currency !== row.currency)) ? { manualEditedAt: new Date() } : {}),
       },
     });
     await refreshAiEstimateIfBilled([row.vendor, expense.vendor], [row.month.toISOString().slice(0, 7), expense.month.toISOString().slice(0, 7)]);
