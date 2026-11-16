@@ -28,6 +28,9 @@ import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
 import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
+import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
+import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
+import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
 import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
@@ -2809,6 +2812,48 @@ export function startCronJobs() {
       if (people > 0) console.log(`[cron] Сверка Страниц: не дошло до CRM ${missed} сообщ. от ${people} чел. — сотрудникам пуш`);
     } catch (err) {
       reportCronTickError("Ошибка сверки переписок Страниц", err);
+    }
+  });
+
+  /**
+   * ВЕБХУК WHATSAPP ЗАМОЛЧАЛ (15.11.2026, lib/whatsappWebhookWatch.ts). Входящие
+   * WhatsApp Meta отдаёт только вебхуком — сверить их, как Messenger, не с чем.
+   * Раз в 20 минут в рабочие часы: тишина дольше обычного — тревога руководству
+   * с причиной из Graph (только чтение). Рубильник Settings.whatsappWebhookWatchEnabled.
+   */
+  scheduleTracked("whatsapp-webhook-watch", "8-59/20 * * * *", async () => {
+    try {
+      const { alarmed, silenceMs } = await runWhatsappWebhookWatch();
+      if (alarmed) console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководству`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «вебхук WhatsApp замолчал»", err);
+    }
+  });
+
+  /**
+   * TELEGRAM НЕ ДОСТАВЛЯЕТ В CRM (15.11.2026, lib/telegramDeliveryWatch.ts): getWebhookInfo
+   * раз в 10 минут, только чтение — нет вебхука, свежая ошибка доставки, очередь копится —
+   * тревога руководству. Рубильник Settings.telegramDeliveryWatchEnabled.
+   */
+  scheduleTracked("telegram-delivery-watch", "4-59/10 * * * *", async () => {
+    try {
+      const { alarmed } = await runTelegramDeliveryWatch();
+      if (alarmed) console.log("[cron] Telegram не доставляет сообщения в CRM — тревога руководству");
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «Telegram не доставляет»", err);
+    }
+  });
+
+  /**
+   * СООБЩЕНИЕ БЕЗ ЧАТА CRM — СВОДКА «ОТВЕТЬТЕ ВРУЧНУЮ» (15.11.2026, customerHeldMessage.ts):
+   * раз в 2 минуты, круглые сутки (ночью пуш ждёт утра по тихим часам); одна сводка за тик.
+   */
+  scheduleTracked("customer-unrecorded-summary", "*/2 * * * *", async () => {
+    try {
+      const { people } = await runUnrecordedCustomerSummary();
+      if (people > 0) console.log(`[cron] Вне чата CRM: сводка «Ответьте вручную» по ${people} чел.`);
+    } catch (err) {
+      reportCronTickError("Ошибка сводки «сообщения вне чата CRM»", err);
     }
   });
 

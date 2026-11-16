@@ -10,3 +10,5 @@
  * отсюда.
  */
 export const TG_PREFIX = "tg_";
+/** Telegram Direct (TelegramDirectConversation) в инбоксе — `td_<id>` (routes/conversations.ts). */
+export const TG_DIRECT_PREFIX = "td_";

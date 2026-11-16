@@ -1,4 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
+import { TG_PREFIX, TG_DIRECT_PREFIX } from "./conversationId.js";
+import { silentTurnReason } from "../messengers/replyChain.js";
+import type { ChatMessage } from "../ai/client.js";
 import { sendPushToAgent } from "../push.js";
 import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE } from "./customerIntendedSilence.js";
@@ -117,64 +121,122 @@ const CHANNEL_NAME: Record<string, string> = {
 };
 
 /**
+ * Откуда переписка. Клиентский бот Meta и чат сайта — `BotConversation`; Telegram-бот
+ * и Telegram Direct живут в своих таблицах (15.11.2026, В4 владельца: «никого не
+ * пропускать» — до этого их молчание не видел ни один сторож).
+ */
+export type WaitingChatSource = "bot" | "telegram" | "telegramDirect";
+
+/** Канал отметок эпизода для Telegram-таблиц: у них нет `silenceAlertFor`, а миграция ради отметки не нужна. */
+const TELEGRAM_EPISODE_CLAIM = "client-waiting-telegram";
+
+interface WaitingChat {
+  /** Как переписку открывает инбокс (`/messages?open=`): у Telegram свой префикс. */
+  openId: string;
+  name: string;
+  messages: unknown;
+  agentId: string | null;
+  /** Атомарно занять эпизод ДО отправки: true — этот вызов первый. */
+  claim(since: Date): Promise<boolean>;
+  /** Сигнал не ушёл — снять отметку, следующий тик попробует снова. */
+  release(since: Date): Promise<void>;
+  /** Ответить из CRM нельзя (Telegram Direct) — подсказка, где отвечать. */
+  replyHint: string;
+}
+
+const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } | null } | null | undefined) =>
+  client?.assignedAgent?.isActive ? client.assignedAgent.id : null;
+
+async function loadWaitingChat(source: WaitingChatSource, id: string): Promise<WaitingChat | null> {
+  const client = { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } as const;
+  if (source === "bot") {
+    const chat = await prisma.botConversation.findUnique({
+      where: { id },
+      select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, silenceAlertFor: true, client },
+    });
+    if (!chat || chat.optedOutAt || chat.client?.deletedAt) return null;
+    const previous = chat.silenceAlertFor;
+    return {
+      openId: chat.id,
+      name: chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[chat.channel] ?? chat.channel}`,
+      messages: chat.messages,
+      agentId: activeAgent(chat.client),
+      replyHint: "Ответьте клиенту.",
+      async claim(since) {
+        if (previous && previous.getTime() >= since.getTime()) return false;
+        const claimed = await prisma.botConversation.updateMany({
+          where: { id: chat.id, OR: [{ silenceAlertFor: null }, { silenceAlertFor: { lt: since } }] },
+          data: { silenceAlertFor: since },
+        });
+        return claimed.count === 1;
+      },
+      async release(since) {
+        await prisma.botConversation.updateMany({ where: { id: chat.id, silenceAlertFor: since }, data: { silenceAlertFor: previous } });
+      },
+    };
+  }
+  const chat = source === "telegram"
+    ? await prisma.telegramConversation.findUnique({ where: { id }, select: { id: true, username: true, messages: true, client } })
+    : await prisma.telegramDirectConversation.findUnique({ where: { id }, select: { id: true, username: true, messages: true, client } });
+  if (!chat || chat.client?.deletedAt) return null;
+  const key = (since: Date) => `${source}:${chat.id}:${since.toISOString()}`;
+  return {
+    openId: `${source === "telegram" ? TG_PREFIX : TG_DIRECT_PREFIX}${chat.id}`,
+    name: chat.client?.fullName?.trim() || (chat.username ? `@${chat.username}` : "клиент из Telegram"),
+    messages: chat.messages,
+    agentId: activeAgent(chat.client),
+    // Telegram Direct из CRM не отвечает (инбокс: canReply=false) — честно говорим, где отвечать.
+    replyHint: source === "telegram" ? "Ответьте клиенту." : "Ответьте клиенту в Telegram — из CRM в эту переписку ответить нельзя.",
+    async claim(since) {
+      const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+        VALUES (${randomUUID()},${TELEGRAM_EPISODE_CLAIM},${key(since)},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
+      return claimed === 1;
+    },
+    async release(since) {
+      await prisma.processedMessage.deleteMany({ where: { channel: TELEGRAM_EPISODE_CLAIM, messageId: key(since) } });
+    },
+  };
+}
+
+/**
  * ОДНА ДВЕРЬ: сказать ответственному, что клиент ждёт ответа. Идемпотентна по
  * эпизоду молчания: второй вызов на тот же эпизод (ядро + сторож, два тика)
- * ничего не шлёт.
+ * ничего не шлёт. Одна и та же для всех таблиц переписок (`source`).
  */
 export async function alertClientWaiting(input: {
   conversationId: string;
+  /** По умолчанию — `BotConversation` (Meta и чат сайта). */
+  source?: WaitingChatSource;
   trigger: ClientWaitingTrigger;
   /** Для failed: почему бот не ответил, простыми словами (без служебных кодов). */
   why?: string;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
-  const chat = await prisma.botConversation.findUnique({
-    where: { id: input.conversationId },
-    select: {
-      id: true,
-      name: true,
-      channel: true,
-      messages: true,
-      optedOutAt: true,
-      silenceAlertFor: true,
-      client: {
-        select: {
-          fullName: true,
-          deletedAt: true,
-          assignedAgent: { select: { id: true, isActive: true } },
-        },
-      },
-    },
-  });
-  if (!chat || chat.optedOutAt || chat.client?.deletedAt) return "skipped";
+  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId);
+  if (!chat) return "skipped";
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
   const since = episode?.since ?? (input.trigger !== "silence" ? now : null);
   if (!since) return "skipped";
-  if (chat.silenceAlertFor && chat.silenceAlertFor.getTime() >= since.getTime()) return "skipped";
 
   // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба.
-  const previous = chat.silenceAlertFor;
-  const claimed = await prisma.botConversation.updateMany({
-    where: { id: chat.id, OR: [{ silenceAlertFor: null }, { silenceAlertFor: { lt: since } }] },
-    data: { silenceAlertFor: since },
-  });
-  if (claimed.count !== 1) return "skipped";
+  if (!(await chat.claim(since))) return "skipped";
 
-  const name = chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[chat.channel] ?? chat.channel}`;
+  const name = chat.name;
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
   const body =
     input.trigger === "escalate"
-      ? `${name}: бот решил, что нужен сотрудник, и не ответил. Ответьте клиенту.`
+      ? `${name}: бот решил, что нужен сотрудник, и не ответил. ${chat.replyHint}`
       : input.trigger === "failed"
         // Правда о причине (ревью 193-3, 15.11): бот сломался, а не «решил».
-        ? `${name}: ${input.why ?? "бот не смог подготовить ответ"} — клиент без ответа. Ответьте клиенту.`
-        : `${name}: ждёт ответа в переписке ${waitedMin} мин. Ни бот, ни сотрудник не ответили.`;
-  const url = `/messages?open=${chat.id}`;
-  const tag = `client-waiting-${chat.id}`;
-  const agent = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
+        ? `${name}: ${input.why ?? "бот не смог подготовить ответ"} — клиент без ответа. ${chat.replyHint}`
+        : `${name}: ждёт ответа в переписке ${waitedMin} мин. Ни бот, ни сотрудник не ответили.` +
+          (chat.replyHint === "Ответьте клиенту." ? "" : ` ${chat.replyHint}`);
+  const url = `/messages?open=${chat.openId}`;
+  const tag = `client-waiting-${chat.openId}`;
+  const agent = chat.agentId;
 
   try {
     if (agent) {
@@ -195,9 +257,7 @@ export async function alertClientWaiting(input: {
     return "director";
   } catch (err) {
     // Сигнал не ушёл — снимаем метку эпизода, следующий тик попробует снова.
-    await prisma.botConversation
-      .updateMany({ where: { id: chat.id, silenceAlertFor: since }, data: { silenceAlertFor: previous } })
-      .catch(() => {});
+    await chat.release(since).catch(() => {});
     void logSystemError(
       "api",
       `Сигнал «клиент ждёт ответа» не отправлен: ${err instanceof Error ? err.message : String(err)}`,
@@ -220,6 +280,92 @@ export interface ClientSilenceSweepResult {
  */
 export async function runClientSilenceSweep(now: Date = new Date()): Promise<ClientSilenceSweepResult> {
   if (!(await isWithinWorkingHours(now))) return { checked: 0, alerted: 0, skippedOffHours: true };
+  const bot = await sweepBotConversations(now);
+  // Telegram-бот и Telegram Direct — тот же сторож и та же дверь (15.11.2026, В4); свой рубильник.
+  const telegram = await sweepTelegramConversations(now);
+  return { checked: bot.checked + telegram.checked, alerted: bot.alerted + telegram.alerted, skippedOffHours: false };
+}
+
+/** Рубильник «Telegram: клиент без ответа — сказать человеку» (Settings.telegramSilenceWatchEnabled). */
+export async function isTelegramSilenceWatchEnabled(): Promise<boolean> {
+  const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { telegramSilenceWatchEnabled: true } });
+  return s?.telegramSilenceWatchEnabled ?? true;
+}
+
+/**
+ * Telegram-бот (TelegramConversation) и Telegram Direct (TelegramDirectConversation).
+ * Тикетов ядра у них нет, поэтому намеренное молчание ядра здесь не различается: любой
+ * хвост реплик клиента без ответа дольше CLIENT_WAITING_MINUTES — сигнал. Спам, звонок
+ * агента после реплики и клиент в корзине — как у основной выборки.
+ */
+async function sweepTelegramConversations(now: Date): Promise<{ checked: number; alerted: number }> {
+  if (!(await isTelegramSilenceWatchEnabled())) return { checked: 0, alerted: 0 };
+  const since = new Date(now.getTime() - LOOKBACK_MS);
+  type Row = { id: string; messages: unknown; leadDraft: unknown; clientId: string | null };
+  const [bots, direct] = await Promise.all([
+    prisma.$queryRaw<Row[]>`
+      SELECT t.id, t.messages, t."leadDraft", t."clientId"
+      FROM "TelegramConversation" t LEFT JOIN "Client" c ON c.id = t."clientId"
+      WHERE t."lastMessageAt" >= ${since} AND c."deletedAt" IS NULL
+        AND jsonb_typeof(t.messages) = 'array' AND jsonb_array_length(t.messages) > 0
+        AND (t.messages -> -1 ->> 'role' = 'user'
+          OR (t.messages -> -1 ->> 'role' = 'assistant' AND t.messages -> -1 ->> 'deliveryStatus' = 'failed'))
+      ORDER BY t."lastMessageAt" ASC LIMIT ${SWEEP_LIMIT}`,
+    prisma.$queryRaw<Row[]>`
+      SELECT t.id, t.messages, t."leadDraft", t."clientId"
+      FROM "TelegramDirectConversation" t LEFT JOIN "Client" c ON c.id = t."clientId"
+      WHERE t."lastMessageAt" >= ${since} AND c."deletedAt" IS NULL
+        AND jsonb_typeof(t.messages) = 'array' AND jsonb_array_length(t.messages) > 0
+        AND (t.messages -> -1 ->> 'role' = 'user'
+          OR (t.messages -> -1 ->> 'role' = 'assistant' AND t.messages -> -1 ->> 'deliveryStatus' = 'failed'))
+      ORDER BY t."lastMessageAt" ASC LIMIT ${SWEEP_LIMIT}`,
+  ]);
+  const threshold = now.getTime() - CLIENT_WAITING_MINUTES * 60_000;
+  const due: Array<{ id: string; source: WaitingChatSource; clientId: string | null; since: Date }> = [];
+  for (const [source, rows] of [["telegram", bots], ["telegramDirect", direct]] as const) {
+    for (const row of rows) {
+      const episode = waitingEpisodeOf(row.messages);
+      if (!episode || episode.since.getTime() > threshold) continue;
+      const draft = row.leadDraft;
+      const spam = draft && typeof draft === "object" && !Array.isArray(draft) ? (draft as Record<string, unknown>).spamMute : undefined;
+      if (customerSpamMuteActive(customerSpamMuteFrom(spam), now)) continue;
+      // Бот Telegram промолчал НАМЕРЕННО («ок, спасибо» без нашего вопроса, повтор чужого поста, повтор фото) —
+      // тот же признак, по которому молчит сам бот (messengers/replyChain.ts::silentTurnReason), не второй список.
+      if (telegramSilenceIntended(row.messages, episode.since)) continue;
+      due.push({ id: row.id, source, clientId: row.clientId, since: episode.since });
+    }
+  }
+  if (!due.length) return { checked: bots.length + direct.length, alerted: 0 };
+  const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d) => d.clientId).filter((id): id is string => !!id))]);
+  let alerted = 0;
+  for (const d of due) {
+    try {
+      const called = d.clientId ? lastCall.get(d.clientId) : undefined;
+      if (called && called.getTime() > d.since.getTime()) continue;
+      const outcome = await alertClientWaiting({ conversationId: d.id, source: d.source, trigger: "silence", now });
+      if (outcome !== "skipped") alerted++;
+    } catch (err) {
+      reportCronRowError("Сторож «клиент ждёт ответа» (Telegram)", d.id, err);
+    }
+  }
+  return { checked: bots.length + direct.length, alerted };
+}
+
+/** Хвост реплик клиента — то, на что бот Telegram молчит по своему же правилу. Чистая функция. */
+export function telegramSilenceIntended(messages: unknown, since: Date): boolean {
+  if (!Array.isArray(messages)) return false;
+  const start = messages.findIndex((m) => {
+    const at = (m as { at?: unknown } | null)?.at;
+    return (m as { role?: unknown } | null)?.role === "user" && typeof at === "string" && new Date(at).getTime() === since.getTime();
+  });
+  if (start < 0) return false;
+  const tail = messages.slice(start) as Array<Record<string, unknown>>;
+  const text = tail.filter((m) => m.role === "user").map((m) => (typeof m.content === "string" ? m.content : "")).join("\n").trim();
+  const hasMedia = tail.some((m) => m.role === "user" && (m.attachments !== undefined || m.media !== undefined || m.photo !== undefined));
+  return silentTurnReason({ text, hasMedia, history: messages.slice(0, start) as ChatMessage[] }) !== null;
+}
+
+async function sweepBotConversations(now: Date): Promise<{ checked: number; alerted: number }> {
 
   // Предвыборка в базе: последняя реплика — клиента (или недоставленный ответ бота),
   // переписка свежая, не отписан. Хвост и эпизод считает waitingEpisodeOf.
@@ -255,7 +401,7 @@ export async function runClientSilenceSweep(now: Date = new Date()): Promise<Cli
     if (customerSpamMuteActive(customerSpamMuteFrom(spam), now)) continue;
     due.push({ id: row.id, clientId: row.clientId, episode });
   }
-  if (due.length === 0) return { checked: rows.length, alerted: 0, skippedOffHours: false };
+  if (due.length === 0) return { checked: rows.length, alerted: 0 };
 
   // Намеренное молчание ядра: эпизод пропускаем, только если ВСЕ его реплики
   // удержаны намеренно. Одним запросом на пачку, не в цикле.
@@ -280,5 +426,5 @@ export async function runClientSilenceSweep(now: Date = new Date()): Promise<Cli
       reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
     }
   }
-  return { checked: rows.length, alerted, skippedOffHours: false };
+  return { checked: rows.length, alerted };
 }
