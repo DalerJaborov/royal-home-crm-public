@@ -884,6 +884,31 @@ export async function repeatBlockedTexts(
   }
 }
 
+/**
+ * ТО ЖЕ ДЛЯ ОТВЕТА ЯДРА (16.11.2026, аудит молчания: 15 ответов ядра вырезаны как повтор, 4 — единственная
+ * реплика хода, клиенту тишина). Ядро шлёт ответ с answersInbound=true, поэтому порог — ровно транспортный
+ * (repeatLimitFor(true, …)), а не строгий порог цепочки старого бота: спрашиваем «вырежет ли транспорт», чтобы
+ * вместо вырезанного сказать другое (lib/customerNoSilence.ts). Ничего не пишет; сбой — «ничего не блокируется».
+ */
+export async function coreReplyRepeatBlocked(
+  channel: string,
+  subscriberId: string,
+  texts: string[],
+  transport?: CustomerTransportHint,
+  now: Date = new Date()
+): Promise<string[]> {
+  if (texts.length === 0) return [];
+  try {
+    const state = await loadState(await shieldKey(channel, subscriberId, transport));
+    if (!state) return [];
+    const prints = readPrints(state.recentTexts, now.getTime());
+    return texts.filter((t) => countedPrint(prints, fingerprint(t)) > repeatLimitFor(true, t));
+  } catch (err) {
+    console.error("[щит] проверка повтора ответа ядра не выполнена:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
 function windowCount(start: Date | null | undefined, count: number | undefined, now: Date, spanMs: number): number {
   if (!start || now.getTime() - start.getTime() >= spanMs) return 0;
   return count ?? 0;

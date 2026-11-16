@@ -584,7 +584,7 @@
       "redirect": null,
       "nav": {
         "to": "/social-videos",
-        "label": "Ролики в соцсети",
+        "label": "Публикации в соцсети",
         "group": "ads",
         "gate": ""
       }
@@ -817,7 +817,7 @@
     },
     {
       "to": "/social-videos",
-      "label": "Ролики в соцсети",
+      "label": "Публикации в соцсети",
       "group": "ads",
       "gate": ""
     },
@@ -1243,7 +1243,7 @@
       "mount": "/api/v1/social-videos",
       "router": "socialVideosRouter",
       "file": "apps/api/src/routes/socialVideos.ts",
-      "endpoints": 20,
+      "endpoints": 21,
       "label": null,
       "usedBy": 2
     },

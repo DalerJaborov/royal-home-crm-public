@@ -2346,7 +2346,9 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       const adPostTail = msg.adPostId?.includes("_") ? msg.adPostId.slice(msg.adPostId.lastIndexOf("_") + 1) : msg.adPostId;
       const ourCreative =
         (Boolean(msg.attachmentMediaId) && (msg.attachmentMediaId === msg.adPostId || msg.attachmentMediaId === adPostTail)) ||
-        isOurBrandCaption(msg.attachmentTitle, accountBrand);
+        isOurBrandCaption(msg.attachmentTitle, accountBrand) ||
+        // Подписи нет, но описание самого ролика называет наш бренд («рекламный ролик агентства «Arvan Estate»»), 16.11.2026.
+        isOurBrandCaption(cardRead?.text, accountBrand);
       const foreignShare =
         isSharedPost(msg.attachmentType) && !sharedPost.propertyId && !ownMedia && !vacancyPost && !ourCreative;
       if (foreignShare) rememberForeignShare(msg.channel, msg.senderId);

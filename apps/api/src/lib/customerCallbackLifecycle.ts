@@ -93,7 +93,7 @@ export async function createManagedCustomerCallbackTx(tx: TxClient, input: {
   const inserted = await tx.$executeRaw`INSERT INTO "CallbackRequest" ("id","customerActionId","conversationId","clientId","channel","phone","topic","byClientRequest",
     "requestKind","lifecycleStatus","lifecycleRevision")
     VALUES (${resourceId},${input.actionId},${snapshot.fence.nativeId},NULL,${snapshot.fence.endpoint.channel},
-      ${input.requestKind === "CALLBACK" ? input.phone : null},${input.topic.trim()},true,${input.requestKind},'QUEUED',1)`;
+      ${input.phone},${input.topic.trim()},true,${input.requestKind},'QUEUED',1)`;
   if (inserted !== 1) throw new Error("Managed customer request was not inserted");
   // Required notification is atomic with resource/journal persistence. It
   // cannot be a best-effort facade or a second enqueue by the caller.
