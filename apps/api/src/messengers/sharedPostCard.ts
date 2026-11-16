@@ -222,6 +222,8 @@ export async function propertyFromSharedCard(url: string | undefined | null, dec
 export interface CardRead {
   property: Awaited<ReturnType<typeof matchPropertyByFacts>>;
   listingSeen: boolean;
+  /** Описание карточки моделью: по нему вебхук узнаёт СВОЙ рекламный ролик по имени бренда (16.11.2026). */
+  text?: string;
 }
 
 export async function readSharedCard(url: string | undefined | null, declaredKind?: string): Promise<CardRead | null> {
@@ -257,7 +259,7 @@ export async function readCardSource(source: AttachmentSource): Promise<CardRead
     const facts = parsePropertyFacts(text);
     // Цена сама по себе — не объявление о жилье: «iPhone 1200$», «доход 3000$».
     const listingSeen = facts.areaSqm != null || facts.rooms != null || looksLikeHousing(text);
-    return { property: await matchPropertyByFacts(facts), listingSeen };
+    return { property: await matchPropertyByFacts(facts), listingSeen, text };
   } catch (err) {
     void logSystemError("meta", `Карточку пересланного поста прочитать не удалось: ${describeError(err)}`);
     return null;
