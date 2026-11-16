@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, RotateCcw, Send, Sparkles, X } from "lucide-react";
+import { Mic, RotateCcw, Send, Square, X } from "lucide-react";
 import type { AssistantActionView, AssistantCard } from "@royal-home/shared";
 import { AssistantStreamError, streamAssistant } from "../lib/assistantStream";
 import { loadAssistantHistory, saveAssistantHistory } from "../lib/assistantHistory";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+import { formatElapsed } from "../lib/audioRecording";
 import { ASSISTANT_CATEGORIES } from "../lib/assistantCategories";
 import { Rh2Portal } from "./rh2/Rh2Scope";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { AssistantThread, type LiveTurn } from "./assistant/AssistantThread";
 import { historyForStorage, pushStep, replaceAction, upsertAction, type ThreadMessage, type TurnStep } from "./assistant/assistantTurn";
 import { ConfirmCard, createConfirmCardController } from "./assistant/ConfirmCard";
@@ -71,10 +73,16 @@ export function AssistantPanel({
   // Телефонное поведение — по устройству (useMobileUx), не по вкусу в настройках
   // (см. хук). Хук вызван здесь, ДО любых ранних return, как и все остальные.
   const mobile = useMobileUx();
+  useKeyboardInset(mobile);
   const mobileEndRef = useRef<HTMLDivElement>(null);
+  // Первая прокрутка (панель открыта с сохранённым диалогом) — сразу, без анимации:
+  // плавная начиналась с высоты ещё не отрисованной ленты и оставляла начало диалога.
+  const firstScrollRef = useRef(true);
   useEffect(() => {
     if (!mobile) return;
-    mobileEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const behavior = firstScrollRef.current ? "auto" : "smooth";
+    mobileEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    firstScrollRef.current = false;
   }, [mobile, messages, pending, liveCards, liveActions, liveText]);
 
   useEffect(() => {
@@ -118,8 +126,12 @@ export function AssistantPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPrompt]);
 
+  // Прокрутка вниз — только когда в ленте есть переписка. На пустой панели она
+  // уезжала к подсказкам и прятала приветствие над ними (15.11.2026).
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    if (messages.length === 0 && !pending && liveCards.length === 0) return;
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: firstScrollRef.current ? "auto" : "smooth" });
+    firstScrollRef.current = false;
   }, [messages, pending, liveCards, liveActions, liveText]);
 
   // Окна отката и сроки подтверждения считают таймеры контроллеров — при закрытии
@@ -268,7 +280,7 @@ export function AssistantPanel({
   const errorLine = error && (
     <p className="state err" role="alert">
       <span className="dot crit" />
-      {error.message}
+      <span className="txt">{error.message}</span>
       {error.retryable && (
         <button type="button" className="lk" onClick={retry}>
           Повторить
@@ -276,6 +288,20 @@ export function AssistantPanel({
       )}
     </p>
   );
+
+  // Сбой голоса (нет доступа к микрофону, браузер не умеет запись, не расшифровалось)
+  // раньше терялся: хук его отдавал, а панель не показывала нигде, и микрофон
+  // выглядел просто «мёртвым» (владелец 15.11.2026: «микрофон не работает вроде»).
+  const voiceErrorLine = speech.error && (
+    <p className="state err" role="alert">
+      <span className="dot crit" />
+      <span className="txt">{speech.error}</span>
+      <button type="button" className="lk" onClick={speech.clearError}>
+        Понятно
+      </button>
+    </p>
+  );
+  const timer = formatElapsed(speech.elapsedMs);
 
   /**
    * ОБЛИК НА ТЕЛЕФОНЕ — шторка снизу с кругом-микрофоном, дословно по макету
@@ -297,7 +323,7 @@ export function AssistantPanel({
     const listening = speech.isListening;
     const transcribing = speech.isTranscribing;
     const statusText = listening
-      ? "Слушаю… говорите"
+      ? `Слушаю… ${timer}. Нажмите, когда закончите`
       : transcribing
         ? "Распознаю…"
         : pending
@@ -312,6 +338,7 @@ export function AssistantPanel({
         onClose={onClose}
         title="Ассистент"
         ariaLabel="ИИ-ассистент"
+        className="assistant-sheet"
         // Отправка — через форму самой шторки (Rh2Sheet всегда <form>), а не своей
         // формой в подвале: вложенная форма отправлялась браузером мимо React, и
         // страница перезагружалась на «/?» вместо вопроса помощнику (найдено
@@ -322,10 +349,11 @@ export function AssistantPanel({
             <input
               ref={inputRef}
               className="inp"
-              style={{ flex: 1 }}
+              style={{ flex: 1, minWidth: 0 }}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Написать сообщение…"
+              enterKeyHint="send"
               aria-label="Вопрос ассистенту"
             />
             <button type="submit" className="call" disabled={pending || !input.trim()} aria-label="Отправить">
@@ -342,13 +370,18 @@ export function AssistantPanel({
             type="button"
             className="orb"
             aria-pressed={listening}
-            aria-label={listening ? "Слушаю. Нажмите, чтобы остановить" : "Включить микрофон"}
-            disabled={!speech.supported || transcribing}
+            aria-label={listening ? "Остановить запись и отправить на распознавание" : "Включить микрофон"}
+            disabled={transcribing}
             onClick={() => (listening ? speech.stop() : speech.start())}
           >
-            {listening ? <Mic className="i" /> : <Sparkles className="i" />}
+            {listening ? <Square className="i" /> : <Mic className="i" />}
           </button>
           <p aria-live="polite">{statusText}</p>
+          {listening && (
+            <button type="button" className="pill ghost sm" onClick={speech.cancel}>
+              Отмена
+            </button>
+          )}
           {messages.length === 0 && (
             <div className="hints">
               {ASSISTANT_CATEGORIES.slice(0, 3).map(({ label, example }) => (
@@ -364,6 +397,8 @@ export function AssistantPanel({
             </button>
           )}
         </div>
+
+        {voiceErrorLine}
 
         {(messages.length > 0 || pending || liveCards.length > 0) && (
           <div className="thread">
@@ -393,7 +428,7 @@ export function AssistantPanel({
       {/* Прозрачный клик-перехватчик для закрытия по клику вне — без затемнения всего
           экрана: компактный виджет, а не модальный слайд-овер. */}
       <div className="sheet-back" style={{ background: "transparent", backdropFilter: "none" }} onClick={onClose} />
-      <div className="cw" role="dialog" aria-label="ИИ-ассистент" data-no-sheet onClick={(e) => e.stopPropagation()}>
+      <div className="cw assistant-cw" role="dialog" aria-label="ИИ-ассистент" data-no-sheet onClick={(e) => e.stopPropagation()}>
         <div className="cw-h">
           <div className="t">
             <b>ИИ-ассистент CRM</b>
@@ -420,14 +455,11 @@ export function AssistantPanel({
           {messages.length === 0 && (
             <>
               <p className="state">
-                Спрашивайте своими словами: я найду в базе объекты и клиентов, посчитаю статистику, подниму историю
-                встреч и, если попросите, создам задачу или перенесу встречу. Отвечаю только по работе агентства.
-                Номер объекта (ОБ-000088), телефон или ссылка на пост Instagram — открою карточку сразу.
+                Спрашивайте своими словами, текстом или голосом: найду объекты и клиентов, посчитаю цифры,
+                подниму историю встреч, поставлю задачу или перенесу встречу. Номер объекта (ОБ-000088),
+                телефон или ссылка на пост Instagram — сразу открою карточку.
               </p>
-              <p className="state">
-                Ниже подсказки под ваш личный кабинет: «мои клиенты» и «встречи» относятся именно к вам,
-                а не ко всей команде. Нажмите на любую, чтобы сразу отправить.
-              </p>
+              <p className="state">Попробуйте одну из подсказок — «мои клиенты» и «встречи» считаются только по вам.</p>
               <div className="aib-sugg">
                 {ASSISTANT_CATEGORIES.map(({ icon: Icon, label, example }) => (
                   <button key={label} type="button" onClick={() => void send(example)} title={label}>
@@ -446,18 +478,30 @@ export function AssistantPanel({
           )}
 
           {errorLine}
-
-          {/* Пилюля записи — по прототипу: круглый микрофон, статус-подпись.
-              Живого текста распознавания здесь нет физически: запись идёт через
-              MediaRecorder и уходит на расшифровку целиком ПОСЛЕ отпускания
-              (useSpeechRecognition.ts), а не построчно во время речи. */}
-          {(speech.isListening || speech.isTranscribing) && (
-            <p className="quiet">
-              <span className={speech.isListening ? "dot crit" : "dot warn"} />
-              <span className="txt">{speech.isListening ? "Слушаю…" : "Распознаю…"}</span>
-            </p>
-          )}
         </div>
+
+        {/* Состояние голоса — между лентой и полем ввода, а не в конце прокручиваемой
+            ленты: там «Слушаю…» и ошибка микрофона оставались за краем окна. */}
+        {(speech.isListening || speech.isTranscribing || speech.error) && (
+          <div className="cw-s">
+            {voiceErrorLine}
+            {/* Пилюля записи — по прототипу: круглый микрофон, статус-подпись.
+                Живого текста распознавания здесь нет физически: запись идёт через
+                MediaRecorder и уходит на расшифровку целиком ПОСЛЕ отпускания
+                (useSpeechRecognition.ts), а не построчно во время речи. */}
+            {(speech.isListening || speech.isTranscribing) && (
+              <p className="quiet" aria-live="polite">
+                <span className={speech.isListening ? "dot crit" : "dot warn"} />
+                <span className="txt">{speech.isListening ? `Слушаю… ${timer}` : "Распознаю…"}</span>
+                {speech.isListening && (
+                  <button type="button" className="lk" onClick={speech.cancel}>
+                    Отмена
+                  </button>
+                )}
+              </p>
+            )}
+          </div>
+        )}
 
         <form
           className="cw-f"
@@ -466,26 +510,25 @@ export function AssistantPanel({
             void send(input);
           }}
         >
-          {speech.supported && (
-            <button
-              type="button"
-              className="call"
-              disabled={speech.isTranscribing}
-              onClick={() => (speech.isListening ? speech.stop() : speech.start())}
-              title={speech.isListening ? "Остановить запись" : speech.isTranscribing ? "Распознаю…" : "Голосовой ввод"}
-              aria-label="Голосовой ввод"
-            >
-              <Mic className="i" />
-            </button>
-          )}
+          <button
+            type="button"
+            className={speech.isListening ? "call rec" : "call"}
+            disabled={speech.isTranscribing}
+            aria-pressed={speech.isListening}
+            onClick={() => (speech.isListening ? speech.stop() : speech.start())}
+            title={speech.isListening ? "Остановить запись" : speech.isTranscribing ? "Распознаю…" : "Голосовой ввод"}
+            aria-label={speech.isListening ? "Остановить запись" : "Голосовой ввод"}
+          >
+            {speech.isListening ? <Square className="i" /> : <Mic className="i" />}
+          </button>
           <input
             ref={inputRef}
             className="inp"
-            style={{ maxWidth: "none", flex: 1 }}
+            style={{ maxWidth: "none", flex: 1, minWidth: 0 }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              speech.isListening ? "Слушаю…" : speech.isTranscribing ? "Распознаю…" : "Спросите о клиентах, объектах, цифрах"
+              speech.isListening ? "Слушаю…" : speech.isTranscribing ? "Распознаю…" : "Спросите что угодно по работе"
             }
             aria-label="Вопрос ассистенту"
           />

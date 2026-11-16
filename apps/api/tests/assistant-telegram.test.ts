@@ -66,7 +66,8 @@ vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
   isAiAssistantEnabled: async () => true,
   runAssistantDetailed: runner,
 }));
-vi.mock("../src/telegram/assistantMedia.js", () => ({
+vi.mock("../src/telegram/assistantMedia.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/telegram/assistantMedia.js")>()),
   downloadAssistantMedia: downloadDraftPhoto,
   handleAssistantMedia: async () => {
     const text = await transcribe();
