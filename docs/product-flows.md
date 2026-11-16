@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **759**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4109**. Модулей: **85**.
+Путей: **757**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4105**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2775,9 +2775,6 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- если await clientNeedsOwnerConfirm({ id: req.agent!.id, role: req.agent?.role }, req.params.id)
-  - return res.status(409).json({ error: "Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос…
-    · ответ 409 — «Эта карточка у другого агента. Чтобы передать клиента, отправьте…»
 - const outcome = await assignClientManually({ clientId: req.params.id, toAgentId: parsed.data.agentId, accept:…
   · зовёт assignClientManually()
 - если !outcome.ok
@@ -4177,9 +4174,6 @@
 - если denied
   - return res.status(403).json({ error: denied });
     · ответ 403
-- если req.agent?.role === "HEAD_OF_SALES" && client.assignedAgentId !== req.agent.id
-  - return res.status(409).json({ error: "Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос…
-    · ответ 409 — «Эта карточка у другого агента. Чтобы передать клиента, отправьте…»
 - const gate = await canTransferClient(client.id);
   · зовёт canTransferClient()
 - если !gate.allowed
@@ -12363,7 +12357,7 @@
 
 ### POST /api/v1/properties/:id/transfer
 
-`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.editForeign
+`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);
   · зовёт transferPropertyByManager()
@@ -12393,6 +12387,8 @@
       · дословно из кода
   - const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: actor.…
     · зовёт transferPropertyWithSeller()
+  - void recordRopTransfer({ kind: "PROPERTY", targetId: property.id, fromAgentId: result.fromAgentId, toAgentId,…
+    · зовёт recordRopTransfer()
   - logAgentAudit(actor.id, "PROPERTY_TRANSFER", "Property", property.id, { fromAgentId: result.fromAgentId, toAg…
     · зовёт logAgentAudit()
 - res.status(outcome.status).json(outcome.body);
@@ -17743,46 +17739,28 @@
 
 ## /api/v1/transfer-requests
 
-### POST /api/v1/transfer-requests/:id/cancel
-
-`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
-
-- const outcome = await cancelTransferRequest(actorOf(req), req.params.id);
-  · зовёт cancelTransferRequest()
-- res.status(outcome.status).json(outcome.body);
-  · ответ (код зависит от условия)
-
 ### POST /api/v1/transfer-requests/:id/respond
 
 `apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- const outcome = await respondToTransferRequest(actorOf(req), req.params.id, req.body);
-  · зовёт respondToTransferRequest()
+- const outcome = await reviewRopTransfer(who(req), req.params.id, req.body);
+  · зовёт reviewRopTransfer()
 - res.status(outcome.status).json(outcome.body);
   · ответ (код зависит от условия)
-
-### GET /api/v1/transfer-requests/incoming
-
-`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- res.json({ items: await listIncomingTransferRequests(req.agent!.id) });
-  · ответ 200
 
 ### GET /api/v1/transfer-requests/outgoing
 
 `apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
 
-- res.json({ items: await listOutgoingTransferRequests(req.agent!.id, skipsOwnerConfirm({ role: req.agent?.role…
+- res.json({ items: await listOutgoingTransferRequests(who(req)) });
   · ответ 200
 
-### POST /api/v1/transfer-requests
+### GET /api/v1/transfer-requests/pending
 
-`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- const outcome = await createTransferRequest(actorOf(req), req.body);
-  · зовёт createTransferRequest()
-- res.status(outcome.status).json(outcome.body);
-  · ответ (код зависит от условия)
+- res.json({ items: await listPendingTransferReviews(who(req)) });
+  · ответ 200
 
 ## /api/v1/ui-shell
 
@@ -25788,36 +25766,20 @@
 ### transfer-request-tick — */5 * * * *
 
 - пробует
-  - const { expired, reminded } = await runTransferRequestTick();
+  - const { stuck } = await runTransferRequestTick();
     · зовёт runTransferRequestTick()
-    - const overdue = await prisma.ownershipTransferRequest.findMany({ where: { status: "PENDING", expiresAt: { lte…
-      · читает в базе: ownershipTransferRequest
-    - для каждого: const row of overdue
-      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "PENDING" }, da…
-        · меняет в базе: ownershipTransferRequest
-      - если claim.count === 0
-        - continue;
-          · переходит к следующему
-      - logAgentAudit(null, "TRANSFER_REQUEST_EXPIRED", row.kind === "PROPERTY" ? "Property" : "Client", row.property…
-        · зовёт logAgentAudit()
-    - const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: "CONFIRMED", resultNote: EXEC…
+    - const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: "DECLINED", resultNote: EXECU…
       · читает в базе: ownershipTransferRequest
     - для каждого: const row of stuck
-      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "CONFIRMED", re…
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "DECLINED", res…
         · меняет в базе: ownershipTransferRequest
-      - если claim.count === 0
-        - continue;
-          · переходит к следующему
-    - const due = await prisma.ownershipTransferRequest.findMany({ where: { status: "PENDING", expiresAt: { gt: now…
-      · читает в базе: ownershipTransferRequest
-    - для каждого: const row of due
-      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "PENDING", remi…
-        · меняет в базе: ownershipTransferRequest
-      - если claim.count === 0
-        - continue;
-          · переходит к следующему
-  - если expired + reminded > 0
-    - console.log(`[cron] Запросы передачи: закрыто по сроку ${expired}, напоминаний ${reminded}`);
+      - если claim.count
+        - n += 1;
+          · дословно из кода
+        - publishTransferChanged([row.requestedById], row.id);
+          · дословно из кода
+  - если stuck > 0
+    - console.log(`[cron] Передачи РОП: не завершён возврат у ${stuck}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка тика запросов передачи", err);

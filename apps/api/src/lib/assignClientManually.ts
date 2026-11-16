@@ -8,6 +8,7 @@ import { reactivationResetData } from "./clientLifecycle.js";
 import { SUPERVISOR_ASSIGN_REASON } from "./leadReason.js";
 import { publishClientUpdated, publishLeadAccepted } from "./livePublish.js";
 import { checkManualAssignTarget } from "./manualAssignTarget.js";
+import { recordRopTransfer } from "./ownershipTransferRequest.js";
 import { findAgentsWithPermission } from "./recipients.js";
 
 /**
@@ -134,6 +135,8 @@ export interface AssignClientManuallyInput {
   actor: ManualAssignActor;
   /** Откуда нажали. Помощник — `assistant`: хвост причины и поле `via` в AuditLog. */
   via?: "rest" | "assistant" | "owner_confirm";
+  /** Причина, которую читает новый хозяин; для записи передачи РОП директору. */
+  note?: string;
   /**
    * Состояние, которое видел человек, подтверждая действие (снимок превью
    * помощника). Задано — запись идёт ТОЛЬКО если карточка всё ещё в нём:
@@ -204,7 +207,7 @@ export async function assignClientManually(input: AssignClientManuallyInput): Pr
   const toSelf = toAgentId === actor.id;
   const supervisorName = supervisor?.fullName ?? "Руководитель";
   const viaSuffix =
-    input.via === "assistant" ? " (через ИИ-помощника)" : input.via === "owner_confirm" ? " (с согласия прежнего хозяина)" : "";
+    input.via === "assistant" ? " (через ИИ-помощника)" : input.via === "owner_confirm" ? " (возврат: директор отклонил передачу РОП)" : "";
   const assignReason =
     (accept || toSelf
       ? `${supervisorName} забрал(а) заявку себе и принял(а) её`
@@ -272,6 +275,15 @@ export async function assignClientManually(input: AssignClientManuallyInput): Pr
   }
   const updated = (await prisma.client.findUnique({ where: { id: row.id } })) ?? row;
 
+  void recordRopTransfer({
+    kind: "CLIENT",
+    targetId: row.id,
+    fromAgentId: row.assignedAgentId,
+    toAgentId,
+    actorId: actor.id,
+    actorRole: actor.role,
+    reason: input.note ?? assignReason,
+  });
   logAgentAudit(actor.id, "LEAD_ASSIGN", "Client", row.id, {
     shortId: row.shortId,
     fullName: row.fullName,

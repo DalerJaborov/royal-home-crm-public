@@ -39,8 +39,6 @@ import { InteractionTimeline } from "../components/InteractionTimeline";
 import { MutationError } from "../components/MutationError";
 import { VoiceNoteButton, type VoiceNote } from "../components/VoiceNoteButton";
 import { useCan, useIsReadOnly, useCanCreateProperty } from "../lib/permissions";
-import { useCreateTransferRequest } from "../hooks/useTransferRequests";
-import { toast } from "../store/toast";
 import { canTransferClientToCandidates } from "../lib/vacanciesView";
 import {
   useReactivateClient,
@@ -186,9 +184,6 @@ function ClientDetailCard() {
   const acceptLead = useAcceptLead(client?.id ?? "");
   const declineLead = useDeclineLead(client?.id ?? "");
   const assignLead = useAssignLead(client?.id ?? "");
-  // Передача чужого клиента РОПом — только запросом хозяину (16.11.2026): прямое назначение сервер закрыл.
-  const createTransfer = useCreateTransferRequest();
-  const [transferReason, setTransferReason] = useState("");
   const deleteClient = useDeleteClient(client?.id ?? "");
   const toCandidate = useClientToCandidate(client?.id ?? "");
   const reactivate = useReactivateClient(client?.id ?? "");
@@ -317,7 +312,6 @@ function ClientDetailCard() {
    * ним ровно в том случае, ради которого реестр и заведён.
    */
   const canDo = useCan();
-  const requestMode = me?.role === "HEAD_OF_SALES" && canDo("transfers.request");
   const accountReadOnly = useIsReadOnly();
   const mayCreateProperty = useCanCreateProperty();
   const canMerge = !accountReadOnly && canDo("clients.merge");
@@ -844,23 +838,8 @@ function ClientDetailCard() {
     solveRows.push(
       <div className="solve" key="reassign">
         <span className="t">
-          {requestMode ? (
-            <>
-              <b>Передать от {client.assignedAgent.fullName} другому агенту.</b> Сначала хозяин карточки получит
-              большое окно и решит: подтвердить или отказать. Не ответит за отведённое время — передача отменится.
-            </>
-          ) : (
-            <>
-              <b>Передать от {client.assignedAgent.fullName} другому агенту.</b> Новый агент получит карточку
-              сразу, без принятия, и увидит её на главной.
-            </>
-          )}
-          {createTransfer.isError && (
-            <span className="state err" style={{ paddingBottom: 0 }}>
-              <span className="dot crit" />
-              {assignLeadErrorText(createTransfer.error, "Не удалось отправить запрос.")}
-            </span>
-          )}
+          <b>Передать от {client.assignedAgent.fullName} другому агенту.</b> Новый агент получит карточку
+          сразу, без принятия, и увидит её на главной.
           {assignLead.isError && (
             <span className="state err" style={{ paddingBottom: 0 }}>
               <span className="dot crit" />
@@ -883,39 +862,12 @@ function ClientDetailCard() {
                 ))}
             </select>
           </span>
-          {requestMode && (
-            <span className="fld">
-              <input
-                value={transferReason}
-                onChange={(e) => setTransferReason(e.target.value)}
-                placeholder="Почему передаёте"
-                aria-label="Причина передачи"
-                maxLength={500}
-              />
-            </span>
-          )}
           <button
             className="pill sm"
             type="button"
-            disabled={!assignTo || assignLead.isPending || createTransfer.isPending || (requestMode && transferReason.trim().length < 3)}
+            disabled={!assignTo || assignLead.isPending}
             onClick={() => {
               if (!confirmAssignTo()) return;
-              if (requestMode) {
-                createTransfer.mutate(
-                  { kind: "CLIENT", targetId: client.id, toAgentId: assignTo, reason: transferReason.trim() },
-                  {
-                    onSuccess: (res) => {
-                      toast.success(
-                        res.pending ? "Запрос отправлен хозяину. Клиент передастся, когда он подтвердит" : "Клиент передан"
-                      );
-                      setAssignTo("");
-                      setTransferReason("");
-                      setShowReassign(false);
-                    },
-                  }
-                );
-                return;
-              }
               assignLead.mutate(
                 { agentId: assignTo },
                 {
@@ -927,13 +879,7 @@ function ClientDetailCard() {
               );
             }}
           >
-            {requestMode
-              ? createTransfer.isPending
-                ? "Отправляем"
-                : "Отправить запрос хозяину"
-              : assignLead.isPending
-                ? "Переназначение"
-                : "Переназначить"}
+            {assignLead.isPending ? "Переназначение" : "Переназначить"}
           </button>
           <button
             className="pill ghost sm"

@@ -2874,14 +2874,13 @@ export function startCronJobs() {
   });
 
   /**
-   * ПЕРЕДАЧА С ПОДТВЕРЖДЕНИЕМ ХОЗЯИНА (16.11.2026, lib/ownershipTransferRequest.ts):
-   * хозяин не ответил за срок из настроек — запрос отменяется (директору не уходит);
-   * пока срок идёт — повторное напоминание раз в 30 минут.
+   * ПЕРЕДАЧА РОП (16.11.2026, lib/ownershipTransferRequest.ts): отклонённая директором передача,
+   * возврат которой не завершился (падение процесса), помечается FAILED.
    */
   scheduleTracked("transfer-request-tick", "*/5 * * * *", async () => {
     try {
-      const { expired, reminded } = await runTransferRequestTick();
-      if (expired + reminded > 0) console.log(`[cron] Запросы передачи: закрыто по сроку ${expired}, напоминаний ${reminded}`);
+      const { stuck } = await runTransferRequestTick();
+      if (stuck > 0) console.log(`[cron] Передачи РОП: не завершён возврат у ${stuck}`);
     } catch (err) {
       reportCronTickError("Ошибка тика запросов передачи", err);
     }

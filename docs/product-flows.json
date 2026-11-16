@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 759,
-  "forks": 4109,
+  "endpoints": 757,
+  "forks": 4105,
   "mounts": 85,
   "cron": 143,
   "jobs": 33,
@@ -12068,21 +12068,6 @@
      ]
     },
     {
-     "k": "if",
-     "t": "await clientNeedsOwnerConfirm({ id: req.agent!.id, role: req.agent?.role }, req.params.id)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос…",
-       "a": [
-        "ответ 409 — «Эта карточка у другого агента. Чтобы передать клиента, отправьте…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
      "t": "const outcome = await assignClientManually({ clientId: req.params.id, toAgentId: parsed.data.agentId, accept:…",
      "a": [
@@ -18216,21 +18201,6 @@
        "t": "return res.status(403).json({ error: denied });",
        "a": [
         "ответ 403"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "req.agent?.role === \"HEAD_OF_SALES\" && client.assignedAgentId !== req.agent.id",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос…",
-       "a": [
-        "ответ 409 — «Эта карточка у другого агента. Чтобы передать клиента, отправьте…»"
        ],
        "c": []
       }
@@ -54715,8 +54685,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.editForeign"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
@@ -54846,6 +54815,14 @@
        "t": "const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: actor.…",
        "a": [
         "зовёт transferPropertyWithSeller()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "void recordRopTransfer({ kind: \"PROPERTY\", targetId: property.id, fromAgentId: result.fromAgentId, toAgentId,…",
+       "a": [
+        "зовёт recordRopTransfer()"
        ],
        "c": []
       },
@@ -78491,41 +78468,6 @@
   },
   {
    "method": "POST",
-   "path": "/:id/cancel",
-   "mount": "/api/v1/transfer-requests",
-   "full": "/api/v1/transfer-requests/:id/cancel",
-   "file": "apps/api/src/routes/transferRequests.ts",
-   "router": "transferRequestsRouter",
-   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: transfers.request"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const outcome = await cancelTransferRequest(actorOf(req), req.params.id);",
-     "a": [
-      "зовёт cancelTransferRequest()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(outcome.status).json(outcome.body);",
-     "a": [
-      "ответ (код зависит от условия)"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "POST",
    "path": "/:id/respond",
    "mount": "/api/v1/transfer-requests",
    "full": "/api/v1/transfer-requests/:id/respond",
@@ -78542,9 +78484,9 @@
    "tree": [
     {
      "k": "do",
-     "t": "const outcome = await respondToTransferRequest(actorOf(req), req.params.id, req.body);",
+     "t": "const outcome = await reviewRopTransfer(who(req), req.params.id, req.body);",
      "a": [
-      "зовёт respondToTransferRequest()"
+      "зовёт reviewRopTransfer()"
      ],
      "c": []
     },
@@ -78553,32 +78495,6 @@
      "t": "res.status(outcome.status).json(outcome.body);",
      "a": [
       "ответ (код зависит от условия)"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/incoming",
-   "mount": "/api/v1/transfer-requests",
-   "full": "/api/v1/transfer-requests/incoming",
-   "file": "apps/api/src/routes/transferRequests.ts",
-   "router": "transferRequestsRouter",
-   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "res.json({ items: await listIncomingTransferRequests(req.agent!.id) });",
-     "a": [
-      "ответ 200"
      ],
      "c": []
     }
@@ -78603,7 +78519,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json({ items: await listOutgoingTransferRequests(req.agent!.id, skipsOwnerConfirm({ role: req.agent?.role…",
+     "t": "res.json({ items: await listOutgoingTransferRequests(who(req)) });",
      "a": [
       "ответ 200"
      ],
@@ -78612,10 +78528,10 @@
    ]
   },
   {
-   "method": "POST",
-   "path": "/",
+   "method": "GET",
+   "path": "/pending",
    "mount": "/api/v1/transfer-requests",
-   "full": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/pending",
    "file": "apps/api/src/routes/transferRequests.ts",
    "router": "transferRequestsRouter",
    "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
@@ -78623,24 +78539,15 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: transfers.request"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
     {
      "k": "do",
-     "t": "const outcome = await createTransferRequest(actorOf(req), req.body);",
+     "t": "res.json({ items: await listPendingTransferReviews(who(req)) });",
      "a": [
-      "зовёт createTransferRequest()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(outcome.status).json(outcome.body);",
-     "a": [
-      "ответ (код зависит от условия)"
+      "ответ 200"
      ],
      "c": []
     }
@@ -115800,60 +115707,14 @@
      "c": [
       {
        "k": "do",
-       "t": "const { expired, reminded } = await runTransferRequestTick();",
+       "t": "const { stuck } = await runTransferRequestTick();",
        "a": [
         "зовёт runTransferRequestTick()"
        ],
        "c": [
         {
          "k": "do",
-         "t": "const overdue = await prisma.ownershipTransferRequest.findMany({ where: { status: \"PENDING\", expiresAt: { lte…",
-         "a": [
-          "читает в базе: ownershipTransferRequest"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const row of overdue",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"PENDING\" }, da…",
-           "a": [
-            "меняет в базе: ownershipTransferRequest"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "claim.count === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "logAgentAudit(null, \"TRANSFER_REQUEST_EXPIRED\", row.kind === \"PROPERTY\" ? \"Property\" : \"Client\", row.property…",
-           "a": [
-            "зовёт logAgentAudit()"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: \"CONFIRMED\", resultNote: EXEC…",
+         "t": "const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: \"DECLINED\", resultNote: EXECU…",
          "a": [
           "читает в базе: ownershipTransferRequest"
          ],
@@ -115866,7 +115727,7 @@
          "c": [
           {
            "k": "do",
-           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"CONFIRMED\", re…",
+           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"DECLINED\", res…",
            "a": [
             "меняет в базе: ownershipTransferRequest"
            ],
@@ -115874,52 +115735,22 @@
           },
           {
            "k": "if",
-           "t": "claim.count === 0",
+           "t": "claim.count",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "continue;",
+             "t": "n += 1;",
              "a": [
-              "переходит к следующему"
+              "дословно из кода"
              ],
              "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const due = await prisma.ownershipTransferRequest.findMany({ where: { status: \"PENDING\", expiresAt: { gt: now…",
-         "a": [
-          "читает в базе: ownershipTransferRequest"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const row of due",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"PENDING\", remi…",
-           "a": [
-            "меняет в базе: ownershipTransferRequest"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "claim.count === 0",
-           "a": [],
-           "c": [
+            },
             {
              "k": "do",
-             "t": "continue;",
+             "t": "publishTransferChanged([row.requestedById], row.id);",
              "a": [
-              "переходит к следующему"
+              "дословно из кода"
              ],
              "c": []
             }
@@ -115932,12 +115763,12 @@
       },
       {
        "k": "if",
-       "t": "expired + reminded > 0",
+       "t": "stuck > 0",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "console.log(`[cron] Запросы передачи: закрыто по сроку ${expired}, напоминаний ${reminded}`);",
+         "t": "console.log(`[cron] Передачи РОП: не завершён возврат у ${stuck}`);",
          "a": [
           "пишет строку в журнал сервера"
          ],

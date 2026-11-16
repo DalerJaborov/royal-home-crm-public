@@ -2,10 +2,6 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAgents } from "../hooks/useAgents";
-import { useCreateTransferRequest } from "../hooks/useTransferRequests";
-import { useCan } from "../lib/permissions";
-import { toast } from "../store/toast";
-import { useAuthStore } from "../store/auth";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import type { Property } from "../types";
 
@@ -24,12 +20,6 @@ export function TransferPropertyModal({
 }) {
   const { data: agents } = useAgents();
   const qc = useQueryClient();
-  const can = useCan();
-  // С правом «просить передачу» объект уходит через запрос хозяину (16.11.2026): директор и администратор
-  // передают сразу (сервер сам решает), РОП — после подтверждения хозяина. Без него — прежний прямой путь.
-  const role = useAuthStore((s) => s.agent?.role);
-  const viaRequest = can("transfers.request") && role !== "DIRECTOR" && role !== "ADMIN";
-  const createRequest = useCreateTransferRequest();
   const [toAgentId, setToAgentId] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -40,17 +30,11 @@ export function TransferPropertyModal({
   );
 
   const transfer = useMutation({
-    mutationFn: async () => {
-      if (viaRequest) {
-        const res = await createRequest.mutateAsync({ kind: "PROPERTY", targetId: property.id, toAgentId, reason });
-        if (res.pending) toast.success("Запрос отправлен хозяину. Объект передастся, когда он подтвердит");
-        return res;
-      }
-      return api<Property>(`/properties/${property.id}/transfer`, {
+    mutationFn: () =>
+      api<Property>(`/properties/${property.id}/transfer`, {
         method: "POST",
         body: { toAgentId, reason },
-      });
-    },
+      }),
     meta: { silent: true },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["property"] });
@@ -64,7 +48,7 @@ export function TransferPropertyModal({
 
   return (
     <Rh2Sheet
-      title={viaRequest ? "Передать объект (с согласия хозяина)" : "Передать объект"}
+      title="Передать объект"
       onClose={onClose}
       onSubmit={() => {
         setError(null);
@@ -77,7 +61,7 @@ export function TransferPropertyModal({
             Отмена
           </button>
           <button type="submit" className="pill" disabled={!canSubmit || transfer.isPending}>
-            {transfer.isPending ? "Отправляем…" : viaRequest ? "Отправить запрос хозяину" : "Передать объект"}
+            {transfer.isPending ? "Передаём…" : "Передать объект"}
           </button>
         </>
       }
@@ -98,10 +82,8 @@ export function TransferPropertyModal({
         <span className="lab">Почему передаёте</span>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} />
         <span className="msg">
-          {viaRequest
-            ? "Сначала это увидит нынешний хозяин и решит: подтвердить или отказать. Не ответит за отведённое время — передача отменится. "
-            : "Это прочитает новый хозяин перед тем, как принять объект. "}
-          Продавец этого объекта, если он у прежнего агента, перейдёт вместе с объектом как новый лид.
+          Это прочитает новый хозяин перед тем, как принять объект. Продавец этого объекта, если он у прежнего
+          агента, перейдёт вместе с объектом как новый лид.
         </span>
       </label>
 

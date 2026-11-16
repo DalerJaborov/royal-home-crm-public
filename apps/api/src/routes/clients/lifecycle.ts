@@ -27,7 +27,6 @@ import { deferredReturnMessage, foreignWriteDenied, presentClient } from "./shar
 
 import { publishClientUpdated } from "../../lib/livePublish.js";
 import { assignClientManually } from "../../lib/assignClientManually.js";
-import { clientNeedsOwnerConfirm } from "../../lib/ownershipTransferRequest.js";
 
 export const lifecycleRouter = Router();
 
@@ -189,14 +188,6 @@ lifecycleRouter.post("/:id/assign", requireAuth, requirePermission("clients.assi
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
-  // ПЕРЕДАЧА ЧУЖОГО КЛИЕНТА РОПом — только с подтверждением хозяина (владелец 16.11.2026):
-  // прямое назначение закрыто, просьба уходит через POST /transfer-requests.
-  if (await clientNeedsOwnerConfirm({ id: req.agent!.id, role: req.agent?.role }, req.params.id)) {
-    return res.status(409).json({
-      error: "Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос хозяину — он должен подтвердить передачу.",
-      code: "OWNER_CONFIRM_REQUIRED",
-    });
-  }
   // Проверки, условная запись через changeClientAgent и всё, что после неё
   // (пуши, живые события, AuditLog LEAD_ASSIGN), — в lib/assignClientManually.ts:
   // ту же функцию зовёт ИИ-помощник (change_client_agent), копий нет.
@@ -300,13 +291,6 @@ lifecycleRouter.post("/:id/transfer", requireAuth, async (req, res) => {
    * достаточно хотя бы одной попытки реального контакта — см. документацию
    * canTransferClient. Показ по-прежнему пропускает сам, без доп. проверки.
    */
-  // РОП не отдаёт чужого клиента «от имени агента»: только запросом хозяину (ревью 16.11.2026).
-  if (req.agent?.role === "HEAD_OF_SALES" && client.assignedAgentId !== req.agent.id) {
-    return res.status(409).json({
-      error: "Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос хозяину — он должен подтвердить передачу.",
-      code: "OWNER_CONFIRM_REQUIRED",
-    });
-  }
   const gate = await canTransferClient(client.id);
   if (!gate.allowed) return res.status(409).json({ error: gate.reason });
 

@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { TransferRequestView } from "@royal-home/shared";
-import { TransferDialog, transferLeftLabel } from "./TransferConfirmWindow";
+import { TransferDialog } from "./TransferConfirmWindow";
 import { INVALIDATION } from "../lib/liveEvents";
 
-/** Большое окно подтверждения передачи (16.11.2026): что видит хозяин и какие решения ему даны. */
+/** Окно директора «РОП передал карточку» (16.11.2026): что видит директор и какие решения ему даны. */
 const base: TransferRequestView = {
   id: "00000000-0000-4000-8000-000000000001",
   kind: "PROPERTY",
@@ -13,12 +13,11 @@ const base: TransferRequestView = {
   targetTitle: "Объект №123 · 2-комн., Сомони",
   targetShortId: 123,
   targetId: "00000000-0000-4000-8000-000000000002",
-  fromAgent: { id: "a", fullName: "Хозяин Тест" },
+  fromAgent: { id: "a", fullName: "Прежний Хозяин" },
   toAgent: { id: "b", fullName: "Получатель Тест" },
   requestedBy: { id: "c", fullName: "Ноза РОП" },
   reason: "Агент в отпуске",
   createdAt: "2026-11-16T08:00:00.000Z",
-  expiresAt: "2099-11-17T08:00:00.000Z",
   decidedAt: null,
   decisionNote: null,
   resultNote: null,
@@ -32,30 +31,25 @@ function render(request: TransferRequestView, more = 0) {
   );
 }
 
-describe("окно подтверждения передачи", () => {
-  it("показывает что, кому, кто просит и причину, и два решения простыми словами", () => {
+describe("окно директора о передаче РОП", () => {
+  it("показывает что, от кого и кому, кто передал и причину, и два решения простыми словами", () => {
     const html = render(base);
-    expect(html).toContain("Просят передать ваш объект");
+    expect(html).toContain("Руководитель продаж передал объект");
     expect(html).toContain("Объект №123");
+    expect(html).toContain("Прежний Хозяин");
     expect(html).toContain("Получатель Тест");
     expect(html).toContain("Ноза РОП");
     expect(html).toContain("Агент в отпуске");
     expect(html).toContain("Подтвердить");
-    expect(html).toContain("Отказать");
-    expect(html).toContain("Отвечу позже");
-    expect(html).toContain("передача отменится");
+    expect(html).toContain("Отклонить");
+    expect(html).toContain("вернуть объект прежнему хозяину");
+    expect(html).toContain("Не ответите — передача останется");
   });
 
   it("для клиента заголовок про клиента, и счётчик «ещё N» при очереди", () => {
     const html = render({ ...base, kind: "CLIENT", targetTitle: "Клиент Иван" }, 2);
-    expect(html).toContain("Просят передать вашего клиента");
+    expect(html).toContain("Руководитель продаж передал клиента");
     expect(html).toContain("ещё 2");
-  });
-
-  it("обратный отсчёт: часы и минуты, и честное «срок вышел»", () => {
-    expect(transferLeftLabel(90 * 60_000)).toBe("1 ч 30 мин");
-    expect(transferLeftLabel(25 * 60_000)).toBe("25 мин");
-    expect(transferLeftLabel(0)).toBe("срок вышел");
   });
 
   it("живое событие transfer.pending обновляет запросы, объекты и клиентов", () => {

@@ -1,94 +1,45 @@
-import {
-  TRANSFER_CONFIRM_HOURS_DEFAULT,
-  TRANSFER_CONFIRM_HOURS_MAX,
-  TRANSFER_CONFIRM_HOURS_MIN,
-  transferRequestCreateSchema,
-  transferRequestRespondSchema,
-  type PermissionId,
-  type TransferRequestView,
-} from "@royal-home/shared";
+import { transferRequestRespondSchema, type TransferRequestView } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { closeLeadPushNotification, sendPushToAgent } from "../push.js";
+import { sendMessageWithButtons, isTelegramEnabled } from "../telegram/api.js";
 import { assignClientManually } from "./assignClientManually.js";
 import { logAgentAudit } from "./audit.js";
 import { clientNamePhoneSafe } from "./clientPhone.js";
 import { publish } from "./eventBus.js";
-import { checkManualAssignTarget } from "./manualAssignTarget.js";
 import { assignableAgentError } from "./propertyAssignableAgent.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { transferPropertyWithSeller } from "./propertyTransferWithSeller.js";
 
 /**
- * ПЕРЕДАЧА С ПОДТВЕРЖДЕНИЕМ ХОЗЯИНА — ОДНА ДВЕРЬ (владелец 16.11.2026).
+ * ПЕРЕДАЧА РОП — С УВЕДОМЛЕНИЕМ ДИРЕКТОРУ (решение владельца 16.11.2026, вторая редакция).
  *
- * «РОП может передать ЛЮБОЙ объект или клиента другому агенту, но на любую
- * передачу у текущего хозяина сначала спрашивается подтверждение — большим окном,
- * как при звонке. Не ответил — передача отменяется». Директор (и администратор)
- * передают сразу, без вопроса.
+ * «У агентов не должно быть прав передавать друг другу объекты и клиентов, и никаких уведомлений им
+ * тоже. Директор передаёт сразу. РОП тоже передаёт что хочет и сразу, но после этого директору уходит
+ * уведомление и в Telegram, и в CRM: РОП передал вот это, вот это, кнопки «Подтвердить» / «Отклонить».»
  *
- * Само переназначение НИКОГДА не пишется здесь: после «Подтвердить» зовутся те же
- * функции, что и у прямой передачи — `transferPropertyWithSeller` (объект вместе с
- * продавцом) и `assignClientManually` (клиент вместе со спутниками, единственный
- * писатель владельца — changeClientAgent). Поэтому все их проверки (открытая
- * сделка, закрытый объект, Корзина, получатель) действуют и тут, а правило «кто
- * вправе просить» и «кто вправе ответить» живёт ровно в этом файле.
+ * Передача уже выполнена к моменту уведомления — тем же кодом, что и у директора. «Подтвердить» только
+ * снимает вопрос. «Отклонить» возвращает карточку прежнему хозяину теми же функциями (с проверкой, что она
+ * всё ещё у того, кому её передал РОП). Не ответил директор — передача остаётся как есть.
  *
- * Срок и рубильник — настройки `ownerConfirmTransferHours` и
- * `ownerConfirmTransferEnabled`. Рубильник гасит только путь РОП; директор
- * передаёт напрямую при любом положении рубильника.
+ * Единая точка: `recordRopTransfer` зовётся из `transferPropertyByManager` и `assignClientManually` — то есть
+ * из всех входов передачи (экран, помощница) — и срабатывает только для роли HEAD_OF_SALES.
+ * Рубильник `Settings.ropTransferAlertEnabled` выключает только уведомление, не саму передачу.
  */
 
-/** Как часто повторно напоминаем хозяину, пока он не ответил. */
-export const TRANSFER_REMIND_EVERY_MS = 30 * 60_000;
-/** Предел напоминаний на один запрос: срок 168 ч не должен дать сотню пушей. */
-export const TRANSFER_REMIND_MAX = 12;
-/** Метка в resultNote, пока подтверждённая передача выполняется. */
+/** Метка в resultNote, пока отклонённая передача возвращается обратно. */
 const EXECUTING_MARK = "executing";
 
-export interface TransferActor {
-  id: string;
-  role: string | null | undefined;
-  can: (permission: PermissionId) => boolean;
-}
-
-export type TransferOutcome<T = unknown> =
-  | { ok: true; status: 200 | 201 | 202; body: T }
-  | { ok: false; status: number; body: { error: string; code?: string } };
-
-const fail = (status: number, error: string, code?: string): TransferOutcome<never> => ({
-  ok: false,
-  status,
-  body: code ? { error, code } : { error },
-});
-
-/** Директор и администратор передают сразу: вопрос хозяину им не задаётся. */
-export function skipsOwnerConfirm(actor: Pick<TransferActor, "role">): boolean {
-  return actor.role === "DIRECTOR" || actor.role === "ADMIN";
-}
-
-async function loadTransferSettings(): Promise<{ enabled: boolean; hours: number }> {
-  const s = await prisma.settings.findFirst({
-    select: { ownerConfirmTransferEnabled: true, ownerConfirmTransferHours: true },
+/** Кому уходит уведомление: директор и администратор (активные). */
+async function reviewerAgents(): Promise<{ id: string; telegramChatId: string | null }[]> {
+  return prisma.agent.findMany({
+    where: { isActive: true, role: { in: ["DIRECTOR", "ADMIN"] } },
+    select: { id: true, telegramChatId: true },
   });
-  const raw = s?.ownerConfirmTransferHours ?? TRANSFER_CONFIRM_HOURS_DEFAULT;
-  const hours = Math.min(TRANSFER_CONFIRM_HOURS_MAX, Math.max(TRANSFER_CONFIRM_HOURS_MIN, Math.round(raw)));
-  return { enabled: s?.ownerConfirmTransferEnabled ?? true, hours };
 }
 
-/** Нужно ли РОПу спрашивать хозяина перед прямым назначением клиента (используется маршрутом /clients/:id/assign). */
-export async function clientNeedsOwnerConfirm(
-  actor: Pick<TransferActor, "id" | "role">,
-  clientId: string
-): Promise<boolean> {
-  if (skipsOwnerConfirm(actor) || actor.role !== "HEAD_OF_SALES") return false;
-  const client = await prisma.client.findUnique({
-    where: { id: clientId },
-    select: { assignedAgentId: true, acceptedAt: true, deletedAt: true, assignedAgent: { select: { isActive: true } } },
-  });
-  if (!client || client.deletedAt || !client.assignedAgentId || !client.acceptedAt) return false;
-  if (client.assignedAgentId === actor.id) return false;
-  return client.assignedAgent?.isActive === true;
+export function isTransferReviewer(role: string | null | undefined): boolean {
+  return role === "DIRECTOR" || role === "ADMIN";
 }
 
 type RequestRow = Prisma.OwnershipTransferRequestGetPayload<Record<string, never>>;
@@ -101,10 +52,7 @@ async function toViews(rows: RequestRow[]): Promise<TransferRequestView[]> {
   const [agents, properties, clients] = await Promise.all([
     prisma.agent.findMany({ where: { id: { in: agentIds } }, select: { id: true, fullName: true } }),
     propertyIds.length
-      ? prisma.property.findMany({
-          where: { id: { in: propertyIds } },
-          select: { id: true, shortId: true, title: true, address: true },
-        })
+      ? prisma.property.findMany({ where: { id: { in: propertyIds } }, select: { id: true, shortId: true, title: true } })
       : [],
     clientIds.length
       ? prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, shortId: true, fullName: true } })
@@ -124,6 +72,7 @@ async function toViews(rows: RequestRow[]): Promise<TransferRequestView[]> {
       id: r.id,
       kind: r.kind,
       status: r.status,
+      // Телефон из имени клиента и причины не показываем никому (см. clientNamePhoneSafe).
       targetTitle: p
         ? clientNamePhoneSafe(`Объект №${p.shortId} · ${p.title}`, false)
         : c
@@ -136,7 +85,6 @@ async function toViews(rows: RequestRow[]): Promise<TransferRequestView[]> {
       requestedBy: ag(r.requestedById),
       reason: clientNamePhoneSafe(r.reason, false),
       createdAt: r.createdAt.toISOString(),
-      expiresAt: r.expiresAt.toISOString(),
       decidedAt: r.decidedAt?.toISOString() ?? null,
       decisionNote: r.decisionNote,
       resultNote: r.resultNote,
@@ -144,297 +92,203 @@ async function toViews(rows: RequestRow[]): Promise<TransferRequestView[]> {
   });
 }
 
-function pushTag(id: string): string {
-  return `transfer-confirm-${id}`;
+const pushTag = (id: string) => `transfer-review-${id}`;
+
+function publishTransferChanged(agentIds: string[], requestId: string): void {
+  void Promise.resolve(publish({ type: "transfer.pending", payload: { requestId }, agentIds: [...new Set(agentIds)] })).catch(() => {});
 }
 
-/** Живое событие: хозяину поднимется окно, тому, кто просил, обновится статус. */
-function publishTransferChanged(row: Pick<RequestRow, "id" | "fromAgentId" | "requestedById" | "toAgentId">): void {
-  void Promise.resolve(
-    publish({
-      type: "transfer.pending",
-      payload: { requestId: row.id },
-      agentIds: [...new Set([row.fromAgentId, row.requestedById, row.toAgentId])],
-    })
-  ).catch(() => {});
+export function transferReviewButtons(id: string, crmUrl: string) {
+  return [
+    [
+      { text: "✅ Подтвердить", callback_data: `tr:a:${id}` },
+      { text: "↩️ Отклонить", callback_data: `tr:d:${id}` },
+    ],
+    [{ text: "🔗 Открыть в CRM", url: crmUrl }],
+  ];
 }
 
-function notifyOwner(row: RequestRow, view: TransferRequestView, repeat: boolean): void {
-  void sendPushToAgent(row.fromAgentId, {
-    kind: "lead",
-    level: "APPROVAL",
-    title: repeat
-      ? "⏳ Ждём вашего ответа о передаче"
-      : `🔁 Просят передать ${view.kind === "PROPERTY" ? "ваш объект" : "вашего клиента"}`,
-    body: `${view.requestedBy?.fullName ?? "Руководитель"} просит передать: ${view.targetTitle} → ${view.toAgent?.fullName ?? "другому агенту"}. Откройте CRM и ответьте: «Подтвердить» или «Отказать».`,
-    url: "/",
-    tag: pushTag(row.id),
-  }).catch((err) => console.error("[push] запрос передачи хозяину:", err));
+function crmUrlFor(row: Pick<RequestRow, "propertyId" | "clientId">): string {
+  const base = (process.env.CRM_PUBLIC_URL || "https://crm.royalhome.tj").replace(/\/+$/, "");
+  return row.propertyId ? `${base}/properties/${row.propertyId}` : `${base}/clients`;
 }
 
-function notifyRequester(row: RequestRow, title: string, body: string): void {
-  void sendPushToAgent(row.requestedById, {
-    kind: "lead",
-    title,
-    body,
-    url: row.propertyId ? `/properties/${row.propertyId}` : "/clients",
-    tag: `transfer-result-${row.id}`,
-  }).catch((err) => console.error("[push] итог запроса передачи:", err));
+/** Уведомить директора и администратора: окно в CRM (живое событие), пуш и Telegram с кнопками. */
+async function notifyReviewers(row: RequestRow): Promise<void> {
+  const [view] = await toViews([row]);
+  const reviewers = await reviewerAgents();
+  const text =
+    `🔁 РОП ${view.requestedBy?.fullName ?? ""} передал(а): ${view.targetTitle}\n` +
+    `${view.fromAgent?.fullName ?? "—"} → ${view.toAgent?.fullName ?? "—"}\n` +
+    `Причина: ${view.reason}\n\n` +
+    `Подтвердите или отклоните (отклонить — вернуть прежнему хозяину).`;
+  for (const r of reviewers) {
+    void sendPushToAgent(r.id, {
+      kind: "oversight",
+      level: "APPROVAL",
+      title: "🔁 РОП передал карточку",
+      body: `${view.requestedBy?.fullName ?? "РОП"}: ${view.targetTitle} → ${view.toAgent?.fullName ?? ""}. Подтвердите или отклоните.`,
+      url: "/",
+      tag: pushTag(row.id),
+    }).catch((err) => console.error("[push] передача РОП директору:", err));
+    if (r.telegramChatId && isTelegramEnabled()) {
+      void sendMessageWithButtons(r.telegramChatId, text, transferReviewButtons(row.id, crmUrlFor(row))).catch((err) =>
+        console.error("[telegram] передача РОП директору:", err)
+      );
+    }
+  }
+  publishTransferChanged([...reviewers.map((r) => r.id), row.requestedById], row.id);
 }
-
-function closeOwnerPush(row: Pick<RequestRow, "id" | "fromAgentId">): void {
-  void closeLeadPushNotification(row.fromAgentId, pushTag(row.id)).catch(() => {});
-}
-
-type CreateBody = { pending: boolean; immediate: boolean; request?: TransferRequestView; created?: boolean };
 
 /**
- * Создать запрос. Директор/администратор — передача выполняется сразу (без вопроса);
- * хозяин сам просит — тоже сразу. Остальным с правом `transfers.request` — запрос
- * хозяину и ожидание ответа.
+ * Запомнить передачу РОП и сообщить директору. Зовётся ПОСЛЕ успешной передачи из единых дверей.
+ * Не роняет передачу: любая ошибка только в лог.
  */
-export async function createTransferRequest(actor: TransferActor, raw: unknown): Promise<TransferOutcome<CreateBody>> {
-  const parsed = transferRequestCreateSchema.safeParse(raw);
-  if (!parsed.success) return fail(400, "Проверьте данные: кому передать и причину");
-  const { kind, targetId, toAgentId, reason } = parsed.data;
-  if (!actor.can("transfers.request")) return fail(403, "Просить передачу может руководитель отдела продаж или директор");
-
-  const direct = skipsOwnerConfirm(actor);
-  const settings = await loadTransferSettings();
-  if (!direct && !settings.enabled) {
-    return fail(403, "Передача с подтверждением хозяина сейчас выключена в настройках — обратитесь к директору", "DISABLED");
-  }
-
-  // Кто сейчас хозяин и можно ли вообще передавать.
-  let fromAgentId: string | null;
-  if (kind === "PROPERTY") {
-    const property = await prisma.property.findUnique({
-      where: { id: targetId },
-      select: { id: true, deletedAt: true, status: true, intakeAgentId: true, assignedAgentId: true, createdById: true },
-    });
-    if (!property || property.deletedAt) return fail(404, "Объект не найден");
-    if (property.status === "SOLD" || property.status === "WITHDRAWN") {
-      return fail(409, "Объект уже продан или снят с продажи — передавать нечего");
-    }
-    fromAgentId = propertyOwnerAgentId(property);
-  } else {
-    const client = await prisma.client.findUnique({
-      where: { id: targetId },
-      select: { id: true, deletedAt: true, kind: true, assignedAgentId: true },
-    });
-    if (!client || client.deletedAt) return fail(404, "Клиент не найден");
-    if (client.kind === "OTHER") return fail(400, "«Прочее обращение» агентам не передаётся");
-    fromAgentId = client.assignedAgentId;
-  }
-  if (fromAgentId === toAgentId) return fail(409, kind === "PROPERTY" ? "Объект уже у этого агента" : "Клиент уже у этого агента");
-
-  if (kind === "PROPERTY") {
-    const err = await assignableAgentError(toAgentId);
-    if (err) return fail(400, err);
-  } else {
-    const target = await checkManualAssignTarget(toAgentId);
-    if (!target.ok) return fail(target.status, target.error);
-  }
-
-  // Директор передаёт сразу; хозяин сам просит — тоже сразу.
-  if (direct || fromAgentId === actor.id) {
-    const done = await executeTransfer({
-      kind,
-      targetId,
-      toAgentId,
-      reason,
-      requestedById: actor.id,
-      requesterRole: actor.role,
-      via: direct ? "direct" : "owner_self",
-    });
-    if (!done.ok) return fail(done.status, done.error);
-    return { ok: true, status: 200, body: { pending: false, immediate: true } };
-  }
-  if (!fromAgentId) {
-    return fail(409, "У карточки нет хозяина, которого можно спросить — передать её без вопроса может директор", "NO_OWNER");
-  }
-
-  // Хозяин есть — он должен быть жив, иначе спрашивать некого. Клиента уволенного РОП раздаёт сразу, как раньше
-  // (прямой /assign для такого случая открыт); объект уволенного передаёт директор.
-  const owner = await prisma.agent.findUnique({ where: { id: fromAgentId }, select: { isActive: true } });
-  if (!owner?.isActive && kind === "CLIENT") {
-    const done = await executeTransfer({
-      kind,
-      targetId,
-      toAgentId,
-      reason,
-      requestedById: actor.id,
-      requesterRole: actor.role,
-      via: "direct",
-    });
-    if (!done.ok) return fail(done.status, done.error);
-    return { ok: true, status: 200, body: { pending: false, immediate: true } };
-  }
-  if (!owner?.isActive) {
-    return fail(409, "Хозяин уволен или отключён — спрашивать некого. Передачу такой карточки решает директор.", "OWNER_INACTIVE");
-  }
-
-  const pendingWhere = { status: "PENDING" as const, ...(kind === "PROPERTY" ? { propertyId: targetId } : { clientId: targetId }) };
-  const existing = await prisma.ownershipTransferRequest.findFirst({ where: pendingWhere });
-  if (existing) return duplicateOutcome(existing, actor, toAgentId);
-
-  const now = new Date();
-  let row: RequestRow;
+export async function recordRopTransfer(input: {
+  kind: "PROPERTY" | "CLIENT";
+  targetId: string;
+  fromAgentId: string | null;
+  toAgentId: string;
+  actorId: string;
+  actorRole: string | null | undefined;
+  reason: string;
+}): Promise<void> {
   try {
-    row = await prisma.ownershipTransferRequest.create({
+    if (input.actorRole !== "HEAD_OF_SALES") return;
+    if (!input.fromAgentId || input.fromAgentId === input.toAgentId) return;
+    const settings = await prisma.settings.findFirst({ select: { ropTransferAlertEnabled: true } });
+    if (settings && settings.ropTransferAlertEnabled === false) return;
+    const where = { status: "PENDING" as const, ...(input.kind === "PROPERTY" ? { propertyId: input.targetId } : { clientId: input.targetId }) };
+    // Повторная передача той же карточки: прежнее ждущее уведомление снимается — решать надо по последней.
+    const prior = await prisma.ownershipTransferRequest.findMany({ where, select: { id: true } });
+    if (prior.length) {
+      await prisma.ownershipTransferRequest.updateMany({
+        where: { id: { in: prior.map((p) => p.id) }, status: "PENDING" },
+        data: { status: "CANCELLED", resultNote: "Карточку передали повторно" },
+      });
+    }
+    const row = await prisma.ownershipTransferRequest.create({
       data: {
-        kind,
-        propertyId: kind === "PROPERTY" ? targetId : null,
-        clientId: kind === "CLIENT" ? targetId : null,
-        fromAgentId,
-        toAgentId,
-        requestedById: actor.id,
-        reason,
-        expiresAt: new Date(now.getTime() + settings.hours * 3_600_000),
-        lastRemindedAt: now,
+        kind: input.kind,
+        propertyId: input.kind === "PROPERTY" ? input.targetId : null,
+        clientId: input.kind === "CLIENT" ? input.targetId : null,
+        fromAgentId: input.fromAgentId,
+        toAgentId: input.toAgentId,
+        requestedById: input.actorId,
+        reason: input.reason,
+        expiresAt: new Date(),
       },
     });
+    await notifyReviewers(row);
   } catch (err) {
-    // Два РОП нажали одновременно: частичный уникальный индекс пропустил одного.
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      const again = await prisma.ownershipTransferRequest.findFirst({ where: pendingWhere });
-      if (again) return duplicateOutcome(again, actor, toAgentId);
-    }
-    throw err;
+    console.error("[transfer-review] не удалось записать передачу РОП:", err);
   }
-
-  logAgentAudit(actor.id, "TRANSFER_REQUEST_CREATED", kind === "PROPERTY" ? "Property" : "Client", targetId, {
-    requestId: row.id,
-    fromAgentId,
-    toAgentId,
-    reason,
-    expiresAt: row.expiresAt.toISOString(),
-  } as Prisma.InputJsonValue);
-
-  const [view] = await toViews([row]);
-  notifyOwner(row, view, false);
-  publishTransferChanged(row);
-  return { ok: true, status: 201, body: { pending: true, immediate: false, request: view, created: true } };
 }
 
-async function duplicateOutcome(existing: RequestRow, actor: TransferActor, toAgentId: string): Promise<TransferOutcome<CreateBody>> {
-  // Повторное нажатие того же человека на того же получателя — не ошибка, а тот же запрос.
-  if (existing.requestedById === actor.id && existing.toAgentId === toAgentId) {
-    const [view] = await toViews([existing]);
-    return { ok: true, status: 200, body: { pending: true, immediate: false, request: view, created: false } };
-  }
-  return fail(
-    409,
-    "По этой карточке уже есть запрос на передачу, хозяин ещё не ответил. Дождитесь ответа хозяина (запрос сам отменится по сроку).",
-    "ALREADY_PENDING"
-  );
-}
-
-interface ExecuteInput {
+interface ReturnInput {
   kind: "PROPERTY" | "CLIENT";
   targetId: string;
   toAgentId: string;
   reason: string;
-  requestedById: string;
-  requesterRole: string | null | undefined;
-  via: "direct" | "owner_self" | "owner_confirm";
-  /** Хозяин, при котором спрашивали: если сменился — передавать нельзя. */
-  expectedFromAgentId?: string;
+  actorId: string;
+  actorRole: string | null | undefined;
+  /** Кто должен быть хозяином сейчас: если сменился — вернуть нельзя. */
+  expectedFromAgentId: string;
 }
 
-type ExecuteResult = { ok: true } | { ok: false; status: number; error: string; changed?: boolean };
+type ExecuteResult = { ok: true } | { ok: false; status: number; error: string };
 
-/** Само переназначение — существующим кодом, без новых путей записи. */
-async function executeTransfer(input: ExecuteInput): Promise<ExecuteResult> {
+/** Возврат карточки — существующим кодом передачи, без новых путей записи. */
+async function executeReturn(input: ReturnInput): Promise<ExecuteResult> {
   if (input.kind === "PROPERTY") {
     const property = await prisma.property.findUnique({
       where: { id: input.targetId },
       select: { id: true, deletedAt: true, status: true, intakeAgentId: true, assignedAgentId: true, createdById: true },
     });
-    if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект удалён", changed: true };
-    if (property.status === "SOLD" || property.status === "WITHDRAWN") {
-      return { ok: false, status: 409, error: "Объект уже продан или снят с продажи", changed: true };
-    }
-    const owner = propertyOwnerAgentId(property);
-    if (input.expectedFromAgentId !== undefined && owner !== input.expectedFromAgentId) {
-      return { ok: false, status: 409, error: "Объект уже у другого агента", changed: true };
-    }
-    if (owner === input.toAgentId) return { ok: false, status: 409, error: "Объект уже у этого агента", changed: true };
+    if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект удалён" };
+    if (property.status === "SOLD" || property.status === "WITHDRAWN") return { ok: false, status: 409, error: "Объект уже продан или снят с продажи" };
+    if (propertyOwnerAgentId(property) !== input.expectedFromAgentId) return { ok: false, status: 409, error: "Объект уже у другого агента" };
     const agentError = await assignableAgentError(input.toAgentId);
     if (agentError) return { ok: false, status: 400, error: agentError };
     const result = await transferPropertyWithSeller({
       propertyId: property.id,
       toAgentId: input.toAgentId,
       reason: input.reason,
-      actorId: input.requestedById,
+      actorId: input.actorId,
       source: "manual",
     });
-    logAgentAudit(input.requestedById, "PROPERTY_TRANSFER", "Property", property.id, {
+    logAgentAudit(input.actorId, "PROPERTY_TRANSFER", "Property", property.id, {
       fromAgentId: result.fromAgentId,
       toAgentId: input.toAgentId,
       reason: input.reason,
-      source: input.via,
+      source: "rop_transfer_declined",
     } as Prisma.InputJsonValue);
     return { ok: true };
   }
-  const client = await prisma.client.findUnique({
-    where: { id: input.targetId },
-    select: { assignedAgentId: true, deletedAt: true },
-  });
-  if (!client || client.deletedAt) return { ok: false, status: 404, error: "Клиент удалён", changed: true };
-  if (input.expectedFromAgentId !== undefined && client.assignedAgentId !== input.expectedFromAgentId) {
-    return { ok: false, status: 409, error: "Клиент уже у другого агента", changed: true };
-  }
+  const client = await prisma.client.findUnique({ where: { id: input.targetId }, select: { assignedAgentId: true, deletedAt: true } });
+  if (!client || client.deletedAt) return { ok: false, status: 404, error: "Клиент удалён" };
+  if (client.assignedAgentId !== input.expectedFromAgentId) return { ok: false, status: 409, error: "Клиент уже у другого агента" };
   const outcome = await assignClientManually({
     clientId: input.targetId,
     toAgentId: input.toAgentId,
-    actor: { id: input.requestedById, role: input.requesterRole },
-    via: input.via === "owner_confirm" ? "owner_confirm" : "rest",
-    // Гонка с автоматикой: клиента, ушедшего к другому агенту между проверкой и записью, не забираем (ревью 16.11.2026).
-    ...(input.expectedFromAgentId !== undefined ? { expected: { assignedAgentId: input.expectedFromAgentId } } : {}),
+    actor: { id: input.actorId, role: input.actorRole },
+    via: "owner_confirm",
+    // Гонка с автоматикой: клиента, ушедшего к другому между проверкой и записью, не трогаем.
+    expected: { assignedAgentId: input.expectedFromAgentId },
   });
   if (!outcome.ok) return { ok: false, status: outcome.status, error: outcome.error };
   return { ok: true };
 }
 
+export type TransferOutcome<T = unknown> =
+  | { ok: true; status: 200; body: T }
+  | { ok: false; status: number; body: { error: string; code?: string } };
+
+const fail = (status: number, error: string, code?: string): TransferOutcome<never> => ({
+  ok: false,
+  status,
+  body: code ? { error, code } : { error },
+});
+
+export interface TransferReviewer {
+  id: string;
+  role: string | null | undefined;
+}
+
 /**
- * Ответ хозяина (или директора за него). Двойной клик и гонка с истечением срока
- * решаются одним условным обновлением статуса: выигрывает первый.
+ * Решение директора (или администратора). «Подтвердить» — снимает вопрос. «Отклонить» — возвращает
+ * карточку прежнему хозяину. Двойной клик и гонка двух директоров решаются одним условным захватом статуса.
  */
-export async function respondToTransferRequest(
-  actor: TransferActor,
+export async function reviewRopTransfer(
+  actor: TransferReviewer,
   requestId: string,
   raw: unknown
 ): Promise<TransferOutcome<{ request: TransferRequestView }>> {
+  if (!isTransferReviewer(actor.role)) return fail(403, "Решает директор или администратор");
   const parsed = transferRequestRespondSchema.safeParse(raw);
-  if (!parsed.success) return fail(400, "Выберите «Подтвердить» или «Отказать»");
+  if (!parsed.success) return fail(400, "Выберите «Подтвердить» или «Отклонить»");
   const row = await prisma.ownershipTransferRequest.findUnique({ where: { id: requestId } });
   if (!row) return fail(404, "Запрос не найден");
-  const mayAnswer = row.fromAgentId === actor.id || skipsOwnerConfirm(actor);
-  if (!mayAnswer) return fail(403, "Ответить может только хозяин или директор");
 
-  const confirm = parsed.data.decision === "confirm";
-  const target = confirm ? "CONFIRMED" : "DECLINED";
-
+  const decline = parsed.data.decision === "decline";
+  const target = decline ? "DECLINED" : "CONFIRMED";
   if (row.status !== "PENDING") {
-    // Тот же ответ повторно (двойной клик, ретрай сети) — не ошибка.
     if (row.status === target) {
       const [view] = await toViews([row]);
       return { ok: true, status: 200, body: { request: view } };
     }
-    return fail(409, "На этот запрос уже ответили или срок вышел", "NOT_PENDING");
+    return fail(409, row.status === "CANCELLED" ? "Карточку уже передали повторно — решайте по новому уведомлению" : "Решение уже принято", "NOT_PENDING");
   }
 
   const now = new Date();
   const claim = await prisma.ownershipTransferRequest.updateMany({
-    where: { id: row.id, status: "PENDING", expiresAt: { gt: now } },
-    // resultNote = маркер «выполняется»: упадёт процесс до финализации — тик пометит запрос FAILED (runTransferRequestTick).
+    where: { id: row.id, status: "PENDING" },
     data: {
       status: target,
       decidedById: actor.id,
       decidedAt: now,
       decisionNote: parsed.data.note ?? null,
-      resultNote: confirm ? EXECUTING_MARK : null,
+      resultNote: decline ? EXECUTING_MARK : null,
     },
   });
   if (claim.count === 0) {
@@ -443,191 +297,106 @@ export async function respondToTransferRequest(
       const [view] = await toViews([fresh]);
       return { ok: true, status: 200, body: { request: view } };
     }
-    return fail(409, "Срок ответа вышел или на запрос уже ответили", "NOT_PENDING");
+    return fail(409, "Решение уже принято", "NOT_PENDING");
   }
 
-  closeOwnerPush(row);
+  void closeLeadPushNotification(actor.id, pushTag(row.id)).catch(() => {});
+  const entity = row.kind === "PROPERTY" ? "Property" : "Client";
+  const targetId = row.propertyId ?? row.clientId ?? "";
   const finish = async (status: RequestRow["status"], resultNote: string | null) => {
-    const updated = await prisma.ownershipTransferRequest.update({
-      where: { id: row.id },
-      data: { status, resultNote },
-    });
-    publishTransferChanged(updated);
+    const updated = await prisma.ownershipTransferRequest.update({ where: { id: row.id }, data: { status, resultNote } });
+    const reviewers = await reviewerAgents();
+    publishTransferChanged([...reviewers.map((r) => r.id), row.requestedById], row.id);
     const [view] = await toViews([updated]);
     return view;
   };
+  const notifyRop = (title: string, body: string) =>
+    void sendPushToAgent(row.requestedById, {
+      kind: "oversight",
+      title,
+      body,
+      url: row.propertyId ? `/properties/${row.propertyId}` : "/clients",
+      tag: `transfer-result-${row.id}`,
+    }).catch(() => {});
 
-  const entity = row.kind === "PROPERTY" ? "Property" : "Client";
-  const targetId = row.propertyId ?? row.clientId ?? "";
-
-  if (!confirm) {
-    logAgentAudit(actor.id, "TRANSFER_REQUEST_DECLINED", entity, targetId, {
-      requestId: row.id,
-      requestedById: row.requestedById,
-      toAgentId: row.toAgentId,
-      note: parsed.data.note ?? null,
-    } as Prisma.InputJsonValue);
-    const view = await finish("DECLINED", null);
-    notifyRequester(
-      row,
-      "❌ Хозяин отказал в передаче",
-      `${view.fromAgent?.fullName ?? "Хозяин"} не согласен передать: ${view.targetTitle}.${parsed.data.note ? ` Комментарий: ${parsed.data.note}` : ""}`
-    );
+  if (!decline) {
+    logAgentAudit(actor.id, "TRANSFER_REVIEW_CONFIRMED", entity, targetId, { requestId: row.id, requestedById: row.requestedById } as Prisma.InputJsonValue);
+    const view = await finish("CONFIRMED", null);
     return { ok: true, status: 200, body: { request: view } };
   }
 
-  const requester = await prisma.agent.findUnique({ where: { id: row.requestedById }, select: { role: true } });
   let done: ExecuteResult;
   try {
-    done = await executeTransfer({
-    kind: row.kind,
-    targetId,
-    toAgentId: row.toAgentId,
-    reason: row.reason,
-    requestedById: row.requestedById,
-    requesterRole: requester?.role,
-    via: "owner_confirm",
-    expectedFromAgentId: row.fromAgentId,
+    done = await executeReturn({
+      kind: row.kind,
+      targetId,
+      toAgentId: row.fromAgentId,
+      reason: `Директор отклонил передачу${parsed.data.note ? `: ${parsed.data.note}` : ""}`,
+      actorId: actor.id,
+      actorRole: actor.role,
+      expectedFromAgentId: row.toAgentId,
     });
   } catch (err) {
-    console.error("[transfer-request] передача после подтверждения упала:", err);
-    done = { ok: false, status: 500, error: "Не удалось выполнить передачу, попробуйте позже" };
+    console.error("[transfer-review] возврат после отклонения упал:", err);
+    done = { ok: false, status: 500, error: "Не удалось вернуть карточку, попробуйте позже" };
   }
   if (!done.ok) {
-    logAgentAudit(actor.id, "TRANSFER_REQUEST_FAILED", entity, targetId, {
-      requestId: row.id,
-      error: done.error,
-    } as Prisma.InputJsonValue);
-    // Данные изменились до ответа — это «истёк», а не сбой.
-    const view = await finish(done.changed ? "EXPIRED" : "FAILED", done.error);
-    notifyRequester(row, "⚠️ Передача не состоялась", `${view.targetTitle}: ${done.error}.`);
-    return fail(done.status, `Передача не состоялась: ${done.error}`, "EXECUTE_FAILED");
+    logAgentAudit(actor.id, "TRANSFER_REVIEW_FAILED", entity, targetId, { requestId: row.id, error: done.error } as Prisma.InputJsonValue);
+    const view = await finish("FAILED", done.error);
+    notifyRop("⚠️ Передачу отклонили, вернуть не удалось", `${view.targetTitle}: ${done.error}.`);
+    return fail(done.status, `Вернуть не удалось: ${done.error}`, "RETURN_FAILED");
   }
-  logAgentAudit(actor.id, "TRANSFER_REQUEST_CONFIRMED", entity, targetId, {
+  logAgentAudit(actor.id, "TRANSFER_REVIEW_DECLINED", entity, targetId, {
     requestId: row.id,
     requestedById: row.requestedById,
-    fromAgentId: row.fromAgentId,
-    toAgentId: row.toAgentId,
+    returnedToAgentId: row.fromAgentId,
+    note: parsed.data.note ?? null,
   } as Prisma.InputJsonValue);
-  const view = await finish("CONFIRMED", null);
-  notifyRequester(row, "✅ Хозяин подтвердил передачу", `${view.targetTitle} передан(а) агенту ${view.toAgent?.fullName ?? ""}.`);
+  const view = await finish("DECLINED", null);
+  notifyRop(
+    "❌ Директор отклонил передачу",
+    `${view.targetTitle} возвращён(а) ${view.fromAgent?.fullName ?? "прежнему хозяину"}.${parsed.data.note ? ` Комментарий: ${parsed.data.note}` : ""}`
+  );
   return { ok: true, status: 200, body: { request: view } };
 }
 
-/** Отозвать запрос: тот, кто просил, или директор. */
-export async function cancelTransferRequest(
-  actor: TransferActor,
-  requestId: string
-): Promise<TransferOutcome<{ request: TransferRequestView }>> {
-  const row = await prisma.ownershipTransferRequest.findUnique({ where: { id: requestId } });
-  if (!row) return fail(404, "Запрос не найден");
-  if (row.requestedById !== actor.id && !skipsOwnerConfirm(actor)) return fail(403, "Отозвать может тот, кто просил, или директор");
-  if (row.status === "CANCELLED") {
-    const [view] = await toViews([row]);
-    return { ok: true, status: 200, body: { request: view } };
-  }
-  const claim = await prisma.ownershipTransferRequest.updateMany({
-    where: { id: row.id, status: "PENDING" },
-    data: { status: "CANCELLED", decidedById: actor.id, decidedAt: new Date() },
-  });
-  if (claim.count === 0) return fail(409, "На этот запрос уже ответили или срок вышел", "NOT_PENDING");
-  const updated = await prisma.ownershipTransferRequest.findUniqueOrThrow({ where: { id: row.id } });
-  closeOwnerPush(updated);
-  logAgentAudit(actor.id, "TRANSFER_REQUEST_CANCELLED", row.kind === "PROPERTY" ? "Property" : "Client", row.propertyId ?? row.clientId, {
-    requestId: row.id,
-  } as Prisma.InputJsonValue);
-  publishTransferChanged(updated);
-  const [view] = await toViews([updated]);
-  return { ok: true, status: 200, body: { request: view } };
-}
-
-/** Ждущие ответа этого сотрудника (окно). Просроченные не отдаём, даже если cron ещё не закрыл. */
-export async function listIncomingTransferRequests(agentId: string): Promise<TransferRequestView[]> {
+/** Ждущие решения (окно директора). Не директору — пусто: у агентов и РОП никаких окон. */
+export async function listPendingTransferReviews(actor: TransferReviewer): Promise<TransferRequestView[]> {
+  if (!isTransferReviewer(actor.role)) return [];
   const rows = await prisma.ownershipTransferRequest.findMany({
-    where: { fromAgentId: agentId, status: "PENDING", expiresAt: { gt: new Date() } },
+    where: { status: "PENDING" },
     orderBy: { createdAt: "asc" },
-    take: 20,
+    take: 30,
   });
   return toViews(rows);
 }
 
-/** Мои исходящие запросы и их исходы — для РОП; директор видит все. */
-export async function listOutgoingTransferRequests(agentId: string, seesAll: boolean): Promise<TransferRequestView[]> {
+/** Мои передачи и их исходы: РОП видит свои, директор — все. */
+export async function listOutgoingTransferRequests(actor: TransferReviewer): Promise<TransferRequestView[]> {
   const rows = await prisma.ownershipTransferRequest.findMany({
-    where: seesAll ? {} : { requestedById: agentId },
+    where: isTransferReviewer(actor.role) ? {} : { requestedById: actor.id },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
   return toViews(rows);
 }
 
-/**
- * Тик раз в несколько минут: закрыть просроченные (хозяин не ответил — передача
- * отменяется, директору не уходит) и напомнить тем, кто ещё может ответить.
- */
-export async function runTransferRequestTick(now = new Date()): Promise<{ expired: number; reminded: number }> {
-  const overdue = await prisma.ownershipTransferRequest.findMany({
-    where: { status: "PENDING", expiresAt: { lte: now } },
-    take: 100,
-  });
-  let expired = 0;
-  for (const row of overdue) {
-    const claim = await prisma.ownershipTransferRequest.updateMany({
-      where: { id: row.id, status: "PENDING" },
-      data: { status: "EXPIRED", resultNote: "Хозяин не ответил в срок — передача отменена" },
-    });
-    if (claim.count === 0) continue;
-    expired += 1;
-    closeOwnerPush(row);
-    publishTransferChanged(row);
-    const [view] = await toViews([row]);
-    logAgentAudit(null, "TRANSFER_REQUEST_EXPIRED", row.kind === "PROPERTY" ? "Property" : "Client", row.propertyId ?? row.clientId, {
-      requestId: row.id,
-      fromAgentId: row.fromAgentId,
-    } as Prisma.InputJsonValue);
-    notifyRequester(
-      row,
-      "⌛ Хозяин не ответил — передача отменена",
-      `${view.targetTitle}: ${view.fromAgent?.fullName ?? "хозяин"} не ответил(а) за отведённое время, карточка осталась у него. Отправьте запрос заново, если ещё нужно.`
-    );
-  }
-
-  // Подтверждённые, но не доведённые до конца (падение процесса между захватом и передачей).
+/** Тик: отклонённые, но не доведённые до конца (падение процесса между захватом и возвратом) → FAILED. */
+export async function runTransferRequestTick(now = new Date()): Promise<{ stuck: number }> {
   const stuck = await prisma.ownershipTransferRequest.findMany({
-    where: { status: "CONFIRMED", resultNote: EXECUTING_MARK, decidedAt: { lte: new Date(now.getTime() - 5 * 60_000) } },
+    where: { status: "DECLINED", resultNote: EXECUTING_MARK, decidedAt: { lte: new Date(now.getTime() - 5 * 60_000) } },
     take: 100,
   });
+  let n = 0;
   for (const row of stuck) {
     const claim = await prisma.ownershipTransferRequest.updateMany({
-      where: { id: row.id, status: "CONFIRMED", resultNote: EXECUTING_MARK },
-      data: { status: "FAILED", resultNote: "Передача не завершилась — проверьте карточку и отправьте запрос заново" },
+      where: { id: row.id, status: "DECLINED", resultNote: EXECUTING_MARK },
+      data: { status: "FAILED", resultNote: "Возврат не завершился — проверьте карточку" },
     });
-    if (claim.count === 0) continue;
-    publishTransferChanged(row);
-    const [view] = await toViews([row]);
-    notifyRequester(row, "⚠️ Передача не состоялась", `${view.targetTitle}: передача не завершилась, проверьте карточку и отправьте запрос заново.`);
+    if (claim.count) {
+      n += 1;
+      publishTransferChanged([row.requestedById], row.id);
+    }
   }
-
-  const due = await prisma.ownershipTransferRequest.findMany({
-    where: {
-      status: "PENDING",
-      expiresAt: { gt: now },
-      remindCount: { lt: TRANSFER_REMIND_MAX },
-      OR: [{ lastRemindedAt: null }, { lastRemindedAt: { lte: new Date(now.getTime() - TRANSFER_REMIND_EVERY_MS) } }],
-    },
-    take: 100,
-  });
-  let reminded = 0;
-  for (const row of due) {
-    const claim = await prisma.ownershipTransferRequest.updateMany({
-      where: { id: row.id, status: "PENDING", remindCount: row.remindCount },
-      data: { lastRemindedAt: now, remindCount: { increment: 1 } },
-    });
-    if (claim.count === 0) continue;
-    reminded += 1;
-    const [view] = await toViews([row]);
-    notifyOwner(row, view, true);
-    publishTransferChanged(row);
-  }
-  return { expired, reminded };
+  return { stuck: n };
 }

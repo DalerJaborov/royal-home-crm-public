@@ -995,7 +995,7 @@
       "mount": "/api/v1/transfer-requests",
       "router": "transferRequestsRouter",
       "file": "apps/api/src/routes/transferRequests.ts",
-      "endpoints": 5,
+      "endpoints": 3,
       "label": null,
       "usedBy": 1
     },
@@ -2406,7 +2406,7 @@
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 18
+      "files": 19
     },
     {
       "name": "Телефония FreePBX / Asterisk",

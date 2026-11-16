@@ -1,4 +1,4 @@
--- Передача объекта/клиента с подтверждением хозяина (16.11.2026). Аддитивно: новые типы, таблица, два поля настроек.
+-- Передача РОП с уведомлением директору (16.11.2026). Аддитивно: новые типы, таблица, поле настроек.
 CREATE TYPE "TransferRequestKind" AS ENUM ('PROPERTY', 'CLIENT');
 CREATE TYPE "TransferRequestStatus" AS ENUM ('PENDING', 'CONFIRMED', 'DECLINED', 'EXPIRED', 'CANCELLED', 'FAILED');
 
@@ -32,5 +32,4 @@ CREATE INDEX "OwnershipTransferRequest_status_expiresAt_idx" ON "OwnershipTransf
 CREATE UNIQUE INDEX "OwnershipTransferRequest_property_pending_uniq" ON "OwnershipTransferRequest"("propertyId") WHERE "status" = 'PENDING' AND "propertyId" IS NOT NULL;
 CREATE UNIQUE INDEX "OwnershipTransferRequest_client_pending_uniq" ON "OwnershipTransferRequest"("clientId") WHERE "status" = 'PENDING' AND "clientId" IS NOT NULL;
 
-ALTER TABLE "Settings" ADD COLUMN "ownerConfirmTransferEnabled" BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE "Settings" ADD COLUMN "ownerConfirmTransferHours" INTEGER NOT NULL DEFAULT 24;
+ALTER TABLE "Settings" ADD COLUMN "ropTransferAlertEnabled" BOOLEAN NOT NULL DEFAULT true;
