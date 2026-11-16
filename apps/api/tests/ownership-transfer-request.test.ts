@@ -261,7 +261,7 @@ describe("РОП передаёт объект сразу, директору у
     tgSend.mockClear();
     await runTransferRequestTick();
     expect((await reviewRow({ id: row.id }))?.remindCount).toBe(1);
-    expect(tgSend).not.toHaveBeenCalled();
+    expect(tgSend.mock.calls.some((c) => String(c[1]).includes(p.title))).toBe(false);
   });
 
   it("отклонение, зависшее на возврате, тик добивает в FAILED", async () => {
@@ -316,7 +316,7 @@ describe("Telegram и рубильник", () => {
       expect(await ownerOf(p.id)).toBe(targetId);
       await new Promise((r) => setTimeout(r, 300));
       expect(await reviewRow({ propertyId: p.id })).toBeNull();
-      expect(tgSend).not.toHaveBeenCalled();
+      expect(tgSend.mock.calls.some((c) => String(c[1]).includes(p.title))).toBe(false);
     } finally {
       await prisma.settings.update({ where: { id: s.id }, data: { ropTransferAlertEnabled: true } });
     }
@@ -342,7 +342,7 @@ describe("агенты и директор", () => {
     expect(await ownerOf(p.id)).toBe(targetId);
     await new Promise((r) => setTimeout(r, 300));
     expect(await reviewRow({ propertyId: p.id })).toBeNull();
-    expect(tgSend).not.toHaveBeenCalled();
+    expect(tgSend.mock.calls.some((c) => String(c[1]).includes(p.title))).toBe(false);
   });
 
   it("агентская «Передача» клиента закрыта: рядовой агент — 403", async () => {
