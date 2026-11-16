@@ -143,7 +143,7 @@ export function useNavigation(): Navigation {
   const { data: siteNotifications } = useSiteNotifications({ enabled: can("siteChanges.view") });
   const { data: oversightSummary } = useOversightSummary(can("dashboard.analytics"));
   const { data: marketingSummary } = useMarketingSummary(
-    role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN"
+    can("marketing.access")
   );
   const { data: editorsLoad } = useEditorsLoad(role === "EDITOR");
   // Заявки агентов на удаление клиентов — только тому, кто их и рассматривает.
@@ -172,8 +172,8 @@ export function useNavigation(): Navigation {
 }
 
 /** Queue access follows server role gates, not permission to moderate an individual property. */
-function canSeeMarketing(inputs: Pick<NavInputs, "role">): boolean {
-  return canReadPreparation(inputs.role);
+function canSeeMarketing(inputs: Pick<NavInputs, "role" | "can">): boolean {
+  return canReadPreparation(inputs.role, inputs.can("marketing.access"));
 }
 
 /**
@@ -309,7 +309,7 @@ function buildNavigation(inputs: NavInputs): Navigation {
 
   /** Группа 6 — Реклама и публикации (сюда же переехала «Воронка»). */
   const adsItems = compact<NavItem>([
-    (can("finance.view") || role === "MARKETING") && { to: "/ads", icon: Megaphone, label: "Реклама", group: "ads" },
+    (can("finance.view") || can("marketing.access")) && { to: "/ads", icon: Megaphone, label: "Реклама", group: "ads" },
     marketingVisible && {
       to: "/marketing",
       icon: isEditorLabel ? Clapperboard : Megaphone,
@@ -320,7 +320,7 @@ function buildNavigation(inputs: NavInputs): Navigation {
     // «Ролики в соцсети» (12.10.2026) — свободный промо-ролик без объекта во все
     // сети. Видимость по РОЛИ, а не по canSeeMarketing: то право есть и у
     // монтажёра, которому сервер (/social-videos) ответит 403.
-    (role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN") && {
+    can("marketing.access") && {
       to: "/social-videos",
       icon: Share2,
       label: "Ролики в соцсети",

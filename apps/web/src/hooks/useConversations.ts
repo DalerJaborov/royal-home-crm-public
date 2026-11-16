@@ -8,6 +8,7 @@ import { ApiError } from "../lib/apiError";
 import { uploadConversationMedia } from "../lib/mediaUpload";
 import { useMediaUploadsStore, type PendingMediaUpload } from "../store/mediaUploads";
 import type { ConversationMessage, Paginated } from "../types";
+import { audioFileNameFor } from "../lib/audioRecording";
 
 /**
  * Отказ отправки из-за закрытого 24-часового окна Meta (решение владельца
@@ -309,7 +310,7 @@ export function useSendVoiceMessage(id: string | null) {
   return useMutation({
     mutationFn: (blob: Blob) => {
       const form = new FormData();
-      form.append("audio", blob, "voice.webm");
+      form.append("audio", blob, audioFileNameFor(blob.type));
       return api<{ ok: boolean; pausedUntil: string }>(`/conversations/${id}/reply-voice`, {
         method: "POST",
         body: form,

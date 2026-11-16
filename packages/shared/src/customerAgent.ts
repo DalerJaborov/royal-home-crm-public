@@ -16,7 +16,7 @@ export const customerAgentToolCallSchema = z.union([customerToolCallSchema, cust
   customerAgentCompanyPolicyCallSchema, customerAgentPropertySearchCallSchema, customerAgentCompanyInformationCallSchema, customerAgentVacanciesCallSchema, customerMutationCommandSchema]);
 export type CustomerAgentToolCall = z.infer<typeof customerAgentToolCallSchema>;
 export const customerAgentFactKindSchema = customerPropertyFactKindSchema;
-export const customerAgentQuestionSchema = z.enum(["none", "property", "budget", "location", "rooms", "name", "phone", "callback_consent", "topic", "role", "clarify_previous", "seller_details", "preferences", "job_position", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start", "job_required"]);
+export const customerAgentQuestionSchema = z.enum(["none", "property", "budget", "budget_currency", "location", "rooms", "name", "phone", "callback_consent", "topic", "role", "clarify_previous", "seller_details", "preferences", "job_position", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start", "job_required"]);
 export type CustomerAgentQuestion = z.infer<typeof customerAgentQuestionSchema>;
 export const customerAgentSocialActSchema = z.enum(["none", "greet", "thank", "acknowledge", "apologize"]);
 /** Server presentation state, never model-selected file authority. */
@@ -66,6 +66,21 @@ export const customerAgentRevisionSchema = z.object({
 }).strict();
 export type CustomerAgentRevision = z.infer<typeof customerAgentRevisionSchema>;
 
+const needsAmount = z.string().regex(/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/);
+/** Buyer wishes as the customer's own words gave them. `currency` stays absent when the customer named an amount without one
+ * ("до 60 тысяч"): the bot then asks USD or TJS instead of guessing. `placeText` is an unresolved place phrase ("82 мкр"). */
+export const customerBuyerNeedsSchema = z.object({
+  type: z.enum(["APARTMENT", "HOUSE", "LAND", "COMMERCIAL"]).optional(),
+  rooms: z.number().int().min(1).max(20).optional(),
+  budget: z.object({ min: needsAmount.optional(), max: needsAmount.optional(), currency: z.enum(["TJS", "USD"]).optional() }).strict()
+    .refine(value => value.min !== undefined || value.max !== undefined).optional(),
+  districtName: z.string().trim().min(1).max(80).optional(),
+  placeText: z.string().trim().min(1).max(80).optional(),
+  /** "Любой район", "неважно где": the district question is answered. */
+  anywhere: z.literal(true).optional(),
+}).strict();
+export type CustomerBuyerNeeds = z.infer<typeof customerBuyerNeedsSchema>;
+
 /** Shape of an already minimized server projection, NOT proof of its source.
  * Only the real namespace/binding/revision loader may supply this field. */
 export const customerAgentVerifiedContextSchema = z.object({
@@ -81,6 +96,9 @@ export const customerAgentVerifiedContextSchema = z.object({
     buyerKnown: z.array(z.enum(["rooms", "budget", "location"])).max(3),
     /** Bounded customer words, never verified catalog facts or authority. */
     statements: z.array(z.string().min(1).max(360)).max(6).optional(),
+    /** What the customer ALREADY named as a buyer (own words only, later correction wins): the one place the bot looks before it asks
+     * rooms / budget / district again and before it fills a property search. Not a verified fact, a consent or a stored wish. */
+    buyerNeeds: customerBuyerNeedsSchema.optional(),
   }).strict().optional(),
   /** Digests of the lines the bot actually sent in this conversation recently (last bot turns,
    * 24 hours), wider than `turns`. Used only by the server renderer to never resend a block it

@@ -217,7 +217,7 @@ const pushesFor = (title: string) =>
 
 beforeAll(async () => {
   const passwordHash = await bcrypt.hash(password, 10);
-  const admin = await prisma.agent.create({ data: { fullName: "Админ совпадений", phone: `+992960${runId}`, role: "ADMIN", passwordHash } });
+  const admin = await prisma.agent.create({ data: { fullName: "Админ совпадений", phone: `+992960${runId}`, role: "DIRECTOR", passwordHash } });
   const agent = await prisma.agent.create({ data: { fullName: "Агент совпадений", phone: `+992961${runId}`, role: "AGENT", passwordHash } });
   const outsider = await prisma.agent.create({ data: { fullName: "Чужой агент", phone: `+992962${runId}`, role: "AGENT", passwordHash } });
   adminId = admin.id;

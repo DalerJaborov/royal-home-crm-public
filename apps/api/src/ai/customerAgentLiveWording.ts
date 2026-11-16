@@ -18,6 +18,7 @@
  * ТАДЖИКСКИЙ — по скиллу tajik-phrasebook. Фразы без пометки взяты из live-agent-phrases.md как есть. Фразы,
  * собранные по образцу (их нет в разговорнике дословно), перечислены в описании PR для проверки владельцем.
  */
+import { serviceAreaIn } from "../lib/serviceArea.js";
 import { clientSaidNothingSubstantive, isAdTemplateOpener } from "./adTemplatePhrase.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { extractAllPhones } from "../lib/shared/phoneText.js";
@@ -81,8 +82,7 @@ export function customerSubstantiveInput(text: string | undefined, asksNow: bool
 
 /** Where the agency works (owner 15–16.11.2026): Dushanbe and the Rudaki district. Other cities: refused. */
 export function customerServiceArea(city: string, language: Lang): string {
-  if (city === "Душанбе") return language === "tg" ? "дар Душанбе ва ноҳияи Рӯдакӣ" : "в Душанбе и районе Рудаки";
-  return language === "tg" ? `дар ${city}` : `в городе ${city}`;
+  return serviceAreaIn(city, language); // one door: lib/serviceArea.ts (#204)
 }
 
 // ---- Recruitment (phone-only by the owner's decision 10–11.11.2026; Noza's number said ONCE per chat) ----

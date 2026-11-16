@@ -8,6 +8,7 @@ import { customerPublicThanks, customerRequestedAgencyContact, customerRecruitme
   customerFurnitureQuestionRequested, customerMessengerChannelQuestion, isCustomerPublicAppreciation,
   customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion, customerSellerIntakeQuestionLines } from "./customerAgentIntake.js";
+import { buyerNeedsKnown, buyerNextQuestion, overlayBuyerNeeds, type BuyerNeedKey } from "./customerBuyerNeeds.js";
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
   recruitmentMissingForTurn, recruitmentRequiredQuestion, recruitmentFactQuestionLines } from "./customerAgentRecruitmentProtocol.js";
 import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines, customerDmForeignShareNoise } from "./customerAgentAbuse.js";
@@ -28,10 +29,11 @@ import { customerStaffFollowUpLine, customerStaffFollowUpFixedLines, customerTha
   customerPartnershipOffer, customerPartnershipReply, customerCommissionAmountLine, customerSearchHandOffLine, customerPhoneAskLines,
   PHONE_ASK_TEXT, CUSTOMER_SELLER_WORDS, type FollowUpMemory } from "./customerAgentStaffFollowUp.js";
 import { detectOutsideCoverage } from "./coverageGuard.js";
+import { serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
   customerAdOpening, customerGreetingLine, customerAlreadyGreeted, customerLegalAsked, customerRentalAsked, customerInputHasLink,
-  customerSubstantiveInput, customerServiceArea, GREETING_REPLY_LINES, RECEIPT_AGAIN } from "./customerAgentLiveWording.js";
+  customerSubstantiveInput, GREETING_REPLY_LINES, RECEIPT_AGAIN } from "./customerAgentLiveWording.js";
 
 export type CustomerReceiptOutcome = CustomerMutationReceipt["outcome"];
 export type CustomerAgentObservation =
@@ -92,7 +94,7 @@ export type CustomerAgentRenderedQuestion = CustomerAgentQuestion | "confirmatio
 interface RecruitmentMaterial { mediaText?: string; materialReceived?: boolean; applicationSaved?: boolean }
 const JOB_ONLY_QUESTIONS: readonly string[] = ["job_position", "job_required", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start"];
 // With nothing to apply to, neither a job nor a property questionnaire is asked; a name, a contact or the topic still is.
-const NO_OPENING_SUPPRESSED: readonly string[] = [...JOB_ONLY_QUESTIONS, "property", "budget", "location", "rooms", "role", "seller_details", "preferences"];
+const NO_OPENING_SUPPRESSED: readonly string[] = [...JOB_ONLY_QUESTIONS, "property", "budget", "budget_currency", "location", "rooms", "role", "seller_details", "preferences"];
 /** The résumé is requested ONCE. Not again when a document/photo/own account is already here,
  * or when an earlier assistant turn of this inquiry has already asked for it. */
 function recruitmentAboutHandled(input: RecruitmentMaterial & { verifiedContext?: CustomerAgentVerifiedContext; inputText?: string }): boolean {
@@ -137,12 +139,28 @@ function recruitmentNextFact(input: RecruitmentMaterial & { evidence: readonly C
     answerTo: input.verifiedContext?.recruitmentAnswerTo,
     knownPhone: input.knownPhoneSource !== "none" }).find(key => key !== "about" || !aboutHandled);
 }
+const lastAssistantText = (context: CustomerAgentVerifiedContext | undefined) => {
+  const last = context?.turns.at(-1);
+  return last?.role === "assistant" ? last.text : undefined;
+};
 function intakeProgress(input: { verifiedContext?: CustomerAgentVerifiedContext; inputText?: string }) {
   const prior = input.verifiedContext?.intake;
-  const recent = customerAgentIntake(prior ? [] : input.verifiedContext?.turns ?? [], input.inputText, prior?.role);
+  const recent = customerAgentIntake(prior ? [] : input.verifiedContext?.turns ?? [], input.inputText, prior?.role, lastAssistantText(input.verifiedContext));
   if (!prior || recent.role !== "unknown" && recent.role !== prior.role) return recent;
+  // The summary kept by the server (the whole inquiry) and this turn's own words: the later correction wins, nothing named is lost.
+  const buyerNeeds = overlayBuyerNeeds(prior.buyerNeeds, recent.buyerNeeds);
   return { role: prior.role, sellerKnown: [...new Set([...prior.sellerKnown, ...recent.sellerKnown])],
-    buyerKnown: [...new Set([...prior.buyerKnown, ...recent.buyerKnown])] };
+    buyerKnown: [...new Set([...prior.buyerKnown, ...recent.buyerKnown, ...buyerNeedsKnown(buyerNeeds)])], ...(buyerNeeds ? { buyerNeeds } : {}) };
+}
+/** What the object the customer is asking about already tells: its rooms and its district make those two wishes known (a buyer who
+ * asks about «ID 123» is not asked «Сколько комнат вам нужно?»). Only a live, referenced card; a sold one says nothing. */
+function cardAnchoredKnown(evidence: readonly CustomerAgentEvidence[], refs: readonly string[]): BuyerNeedKey[] {
+  const facts = evidence.filter(e => refs.includes(e.ref)).flatMap(e =>
+    e.value.kind === "facts" ? [e.value.facts] : e.value.kind === "publication_properties" ? e.value.cards : [])
+    .filter(card => card.availability !== "SOLD");
+  if (facts.length !== 1) return [];
+  const [card] = facts;
+  return [...(card.publicAddress ? ["location" as const] : []), ...(card.characteristics?.rooms ? ["rooms" as const] : [])];
 }
 export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDecision; evidence: readonly CustomerAgentEvidence[];
   surface: CustomerAgentSurface; knownPhoneSource: "none" | "current_input" | "scoped_contact"; requestedFacts?: readonly CustomerPropertyFactKind[];
@@ -181,7 +199,7 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
     // An empty/closed catalog leaves no job question to ask, but the customer's other next
     // step (a name, a contact, what they are looking for) is not suppressed with it.
     if (!openings.length && NO_OPENING_SUPPRESSED.includes(d.question)) return "none";
-    if (openings.length && ["property", "budget", "location", "rooms", "role", "topic", "seller_details", "preferences", ...JOB_ONLY_QUESTIONS, "name", "phone"].includes(d.question)) {
+    if (openings.length && ["property", "budget", "budget_currency", "location", "rooms", "role", "topic", "seller_details", "preferences", ...JOB_ONLY_QUESTIONS, "name", "phone"].includes(d.question)) {
       // Phone-only recruitment (owner 10–11.11.2026): the bot names the role and gives the
       // specialist's number; it asks no questionnaire questions and discusses no conditions.
       return "none";
@@ -198,8 +216,15 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
   if (input.surface === "dm") {
     const intake = intakeProgress(input);
     if (intake.role === "seller" && ["role", "rooms", "location", "budget", "seller_details"].includes(d.question)) return "seller_details";
-    if (intake.role === "buyer" && intake.buyerKnown.includes(d.question as "rooms" | "budget" | "location")) {
-      return (["location", "rooms", "budget"] as const).find(key => !intake.buyerKnown.includes(key)) ?? "preferences";
+    // One «what is still unknown» for a buyer: what the customer said (the whole inquiry + this message) plus what the asked-about object says.
+    if (intake.role === "buyer" && (d.question === "rooms" || d.question === "budget" || d.question === "location")) {
+      // The object card counts only for someone who has already said they are buying (a price question alone does not make the customer's wishes known).
+      const known = intake.role === "buyer" ? [...new Set([...intake.buyerKnown, ...cardAnchoredKnown(input.evidence, d.refs)])] : [];
+      // «до 60 тысяч»: the amount is known, the currency is not. Ask THAT once, not the budget again (not twice in a row either).
+      const budget = intake.role === "buyer" && "buyerNeeds" in intake ? intake.buyerNeeds?.budget : undefined;
+      const askedLines = (lastAssistantText(input.verifiedContext) ?? "").split("\n").map(line => line.trim());
+      if (d.question === "budget" && budget && !budget.currency && !askedLines.includes(questions.budget_currency.ru) && !askedLines.includes(questions.budget_currency.tg)) return "budget_currency";
+      if (known.includes(d.question)) return buyerNextQuestion(known);
     }
   }
   return d.question;
@@ -211,6 +236,7 @@ const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
   none: { ru: "", tg: "" },
   property: { ru: "Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.", tg: "Шумо кадом объектро дар назар доред? Рақами объект ё пайвандашро фиристед." },
   budget: { ru: "Какой бюджет вы рассматриваете?", tg: "Чӣ қадар маблағ дар назар доред?" },
+  budget_currency: { ru: "Эта сумма в долларах или в сомони?", tg: "Ин маблағ доллар аст ё сомонӣ?" },
   location: { ru: "Какой район вам подходит?", tg: "Кадом тарафи шаҳрро мехоҳед?" },
   rooms: { ru: "Сколько комнат вам нужно?", tg: "Чанд ҳуҷра?" },
   name: { ru: "Как к вам обращаться?", tg: "Номи шумо чист?" },
@@ -349,7 +375,7 @@ function policySegment(value: CustomerAgentCompanyPolicyObservation, language: "
     ? tg ? "Шартҳои кафолати ҳуқуқиро бояд дақиқ кунем." : "Условия юридических гарантий нужно уточнить."
     : tg ? "Покии ҳуқуқии объектро кафолат дода наметавонам." : "Не могу гарантировать юридическую чистоту объекта.";
   // Comments: the area only, never "other cities" unprompted (audit 16.11.2026, Б3: a seller's ad got "Другие города не обслуживаем").
-  const area = customerServiceArea(k.city, language);
+  const area = serviceAreaIn(k.city, language);
   return tg ? `Барои хариду фурӯши хона ${area} кӯмак мекунем.` : `Помогаем с покупкой и продажей недвижимости ${area}.`;
 }
 /** The customer asks about the work area itself ("в каком городе", "дар шаҳрҳои дигар"). */
@@ -366,33 +392,47 @@ const BUYER_WORDS = /харид|мехарам|харам|харидан|куп�
  * The OBJECT is outside the city (review #201, В2): a seller (the questionnaire or his own words) names a place outside
  * the city as where the property is ("дар/в Қайроққум"), and Dushanbe was never named by the customer in this chat.
  * "Ман аз Хуҷанд ҳастам, хона мехарам" (a buyer from elsewhere) is our client, never refused. Rudaki stays the model's
- * decision (coverageGuard leaves it out on purpose; the owner has not answered yet).
+ * matter (owner 15.11.2026: "Да, Рудаки берём"; lib/serviceArea.ts): coverageGuard never reports it as outside.
  */
-function customerObjectOutsideArea(input: { inputText?: string; verifiedContext?: CustomerAgentVerifiedContext }): boolean {
+function customerObjectOutsideArea(input: { inputText?: string; verifiedContext?: CustomerAgentVerifiedContext }): "seller" | "buyer" | null {
   const current = clientOwnWords(input.inputText ?? "").toLowerCase().replace(/ё/gu, "е");
   const history = (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "user").map(turn => clientOwnWords(turn.text)).join("\n");
   const all = `${history}\n${current}`.toLowerCase();
   const hit = detectOutsideCoverage(current);
-  if (!hit || !detectOutsideCoverage(all)) return false;
+  if (!hit || !detectOutsideCoverage(all)) return null;
   const seller = intakeProgress(input).role === "seller" || CUSTOMER_SELLER_WORDS.test(all);
-  if (!seller || BUYER_WORDS.test(all)) return false;
+  // Покупатель, который ищет ВНЕ зоны («дар Ваҳдат мехарам»), — тот же ответ и предложение зоны (владелец 16.11.2026:
+  // «Загород не берём»). Покупатель ИЗ другого города («аз Хуҷанд») — наш клиент: «аз/из» перед местом ниже не отказ.
+  const buyerWords = BUYER_WORDS.test(all);
+  // Продавец, который и покупает («продам и куплю»), — как раньше, не отказ.
+  if (seller && buyerWords) return null;
+  const buyer = !seller && buyerWords;
+  if (!seller && !buyer) return null;
   const at = current.indexOf(hit.place.toLowerCase());
   const before = at >= 0 ? current.slice(Math.max(0, at - 30), at) : "";
-  return /(?:^|[\s,])(?:дар|в|во)(?:\s+\S+){0,2}\s*$/u.test(before) && !/(?:^|[\s,])(?:аз|из)\s*$/u.test(before);
+  const inPlace = /(?:^|[\s,])(?:дар|в|во)(?:\s+\S+){0,2}\s*$/u.test(before) && !/(?:^|[\s,])(?:аз|из)\s*$/u.test(before);
+  // «Я живу в Худжанде, хочу купить» — место жительства, а не место покупки: не отказ.
+  if (/(?:жив[уеё]|прожива|зиндаг|истиқомат|истикомат)\S*\s+\S*\s*$/iu.test(before)) return null;
+  return inPlace ? (seller ? "seller" : "buyer") : null;
 }
 function serviceScopeLines(value: CustomerAgentCompanyPolicyObservation, language: "ru" | "tg", input: { inputText?: string;
   verifiedContext?: CustomerAgentVerifiedContext }, saidBefore: (line: string) => boolean): { lines: string[]; outside: boolean } {
   const k = value.knowledge, tg = language === "tg";
   const own = clientOwnWords(input.inputText ?? "");
-  // The owner's area is Dushanbe AND the Rudaki district (audit 16.11.2026, Ф1): "only Dushanbe" was a wrong fact.
-  const where = customerServiceArea(k.city, language);
-  if (!k.otherCities && customerObjectOutsideArea(input)) return { outside: true, lines: [tg
-    ? `Мутаассифона, мо танҳо ${where} кор мекунем.` : `К сожалению, мы работаем только ${where}.`] };
+  // The owner's area is Dushanbe AND the Rudaki district (audit 16.11.2026, Ф1); a buyer looking outside hears the offer (#204).
+  const where = serviceAreaIn(k.city, language);
+  const outsideRole = k.otherCities ? null : customerObjectOutsideArea(input);
+  if (outsideRole) return { outside: true, lines: [(tg
+    ? `Мутаассифона, мо танҳо ${where} кор мекунем.` : `К сожалению, мы работаем только ${where}.`) +
+    (outsideRole === "buyer" ? ` ${serviceAreaBuyerOffer(language)}` : "")] };
   const asked = CITY_QUESTION.test(own);
   const area = tg ? `Барои хариду фурӯши хона ${where} кӯмак мекунем.` : `Помогаем с покупкой и продажей недвижимости ${where}.`;
   const other = k.otherCities ? "" : tg ? " Дар шаҳрҳои дигар кор намекунем." : " Другие города не обслуживаем.";
   if (asked) return { outside: false, lines: [area + other] };
-  return { outside: false, lines: saidBefore(area) || saidBefore(area + other) ? [] : [area] };
+  // Строка до 16.11.2026 (без района Рудаки) в старых переписках — тоже «уже сказано»: второй раз зону не повторяем.
+  const legacyArea = tg ? `Барои хариду фурӯши амвол дар ${k.city} кӯмак мекунем.` : `Помогаем с покупкой и продажей недвижимости в городе ${k.city}.`;
+  const said = [area, area + other, legacyArea, legacyArea + other].some(saidBefore);
+  return { outside: false, lines: said ? [] : [area] };
 }
 // Word-bounded so "участок" is not "час" and "суроға" is an address question (not hours).
 const word = (alternatives: string) => new RegExp(`${BW}(?:${alternatives})${EW}`, "iu");
@@ -1018,6 +1058,8 @@ function repeatedBlockNotice(text: string, input: RepeatInput): string | null {
 }
 
 function avoidRepeatedReply(text: string, input: RepeatInput): string {
+  // A job candidate: the specialist's phone is THE answer (owner 10–11.11), said again rather than swapped for «Понял.».
+  if (splitLines(text).includes(recruitmentPhoneLine(input.language))) return text;
   const turns = input.verifiedContext?.turns ?? [];
   const blockNotice = repeatedBlockNotice(text, input);
   if (blockNotice) return blockNotice;

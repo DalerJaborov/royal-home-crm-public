@@ -37,7 +37,9 @@ import { SettingsSection, SettingsGroupLabel } from "../../components/settings/S
 import { pcmBase64ToWavUrl } from "../../lib/pcmToWav";
 import { SecretKeyEditor } from "../../components/SecretKeyEditor";
 import { useAgents } from "../../hooks/useAgents";
+import { useCan } from "../../lib/permissions";
 import { useConnectAds, useDisconnectAds } from "../../hooks/useAds";
+
 import { useConnectTikTok, useDisconnectTikTok, useTikTokCreatorInfo } from "../../hooks/useTikTok";
 import { useConnectThreads, useDisconnectThreads, useThreadsProfile } from "../../hooks/useThreads";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -73,7 +75,11 @@ import { OpenAiCoversSection } from "./OpenAiCoversSection";
 import { NarrationSettingsPanel } from "../../components/settings/NarrationSettingsPanel";
 import { ReelsAutoBoostSection } from "./ReelsAutoBoostSection";
 
+/** Подключать и отключать каналы компании может только директор (замок прав 16.11.2026): остальным кнопки не показываем. */
+const hideUnlessDirector = (allowed: boolean) => (allowed ? undefined : { display: "none" as const });
+
 export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "advertising" | "phone" } = {}) {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   // silent: SecretKeyEditor ниже сам показывает «Ключ сохранён»/ошибку под полем —
@@ -158,6 +164,19 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
             metaEnabled && !metaConfigured
               ? "Заполнены не все ключи ниже: нужны секрет приложения, проверочная строка и хотя бы один канал — WhatsApp (маркер вместе с номером), Instagram (аккаунт в списке или маркер) или Страница Facebook (маркер вместе с её идентификатором)."
               : null
+          }
+        />
+
+        {/* Вебхук WhatsApp замолчал (15.11.2026, lib/whatsappWebhookWatch.ts): входящие WhatsApp
+            приходят только вебхуком, сверить их не с чем — следим за потоком целиком. */}
+        <SwitchRow
+          title="Следить, что WhatsApp не замолчал"
+          on={settings?.whatsappWebhookWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ whatsappWebhookWatchEnabled: !(settings?.whatsappWebhookWatchEnabled ?? true) })}
+          hint={
+            settings?.whatsappWebhookWatchEnabled ?? true
+              ? "Если в рабочие часы входящих в WhatsApp нет дольше обычного, руководство получает тревогу с причиной: номер отключён, подписка слетела или вебхук не доходит."
+              : "Не следим: если Meta перестанет присылать сообщения WhatsApp, это заметят только по жалобам клиентов."
           }
         />
 
@@ -291,6 +310,28 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
           onSave={(list) => updateSettings.mutate({ facebookShareGroups: list })}
         />
 
+        {/* Сверка с Meta (15.11.2026, lib/metaInboxReconcile.ts): то, что видно у Meta, но не дошло до CRM. */}
+        <SwitchRow
+          title="Messenger: сверять, всё ли дошло"
+          on={settings?.messengerInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ messengerInboxReconcileEnabled: !(settings?.messengerInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.messengerInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет переписки Страниц с Meta: если человек написал, а до CRM сообщение не дошло, всем, кто читает переписки, приходит «Ответьте вручную»."
+              : "Не сверяем: сообщение в Messenger, которое Meta не прислала в CRM, никто не увидит, пока не откроет Business Suite."
+          }
+        />
+        <SwitchRow
+          title="Instagram: сверять, всё ли дошло"
+          on={settings?.instagramInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ instagramInboxReconcileEnabled: !(settings?.instagramInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.instagramInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет Direct аккаунтов Instagram с Meta: не дошедшее до CRM — «Ответьте вручную» тем, кто читает переписки."
+              : "Не сверяем: сообщение в Direct, которое Meta не прислала в CRM, никто не увидит, пока не откроет Instagram."
+          }
+        />
+
         <div className="quiet">
           <span className="dot" />
           <span className="txt">
@@ -304,10 +345,30 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
         <div className="quiet">
           <span className="dot" />
           <span className="txt">
-            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника
+            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника канала
             здесь нет. Бот отвечает только клиентам, которые написали ему сами.
           </span>
         </div>
+        <SwitchRow
+          title="Клиент без ответа — сказать человеку"
+          on={settings?.telegramSilenceWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramSilenceWatchEnabled: !(settings?.telegramSilenceWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramSilenceWatchEnabled ?? true
+              ? "Клиент написал в Telegram, а за 30 минут ему не ответили ни бот, ни сотрудник — агенту клиента (или руководству) уходит пуш. В рабочие часы."
+              : "Не следим: молчание в Telegram никто не заметит, пока не откроет переписку."
+          }
+        />
+        <SwitchRow
+          title="Следить, что Telegram доставляет сообщения"
+          on={settings?.telegramDeliveryWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramDeliveryWatchEnabled: !(settings?.telegramDeliveryWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramDeliveryWatchEnabled ?? true
+              ? "Раз в 10 минут CRM спрашивает у Telegram, доходят ли сообщения бота: если нет — руководство получает тревогу с причиной."
+              : "Не следим: если Telegram перестанет доставлять сообщения в CRM, это заметят только по жалобам клиентов."
+          }
+        />
       </SettingsSection>
 
       </>}
@@ -353,7 +414,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
               копировать и вставлять ничего не нужно.
             </span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             {settings?.metaAdsConfigured && (
               <button
                 className="pill ghost sm"
@@ -867,6 +928,7 @@ const TIKTOK_PRIVACY_LABELS: Record<string, string> = {
  * нет отдельной кнопки «Сохранить» под блоком «Как публиковать».
  */
 function TikTokChannelSection() {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const updateSecretKey = useUpdateSettings({ silent: true });
@@ -961,7 +1023,7 @@ function TikTokChannelSection() {
               Нужен бизнес-аккаунт @royal.home.tjk — войдите под ним в окне TikTok, которое откроет кнопка.
             </span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             <button
               className="pill sm"
               type="button"
@@ -1002,7 +1064,7 @@ function TikTokChannelSection() {
                   : ""}
               </span>
             </div>
-            <div className="acts">
+            <div className="acts" style={hideUnlessDirector(canChannels)}>
               <button className="pill ghost sm" type="button" onClick={() => setConfirmingDisconnect(true)}>
                 Отключить
               </button>
@@ -1129,6 +1191,7 @@ function TikTokChannelSection() {
  * Threads их не спрашивает, договор задания это подтверждает.
  */
 function ThreadsChannelSection() {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const updateSecretKey = useUpdateSettings({ silent: true });
@@ -1222,7 +1285,7 @@ function ThreadsChannelSection() {
             <b>Аккаунт не подключён</b>
             <span style={{ whiteSpace: "normal" }}>Аккаунт Threads, привязанный к нашему Instagram.</span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             <button
               className="pill sm"
               type="button"
@@ -1254,7 +1317,7 @@ function ThreadsChannelSection() {
                   : ""}
               </span>
             </div>
-            <div className="acts">
+            <div className="acts" style={hideUnlessDirector(canChannels)}>
               <button className="pill ghost sm" type="button" onClick={() => setConfirmingDisconnect(true)}>
                 Отключить
               </button>
@@ -1387,7 +1450,11 @@ function VideoHandoffFields() {
         onToggle={() => updateSettings.mutate({ clipOwnerApproveEnabled: !clipOwnerOn })}
         hint={
           clipOwnerOn
-            ? `Ролик от монтажёра приходит агенту, за которым объект, с кнопками «Подтвердить» и «Вернуть монтажёру». Не ответил за ${clipOwnerHours} ч — ролик публикуется сам, но не ночью: с 00:00 до 07:00 ждёт до 07:00. Руководство может решить в любой момент.`
+            ? `Ролик от монтажёра приходит только агенту, за которым объект, с кнопками «Подтвердить» и «Вернуть монтажёру»; руководству и админу в Telegram он не приходит (в карточке объекта кнопки есть). ${
+                clipOwnerHours > 0
+                  ? `Не ответил за ${clipOwnerHours} ч — ролик публикуется сам, но не ночью: с 00:00 до 07:00 ждёт до 07:00.`
+                  : "Сам ролик не опубликуется, пока агент не решит; раз в 6 часов ему придёт напоминание."
+              }`
             : "Выключено — решение по готовому ролику за руководством (переключатель выше)."
         }
       />
@@ -1395,20 +1462,20 @@ function VideoHandoffFields() {
         <div className="mod">
           <div className="t">
             <b>Через сколько часов публиковать без ответа</b>
-            <span style={{ whiteSpace: "normal" }}>Если хозяин объекта молчит, ролик уходит в публикацию сам.</span>
+            <span style={{ whiteSpace: "normal" }}>Если хозяин объекта молчит, ролик уходит в публикацию сам. «Не публиковать сам» — ролик ждёт ответа хозяина.</span>
           </div>
           <div className="acts">
             <select
               className="inp"
-              style={{ maxWidth: 140 }}
+              style={{ maxWidth: 200 }}
               aria-label="Через сколько часов публиковать без ответа"
               value={clipOwnerHours}
               onChange={(e) => updateSettings.mutate({ clipOwnerAutoPublishHours: Number(e.target.value) })}
               disabled={updateSettings.isPending}
             >
-              {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
+              {[0, 1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
                 <option key={h} value={h}>
-                  {h} ч
+                  {h === 0 ? "Не публиковать сам" : `${h} ч`}
                 </option>
               ))}
             </select>

@@ -144,7 +144,7 @@ export function MarketingTabs() {
   return (
     <ScreenTabs
       tabs={[
-        { to: "/ads", label: "Реклама", when: can("finance.view") || role === "MARKETING", end: true },
+        { to: "/ads", label: "Реклама", when: can("finance.view") || can("marketing.access"), end: true },
         // «Обзор», не «Маркетинг» (25.09.2026, владелец про весь ряд вкладок:
         // «вкладка "Маркетинг" внутри раздела "Маркетинг" сама по себе
         // кривая») — вкладка ведёт на MarketingCenter.tsx, общий обзор канала,
@@ -154,7 +154,7 @@ export function MarketingTabs() {
         {
           to: "/social-videos",
           label: "Ролики в соцсети",
-          when: role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN",
+          when: can("marketing.access"),
         },
         { to: "/pipeline", label: "Подготовка объектов", when: marketingVisible },
         { to: "/funnel", label: "Воронка", permission: "settings.view" },

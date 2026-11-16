@@ -18,7 +18,7 @@ let securityToken: string;
 let managerToken: string;
 
 beforeAll(async () => {
-  for (const role of ["AGENT", "ADMIN", "SECURITY", "MANAGER"] as const) {
+  for (const role of ["AGENT", "DIRECTOR", "SECURITY", "MANAGER"] as const) {
     const agent = await prisma.agent.create({ data: {
       fullName: `Investigation fixture ${role} ${run}`, phone: `test-investigation-${role}-${run}`,
       passwordHash: "test-placeholder", role,
@@ -28,7 +28,7 @@ beforeAll(async () => {
     agentIds.push(agent.id);
     const token = signAccessToken({ sub: agent.id, role });
     if (role === "AGENT") agentToken = token;
-    if (role === "ADMIN") adminToken = token;
+    if (role === "DIRECTOR") adminToken = token;
     if (role === "SECURITY") securityToken = token;
     if (role === "MANAGER") managerToken = token;
   }
