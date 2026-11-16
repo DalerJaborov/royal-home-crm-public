@@ -10645,8 +10645,12 @@ model SocialVideoPost {
   /// Короткое описание ролика «своими словами» — по нему ИИ пишет подписи и рисует обложку
   /// (экран хранит его, чтобы «Перегенерировать» работало и после перезагрузки страницы).
   brief         String?
-  /// "/uploads/handoff/promo-<uuid>.mp4"
+  /// "/uploads/handoff/promo-<uuid>.mp4"; у фото-поста — путь первого фото (16.11.2026).
   videoPath     String
+  /// VIDEO — ролик | PHOTO — пост из фотографий с подписью (16.11.2026, владелец: «фото просто как пост с текстом»).
+  mediaKind     String    @default("VIDEO")
+  /// Фото поста по порядку, под /uploads (JPEG 1080 по ширине). Пусто у роликов.
+  imagePaths    String[]  @default([])
   originalName  String
   sizeBytes     Int
   /// Факты файла (ffprobe при загрузке); null — не удалось измерить.
