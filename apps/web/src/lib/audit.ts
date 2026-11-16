@@ -222,6 +222,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   REELS_AUTOBOOST_TICK: "Автопродвижение роликов: проход",
   LIVE_VOICE_TEST_CALL: "Проверочный звонок роботом",
   LIVE_VOICE_CALL_CLIENT: "Звонок роботом клиенту",
+  ARCHIVE_REVIEW_CALL: "Звонок удалённому клиенту (разбор Корзины)",
   ROBOT_CALL_STOP_SET: "Поставлено «Не звонить роботом»",
   ROBOT_CALL_STOP_CLEARED: "Снято «Не звонить роботом»",
   ROBOT_CALL_OPT_OUT_ALLOWED: "Руководитель разрешил робота вопреки «не беспокойте» в переписке",

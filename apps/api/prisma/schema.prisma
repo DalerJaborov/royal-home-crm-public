@@ -5012,6 +5012,10 @@ model Interaction {
   buyerIntentAtCreation Boolean?
   /// Private investigation evidence; excluded from ordinary activity and timeline reads.
   investigationOnly Boolean @default(false)
+  /// Звонок руководителя клиенту ИЗ КОРЗИНЫ — «разбор удалённого клиента» (16.11.2026).
+  /// Не рабочий звонок агента: не идёт в счёт звонков, Royal Score, штрафы, статусы и задачи
+  /// карточки (см. lib/archiveReviewCall.ts). Пишется только через lib/timeline.ts.
+  archiveReview Boolean @default(false)
   id                     String              @id @default(uuid())
   customerBookingActionId String? @unique
   customerBookingAction CustomerAction? @relation(fields: [customerBookingActionId], references: [id], onDelete: Restrict)

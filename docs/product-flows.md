@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **757**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4113**. Модулей: **85**.
+Путей: **759**. Развилок в самих путях: **2491**; вместе с задачами по расписанию и фоновыми заданиями — **4120**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2888,12 +2888,13 @@
 - если !canAccessAssignedAgent(req, client.assignedAgentId)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
-- const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));
-  · зовёт foreignWriteDenied()
-- если denied
-  - return res.status(403).json({ error: denied });
-    · ответ 403
-- если client.deletedAt
+- если !archiveReview
+  - const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));
+    · зовёт foreignWriteDenied()
+  - если denied
+    - return res.status(403).json({ error: denied });
+      · ответ 403
+- если client.deletedAt && !archiveReview
   - return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
     · ответ 409 — «Карточка в Корзине — сначала восстановите её»
 - const selection = resolveClientPhoneSelection(client, parsed.data);
@@ -2910,7 +2911,7 @@
     · ответ 429 — «Подождите ${redialWaitSeconds} с: предыдущий вызов не дошёл до вашего…»
 - const ownAgentIdForAccept = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- если ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgentId === ownAgentId…
+- если !archiveReview && ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgen…
   - await acceptLead({ clientId: client.id, agentId: ownAgentIdForAccept }).catch((err)
     · зовёт acceptLead()
 - если parsed.data.phone && !requestedPhone
@@ -2930,10 +2931,13 @@
   - если requestedTail !== phoneTail(client.phone)
     - phoneOverride = requestedPhone;
       · дословно из кода
-- const result = await originateCallToClient(req.agent!.id, client, { phoneOverride });
+- const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });
   · команда телефонии
+- если archiveReview && (result.ok || result.status === 502)
+  - logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, { shortId: client.shortId, fullName: client.fullNam…
+    · зовёт logAudit()
 - если !result.ok
-  - если result.status === 502
+  - если result.status === 502 && !archiveReview
     - await markAgentAttempt(client.id, new Date(), req.agent!.id);
       · зовёт markAgentAttempt()
   - return res.status(result.status).json({ error: result.error });
@@ -4128,7 +4132,7 @@
 - const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
   · читает в базе: interaction
   · считает в базе: interaction
-- res.json({ items: await presentTimeline(req, client.assignedAgentId, page), total, hasMore });
+- res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
   · ответ 200
 
 ### POST /api/v1/clients/:id/to-candidate
@@ -4304,6 +4308,8 @@
 - const [conductedShowing, callsCount, realCalls] = await Promise.all([ prisma.interaction.count({ where: { ...…
   · считает в базе: interaction
   · читает в базе: settings
+- const withMessages = { ...client, hadConductedShowing: conductedShowing, callsCount, hadRealCall: realCalls >…
+  · зовёт presentClientTimeline()
 - const sellerPropertyAddress = client.kind === "SELLER" ? await loadSellerPropertyAddress(client.id) : null;
   · зовёт loadSellerPropertyAddress()
 - const presentedClient = presentClient( responseClient, can(req, "clients.viewPhone") && !gateUntilAccepted, c…
@@ -4537,6 +4543,8 @@
 - если existing
   - const full = await prisma.client.findUniqueOrThrow({ where: { id: existing.id }, select: { id: true, shortId:…
     · читает в базе: client
+  - archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p)
+    · зовёт canCallArchivedClient()
   - если !canAccessAssignedAgent(req, full.assignedAgentId)
     - return res.status(403).json({ error: "Этот номер уже принадлежит другому клиенту — недостаточно прав" });
       · ответ 403 — «Этот номер уже принадлежит другому клиенту — недостаточно прав»
@@ -4553,8 +4561,11 @@
       · ответ 409
   - client = await prisma.client.create({ data: { fullName: `Исходящий ***${digits.replace(/\D/g, "").slice(-2)}`…
     · создаёт в базе: client
-- const result = await originateCallToClient(req.agent!.id, client);
+- const result = await originateCallToClient(req.agent!.id, client, { archiveReview });
   · команда телефонии
+- если archiveReview && (result.ok || result.status === 502)
+  - logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, { shortId: client.shortId, fullName: client.fullNam…
+    · зовёт logAudit()
 - если !result.ok
   - return res.status(result.status).json({ error: result.error });
     · ответ (код зависит от условия)
@@ -4791,6 +4802,51 @@
 - const summary: ClientsSummary = { buyers, sellers, mine, other, lost, newToday, newYesterday, awaitingAgent: …
   · зовёт clientNamePhoneSafe()
 - res.json(summary);
+  · ответ 200
+
+### GET /api/v1/clients/trash/:id/review/timeline
+
+`apps/api/src/routes/clients/trashReview.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+
+- const parsed = timelineQuerySchema.safeParse(req.query);
+  · проверяет данные схемой timelineQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- если (before && !beforeId) || (!before && beforeId)
+  - return res.status(400).json({ error: "Курсор задаётся парой before и beforeId" });
+    · ответ 400 — «Курсор задаётся парой before и beforeId»
+- const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…
+  · читает в базе: client
+- если !client
+  - return res.status(404).json({ error: "Клиент не найден в Корзине" });
+    · ответ 404 — «Клиент не найден в Корзине»
+- const baseWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ?…
+  · зовёт visibleInteractionWhere()
+- const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
+  · читает в базе: interaction
+  · считает в базе: interaction
+- res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
+  · ответ 200
+
+### GET /api/v1/clients/trash/:id/review
+
+`apps/api/src/routes/clients/trashReview.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+
+- const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…
+  · читает в базе: client
+- если !client
+  - return res.status(404).json({ error: "Клиент не найден в Корзине" });
+    · ответ 404 — «Клиент не найден в Корзине»
+- const interactionWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id };
+  · зовёт visibleInteractionWhere()
+- const [request, audit, rows, total, manualTrash] = await Promise.all([ prisma.clientDeleteRequest.findFirst({…
+  · читает в базе: clientDeleteRequest
+  · читает в базе: auditLog
+  · читает в базе: interaction
+  · считает в базе: interaction
+  · считает в базе: auditLog
+- res.json({ client: { id: client.id, shortId: client.shortId, fullName: clientNamePhoneSafe(client.fullName, p…
   · ответ 200
 
 ### GET /api/v1/clients/trash
@@ -19979,7 +20035,7 @@
     - если withClient.length === 0
       - return { byCall: 0, expired };
         · дословно из кода
-    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", clientId: { in: withClient.map((r)
+    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", archiveReview: false, clientId: { in…
       · читает в базе: interaction
     - если calls.length === 0
       - return { byCall: 0, expired };
@@ -25388,7 +25444,7 @@
     - если сорвалось
       - return { skipped: "read_failed", alarmed: false };
         · дословно из кода
-    - const problem = telegramDeliveryProblem(info, now, previousPending);
+    - const problem = telegramDeliveryProblem(info, now, previousPending, telegramUpdatesMode());
       · зовёт telegramDeliveryProblem()
     - если !problem
       - return { skipped: null, alarmed: false };

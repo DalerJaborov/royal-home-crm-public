@@ -250,7 +250,8 @@ export async function alertClientWaiting(input: {
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
   const body =
     input.trigger === "follow_up"
-      ? `${name}: бот ответил клиенту, что это уточнит агент. Ответьте клиенту или позвоните.`
+      // Подсказка, где отвечать (Telegram Direct: из CRM нельзя), потерялась при своде #201 с #198 — возвращена 16.11.
+      ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
       : input.trigger === "escalate"
       ? `${name}: бот решил, что нужен сотрудник, и не ответил. ${chat.replyHint}`
       : input.trigger === "failed"

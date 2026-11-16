@@ -302,6 +302,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
 
   const statuses: { color: string; label: string }[] = [];
   if (i.taskCancelledAt) statuses.push({ color: "mute", label: "Отменено" });
+  if (i.archiveReview) statuses.push({ color: "mute", label: "Разбор удалённого клиента" });
   if (i.outcome) {
     statuses.push({
       color: OUTCOME_DOT[i.outcome] ?? "bg-gray-400",
@@ -578,12 +579,15 @@ export function InteractionTimeline({
   total,
   truncated = false,
   type,
+  timelinePath,
 }: {
   interactions: Interaction[];
   clientId?: string;
   total?: number;
   truncated?: boolean;
   type?: Interaction["type"];
+  /** Куда ходить за более ранними записями; по умолчанию лента карточки. Для карточки из Корзины — разбор. */
+  timelinePath?: string;
 }) {
   const [limit, setLimit] = useState(INITIAL_EVENTS);
   // Догруженное держим вместе с ключом клиента/среза: другой клиент или срез —
@@ -626,7 +630,8 @@ export function InteractionTimeline({
         limit: String(OLDER_BATCH),
       });
       if (type) params.set("type", type);
-      const page = await api<OlderPage>(`/clients/${clientId}/timeline?${params.toString()}`);
+      const basePath = timelinePath ?? "/clients/" + clientId + "/timeline";
+      const page = await api<OlderPage>(basePath + "?" + params.toString());
       setOlder({
         key: ownerKey,
         pinned: state.pinned.length > 0 ? state.pinned : interactions,

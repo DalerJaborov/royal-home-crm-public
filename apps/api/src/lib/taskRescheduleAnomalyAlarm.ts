@@ -58,6 +58,7 @@ async function hasRealContactBetween(clientId: string, since: Date, until: Date,
       where: {
         clientId,
         type: "CALL",
+        archiveReview: false,
         createdAt: { gt: since, lte: until },
         OR: [{ recordingDurationSec: { gte: minSeconds } }, { callAttempt: "TALKED" }],
       },
