@@ -21,6 +21,7 @@ import type { CustomerAgentCompanyInformationObservation } from "@royal-home/sha
 import { resolveSearchPlace } from "./searchPlace.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerAgentVacanciesCallSchema, type CustomerAgentVacanciesObservation } from "@royal-home/shared";
+import { customerSearchBudgetSane } from "@royal-home/shared";
 import { readCustomerOpenVacancies, customerOpenVacanciesCurrent } from "./recruitmentPositions.js";
 import { logSystemError } from "./systemError.js";
 
@@ -100,6 +101,12 @@ export type CustomerAgentPublicDataResult =
 export async function readCustomerAgentPublicData(rawCall: unknown, options: CustomerAgentPublicDataOptions): Promise<CustomerAgentPublicDataResult> {
   const call = calls.safeParse(rawCall);
   if (!call.success) return { status: "denied", reason: "invalid_public_call" };
+  // Бюджет вне разумных границ своей валюты («50», лишний ноль) — тот же отказ, что у неверного вызова (14.11.2026): потолком каталога
+  // он не становится. Проверка здесь, а не в общей схеме: схема входит в отпечаток знаний версии бота (пара обновления V2).
+  const budget = call.data.name === "search_public_properties" ? call.data.args.budget : undefined;
+  if (budget && ![budget.min, budget.max].every(bound => bound === undefined || customerSearchBudgetSane(bound, budget.currency))) {
+    return { status: "denied", reason: "invalid_public_call" };
+  }
   try {
     if (call.data.name === "get_company_information") return { status: "observed", observation: await readCustomerCompanyInformation(options.brandName) };
     if (call.data.name === "get_open_vacancies") return { status: "observed", observation: await readCustomerOpenVacancies() };

@@ -53,7 +53,9 @@
 Меняются `coreHash`, `rendererHash`, `modelSchemaHash` (вопрос `budget_currency`, `buyerNeeds`); `toolSchemaHash` НЕ меняется
 (16.11: описание `search_public_properties` возвращено к main — его отпечаток закреплён в паре обновления
 `CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2`; прежние условия покупателя подставляет в поиск сервер,
-`customerSearchIntentWithKnownNeeds`, а модели то же правило даёт `intakeGuidance`), `promptHash` НЕ меняется (промпт не тронут: правила в `intakeGuidance` и описании инструмента). После выката ядро
+`customerSearchIntentWithKnownNeeds`, а модели то же правило даёт `intakeGuidance`); `knowledgeSchemaHash` тоже НЕ меняется
+(16.11: разумные границы бюджета вынесены из общей схемы `customerAgentPublicReads.ts` в `customerSearchBudget.ts`, отказ
+безумному бюджету — на сервере, `readCustomerAgentPublicData`, тот же `invalid_public_call`), `promptHash` НЕ меняется (промпт не тронут: правила в `intakeGuidance` и описании инструмента). После выката ядро
 обновится по штатному пути (`customer-agent-auto-refresh`), кнопка не нужна только если ревизия подхватится сама; проверить.
 
 ## Пересечение с PR #173 (`claude/core-knowledge-13-11`)

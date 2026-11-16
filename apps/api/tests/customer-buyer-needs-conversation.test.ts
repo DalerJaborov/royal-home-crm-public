@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { customerAgentPropertySearchCallSchema, customerAgentVerifiedContextSchema, type CustomerAgentEvidence, type CustomerAgentVerifiedContext } from "@royal-home/shared";
+import { customerSearchBudgetSane } from "@royal-home/shared";
+import { readCustomerAgentPublicData } from "../src/lib/customerAgentPublicReads.js";
 import { customerAgentIntake } from "../src/ai/customerAgentIntake.js";
 import { customerAgentRenderedQuestion, customerAgentQuestionCatalog } from "../src/ai/customerAgentRenderer.js";
 import { customerSearchContinuation, customerSearchIntent, customerSearchIntentWithKnownNeeds, customerSearchPreRead } from "../src/ai/customerAgentSearchIntent.js";
@@ -122,13 +124,17 @@ describe("search intent forms (the same reader as the intake)", () => {
 });
 
 describe("the contract code holds (model arguments and the stored summary)", () => {
-  it("the search tool refuses an insane budget for its currency", () => {
-    const call = (budget: unknown) => customerAgentPropertySearchCallSchema.safeParse({ name: "search_public_properties", args: { type: "APARTMENT", budget } }).success;
-    expect(call({ max: "60000", currency: "USD" })).toBe(true);
-    expect(call({ max: "500000", currency: "TJS" })).toBe(true);
-    expect(call({ max: "60", currency: "USD" })).toBe(false);
-    expect(call({ max: "900000000000", currency: "USD" })).toBe(false);
-    expect(call({ min: "40000", max: "60000", currency: "USD" })).toBe(true);
+  it("the search tool refuses an insane budget for its currency (server door; the shared schema stays as pinned)", async () => {
+    expect(customerSearchBudgetSane("60000", "USD")).toBe(true);
+    expect(customerSearchBudgetSane("500000", "TJS")).toBe(true);
+    expect(customerSearchBudgetSane("60", "USD")).toBe(false);
+    expect(customerSearchBudgetSane("900000000000", "USD")).toBe(false);
+    const call = (budget: unknown) => ({ name: "search_public_properties", args: { type: "APARTMENT", budget } });
+    // The shared schema is in knowledgeSchemaHash (upgrade pair V2): it accepts the shape, the server refuses the amount.
+    expect(customerAgentPropertySearchCallSchema.safeParse(call({ max: "60", currency: "USD" })).success).toBe(true);
+    for (const budget of [{ max: "60", currency: "USD" }, { max: "900000000000", currency: "USD" }, { min: "100", max: "60000", currency: "USD" }]) {
+      expect(await readCustomerAgentPublicData(call(budget), {} as never)).toEqual({ status: "denied", reason: "invalid_public_call" });
+    }
   });
   it("the verified context carries buyerNeeds strictly", () => {
     const base = { surface: "dm", revisionId: "a".repeat(64), turns: [], publicState: { language: "ru", topic: "unknown", openQuestion: "none" } };
