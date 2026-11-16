@@ -243,6 +243,12 @@ export interface Settings {
   botInstagramEnabled: boolean;
   botFacebookEnabled: boolean;
   botTelegramEnabled: boolean;
+  /** Telegram: реплика клиента без ответа 30 минут — пуш ответственному (15.11.2026). */
+  telegramSilenceWatchEnabled: boolean;
+  /** Telegram: доставка сообщений в CRM сломалась (getWebhookInfo) — тревога руководству (15.11.2026). */
+  telegramDeliveryWatchEnabled: boolean;
+  /** WhatsApp: входящих нет дольше обычного в рабочие часы — тревога руководству (15.11.2026). */
+  whatsappWebhookWatchEnabled: boolean;
   botWebsiteChatEnabled: boolean;
   /** Задан ли маркер бота Telegram в окружении сервера. Без него канала нет. */
   telegramConfigured: boolean;

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4079**. Модулей: **84**.
+Путей: **754**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4092**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20279,43 +20279,6 @@
     - если !(await isWithinWorkingHours(now))
       - return { checked: 0, alerted: 0, skippedOffHours: true };
         · дословно из кода
-    - const rows = await prisma.$queryRaw< Array<{ id: string; messages: unknown; leadDraft: unknown; silenceAlertF…
-      · обращается к базе своим SQL
-    - для каждого: const row of rows
-      - const episode = waitingEpisodeOf(row.messages);
-        · зовёт waitingEpisodeOf()
-      - если !episode || episode.since.getTime() > threshold
-        - continue;
-          · переходит к следующему
-      - если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()
-        - continue;
-          · переходит к следующему
-      - если customerSpamMuteActive(customerSpamMuteFrom(spam), now)
-        - continue;
-          · переходит к следующему
-    - если due.length === 0
-      - return { checked: rows.length, alerted: 0, skippedOffHours: false };
-        · дословно из кода
-    - const tickets = keys.length ? await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: …
-      · читает в базе: customerPropertyIngressTicket
-    - const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d)
-      · зовёт fetchLastCallContactByClient()
-    - для каждого: const d of due
-      - пробует
-        - если allIntentional
-          - continue;
-            · переходит к следующему
-        - если called && called.getTime() > d.episode.since.getTime()
-          - continue;
-            · переходит к следующему
-        - const outcome = await alertClientWaiting({ conversationId: d.id, trigger: "silence", now });
-          · зовёт alertClientWaiting()
-        - если outcome !== "skipped"
-          - alerted++;
-            · дословно из кода
-      - если сорвалось
-        - reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
-          · зовёт reportCronRowError()
   - если alerted > 0
     - console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
       · пишет строку в журнал сервера
@@ -20571,6 +20534,60 @@
   - в любом случае
     - customerBusy[lane] = false;
       · дословно из кода
+
+### customer-unrecorded-summary — */2 * * * *
+
+- пробует
+  - const { people } = await runUnrecordedCustomerSummary();
+    · зовёт runUnrecordedCustomerSummary()
+    - const recipients = await findAgentsWithPermission("messages.view");
+      · зовёт findAgentsWithPermission()
+    - если !recipients.length
+      - const waiting = await prisma.processedMessage.count({ where: { channel: UNRECORDED_PENDING } });
+        · считает в базе: processedMessage
+      - если waiting
+        - void logSystemError("meta", `Сообщения клиентов (${waiting}) не попали в чат CRM, а сказать некому: нет никог…
+          · запись в журнал ошибок
+    - const taken = await prisma.$queryRaw<Array<{ messageId: string; createdAt: Date }>>`DELETE FROM "ProcessedMes…
+      · обращается к базе своим SQL
+    - если !taken.length
+      - return { people: 0, sent: false };
+        · дословно из кода
+    - для каждого: const row of taken
+      - пробует
+      - если сорвалось
+        - void logSystemError("meta", "Запись сводки «Ответьте вручную» не расшифровалась и пропущена.", { dedupKey: "c…
+          · запись в журнал ошибок
+    - если !people.length
+      - return { people: 0, sent: false };
+        · дословно из кода
+    - для каждого: const p of people
+      - если !p.accountExternalId || titles.has(`${p.channel}:${p.accountExternalId}`)
+        - continue;
+          · переходит к следующему
+      - const row = await prisma.messengerAccount.findFirst({ where: { channel: p.channel, externalId: p.accountExter…
+        · читает в базе: messengerAccount
+      - если row?.title
+        - titles.set(`${p.channel}:${p.accountExternalId}`, row.title);
+          · дословно из кода
+    - пробует
+      - await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL", title: people.length === 1 ? `Ответь…
+        · push-уведомление
+    - если сорвалось
+      - await prisma.processedMessage.createMany({ data: taken.map(r
+        · создаёт в базе: processedMessage
+      - void logSystemError("meta", `Сводка «Ответьте вручную» по сообщениям вне чата CRM не отправлена, повторим: ${…
+        · запись в журнал ошибок
+  - если people > 0
+    - console.log(`[cron] Вне чата CRM: сводка «Ответьте вручную» по ${people} чел.`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сводки «сообщения вне чата CRM»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### daily-kpi — 5 0 * * *
 
@@ -25216,6 +25233,41 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### telegram-delivery-watch — 4-59/10 * * * *
+
+- пробует
+  - const { alarmed } = await runTelegramDeliveryWatch();
+    · зовёт runTelegramDeliveryWatch()
+    - const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { telegramDeliveryWatchEnabl…
+      · читает в базе: settings
+    - если !(s?.telegramDeliveryWatchEnabled ?? true)
+      - return { skipped: "off", alarmed: false };
+        · дословно из кода
+    - если !isTelegramEnabled()
+      - return { skipped: "not_configured", alarmed: false };
+        · дословно из кода
+    - пробует
+    - если сорвалось
+      - return { skipped: "read_failed", alarmed: false };
+        · дословно из кода
+    - const problem = telegramDeliveryProblem(info, now, previousPending);
+      · зовёт telegramDeliveryProblem()
+    - если !problem
+      - return { skipped: null, alarmed: false };
+        · дословно из кода
+    - void logSystemError("telegram", `Telegram → CRM: ${problem.text}. Клиенты могут писать боту, а CRM их не види…
+      · запись в журнал ошибок
+  - если alarmed
+    - console.log("[cron] Telegram не доставляет сообщения в CRM — тревога руководству");
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «Telegram не доставляет»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### telegram-group-comments — * * * * *
 
 - если isTelegramCommentsRunning
@@ -26055,6 +26107,54 @@
     · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка недельной сводки СБ", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### whatsapp-webhook-watch — 8-59/20 * * * *
+
+- пробует
+  - const { alarmed, silenceMs } = await runWhatsappWebhookWatch();
+    · зовёт runWhatsappWebhookWatch()
+    - const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { whatsappWebhookWatchEnable…
+      · читает в базе: settings
+    - если !(s?.whatsappWebhookWatchEnabled ?? true)
+      - return { ...result, skipped: "off" };
+        · дословно из кода
+    - если !(await isMetaChannelEnabled("WHATSAPP"))
+      - return { ...result, skipped: "channel_off" };
+        · дословно из кода
+    - const creds = await loadCredentials();
+      · зовёт loadCredentials()
+    - const token = creds.waPhoneId ? (await resolveIncomingAccount("WHATSAPP", creds.waPhoneId)).token || creds.wa…
+      · зовёт resolveIncomingAccount()
+    - если !creds.waPhoneId || !token
+      - return { ...result, skipped: "not_configured" };
+        · дословно из кода
+    - если !isWithinDushanbeWindow(window.start, window.end, now)
+      - return { ...result, skipped: "off_hours" };
+        · дословно из кода
+    - если times.length < WA_MIN_HISTORY_MESSAGES
+      - return { ...result, skipped: "little_history" };
+        · дословно из кода
+    - result.thresholdMs = silenceThresholdMs(longestWorkGapMs(times, window));
+      · зовёт silenceThresholdMs()
+    - result.silenceMs = workSilenceMs(last, now, window);
+      · зовёт workSilenceMs()
+    - если result.silenceMs < result.thresholdMs
+      - return result;
+        · дословно из кода
+    - const cause = await diagnoseWhatsappNumber({ phoneId: creds.waPhoneId, token, businessAccountId: s?.metaWaBus…
+      · зовёт diagnoseWhatsappNumber()
+    - void logSystemError("meta", `WhatsApp молчит: в рабочие часы нет ни одного входящего уже ${hours(result.silen…
+      · запись в журнал ошибок
+  - если alarmed
+    - console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководств…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «вебхук WhatsApp замолчал»", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -27395,6 +27495,16 @@
       - const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: str…
         · обращается к базе своим SQL
       - если !row || row.answered
+        - return;
+          · дальше не идёт, ничего не меняя
+      - если row.chatDeleted
+        - void logSystemError("meta", `Бот не ответил клиенту (причина «${reason}»): чат этого человека удалён сотрудни…
+          · запись в журнал ошибок
+        - return;
+          · дальше не идёт, ничего не меняя
+      - если !row.conversationId
+        - await notifyUnansweredCustomerTurn({ reason, channel: input?.channel ?? "", peer: input?.peer ?? "", conversa…
+          · зовёт notifyUnansweredCustomerTurn()
         - return;
           · дальше не идёт, ничего не меняя
       - await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? "", peer: row.peer ?? "", conversationId…

@@ -875,6 +875,11 @@ const settingsUpdateSchema = z.object({
   botInstagramEnabled: z.boolean().optional(),
   botFacebookEnabled: z.boolean().optional(),
   botTelegramEnabled: z.boolean().optional(),
+  /** Сторожа «никого не пропустить» (15.11.2026): Telegram без ответа 30 мин — пуш ответственному;
+   *  вебхук WhatsApp замолчал в рабочие часы — тревога руководству. */
+  telegramSilenceWatchEnabled: z.boolean().optional(),
+  telegramDeliveryWatchEnabled: z.boolean().optional(),
+  whatsappWebhookWatchEnabled: z.boolean().optional(),
   botWebsiteChatEnabled: z.boolean().optional(),
   /** Рубильник прямой интеграции с Meta (WhatsApp, Instagram, Messenger). */
   metaEnabled: z.boolean().optional(),
@@ -1938,6 +1943,10 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...(rest.botInstagramEnabled !== undefined ? { botInstagramEnabled: rest.botInstagramEnabled } : {}),
     ...(rest.botFacebookEnabled !== undefined ? { botFacebookEnabled: rest.botFacebookEnabled } : {}),
     ...(rest.botTelegramEnabled !== undefined ? { botTelegramEnabled: rest.botTelegramEnabled } : {}),
+    // Выключенный сторож — это «клиента без ответа никто не заметит»: кто и когда, должно быть видно.
+    ...(rest.telegramSilenceWatchEnabled !== undefined ? { telegramSilenceWatchEnabled: rest.telegramSilenceWatchEnabled } : {}),
+    ...(rest.telegramDeliveryWatchEnabled !== undefined ? { telegramDeliveryWatchEnabled: rest.telegramDeliveryWatchEnabled } : {}),
+    ...(rest.whatsappWebhookWatchEnabled !== undefined ? { whatsappWebhookWatchEnabled: rest.whatsappWebhookWatchEnabled } : {}),
     ...(rest.botWebsiteChatEnabled !== undefined ? { botWebsiteChatEnabled: rest.botWebsiteChatEnabled } : {}),
     // Момент включения и выключения сравнения — граница, за которой поведение бота
     // с клиентами меняется. Без отметки в журнале потом не понять, почему часть
