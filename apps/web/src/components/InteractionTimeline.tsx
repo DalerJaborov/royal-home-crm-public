@@ -302,6 +302,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
 
   const statuses: { color: string; label: string }[] = [];
   if (i.taskCancelledAt) statuses.push({ color: "mute", label: "Отменено" });
+  if (i.archiveReview) statuses.push({ color: "mute", label: "Разбор удалённого клиента" });
   if (i.outcome) {
     statuses.push({
       color: OUTCOME_DOT[i.outcome] ?? "bg-gray-400",

@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 754,
-  "forks": 4109,
+  "endpoints": 755,
+  "forks": 4113,
   "mounts": 84,
   "cron": 142,
   "jobs": 33,
@@ -12538,31 +12538,38 @@
      ]
     },
     {
-     "k": "do",
-     "t": "const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));",
-     "a": [
-      "зовёт foreignWriteDenied()"
-     ],
-     "c": []
-    },
-    {
      "k": "if",
-     "t": "denied",
+     "t": "!archiveReview",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: denied });",
+       "t": "const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));",
        "a": [
-        "ответ 403"
+        "зовёт foreignWriteDenied()"
        ],
        "c": []
+      },
+      {
+       "k": "if",
+       "t": "denied",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: denied });",
+         "a": [
+          "ответ 403"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
     {
      "k": "if",
-     "t": "client.deletedAt",
+     "t": "client.deletedAt && !archiveReview",
      "a": [],
      "c": [
       {
@@ -12639,7 +12646,7 @@
     },
     {
      "k": "if",
-     "t": "ownAgentIdForAccept && !client.acceptedAt && client.kind !== \"OTHER\" && client.assignedAgentId === ownAgentId…",
+     "t": "!archiveReview && ownAgentIdForAccept && !client.acceptedAt && client.kind !== \"OTHER\" && client.assignedAgen…",
      "a": [],
      "c": [
       {
@@ -12737,11 +12744,26 @@
     },
     {
      "k": "do",
-     "t": "const result = await originateCallToClient(req.agent!.id, client, { phoneOverride });",
+     "t": "const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });",
      "a": [
       "команда телефонии"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "archiveReview && (result.ok || result.status === 502)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "logAudit(req, \"ARCHIVE_REVIEW_CALL\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullNam…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -12750,7 +12772,7 @@
      "c": [
       {
        "k": "if",
-       "t": "result.status === 502",
+       "t": "result.status === 502 && !archiveReview",
        "a": [],
        "c": [
         {
@@ -17995,7 +18017,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: await presentTimeline(req, client.assignedAgentId, page), total, hasMore });",
+     "t": "res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });",
      "a": [
       "ответ 200"
      ],
@@ -18754,6 +18776,14 @@
      "a": [
       "считает в базе: interaction",
       "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const withMessages = { ...client, hadConductedShowing: conductedShowing, callsCount, hadRealCall: realCalls >…",
+     "a": [
+      "зовёт presentClientTimeline()"
      ],
      "c": []
     },
@@ -19798,6 +19828,14 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p)",
+       "a": [
+        "зовёт canCallArchivedClient()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "!canAccessAssignedAgent(req, full.assignedAgentId)",
        "a": [],
@@ -19877,11 +19915,26 @@
     },
     {
      "k": "do",
-     "t": "const result = await originateCallToClient(req.agent!.id, client);",
+     "t": "const result = await originateCallToClient(req.agent!.id, client, { archiveReview });",
      "a": [
       "команда телефонии"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "archiveReview && (result.ok || result.status === 502)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "logAudit(req, \"ARCHIVE_REVIEW_CALL\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullNam…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -20887,6 +20940,76 @@
     {
      "k": "do",
      "t": "res.json(summary);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/trash/:id/review",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/trash/:id/review",
+   "file": "apps/api/src/routes/clients/trashReview.ts",
+   "router": "trashReviewRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: archive.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Клиент не найден в Корзине\" });",
+       "a": [
+        "ответ 404 — «Клиент не найден в Корзине»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const interactionWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id };",
+     "a": [
+      "зовёт visibleInteractionWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [request, audit, rows, total, manualTrash] = await Promise.all([ prisma.clientDeleteRequest.findFirst({…",
+     "a": [
+      "читает в базе: clientDeleteRequest",
+      "читает в базе: auditLog",
+      "читает в базе: interaction",
+      "считает в базе: interaction",
+      "считает в базе: auditLog"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ client: { id: client.id, shortId: client.shortId, fullName: clientNamePhoneSafe(client.fullName, p…",
      "a": [
       "ответ 200"
      ],
@@ -88448,7 +88571,7 @@
         },
         {
          "k": "do",
-         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", clientId: { in: withClient.map((r)",
+         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", archiveReview: false, clientId: { in…",
          "a": [
           "читает в базе: interaction"
          ],

@@ -159,13 +159,18 @@ describe("POST /clients/:id/call", () => {
     expect(res.status).toBe(403);
   });
 
-  // Клиент в Корзине — раньше маршрут не проверял deletedAt вовсе и звонил бы
-  // дальше (директору доступ к карточке даёт clients.assign, foreignWriteDenied
-  // его бы пропустил).
-  it("клиент в Корзине — 409 даже директору", async () => {
+  // Клиент в Корзине: обычному звонку по-прежнему «сначала восстановите», но руководство с правом
+  // «Звонить клиентам из Корзины» звонит для РАЗБОРА (16.11.2026, tests/archive-review-call.test.ts).
+  // У директора в этом тесте нет SIP-номера — значит, он прошёл проверку Корзины и упёрся уже в неё.
+  it("клиент в Корзине: директору можно (разбор) — дальше упирается в SIP, а не в Корзину", async () => {
     const res = await call(directorToken, trashedClientId);
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatch(/Корзин/);
+    expect(res.body.error).not.toMatch(/Корзин/);
+  });
+
+  it("клиент в Корзине: СБ (видеть всех, без права звонка) — отказ, не звонок", async () => {
+    const res = await call(securityToken, trashedClientId);
+    expect(res.status).toBe(403);
   });
 
   it("без ARI-ключей в Настройках — понятная ошибка «телефония не настроена»", async () => {
