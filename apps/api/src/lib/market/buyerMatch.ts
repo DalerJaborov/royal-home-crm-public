@@ -16,12 +16,12 @@
  * Один объект (на двух площадках или выложенный дважды) — одно объявление (dedupeListings). Порядок — близость к запросу.
  */
 
-import { propertyFieldShown, type MarketBuyerListing } from "@royal-home/shared";
+import { isMarketRealtorListing, propertyFieldShown, type MarketBuyerListing, type MarketOwnersOnlyInfo } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { areaMeetsMinimum, roomsWithinTolerance, type MatchingBuyerCriteria } from "../clientPropertyMatching.js";
 import { budgetWindowTjs, loadMatchPolicy, type MatchPolicy } from "../matchPolicy.js";
-import { loadMoneyContext, toTjs } from "../money.js";
+import { loadMoneyContext, toTjs, type MoneyContext } from "../money.js";
 import { isPlausibleSale, plausibleSaleWhere } from "./plausible.js";
 import { dedupeListings, WINDOW_DAYS } from "./similarComps.js";
 import { marketCatalogWhere } from "./somonRubrics.js";
@@ -87,6 +87,8 @@ export interface BuyerRow {
   publishedAt: Date | null;
   /** Продавец на площадке (для склейки повторов одной площадки); наружу не отдаётся. */
   sellerId?: string | null;
+  /** Площадка пометила продавца агентством (для фильтра «только собственники»); наружу не отдаётся. */
+  isAgency?: boolean | null;
 }
 
 /** Чем меньше, тем ближе к запросу: цена к «центру» бюджета, площадь к желаемой. */
@@ -185,42 +187,47 @@ export function buyerListingsWhere(w: BuyerWants, now = Date.now()): Prisma.Mark
   };
 }
 
+/**
+ * `realtors` — ключи продавцов-риелторов (ownerFilter.ts); null — фильтр «только собственники» выключен.
+ * Объявления риелторов отсекаются ДО порядка и склейки дублей, а в ответе честно сказано, сколько было до фильтра.
+ */
 export async function findBuyerListings(
   w: BuyerWants,
-  limit: number
-): Promise<{ total: number; totalIsLowerBound: boolean; listings: MarketBuyerListing[] }> {
+  limit: number,
+  realtors: ReadonlySet<string> | null = null
+): Promise<{ total: number; totalIsLowerBound: boolean; listings: MarketBuyerListing[]; ownersOnly: MarketOwnersOnlyInfo }> {
   const rows = await prisma.marketListing.findMany({
     where: buyerListingsWhere(w),
     select: {
       source: true, sourceUrl: true, title: true, propertyType: true, priceTjs: true, pricePerSqmTjs: true, areaSqm: true,
-      rooms: true, floor: true, totalFloors: true, districtName: true, firstSeenAt: true, publishedAt: true, sellerId: true,
+      rooms: true, floor: true, totalFloors: true, districtName: true, firstSeenAt: true, publishedAt: true, sellerId: true, isAgency: true,
     },
     // Свежие первыми: если запрос так широк, что упёрся в предел, теряются самые старые, а не самые дорогие.
     orderBy: { lastSeenAt: "desc" },
     take: BUYER_FETCH_LIMIT,
   });
-  const ranked = rankBuyerListings(
-    rows.map((r) => ({
-      ...r,
-      priceTjs: Number(r.priceTjs),
-      pricePerSqmTjs: r.pricePerSqmTjs != null ? Number(r.pricePerSqmTjs) : null,
-      areaSqm: r.areaSqm != null ? Number(r.areaSqm) : null,
-    })),
-    w,
-    limit
-  );
-  return { ...ranked, totalIsLowerBound: rows.length >= BUYER_FETCH_LIMIT };
+  const mapped = rows.map((r) => ({
+    ...r,
+    priceTjs: Number(r.priceTjs),
+    pricePerSqmTjs: r.pricePerSqmTjs != null ? Number(r.pricePerSqmTjs) : null,
+    areaSqm: r.areaSqm != null ? Number(r.areaSqm) : null,
+  }));
+  const all = rankBuyerListings(mapped, w, limit);
+  const kept = realtors ? rankBuyerListings(mapped.filter((r) => !isMarketRealtorListing(r, realtors)), w, limit) : all;
+  return {
+    ...kept,
+    totalIsLowerBound: rows.length >= BUYER_FETCH_LIMIT,
+    ownersOnly: { enabled: realtors != null, kept: kept.total, total: all.total },
+  };
 }
 
-/** Желания покупателя → условия выборки: район по справочнику, бюджет в сомони общей функцией, допуски из политики. */
-export async function buyerWantsFromCriteria(criteria: MatchingBuyerCriteria): Promise<BuyerWants> {
-  const [district, money, policy] = await Promise.all([
-    criteria.desiredDistrictId
-      ? prisma.district.findUnique({ where: { id: criteria.desiredDistrictId }, select: { name: true, city: true } })
-      : Promise.resolve(null),
-    loadMoneyContext(),
-    loadMatchPolicy(),
-  ]);
+/** Чистая часть: желания покупателя → условия выборки (район и общие деньги/политика уже загружены). */
+export function buildBuyerWants(
+  criteria: MatchingBuyerCriteria,
+  district: { name: string; city: string } | null,
+  money: MoneyContext,
+  policy: MatchPolicy
+): BuyerWants {
   const toBudget = (value: unknown): number | null => {
     if (value == null) return null;
     const n = Number(value);
@@ -237,4 +244,28 @@ export async function buyerWantsFromCriteria(criteria: MatchingBuyerCriteria): P
     budgetMaxTjs: toBudget(criteria.budgetMax),
     policy,
   };
+}
+
+/** Желания покупателя → условия выборки: район по справочнику, бюджет в сомони общей функцией, допуски из политики. */
+export async function buyerWantsFromCriteria(criteria: MatchingBuyerCriteria): Promise<BuyerWants> {
+  const [district, money, policy] = await Promise.all([
+    criteria.desiredDistrictId
+      ? prisma.district.findUnique({ where: { id: criteria.desiredDistrictId }, select: { name: true, city: true } })
+      : Promise.resolve(null),
+    loadMoneyContext(),
+    loadMatchPolicy(),
+  ]);
+  return buildBuyerWants(criteria, district, money, policy);
+}
+
+/**
+ * Район совпадает, тип совпадает, и точная проверка допусков (matchesBuyer): то же, что делает запрос
+ * buyerListingsWhere в базе, но для строки в памяти. Нужна там, где объявления выбираются одним запросом
+ * для многих покупателей сразу (оповещение агентов, lib/market/buyerAlerts.ts): допуски остаются теми же.
+ */
+export function listingFitsBuyer(row: BuyerRow & { city?: string | null }, w: BuyerWants): boolean {
+  if (row.city != null && row.city !== w.city) return false;
+  if (w.districtName != null && row.districtName !== w.districtName) return false;
+  if (w.propertyType != null && row.propertyType != null && row.propertyType !== w.propertyType) return false;
+  return matchesBuyer(row, w);
 }

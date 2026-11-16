@@ -84,6 +84,10 @@ export interface Settings {
   matchIncludeDeferred: boolean;
   /** Хозяину объекта приходит пуш, когда его объект предложили чужому клиенту. */
   matchNotifyPropertyOwner: boolean;
+  /** Пуш агенту, когда на Somon/Paydo появилось объявление под его покупателя (по умолчанию выключено). */
+  marketBuyerAlertsEnabled: boolean;
+  /** Подбор с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
+  marketOwnersOnly: boolean;
   /** Срок жизни пожелания покупателя от последнего касания, дней; 0 — без срока. */
   matchRequirementTtlDays: number;
   /** Допуск по бюджету клиента, % сверх названной суммы. */
@@ -199,6 +203,10 @@ export interface Settings {
   botCanConfirmShowings: boolean;
   botCanFollowUp: boolean;
   botCanAnswerComments: boolean;
+  /** Комментарий, на который бот не ответил из-за сбоя, — сводкой тем, кто читает переписки (15.11.2026). */
+  commentFailureWatchEnabled: boolean;
+  /** Передача РОП: уведомлять директора с кнопками «Подтвердить» / «Отклонить» (16.11.2026). */
+  ropTransferAlertEnabled: boolean;
   /** «Соедините с оператором»: очередь звонков и push агентам. */
   botCanRequestCallback: boolean;
   /** Дежурный оператор обратных звонков; null — авто-соединения нет. */
@@ -236,7 +244,16 @@ export interface Settings {
   botWhatsappEnabled: boolean;
   botInstagramEnabled: boolean;
   botFacebookEnabled: boolean;
+  /** Сверка с Meta: сообщение в Messenger / Instagram не дошло до CRM — «Ответьте вручную» (15.11.2026). */
+  messengerInboxReconcileEnabled: boolean;
+  instagramInboxReconcileEnabled: boolean;
   botTelegramEnabled: boolean;
+  /** Telegram: реплика клиента без ответа 30 минут — пуш ответственному (15.11.2026). */
+  telegramSilenceWatchEnabled: boolean;
+  /** Telegram: доставка сообщений в CRM сломалась (getWebhookInfo) — тревога руководству (15.11.2026). */
+  telegramDeliveryWatchEnabled: boolean;
+  /** WhatsApp: входящих нет дольше обычного в рабочие часы — тревога руководству (15.11.2026). */
+  whatsappWebhookWatchEnabled: boolean;
   botWebsiteChatEnabled: boolean;
   /** Задан ли маркер бота Telegram в окружении сервера. Без него канала нет. */
   telegramConfigured: boolean;
@@ -401,6 +418,10 @@ export interface Settings {
   rawReviewRequired: boolean;
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: boolean;
+  /** Готовый ролик подтверждает хозяин объекта; без ответа — автопубликация (11.11.2026). */
+  clipOwnerApproveEnabled: boolean;
+  /** Через сколько часов без ответа хозяина ролик публикуется сам (1–48). */
+  clipOwnerAutoPublishHours: number;
   /** Единственный монтажёр, получающий сырые ролики в очереди «строго один-в-работе». */
   videoMontajerAgentId: string | null;
   /** Этап 4 (телефония): подключение к Asterisk ARI. URL/логин — как есть, пароль — маска. */
@@ -474,6 +495,8 @@ export interface Settings {
    *  если клиент сам прислал голосовое в этом же ходе. По умолчанию false (владелец:
    *  «создай, но выключи, сам протестирую»). Тумблер в BOT_ABILITIES (BotTab.tsx). */
   botCanSendVoiceReplies: boolean;
+  /** Склеивать два быстрых сообщения клиента с карточкой в один ответ (окно 6 с). По умолчанию true (владелец 15.11.2026). */
+  botMergeQuickRepeats: boolean;
   /** Режим «только заявки» (13.11.2026): бот берёт заявку и передаёт агенту. По умолчанию false. */
   botLeadOnlyMode: boolean;
   /** В режиме «только заявки»: WhatsApp-номер клиента — номер для звонка (по умолчанию true). */
@@ -545,6 +568,8 @@ export interface Settings {
    *  выключателем. Выключенный отчёт не собирается вовсе. */
   problemReportWeeklyEnabled: boolean;
   problemReportMonthlyEnabled: boolean;
+  /** Финансовый PDF за прошлый месяц директорам в Telegram (выключен по умолчанию). */
+  financePdfMonthlyEnabled?: boolean;
   /** Рабочие часы распределения лидов, "HH:MM" по Душанбе. Бот отвечает 24/7 —
    * это влияет только на то, когда новый лид уходит агенту. */
   workHoursStart: string;
@@ -1052,6 +1077,8 @@ export interface OpenAiCoverSettings {
   keyConfigured: boolean;
   keyMasked: string | null;
   keySource: "settings" | "env" | null;
+  /** Рубильник OpenAI целиком (14.11.2026): false — ни одного вызова OpenAI, обложки только шаблоном. */
+  openaiEnabled: boolean;
   enabled: boolean;
   /** Кто рисует: TEMPLATE — наш шаблон, OPENAI — ChatGPT (28.09.2026). */
   provider: CoverProvider;
@@ -1099,7 +1126,7 @@ export function useUpdateOpenAiCovers() {
   const qc = useQueryClient();
   return useMutation({
     // Качество, кандидаты, режим текста, фото и модель — константы на сервере с 01.11.2026.
-    mutationFn: (input: Partial<{ apiKey: string; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
+    mutationFn: (input: Partial<{ apiKey: string; openaiEnabled: boolean; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
       api<{ ok: true }>("/settings/cover-templates/openai", { method: "PUT", body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: OPENAI_COVERS_KEY }),
   });

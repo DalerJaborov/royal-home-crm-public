@@ -7,6 +7,7 @@ import { liveVoiceSpendCapHeld } from "../lib/liveVoiceSpendHold.js";
 import { LiveVoiceClient } from "./liveVoiceClient.js";
 import { ElevenLabsVoiceClient, fetchElevenLabsSignedUrl } from "./elevenLabsVoiceClient.js";
 import { elevenLabsRequest } from "./elevenLabsAgentSync.js";
+import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "../lib/channelKeyAlarm.js";
 import type { VoiceGender } from "@royal-home/shared";
 import type { LiveVoiceProviderClient } from "./liveVoiceProviderTypes.js";
 
@@ -61,6 +62,9 @@ const PROVIDER_SELECT = {
   elevenLabsVoiceGender: true,
 } as const;
 
+/** ElevenLabs «Anna - Premium Lifestyle Ads», женский русский голос: по умолчанию для телефонии. */
+export const DEFAULT_PHONE_VOICE_ID = "0XJ7mts7SfzZk5uEHl4e";
+
 function elevenLabsConfigFromRow(row: {
   elevenLabsApiKey: string | null;
   elevenLabsAgentId: string | null;
@@ -72,7 +76,8 @@ function elevenLabsConfigFromRow(row: {
     provider: "elevenlabs",
     apiKey: resolveElevenLabsKey(row.elevenLabsApiKey),
     agentId: row.elevenLabsAgentId?.trim() || null,
-    voiceIdRu: row.elevenLabsVoiceIdRu?.trim() || null,
+    // Голос по умолчанию — Anna (владелец 14.11.2026); значение из Настроек перекрывает.
+    voiceIdRu: row.elevenLabsVoiceIdRu?.trim() || DEFAULT_PHONE_VOICE_ID,
     voiceIdTg: row.elevenLabsVoiceIdTg?.trim() || null,
     // Не задан — женский, как для неузнанного голоса Gemini (voiceGender).
     voiceGender: row.elevenLabsVoiceGender === "male" ? "male" : "female",
@@ -205,6 +210,12 @@ export function noteElevenLabsQuotaExhausted(reason: string, apiKey?: string | n
       `Ответ ElevenLabs: ${reason.slice(0, 200)}`,
     { dedupKey: "elevenlabs-quota-exhausted" }
   );
+  // Срочная тревога директору (14.11.2026): пуш «новая проблема» отключён, а входящие уходят на автоответчик.
+  void raiseCriticalAlarm({
+    tag: ELEVENLABS_QUOTA_ALARM_TAG,
+    title: "Кончились минуты ElevenLabs",
+    body: "Робозвонки остановлены, входящие идут на автоответчик станции. Пополните баланс в кабинете ElevenLabs.",
+  });
 }
 
 /** Снять отметку «нет минут»: удачный разговор ElevenLabs, остаток снова есть, правка Настроек. */

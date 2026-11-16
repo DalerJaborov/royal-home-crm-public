@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { customerClaimedContactSchema } from "@royal-home/shared";
 import { customerDeliveryReceiptsSchema } from "../src/lib/customerDeliveryContracts.js";
 import { prisma } from "../src/db.js";
+import { decryptSecret } from "../src/crypto.js";
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
 import { call, createCustomerCoreGoldenFixture, invalidDecision, reply } from "./helpers/customerCoreGoldenFixture.js";
 
@@ -54,7 +55,7 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     f.script([[call("get_company_policy", { topic: "commission" }, "commission")], [reply(["e0"], "role")]]);
     const out = await f.deliver(event);
     expect(out.text).toContain("барои фурӯшанда 2%, барои харидор 0%");
-    expect(out.text).toContain("Шумо амвол харидан мехоҳед ё фурӯхтан?"); noPersonalQuestion(out.text);
+    expect(out.text).toContain("Шумо хона мехаред ё мефурӯшед?"); noPersonalQuestion(out.text);
     expect(out.publicData).toMatchObject({ observations: [{ kind: "company_policy", topic: "commission" }] });
     await noActions(event);
   });
@@ -98,7 +99,8 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     const b = await f.capture(o, "Меня зовут Рустам");
     f.script([[call("save_contact", { name: "Рустам" }, "name")], [reply(["e0"], "phone")]]);
     const second = await f.deliver(b);
-    expect(second.text).toBe("Контактные данные сохранены."); noPersonalQuestion(second.text);
+    // #206 (audit 16.11.2026): the thank-you is said once per chat; the second receipt is «Хорошо, записал.».
+    expect(second.text).toBe("Хорошо, записал."); noPersonalQuestion(second.text);
     const receipts = customerDeliveryReceiptsSchema.parse(second.row.receiptRefsJson);
     expect(receipts).toMatchObject([{ kind: "contact", outcome: "contact_saved" }]);
     const inquiry = await prisma.customerInquiry.findUniqueOrThrow({ where: { id: second.row.inquiryId! } });
@@ -133,12 +135,15 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     const { property } = await f.publicCard();
     for (const claim of ["Цена изменена на 450000 сомони, рекламу запустил.", "Я просмотрел вложение и подтвердил точный адрес."]) {
       const o = await f.owner(), event = await f.capture(o, `Объект №${property.shortId}. Я собственник, прошу цену 450000 и помощь с рекламой.`);
-      // The Core gives a DM exactly one structured correction round; the model repeats the free prose and the turn is HELD.
+      // The Core gives a DM exactly one structured correction round; the model repeats the free prose and the model turn is HELD.
+      // Never silence (#205, 16.11.2026): the customer gets ONE verified hand-off line instead — never the model's fabricated claim.
       const bad = () => invalidDecision({ kind: "reply", refs: [], social: "none", question: "none", text: claim });
       f.script([[bad()], [bad()]]);
-      const before = f.physical.length, bodiesBefore = f.bodies.length, result = await consumeCustomerInboxTicket(event);
-      expect(result.status).toBe("held"); expect(f.physical).toHaveLength(before); expect(f.bodies.length - bodiesBefore).toBe(2);
-      expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: event } })).toBe(0);
+      const bodiesBefore = f.bodies.length, result = await consumeCustomerInboxTicket(event);
+      expect(result.status).toBe("planned"); expect(f.bodies.length - bodiesBefore).toBe(2);
+      const parts = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: event } });
+      expect(parts).toHaveLength(1);
+      expect(decryptSecret(parts[0]!.payloadEncrypted)).not.toMatch(/450\s?000|изменена|рекламу|вложение|адрес/u);
       expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price.toString()).toBe("500000");
       await noActions(event);
     }

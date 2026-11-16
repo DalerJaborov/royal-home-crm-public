@@ -2,8 +2,7 @@ import { z } from "zod";
 import { managedGeminiMediaFeatures, GEMINI_MANAGED_MEDIA_MAX_WIRE_BYTES } from "./geminiManagedMedia.js";
 import type { ProviderOperation } from "./providerContract.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
-import { detectClientLanguage } from "./clientLanguage.js";
-import { customerDmLanguagePreference } from "./customerDmLanguage.js";
+import { detectCustomerCoreLanguage as detectClientLanguage, customerDmLanguagePreference } from "./customerDmLanguage.js";
 
 const subjects = ["home_interior", "building_exterior", "floor_plan", "listing_card", "document", "person", "other", "not_visible"] as const;
 const features = ["kitchen", "bathroom", "bedroom", "living_room", "balcony", "stairs", "windows", "furniture", "renovation", "unfinished", "yard", "parking", "land", "floor_plan"] as const;

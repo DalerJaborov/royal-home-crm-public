@@ -33,7 +33,7 @@ describe("actual recruitment failure mechanisms with synthetic facts", () => {
   it("retains the visual description for actual property media", () => {
     const text = render({ inputText: "Что на фото?", evidence: [], decision: { kind: "reply", refs: [], social: "none", question: "none" },
       mediaPerception: { ...perception, speech: "none", transcript: "", readableText: "", language: "unknown", subject: "home_interior" } })!;
-    expect(text).toContain("мебель");
+    expect(text).toContain("Спасибо, фото получил."); // 16.11.2026: no inventory list
   });
   it("matches configured CONTENT and repeated identical rows without inventing an ambiguous role", () => {
     expect(selectedRecruitmentPosition([...positions, ...positions], "Контент")?.key).toBe("smm-videographer");

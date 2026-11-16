@@ -733,6 +733,10 @@ const settingsUpdateSchema = z.object({
   matchIncludeInactive: z.boolean().optional(),
   matchIncludeDeferred: z.boolean().optional(),
   matchNotifyPropertyOwner: z.boolean().optional(),
+  /** Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026, lib/market/buyerAlerts.ts). */
+  marketBuyerAlertsEnabled: z.boolean().optional(),
+  /** Подбор покупателю с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
+  marketOwnersOnly: z.boolean().optional(),
   /** 0 = без срока. */
   matchRequirementTtlDays: z.number().int().min(0).max(365).optional(),
   matchBudgetTolerancePct: z.number().int().min(0).max(50).optional(),
@@ -825,6 +829,10 @@ const settingsUpdateSchema = z.object({
   botCanConfirmShowings: z.boolean().optional(),
   botCanFollowUp: z.boolean().optional(),
   botCanAnswerComments: z.boolean().optional(),
+  /** Комментарий со сбоем бота (ИИ недоступен, отказ ядра, застрял) — сводкой человеку (15.11.2026). */
+  commentFailureWatchEnabled: z.boolean().optional(),
+  /** Передача РОП: уведомлять директора с кнопками «Подтвердить» / «Отклонить» (16.11.2026). */
+  ropTransferAlertEnabled: z.boolean().optional(),
   /** «Соедините с оператором»: бот записывает запрос звонка и зовёт агентов. */
   botCanRequestCallback: z.boolean().optional(),
   /** Дежурный оператор обратных звонков (сейчас Нурмухаммад, потом сменится —
@@ -841,6 +849,8 @@ const settingsUpdateSchema = z.object({
   botCanSendLinks: z.boolean().optional(),
   /** Режим запуска: бот отвечает ровно на спрошенное и ничего не предлагает сверх. */
   botCautiousMode: z.boolean().optional(),
+  /** Склеивать быстрые дубли клиента с карточкой: окно 6 с вместо 0 (15.11.2026, по умолчанию вкл). */
+  botMergeQuickRepeats: z.boolean().optional(),
   /** Экономия промта по намерению: подробности сценария — только тому разговору,
    *  которому они нужны. Выключено — промт собирается как раньше, побайтово. */
   botPromptIntentEconomy: z.boolean().optional(),
@@ -869,9 +879,17 @@ const settingsUpdateSchema = z.object({
   botInstagramEnabled: z.boolean().optional(),
   botFacebookEnabled: z.boolean().optional(),
   botTelegramEnabled: z.boolean().optional(),
+  /** Сторожа «никого не пропустить» (15.11.2026): Telegram без ответа 30 мин — пуш ответственному;
+   *  вебхук WhatsApp замолчал в рабочие часы — тревога руководству. */
+  telegramSilenceWatchEnabled: z.boolean().optional(),
+  telegramDeliveryWatchEnabled: z.boolean().optional(),
+  whatsappWebhookWatchEnabled: z.boolean().optional(),
   botWebsiteChatEnabled: z.boolean().optional(),
   /** Рубильник прямой интеграции с Meta (WhatsApp, Instagram, Messenger). */
   metaEnabled: z.boolean().optional(),
+  /** Сверка переписок с Meta: не дошедшее до CRM — «Ответьте вручную» (15.11.2026), по площадке. */
+  messengerInboxReconcileEnabled: z.boolean().optional(),
+  instagramInboxReconcileEnabled: z.boolean().optional(),
   /** Ключи Meta. Пустая строка — очистить и вернуться на переменную окружения. */
   metaAppSecret: secretField(500),
   /** Номер приложения Meta — нужен, чтобы обменять маркер рекламы на 60-дневный. */
@@ -974,6 +992,9 @@ const settingsUpdateSchema = z.object({
   rawReviewRequired: z.boolean().optional(),
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: z.boolean().optional(),
+  /** Готовый ролик подтверждает хозяин объекта, без ответа — автопубликация (11.11.2026). */
+  clipOwnerApproveEnabled: z.boolean().optional(),
+  clipOwnerAutoPublishHours: z.number().int().min(0).max(48).optional(),
   // videoModeratorAgentId УБРАН из схемы (01.11.2026): интерфейс убран 23.09.2026,
   // ни одна строка сервера поле не читает. Колонка в базе остаётся до общего дропа.
   videoMontajerAgentId: z.string().max(64).nullable().optional(),
@@ -1182,6 +1203,8 @@ const settingsUpdateSchema = z.object({
    *  сводок; отдельного списка не заводим, пока владелец не попросит. */
   problemReportWeeklyEnabled: z.boolean().optional(),
   problemReportMonthlyEnabled: z.boolean().optional(),
+  /** Финансовый PDF за прошлый месяц директорам в Telegram, 1-го числа (14.11.2026, lib/reportPdf/monthlyFinance.ts). */
+  financePdfMonthlyEnabled: z.boolean().optional(),
   /** Пауза перед ответом бота, секунды: сколько тишины ждать, пока клиент дописывает.
    *  0 — отвечать сразу; верхний предел — минута, дальше клиент решит, что его не читают. */
   botReplyDelaySec: z.number().int().min(0).max(60).optional(),
@@ -1920,6 +1943,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     fields: Object.keys(parsed.data),
     ...(rest.leadDistributionStrategy !== undefined ? { leadDistributionStrategy: rest.leadDistributionStrategy } : {}),
     ...(rest.botEnabled !== undefined ? { botEnabled: rest.botEnabled } : {}),
+    // Рубильник меняет скорость ответа клиентам с карточкой: кто и когда включил — должно быть видно.
+    ...(rest.botMergeQuickRepeats !== undefined ? { botMergeQuickRepeats: rest.botMergeQuickRepeats } : {}),
     ...(rest.passkeyLoginEnabled !== undefined ? { passkeyLoginEnabled: rest.passkeyLoginEnabled } : {}),
     // Замолчавший канал выглядит как поломка («бот не отвечает в Instagram»), и
     // первым делом надо видеть, что его просто выключили — и кто именно.
@@ -1927,6 +1952,10 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...(rest.botInstagramEnabled !== undefined ? { botInstagramEnabled: rest.botInstagramEnabled } : {}),
     ...(rest.botFacebookEnabled !== undefined ? { botFacebookEnabled: rest.botFacebookEnabled } : {}),
     ...(rest.botTelegramEnabled !== undefined ? { botTelegramEnabled: rest.botTelegramEnabled } : {}),
+    // Выключенный сторож — это «клиента без ответа никто не заметит»: кто и когда, должно быть видно.
+    ...(rest.telegramSilenceWatchEnabled !== undefined ? { telegramSilenceWatchEnabled: rest.telegramSilenceWatchEnabled } : {}),
+    ...(rest.telegramDeliveryWatchEnabled !== undefined ? { telegramDeliveryWatchEnabled: rest.telegramDeliveryWatchEnabled } : {}),
+    ...(rest.whatsappWebhookWatchEnabled !== undefined ? { whatsappWebhookWatchEnabled: rest.whatsappWebhookWatchEnabled } : {}),
     ...(rest.botWebsiteChatEnabled !== undefined ? { botWebsiteChatEnabled: rest.botWebsiteChatEnabled } : {}),
     // Момент включения и выключения сравнения — граница, за которой поведение бота
     // с клиентами меняется. Без отметки в журнале потом не понять, почему часть
@@ -1937,6 +1966,13 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Отключение транспорта обрывает связь с клиентами в Instagram и WhatsApp —
     // в журнале действий должно быть видно, кто и когда это сделал.
     ...(rest.metaEnabled !== undefined ? { metaEnabled: rest.metaEnabled } : {}),
+    // Выключенная сверка — «не дошедшее до CRM никто не увидит»: кто и когда, должно быть видно.
+    ...(rest.messengerInboxReconcileEnabled !== undefined ? { messengerInboxReconcileEnabled: rest.messengerInboxReconcileEnabled } : {}),
+    ...(rest.instagramInboxReconcileEnabled !== undefined ? { instagramInboxReconcileEnabled: rest.instagramInboxReconcileEnabled } : {}),
+    // Выключенный сторож — «комментарий со сбоем бота никто не заметит»: кто и когда, должно быть видно.
+    ...(rest.commentFailureWatchEnabled !== undefined ? { commentFailureWatchEnabled: rest.commentFailureWatchEnabled } : {}),
+    // Выключенное уведомление директору о передачах РОП — кто и когда выключил, должно быть видно.
+    ...(rest.ropTransferAlertEnabled !== undefined ? { ropTransferAlertEnabled: rest.ropTransferAlertEnabled } : {}),
     // Смена весов KPI меняет и рейтинг, и распределение лидов — в журнале
     // должно быть видно, кто и когда её сделал.
     ...(rest.kpiWeights !== undefined ? { kpiWeights: rest.kpiWeights } : {}),
