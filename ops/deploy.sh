@@ -187,6 +187,30 @@ for target in $BUILD_TARGETS; do
   $COMPOSE build "$target" || die "сборка образа $target не удалась — прод не тронут"
 done
 
+# ── 2.1. Сервис «убрать старый голос из ролика» (16.11.2026) ─────────────────
+# Отдельный образ на Python (apps/voice-separator): torch и модели — гигабайт и минуты сборки,
+# поэтому собираем его ТОЛЬКО когда поменялась его папка (метка образа rh.src = хеш дерева
+# apps/voice-separator в git) или образа ещё нет. Ночная чистка кэша сборки иначе заставляла бы
+# пересобирать его на каждом выкате api. Не собрался — выкат НЕ падает: worker живёт без него,
+# новая озвучка на вышедший ролик уходит монтажёру, как раньше (lib/voiceSeparator.ts).
+SEPARATOR_READY=0
+if [ "$WHAT" != "web" ] && [ -d "$REPO_DIR/apps/voice-separator" ]; then
+  export VOICE_SEPARATOR_SRC
+  VOICE_SEPARATOR_SRC="$(git -C "$REPO_DIR" rev-parse HEAD:apps/voice-separator 2>/dev/null || echo none)"
+  SEP_HAVE="$(docker image inspect royalhome-voice-separator --format '{{ index .Config.Labels "rh.src" }}' 2>/dev/null || true)"
+  if [ "$SEP_HAVE" = "$VOICE_SEPARATOR_SRC" ]; then
+    SEPARATOR_READY=1
+  else
+    say "сборка образа voice-separator (папка поменялась или образа нет)"
+    if $COMPOSE build voice-separator; then
+      SEPARATOR_READY=1
+    else
+      say "ВНИМАНИЕ: образ voice-separator не собрался — выкат идёт дальше, старый голос из роликов убирает монтажёр"
+      [ -n "$SEP_HAVE" ] && SEPARATOR_READY=1
+    fi
+  fi
+fi
+
 # ── 2.5. Миграции ДО пересоздания контейнеров (fix/deploy-no-downtime, 22.09.2026) ──
 # Раньше миграции применялись только внутри CMD нового api-контейнера
 # (`npm run prisma:migrate:deploy && exec node dist/index.js`) — то есть уже
@@ -240,6 +264,10 @@ esac
 say "перезапуск: $UP_TARGETS"
 $COMPOSE up -d $UP_TARGETS || die "контейнеры не поднялись"
 guard_postgres_not_exposed
+# Сервис голоса — отдельно и без права уронить выкат (см. шаг 2.1).
+if [ "$SEPARATOR_READY" = "1" ]; then
+  $COMPOSE up -d --no-build voice-separator || say "ВНИМАНИЕ: voice-separator не поднялся — старый голос из роликов убирает монтажёр"
+fi
 
 # ── 4. Проверки ──────────────────────────────────────────────────────────────
 say "ждём health"

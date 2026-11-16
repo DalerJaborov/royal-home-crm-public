@@ -76,6 +76,10 @@ const narrationConfigBase = z.object({
   /** Рубильник (12.11.2026): озвучка к роликам, которые уже стоят в монтаже, на одобрение владельцу.
    *  По умолчанию ВЫКЛЮЧЕН и сам с автоозвучкой не включается (решение владельца — завтра). */
   backfillMontageQueue: z.boolean().optional(),
+  /** Рубильник (16.11.2026, решение владельца «старый голос убирает ИИ, монтажёр не нужен»): у вышедшего
+   *  ролика нет версии без голоса, а озвучка поменялась — CRM сама отделяет старый голос от музыки
+   *  (сервис voice-separator) и накладывает новый. По умолчанию ВКЛЮЧЁН; false — как раньше, монтажёру. */
+  autoSeparateVoice: z.boolean().optional(),
   /** Словарь произношения: «слово → как читать» (alias; phoneme — если модель его понимает). Правит
    *  владелец; синхронизация с ElevenLabs — только для моделей из NARRATION_PRONUNCIATION_MODELS. */
   pronunciationRules: z.array(z.object({
@@ -142,6 +146,11 @@ export function narrationTtsOptions(config: Pick<NarrationConfig, "voices" | "vo
  *  (12.11.2026: по умолчанию голос вклеивает монтажёр). */
 export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): boolean {
   return config.mixByCrm === true;
+}
+
+/** Старый голос из вышедшего ролика убирает CRM (16.11.2026): включено, пока руководство не выключило. */
+export function narrationAutoSeparate(config: Pick<NarrationConfig, "autoSeparateVoice">): boolean {
+  return config.autoSeparateVoice !== false;
 }
 
 /**
@@ -428,7 +437,9 @@ export type PropertyNarrationView = {
   samples?: NarrationVoiceSampleRef[];
   /** Озвучку на этот ролик накладывает CRM (есть ролик без голоса от монтажёра); ошибка наложения — для руководства. */
   /** problem (14.11.2026): последняя озвучка не легла на вышедший ролик — VOICE_LONGER (ушла монтажёру удлинить ролик) или FAILED. */
-  mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null };
+  mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null;
+    /** Одна строка агенту простыми словами (16.11.2026): CRM убирает старый голос, подогнала длину и т.п. */
+    note?: string | null };
 };
 /** Настройки CRM → «Озвучка роликов» (14.11.2026): вся техника, которую агент в карточке не видит. */
 export type NarrationSettingsView = {

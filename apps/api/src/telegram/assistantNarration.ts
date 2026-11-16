@@ -10,6 +10,7 @@
  * что у маршрута approve), новая версия — requestAutoNarration (та же дверь
  * генерации и тот же дневной потолок).
  */
+import { machineSeparationEnabled } from "../lib/narrationAutoMaster.js";
 import { formatPropertyCode, isReadOnlyRole, type PermissionId } from "@royal-home/shared";
 import { loadAgentAccess } from "../auth/middleware.js";
 import { prisma } from "../db.js";
@@ -41,7 +42,7 @@ const copy = {
     remadeCrm: "Ролик уже вышел со старой озвучкой. После одобрения CRM сама заменит в нём звук и описание.",
     samples: "Образцы голосов: одна и та же фраза. Послушайте и выберите ниже.",
     b: { approve: "✅ Одобрить", edit: "✏️ Править текст", voice: "🎙 Другой голос", template: "📝 Другой шаблон" },
-    approved: (d: NarrationDeliveryStart) => `✅ Одобрено. ${d === "CRM_REMIX" ? "Ролик уже вышел: CRM сама наложит новую озвучку и заменит ролик, монтажёр не нужен." : d === "SOUND_REMAKE" ? "Ролик уже вышел: монтажёр заменит в нём только голос, старые посты снимутся, когда выйдет новый." : d === "ADD_VOICE" ? "Ролик уже смонтирован: монтажёр вклеит в него голос, потом ролик выйдет." : d === "QUEUED" ? "Аудио уходит монтажёру." : d === "WAITING_FOR_MONTAGE" ? "Монтажёр получит аудио, когда объект попадёт в монтаж." : d === "PREVIEW" ? "Отправка монтажёру пока выключена в настройках." : d === "DISABLED" ? "Для объекта выбрано «Без озвучки», монтажёру ничего не уходит." : "Монтажёр уже получил эту версию."}`,
+    approved: (d: NarrationDeliveryStart) => `✅ Одобрено. ${d === "CRM_REMIX" || d === "CRM_SEPARATE" ? "Ролик уже вышел: CRM сама наложит новую озвучку и заменит ролик, монтажёр не нужен." : d === "SOUND_REMAKE" ? "Ролик уже вышел: монтажёр заменит в нём только голос, старые посты снимутся, когда выйдет новый." : d === "ADD_VOICE" ? "Ролик уже смонтирован: монтажёр вклеит в него голос, потом ролик выйдет." : d === "QUEUED" ? "Аудио уходит монтажёру." : d === "WAITING_FOR_MONTAGE" ? "Монтажёр получит аудио, когда объект попадёт в монтаж." : d === "PREVIEW" ? "Отправка монтажёру пока выключена в настройках." : d === "DISABLED" ? "Для объекта выбрано «Без озвучки», монтажёру ничего не уходит." : "Монтажёр уже получил эту версию."}`,
     backfill: "Ролик уже в монтаже. Озвучка собрана по шаблону и голосу по умолчанию; после вашего одобрения mp3 уйдёт монтажёру.",
     remind: (code: string) => `🎙 Озвучка для ${code} ждёт вашего одобрения уже три часа. Монтажёр без неё не вклеит голос.`,
     escalate: (code: string, agent: string) => `🎙 ${agent} шесть часов не одобряет озвучку для ${code}. Можете одобрить сами или напомнить агенту.`,
@@ -62,7 +63,7 @@ const copy = {
     remadeCrm: "Видео аллакай бо овози кӯҳна баромадааст. Баъди тасдиқ CRM худаш овоз ва тавсифро иваз мекунад.",
     samples: "Намунаи овозҳо: ҳамон як ҷумла. Гӯш кунед ва дар поён интихоб кунед.",
     b: { approve: "✅ Тасдиқ", edit: "✏️ Ислоҳи матн", voice: "🎙 Овози дигар", template: "📝 Қолаби дигар" },
-    approved: (d: NarrationDeliveryStart) => `✅ Тасдиқ шуд. ${d === "CRM_REMIX" ? "Видео аллакай баромадааст: CRM худаш овози навро мегузорад ва видеоро иваз мекунад, монтажёр лозим нест." : d === "SOUND_REMAKE" ? "Видео аллакай баромадааст: монтажёр танҳо овозашро иваз мекунад, постҳои кӯҳна вақти баромадани видеои нав гирифта мешаванд." : d === "ADD_VOICE" ? "Видео аллакай монтаж шудааст: монтажёр овозро ба он мегузорад, баъд видео мебарояд." : d === "QUEUED" ? "Овоз ба монтажёр меравад." : d === "WAITING_FOR_MONTAGE" ? "Вақте ки объект ба монтаж мерасад, овоз ба монтажёр меравад." : d === "PREVIEW" ? "Фиристодан ба монтажёр ҳоло дар танзимот хомӯш аст." : d === "DISABLED" ? "Барои ин объект «Бе овоз» интихоб шудааст, ба монтажёр чизе намеравад." : "Монтажёр ин версияро аллакай гирифтааст."}`,
+    approved: (d: NarrationDeliveryStart) => `✅ Тасдиқ шуд. ${d === "CRM_REMIX" || d === "CRM_SEPARATE" ? "Видео аллакай баромадааст: CRM худаш овози навро мегузорад ва видеоро иваз мекунад, монтажёр лозим нест." : d === "SOUND_REMAKE" ? "Видео аллакай баромадааст: монтажёр танҳо овозашро иваз мекунад, постҳои кӯҳна вақти баромадани видеои нав гирифта мешаванд." : d === "ADD_VOICE" ? "Видео аллакай монтаж шудааст: монтажёр овозро ба он мегузорад, баъд видео мебарояд." : d === "QUEUED" ? "Овоз ба монтажёр меравад." : d === "WAITING_FOR_MONTAGE" ? "Вақте ки объект ба монтаж мерасад, овоз ба монтажёр меравад." : d === "PREVIEW" ? "Фиристодан ба монтажёр ҳоло дар танзимот хомӯш аст." : d === "DISABLED" ? "Барои ин объект «Бе овоз» интихоб шудааст, ба монтажёр чизе намеравад." : "Монтажёр ин версияро аллакай гирифтааст."}`,
     backfill: "Видео аллакай дар монтаж аст. Овоз аз рӯи қолаб ва овози асосӣ тайёр шуд; баъди тасдиқи шумо mp3 ба монтажёр меравад.",
     remind: (code: string) => `🎙 Овози видео барои ${code} се соат боз тасдиқи шуморо интизор аст. Бе он монтажёр овозро гузошта наметавонад.`,
     escalate: (code: string, agent: string) => `🎙 ${agent} шаш соат боз овози видеоро барои ${code} тасдиқ накардааст. Худатон тасдиқ кунед ё ба агент хотиррасон кунед.`,
@@ -126,11 +127,14 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
   if (!agent?.isActive) return false;
   const code = formatPropertyCode(p.shortId);
   const remade = p.videoHandoffStatus === "RECEIVED";
+  // Звук в вышедшем ролике меняет CRM: есть ролик без голоса или CRM уберёт старый голос сама (16.11.2026).
+  const { config } = await loadNarrationConfiguration();
+  const crmVoice = !!p.videoMasterStorageKey || machineSeparationEnabled(config);
   const ownerName = reason === "escalate" && ownerAgentId ? (await prisma.agent.findUnique({ where: { id: ownerAgentId }, select: { fullName: true } }))?.fullName ?? "Агент" : "Агент";
   const feed = {
     // Вид «Задачи»: агент может выключить такие пуши в своих настройках уведомлений.
     kind: "task" as const, level: "APPROVAL" as const, title: "Озвучка ролика готова",
-    body: `${code}: прослушайте и одобрите озвучку.${remade ? (p.videoMasterStorageKey ? " После одобрения CRM сама заменит звук в вышедшем ролике." : " После одобрения монтажёр заменит звук в вышедшем ролике.") : ""}`,
+    body: `${code}: прослушайте и одобрите озвучку.${remade ? (crmVoice ? " После одобрения CRM сама заменит звук в вышедшем ролике." : " После одобрения монтажёр заменит звук в вышедшем ролике.") : ""}`,
     // Один тег на объект: новая версия обновляет ту же строку, а не добавляет вторую.
     url: `/properties/${p.id}`, tag: `narration-approval:${p.id}`,
   };
@@ -141,7 +145,6 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
   }
   const lang = await chatLang(agent.telegramChatId);
   const c = copy[lang];
-  const { config } = await loadNarrationConfiguration();
   const voice = config.voices.find((v) => v.id === version.voiceId)?.name;
   try {
     const head = reason === "remind" ? c.remind(code) : reason === "escalate" ? c.escalate(code, ownerName) : c.ready(code);
@@ -149,7 +152,7 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
     if (reason === "ready" || reason === "backfill" || reason === "escalate") {
       await sendDocumentFile(agent.telegramChatId, { path }, `${code}-ovoz-v${version.revision}.mp3`, `${code} · v${version.revision}`, 60_000, true);
     }
-    const text = [head, reason === "backfill" ? c.backfill : "", "", `${c.text}: ${version.script}`, voice ? `${c.voice}: ${voice}` : "", remade ? `\n${p.videoMasterStorageKey ? c.remadeCrm : c.remade}` : ""].filter((line) => line !== "").join("\n");
+    const text = [head, reason === "backfill" ? c.backfill : "", "", `${c.text}: ${version.script}`, voice ? `${c.voice}: ${voice}` : "", remade ? `\n${crmVoice ? c.remadeCrm : c.remade}` : ""].filter((line) => line !== "").join("\n");
     await sendMessageWithButtons(agent.telegramChatId, text.slice(0, 3800), [...approvalButtons(version.id, lang), [{ text: `CRM ${code}`, url: crmUrl(p.id) }]]);
     if (reason === "ready" || reason === "backfill") await prisma.propertyNarrationVersion.updateMany({ where: { id: version.id }, data: { approvalChatId: agent.telegramChatId } });
     await createNotification({ agentId: agent.id, ...feed });

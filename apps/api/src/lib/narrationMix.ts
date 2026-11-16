@@ -10,7 +10,8 @@ import { probeDurationSec, probeMediaInfo, runFfmpeg } from "./ffmpeg.js";
  * Голос — поверх; музыка и звуки ролика под голосом приглушаются сами (sidechaincompress —
  * «ducking»), между фразами возвращаются. Картинка копируется как есть (-c:v copy); не
  * влезла в mp4 — один повтор с перекодированием. Длина готового ролика — длина ролика без
- * голоса: озвучка длиннее ролика не обрезается молча, а отказ с понятным текстом.
+ * голоса (плюс стоп-кадр до 3 с при подгонке): озвучка длиннее не обрезается молча — ускорение
+ * до 15 % (planNarrationFit) или отказ с понятным текстом.
  *
  * Ничего не бросает: отказ ffmpeg возвращается текстом, вызывающий пишет logSystemError.
  */
@@ -23,8 +24,40 @@ export const NARRATION_VOICE_LONGER_MARK = "длиннее ролика";
 const VOICE_TAIL_TOLERANCE_SEC = 0.5;
 
 export type NarrationMixResult =
-  | { ok: true; durationSec: number }
-  | { ok: false; code: "NO_VIDEO" | "VOICE_LONGER" | "FFMPEG"; error: string };
+  | { ok: true; durationSec: number; fit: NarrationFit }
+  | { ok: false; code: "NO_VIDEO" | "VOICE_LONGER" | "FFMPEG"; error: string; voiceSec?: number; masterSec?: number };
+
+/**
+ * ДЛИНА ГОЛОСА = ДЛИНА РОЛИКА (16.11.2026, владелец: «ролик 25 с — аудио не может быть 35 с»).
+ * Для перемикса вышедшего ролика (не для приёма от монтажёра) по порядку:
+ *  SPEED  — голос длиннее до 15 %: ускоряем atempo (высота голоса та же, без «бурундука»);
+ *  FREEZE — всё ещё длиннее: плюс стоп-кадр последнего кадра ролика, не больше 3 с;
+ *  TOO_LONG — дальше только другой текст (короче) или монтажёр (lib/narrationAutoFlow.ts).
+ * Ролик длиннее голоса — норма: музыка играет дальше.
+ */
+export const NARRATION_FIT = { maxTempo: 1.15, maxFreezeSec: 3 } as const;
+export type NarrationFit = { tier: "PLAIN" | "SPEED" | "FREEZE" | "TOO_LONG"; tempo: number; freezeSec: number };
+
+export function planNarrationFit(voiceSec: number, masterSec: number, opts: { allowFreeze: boolean } = { allowFreeze: true }): NarrationFit {
+  // Голос (после ускорения) + задержка начала должен уместиться в ролик + допуск на хвост mp3.
+  const room = (freezeSec: number) => masterSec + VOICE_TAIL_TOLERANCE_SEC + freezeSec - NARRATION_VOICE_START_SEC;
+  if (!(masterSec > 0) || voiceSec <= room(0)) return { tier: "PLAIN", tempo: 1, freezeSec: 0 };
+  const tempo = voiceSec / room(0);
+  if (tempo <= NARRATION_FIT.maxTempo) return { tier: "SPEED", tempo: Math.ceil(tempo * 1000) / 1000, freezeSec: 0 };
+  if (opts.allowFreeze) {
+    const freezeSec = Math.ceil((voiceSec / NARRATION_FIT.maxTempo - room(0)) * 10) / 10;
+    if (freezeSec <= NARRATION_FIT.maxFreezeSec) return { tier: "FREEZE", tempo: NARRATION_FIT.maxTempo, freezeSec };
+  }
+  return { tier: "TOO_LONG", tempo: 1, freezeSec: 0 };
+}
+
+/** Строка агенту в карточке: что CRM сделала с длиной (null — ничего не меняла). */
+export function narrationFitNote(fit: NarrationFit): string | null {
+  const pct = Math.round((fit.tempo - 1) * 100);
+  if (fit.tier === "SPEED") return `Голос чуть длиннее ролика: CRM ускорила его на ${Math.max(pct, 1)}%, звучит естественно.`;
+  if (fit.tier === "FREEZE") return `Голос длиннее ролика: CRM ускорила его на ${pct}% и продлила последний кадр на ${fit.freezeSec.toFixed(1).replace(".", ",")} с.`;
+  return null;
+}
 
 /**
  * Настройки сведения подобраны ЗАМЕРОМ 14.11.2026 (настоящий ffmpeg, громкая музыка −11 LUFS,
@@ -43,39 +76,49 @@ export const NARRATION_MIX = {
   limiter: "alimiter=limit=0.95:level=0",
 } as const;
 
-export function narrationAudioGraph(masterHasAudio: boolean): string {
+export function narrationAudioGraph(masterHasAudio: boolean, fit: Pick<NarrationFit, "tempo" | "freezeSec"> = { tempo: 1, freezeSec: 0 }): string {
   const delayMs = Math.round(NARRATION_VOICE_START_SEC * 1000);
-  const voice = `[1:a]${NARRATION_MIX.voiceLoudness},aformat=sample_rates=48000:channel_layouts=stereo,adelay=${delayMs}|${delayMs},apad`;
+  const tempo = fit.tempo > 1 ? `atempo=${fit.tempo.toFixed(3)},` : "";
+  const voice = `[1:a]${tempo}${NARRATION_MIX.voiceLoudness},aformat=sample_rates=48000:channel_layouts=stereo,adelay=${delayMs}|${delayMs},apad`;
   if (!masterHasAudio) return `${voice}[aout]`;
+  // Стоп-кадр в конце: музыка ролика дотягивается тишиной на то же время (иначе amix оборвёт голос).
+  const pad = fit.freezeSec > 0 ? `,apad=pad_dur=${fit.freezeSec.toFixed(2)}` : "";
   return [
     `${voice},asplit=2[vsc][vmix]`,
-    `[0:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${NARRATION_MIX.musicVolume}[bg]`,
+    `[0:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${NARRATION_MIX.musicVolume}${pad}[bg]`,
     `[bg][vsc]${NARRATION_MIX.ducking}[ducked]`,
     `[ducked][vmix]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,${NARRATION_MIX.limiter}[aout]`,
   ].join(";");
 }
 
-export async function mixNarrationOntoMaster(input: { masterPath: string; voicePath: string; outPath: string }): Promise<NarrationMixResult> {
+/** fit — подгонка длины (перемикс вышедшего ролика); без него, как на приёме от монтажёра, голос
+ *  длиннее ролика — отказ VOICE_LONGER (монтажёр пришлёт ролик длиннее). */
+export async function mixNarrationOntoMaster(input: { masterPath: string; voicePath: string; outPath: string; fit?: { allowFreeze: boolean } }): Promise<NarrationMixResult> {
   const master = await probeMediaInfo(input.masterPath);
   if (!master?.hasVideo) return { ok: false, code: "NO_VIDEO", error: "Ролик без голоса не читается как видео." };
   const voiceSec = await probeDurationSec(input.voicePath);
   if (voiceSec === null) return { ok: false, code: "FFMPEG", error: "Файл озвучки не читается." };
-  if (master.durationSec > 0 && voiceSec + NARRATION_VOICE_START_SEC > master.durationSec + VOICE_TAIL_TOLERANCE_SEC) {
+  const fit = planNarrationFit(voiceSec, master.durationSec, { allowFreeze: input.fit?.allowFreeze ?? false });
+  if (fit.tier === "TOO_LONG" || (!input.fit && fit.tier !== "PLAIN")) {
     return {
-      ok: false, code: "VOICE_LONGER",
+      ok: false, code: "VOICE_LONGER", voiceSec, masterSec: master.durationSec,
       error: `Озвучка (${voiceSec.toFixed(1)} с) ${NARRATION_VOICE_LONGER_MARK} (${master.durationSec.toFixed(1)} с) — нужен ролик не короче озвучки.`,
     };
   }
   const base = ["-y", "-hide_banner", "-loglevel", "error", "-i", input.masterPath, "-i", input.voicePath,
-    "-filter_complex", narrationAudioGraph(master.hasAudio), "-map", "0:v:0", "-map", "[aout]"];
+    "-filter_complex", narrationAudioGraph(master.hasAudio, fit), "-map", fit.freezeSec > 0 ? "[vout]" : "0:v:0", "-map", "[aout]"];
+  if (fit.freezeSec > 0) base[base.indexOf("-filter_complex") + 1] += `;[0:v:0]tpad=stop_mode=clone:stop_duration=${fit.freezeSec.toFixed(2)}[vout]`;
   const tail = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", "-shortest", input.outPath];
+  const encode = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"];
   try {
-    await runFfmpeg({ args: [...base, "-c:v", "copy", ...tail], timeoutMs: 120_000, label: "наложение озвучки" });
-  } catch {
+    // Стоп-кадр — новая картинка, копировать нечего: сразу перекодирование.
+    await runFfmpeg({ args: [...base, ...(fit.freezeSec > 0 ? encode : ["-c:v", "copy"]), ...tail], timeoutMs: fit.freezeSec > 0 ? 420_000 : 120_000, label: "наложение озвучки" });
+  } catch (firstErr) {
     // Картинка не копируется в mp4 (кодек или контейнер) — один повтор с перекодированием.
     await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
+    if (fit.freezeSec > 0) return { ok: false, code: "FFMPEG", error: `ffmpeg не смог наложить озвучку: ${firstErr instanceof Error ? firstErr.message.slice(0, 300) : String(firstErr)}` };
     try {
-      await runFfmpeg({ args: [...base, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", ...tail], timeoutMs: 420_000, label: "наложение озвучки" });
+      await runFfmpeg({ args: [...base, ...encode, ...tail], timeoutMs: 420_000, label: "наложение озвучки" });
     } catch (err) {
       await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
       return { ok: false, code: "FFMPEG", error: `ffmpeg не смог наложить озвучку: ${err instanceof Error ? err.message.slice(0, 300) : String(err)}` };
@@ -86,5 +129,5 @@ export async function mixNarrationOntoMaster(input: { masterPath: string; voiceP
     await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
     return { ok: false, code: "FFMPEG", error: "После наложения озвучки в ролике нет картинки или звука." };
   }
-  return { ok: true, durationSec: out.durationSec };
+  return { ok: true, durationSec: out.durationSec, fit };
 }

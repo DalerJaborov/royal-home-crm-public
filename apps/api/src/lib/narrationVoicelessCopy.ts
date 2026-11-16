@@ -123,7 +123,7 @@ export async function storeVoicelessCopy(propertyId: string, filePath: string, o
   const key = await storeNarrationMaster(propertyId, filePath);
   const written = await prisma.property.updateMany({
     where: { id: propertyId, deletedAt: null, videoHandoffStatus: "RECEIVED", videoHandoffFinalPath: p.videoHandoffFinalPath },
-    data: { videoMasterStorageKey: key, videoMasterNarrationVersionId: delivery.versionId, videoMasterMixError: null, videoMasterMixErrorVersionId: null },
+    data: { videoMasterStorageKey: key, videoMasterSource: "EDITOR", videoMasterNarrationVersionId: delivery.versionId, videoMasterMixError: null, videoMasterMixErrorVersionId: null },
   });
   if (!written.count) {
     await dropNarrationMaster(key);

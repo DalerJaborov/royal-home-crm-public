@@ -398,6 +398,9 @@ services:
       # Meta, Gemini, АТС, R2. ENABLE_BACKGROUND здесь не нужен: точка входа
       # worker.js запускает фон безусловно.
       <<: *crm-env
+      # Сервис «убрать старый голос из ролика» (16.11.2026, сервис voice-separator ниже). Пусто —
+      # возможности нет, новая озвучка на вышедший ролик уходит монтажёру, как раньше.
+      VOICE_SEPARATOR_URL: ${VOICE_SEPARATOR_URL:-http://voice-separator:8090}
     volumes:
       # Те же тома, что у api: ночные чистки, автомонтаж и озвучка работают с
       # теми же файлами, что HTTP-процесс отдаёт наружу.
@@ -409,6 +412,38 @@ services:
     networks:
       - default
       - royalhome-shared
+
+  # «УБРАТЬ СТАРЫЙ ГОЛОС ИЗ РОЛИКА» (16.11.2026, решение владельца: новая цена → новая озвучка на
+  # вышедший ролик без монтажёра). Python: модель MDX Kim_Vocal_2 отделяет голос от музыки,
+  # faster-whisper проверяет, что речи в музыке не осталось. Зовёт только worker
+  # (lib/voiceSeparator.ts) по внутренней сети; порт наружу не открыт, тома не нужны — звук
+  # приходит телом запроса. Модели скачаны при сборке образа (apps/voice-separator/Dockerfile),
+  # в работе интернет ему не нужен. Один запрос за раз (очередь), процессор не весь: api, база
+  # и робот-звонарь работают рядом. Упал или не собрался — worker не страдает, объект уходит
+  # монтажёру. Пересборка — только когда меняется apps/voice-separator (ops/deploy.sh).
+  voice-separator:
+    build:
+      context: apps/voice-separator
+      dockerfile: Dockerfile
+      # Хеш папки в git (ops/deploy.sh): по нему выкат решает, пересобирать ли образ.
+      labels:
+        rh.src: ${VOICE_SEPARATOR_SRC:-dev}
+    image: royalhome-voice-separator
+    restart: unless-stopped
+    logging: *default-logging
+    <<: *default-security
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g
+    pids_limit: 256
+    # Модели в памяти (~1 ГБ) + разбор 10-минутного звука; прод — 31 ГБ.
+    mem_limit: 4g
+    # Половина ядер: отделение голоса — минуты процессора, остальным сервисам хватает.
+    cpus: 6
+    environment:
+      OMP_NUM_THREADS: "6"
+    networks:
+      - default
 
   web:
     build:

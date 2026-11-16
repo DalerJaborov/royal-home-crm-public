@@ -2209,6 +2209,7 @@ async function finishReceivingVideo(
           videoHandoffReceivedAt: now,
           // Ролик с голосом монтажёра отменяет прежний мастер: перемикс из него затёр бы новый монтаж.
           videoMasterStorageKey: master?.key ?? null,
+          videoMasterSource: master ? "EDITOR" : null,
           videoMasterNarrationVersionId: master?.versionId ?? null,
           videoMasterMixError: null,
           videoMasterMixErrorVersionId: null,
@@ -2895,6 +2896,7 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
         videoHandoffReceivedAt: null,
         // Удалили принятый ролик — его мастер тоже не годится для перемикса (11.11.2026).
         videoMasterStorageKey: null,
+        videoMasterSource: null,
         videoMasterNarrationVersionId: null,
         scheduledPublishAt: null,
         scheduledPublishReason: null,

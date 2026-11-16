@@ -9,13 +9,15 @@ import { prisma } from "../db.js";
 import { videoHandoffDir } from "../upload.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { mixFromStoredMaster } from "./narrationMaster.js";
+import { machineMasterApplies, makeMachineMaster, runMachineMasters, type MachineMasterDeps } from "./narrationAutoMaster.js";
+import { narrationFitNote, planNarrationFit } from "./narrationMix.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { EDITOR_HOLDER_WHERE, isHandoffPublishRunning, schedulePublishAfterAccept, withPropertyLock } from "./videoHandoff.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
 import { logAgentAudit } from "./audit.js";
 import { sendBackToMontajer } from "./publishedVideoFix.js";
 import { prepareNarrationDeliveryPlan } from "./narrationDelivery.js";
-import { generateNarrationVersion, loadNarrationConfiguration, narrationProviderReady, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS } from "./narrationGeneration.js";
+import { generateNarrationVersion, loadNarrationConfiguration, narrationProviderReady, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, speechChars } from "./narrationGeneration.js";
 import { NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 import { narrationFacts, narrationFactsCurrent, narrationHash, narrationScriptError } from "./propertyNarration.js";
 import { logSystemError } from "./systemError.js";
@@ -47,6 +49,10 @@ import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlar
  *    монтажёр не нужен»): есть ролик без голоса (мастер) — CRM сама перемикширует и
  *    заменит вышедший ролик (remixFromMaster); голос вклеен монтажёром — прежний возврат
  *    NARRATION_CHANGED, монтажёр присылает тот же ролик без голоса, дальше без него.
+ *    С 16.11.2026 ролика без голоса нет — CRM делает его сама из вышедшего ролика (отделение голоса,
+ *    lib/narrationAutoMaster.ts); монтажёру — только если отделить не вышло.
+ * 6. Голос длиннее ролика (16.11.2026): ускорить до 15 % → другой, более короткий шаблон (одна
+ *    перегенерация на версию) → стоп-кадр до 3 с → монтажёру (remixFromMasterClaimed).
  *
  * Всё платное — под рубильником `autoGenerate` в настройках озвучки (по умолчанию
  * выключен) и дневным потолком; отправка монтажёру — под CRM_NARRATION_EXECUTION_MODE.
@@ -176,7 +182,7 @@ export async function approveNarrationVersion(input: { propertyId: string; versi
 
 /** ADD_VOICE (12.11.2026) — ролик сдан раньше, чем одобрили озвучку, и ещё не вышел: он
  *  возвращается монтажёру «вклейте голос», музыку и монтаж не трогать. */
-export type NarrationDeliveryStart = "QUEUED" | "PREVIEW" | "WAITING_FOR_MONTAGE" | "BUSY" | "ALREADY" | "NOT_READY" | "SOUND_REMAKE" | "CRM_REMIX" | "ADD_VOICE" | "DISABLED";
+export type NarrationDeliveryStart = "QUEUED" | "PREVIEW" | "WAITING_FOR_MONTAGE" | "BUSY" | "ALREADY" | "NOT_READY" | "SOUND_REMAKE" | "CRM_REMIX" | "CRM_SEPARATE" | "ADD_VOICE" | "DISABLED";
 /**
  * Одобренное аудио — монтажёру существующим путём. Объект ещё не в очереди монтажа —
  * обход повторит, когда он туда попадёт. Ключ запроса постоянный: повтор не плодит передач.
@@ -189,12 +195,10 @@ export async function afterNarrationApproved(propertyId: string, versionId: stri
     // Объект не у монтажёра. Есть ролик без голоса — CRM сама наложит новую озвучку и заменит
     // вышедший ролик (обход remixFromMasters, в течение минуты); монтажёр не нужен.
     if (await crmRemixApplies(propertyId)) return "CRM_REMIX";
-    // Голос вклеен монтажёром: ролик вышел со старой озвучкой — заменить только голос.
-    const remake = await requestNarrationSoundRemake(propertyId, versionId);
-    if (remake === "QUEUED") return "SOUND_REMAKE";
-    // Ролик сдан без голоса раньше одобрения и ещё не вышел — вернуть «вклейте голос».
-    if (remake === "NO_OLD_NARRATION" && (await requestNarrationAddVoice(propertyId, versionId)) === "QUEUED") return "ADD_VOICE";
-    return "WAITING_FOR_MONTAGE";
+    // Ролика без голоса нет: CRM сама уберёт старый голос из готового ролика (16.11.2026,
+    // обход narration-auto-master, по одному объекту) и наложит новый. Не вышло — монтажёру.
+    if (await machineMasterApplies(propertyId)) return "CRM_SEPARATE";
+    return sendNarrationToMontajer(propertyId, versionId);
   }
   // PREVIEW (ревью 12.11.2026): строку «передано» не заводим — иначе после включения LIVE обход
   // счёл бы версию отправленной и mp3 до монтажёра не дошёл бы. Одобренная версия ждёт LIVE.
@@ -217,6 +221,16 @@ export async function afterNarrationApproved(propertyId: string, versionId: stri
       createdById: latest.approvedById ?? "system", plan: prepared.plan, status: "QUEUED", executionMode: "LIVE" } });
     return "QUEUED";
   });
+}
+
+/** Монтажёру по-старому: голос вклеен им — заменить только голос; ролик сдан без голоса и не вышел —
+ *  «вклейте голос». Зовут одобрение (нет пути без монтажёра) и отказ машинного мастера. */
+export async function sendNarrationToMontajer(propertyId: string, versionId: string, opts: { voiceLonger?: boolean } = {}): Promise<NarrationDeliveryStart> {
+  const remake = await requestNarrationSoundRemake(propertyId, versionId, opts);
+  if (remake === "QUEUED") return "SOUND_REMAKE";
+  // Ролик сдан без голоса раньше одобрения и ещё не вышел — вернуть «вклейте голос».
+  if (remake === "NO_OLD_NARRATION" && (await requestNarrationAddVoice(propertyId, versionId)) === "QUEUED") return "ADD_VOICE";
+  return "WAITING_FOR_MONTAGE";
 }
 
 export type NarrationSoundRemake = "QUEUED" | "OFF" | "IN_MONTAGE" | "NO_PUBLISHED_VIDEO" | "NO_OLD_NARRATION" | "NOT_APPROVED" | "REFUSED";
@@ -313,6 +327,15 @@ export async function autoApproveSameChoice(versionId: string, config: Narration
     if (!property || property.deletedAt || latest?.id !== v.id) return null;
     const facts = narrationFacts(property);
     if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, facts, v.templateId).text !== v.script) return null;
+    // Укороченная под длину ролика версия (16.11.2026): другой шаблон, но заказала её CRM вместо уже
+    // одобренной — одобряется на того же человека, иначе ролик ждал бы агента.
+    if (v.shortenedFromId) {
+      const from = await tx.propertyNarrationVersion.findUnique({ where: { id: v.shortenedFromId } });
+      if (!from?.approvedById || !from.approvedAt || from.voiceId !== v.voiceId || from.factsHash !== v.factsHash) return null;
+      const at = new Date();
+      const ok = await tx.propertyNarrationVersion.updateMany({ where: { id: v.id, status: "READY", approvedAt: null }, data: { approvedAt: at, approvedById: from.approvedById, approvalNotifiedAt: at } });
+      return ok.count ? { approvedById: from.approvedById } : null;
+    }
     const prev = await tx.propertyNarrationVersion.findFirst({
       where: { propertyId: v.propertyId, revision: { lt: v.revision }, status: "READY", approvedAt: { not: null } }, orderBy: { revision: "desc" },
     });
@@ -325,7 +348,7 @@ export async function autoApproveSameChoice(versionId: string, config: Narration
   });
 }
 
-export type NarrationRemixOutcome = "REMIXED" | "SKIPPED" | "FAILED";
+export type NarrationRemixOutcome = "REMIXED" | "SKIPPED" | "FAILED" | "SHORTENING";
 /**
  * ПЕРЕМИКС ИЗ РОЛИКА БЕЗ ГОЛОСА (11.11.2026). Новая одобренная озвучка, а у объекта есть мастер
  * и готовый ролик (RECEIVED): CRM сама сводит новый ролик (lib/narrationMix.ts) и ставит его на
@@ -387,16 +410,28 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
   if (!requestedById) return fail("у объекта нет ответственного агента.");
   const outName = `${propertyId}-${Date.now()}.mp4`;
   const outPath = path.join(videoHandoffDir, outName);
-  const mixed = await mixFromStoredMaster({ masterKey, voiceKey: latest.storageKey, outPath });
+  // Длина (16.11.2026): (а) ускорение до 15 % → (б) короче шаблон → (в) + стоп-кадр до 3 с → (г) монтажёр.
+  let mixed = await mixFromStoredMaster({ masterKey, voiceKey: latest.storageKey, outPath, fit: { allowFreeze: false } });
+  if (!mixed.ok && mixed.code === "VOICE_LONGER" && mixed.voiceSec && mixed.masterSec) {
+    const shorter = await requestShorterNarration(propertyId, latest.id, mixed.voiceSec, mixed.masterSec).catch(() => null);
+    if (shorter) {
+      // Отметка на этой версии: тик её больше не сводит; ролик сведётся из укороченной.
+      await prisma.property.updateMany({ where: { id: propertyId, videoMasterStorageKey: masterKey },
+        data: { videoMasterMixError: `Озвучка длиннее ролика — CRM готовит текст короче (версия ${shorter.revision}).`, videoMasterMixErrorVersionId: latest.id } });
+      return "SHORTENING";
+    }
+    mixed = await mixFromStoredMaster({ masterKey, voiceKey: latest.storageKey, outPath, fit: { allowFreeze: true } });
+  }
   if (!mixed.ok && mixed.code === "VOICE_LONGER") {
-    // Озвучка длиннее ролика без голоса (12.11.2026): обрезать голос нельзя — монтажёр удлинит
-    // ролик и заменит голос. Отметка ошибки на версии не даёт тику повторять перемикс.
+    // Не помогли ни ускорение, ни короткий текст, ни стоп-кадр: монтажёр удлинит ролик и заменит
+    // голос. Отметка ошибки на версии не даёт тику повторять перемикс.
     const outcome = await fail(mixed.error);
-    await requestNarrationSoundRemake(propertyId, latest.id, { voiceLonger: true }).catch((err) =>
+    await sendNarrationToMontajer(propertyId, latest.id, { voiceLonger: true }).catch((err) =>
       logSystemError("video-handoff", `Объект №${p.shortId}: возврат монтажёру «озвучка длиннее ролика» не поставлен: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-remix-longer:${latest.id}` }));
     return outcome;
   }
   if (!mixed.ok) return fail(mixed.error);
+  const mixNote = narrationFitNote(mixed.fit);
   const publicPath = `/uploads/handoff/${outName}`;
   let replaced: { oldFinal: string | null; reviewPending: boolean } | null;
   try {
@@ -435,9 +470,56 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
   }
   // Ролик на проверке модератора встанет на публикацию после «Одобрить», как обычно.
   const scheduled = replaced.reviewPending ? null : await schedulePublishAfterAccept(propertyId);
-  logAgentAudit(requestedById, "PROPERTY_NARRATION_REMIXED", "Property", propertyId, { narrationVersionId: latest.id, revision: latest.revision,
+  await prisma.propertyNarrationVersion.updateMany({ where: { id: latest.id }, data: { mixNote } }).catch(() => {});
+  logAgentAudit(requestedById, "PROPERTY_NARRATION_REMIXED", "Property", propertyId, { narrationVersionId: latest.id, revision: latest.revision, fit: mixed.fit.tier, tempo: mixed.fit.tempo, freezeSec: mixed.fit.freezeSec,
     scheduledPublishAt: scheduled?.scheduledPublishAt?.toISOString() ?? null, notPublishingReason: scheduled?.notPublishingReason ?? null });
   return "REMIXED";
+}
+
+/** Машинный мастер (lib/narrationAutoMaster.ts) с шагами этого потока: наложить и отдать монтажёру. */
+const machineMasterDeps: MachineMasterDeps = { remix: (id) => remixFromMaster(id), toMontajer: (id, versionId) => sendNarrationToMontajer(id, versionId) };
+/** Задача `narration-auto-master` (cron.ts): один объект за тик. */
+export function runMachineMastersTick(now?: Date) { return runMachineMasters(machineMasterDeps, now); }
+export function makeMachineMasterFor(propertyId: string, now?: Date) { return makeMachineMaster(propertyId, machineMasterDeps, now); }
+
+/**
+ * КОРОЧЕ ТЕКСТ, ЧТОБЫ ГОЛОС ВЛЕЗ В РОЛИК (16.11.2026). Ускорения на 15 % не хватает — другой шаблон
+ * того же языка, у которого текст короче, ровно ОДНА платная перегенерация на версию (укороченную
+ * ещё раз не укорачивают). Только если: текст версии — шаблон без ручной правки (текст агента CRM
+ * не переписывает), автоозвучка включена (тот же дневной потолок ElevenLabs), и по оценке длины
+ * (секунды пропорциональны символам речи) новый текст встаёт в ролик лучше нынешнего. Иначе null —
+ * дальше стоп-кадр или монтажёр. Новая версия одобряется сама (autoApproveSameChoice).
+ */
+const FIT_RANK = { PLAIN: 0, SPEED: 1, FREEZE: 2, TOO_LONG: 3 } as const;
+export async function requestShorterNarration(propertyId: string, versionId: string, voiceSec: number, masterSec: number): Promise<{ versionId: string; revision: number } | null> {
+  const { config } = await loadNarrationConfiguration();
+  if (!narrationAutoEnabled(config)) return null;
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
+    const property = await tx.property.findUnique({ where: { id: propertyId }, include: { district: true } });
+    const v = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
+    if (!property || property.deletedAt || property.narrationOff || !v || v.id !== versionId || v.shortenedFromId || !v.templateId || !v.voiceId) return null;
+    const facts = narrationFacts(property);
+    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, facts, v.templateId).text !== v.script) return null;
+    const lang = v.language === "tg" || v.language === "ru" ? v.language : null;
+    const nowRank = FIT_RANK[planNarrationFit(voiceSec, masterSec).tier];
+    const chars = Math.max(1, speechChars(v.script, lang));
+    let best: { templateId: string; text: string; estSec: number } | null = null;
+    for (const t of config.templates ?? []) {
+      if (t.id === v.templateId || t.lang !== lang) continue;
+      const text = narrationDraftText(config, facts, t.id).text;
+      if (narrationScriptError(text)) continue;
+      const estSec = voiceSec * speechChars(text, lang) / chars;
+      if (FIT_RANK[planNarrationFit(estSec, masterSec).tier] >= nowRank) continue;
+      if (!best || estSec < best.estSec) best = { templateId: t.id, text, estSec };
+    }
+    if (!best) return null;
+    await tx.propertyNarrationVersion.updateMany({ where: { propertyId, status: "DRAFT", generateAfter: { not: null } }, data: { generateAfter: null } });
+    const created = await tx.propertyNarrationVersion.create({ data: { propertyId, revision: v.revision + 1, script: best.text, factsSnapshot: facts, factsHash: v.factsHash,
+      voiceId: v.voiceId, modelId: config.modelId, templateId: best.templateId, language: v.language, generateAfter: new Date(), source: "AUTO",
+      createdById: v.approvedById ?? v.createdById, requestKey: randomUUID(), shortenedFromId: v.id } });
+    return { versionId: created.id, revision: created.revision };
+  });
 }
 
 /**
