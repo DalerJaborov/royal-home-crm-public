@@ -177,7 +177,7 @@ type SharedFacts = Omit<AutoStatusFacts, "activeDeal" | "dealClosed">;
 async function collectSharedFacts(clientId: string, showingTypes: readonly string[]): Promise<SharedFacts> {
   const [interactions, client] = await Promise.all([
     prisma.interaction.findMany({
-      where: { clientId },
+      where: { clientId, archiveReview: false },
       select: { type: true, outcome: true, createdAt: true, callAttempt: true, recordingDurationSec: true,
         completedAt: true, nextActionDate: true, declinedAt: true },
       orderBy: { createdAt: "desc" },

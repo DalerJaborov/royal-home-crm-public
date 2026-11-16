@@ -383,10 +383,12 @@ describe("Шабнам: ревью 10.11 — права, цель закрыти
     const ropWrite = await writeActor(rop);
 
     const closed = await makeDeal({ agentId: agentB, stage: "COMPLETED", realtor: 700, company: 1300 });
-    const payout = await createPendingAssistantAction(ropWrite, "mark_deal_payout", { dealId: closed.deal.id });
-    expect(payout.preview.becomes["👤 Доля агента"]).toBe("✅ Выплачено");
-    // Число — отдельным словом: случайный runId в имени тестового агента («…3904700430») не сумма.
-    expect(JSON.stringify(payout.preview)).not.toMatch(/(?<!\d)(?<!\d )(?:700|1 300|2 000)(?!\d)(?! \d{3})/u);
+    // 16.11.2026 выплату отмечает только директор (finance.manage): РОП получает отказ, положительный кейс — от директора.
+    await expectError(createPendingAssistantAction(ropWrite, "mark_deal_payout", { dealId: closed.deal.id }), 403);
+    const payout = await createPendingAssistantAction(await writeActor(director), "mark_deal_payout", { dealId: closed.deal.id });
+    // Директор видит сумму (finance.view есть): «700 с. — ✅ Выплачено». Сокрытие сумм для РОП теперь —
+    // отказ в самой отметке (выше), а не урезанное превью.
+    expect(payout.preview.becomes["👤 Доля агента"]).toMatch(/Выплачено/);
 
     const live = await makeDeal({ agentId: agentA, stage: "CONTRACT_SIGNED", showing: true, commission: 2000 });
     const close = await createPendingAssistantAction(ropWrite, "close_deal", {

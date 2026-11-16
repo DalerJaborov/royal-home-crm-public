@@ -995,9 +995,9 @@
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 63,
+      "endpoints": 65,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
-      "usedBy": 14
+      "usedBy": 13
     },
     {
       "mount": "/api/v1/deals",
@@ -1620,6 +1620,11 @@
       "label": null
     },
     {
+      "id": "balance-watch",
+      "expr": "20 9 * * *",
+      "label": null
+    },
+    {
       "id": "bot-audit",
       "expr": "15 3 * * *",
       "label": "Ночной судья диалогов: сверяет переписки с правилами и копит нарушения"
@@ -1727,6 +1732,11 @@
     {
       "id": "customer-outbox-jobs",
       "expr": "*/5 * * * * *",
+      "label": null
+    },
+    {
+      "id": "customer-unrecorded-summary",
+      "expr": "*/2 * * * *",
       "label": null
     },
     {
@@ -1935,6 +1945,11 @@
       "label": "Тянет из рекламного кабинета объявления и расходы"
     },
     {
+      "id": "meta-inbox-reconcile",
+      "expr": "3-59/10 * * * *",
+      "label": null
+    },
+    {
       "id": "monthly-problem-report",
       "expr": "10 9 1 * *",
       "label": "Разбор проблемных мест за прошедший месяц"
@@ -2140,6 +2155,11 @@
       "label": null
     },
     {
+      "id": "telegram-delivery-watch",
+      "expr": "4-59/10 * * * *",
+      "label": null
+    },
+    {
       "id": "telegram-group-comments",
       "expr": "* * * * *",
       "label": "Отвечает и эскалирует комментарии в группе Telegram-канала"
@@ -2208,6 +2228,11 @@
       "id": "weekly-security-review-digest",
       "expr": "20 9 * * 1",
       "label": "Недельная сводка безопасности: отказы, похожие на сделку на стороне"
+    },
+    {
+      "id": "whatsapp-webhook-watch",
+      "expr": "8-59/20 * * * *",
+      "label": null
     },
     {
       "id": "whisper-sync",
@@ -2328,12 +2353,12 @@
     {
       "name": "Telegram",
       "keys": 5,
-      "files": 8
+      "files": 7
     },
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
       "keys": 9,
-      "files": 13
+      "files": 14
     },
     {
       "name": "Бюджет Google Cloud",

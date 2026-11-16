@@ -560,9 +560,9 @@ describe("removeFromSocial: true — снять из соцсетей перед
       .send({ reason: "POOR_EDIT", removeFromSocial: true });
 
     expect(res.status).toBe(403);
-    // Объект в продаже (опубликован): агенту-владельцу «Вернуть монтажёру» закрыт целиком
-    // (07.10.2026) — отказ раньше проверки removeFromSocial, текст про директора и админа.
-    expect(res.body.error).toBe("Это делает директор или админ. Нажмите «Запросить изменение».");
+    // Объект в продаже (опубликован): свой перемонтаж хозяину открыт (владелец 15.11.2026), но снять
+    // вышедшее из соцсетей — только маркетинг: отказ именно по removeFromSocial.
+    expect(res.body.error).toBe("Недостаточно прав");
     const after = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
     expect(after.videoRemakeCount).toBe(0);
     expect(["QUEUED", "SENT_TO_EDITOR"]).not.toContain(after.videoHandoffStatus);

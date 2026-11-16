@@ -52,6 +52,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "./assistantPropertyOffers.js": { handlePropertyOfferCallback: async () => false },
     // «🔕 Не присылать такое» (11.11.2026) — свои кнопки и фразы, к кнопкам связок не относятся.
     "./staffNotice.js": { handleStaffNoticeCallback: async () => false, handleNoticePreferenceText: async () => false },
+    "./trashRestoreNotice.js": { handleTrashRestoreCallback: async () => false },
     // Кнопки напоминаний об оплатах (11.11.2026) — свой обработчик.
     "../lib/paymentReminders.js": { handlePaymentReminderCallback: async () => false },
     // Кнопки озвучки (11.11.2026) — не наши, проходят дальше.
