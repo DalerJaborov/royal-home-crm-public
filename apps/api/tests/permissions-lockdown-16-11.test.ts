@@ -47,6 +47,7 @@ describe("опасные права РОП и маркетинга сняты и
     const p = resolvePermissions("HEAD_OF_SALES", null);
     expect(p.has("properties.editForeign")).toBe(false);
     expect(p.has("calls.hearRecording")).toBe(true);
+    expect(p.has("archive.view")).toBe(true);
     expect(p.has("deals.complete")).toBe(true);
   });
   it("маркетинг: нет выгрузки, расшифровок и звука; фото и видео по-прежнему ведёт", () => {

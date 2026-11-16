@@ -1,4 +1,3 @@
-import { requireChannelAdmin } from "../lib/marketingRole.js";
 import { Router } from "express";
 import { searchOverviewQuerySchema, yandexAppSchema } from "@royal-home/shared";
 import { prisma } from "../db.js";

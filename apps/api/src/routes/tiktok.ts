@@ -1,4 +1,3 @@
-import { requireChannelAdmin } from "../lib/marketingRole.js";
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";

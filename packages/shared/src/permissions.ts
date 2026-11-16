@@ -693,6 +693,7 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
     "messages.view",
     "calls.transcripts",
     "calls.hearRecording",
+    "archive.view", // корзина удалённых — для разбора, кто что удалил (владелец 16.11.2026)
     "properties.moderate",
     // Владелец 14.11.2026: РОП (Ноза) получает отчёты по потерям, главную-пульс и
     // маркетинг. insights.view РОПу НЕ даём: оно открывает и запись («разобрано» по делам,
