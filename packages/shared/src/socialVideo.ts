@@ -129,6 +129,19 @@ const GB = 1024 * MB;
 export const SOCIAL_VIDEO_UPLOAD_MAX_BYTES = UPLOAD_VIDEO_MAX_BYTES;
 /** Допустимые расширения при загрузке. */
 export const SOCIAL_VIDEO_ALLOWED_EXTENSIONS = [".mp4", ".mov", ".m4v"] as const;
+
+/** Что публикуем: ролик или фото-пост с подписью (16.11.2026). */
+export type SocialPostMediaKind = "VIDEO" | "PHOTO";
+/** Сколько фото в одном посте: столько принимает карусель Instagram и альбом Telegram. */
+export const SOCIAL_PHOTO_POST_MAX_IMAGES = 10;
+/** Одно фото до 20 МБ (снимки телефона весят 3–8 МБ). */
+export const SOCIAL_PHOTO_POST_MAX_BYTES = 20 * 1024 * 1024;
+export const SOCIAL_PHOTO_POST_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"] as const;
+/** Куда фото-пост уходит: у YouTube и TikTok фото-постов через API нет, у Threads пока не подключено. */
+export const SOCIAL_PHOTO_POST_CHANNELS = ["INSTAGRAM", "FACEBOOK", "TELEGRAM"] as const satisfies readonly SocialVideoChannel[];
+export function isPhotoPostChannel(channel: SocialVideoChannel): boolean {
+  return (SOCIAL_PHOTO_POST_CHANNELS as readonly string[]).includes(channel);
+}
 /** Не раньше чем через столько минут от «сейчас» можно назначить публикацию по расписанию. */
 export const SOCIAL_VIDEO_MIN_SCHEDULE_LEAD_MINUTES = 2;
 
@@ -644,6 +657,10 @@ export interface SocialVideoChannelResult {
 
 export interface SocialVideoItem {
   id: string;
+  /** VIDEO — ролик, PHOTO — пост из фотографий с подписью (16.11.2026). */
+  mediaKind: SocialPostMediaKind;
+  /** Фото поста по порядку (под /uploads); у ролика — пусто. */
+  imagePaths: string[];
   title: string;
   caption: string;
   brief: string | null;
@@ -729,4 +746,18 @@ export interface SocialVideoChannelLive {
   /** Заметка по аккаунту, не блокирующая публикацию (TikTok: только приватные посты и т. п.). */
   note: string | null;
   checkedAt: string;
+}
+
+/**
+ * Пригодность ФОТО-ПОСТА к каналу (16.11.2026). Одно правило на сервер и экран:
+ * фото уходят только в Instagram, Facebook и Telegram; у остальных — отказ.
+ */
+export function evaluatePhotoPostForChannel(channel: SocialVideoChannel, caption: string): ChannelVerdict {
+  if (!isPhotoPostChannel(channel)) {
+    return { channel, level: "BLOCK", format: "Фото-пост", blockers: [`${SOCIAL_VIDEO_CHANNEL_LABELS[channel]} не принимает фото-посты, только ролики`], warnings: [] };
+  }
+  const warnings: string[] = [];
+  if (channel === "INSTAGRAM" && caption.length > 2200) warnings.push("Подпись длиннее 2200 знаков, Instagram её обрежет");
+  if (channel === "TELEGRAM" && caption.length > 1024) warnings.push("Подпись длиннее 1024 знаков, Telegram её обрежет");
+  return { channel, level: warnings.length > 0 ? "WARN" : "OK", format: channel === "INSTAGRAM" ? "Пост или карусель" : "Пост с фото", blockers: [], warnings };
 }

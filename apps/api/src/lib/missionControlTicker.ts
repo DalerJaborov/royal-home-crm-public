@@ -127,7 +127,7 @@ export async function loadMissionControlTicker(
       take: limit,
     }),
     prisma.interaction.findMany({
-      where: createdAtFilter ? { createdAt: createdAtFilter } : {},
+      where: { archiveReview: false, ...(createdAtFilter ? { createdAt: createdAtFilter } : {}) },
       orderBy: { createdAt: "desc" },
       take: limit,
       select: {

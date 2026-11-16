@@ -75,7 +75,7 @@ export async function buildFunnelReport(range: { from: Date; to: Date }, viewer:
       by: ["clientId"],
       // client.deletedAt — иначе «На контакте» считалось по удалённым клиентам, и
       // воронка расширялась вместо того, чтобы сужаться: 10 лидов, 12 на контакте.
-      where: { ...visible, type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
+      where: { ...visible, archiveReview: false, type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
     }),
     // COUNTED_SHOWING_WHERE — отменённый показ не состоялся, и в воронке ему не
     // место: иначе шаг «Показы» шире шага «На контакте» на встречи, которых не было.

@@ -584,7 +584,7 @@
       "redirect": null,
       "nav": {
         "to": "/social-videos",
-        "label": "Ролики в соцсети",
+        "label": "Публикации в соцсети",
         "group": "ads",
         "gate": ""
       }
@@ -817,7 +817,7 @@
     },
     {
       "to": "/social-videos",
-      "label": "Ролики в соцсети",
+      "label": "Публикации в соцсети",
       "group": "ads",
       "gate": ""
     },
@@ -992,12 +992,20 @@
       "usedBy": 35
     },
     {
+      "mount": "/api/v1/transfer-requests",
+      "router": "transferRequestsRouter",
+      "file": "apps/api/src/routes/transferRequests.ts",
+      "endpoints": 3,
+      "label": null,
+      "usedBy": 1
+    },
+    {
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 63,
+      "endpoints": 65,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
-      "usedBy": 14
+      "usedBy": 13
     },
     {
       "mount": "/api/v1/deals",
@@ -1243,7 +1251,7 @@
       "mount": "/api/v1/social-videos",
       "router": "socialVideosRouter",
       "file": "apps/api/src/routes/socialVideos.ts",
-      "endpoints": 20,
+      "endpoints": 21,
       "label": null,
       "usedBy": 2
     },
@@ -2185,6 +2193,11 @@
       "label": "Вечером шлёт каждому агенту список его задач и встреч на завтра"
     },
     {
+      "id": "transfer-request-tick",
+      "expr": "*/5 * * * *",
+      "label": null
+    },
+    {
       "id": "video-handoff-redelivery",
       "expr": "*/5 * * * *",
       "label": null
@@ -2358,7 +2371,7 @@
     {
       "name": "Telegram",
       "keys": 5,
-      "files": 8
+      "files": 7
     },
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
@@ -2398,7 +2411,7 @@
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 18
+      "files": 19
     },
     {
       "name": "Телефония FreePBX / Asterisk",

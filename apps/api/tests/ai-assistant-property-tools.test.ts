@@ -1003,6 +1003,14 @@ describe("П8: свои объекты — удаление в Корзину и
     expect((await prisma.property.findUniqueOrThrow({ where: { id: foreign.id } })).deletedAt).toBeNull();
   });
 
+  it("правка чужих карточек не даёт удалять чужой объект через чат (аудит прав Д1, 16.11.2026)", async () => {
+    const foreign = await seed({ assignedAgentId: directorId, intakeAgentId: directorId, createdById: directorId });
+    await expectRefused(ownerId, ["properties.editForeign"], "delete_property", { ref: String(foreign.shortId) }, 403, /Нет доступа/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: foreign.id } })).deletedAt).toBeNull();
+    const pending = await preview(ownerId, ["properties.delete"], "delete_property", { ref: String(foreign.shortId) });
+    expect(pending.preview.risk).toMatch(/Корзин/);
+  });
+
   it("создатель, передавший объект коллеге, чужое объявление не удаляет; резерв — цена заявкой, а не сразу", async () => {
     const handed = await seed({ assignedAgentId: directorId, intakeAgentId: directorId, createdById: ownerId });
     await expectRefused(ownerId, AGENT_PERMS, "delete_property", { ref: String(handed.shortId) }, 403, /Нет доступа/);

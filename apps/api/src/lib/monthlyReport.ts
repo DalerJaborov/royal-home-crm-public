@@ -106,7 +106,7 @@ export async function buildMonthlyMetrics(periodStart: Date): Promise<MonthlyMet
     await Promise.all([
       prisma.client.count({ where: { createdAt: period, deletedAt: null } }),
       prisma.interaction.findMany({
-        where: { investigationOnly: false, type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: period, client: { deletedAt: null } },
+        where: { investigationOnly: false, archiveReview: false, type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: period, client: { deletedAt: null } },
         distinct: ["clientId"],
         select: { clientId: true },
       }),

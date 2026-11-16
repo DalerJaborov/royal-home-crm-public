@@ -37,6 +37,8 @@ let managerId: string;
 let managerToken: string;
 let agentId: string;
 let agentToken: string;
+let directorId: string;
+let directorToken: string;
 
 const agentIds: string[] = [];
 
@@ -85,10 +87,19 @@ beforeAll(async () => {
   ).id;
   agentIds.push(agentId);
 
+  // 16.11.2026 контакты собственников видит только директор (properties.viewOwners стало directorOnly).
+  directorId = (
+    await prisma.agent.create({
+      data: { fullName: "Директор (owner-perm)", phone: `+992977${runId}`, role: "DIRECTOR", passwordHash },
+    })
+  ).id;
+  agentIds.push(directorId);
+
   securityToken = await login(`+992972${runId}`);
   editorToken = await login(`+992973${runId}`);
   managerToken = await login(`+992974${runId}`);
   agentToken = await login(`+992975${runId}`);
+  directorToken = await login(`+992977${runId}`);
 
   const property = await prisma.property.create({
     data: {
@@ -150,10 +161,18 @@ afterAll(async () => {
 
 describe("properties.viewOwners — чтение контакта собственника чужого объекта", () => {
   // GET /:id роутится по числовому shortId, не по cuid-id (см. list.ts).
-  it("SECURITY видит контакт собственника (200, ownerContact не скрыт)", async () => {
+  it("SECURITY НЕ видит контакт чужого собственника (16.11.2026: контакты — только директору)", async () => {
     const res = await request(app)
       .get(`/api/v1/properties/${foreignPropertyShortId}`)
       .set("Authorization", `Bearer ${securityToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.ownerContact).toBeFalsy();
+  });
+
+  it("DIRECTOR видит контакт собственника (200, ownerContact не скрыт)", async () => {
+    const res = await request(app)
+      .get(`/api/v1/properties/${foreignPropertyShortId}`)
+      .set("Authorization", `Bearer ${directorToken}`);
     expect(res.status).toBe(200);
     expect(res.body.ownerContact).toBe("+992900000099 Собственник");
   });
@@ -166,12 +185,12 @@ describe("properties.viewOwners — чтение контакта собстве
     expect(res.body.ownerContact).toBeFalsy();
   });
 
-  it("MANAGER видит контакт собственника (200, ownerContact не скрыт)", async () => {
+  it("MANAGER НЕ видит контакт чужого собственника (16.11.2026: контакты — только директору)", async () => {
     const res = await request(app)
       .get(`/api/v1/properties/${foreignPropertyShortId}`)
       .set("Authorization", `Bearer ${managerToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.ownerContact).toBe("+992900000099 Собственник");
+    expect(res.body.ownerContact).toBeFalsy();
   });
 
   it("рядовой АГЕНТ не видит контакт чужого объекта (200, ownerContact скрыт/null)", async () => {
@@ -196,10 +215,19 @@ describe("properties.editForeign — правка чужой карточки о
     const res = await request(app)
       .patch(`/api/v1/properties/${foreignPropertyId}`)
       .set("Authorization", `Bearer ${editorToken}`)
-      .send({ price: 41000 });
+      // 16.11.2026: EDITOR меняет материалы (описание), а не цену — цена чужого объекта у него теперь 403 (кейс ниже).
+      .send({ description: "Описание от монтажёра (owner-perm)" });
     expect(res.status).toBe(200);
     expect(res.body.ownerContact).toBeFalsy();
     expect(res.body.ownerContactHidden).toBe(true);
+  });
+
+  it("16.11.2026: EDITOR не меняет цену чужого объекта (403)", async () => {
+    const res = await request(app)
+      .patch(`/api/v1/properties/${foreignPropertyId}`)
+      .set("Authorization", `Bearer ${editorToken}`)
+      .send({ price: 41000 });
+    expect(res.status).toBe(403);
   });
 
   it("рядовой АГЕНТ получает 403 при попытке сохранить чужую карточку", async () => {

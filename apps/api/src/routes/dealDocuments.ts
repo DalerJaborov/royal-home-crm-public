@@ -105,7 +105,10 @@ dealDocumentsRouter.delete("/:id/documents/:docId", requireAuth, documentsGuard,
   // (глубокая проверка 02.10.2026, C5). Сдал договор и свидетельство, отправил на
   // закрытие — и стёр оба: директор одобрял сделку, у которой в CRM нет ни одного
   // подтверждения, а файл уничтожен без следа, кроме строки аудита.
-  if ((deal.stage === "PENDING_APPROVAL" || deal.stage === "COMPLETED") && !can(req, "deals.complete")) {
+  if (
+    (deal.stage === "PENDING_APPROVAL" || deal.stage === "COMPLETED") &&
+    (!can(req, "deals.complete") || (deal.agentId === req.agent!.id && !can(req, "finance.manage")))
+  ) {
     return res.status(409).json({
       error:
         deal.stage === "COMPLETED"

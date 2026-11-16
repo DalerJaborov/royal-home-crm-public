@@ -1,5 +1,5 @@
 import { spokenNumbersToDigits } from "@royal-home/shared";
-import { guardPrices } from "./priceGuard.js";
+import { guardPrices, keepSentences } from "./priceGuard.js";
 import { vacancyOfficeAddress } from "./vacancyFacts.js";
 import { BW, EW } from "./wordBoundary.js";
 
@@ -21,20 +21,104 @@ import { BW, EW } from "./wordBoundary.js";
 const STREET_RE =
   /(проспект\p{L}*|пр-т|ул\.|улиц\p{L}*|переул\p{L}*|шоссе|микрорайон\p{L}*|мкр\.?|около|возле|напротив)\s+(?:имени\s+)?([\p{L}-]{3,})/giu;
 
+/**
+ * ТАДЖИКСКИЕ СЛОВА МЕСТА (16.11.2026, аудит facts.md Ф2). Шаблон выше знал только русские
+ * «улица/мкр/около/напротив», а старый бот Арвана и Royal Home отвечает по-таджикски:
+ * «Ин ҳавлӣ дар Зарафшон, наздики бозорча ҷойгир аст», «маҳаллаи Лучоби поён» — оба места
+ * выдуманы (в карточке «Навбахор 2, ориентир Кольцевая, Военный городок»), а в журнале за
+ * 7 дней ноль находок. Включается флагом `tajikPlaces` (чат); голос пока на прежнем шаблоне.
+ *
+ * «дар X» само по себе — не место («дар Душанбе», «дар Instagram»), поэтому берётся только
+ * в фразе о расположении: рядом «ҷойгир»/«воқеъ».
+ */
+const TAJIK_STREET_RE =
+  /(?<![\p{L}])(маҳаллаи|махаллаи|кӯчаи|кучаи|наздики|назди|гардиши|мавзеи|микрорайони|ноҳияи|нохияи|рӯ\s+ба\s+рӯи|ру\s+ба\s+руи|рӯбарӯи|рубаруи)\s+([\p{L}-]{3,})/giu;
+const TAJIK_LOCATED_RE = /(?<![\p{L}])дар\s+([\p{L}-]{3,})(?=[^.!?\n]{0,60}(?:ҷойгир|чойгир|воқеъ|вокеъ))/giu;
+
+/** Таджикские буквы к русским: клиент пишет «Хисор», бот — «Ҳисор»; это одно место. */
 function normalizeForMatch(s: string): string {
-  return s.toLowerCase().replace(/ё/g, "е");
+  return s
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/ҳ/g, "х")
+    .replace(/ҷ/g, "ч")
+    .replace(/қ/g, "к")
+    .replace(/ғ/g, "г")
+    .replace(/ӯ/g, "у")
+    .replace(/ӣ/g, "и")
+    // «Цирк» по-таджикски пишут «Сирк»: ц в таджикской записи русских слов — с.
+    .replace(/ц/g, "с");
 }
 
+/**
+ * Ориентир в карточке записан по-русски, а бот говорит по-таджикски (ревью #207, С2):
+ * «Военный городок» → «Шаҳраки ҳарбӣ». Пары — свёрнутые (normalizeForMatch); если в
+ * источниках есть одна сторона, законна и другая.
+ */
+const LANDMARK_TRANSLATIONS: [string, string][] = [
+  ["военный городок", "шахраки харби"],
+  ["военный городок", "шахраки низоми"],
+  ["аэропорт", "фурудгох"],
+  ["рынок", "бозор"],
+  ["посольств", "сафорат"],
+  ["ботаническ", "ботаники"],
+  ["больнис", "беморхона"],
+  ["школ", "мактаб"],
+  ["мечет", "масчид"],
+  ["университет", "донишгох"],
+  ["стадион", "варзишгох"],
+  ["кольцев", "гардиш"],
+  ["светофор", "чарогак"],
+];
+
+function withTranslations(normalizedSources: string): string {
+  const extra: string[] = [];
+  for (const [ru, tg] of LANDMARK_TRANSLATIONS) {
+    if (normalizedSources.includes(ru)) extra.push(tg);
+    if (normalizedSources.includes(tg)) extra.push(ru);
+  }
+  return extra.length ? `${normalizedSources}\n${extra.join("\n")}` : normalizedSources;
+}
+
+/** Местоимения с заглавной («наздики Шумо») — не место. */
+const NOT_PLACE_WORDS = new Set(["шумо", "мо", "ман", "вай", "онхо", "ин", "он", "мы", "вы", "вас", "нас"]);
+
 /** Названия улиц/ориентиров из реплики (только с заглавной буквы — иначе «около дома»). */
-export function extractStreetMentions(text: string): string[] {
+export function extractStreetMentions(text: string, options: { tajikPlaces?: boolean } = {}): string[] {
   const out: string[] = [];
-  for (const m of text.matchAll(STREET_RE)) {
-    const word = m[2];
+  const add = (word: string | undefined) => {
+    if (!word) return;
+    if (NOT_PLACE_WORDS.has(normalizeForMatch(word))) return;
     const first = word[0];
-    if (first === first.toLowerCase()) continue;
+    if (first === first.toLowerCase()) return;
     if (!out.includes(word)) out.push(word);
+  };
+  for (const m of text.matchAll(STREET_RE)) add(m[2]);
+  if (options.tajikPlaces) {
+    for (const m of text.matchAll(TAJIK_STREET_RE)) add(m[2]);
+    for (const m of text.matchAll(TAJIK_LOCATED_RE)) add(m[1]);
   }
   return out;
+}
+
+/**
+ * Город и районы зоны агентства (решение владельца: Душанбе + район Рудаки) — их бот
+ * вправе назвать всегда: это не адрес объекта, а где мы работаем.
+ */
+const ZONE_PLACE_NAMES = "душанбе рудаки сино шохмансур фирдавси исмоили сомони таджикистан точикистон";
+
+/**
+ * Вырезать фразы с выдуманным местом (16.11.2026): чат больше не «только журнал».
+ * Режется предложение целиком, как у цен: «Ин ҳавлӣ дар Зарафшон, наздики бозорча ҷойгир
+ * аст» без топонима было бы обрубком хуже самой выдумки.
+ */
+export function stripOffCatalogStreets(bubbles: string[], streets: string[]): string[] {
+  if (streets.length === 0) return bubbles;
+  const bad = streets.map((s) => normalizeForMatch(s));
+  const words = (sentence: string) => normalizeForMatch(sentence).split(/[^\p{L}-]+/u).filter(Boolean);
+  return bubbles
+    .map((b) => keepSentences(b, (sentence) => !words(sentence).some((w) => bad.includes(w))))
+    .filter((b) => b.trim().length > 0);
 }
 
 // ── площадь и этаж ─────────────────────────────────────────────────────────────
@@ -146,6 +230,8 @@ const PROPERTY_TALK_RE = new RegExp(
   `${BW}(?:квартир|двушк|тр[её]шк|однушк|комнатн|вариант|объект|новостро|вторичк|коробк|участ)\\p{L}*`,
   "iu"
 );
+/** То же по-таджикски: «хона», «ҳавлӣ», «духонага», «замин» (только с флагом tajikPlaces). */
+const PROPERTY_TALK_TG_RE = new RegExp(`${BW}(?:хона|ҳавл|хавл|ҳуҷра|хучра|замин|вариант)\\p{L}*`, "iu");
 
 export interface OffCatalogClaims {
   prices: number[];
@@ -173,6 +259,15 @@ export function findOffCatalogClaims(input: {
   catalogText?: string;
   clientText?: string;
   usdToTjs?: number;
+  /** Таджикские слова места и таджикская речь об объекте (чат, 16.11.2026). */
+  tajikPlaces?: boolean;
+  /**
+   * Откуда месту можно взяться вместо `catalogText` (чат, 16.11.2026): подборка, карта мест
+   * из слов клиента и прошлые реплики бота — без общего справочника народных названий.
+   * Справочник знает «Зарафшон» и «Лучоб», и сверка с ним пропускала ровно ту выдумку, ради
+   * которой сторож написан: место настоящее, но объект не там.
+   */
+  placeSources?: string;
 }): OffCatalogClaims {
   const text = spokenNumbersToDigits(input.text);
   const allowed = spokenNumbersToDigits(input.allowedText);
@@ -191,11 +286,21 @@ export function findOffCatalogClaims(input: {
   const floors = extractFloorClaims(statements).filter((f) => !catalogFloors.includes(f) && !clientNumbers.includes(f));
 
   const aboutProperty =
-    PROPERTY_TALK_RE.test(input.text) || guarded.invented.length > 0 || extractAreaClaims(text).length > 0 || extractFloorClaims(text).length > 0;
+    PROPERTY_TALK_RE.test(input.text) ||
+    (!!input.tajikPlaces && PROPERTY_TALK_TG_RE.test(input.text)) ||
+    guarded.invented.length > 0 ||
+    extractAreaClaims(text).length > 0 ||
+    extractFloorClaims(text).length > 0;
   // Адрес офиса (Бухоро, Школа №1…) — законный источник: робот вправе назвать его, о чём бы ни шла речь.
-  const streetSources = normalizeForMatch(`${catalog}\n${client}\n${vacancyOfficeAddress()}`);
+  const streetSources = withTranslations(
+    normalizeForMatch(
+      input.placeSources === undefined
+        ? `${catalog}\n${client}\n${vacancyOfficeAddress()}`
+        : `${input.placeSources}\n${client}\n${vacancyOfficeAddress()}\n${ZONE_PLACE_NAMES}`
+    )
+  );
   const streets = aboutProperty
-    ? extractStreetMentions(input.text).filter((name) => {
+    ? extractStreetMentions(input.text, { tajikPlaces: input.tajikPlaces }).filter((name) => {
         const norm = normalizeForMatch(name);
         const stem = norm.slice(0, Math.max(4, norm.length - 2));
         return !streetSources.includes(stem);

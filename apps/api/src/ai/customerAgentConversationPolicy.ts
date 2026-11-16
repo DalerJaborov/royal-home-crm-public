@@ -1,8 +1,7 @@
 /** Presentation intent only. Neither rule grants a tool, identity or send.
  * Public praise uses the same free social path as the legacy comment handler,
  * but a positive allowlist avoids thanking an angry/ambiguous reaction. */
-import {detectClientLanguage} from './clientLanguage.js';
-import {customerColloquialTajikLanguage} from './customerDmLanguage.js';
+import {detectCustomerCoreLanguage as detectClientLanguage, customerColloquialTajikLanguage} from './customerDmLanguage.js';
 import {clientOwnWords} from './untrustedContent.js';
 const positiveEmoji = /(?:👍|👏|🙌|🤝|💪|🔥|✨|🌟|⭐|❤|🧡|💛|💚|💙|💜|🤍|🩷|💕|💖|💗|💓|💞|😍|🥰|🤩|😊|💐|🌹)[\uFE0F\u{1F3FB}-\u{1F3FF}]*/gu;
 const appreciation = /^(?:спасибо(?: большое| вам)?|большое спасибо|благодарю|благодарим|(?:очень )?красивая квартира|красиво|очень красиво|красота|класс|супер|круто|отлично|молодцы|рахмат|раҳмат|ташаккур|зур|зӯр|офарин|аҳсан|зебо(?: бдай)?|бисёр зебо|(?:бехтарин|беҳтарин)(?: (?:хона|макон)(?: бдай)?)?)$/u;

@@ -25,7 +25,9 @@ describe("вакансия: только номер специалиста", () 
       expect(line).not.toContain("—");
     }
     expect(recruitmentPhoneLine("ru")).toContain("Позвоните, пожалуйста");
-    expect(recruitmentPhoneLine("tg")).toContain("Лутфан занг занед");
+    // 16.11.2026: the owner banned «лутфан» and «мутахассис» (tajik-phrasebook); the Tajik line asks to call without them.
+    expect(recruitmentPhoneLine("tg")).toContain("Ба ӯ занг занед");
+    expect(recruitmentPhoneLine("tg")).not.toMatch(/лутфан|мутахассис/iu);
   });
 
   it("досылка не дождавшимся: должность и номер, без условий и без просьбы о резюме", () => {

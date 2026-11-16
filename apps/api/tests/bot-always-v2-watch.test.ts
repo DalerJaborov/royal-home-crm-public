@@ -39,12 +39,13 @@ vi.mock("../src/lib/customerConversationScope.js", async (importOriginal) => {
 });
 
 const { prisma } = await import("../src/db.js");
-const { runClientSilenceSweep, CLIENT_WAITING_MINUTES } = await import("../src/lib/clientWaitingAlert.js");
+const { runClientSilenceSweep, CLIENT_WAITING_MINUTES, alertClientWaiting } = await import("../src/lib/clientWaitingAlert.js");
 const wa = await import("../src/lib/whatsappWebhookWatch.js");
 const held = await import("../src/lib/customerHeldMessage.js");
 const { reportUnansweredCustomerTurn } = await import("../src/lib/customerTurnSilence.js");
 const payloadLib = await import("../src/lib/customerIngressPayload.js");
 const tgDelivery = await import("../src/lib/telegramDeliveryWatch.js");
+const { telegramUpdatesMode } = await import("../src/telegram/updatesMode.js");
 
 const runId = Date.now().toString(36);
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
@@ -134,6 +135,14 @@ describe("Telegram: клиент без ответа — та же дверь, �
     expect(alert).not.toBeNull();
     expect(alert!.body).toContain("в Telegram");
     expect(alert!.url).toBe(`/messages?open=td_${id}`);
+  });
+
+  it("«агент уточнит» в Telegram Direct — с той же подсказкой отвечать в Telegram (свод #201 с #198, 16.11)", async () => {
+    const id = await tgChat([{ role: "user", content: "Сколько комиссия?", at: minutesAgo(1) }], { direct: true, agent: true });
+    expect(await alertClientWaiting({ conversationId: id, source: "telegramDirect", trigger: "follow_up" })).toBe("agent");
+    const body = String((pushesFor(`td_${id}`).at(-1)?.[1] as { body?: string } | undefined)?.body);
+    expect(body).toContain("уточнит агент");
+    expect(body).toContain("из CRM в эту переписку ответить нельзя");
   });
 
   it("пуш не ушёл — отметка эпизода снимается, следующий тик пробует снова", async () => {
@@ -321,6 +330,28 @@ describe("Telegram: доставка в CRM (getWebhookInfo)", () => {
     expect(tgDelivery.telegramDeliveryProblem({ url: "https://crm/x", last_error_date: old }, now, 0)).toBeNull();
     expect(tgDelivery.telegramDeliveryProblem({ url: "https://crm/x", pending_update_count: 12 }, now, 0)).toBeNull();
     expect(tgDelivery.telegramDeliveryProblem({ url: "https://crm/x", pending_update_count: 12 }, now, 9)?.key).toBe("queue");
+  });
+
+  it("long polling (прод 16.11): пустой адрес вебхука — не тревога; вебхук при polling — тревога; очередь — как при вебхуке", () => {
+    expect(tgDelivery.telegramDeliveryProblem({ url: "" }, now, 0, "polling")).toBeNull();
+    expect(tgDelivery.telegramDeliveryProblem({ url: "https://crm/x" }, now, 0, "polling")?.key).toBe("webhook-blocks-polling");
+    expect(tgDelivery.telegramDeliveryProblem({ url: "", pending_update_count: 12 }, now, 9, "polling")?.key).toBe("queue");
+    expect(tgDelivery.telegramDeliveryProblem({ url: "" }, now, 0, "webhook")?.key).toBe("no-webhook");
+  });
+
+  it("режим берётся из той же настройки, что у поллера (TELEGRAM_WEBHOOK_SECRET): без неё пустой вебхук не тревожит", () => {
+    const saved = process.env.TELEGRAM_WEBHOOK_SECRET;
+    try {
+      delete process.env.TELEGRAM_WEBHOOK_SECRET;
+      expect(telegramUpdatesMode()).toBe("polling");
+      expect(tgDelivery.telegramDeliveryProblem({ url: "" }, now, 0, telegramUpdatesMode())).toBeNull();
+      process.env.TELEGRAM_WEBHOOK_SECRET = "test-secret";
+      expect(telegramUpdatesMode()).toBe("webhook");
+      expect(tgDelivery.telegramDeliveryProblem({ url: "" }, now, 0, telegramUpdatesMode())?.key).toBe("no-webhook");
+    } finally {
+      if (saved === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
+      else process.env.TELEGRAM_WEBHOOK_SECRET = saved;
+    }
   });
 
   it("рубильник выключен — Telegram не спрашиваем", async () => {

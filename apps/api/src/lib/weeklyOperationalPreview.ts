@@ -25,7 +25,7 @@ export function weeklyOperationalSourceSql(kind: WeeklyOperationalPreviewKind, n
       AND NOT EXISTS (SELECT 1 FROM "PropertyExposure" e WHERE e."propertyId" = p.id AND e."sentAt" >= ${fortnight})
       AND NOT EXISTS (SELECT 1 FROM "Interaction" i WHERE i."investigationOnly" = false AND i."taskCancelledAt" IS NULL AND i."declinedAt" IS NULL
         AND ((i.type = 'SHOWING' AND i."propertyId" = p.id AND (i."createdAt" >= ${fortnight} OR i."nextActionDate" >= ${fortnight}))
-          OR (i.type = 'CALL' AND i."clientId" = p."sellerClientId" AND i."createdAt" >= ${fortnight})))
+          OR (i.type = 'CALL' AND i."archiveReview" = false AND i."clientId" = p."sellerClientId" AND i."createdAt" >= ${fortnight})))
       AND NOT EXISTS (SELECT 1 FROM "Client" c WHERE c.id = p."sellerClientId" AND c."lastClientMessageAt" >= ${fortnight})`;
   return Prisma.sql`
     SELECT d.id, d."clientId", d."propertyId", d."agentId", a."fullName" AS "agentName", d."startedAt" AS "observedAt", d.id AS "sourceId", 'Deal'::text AS "sourceType"

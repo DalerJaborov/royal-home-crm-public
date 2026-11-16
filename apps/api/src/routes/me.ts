@@ -689,6 +689,7 @@ meRouter.get("/active-call", requireAuth, (req, res) => {
     // уже состоявшийся звонок, а не отмена.
     cancelled: !!call.cancelledByAgent && !call.answeredAt,
     clientRang: !!call.clientRang,
+    archiveReview: !!call.archiveReview,
   };
   res.json(view);
 });
