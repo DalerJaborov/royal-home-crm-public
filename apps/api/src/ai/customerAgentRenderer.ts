@@ -1128,7 +1128,19 @@ function answerTemplateOf(input: RenderInput, text: string): CustomerAgentAnswer
   const kind = customerAgentRenderedQuestion(input);
   const askKind = (CUSTOMER_AGENT_ASK_KINDS as readonly string[]).includes(kind) ? kind as CustomerAgentAskKind : null;
   const replaceable = !!askKind && last !== undefined && last === questions[askKind][input.language];
-  return { social, facts: replaceable ? rest.slice(0, -1) : rest, question: replaceable ? { line: last!, kind: askKind! } : null };
+  const facts = replaceable ? rest.slice(0, -1) : rest;
+  return { social, facts, question: replaceable ? { line: last!, kind: askKind! } : null, negative: answerContextNegative(input, facts) };
+}
+/** A refusal or limit among the facts (review #211, round 2): «арендой не занимаемся», «уже продан», «в брони», the work area, «не могу
+ * подтвердить», nothing found. Next to such a line the model's words stay neutral («Понимаю вас.»), never «Вам повезло!». */
+const NEGATIVE_FACT = /(?:^|[^\p{L}])(?:не|нет|нельзя|без|продан\p{L}*|брон\p{L}*|занят\p{L}*|к сожалению|мутаассифона|нест|надор\p{L}*|на(?:ме|ш|т)\p{L}+|фурӯхта\p{L}*)(?=$|[^\p{L}])/iu;
+function answerContextNegative(input: RenderInput, facts: readonly string[]): boolean {
+  if (facts.some(line => NEGATIVE_FACT.test(line))) return true;
+  return input.evidence.some(e => e.value.kind === "company_policy" && e.value.topic !== "commission" ||
+    e.value.kind === "property_unresolved" ||
+    e.value.kind === "facts" && e.value.facts.availability !== "AVAILABLE" ||
+    e.value.kind === "publication_properties" && e.value.cards.some(card => card.availability !== "AVAILABLE") ||
+    e.value.kind === "property_search" && searchNeedsAgent(e.value));
 }
 
 /**

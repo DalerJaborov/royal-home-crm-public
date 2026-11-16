@@ -15,8 +15,11 @@
 import { BW, EW, TAIL } from "./wordBoundary.js";
 
 const lower = (value: string) => value.normalize("NFKC").toLowerCase();
-/** Letter runs (Cyrillic incl. Tajik, Latin); a hyphen inside a word keeps it one word («қисм-қисм»). */
-const words = (value: string) => lower(value).match(/\p{L}+(?:-\p{L}+)*/gu) ?? [];
+/** Letter runs (Cyrillic incl. Tajik, Latin); a hyphen splits («Скажи-ка», «Бигӯ-чӣ»: each part is a word of its own). */
+const words = (value: string) => lower(value).match(/\p{L}+/gu) ?? [];
+/** Tajik typed without the Tajik letters («дори», «бигу», «мехари»): the lists are matched in this fold too. */
+const TG_FOLD: Record<string, string> = { "ӣ": "и", "ӯ": "у", "ҳ": "х", "ҷ": "ч", "қ": "к", "ғ": "г" };
+const tgFold = (value: string) => value.replace(/[ӣӯҳҷқғ]/gu, ch => TG_FOLD[ch]);
 
 // ── informal address («ты») ─────────────────────────────────────────────────────────────────────────────────────────
 /** Russian «ты» pronouns. */
@@ -27,7 +30,10 @@ export const INFORMAL_RU_IMPERATIVES = ["скажи", "подскажи", "ра�
   "пришли", "присылай", "отправь", "скинь", "кинь", "дай", "давай", "оставь", "уточни", "выбери", "выбирай", "реши", "подумай", "думай", "жди", "подожди", "приходи",
   "приезжай", "заходи", "зайди", "знай", "слушай", "послушай", "ответь", "сообщи", "назови", "бери", "возьми", "купи", "продай", "будь", "извини", "прости",
   "помоги", "проверь", "обратись", "свяжись", "определись", "торопись", "поторопись", "не волнуйся", "волнуйся", "стесняйся", "пойми", "поверь", "представь",
-  "укажи", "добавь", "загляни", "набери", "звякни", "черкни", "отпиши"] as const;
+  "укажи", "добавь", "загляни", "набери", "звякни", "черкни", "отпиши", "поделись", "спроси", "опиши", "объясни", "посоветуй", "уточняй",
+  "пойдем", "пойдём", "ка"] as const;
+/** Familiar address: never to a customer (review #211, round 2). «Ака» is respect in Tajik speech and is not listed. */
+export const FAMILIAR_ADDRESS = ["брат", "братан", "братишка", "бро", "дружище", "дружок", "друг", "приятель", "бародар", "додар", "ҷӯра", "бача"] as const;
 /** Words that end like a 2nd-person verb («-ешь», «-ишь») but are not verbs. */
 const RU_NOT_VERBS = new Set(["лишь", "мышь", "тишь", "брешь", "плешь", "вошь", "ишь", "камыш", "малыш", "шалаш"]);
 /** Tajik «ту» pronouns and the 2nd-person-singular possessive («номат» = your name, informal). */
@@ -36,22 +42,32 @@ export const INFORMAL_TG_PRONOUNS = ["ту", "туро", "ба ту", "аз ту
 /** Tajik imperative singular: the polite form ends in «-ед» («бигӯед», «нависед»), these never do. */
 export const INFORMAL_TG_IMPERATIVES = ["бигӯ", "гӯ", "навис", "бинавис", "кун", "бикун", "деҳ", "бидеҳ", "биё", "бифирист", "фирист", "бигир", "гир", "бубин",
   "бизан", "занг зан", "бихар", "бифурӯш", "бимон", "бош", "бирав", "рав", "бипурс", "пурс", "биёб", "бифаҳм", "бишин", "интизор шав", "бишав",
-  "нишон деҳ", "хабар деҳ", "гӯй", "бигӯй"] as const;
+  "нишон деҳ", "хабар деҳ", "гӯй", "бигӯй", "шав", "биёр", "ор", "фикр кун", "бубахш"] as const;
 /** Tajik 2nd-person-singular verb forms that are not built by a rule below («дорӣ», «ҳастӣ»). */
 export const INFORMAL_TG_VERBS = ["дорӣ", "надорӣ", "ҳастӣ", "нестӣ", "бошӣ", "набошӣ", "хоҳӣ", "нахоҳӣ", "тавонӣ", "метавонӣ", "мехоҳӣ", "медонӣ", "нависӣ"] as const;
 /** Tajik past stems: stem + «-ӣ» is «you did» informally («гуфтӣ», «харидӣ»). */
-const TG_PAST_STEMS = ["кард", "гуфт", "омад", "фиристод", "хост", "дид", "навишт", "гирифт", "дод", "монд", "рафт", "фаҳмид", "пурсид", "ёфт", "шунид", "донист",
+const TG_PAST_STEMS = ["кард", "гуфт", "омад", "фиристод", "хост", "дид", "навишт", "гирифт", "дод", "монд", "рафт", "фаҳмид", "пурсид", "ёфт", "шунид", "донист", "дошт",
   "тавонист", "буд", "шуд", "харид", "фурӯхт", "интихоб кард"];
 /** «ме-…-ӣ» present forms («мехарӣ», «мефурӯшӣ»), except nouns and adjectives that merely start with «ме» («меҳрубонӣ», «мебелӣ»). */
 const TG_ME_NOT_VERBS = /^(?:меҳ|меъ|мева|мебел|метр|металл|мерос|меню|механ|медал|меҳмон)/u;
 
 /** The first «ты» word of the text, or null. Built only from the lists above. */
 export function informalAddress(text: string, language: "ru" | "tg"): string | null {
-  const list = words(text), joined = ` ${list.join(" ")} `;
-  const phrase = (entries: readonly string[]) => entries.find(entry => joined.includes(` ${entry} `)) ?? null;
+  const list = words(text), joined = ` ${list.join(" ")} `, folded = tgFold(joined);
+  const phrase = (entries: readonly string[]) => entries.find(entry => joined.includes(` ${entry} `) ||
+    language === "tg" && folded.includes(` ${tgFold(entry)} `)) ?? null;
+  const familiar = phrase(FAMILIAR_ADDRESS);
+  if (familiar) return familiar;
   if (language === "ru") {
     const found = phrase(INFORMAL_RU_PRONOUNS) ?? phrase(INFORMAL_RU_IMPERATIVES);
     if (found) return found;
+    // A question in the past singular with no «вы» («Уже определился с районом?», «Нашёл подходящий район?», «хотел бы?»).
+    for (const sentence of text.split(/(?<=[?])/u).filter(part => /[?]/u.test(part))) {
+      const own = words(sentence);
+      if (own.some(word => ["вы", "вас", "вам", "ваш", "ваша", "ваше", "ваши"].includes(word))) continue;
+      const past = own.find(word => /(?:лся|лась|ёл|ел|ал|ил|ыл|ял|ол|ул|ла)$/u.test(word) && word.length >= 4 && !["могла", "стола", "села", "дела", "пола"].includes(word));
+      if (past) return past;
+    }
     // 2nd person singular present/future: «хочешь», «рассчитываешь», «можешь», «ищешь», «звонишь» (and reflexive «-ешься»).
     const verb = list.find(word => /(?:ешь|ёшь|ишь|ешься|ёшься|ишься)$/u.test(word) && !RU_NOT_VERBS.has(word));
     if (verb) return verb;
@@ -61,7 +77,9 @@ export function informalAddress(text: string, language: "ru" | "tg"): string | n
   const found = phrase(INFORMAL_TG_PRONOUNS) ?? phrase(INFORMAL_TG_IMPERATIVES) ?? phrase(INFORMAL_TG_VERBS) ??
     phrase(TG_PAST_STEMS.flatMap(stem => [`${stem}ӣ`, `на${stem}ӣ`]));
   if (found) return found;
-  return list.find(word => /^(?:на)?ме\p{L}{2,}ӣ$/u.test(word) && !TG_ME_NOT_VERBS.test(word.replace(/^на/u, ""))) ??
+  // «-ӣ», or «-и» when the word has no Tajik letter at all (typed without them: «мехари», «дори»).
+  const secondSingular = (word: string) => /ӣ$/u.test(word) || /и$/u.test(word) && !/[ӣӯҳҷқғ]/u.test(word);
+  return list.find(word => /^(?:на)?ме\p{L}{2,}$/u.test(word) && secondSingular(word) && !TG_ME_NOT_VERBS.test(word.replace(/^на/u, ""))) ??
     // Subjunctive «би-…-ӣ» («бигӯӣ», «бихарӣ»).
     list.find(word => /^би\p{L}{2,}ӣ$/u.test(word)) ?? null;
 }
@@ -130,18 +148,83 @@ export const SERVICE_CLAIM_SOURCE = `${BW}(?:${[
   "к\\s+сожалению", "увы", "жаль", "мутаассифона", `афсӯс${TAIL}`, "хушбахтона", "к\\s+счастью", `новост${TAIL}`, "хушхабар",
 ].join("|")})${EW}`;
 
-/** Topic words of each question the model may word itself; they are allowed in THAT question only (cut out before the claim check). */
-export const ASK_TOPIC_SOURCES = {
-  budget: `${BW}(?:бюджет${TAIL}|сумм${TAIL}|маблағ${TAIL}|рассчитыва${TAIL}|потратить|пул|пули|цен${TAIL}|стоимост${TAIL}|нарх${TAIL}|деньг${TAIL})${EW}`,
-  location: `${BW}(?:район${TAIL}|ноҳия${TAIL}|мавзе${TAIL}|тараф${TAIL}|шаҳр${TAIL}|город${TAIL}|микрорайон${TAIL}|мкр|где|куда|куҷо|кучо|қисм${TAIL}|ҷой${TAIL})${EW}`,
-  rooms: `${BW}(?:\\p{L}*комнат${TAIL}|ҳуҷра${TAIL}|хонаг${TAIL})${EW}`,
-  name: `${BW}(?:зовут|имя|имени|обращаться|ном|номи|номатон|номаш)${EW}`,
-  callback_consent: `${BW}(?:занг\\s+занад|занг\\s+занем|(?:по|пере)?звон${TAIL}|созвон${TAIL}|занг${TAIL})${EW}`,
-  role: `${BW}(?:купить|продать|покупк${TAIL}|продаж${TAIL}|харид${TAIL}|фурӯш${TAIL}|фурӯхтан|мехаред|мефурӯшед)${EW}`,
-  // «недвижимость» is in both the role and the topic template question: it names neither, so it is neutral.
-  topic: `${BW}(?:работ${TAIL}|кор|вакан${TAIL}|ҷои\\s+кор)${EW}`,
+/** The question kinds a model may word itself (from an approved list only, APPROVED_ASKS below). */
+export const CUSTOMER_AGENT_ASK_KINDS = ["budget", "location", "rooms", "name", "callback_consent", "role", "topic"] as const;
+export type CustomerAgentAskKind = typeof CUSTOMER_AGENT_ASK_KINDS[number];
+
+// ── ALLOWLIST for the model's human words (review #211, round 2: a blacklist cannot be closed) ───────────────────────────
+/**
+ * The ONLY words a model `lead` / `close` may consist of: greeting, acknowledgement, empathy, thanks, apology and a soft lead-in.
+ * Tajik from the `tajik-phrasebook` skill (greetings-politeness.md, live-agent-phrases.md: literary spelling, «шумо»), Russian the
+ * same meanings. Exact word forms (inflections listed), lower case, «ё» read as «е». No noun of an object, no verb of an action,
+ * no yes/no, no number, no place: a fact cannot be built from these words, so a new synonym cannot slip through.
+ * `warm` words are not allowed next to a refusal / sold / unavailable line (a neutral lead only there).
+ */
+export const HUMAN_VOCABULARY = {
+  ru: {
+    greeting: ["здравствуйте", "добрый", "доброе", "день", "вечер", "утро"],
+    neutral: ["понимаю", "понял", "поняла", "понятно", "ясно", "спасибо", "благодарю", "извините", "простите", "прошу", "прощения",
+      "вы", "вас", "вам", "ваш", "ваша", "ваше", "вашу", "ваши", "вашего", "вашей", "вашему", "вашим", "за", "что", "и", "по", "о",
+      "вопрос", "вопросу", "вопросе", "сообщение", "сообщению", "ответ", "ожидание", "терпение", "задержку", "долгий", "долгое",
+      "написали", "обратились", "ждать", "пришлось", "вот", "могу", "сказать", "информация", "этому", "поводу", "это", "ответить"],
+    warm: ["хорошо", "рады", "рад", "рада", "приятно", "очень", "всего", "доброго", "хорошего", "дня", "вечера"],
+  },
+  tg: {
+    greeting: ["ассалому", "алайкум", "алейкум", "ваалайкум", "ассалом", "салом", "субҳ", "рӯз", "шом", "ба", "хайр", "хуш", "омадед"],
+    neutral: ["фаҳмидам", "раҳмат", "ташаккур", "ташаккури", "зиёд", "бубахшед", "мебахшед", "барои", "ки", "навиштед", "шумо", "шуморо",
+      "ба", "аз", "бо", "дар", "бораи", "саволатон", "саволи", "паёматон", "паёми", "таваҷҷуҳ", "сабр", "таъхир", "интизор", "шудед",
+      "кардед", "ин", "инак", "маълумот", "ҷавоб"],
+    warm: ["хуб", "майлаш", "саломат", "бошед", "барори", "кор", "рӯзи", "хуш"],
+  },
 } as const;
-export type CustomerAgentAskKind = keyof typeof ASK_TOPIC_SOURCES;
-export const CUSTOMER_AGENT_ASK_KINDS = Object.keys(ASK_TOPIC_SOURCES) as CustomerAgentAskKind[];
-/** A consent question must ASK for consent, never announce the call («Сотрудник позвонит вам, хорошо?»). */
-export const CALLBACK_CONSENT_ASK_SOURCE = `${BW}(?:хотите|хотели|удобно|можно|не\\s+против|согласны|мехоҳед|мумкин|розӣ|майл\\s+доред)${EW}`;
+const vocabularyNormal = (word: string) => word.normalize("NFKC").toLowerCase().replace(/ё/gu, "е");
+const VOCAB = Object.fromEntries((["ru", "tg"] as const).map(language => {
+  const v = HUMAN_VOCABULARY[language];
+  return [language, { neutral: new Set([...v.greeting, ...v.neutral].map(vocabularyNormal)), all: new Set([...v.greeting, ...v.neutral, ...v.warm].map(vocabularyNormal)) }];
+})) as Record<"ru" | "tg", { neutral: Set<string>; all: Set<string> }>;
+/** The first word of a lead / close that is not in the vocabulary of its language (or a warm word where only a neutral lead fits). */
+export function outsideHumanVocabulary(text: string, language: "ru" | "tg", neutralOnly = false): string | null {
+  const allowed = VOCAB[language][neutralOnly ? "neutral" : "all"];
+  // A hyphen never glues an unknown part to a known one («Скажи-ка», «Бигӯ-чӣ»): every part is a word of its own.
+  const parts = vocabularyNormal(text).match(/\p{L}+/gu) ?? [];
+  for (const [index, word] of parts.entries()) {
+    if (!allowed.has(word)) return word;
+    // «хайр» alone is «нет» / «ладно»: only inside «… ба хайр».
+    if (word === "хайр" && parts[index - 1] !== "ба") return word;
+  }
+  return null;
+}
+
+/**
+ * The ONLY questions a model `ask` may be: approved wordings per question kind (ru / tg), or nothing (the template question stays).
+ * No free paraphrase: «…позвонил вам прямо сейчас?», «…или написал?», «позвонить вашему мужу?», «в каком городе?» cannot exist.
+ * The call question and the name question are consent / identity records, so their list is the strictest (review #211, round 2).
+ */
+export const APPROVED_ASKS: Record<"ru" | "tg", Record<CustomerAgentAskKind, readonly string[]>> = {
+  ru: {
+    budget: ["Какой бюджет вы рассматриваете?", "На какую сумму вы рассчитываете?", "Подскажите, на какую сумму вы рассчитываете?", "Какой у вас бюджет?"],
+    location: ["Какой район вам подходит?", "В каком районе вам было бы удобнее?", "Подскажите, в каком районе вам удобнее?", "Какой район вы рассматриваете?"],
+    rooms: ["Сколько комнат вам нужно?", "Сколько комнат вы рассматриваете?", "Подскажите, сколько комнат вам нужно?"],
+    name: ["Как к вам обращаться?", "Как я могу к вам обращаться?", "Подскажите, как к вам обращаться?", "Как вас зовут?"],
+    callback_consent: ["Вы хотите, чтобы сотрудник вам позвонил?", "Хотите, чтобы сотрудник вам позвонил?", "Хотите, чтобы наш сотрудник вам позвонил?"],
+    role: ["Вы хотите купить или продать недвижимость?", "Подскажите, вы хотите купить или продать недвижимость?", "Вы хотите купить или продать?"],
+    topic: ["Вы хотите узнать о недвижимости или о работе?", "Вас интересует недвижимость или работа?"],
+  },
+  tg: {
+    budget: ["Чӣ қадар маблағ дар назар доред?", "Бемалол бигӯед, чӣ қадар маблағ дар назар доред?"],
+    location: ["Кадом тарафи шаҳрро мехоҳед?", "Кадом ноҳия ба шумо мувофиқ аст?", "Дар кадом ноҳия бошад, беҳтар аст?"],
+    rooms: ["Чанд ҳуҷра?", "Чанд ҳуҷра лозим аст?"],
+    name: ["Номи шумо чист?", "Номатон чист?"],
+    callback_consent: ["Мехоҳед корманд ба шумо занг занад?", "Мехоҳед, ки корманд ба шумо занг занад?", "Мехоҳед, ки корманди мо ба шумо занг занад?"],
+    role: ["Шумо хона мехаред ё мефурӯшед?", "Шумо хона харидан мехоҳед ё фурӯхтан?"],
+    topic: ["Шумо дар бораи хона маълумот мехоҳед ё дар бораи кор?"],
+  },
+};
+const askKey = (text: string) => vocabularyNormal(text).replace(/[.,!«»"':;]/gu, " ").replace(/\s+/gu, " ").replace(/\s+\?/gu, "?").trim();
+const ASK_INDEX = new Map<string, { kind: CustomerAgentAskKind; language: "ru" | "tg" }>((["ru", "tg"] as const).flatMap(language =>
+  (Object.entries(APPROVED_ASKS[language]) as [CustomerAgentAskKind, readonly string[]][]).flatMap(([kind, list]) =>
+    list.map(text => [askKey(text), { kind, language }] as const))));
+/** The kind of an approved question wording (any punctuation inside, one «?» at the end), or null. */
+export function approvedAsk(text: string): { kind: CustomerAgentAskKind; language: "ru" | "tg" } | null {
+  return /[?]\s*$/u.test(text) && (text.match(/[?]/gu)?.length ?? 0) === 1 ? ASK_INDEX.get(askKey(text)) ?? null : null;
+}

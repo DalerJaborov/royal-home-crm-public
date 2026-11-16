@@ -42,7 +42,7 @@ export const customerAgentAnswerPartsSchema = z.object({ lead: answerPart, ask: 
 const answer = customerAgentAnswerPartsSchema.optional();
 /** Why the model's words did not reach the customer. `shadow`: verified, but the mode only counts it. `error`: the verifier threw (a bug; the template went out). */
 export const customerAgentAnswerDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "not_eligible", "template_payload", "length", "wooden", "rude",
-  "meta", "cliche", "question", "phone_ask", "promise", "claim", "number", "currency", "missing_fact", "place", "language", "repeat", "echo", "double_greet", "shadow", "error"]);
+  "meta", "cliche", "question", "phone_ask", "promise", "claim", "number", "currency", "missing_fact", "place", "language", "repeat", "echo", "double_greet", "shadow", "error", "vocabulary"]);
 export type CustomerAgentAnswerDropReason = z.infer<typeof customerAgentAnswerDropReasonSchema>;
 export const customerAgentSayModeSchema = z.enum(["shadow", "live"]);
 export type CustomerAgentSayMode = z.infer<typeof customerAgentSayModeSchema>;

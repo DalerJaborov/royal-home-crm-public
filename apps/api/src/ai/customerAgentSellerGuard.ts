@@ -24,14 +24,21 @@ const COMMISSION_ASK = new RegExp(`${BW}(?:комисс\\p{L}*|процент\\p
  */
 const TERMS_ASK = new RegExp(`${BW}(?:шарт\\p{L}*|шароит\\p{L}*|услови\\p{L}*)${EW}`, "u");
 const NOT_TERMS = new RegExp(`${BW}(?:ипотек\\p{L}*|кредит\\p{L}*|рассроч\\p{L}*|насия\\p{L}*|карз\\p{L}*|кисм\\p{L}*|скидк\\p{L}*|тахфиф\\p{L}*|аренд\\p{L}*|ичора\\p{L}*|кироя\\p{L}*)${EW}`, "u");
-/** The customer's words ask what the agency takes (one detector for the server read and the seller guard). */
-function asksTerms(text: string): boolean {
+/** A QUESTION, not a description: «все условия есть», «ҳама шароит дорад», «шароиташ хуб» describe the flat (re-review #211, п.7). */
+const ASKING_TERMS = new RegExp(`${BW}(?:какие|какая|какой|каковы|каков|сколько|чи|чанд|кадом|расскажите|подскажите|скажите|бигуед|интересует|узнать|донам|гуна)${EW}`, "u");
+/** The customer ASKS what the agency takes (one detector for the server read and the seller guard). */
+function asksTermsQuestion(text: string): boolean {
   const words = foldCustomerText(text);
-  return (COMMISSION_ASK.test(words) || TERMS_ASK.test(words)) && !NOT_TERMS.test(words) && !customerRecruitmentRequested(text);
+  return (COMMISSION_ASK.test(words) || TERMS_ASK.test(words)) && (/[?؟]/u.test(text) || ASKING_TERMS.test(words)) &&
+    !NOT_TERMS.test(words) && !customerRecruitmentRequested(text);
+}
+/** The commission was asked about (the older, wider reading: «комиссия 2% устроит» keeps a commission answer the model chose). */
+function asksTerms(text: string): boolean {
+  return COMMISSION_ASK.test(foldCustomerText(text)) || asksTermsQuestion(text);
 }
 /** A seller (this turn or the remembered intake) asks about the agency's terms: the server reads the commission itself. */
 export function customerSellerAskedTerms(input: { inputText: string; verifiedContext?: Pick<CustomerAgentVerifiedContext, "intake" | "turns"> }): boolean {
-  if (!asksTerms(input.inputText)) return false;
+  if (!asksTermsQuestion(input.inputText)) return false;
   const prior = input.verifiedContext?.intake;
   const recent = customerAgentIntake(prior ? [] : input.verifiedContext?.turns ?? [], input.inputText, prior?.role);
   return (recent.role !== "unknown" ? recent.role : prior?.role) === "seller";

@@ -91,22 +91,22 @@ describe("review #211 probe: every inverted or invented fact falls back to the t
     expect(reasonOf({ lead: "Очень приятно, фаҳмидам." }, { language: "tg", inputText: "Нархи объекти 123 чанд?", requestedFacts: ["price"], d: reply(["e0"]), evidence: price })).toBe("language");
     expect(reasonOf({ lead: "Рахмат, понял вас.", ask: "Сколько комнат вам нужно?" }, ask("rooms"))).toBe("language");
   });
-  it("A7/A7b/B5: Russian «ты» verbs and imperatives → rude", () => {
-    expect(reasonOf({ lead: "Понял.", ask: "Сколько комнат хочешь?" }, ask("rooms"))).toBe("rude");
-    expect(reasonOf({ lead: "Понял.", ask: "Подскажи, сколько комнат нужно?" }, ask("rooms"))).toBe("rude");
-    expect(reasonOf({ lead: "Понятно.", ask: "На какую сумму рассчитываешь?" }, ask("budget"))).toBe("rude");
+  it("A7/A7b/B5: Russian «ты» verbs and imperatives are not approved question wordings → template", () => {
+    expect(reasonOf({ lead: "Понял.", ask: "Сколько комнат хочешь?" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ lead: "Понял.", ask: "Подскажи, сколько комнат нужно?" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ lead: "Понятно.", ask: "На какую сумму рассчитываешь?" }, ask("budget"))).toBe("question");
   });
-  it("A8/B6: Tajik «-ӣ» verbs and imperatives → rude", () => {
-    expect(reasonOf({ lead: "Фаҳмидам.", ask: "Бигӯ, чӣ қадар маблағ дорӣ?" }, ask("budget", "tg"))).toBe("rude");
-    expect(reasonOf({ lead: "Фаҳмидам.", ask: "Чанд пул дорӣ, бигӯ?" }, ask("budget", "tg"))).toBe("rude");
+  it("A8/B6: Tajik «-ӣ» verbs and imperatives are not approved question wordings → template", () => {
+    expect(reasonOf({ lead: "Фаҳмидам.", ask: "Бигӯ, чӣ қадар маблағ дорӣ?" }, ask("budget", "tg"))).toBe("question");
+    expect(reasonOf({ lead: "Фаҳмидам.", ask: "Чанд пул дорӣ, бигӯ?" }, ask("budget", "tg"))).toBe("question");
   });
 });
 
 describe("the human part around verbatim facts: warm replies go out", () => {
   it("commission: the template line stays exactly as the server wrote it, the model words only frame it", () => {
     const tpl = template(commissionRu)!.split("\n");
-    const v = verdict({ lead: "Понимаю вас.", ask: "Вы хотели бы купить или продать недвижимость?" }, commissionRu);
-    expect(v).toEqual({ ok: true, asked: "role", text: ["Понимаю вас.", ...tpl.slice(0, -1), "Вы хотели бы купить или продать недвижимость?"].join("\n") });
+    const v = verdict({ lead: "Понимаю вас.", ask: "Вы хотите купить или продать?" }, commissionRu);
+    expect(v).toEqual({ ok: true, asked: "role", text: ["Понимаю вас.", ...tpl.slice(0, -1), "Вы хотите купить или продать?"].join("\n") });
     expect(tpl.slice(0, -1).join("\n")).toContain(`${knowledge.commission.sellerPercent}%`);
   });
   it("price: lead + verbatim price line; zone and rent keep the server's refusal or area line", () => {
@@ -138,8 +138,10 @@ describe("the human part around verbatim facts: warm replies go out", () => {
     expect(reasonOf({ lead: "Здравствуйте!" }, ask("rooms"))).toBe("double_greet");
   });
   it("close only when nothing is asked; an ask only where the server asks", () => {
-    expect(rendered({ close: "Будем рады вашему решению." }, priceRu)).toBe(`${template(priceRu)}\nБудем рады вашему решению.`);
-    expect(reasonOf({ close: "Будем рады вашему решению." }, ask("rooms"))).toBe("question");
+    expect(rendered({ close: "Хорошего дня!" }, priceRu)).toBe(`${template(priceRu)}\nХорошего дня!`);
+    // Next to a sold object: no close at all (no warmth after «уже продан»).
+    expect(reasonOf({ close: "Хорошего дня!" }, { ...priceRu, evidence: [{ ref: "e0", value: { kind: "facts", facts: facts({ availability: "SOLD" }), kinds: ["price"] } }] })).toBe("vocabulary");
+    expect(reasonOf({ close: "Хорошего дня!" }, ask("rooms"))).toBe("question");
     expect(reasonOf({ ask: "Сколько комнат вам нужно?" }, priceRu)).toBe("question");
     expect(reasonOf({ ask: "Какой район вам нужен и сколько комнат?" }, ask("rooms"))).toBe("question");
     expect(reasonOf({ ask: "Как вас зовут?" }, ask("rooms"))).toBe("question");
@@ -211,9 +213,9 @@ describe("the model's sent words stay in the dialogue memory (review #211, п.5)
     expect(customerAgentAskKindOf("В каком районе вам было бы удобнее?")).toBe("location");
   });
   it("two live turns: the second identical lead is a repeat once the first one is remembered", () => {
-    const lead = "Понимаю вас, давайте разберёмся.";
-    const first = rendered({ lead, ask: "Сколько комнат вам было бы удобно?" }, ask("rooms"))!;
-    expect(first).toBe(`${lead}\nСколько комнат вам было бы удобно?`);
+    const lead = "Спасибо, что написали.";
+    const first = rendered({ lead, ask: "Сколько комнат вы рассматриваете?" }, ask("rooms"))!;
+    expect(first).toBe(`${lead}\nСколько комнат вы рассматриваете?`);
     const remembered = customerAgentMemoryText(first, new Set());
     expect(remembered).toBe(first);
     // Before review #211 the memory dropped the whole turn (no template line), so the same words passed again.

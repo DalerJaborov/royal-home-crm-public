@@ -216,6 +216,7 @@ export const GUARD_LABELS: Record<GuardName, string> = {
   answer_dropped_double_greet: "Ответ модели не отправлен: второе приветствие",
   answer_dropped_shadow: "Ответ модели годный, но режим «тень» его не отправил",
   answer_dropped_error: "Ответ модели не отправлен: ошибка проверки (ушёл шаблон)",
+  answer_dropped_vocabulary: "Ответ модели не отправлен: слово не из утверждённого словаря или радость рядом с отказом",
 };
 
 export function guardFired(name: GuardName, times = 1): void {
