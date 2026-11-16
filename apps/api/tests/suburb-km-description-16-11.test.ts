@@ -100,6 +100,14 @@ describe("место объекта за городом по-прежнему в
     expect(textMentionsSuburb("квартира на Гиссарской улице")).toBe(false);
   });
 
+  it("Вахдатская улица и «ул. Вахдат» в адресе и заголовке, «на Вахдатской улице» в запросе — город (Р-5)", () => {
+    expect(propertyOutsideServiceArea({ address: "Вахдатская улица 5", district: { name: "Сино" } })).toBe(false);
+    expect(propertyOutsideServiceArea({ title: "2-комн, ул. Вахдат", district: { name: "Сино" } })).toBe(false);
+    expect(textMentionsSuburb("квартира на Вахдатской улице")).toBe(false);
+    // Город Вахдат в адресе — по-прежнему загород.
+    expect(propertyOutsideServiceArea({ address: "г. Вахдат, кишлак", district: { name: "Сино" } })).toBe(true);
+  });
+
   it("адрес «ул. Дачная 5» — город; «дачный посёлок» в адресе — загород (Р-3)", () => {
     expect(propertyOutsideServiceArea({ address: "ул. Дачная 5", district: { name: "Сино" } })).toBe(false);
     expect(propertyOutsideServiceArea({ address: "Дачная 12", district: { name: "Сино" } })).toBe(false);
