@@ -37,7 +37,9 @@ import { SettingsSection, SettingsGroupLabel } from "../../components/settings/S
 import { pcmBase64ToWavUrl } from "../../lib/pcmToWav";
 import { SecretKeyEditor } from "../../components/SecretKeyEditor";
 import { useAgents } from "../../hooks/useAgents";
+import { useCan } from "../../lib/permissions";
 import { useConnectAds, useDisconnectAds } from "../../hooks/useAds";
+
 import { useConnectTikTok, useDisconnectTikTok, useTikTokCreatorInfo } from "../../hooks/useTikTok";
 import { useConnectThreads, useDisconnectThreads, useThreadsProfile } from "../../hooks/useThreads";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -73,7 +75,11 @@ import { OpenAiCoversSection } from "./OpenAiCoversSection";
 import { NarrationSettingsPanel } from "../../components/settings/NarrationSettingsPanel";
 import { ReelsAutoBoostSection } from "./ReelsAutoBoostSection";
 
+/** Подключать и отключать каналы компании может только директор (замок прав 16.11.2026): остальным кнопки не показываем. */
+const hideUnlessDirector = (allowed: boolean) => (allowed ? undefined : { display: "none" as const });
+
 export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "advertising" | "phone" } = {}) {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   // silent: SecretKeyEditor ниже сам показывает «Ключ сохранён»/ошибку под полем —
@@ -353,7 +359,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
               копировать и вставлять ничего не нужно.
             </span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             {settings?.metaAdsConfigured && (
               <button
                 className="pill ghost sm"
@@ -867,6 +873,7 @@ const TIKTOK_PRIVACY_LABELS: Record<string, string> = {
  * нет отдельной кнопки «Сохранить» под блоком «Как публиковать».
  */
 function TikTokChannelSection() {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const updateSecretKey = useUpdateSettings({ silent: true });
@@ -961,7 +968,7 @@ function TikTokChannelSection() {
               Нужен бизнес-аккаунт @royal.home.tjk — войдите под ним в окне TikTok, которое откроет кнопка.
             </span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             <button
               className="pill sm"
               type="button"
@@ -1002,7 +1009,7 @@ function TikTokChannelSection() {
                   : ""}
               </span>
             </div>
-            <div className="acts">
+            <div className="acts" style={hideUnlessDirector(canChannels)}>
               <button className="pill ghost sm" type="button" onClick={() => setConfirmingDisconnect(true)}>
                 Отключить
               </button>
@@ -1129,6 +1136,7 @@ function TikTokChannelSection() {
  * Threads их не спрашивает, договор задания это подтверждает.
  */
 function ThreadsChannelSection() {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const updateSecretKey = useUpdateSettings({ silent: true });
@@ -1222,7 +1230,7 @@ function ThreadsChannelSection() {
             <b>Аккаунт не подключён</b>
             <span style={{ whiteSpace: "normal" }}>Аккаунт Threads, привязанный к нашему Instagram.</span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             <button
               className="pill sm"
               type="button"
@@ -1254,7 +1262,7 @@ function ThreadsChannelSection() {
                   : ""}
               </span>
             </div>
-            <div className="acts">
+            <div className="acts" style={hideUnlessDirector(canChannels)}>
               <button className="pill ghost sm" type="button" onClick={() => setConfirmingDisconnect(true)}>
                 Отключить
               </button>

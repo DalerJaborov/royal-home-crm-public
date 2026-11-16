@@ -6587,7 +6587,7 @@
       },
       {
        "k": "if",
-       "t": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\")",
+       "t": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
        "a": [],
        "c": [
         {

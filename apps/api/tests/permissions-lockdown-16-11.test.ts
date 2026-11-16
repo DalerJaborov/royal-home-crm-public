@@ -43,10 +43,10 @@ describe("номера телефонов — только директору (�
 });
 
 describe("опасные права РОП и маркетинга сняты из пресетов", () => {
-  it("РОП: нет правки чужих карточек и звука звонков, работа продаж цела", () => {
+  it("РОП: нет правки чужих карточек, но слышит звонки; работа продаж цела", () => {
     const p = resolvePermissions("HEAD_OF_SALES", null);
     expect(p.has("properties.editForeign")).toBe(false);
-    expect(p.has("calls.hearRecording")).toBe(false);
+    expect(p.has("calls.hearRecording")).toBe(true);
     expect(p.has("deals.complete")).toBe(true);
   });
   it("маркетинг: нет выгрузки, расшифровок и звука; фото и видео по-прежнему ведёт", () => {
@@ -178,5 +178,18 @@ describe("маркетинг не меняет цену чужого объек�
       .send({ price: 1 });
     expect(res.status).toBe(403);
     expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price.toString()).toBe("100000");
+  });
+});
+
+describe("РОП видит историю чужого объекта (разбор случаев)", () => {
+  it("GET истории чужого объекта — 200", async () => {
+    const property = await prisma.property.create({
+      data: { title: `История замок ${runId}`, type: "APARTMENT", areaSqm: 50, price: 100000, currency: "TJS", districtId,
+        address: "Тестовая, история", condition: "GOOD", status: "AVAILABLE", assignedAgentId: directorId },
+    });
+    propertyIds.push(property.id);
+    const res = await request(app).get(`/api/v1/audit-log?entityType=Property&entityId=${property.id}`)
+      .set("Authorization", `Bearer ${ropToken}`);
+    expect(res.status).toBe(200);
   });
 });

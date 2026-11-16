@@ -583,8 +583,8 @@ describe("роли SHAREHOLDER и HEAD_OF_SALES — пресеты и конст
     ]) {
       expect(rop.has(id), id).toBe(true);
     }
-    // 16.11.2026: номера только директору, чужие карточки — заявкой, звук звонков закрыт.
-    for (const id of ["clients.viewPhone", "properties.viewOwners", "properties.editForeign", "calls.hearRecording"]) {
+    // 16.11.2026: номера только директору, чужие карточки — заявкой; звонки РОП слушает (решение владельца, 16.11).
+    for (const id of ["clients.viewPhone", "properties.viewOwners", "properties.editForeign"]) {
       expect(rop.has(id), id).toBe(false);
     }
     for (const id of [

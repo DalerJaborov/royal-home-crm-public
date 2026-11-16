@@ -17,9 +17,9 @@
   "cron": 138,
   "jobs": 33,
   "conditions": 4069,
-  "untranslatedUnique": 466,
-  "untranslatedTotal": 597,
-  "partialUnique": 1107,
+  "untranslatedUnique": 467,
+  "untranslatedTotal": 598,
+  "partialUnique": 1106,
   "translatedShare": 85
  },
  "untranslated": [
@@ -93,6 +93,7 @@
   "!idSchema.safeParse(req.params.receiptId).success",
   "!identity.username?.trim()",
   "!isLastPart && body.length !== session.partSize",
+  "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
   "!isTelegram && \"accountId\" in conv && conv.accountId",
   "!key || !narrationProviderReady(config, key)",
   "!known && !fbAccount && settings?.metaPageId !== params.data.pageId",
@@ -13343,7 +13344,7 @@
        ]
       },
       {
-       "t": "если нет: is responsible и нет: право «properties.viewOwners» и нет: право «properties.editForeign»",
+       "t": "если !isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
        "k": "if",
        "a": [],
        "c": [
@@ -13353,7 +13354,8 @@
          "a": [],
          "c": []
         }
-       ]
+       ],
+       "raw": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…"
       }
      ]
     },

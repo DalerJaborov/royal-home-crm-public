@@ -1504,7 +1504,7 @@
   - если !property
     - return res.status(404).json({ error: "Объект не найден" });
       · ответ 404 — «Объект не найден»
-  - если !isResponsible && !can(req, "properties.viewOwners") && !can(req, "properties.editForeign")
+  - если !isResponsible && !can(req, "properties.viewOwners") && !can(req, "properties.editForeign") && !can(req, "pro…
     - return res.status(403).json({ error: "Недостаточно прав" });
       · ответ 403 — «Недостаточно прав»
 - const privateLessonIds = await privateLessonAuditIds(investigationViewerRole(req));

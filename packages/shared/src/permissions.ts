@@ -672,6 +672,7 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
     "otherInquiries.view",
     "messages.view",
     "calls.transcripts",
+    "calls.hearRecording",
     "properties.moderate",
   ],
 };
