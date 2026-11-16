@@ -1,3 +1,4 @@
+import { OUTSIDE_AREA_STAFF_NOTE } from "../lib/serviceArea.js";
 import { clientKindFromCategory, type ClientKind } from "@royal-home/shared";
 import { guardFired } from "./guardMetrics.js";
 import { detectOutsideCoverage } from "./coverageGuard.js";
@@ -182,7 +183,7 @@ export function decideLeadKind(input: LeadKindInput): LeadKindDecision {
   if (input.locationOutsideDushanbe) {
     return {
       kind: "OTHER",
-      label: "🏷 ПРОДАЖА ВНЕ ДУШАНБЕ — объект не в городе, мы работаем только по Душанбе",
+      label: `🏷 ПРОДАЖА ВНЕ ДУШАНБЕ — ${OUTSIDE_AREA_STAFF_NOTE}`,
       reason: "объект вне Душанбе",
     };
   }

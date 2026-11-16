@@ -4960,6 +4960,10 @@ model Interaction {
   buyerIntentAtCreation Boolean?
   /// Private investigation evidence; excluded from ordinary activity and timeline reads.
   investigationOnly Boolean @default(false)
+  /// Звонок руководителя клиенту ИЗ КОРЗИНЫ — «разбор удалённого клиента» (16.11.2026).
+  /// Не рабочий звонок агента: не идёт в счёт звонков, Royal Score, штрафы, статусы и задачи
+  /// карточки (см. lib/archiveReviewCall.ts). Пишется только через lib/timeline.ts.
+  archiveReview Boolean @default(false)
   id                     String              @id @default(uuid())
   customerBookingActionId String? @unique
   customerBookingAction CustomerAction? @relation(fields: [customerBookingActionId], references: [id], onDelete: Restrict)
@@ -5997,7 +6001,27 @@ model Settings {
   botWhatsappEnabled                Boolean   @default(true)
   botInstagramEnabled               Boolean   @default(true)
   botFacebookEnabled                Boolean   @default(true)
+  /// СВЕРКА ПЕРЕПИСОК С META (15.11.2026, lib/metaInboxReconcile.ts): сообщение, которое
+  /// видно в Messenger Страницы / Direct Instagram, но не дошло до CRM вебхуком, — пуш
+  /// «Ответьте вручную» тем, кто читает переписки. Свой рубильник у каждой площадки
+  /// (правило владельца). Включены: пушей единицы в день (Arvan Messenger ~4 чел./сутки).
+  messengerInboxReconcileEnabled    Boolean   @default(true)
+  instagramInboxReconcileEnabled    Boolean   @default(true)
   botTelegramEnabled                Boolean   @default(true)
+  /// СТОРОЖ «TELEGRAM: КЛИЕНТ БЕЗ ОТВЕТА» (15.11.2026, lib/clientWaitingAlert.ts):
+  /// реплика клиента в Telegram-боте или Telegram Direct без ответа дольше 30 минут —
+  /// пуш ответственному через ту же дверь, что у Meta. Включён: переписок в Telegram
+  /// единицы в неделю, массовых пушей не бывает.
+  telegramSilenceWatchEnabled       Boolean   @default(true)
+  /// СТОРОЖ «TELEGRAM НЕ ДОСТАВЛЯЕТ В CRM» (15.11.2026, lib/telegramDeliveryWatch.ts):
+  /// getWebhookInfo — вебхук не установлен, свежая ошибка доставки, очередь копится —
+  /// тревога руководству. Включён: пушей сотрудникам нет.
+  telegramDeliveryWatchEnabled      Boolean   @default(true)
+  /// СТОРОЖ «ВЕБХУК WHATSAPP ЗАМОЛЧАЛ» (15.11.2026, lib/whatsappWebhookWatch.ts):
+  /// входящие WhatsApp Meta отдаёт только вебхуком, сверить их не с чем. Номер жив,
+  /// а входящих в рабочие часы нет дольше обычного — тревога руководству в «Здоровье
+  /// системы» (не пуш сотрудникам). Включён.
+  whatsappWebhookWatchEnabled       Boolean   @default(true)
   /// ЧАТ НА САЙТЕ (23.08.2026) — виджет в углу royalhome.tj, тот же бот, что и в
   /// мессенджерах (см. messengers/websiteChat.ts). Отдельный рубильник, а не общий
   /// с каналами Meta: у сайта нет ни ключей, ни транспорта, гасить его приходится
@@ -7104,6 +7128,11 @@ model Settings {
   /// и остальные новые возможности этого блока (см. ALL_ENABLED в
   /// messengers/botCapabilities.ts, showings/showingConfirmations рядом).
   botCanSendVoiceReplies            Boolean   @default(false)
+  /// СКЛЕИВАТЬ БЫСТРЫЕ ДУБЛИ (15.11.2026, живой чат Instagram: клиентка с карточкой дважды за 3,5 с
+  /// написала «хочу продать квартиру» и получила два разных ответа). Включено — сообщения клиента с
+  /// карточкой ждут 6 с и отвечаются одним ходом (+6 с к ответу); выключено — как раньше, сразу.
+  /// ВКЛЮЧЕНО по умолчанию: владелец 15.11.2026 «Да, 6 секунд можно» (отменяет 19.08 «сразу» только для склейки).
+  botMergeQuickRepeats              Boolean   @default(true)
   /// РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (владелец 12–13.11.2026). Бот в WhatsApp/Instagram/
   /// Facebook — вежливый администратор: коротко отвечает, берёт заявку и передаёт
   /// агенту. Подборок, фото, видео, ссылок и карточек не шлёт ни один из двух

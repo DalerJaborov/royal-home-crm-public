@@ -13,7 +13,7 @@ const reason = "PRIVATE_REASON_CANARY: исправление подтвержд
 const password = "manual-correction-test-password";
 beforeAll(async () => {
   const hash = await bcrypt.hash(password, 4);
-  for (const role of ["ADMIN", "AGENT"] as const) {
+  for (const role of ["DIRECTOR", "AGENT"] as const) {
     const phone = `manual-correction-${randomUUID()}`;
     const actor = await prisma.agent.create({ data: { fullName: `Synthetic correction ${role}`, phone, passwordHash: hash, role } });
     actors.push(actor.id);
@@ -92,9 +92,9 @@ describe("controlled manual data correction", () => {
     await prisma.manualDataCorrection.update({ where: { id: expired.id }, data: { createdAt: new Date(Date.now() - 31 * 60_000) } });
     await expect(applyManualCorrection({ ...command, planId: expired.id, planHash: expired.planHash })).rejects.toThrow("истёк");
     const revoked = await planFor(client.id);
-    await prisma.agent.update({ where: { id: adminId }, data: { permissions: { granted: [], revoked: ["settings.manage"] } } });
+    await prisma.agent.update({ where: { id: adminId }, data: { isActive: false } });
     try { await expect(applyManualCorrection({ ...command, planId: revoked.id, planHash: revoked.planHash })).rejects.toThrow("администратору"); }
-    finally { await prisma.agent.update({ where: { id: adminId }, data: { permissions: {} } }); }
+    finally { await prisma.agent.update({ where: { id: adminId }, data: { isActive: true } }); }
   });
   it("server execution gate stays closed even for an authenticated administrator", async () => {
     const saved = process.env.MANUAL_DATA_CORRECTIONS_LIVE; delete process.env.MANUAL_DATA_CORRECTIONS_LIVE;

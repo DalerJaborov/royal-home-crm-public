@@ -7,7 +7,7 @@ import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { recordCustomerAgentSay } from "./customerAgentSayStats.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
-import { customerSearchContinuation, customerSearchIntent, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
+import { customerSearchContinuation, customerSearchIntent, customerSearchIntentWithKnownNeeds, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
 import { resolveSearchPlace } from "./searchPlace.js";
 import { customerPreReadWithoutShown } from "./customerSearchHistory.js";
 import { customerAffirmationFollowUp, customerBareAffirmation, customerCheaperRequested, customerCheaperSearchCall } from "../ai/customerAgentFollowUp.js";
@@ -42,6 +42,7 @@ import { customerSpamMuteGate, customerSpamTurn, SPAM_MUTED_NO_REPLY } from "../
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
+import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
 import { reconcileCustomerShowcaseReply } from "./customerShowcaseReceipt.js";
@@ -295,7 +296,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // bounded catalogue first and the model answers from the result. Only without an object in focus and with the tool's own required args.
     let searchCall: ReturnType<typeof customerSearchPreRead> = null;
     if (plainTurn && !followUp && !cheaperCall && !resolvedFocusId && !leadOnly.enabled) {
-      const intent = customerSearchIntent(fullInput(), language) ?? customerSearchContinuation(fullInput(), remembered.context.turns);
+      // What the buyer named on earlier turns (budget, rooms, district) rides into the search: the same record the intake does not ask again.
+      const knownNeeds = remembered.context.intake?.role === "buyer" ? remembered.context.intake.buyerNeeds : undefined;
+      const intent = customerSearchIntentWithKnownNeeds(
+        customerSearchIntent(fullInput(), language) ?? customerSearchContinuation(fullInput(), remembered.context.turns), knownNeeds);
       if (intent) {
         let placeDistrict: string | undefined;
         if (!intent.districtName && intent.placeText) {
@@ -596,6 +600,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal, agentClaim: claim,
         parts: [textPart], receiptAuthorities: mutations.receiptAuthorities }));
     }
+    // «Это скажет агент» / «агент позвонит» is only true if the responsible person learns about it now (15.11.2026): the one
+    // door alertClientWaiting (assigned agent, else management), keyed by THIS customer message, not a 6 h window.
+    // The reply is already planned; the signal never blocks it.
+    if (customerReplyCallsStaff(sealed.text)) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt);
     return { status: "planned", partIds };
   } catch (error) {
     heldCause = safeCauseCode(error);
@@ -625,4 +633,15 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     return outcome;
   });
+}
+
+/** The follow-up signal of a reply that promised an agent (15.11.2026). Exported for the class test; never throws. */
+export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number): Promise<"agent" | "director" | "skipped"> {
+  try {
+    const { alertClientWaiting } = await import("./clientWaitingAlert.js");
+    return await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs) });
+  } catch (error) {
+    console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError");
+    return "skipped";
+  }
 }

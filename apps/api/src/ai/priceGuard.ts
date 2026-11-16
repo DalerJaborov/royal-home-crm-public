@@ -121,7 +121,7 @@ function phoneRunDigits(text: string, index: number, length: number): number {
 export type PriceCurrency = "USD" | "TJS";
 
 /** Найденная в тексте цена: значение и валюта, если она названа рядом. */
-interface PriceHit {
+export interface PriceHit {
   value: number;
   currency: PriceCurrency | null;
 }
@@ -177,6 +177,11 @@ function scanPrices(text: string): PriceHit[] {
     if (value >= 1000) out.push({ value, currency: currencyAround(text, start, start + m[0].length) });
   }
   return out;
+}
+
+/** Суммы из слов клиента со своей валютой (тот же разбор, что у сверки цен: телефоны и годы мимо). */
+export function priceMentions(text: string): PriceHit[] {
+  return scanPrices(text);
 }
 
 export function extractPrices(text: string): number[] {

@@ -44,7 +44,7 @@ export const LESSON_CONFLICT_LABELS: Record<LessonConflictReason, string> = {
   owner_bargaining: "торг через встречу с собственником (торг ведёт агент)",
   discount_size: "размер скидки (называть нельзя)",
   commission: "комиссия не совпадает с фактами",
-  other_city: "другой город (работаем только по Душанбе)",
+  other_city: "другой город (работаем по Душанбе и району Рудаки)",
   unbacked_promise: "срок, которого нет в фактах",
   garbage: "мусорная строка",
 };

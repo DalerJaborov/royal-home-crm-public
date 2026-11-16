@@ -78,7 +78,8 @@ beforeAll(async () => {
   director = d.id;
   directorToken = d.token;
   // Права на разговоры робота — и текст, и звук; номер клиента видит.
-  viewerToken = (await makeAgent("viewer", "AGENT", ["settings.manage", "calls.transcripts", "calls.hearRecording", "clients.viewPhone"])).token;
+  // 16.11.2026 номера только директору: «видящий» — DIRECTOR (clients.viewPhone стало directorOnly).
+  viewerToken = (await makeAgent("viewer", "DIRECTOR", ["settings.manage", "calls.transcripts", "calls.hearRecording", "clients.viewPhone"])).token;
   // Те же права, но номера клиентов закрыты.
   blindToken = (await makeAgent("blind", "AGENT", ["settings.manage", "calls.transcripts"], ["clients.viewPhone"])).token;
   const c = await prisma.client.create({

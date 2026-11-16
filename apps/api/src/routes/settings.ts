@@ -847,6 +847,8 @@ const settingsUpdateSchema = z.object({
   botCanSendLinks: z.boolean().optional(),
   /** Режим запуска: бот отвечает ровно на спрошенное и ничего не предлагает сверх. */
   botCautiousMode: z.boolean().optional(),
+  /** Склеивать быстрые дубли клиента с карточкой: окно 6 с вместо 0 (15.11.2026, по умолчанию вкл). */
+  botMergeQuickRepeats: z.boolean().optional(),
   /** Экономия промта по намерению: подробности сценария — только тому разговору,
    *  которому они нужны. Выключено — промт собирается как раньше, побайтово. */
   botPromptIntentEconomy: z.boolean().optional(),
@@ -875,9 +877,17 @@ const settingsUpdateSchema = z.object({
   botInstagramEnabled: z.boolean().optional(),
   botFacebookEnabled: z.boolean().optional(),
   botTelegramEnabled: z.boolean().optional(),
+  /** Сторожа «никого не пропустить» (15.11.2026): Telegram без ответа 30 мин — пуш ответственному;
+   *  вебхук WhatsApp замолчал в рабочие часы — тревога руководству. */
+  telegramSilenceWatchEnabled: z.boolean().optional(),
+  telegramDeliveryWatchEnabled: z.boolean().optional(),
+  whatsappWebhookWatchEnabled: z.boolean().optional(),
   botWebsiteChatEnabled: z.boolean().optional(),
   /** Рубильник прямой интеграции с Meta (WhatsApp, Instagram, Messenger). */
   metaEnabled: z.boolean().optional(),
+  /** Сверка переписок с Meta: не дошедшее до CRM — «Ответьте вручную» (15.11.2026), по площадке. */
+  messengerInboxReconcileEnabled: z.boolean().optional(),
+  instagramInboxReconcileEnabled: z.boolean().optional(),
   /** Ключи Meta. Пустая строка — очистить и вернуться на переменную окружения. */
   metaAppSecret: secretField(500),
   /** Номер приложения Meta — нужен, чтобы обменять маркер рекламы на 60-дневный. */
@@ -1931,6 +1941,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     fields: Object.keys(parsed.data),
     ...(rest.leadDistributionStrategy !== undefined ? { leadDistributionStrategy: rest.leadDistributionStrategy } : {}),
     ...(rest.botEnabled !== undefined ? { botEnabled: rest.botEnabled } : {}),
+    // Рубильник меняет скорость ответа клиентам с карточкой: кто и когда включил — должно быть видно.
+    ...(rest.botMergeQuickRepeats !== undefined ? { botMergeQuickRepeats: rest.botMergeQuickRepeats } : {}),
     ...(rest.passkeyLoginEnabled !== undefined ? { passkeyLoginEnabled: rest.passkeyLoginEnabled } : {}),
     // Замолчавший канал выглядит как поломка («бот не отвечает в Instagram»), и
     // первым делом надо видеть, что его просто выключили — и кто именно.
@@ -1938,6 +1950,10 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...(rest.botInstagramEnabled !== undefined ? { botInstagramEnabled: rest.botInstagramEnabled } : {}),
     ...(rest.botFacebookEnabled !== undefined ? { botFacebookEnabled: rest.botFacebookEnabled } : {}),
     ...(rest.botTelegramEnabled !== undefined ? { botTelegramEnabled: rest.botTelegramEnabled } : {}),
+    // Выключенный сторож — это «клиента без ответа никто не заметит»: кто и когда, должно быть видно.
+    ...(rest.telegramSilenceWatchEnabled !== undefined ? { telegramSilenceWatchEnabled: rest.telegramSilenceWatchEnabled } : {}),
+    ...(rest.telegramDeliveryWatchEnabled !== undefined ? { telegramDeliveryWatchEnabled: rest.telegramDeliveryWatchEnabled } : {}),
+    ...(rest.whatsappWebhookWatchEnabled !== undefined ? { whatsappWebhookWatchEnabled: rest.whatsappWebhookWatchEnabled } : {}),
     ...(rest.botWebsiteChatEnabled !== undefined ? { botWebsiteChatEnabled: rest.botWebsiteChatEnabled } : {}),
     // Момент включения и выключения сравнения — граница, за которой поведение бота
     // с клиентами меняется. Без отметки в журнале потом не понять, почему часть
@@ -1948,6 +1964,9 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Отключение транспорта обрывает связь с клиентами в Instagram и WhatsApp —
     // в журнале действий должно быть видно, кто и когда это сделал.
     ...(rest.metaEnabled !== undefined ? { metaEnabled: rest.metaEnabled } : {}),
+    // Выключенная сверка — «не дошедшее до CRM никто не увидит»: кто и когда, должно быть видно.
+    ...(rest.messengerInboxReconcileEnabled !== undefined ? { messengerInboxReconcileEnabled: rest.messengerInboxReconcileEnabled } : {}),
+    ...(rest.instagramInboxReconcileEnabled !== undefined ? { instagramInboxReconcileEnabled: rest.instagramInboxReconcileEnabled } : {}),
     // Выключенный сторож — «комментарий со сбоем бота никто не заметит»: кто и когда, должно быть видно.
     ...(rest.commentFailureWatchEnabled !== undefined ? { commentFailureWatchEnabled: rest.commentFailureWatchEnabled } : {}),
     // Смена весов KPI меняет и рейтинг, и распределение лидов — в журнале

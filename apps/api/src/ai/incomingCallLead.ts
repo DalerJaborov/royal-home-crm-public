@@ -1,3 +1,4 @@
+import { districtListForPrompt, districtPickAllowed } from "../lib/serviceArea.js";
 import { PROPERTY_TYPES } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../db.js";
@@ -275,7 +276,7 @@ function systemPrompt(districtNames: string[], usdToTjs: number): string {
     "НИЧЕГО НЕ ВЫДУМЫВАЙ. Не прозвучало — оставляй поле пустым: агент переспросит, " +
     "а придуманную цифру он примет за услышанную и будет по ней искать объекты. " +
     `Суммы приводи в сомони (1 доллар ≈ ${usdToTjs} сомони). ` +
-    (districtNames.length > 0 ? `Районы агентства: ${districtNames.join(", ")}. Других названий не пиши. ` : "") +
+    (districtNames.length > 0 ? `Районы агентства: ${districtListForPrompt(districtNames)}. Других названий не пиши. ` : "") +
     "Ответ передавай через инструмент submit_reply."
   );
 }
@@ -321,7 +322,7 @@ export async function extractIncomingCallLead(transcript: string): Promise<Incom
     // Район — только из справочника: имя от модели ничего не значит, пока оно не
     // сошлось с настоящей записью (тот же приём, что в ai/cardFill.ts).
     const byName = new Map(districts.map((d) => [d.name.trim().toLowerCase(), d]));
-    const district = extract.districtName ? byName.get(extract.districtName.trim().toLowerCase()) ?? null : null;
+    const district = extract.districtName && districtPickAllowed(extract.districtName, text) ? byName.get(extract.districtName.trim().toLowerCase()) ?? null : null;
 
     let budgetMin = extract.budgetMin ?? null;
     let budgetMax = extract.budgetMax ?? null;
