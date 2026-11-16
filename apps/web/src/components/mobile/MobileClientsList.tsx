@@ -28,7 +28,6 @@ import { CallClientButton } from "../CallClientButton";
 import { Pagination } from "../Pagination";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { MhLane, MhListScreen, sinceLabel, type MhLaneChip } from "./mh/MhList";
-import { useClientSectionChips } from "./mh/MhClientSections";
 import {
   CLIENT_KIND_LABELS,
   CLIENT_SORT_OPTIONS,
@@ -278,7 +277,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   });
 
   const title = isAllMineRoute
-    ? "Не на виду"
+    ? "Мои клиенты"
     : kind === "SELLER"
         ? "Продавцы"
         : "Покупатели";
@@ -314,8 +313,8 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
         ]
       : [];
 
-  /** Лента «В работе · Не на виду» — общая с ПК, см. mh/MhClientSections.tsx. */
-  const crossChips = useClientSectionChips(isAllMineRoute ? "allMine" : kind === "SELLER" ? "sellers" : "buyers");
+  // Лента «В работе · Не на виду» снята 17.11.2026 (владелец): карточку, по
+  // которой ждёт заявка на удаление, агент просто не видит — решает руководитель.
 
   /**
    * ЛЕНТА ВИДА — «Продавцы · Покупатели» (21.09.2026). На телефоне верхних
@@ -510,7 +509,6 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
       )}
 
       <MhLane label="Продавцы или покупатели" chips={kindChips} sticky />
-      {crossChips.length > 0 && <MhLane label="Раздел клиентов" chips={crossChips} />}
       {sliceChips.length > 0 && <MhLane label="Срезы клиентов" chips={sliceChips} />}
 
       <div className="sec" id="mobile-clients-list" style={{ marginTop: 14 }}>

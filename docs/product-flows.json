@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 747,
-  "forks": 4048,
+  "forks": 4047,
   "mounts": 84,
   "cron": 136,
   "jobs": 33,
@@ -18636,14 +18636,14 @@
     },
     {
      "k": "if",
-     "t": "parsed.data.status && parsed.data.status !== existing.status && !can(req, \"clients.assign\")",
+     "t": "parsed.data.status && parsed.data.status !== existing.status",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: existing.kind === \"SELLER\" || requestedKind === \"SELLER\" ? \"Состояние пр…",
+       "t": "return res.status(400).json({ error: \"Статус клиента вручную не меняется: в CRM его больше нет. Работу с клие…",
        "a": [
-        "ответ 403"
+        "ответ 400 — «Статус клиента вручную не меняется: в CRM его больше нет. Работу с…»"
        ],
        "c": []
       }
@@ -20470,24 +20470,24 @@
     },
     {
      "k": "if",
-     "t": "pendingAcceptance",
+     "t": "archived",
      "a": [],
      "c": [
       {
-       "k": "if",
-       "t": "!status",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "where.status = { notIn: [\"LOST\", \"DEAL_CLOSED\", \"ARCHIVED\"] };",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
+       "k": "do",
+       "t": "where.status = \"ARCHIVED\";",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "pendingAcceptance",
+     "a": [],
+     "c": [
       {
        "k": "if",
        "t": "!kind && !ownAgentId",
@@ -27527,7 +27527,6 @@
           "читает в базе: client",
           "меняет в базе: property",
           "читает в базе: deal",
-          "меняет в базе: client",
           "создаёт в базе: deal"
          ],
          "c": [
@@ -27607,14 +27606,6 @@
              "c": []
             }
            ]
-          },
-          {
-           "k": "do",
-           "t": "await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: nul…",
-           "a": [
-            "меняет в базе: client"
-           ],
-           "c": []
           },
           {
            "k": "do",
@@ -76173,7 +76164,7 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.json({ statuses: STAGE_STATUSES, agents: [] });",
+       "t": "return res.json({ agents: [] });",
        "a": [
         "ответ 200"
        ],
@@ -76183,35 +76174,12 @@
     },
     {
      "k": "do",
-     "t": "const [statusRows, showingRows, showingRowsBySubject, dealRows] = await Promise.all([ prisma.client.groupBy({…",
+     "t": "const [showingRows, showingRowsBySubject, dealRows] = await Promise.all([ prisma.interaction.groupBy({ by: [\"…",
      "a": [
-      "считает в базе: client",
       "считает в базе: interaction",
       "считает в базе: deal"
      ],
      "c": []
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const row of statusRows",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "!row.assignedAgentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "continue;",
-         "a": [
-          "переходит к следующему"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
     },
     {
      "k": "loop",
@@ -76237,7 +76205,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ statuses: STAGE_STATUSES, agents: agentsOut });",
+     "t": "res.json({ agents: agentsOut });",
      "a": [
       "ответ 200"
      ],

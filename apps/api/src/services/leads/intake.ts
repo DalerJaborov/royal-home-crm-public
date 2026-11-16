@@ -590,6 +590,10 @@ async function resumeExistingChannelLeadInner(
           // случай — счётчик тянулся бы в новую жизнь и сразу упирался в предел
           // передач.
           refusalCount: 0,
+          // Причина прошлого отказа («купил сам» и т.п.) тоже остаётся в прошлой
+          // жизни: по ней подбор (lib/matchPolicy.ts::clientDoneBuying) иначе
+          // навсегда исключал бы вернувшегося клиента. История — в хронологии.
+          refusalReason: null,
           triedAgentIds: [],
           declinedAgentIds: [],
           ...(offerAgentId

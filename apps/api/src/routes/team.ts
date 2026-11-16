@@ -42,20 +42,12 @@ teamRouter.use(requireAuth, requirePermission("team.viewFull"));
  */
 const TEAM_MONTH_ROW_LIMIT = 50_000;
 
-/** Порядок статусов на матрице «Команда по этапам» — тот же порядок, в котором
- *  enum объявлен в schema.prisma, чтобы колонки не прыгали местами между открытиями. */
-const STAGE_STATUSES: ClientStatus[] = [
-  "NEW",
-  "CONTACTED",
-  "DEAL_CLOSED",
-  "ARCHIVED",
-];
-
 /**
  * GET /team/stages — антифрод-экран «Команда по этапам» (мозговой штурм
- * владельца 20-21.08.2026): у какого агента сколько клиентов на каком статусе,
- * плюс сколько показов назначено и сколько сделок в работе — одним взглядом,
- * без открытия карточки каждого сотрудника.
+ * владельца 20-21.08.2026): сколько показов назначено и сколько сделок в работе
+ * у каждого агента — одним взглядом, без открытия карточки каждого сотрудника.
+ * Разбивки клиентов по статусам здесь больше нет (владелец 17.11.2026: статусы
+ * клиента не показываются нигде).
  *
  * Три независимых groupBy вместо загрузки всех клиентов/сделок в память (как
  * делает сводка ниже за текущий месяц) — здесь считаем ЗА ВСЁ ВРЕМЯ, а не за
@@ -70,15 +62,10 @@ teamRouter.get("/stages", async (req, res) => {
   });
   const agentIds = agents.map((a) => a.id);
   if (agentIds.length === 0) {
-    return res.json({ statuses: STAGE_STATUSES, agents: [] });
+    return res.json({ agents: [] });
   }
 
-  const [statusRows, showingRows, showingRowsBySubject, dealRows] = await Promise.all([
-    prisma.client.groupBy({
-      by: ["assignedAgentId", "status"],
-      where: { assignedAgentId: { in: agentIds }, deletedAt: null },
-      _count: { _all: true },
-    }),
+  const [showingRows, showingRowsBySubject, dealRows] = await Promise.all([
     // «Показов назначено» — живая задача показа: не отменена (declinedAt пуст),
     // ещё не отмечена выполненной (completedAt пуст) и остаётся в календаре
     // (nextAction не снят). Тот же смысл, что у findActiveShowing в
@@ -120,13 +107,6 @@ teamRouter.get("/stages", async (req, res) => {
     }),
   ]);
 
-  const byStatusMap = new Map<string, Record<string, number>>();
-  for (const row of statusRows) {
-    if (!row.assignedAgentId) continue;
-    const bucket = byStatusMap.get(row.assignedAgentId) ?? {};
-    bucket[row.status] = row._count._all;
-    byStatusMap.set(row.assignedAgentId, bucket);
-  }
   const showingsMap = new Map(showingRows.map((r) => [r.agentId, r._count._all]));
   for (const r of showingRowsBySubject) {
     if (!r.subjectAgentId) continue;
@@ -136,12 +116,11 @@ teamRouter.get("/stages", async (req, res) => {
 
   const agentsOut = agentIds.map((id) => ({
     id,
-    byStatus: byStatusMap.get(id) ?? {},
     showingsScheduled: showingsMap.get(id) ?? 0,
     dealsInProgress: dealsMap.get(id) ?? 0,
   }));
 
-  res.json({ statuses: STAGE_STATUSES, agents: agentsOut });
+  res.json({ agents: agentsOut });
 });
 
 

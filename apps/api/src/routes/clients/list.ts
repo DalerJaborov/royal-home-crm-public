@@ -48,8 +48,6 @@ const CLIENT_ORDER_BY: Partial<Record<ClientSort | "name", Prisma.ClientOrderByW
   // «Мой вид» (артефакт, экран «Клиенты»): сначала непринятые, затем по давности контакта.
   attention_desc: [{ acceptedAt: { sort: "asc", nulls: "first" } }, { lastContactAt: "asc" }, { id: "asc" }],
   name_desc: [{ fullName: "desc" }, { id: "asc" }],
-  status_asc: [{ status: "asc" }, { id: "asc" }],
-  status_desc: [{ status: "desc" }, { id: "asc" }],
   // Оценка ИИ есть не у каждой карточки. Пустая — это «не оценено», а не «ноль»:
   // в обоих направлениях такие уходят вниз, иначе «сначала лучшие» открывалось бы
   // списком карточек вообще без оценки.
@@ -88,7 +86,6 @@ listRouter.get("/", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
   }
   const {
-    status,
     kind,
     districtId,
     agentId,
@@ -99,6 +96,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
     pageSize: requestedSize,
     hot,
     pendingAcceptance,
+    archived,
     noFirstContactYesterday,
     noContact,
     scope,
@@ -187,7 +185,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
   // Разделяем вкладки: «Клиенты» (BUYER) и «Продавцы» (SELLER). Без фильтра — все.
   // kind/status/source/район/«горячие» — один набор простых фильтров с помощником
   // (lib/clientSearchWhere.ts::clientFieldFilters); `hot` ниже по файлу убран туда же.
-  Object.assign(where, clientFieldFilters({ kind, status, source, districtId, hot: Boolean(hot) }));
+  Object.assign(where, clientFieldFilters({ kind, source, districtId, hot: Boolean(hot) }));
   /**
    * СРЕЗ «ЖДУТ ПРИНЯТИЯ» — ЧЕСТНО НА СЕРВЕРЕ (07.09.2026, «дашборд агента против ТЗ»).
    *
@@ -211,13 +209,15 @@ listRouter.get("/", requireAuth, async (req, res) => {
    * же ключ кэша) показывали эскалированный лид агенту как свежий полноэкранный
    * оффер — с уже нулевым таймером и без единого шанса, что «Принять» сработает.
    */
+  // Экран «Архив»: только карточки Архива (их владелец не трогал, 16.11.2026).
+  if (archived) where.status = "ARCHIVED";
   if (pendingAcceptance) {
     where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), { workStatus: "ACTIVE" }];
     where.acceptedAt = null;
     where.escalatedAt = null;
     // Те же границы, что у числа «Ждут принятия» (routes/clients/summary.ts,
     // awaitingWhere; 24.09.2026, пункт 25): закрытые и «Прочие» принимать некому.
-    if (!status) where.status = { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] };
+    where.status = { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] };
     if (!kind && !ownAgentId) where.kind = { in: ["BUYER", "SELLER"] };
   }
 

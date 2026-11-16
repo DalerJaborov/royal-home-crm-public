@@ -1,5 +1,4 @@
 import { prisma } from "../db.js";
-import type { ClientStatus } from "../generated/prisma/client.js";
 import { loadMoneyContext, roundMoney, toTjs } from "./money.js";
 import { dushanbeStartOfMonth, dushanbeWallClock } from "./dushanbeTime.js";
 import { BUYERS_IN_WORK_WHERE } from "./agentLoad.js";
@@ -52,61 +51,8 @@ export async function computeWeakLink(): Promise<WeakLinkInsight | null> {
   return worst;
 }
 
-export interface StalledStageInsight {
-  status: string;
-  label: string;
-  count: number;
-  /** Средний возраст записей на этой стадии, в часах — по updatedAt, приближённо
-   *  (нет истории переходов статуса для точного расчёта времени НА стадии). */
-  avgAgeHours: number;
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  NEW: "Новые",
-  CONTACTED: "На контакте",
-  HOT: "Горячие",
-  COLD: "Остывшие",
-  UNRESPONSIVE: "Не отвечают",
-};
-
-/** Среднее время нахождения на стадии — грубое приближение по updatedAt, не точная аналитика. */
-export async function computeStalledStages(): Promise<StalledStageInsight[]> {
-  const statuses = Object.keys(STATUS_LABELS) as ClientStatus[];
-  // Нет отдельной метки времени смены статуса — берём lastContactAt (последний
-  // раз, когда с клиентом реально что-то происходило) как ближайшую доступную
-  // замену: приближение, не точная аналитика по времени НА стадии.
-  const clients = await prisma.client.findMany({
-    where: { status: { in: statuses }, deletedAt: null },
-    select: { status: true, lastContactAt: true },
-    // Потолок, как в routes/ai.ts: плитка считается при каждом заходе на главную,
-    // а выборка читала ВСЕХ активных клиентов агентства целиком. Пять тысяч самых
-    // свежих — это заведомо больше, чем «сейчас в работе», а показатель и так
-    // объявлен приближением: клиенты, которых не касались годами, среднее время
-    // на стадии только искажают.
-    orderBy: { lastContactAt: "desc" },
-    take: 5000,
-  });
-  const now = Date.now();
-  const byStatus = new Map<string, { count: number; ageSum: number }>();
-  for (const c of clients) {
-    const entry = byStatus.get(c.status) ?? { count: 0, ageSum: 0 };
-    entry.count += 1;
-    entry.ageSum += (now - c.lastContactAt.getTime()) / 3_600_000;
-    byStatus.set(c.status, entry);
-  }
-  return statuses
-    .map((status) => {
-      const entry = byStatus.get(status);
-      return {
-        status,
-        label: STATUS_LABELS[status],
-        count: entry?.count ?? 0,
-        avgAgeHours: entry && entry.count ? Math.round(entry.ageSum / entry.count) : 0,
-      };
-    })
-    .filter((s) => s.count > 0)
-    .sort((a, b) => b.avgAgeHours - a.avgAgeHours);
-}
+// «Где застревают клиенты» по статусам (computeStalledStages) снято 17.11.2026:
+// статусы клиента не показываются нигде (владелец).
 
 export interface PlanForecastInsight {
   commissionMonth: number;
@@ -192,7 +138,6 @@ export async function computeWorkloadBalance(): Promise<WorkloadInsight[]> {
 
 export interface DashboardInsights {
   weakLink: WeakLinkInsight | null;
-  stalledStages: StalledStageInsight[];
   /** Деньги компании (комиссия месяца, план) — `null`, если у спрашивающего нет
    *  права finance.view. Тот же приём, что у commission в /dashboard/charts. */
   planForecast: PlanForecastInsight | null;
@@ -206,13 +151,12 @@ export interface DashboardInsights {
  * проверки денег; обязательный аргумент не даёт новому вызову забыть о проверке.
  */
 export async function buildDashboardInsights(opts: { seesMoney: boolean }): Promise<DashboardInsights> {
-  const [weakLink, stalledStages, planForecast, workload] = await Promise.all([
+  const [weakLink, planForecast, workload] = await Promise.all([
     computeWeakLink(),
-    computeStalledStages(),
     opts.seesMoney ? computePlanForecast() : Promise.resolve(null),
     computeWorkloadBalance(),
   ]);
-  return { weakLink, stalledStages, planForecast, workload };
+  return { weakLink, planForecast, workload };
 }
 
 export type { RoyalScoreCategoryKey };

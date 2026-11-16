@@ -195,7 +195,7 @@ describe("POST /clients/:id/transfer", () => {
 });
 
 describe("Состояние покупателя агент не меняет", () => {
-  it("PATCH со status от агента — 403, Состояние не изменилось", async () => {
+  it("PATCH со status от агента — 400 (статус вручную не меняет никто, 17.11.2026), Состояние не изменилось", async () => {
     const c = await makeClient();
     expect(c.status).toBe("NEW");
 
@@ -203,7 +203,7 @@ describe("Состояние покупателя агент не меняет",
       .patch(`/api/v1/clients/${c.id}`)
       .set("Authorization", `Bearer ${token}`)
       .send({ status: "HOT" });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
 
     const after = await prisma.client.findUnique({ where: { id: c.id } });
     expect(after?.status).toBe("NEW");

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { INCLUDE_FORMER_STAFF_PARAM, type AbsenceKind, type ClientStatus, type Role } from "@royal-home/shared";
+import { INCLUDE_FORMER_STAFF_PARAM, type AbsenceKind, type Role } from "@royal-home/shared";
 import { api } from "../lib/api";
 
 export interface TeamMember {
@@ -65,13 +65,12 @@ export function useTeam(enabled = true, opts?: { includeFormer?: boolean }) {
  *  месяц, как остальная карточка команды. */
 export interface TeamStagesAgent {
   id: string;
-  byStatus: Partial<Record<ClientStatus, number>>;
   showingsScheduled: number;
   dealsInProgress: number;
 }
 
+/** Разбивки по статусам клиента нет с 17.11.2026 (владелец: статусы не показываются). */
 export interface TeamStages {
-  statuses: ClientStatus[];
   agents: TeamStagesAgent[];
 }
 

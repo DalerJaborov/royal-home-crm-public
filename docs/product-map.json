@@ -138,9 +138,9 @@
     },
     {
       "path": "/clients/all-mine",
-      "component": "Clients",
-      "file": "apps/web/src/pages/Clients.tsx",
-      "redirect": null,
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/clients",
       "nav": null
     },
     {

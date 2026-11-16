@@ -335,7 +335,6 @@ const TOOLS: AssistantTool[] = [
       type: "object",
       properties: {
         q: { type: "string", description: "Подстрока имени или телефона" },
-        status: { type: "string", enum: ["NEW", "CONTACTED", "DEAL_CLOSED", "ARCHIVED"] },
         source: { type: "string", enum: ["WEBSITE", "INSTAGRAM", "FACEBOOK", "WHATSAPP", "TELEGRAM", "REFERRAL", "PHONE_CALL", "WALK_IN"] },
       },
     },
@@ -648,7 +647,6 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
         // быть обходным путём к удалённым данным.
         deletedAt: null,
         ...(ownScope ? { assignedAgentId: ownScope } : {}),
-        ...(input.status ? { status: input.status as never } : {}),
         ...(input.source ? { source: input.source as never } : {}),
         ...(input.q
           ? {
@@ -684,7 +682,6 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
        */
       phone: clientPhoneFor(c.phone, actor.canViewPhone && c.acceptedAt !== null),
       pendingAcceptance: c.acceptedAt === null,
-      status: c.status,
       source: c.source,
       // Непринятый лид агенту не раскрывается целиком: бюджет и комнаты — часть
       // заявки, которую он ещё не принял (так же закрыт телефон строкой выше).

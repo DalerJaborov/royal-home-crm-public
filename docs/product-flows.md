@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2463**; вместе с задачами по расписанию и фоновыми заданиями — **4048**. Модулей: **84**.
+Путей: **747**. Развилок в самих путях: **2462**; вместе с задачами по расписанию и фоновыми заданиями — **4047**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4269,9 +4269,9 @@
 - если !canAccessAssignedAgent(req, parsed.data.assignedAgentId ?? existing.assignedAgentId)
   - return res.status(403).json({ error: "Агент не может переназначать клиента" });
     · ответ 403 — «Агент не может переназначать клиента»
-- если parsed.data.status && parsed.data.status !== existing.status && !can(req, "clients.assign")
-  - return res.status(403).json({ error: existing.kind === "SELLER" || requestedKind === "SELLER" ? "Состояние пр…
-    · ответ 403
+- если parsed.data.status && parsed.data.status !== existing.status
+  - return res.status(400).json({ error: "Статус клиента вручную не меняется: в CRM его больше нет. Работу с клие…
+    · ответ 400 — «Статус клиента вручную не меняется: в CRM его больше нет. Работу с…»
 - const owned = await phoneOwnershipError(req, data, existing.id);
   · зовёт phoneOwnershipError()
 - если owned
@@ -4691,10 +4691,10 @@
 - иначе если agentId
   - where.assignedAgentId = agentId;
     · дословно из кода
+- если archived
+  - where.status = "ARCHIVED";
+    · дословно из кода
 - если pendingAcceptance
-  - если !status
-    - where.status = { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] };
-      · дословно из кода
   - если !kind && !ownAgentId
     - where.kind = { in: ["BUYER", "SELLER"] };
       · дословно из кода
@@ -6285,7 +6285,6 @@
       · читает в базе: client
       · меняет в базе: property
       · читает в базе: deal
-      · меняет в базе: client
       · создаёт в базе: deal
       - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${data.clientId} FOR UPDATE`;
         · обращается к базе своим SQL
@@ -6304,8 +6303,6 @@
       - если liveDeal
         - throw new DealConflictError("По этому объекту уже есть незакрытая сделка");
           · ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»
-      - await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: nul…
-        · меняет в базе: client
       - return tx.deal.create({ data: { ...data, commissionPercent, commissionAmount, currency: property.currency, ag…
         · создаёт в базе: deal
   - если сорвалось
@@ -17198,21 +17195,16 @@
 - const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, selec…
   · читает в базе: agent
 - если agentIds.length === 0
-  - return res.json({ statuses: STAGE_STATUSES, agents: [] });
+  - return res.json({ agents: [] });
     · ответ 200
-- const [statusRows, showingRows, showingRowsBySubject, dealRows] = await Promise.all([ prisma.client.groupBy({…
-  · считает в базе: client
+- const [showingRows, showingRowsBySubject, dealRows] = await Promise.all([ prisma.interaction.groupBy({ by: ["…
   · считает в базе: interaction
   · считает в базе: deal
-- для каждого: const row of statusRows
-  - если !row.assignedAgentId
-    - continue;
-      · переходит к следующему
 - для каждого: const r of showingRowsBySubject
   - если !r.subjectAgentId
     - continue;
       · переходит к следующему
-- res.json({ statuses: STAGE_STATUSES, agents: agentsOut });
+- res.json({ agents: agentsOut });
   · ответ 200
 
 ### GET /api/v1/team

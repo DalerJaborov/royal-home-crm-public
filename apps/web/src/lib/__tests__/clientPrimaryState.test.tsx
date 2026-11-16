@@ -17,8 +17,9 @@ describe("client state mark: facts only, no cosmetic statuses", () => {
     expect(clientPrimaryState({ ...base, status })).toBeNull();
     expect(renderToStaticMarkup(<ClientStateBadge client={{ ...base, status }} />)).toBe("");
   });
-  it("closed deal is a fact and is shown", () => {
-    expect(clientPrimaryState({ ...base, status: "DEAL_CLOSED" })?.id).toBe("dealClosed");
+  // 17.11.2026: client status labels are gone entirely, «Сделка закрыта» included.
+  it("closed deal status is not shown as a mark", () => {
+    expect(clientPrimaryState({ ...base, status: "DEAL_CLOSED" })).toBeNull();
   });
   it("pending, other and trash have their own marks", () => {
     expect(clientPrimaryState({ ...base, pendingAcceptance: true })?.id).toBe("pending");

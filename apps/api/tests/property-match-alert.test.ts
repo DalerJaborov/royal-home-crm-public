@@ -246,18 +246,19 @@ describe("notifyWaitingBuyersOfNewProperty", () => {
     });
   });
 
-  it("клиенту в «Переговорах» по другому объекту запись не создаётся — он уже занят сделкой", async () => {
+  // «Переговоров» (buyerStage) нет с 17.11.2026 — исключает последний отказ «уже купил».
+  it("клиенту, отказавшемуся «купил через другое агентство», запись не создаётся", async () => {
     const property = await makeProperty({});
-    const negotiating = await makeClient({
+    const bought = await makeClient({
       desiredDistrictId: districtId,
       budgetMax: 450000,
-      buyerStage: "NEGOTIATION",
+      refusalReason: "BOUGHT_VIA_OTHER_AGENCY",
     });
 
     await notifyWaitingBuyersOfNewProperty(property);
 
     const rows = await autoMatchInteractions(property.id);
-    expect(rows.map((r) => r.clientId)).not.toContain(negotiating.id);
+    expect(rows.map((r) => r.clientId)).not.toContain(bought.id);
   });
 
   it("клиенту без назначенного агента запись не создаётся — уведомлять некого", async () => {

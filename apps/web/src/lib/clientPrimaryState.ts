@@ -2,7 +2,7 @@ import type { Client } from "../types";
 
 type StateInput = Pick<Client, "status" | "pendingAcceptance" | "hiddenReason" | "deletedAt" | "kind">;
 export interface ClientPrimaryState {
-  id: "hidden" | "pending" | "other" | "trashed" | "dealClosed";
+  id: "hidden" | "pending" | "other" | "trashed";
   label: string;
   tone: string;
   title?: string;
@@ -23,7 +23,8 @@ export function clientPrimaryState(c: StateInput): ClientPrimaryState | null {
   if (c.deletedAt || c.hiddenReason?.kind === "trashed")
     return { id: "trashed", label: "В Корзине", tone: "mute", title: c.hiddenReason?.detail };
   if (c.kind === "OTHER") return { id: "other", label: "Прочее обращение", tone: "mute" };
-  if (c.status === "DEAL_CLOSED") return { id: "dealClosed", label: "Сделка закрыта", tone: "ok" };
+  // «Сделка закрыта» как отметка статуса снята 17.11.2026 (статусы клиента не
+  // показываются); сделки видны в своём разделе.
   // Проверка СБ — служебная тайна: в обычной отметке её не называем никогда.
   if (c.hiddenReason && c.hiddenReason.kind !== "securityReview")
     return { id: "hidden", label: c.hiddenReason.label, tone: "warn", title: c.hiddenReason.detail };

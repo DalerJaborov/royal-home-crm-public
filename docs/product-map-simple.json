@@ -12,14 +12,14 @@
   "other": "Прочие экраны, открываются изнутри"
  },
  "totals": {
-  "screens": 49,
+  "screens": 48,
   "paths": 747,
   "cron": 136,
   "jobs": 33,
-  "conditions": 4032,
+  "conditions": 4031,
   "untranslatedUnique": 467,
   "untranslatedTotal": 596,
-  "partialUnique": 1106,
+  "partialUnique": 1107,
   "translatedShare": 85
  },
  "untranslated": [
@@ -393,7 +393,7 @@
   "parsed.data.previewFingerprint && parsed.data.previewFingerprint !== previewFingerprint",
   "parsed.data.status !== undefined && parsed.data.status !== existing.status",
   "parsed.data.status !== undefined && requiresPropertyModeration(existing.status, parsed.data.status) && !can(r…",
-  "parsed.data.status && parsed.data.status !== existing.status && !can(req, \"clients.assign\")",
+  "parsed.data.status && parsed.data.status !== existing.status",
   "parsed.data.until && parsed.data.until.getTime() < Date.now()",
   "parsed.data.voiceId && !config.voices.some((v) => v.id === parsed.data.voiceId)",
   "path.dirname(path.resolve(full)) !== privateDirPath()",
@@ -2641,6 +2641,16 @@
      "i": 155,
      "direct": false,
      "conf": "через общую часть"
+    },
+    {
+     "i": 210,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 211,
+     "direct": false,
+     "conf": "через общую часть"
     }
    ]
   },
@@ -2860,6 +2870,16 @@
     },
     {
      "i": 179,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 210,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 211,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -3190,47 +3210,6 @@
     },
     {
      "i": 743,
-     "direct": false,
-     "conf": "через общую часть"
-    }
-   ]
-  },
-  {
-   "path": "/clients/all-mine",
-   "title": "Все мои",
-   "group": "people",
-   "parent": "/clients",
-   "file": "apps/web/src/pages/Clients.tsx",
-   "inMenu": false,
-   "redirect": null,
-   "eps": [
-    {
-     "i": 117,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 139,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 140,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 147,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 154,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 155,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -5348,6 +5327,16 @@
      "i": 155,
      "direct": false,
      "conf": "через общую часть"
+    },
+    {
+     "i": 210,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 211,
+     "direct": false,
+     "conf": "через общую часть"
     }
    ]
   },
@@ -6620,6 +6609,16 @@
      "conf": "через часть экрана"
     },
     {
+     "i": 210,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 211,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 314,
      "direct": false,
      "conf": "через общую часть"
@@ -7332,6 +7331,16 @@
     },
     {
      "i": 136,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 210,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 211,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -8102,6 +8111,16 @@
     },
     {
      "i": 155,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 210,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 211,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -17310,7 +17329,6 @@
    "screens": [
     "/clients",
     "/clients/:id",
-    "/clients/all-mine",
     "/other-inquiries",
     "/sellers"
    ],
@@ -19725,7 +19743,6 @@
    "screens": [
     "/clients",
     "/clients/:id",
-    "/clients/all-mine",
     "/other-inquiries",
     "/sellers"
    ],
@@ -19791,7 +19808,6 @@
    "screens": [
     "/clients",
     "/clients/:id",
-    "/clients/all-mine",
     "/other-inquiries",
     "/sellers"
    ],
@@ -20326,7 +20342,6 @@
     "/archive",
     "/clients",
     "/clients/:id",
-    "/clients/all-mine",
     "/more",
     "/notifications",
     "/other-inquiries",
@@ -20612,18 +20627,18 @@
      ]
     },
     {
-     "t": "если parsed.data.status && parsed.data.status !== existing.status && !can(req, \"clients.assign\")",
+     "t": "если parsed.data.status && parsed.data.status !== existing.status",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не хватает прав",
+       "t": "отказ: данные неверные: «Статус клиента вручную не меняется: в CRM его больше нет. Работу с…»",
        "k": "do",
        "a": [],
        "c": []
       }
      ],
-     "raw": "parsed.data.status && parsed.data.status !== existing.status && !can(req, \"clients.assign\")"
+     "raw": "parsed.data.status && parsed.data.status !== existing.status"
     },
     {
      "t": "если есть owned",
@@ -21238,7 +21253,6 @@
     "/archive",
     "/clients",
     "/clients/:id",
-    "/clients/all-mine",
     "/notifications",
     "/other-inquiries",
     "/properties/:id",
@@ -21277,7 +21291,6 @@
    "screens": [
     "/clients",
     "/clients/:id",
-    "/clients/all-mine",
     "/other-inquiries",
     "/sellers"
    ],
@@ -21850,16 +21863,16 @@
      "c": []
     },
     {
+     "t": "если есть archived",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
+    {
      "t": "если есть ожидает acceptance",
      "k": "if",
      "a": [],
      "c": [
-      {
-       "t": "если нет: статус",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
       {
        "t": "если нет: вид и нет: свой сотрудник",
        "k": "if",
@@ -25746,7 +25759,6 @@
          "a": [
           "все изменения разом: либо всё, либо ничего",
           "меняет: объект",
-          "меняет: клиент",
           "заводит: сделка"
          ],
          "c": [
@@ -25777,12 +25789,6 @@
            "a": [],
            "c": [],
            "more": true
-          },
-          {
-           "t": "меняет: клиент",
-           "k": "do",
-           "a": [],
-           "c": []
           },
           {
            "t": "заводит: сделка",
@@ -25860,8 +25866,14 @@
     "вход выполнен"
    ],
    "screens": [
+    "/clients",
+    "/clients/:id",
     "/market",
-    "/properties"
+    "/other-inquiries",
+    "/properties",
+    "/properties/:id",
+    "/properties/:id/edit",
+    "/sellers"
    ],
    "tree": [
     {
@@ -25888,8 +25900,14 @@
     "есть право: districts.manage"
    ],
    "screens": [
+    "/clients",
+    "/clients/:id",
     "/market",
-    "/properties"
+    "/other-inquiries",
+    "/properties",
+    "/properties/:id",
+    "/properties/:id/edit",
+    "/sellers"
    ],
    "tree": [
     {
@@ -58404,19 +58422,6 @@
       {
        "t": "всё хорошо, отвечает данными",
        "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "и так по каждому",
-     "k": "loop",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: назначен сотрудник",
-       "k": "if",
        "a": [],
        "c": []
       }

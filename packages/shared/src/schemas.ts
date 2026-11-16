@@ -1849,10 +1849,10 @@ export const summaryCompletePropertySchema = z
  *  - THINKING («Клиент думает») — пауза с напоминанием; заводит уже
  *    существующий PendingSummary kind="waiting_check" (как «Ждёт варианты»/
  *    «Ждёт показ»), а не новый механизм.
- *  - SELECTION («Подбор») — агент продолжает подбирать другие объекты;
- *    Client.buyerStage="SELECTION", карточка остаётся активной у агента.
- *  - NEGOTIATION («Переговоры») — обсуждение условий сделки;
- *    Client.buyerStage="NEGOTIATION".
+ *  - «Подбор» (SELECTION) и «Переговоры» (NEGOTIATION) сняты 17.11.2026
+ *    (владелец): этапов покупателя Client.buyerStage больше нет — колонку
+ *    снимет отдельная миграция. Подбор объектов идёт панелью «Подбор», а
+ *    переговоры — сделкой.
  *  - DEAL («Договор») — переиспользует уже существующий резерв объекта на
  *    сделке (3 рабочих дня, коммит 1aa4683): агент переходит к созданию
  *    сделки существующей формой, эта ветка лишь закрывает «Итог показа».
@@ -1866,7 +1866,7 @@ export const summaryCompletePropertySchema = z
  * бы врать, обычно нажатием «Клиент думает». Ложь в данных хуже пустоты: по
  * ней клиент навсегда остаётся активным и попадает во все отчёты как живой.
  */
-export const SHOWING_OUTCOME_BRANCHES = ["RESCHEDULE", "THINKING", "SELECTION", "NEGOTIATION", "DEAL", "REFUSE"] as const;
+export const SHOWING_OUTCOME_BRANCHES = ["RESCHEDULE", "THINKING", "DEAL", "REFUSE"] as const;
 export type ShowingOutcomeBranch = (typeof SHOWING_OUTCOME_BRANCHES)[number];
 
 /// Подписи — дословно из ТЗ п. 15, чтобы агент видел на кнопке ровно то слово,
@@ -1875,8 +1875,6 @@ export type ShowingOutcomeBranch = (typeof SHOWING_OUTCOME_BRANCHES)[number];
 export const SHOWING_OUTCOME_LABELS: Record<ShowingOutcomeBranch, string> = {
   RESCHEDULE: "Повторный показ",
   THINKING: "Клиент думает",
-  SELECTION: "Подбираю другие объекты",
-  NEGOTIATION: "Ведутся переговоры",
   DEAL: "Подготовка договора",
   REFUSE: "Клиент отказался",
 };
@@ -1925,9 +1923,9 @@ export const summaryCompleteMeetingSchema = z
     /** Обязательна только при thinkingDelay="CUSTOM". */
     nextContactAt: requiredDate.optional(),
     /**
-     * Следующий показ — обязателен для веток RESCHEDULE («Повторный показ», ТЗ
-     * п. 15.1) и SELECTION («Подбираю другие объекты», ТЗ п. 15.3): обе по ТЗ
-     * заканчиваются назначенной встречей, а не намерением её назначить.
+     * Следующий показ — обязателен для ветки RESCHEDULE («Повторный показ», ТЗ
+     * п. 15.1): она по ТЗ заканчивается назначенной встречей, а не намерением
+     * её назначить.
      *
      * До 14.08.2026 показ создавался ОТДЕЛЬНЫМ запросом из вложенного окна, и это
      * не работало дважды: вложенное окно рисовалось под затемнением обязательного,
@@ -1959,8 +1957,8 @@ export const summaryCompleteMeetingSchema = z
     if (data.branch === "THINKING" && data.thinkingDelay === "CUSTOM" && !data.nextContactAt) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["nextContactAt"], message: "Укажите дату" });
     }
-    // Обе ветки по ТЗ обязаны закончиться назначенным показом: объект, дата и час.
-    if (data.branch === "RESCHEDULE" || data.branch === "SELECTION") {
+    // «Повторный показ» по ТЗ обязан закончиться назначенным показом: объект, дата и час.
+    if (data.branch === "RESCHEDULE") {
       if (!data.propertyId) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["propertyId"], message: "Выберите объект показа" });
       }

@@ -30,7 +30,6 @@ import {
   Segment,
   Skeleton,
 } from "../components/rh2";
-import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { useAgents } from "../hooks/useAgents";
 import type { ClientSort } from "@royal-home/shared";
 import { CallClientButton } from "../components/CallClientButton";
@@ -209,8 +208,6 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   const [showDuplicates, setShowDuplicates] = useState(false);
   /** Шторка «Фильтры»: срез, статус, источник, район, агент, порядок. */
   const [showFilters, setShowFilters] = useState(false);
-  /** Шторка «Не на виду»: карточки в корзине и переданные другому. */
-  const [showHidden, setShowHidden] = useState(false);
   /** Поле поиска на телефоне открывается значком в шапке; на компьютере стоит всегда. */
   const [searchOpen, setSearchOpen] = useState(false);
   /**
@@ -312,7 +309,6 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   const oldest = summary?.awaitingAgent.oldest ?? null;
   const waitLabel = oldest ? formatWait(oldest.waitingMinutes) : "";
   // «Не на виду»: список грузится только когда шторка открыта.
-  const hiddenQuery = useClients({ scope: "allMine" }, showHidden);
   // Самолечение пустого списка (hooks/useEmptyListGuard.ts, одна дверь с телефоном):
   // сводку можно сравнивать только с обычной вкладкой «в работе» без условий.
   const guardComparable =
@@ -350,7 +346,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   const title = isOther
       ? "Прочие обращения"
       : isAllMineRoute
-        ? "Не на виду"
+        ? "Мои клиенты"
         : "Клиенты";
   const kindWord = section === "SELLER" ? "Продавцы" : "Покупатели";
   const inWorkCount = summary ? (section === "SELLER" ? summary.sellers : summary.buyers) : null;
@@ -625,20 +621,8 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
           />
         )}
 
-        {/* Карточки, ушедшие из поля зрения держателя, — одной тихой строкой внизу.
-            Число даёт сводка (`trashedMine`: свои карточки в корзине; руководству null).
-            Переданных другому сводка не считает, поэтому в строке они не названы. */}
-        {!isOther && !isAllMineRoute && !!summary?.trashedMine && (
-          <div className="quiet">
-            <span className="dot" />
-            <span className="txt">
-              Не на виду: {num(summary.trashedMine)} {summary.trashedMine === 1 ? "карточка" : "карточек"} в корзине
-            </span>
-            <Button variant="ghost" size="sm" aria-haspopup="dialog" onClick={() => setShowHidden(true)}>
-              Показать
-            </Button>
-          </div>
-        )}
+        {/* «Не на виду» снято 17.11.2026 (владелец): карточку, по которой ждёт
+            заявка на удаление, агент просто не видит — решает руководитель. */}
       </Card>
 
       {showFilters && (
@@ -752,45 +736,6 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
                 </span>
               </label>
             </>
-          )}
-        </Rh2Sheet>
-      )}
-      {showHidden && (
-        <Rh2Sheet
-          title="Не на виду"
-          onClose={() => setShowHidden(false)}
-          ariaLabel="Карточки не на виду"
-          footer={
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setShowHidden(false);
-                navigate("/clients/all-mine");
-              }}
-            >
-              Весь список
-            </Button>
-          }
-        >
-          {hiddenQuery.isLoading && (
-            <div role="status" aria-label="Загружаем карточки">
-              {[0, 1, 2].map((i) => (
-                <Skeleton key={i} kind="row" />
-              ))}
-            </div>
-          )}
-          {hiddenQuery.error && <Rh2ErrorState message="Список не загрузился." onRetry={() => hiddenQuery.refetch()} />}
-          {hiddenQuery.data && (
-            <List aria-label="Карточки не на виду">
-              {hiddenQuery.data.items
-                .filter((c) => c.deletedAt || c.hiddenReason)
-                .map((c) => (
-                  <ClientRow key={c.id} client={c} mobile={mobile} showKind showAgent={false} inSheet />
-                ))}
-            </List>
-          )}
-          {hiddenQuery.data && !hiddenQuery.data.items.some((c) => c.deletedAt || c.hiddenReason) && (
-            <Rh2EmptyState icon={UserRound} title="На первой странице таких карточек нет." hint="Остальные смотрите в полном списке." />
           )}
         </Rh2Sheet>
       )}

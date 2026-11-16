@@ -3,7 +3,6 @@ import {
   PROPERTY_TYPES,
   PROPERTY_STATUSES,
   CLIENT_SOURCES,
-  CLIENT_STATUSES,
   CLIENT_KINDS,
   DEAL_STAGES,
   INSTAGRAM_COMMENT_STATUSES,
@@ -137,8 +136,6 @@ export type PropertyQuery = z.infer<typeof propertyQuerySchema>;
 export const CLIENT_SORTS = [
   "name_asc",
   "name_desc",
-  "status_asc",
-  "status_desc",
   "score_asc",
   "score_desc",
   "budget_asc",
@@ -158,7 +155,10 @@ export const CLIENT_SORTS = [
 export type ClientSort = (typeof CLIENT_SORTS)[number];
 
 export const clientQuerySchema = z.object({
-  status: z.enum(CLIENT_STATUSES).optional(),
+  /** «1» — только карточки Архива (экран «Архив»). Общего фильтра по статусу
+   *  клиента больше нет (владелец 17.11.2026: статусы клиента не показываются),
+   *  Архив владелец не трогал — для него отдельный честный срез. */
+  archived: z.enum(["1"]).optional(),
   kind: z.enum(CLIENT_KINDS).optional(),
   /** «1» — только горячие клиенты (hotSince задан): отказные с заполненной карточкой
    *  или после показа, переданные сильному агенту. Не boolean-коэрция намеренно:

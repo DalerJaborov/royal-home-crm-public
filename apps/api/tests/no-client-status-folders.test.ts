@@ -59,12 +59,12 @@ const STATE_LITERAL =
  */
 const ALLOWED_STATE_LITERALS: Record<string, string> = {
   "lib/ads/syncMetaAds.ts": "статус РЕКЛАМЫ Meta (ARCHIVED), не клиента",
-  "lib/marketingInsights.ts": "чтение: старые LOST в недельной аналитике",
+
   "lib/matchPolicy.ts": "чтение: подбор по старым DEFERRED-строкам",
-  "lib/reactivationCampaign.ts": "чтение: кампания возврата по старым LOST/INACTIVE",
+
   "lib/weeklyOperationalPreview.ts": "чтение: недельная сводка по старым DEFERRED",
-  "routes/oversight.ts": "чтение: серия потерь агента по старым LOST",
-  "routes/reports.ts": "чтение: отчёт по старым LOST",
+
+
   "services/leads/intake.ts":
     "служебная пометка «предложение вернуть клиента прежнему агенту не решено» (reactivationOffers) и снятие старого LOST при новом обращении",
 };
@@ -137,5 +137,80 @@ describe("папок и статусов клиента больше нет — 
     ]) {
       expect(cron.includes(`"${name}"`), name).toBe(false);
     }
+  });
+});
+
+/**
+ * 17.11.2026 (владелец): подписи статусов клиента исчезают из интерфейса ЦЕЛИКОМ —
+ * и «Новый», и «На контакте», и все прочие; вкладки «Не на виду» нет; этапов
+ * покупателя «Подбор»/«Переговоры» (Client.buyerStage) нет. Колонки в базе пока
+ * лежат (их снимет отдельная миграция), поэтому возврат ловит этот сторож.
+ * Проверено внесением поломки: `CLIENT_STATUS_LABELS` в любом файле сайта и
+ * `buyerStage` в коде сервера краснят свои пункты.
+ */
+const WEB_SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../web/src");
+const SHARED_SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../packages/shared/src");
+
+function walkWeb(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkWeb(full));
+    else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+const WEB_FILES = walkWeb(WEB_SRC);
+const webRel = (file: string) => path.relative(WEB_SRC, file).split(path.sep).join("/");
+
+describe("статусы клиента не показываются нигде — сторож (17.11.2026)", () => {
+  it("сайт не берёт подписи и цвета статусов клиента", () => {
+    const offenders = WEB_FILES.flatMap((f) =>
+      codeLines(f)
+        .filter((line) => /CLIENT_STATUS_LABELS|CLIENT_STATUS_CHIP|CLIENT_STATUS_CLASSES/.test(line))
+        .map((line) => `${webRel(f)}: ${line.trim()}`)
+    );
+    expect(offenders, "Подписи статусов клиента («Новый», «На контакте» и т.д.) сняты с экранов (владелец 17.11.2026)").toEqual([]);
+  });
+
+  it("сервер не отдаёт подписи статусов клиента (помощник, хронология, ИИ)", () => {
+    const offenders = FILES.flatMap((f) =>
+      codeLines(f)
+        .filter((line) => /CLIENT_STATUS_LABELS/.test(line))
+        .map((line) => `${rel(f)}: ${line.trim()}`)
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("сортировки и фильтра по статусу клиента нет", () => {
+    const shared = fs.readFileSync(path.join(SHARED_SRC, "querySchemas.ts"), "utf8");
+    expect(shared).not.toMatch(/"status_(asc|desc)"/);
+    const clientQuery = shared.slice(shared.indexOf("export const clientQuerySchema"));
+    expect(clientQuery.slice(0, clientQuery.indexOf("});"))).not.toMatch(/\n\s+status:/);
+  });
+
+  it("вкладки «Не на виду» нет ни на телефоне, ни на компьютере", () => {
+    expect(fs.existsSync(path.join(WEB_SRC, "components/ClientsSectionLane.tsx"))).toBe(false);
+    expect(fs.existsSync(path.join(WEB_SRC, "components/mobile/mh/MhClientSections.tsx"))).toBe(false);
+    const offenders = WEB_FILES.flatMap((f) =>
+      codeLines(f)
+        .filter((line) => /["'>]Не на виду/.test(line))
+        .map((line) => `${webRel(f)}: ${line.trim()}`)
+    );
+    expect(offenders).toEqual([]);
+    const app = fs.readFileSync(path.join(WEB_SRC, "App.tsx"), "utf8");
+    expect(app).not.toMatch(/path="clients\/all-mine" element={<Clients/);
+  });
+
+  it("этапов покупателя «Подбор»/«Переговоры» (buyerStage) код не читает и не пишет", () => {
+    const users = FILES.flatMap((f) =>
+      codeLines(f)
+        .filter((line) => /buyerStage/.test(line))
+        .map((line) => `${rel(f)}: ${line.trim()}`)
+    );
+    expect(users).toEqual([]);
+    const schemas = fs.readFileSync(path.join(SHARED_SRC, "schemas.ts"), "utf8");
+    const branches = schemas.match(/export const SHOWING_OUTCOME_BRANCHES = \[([^\]]*)\]/)?.[1] ?? "";
+    expect(branches).not.toMatch(/SELECTION|NEGOTIATION/);
   });
 });

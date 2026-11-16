@@ -11,7 +11,6 @@ import { ROLE_LABELS } from "../lib/roles";
 import type { Role } from "@royal-home/shared";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { formatMoney, pluralizeRu, relativeTime } from "../lib/format";
-import { CLIENT_STATUS_LABELS } from "../lib/clientFormat";
 import { initials, presenceOf } from "../lib/theme2026Person";
 import { avatarTone } from "../lib/avatarTone";
 import { scrollableRegion } from "../lib/a11y";
@@ -293,7 +292,7 @@ function TeamDesktop() {
               aria-pressed={showStages}
               onClick={() => setShowStages((v) => !v)}
             >
-              По стадиям клиентов
+              Показы и сделки
             </button>
           </div>
         </div>
@@ -712,7 +711,7 @@ function TeamDesktop() {
 }
 
 /**
- * «По стадиям клиентов» (кнопка шапки, макет: `GET /team/stages`): у кого сколько
+ * «Показы и сделки» (кнопка шапки, `GET /team/stages`; до 17.11.2026 — «По стадиям клиентов»): у кого сколько
  * клиентов на каком статусе, показов назначено и сделок в работе. Антифрод-
  * экран из штурма владельца 20-21.08.2026, раньше жил только значками на строке.
  */
@@ -727,28 +726,24 @@ function StagesMatrix({
 }) {
   const byId = new Map((stages?.agents ?? []).map((a) => [a.id, a]));
   const agents = team.filter((m) => m.role === "AGENT");
-  const statuses = stages?.statuses ?? [];
+  // Колонок по статусам клиента больше нет (владелец 17.11.2026: статусы клиента
+  // не показываются нигде) — остались показы и сделки прямо сейчас.
   return (
     <div className="card tight" style={{ marginTop: 12 }}>
       <div className="sec-h">
-        <h2>По стадиям клиентов</h2>
-        <span className="note">Портфель каждого агента прямо сейчас, не за месяц</span>
+        <h2>Показы и сделки</h2>
+        <span className="note">У каждого агента прямо сейчас, не за месяц</span>
       </div>
       {!stages ? (
-        <p className="state">Считаем портфели по стадиям</p>
+        <p className="state">Считаем показы и сделки</p>
       ) : agents.length === 0 ? (
-        <p className="state">Агентов в команде нет, раскладывать по стадиям некого.</p>
+        <p className="state">Агентов в команде нет.</p>
       ) : (
-        <div className="tbl-wrap" {...scrollableRegion("Агенты по стадиям")}>
+        <div className="tbl-wrap" {...scrollableRegion("Показы и сделки агентов")}>
           <table className="tbl">
             <thead>
               <tr>
                 <th scope="col">Агент</th>
-                {statuses.map((s) => (
-                  <th scope="col" className="num" key={s}>
-                    {CLIENT_STATUS_LABELS[s]}
-                  </th>
-                ))}
                 <th scope="col" className="num">Показы</th>
                 <th scope="col" className="num">Сделки</th>
               </tr>
@@ -763,11 +758,6 @@ function StagesMatrix({
                         {m.fullName}
                       </button>
                     </td>
-                    {statuses.map((s) => (
-                      <td className="num" key={s}>
-                        {row?.byStatus[s] ?? 0}
-                      </td>
-                    ))}
                     <td className="num">{row?.showingsScheduled ?? 0}</td>
                     <td className="num">{row?.dealsInProgress ?? 0}</td>
                   </tr>

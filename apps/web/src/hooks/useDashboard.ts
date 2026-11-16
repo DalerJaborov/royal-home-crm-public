@@ -70,13 +70,6 @@ export interface WeakLinkInsight {
   sum: number;
 }
 
-/** Где застревают клиенты: сколько их на стадии и сколько в среднем висят. */
-export interface StalledStageInsight {
-  status: string;
-  label: string;
-  count: number;
-  avgAgeHours: number;
-}
 
 /** Прогноз плана комиссии к концу месяца при текущем темпе. */
 export interface PlanForecastInsight {
@@ -97,7 +90,6 @@ export interface WorkloadInsight {
 
 export interface DashboardInsights {
   weakLink: WeakLinkInsight | null;
-  stalledStages: StalledStageInsight[];
   /** null без права finance.view: прогноз плана — деньги компании. */
   planForecast: PlanForecastInsight | null;
   workload: WorkloadInsight[];

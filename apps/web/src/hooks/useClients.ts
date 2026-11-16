@@ -38,7 +38,6 @@ function rollbackUnlessQueued(
 }
 
 export interface ClientFilters {
-  status?: string;
   kind?: string;
   districtId?: string;
   agentId?: string;
@@ -65,6 +64,8 @@ export interface ClientFilters {
   noFirstContactYesterday?: boolean;
   /** «Без контакта» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts). */
   noContact?: boolean;
+  /** Экран «Архив»: только карточки Архива. */
+  archived?: boolean;
   /** Вкладка «Все мои клиенты» (18.09.2026, задание В §f п.1) — снимает Корзину/
    *  kind/status-срезы у своего агента, см. серверный комментарий (routes/clients/list.ts). */
   scope?: "allMine" | "inWork";
@@ -73,7 +74,7 @@ export interface ClientFilters {
 function toQuery(filters: ClientFilters) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => {
-    if (k === "pendingAcceptance" || k === "noFirstContactYesterday" || k === "noContact") {
+    if (k === "pendingAcceptance" || k === "noFirstContactYesterday" || k === "noContact" || k === "archived") {
       if (v) params.set(k, "1");
       return;
     }

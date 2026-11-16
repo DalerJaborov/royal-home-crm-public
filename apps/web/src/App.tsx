@@ -417,7 +417,8 @@ export default function App() {
             kind-среза, у своего агента показывает буквально всё, где он
             держатель сейчас или был последним (см. Clients.tsx, isAllMineRoute
             и scope=allMine на сервере, routes/clients/list.ts). */}
-        <Route path="clients/all-mine" element={<Clients key="all-mine" kind="BUYER" />} />
+        {/* «Не на виду» снято 17.11.2026 — старая ссылка ведёт в обычный список. */}
+        <Route path="clients/all-mine" element={<Navigate to="/clients" replace />} />
         <Route path="other-inquiries" element={<Clients kind="OTHER" />} />
         <Route path="clients/:id" element={<ClientDetail />} />
         <Route path="deals" element={<Deals />} />

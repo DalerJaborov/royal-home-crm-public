@@ -38,7 +38,7 @@
 | `/calls` | Calls | **Звонки** | `apps/web/src/pages/Calls.tsx` |
 | `/clients` | Clients | **Клиенты** | `apps/web/src/pages/Clients.tsx` |
 | `/clients/:id` | ClientDetail | только по ссылке | `apps/web/src/pages/ClientDetail.tsx` |
-| `/clients/all-mine` | Clients | только по ссылке | `apps/web/src/pages/Clients.tsx` |
+| `/clients/all-mine` | Navigate | переход на `/clients` | — |
 | `/comments` | Comments | **Комментарии** | `apps/web/src/pages/Comments.tsx` |
 | `/deals` | Deals | **Сделки** | `apps/web/src/pages/Deals.tsx` |
 | `/deferred-clients` | Navigate | переход на `/clients` | — |
