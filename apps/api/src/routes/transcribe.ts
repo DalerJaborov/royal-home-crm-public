@@ -5,6 +5,7 @@ import { requireAuth } from "../auth/middleware.js";
 import { transcribeAudio } from "../ai/transcribe.js";
 import { memoryUploadBudget } from "../lib/memoryUploadBudget.js";
 import { agentSpeechLimiter } from "../lib/agentSpeechLimiter.js";
+import { normalizeDictationMime } from "../lib/dictationMime.js";
 
 /**
  * Диктовка голосом в CRM (комментарии взаимодействия, ИИ-ассистент).
@@ -25,7 +26,9 @@ const upload = multer({
   // Диктовка всегда одна: обработчик ниже читает req.file (аудит лимитов 21.08.2026).
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith("audio/")) {
+    // Safari/iPhone пишут `audio/mp4`, Chrome — `audio/webm;codecs=opus`; часть Android
+    // отдаёт чисто звуковую запись с типом `video/webm`/`video/mp4` (контейнер тот же).
+    if (!normalizeDictationMime(file.mimetype)) {
       return cb(new UploadRejectedError("Допустимо только аудио"));
     }
     cb(null, true);
@@ -39,7 +42,9 @@ const transcribeLimiter = agentSpeechLimiter("на расшифровку реч
 
 transcribeRouter.post("/", requireAuth, transcribeLimiter, memoryUploadBudget, upload.single("audio"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Аудио не передано" });
-  const text = await transcribeAudio(req.file.buffer, req.file.originalname || "voice.webm", req.file.mimetype);
+  // Тип без параметров кодека: поставщик получает чистый `audio/webm`, а не `audio/webm;codecs=opus`.
+  const mediaType = normalizeDictationMime(req.file.mimetype) ?? "audio/webm";
+  const text = await transcribeAudio(req.file.buffer, req.file.originalname || "voice.webm", mediaType);
   if (text === null) return res.status(502).json({ error: "Не удалось распознать речь" });
   if (!text.trim()) return res.status(422).json({ error: "Речь не распознана — похоже, запись пустая" });
   res.json({ text: text.trim() });

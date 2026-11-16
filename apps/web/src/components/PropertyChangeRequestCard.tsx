@@ -34,6 +34,7 @@ import {
   changeResultView,
   channelLabel,
   consequenceLine,
+  createdChangeRequestNotice,
   describeChangeRequest,
   kindDisabledReason,
   type CardDataFieldKey,
@@ -263,8 +264,11 @@ function ChangeRequestFormSheet({
     }
     setError(null);
     try {
-      await create.mutateAsync({ body: built.body as CreatePropertyChangeRequestInput, idempotencyKey: idemKey.current });
-      toast.success("Заявка отправлена директору");
+      const done = await create.mutateAsync({ body: built.body as CreatePropertyChangeRequestInput, idempotencyKey: idemKey.current });
+      // Свой объект: изменение применено сразу, заявки руководителю нет (владелец 15.11.2026).
+      const notice = createdChangeRequestNotice(done);
+      if (notice.tone === "error") toast.error(notice.text);
+      else toast.success(notice.text);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось отправить заявку");

@@ -382,6 +382,46 @@ function serviceScopeLines(value: CustomerAgentCompanyPolicyObservation, languag
   const said = [area, area + other, legacyArea, legacyArea + other].some(saidBefore);
   return { outside: false, lines: said ? [] : [area] };
 }
+/** The customer asks about the work area itself ("в каком городе", "дар шаҳрҳои дигар"). */
+const CITY_QUESTION = /в\s+как(?:ом|их)\s+город|други[хе]\s+город|в\s+регион|по\s+всему\s+таджикистан|кадом\s+ша[ҳх]р|ша[ҳх]р[ҳх]?ои\s+дигар|дигар\s+ша[ҳх]р|вилоят|только\s+(?:в\s+)?душанбе|танҳо\s+(?:дар\s+)?душанбе/iu;
+/**
+ * The service-area answer (15.11.2026, prod: 13 times in 7 days "Дар шаҳрҳои дигар кор намекунем" was said again to a seller
+ * whose flat is IN Dushanbe — "Хона дар Душанбе аст", "Ман да Душанбе"). "Other cities" is said only when the customer named
+ * a place outside the city (then it is a short apology, and nothing else is asked) or asked about the area. The area line
+ * itself is said once per conversation; a sentence already said is not said again.
+ */
+/** The customer buys (then a home town elsewhere is no reason to refuse: coverageGuard calls him "our best client"). */
+const BUYER_WORDS = /харид|мехарам|харам|харидан|купить|куплю|покупа|ищу|меҷӯям|мечуям|мекобам/u;
+/**
+ * The OBJECT is outside the city (review #201, В2): a seller (the questionnaire or his own words) names a place outside
+ * the city as where the property is ("дар/в Қайроққум"), and Dushanbe was never named by the customer in this chat.
+ * "Ман аз Хуҷанд ҳастам, хона мехарам" (a buyer from elsewhere) is our client, never refused. Rudaki stays the model's
+ * decision (coverageGuard leaves it out on purpose; the owner has not answered yet).
+ */
+function customerObjectOutsideArea(input: { inputText?: string; verifiedContext?: CustomerAgentVerifiedContext }): boolean {
+  const current = clientOwnWords(input.inputText ?? "").toLowerCase().replace(/ё/gu, "е");
+  const history = (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "user").map(turn => clientOwnWords(turn.text)).join("\n");
+  const all = `${history}\n${current}`.toLowerCase();
+  const hit = detectOutsideCoverage(current);
+  if (!hit || !detectOutsideCoverage(all)) return false;
+  const seller = intakeProgress(input).role === "seller" || CUSTOMER_SELLER_WORDS.test(all);
+  if (!seller || BUYER_WORDS.test(all)) return false;
+  const at = current.indexOf(hit.place.toLowerCase());
+  const before = at >= 0 ? current.slice(Math.max(0, at - 30), at) : "";
+  return /(?:^|[\s,])(?:дар|в|во)(?:\s+\S+){0,2}\s*$/u.test(before) && !/(?:^|[\s,])(?:аз|из)\s*$/u.test(before);
+}
+function serviceScopeLines(value: CustomerAgentCompanyPolicyObservation, language: "ru" | "tg", input: { inputText?: string;
+  verifiedContext?: CustomerAgentVerifiedContext }, saidBefore: (line: string) => boolean): { lines: string[]; outside: boolean } {
+  const k = value.knowledge, tg = language === "tg";
+  const own = clientOwnWords(input.inputText ?? "");
+  if (!k.otherCities && customerObjectOutsideArea(input)) return { outside: true, lines: [tg
+    ? `Мутаассифона, мо танҳо дар ${k.city} кор мекунем.` : `К сожалению, мы работаем только в городе ${k.city}.`] };
+  const asked = CITY_QUESTION.test(own);
+  const area = tg ? `Барои хариду фурӯши амвол дар ${k.city} кӯмак мекунем.` : `Помогаем с покупкой и продажей недвижимости в городе ${k.city}.`;
+  const other = k.otherCities ? "" : tg ? " Дар шаҳрҳои дигар кор намекунем." : " Другие города не обслуживаем.";
+  if (asked) return { outside: false, lines: [area + other] };
+  return { outside: false, lines: saidBefore(area) || saidBefore(area + other) ? [] : [area] };
+}
 // Word-bounded so "участок" is not "час" and "суроға" is an address question (not hours).
 const word = (alternatives: string) => new RegExp(`${BW}(?:${alternatives})${EW}`, "iu");
 const HOURS_QUESTION = word(`час(?:ы|ов|ам|ах|а)?|график${TAIL}|режим${TAIL}|соат${TAIL}|когда|скольки|кай|аз\\s+кай|то\\s+кай`);
@@ -944,6 +984,8 @@ function repeatedBlockNotice(text: string, input: RepeatInput): string | null {
 }
 
 function avoidRepeatedReply(text: string, input: RepeatInput): string {
+  // A job candidate: the specialist's phone is THE answer (owner 10–11.11), said again rather than swapped for «Понял.».
+  if (splitLines(text).includes(recruitmentPhoneLine(input.language))) return text;
   const turns = input.verifiedContext?.turns ?? [];
   const blockNotice = repeatedBlockNotice(text, input);
   if (blockNotice) return blockNotice;
