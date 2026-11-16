@@ -181,8 +181,8 @@ describe("пачка Шабнам: взнос учредителя", () => {
     expect(await ai()).toBe(40);
     const action = await createPendingAssistantAction(actor(), "add_expenses", { lang: "ru", items: [{ title: "Оплата Gemini", amount: 2000, currency: "TJS", date: `${M}-21` }], chatRef: `subs-gem-${stamp}` });
     await confirmAssistantAction(action.id, actor());
-    await waitFor(async () => expect(await ai()).toBe(10));
+    await waitFor(async () => (await ai()) === 10, { label: "оценка без Gemini" });
     await undoAssistantAction(action.id, actor());
-    await waitFor(async () => expect(await ai()).toBe(40));
+    await waitFor(async () => (await ai()) === 40, { label: "оценка вернулась" });
   });
 });
