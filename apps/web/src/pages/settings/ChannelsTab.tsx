@@ -161,6 +161,19 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
           }
         />
 
+        {/* Вебхук WhatsApp замолчал (15.11.2026, lib/whatsappWebhookWatch.ts): входящие WhatsApp
+            приходят только вебхуком, сверить их не с чем — следим за потоком целиком. */}
+        <SwitchRow
+          title="Следить, что WhatsApp не замолчал"
+          on={settings?.whatsappWebhookWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ whatsappWebhookWatchEnabled: !(settings?.whatsappWebhookWatchEnabled ?? true) })}
+          hint={
+            settings?.whatsappWebhookWatchEnabled ?? true
+              ? "Если в рабочие часы входящих в WhatsApp нет дольше обычного, руководство получает тревогу с причиной: номер отключён, подписка слетела или вебхук не доходит."
+              : "Не следим: если Meta перестанет присылать сообщения WhatsApp, это заметят только по жалобам клиентов."
+          }
+        />
+
         {/* Ключи Meta — здесь же, рядом с рубильником. Раньше их надо было вписывать
             в файл на сервере по SSH: для владельца это непроходимый шаг, а ключи
             Claude и Gemini давно вводятся прямо в CRM — теперь и эти так же. */}
@@ -304,10 +317,30 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
         <div className="quiet">
           <span className="dot" />
           <span className="txt">
-            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника
+            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника канала
             здесь нет. Бот отвечает только клиентам, которые написали ему сами.
           </span>
         </div>
+        <SwitchRow
+          title="Клиент без ответа — сказать человеку"
+          on={settings?.telegramSilenceWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramSilenceWatchEnabled: !(settings?.telegramSilenceWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramSilenceWatchEnabled ?? true
+              ? "Клиент написал в Telegram, а за 30 минут ему не ответили ни бот, ни сотрудник — агенту клиента (или руководству) уходит пуш. В рабочие часы."
+              : "Не следим: молчание в Telegram никто не заметит, пока не откроет переписку."
+          }
+        />
+        <SwitchRow
+          title="Следить, что Telegram доставляет сообщения"
+          on={settings?.telegramDeliveryWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramDeliveryWatchEnabled: !(settings?.telegramDeliveryWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramDeliveryWatchEnabled ?? true
+              ? "Раз в 10 минут CRM спрашивает у Telegram, доходят ли сообщения бота: если нет — руководство получает тревогу с причиной."
+              : "Не следим: если Telegram перестанет доставлять сообщения в CRM, это заметят только по жалобам клиентов."
+          }
+        />
       </SettingsSection>
 
       </>}
@@ -1387,7 +1420,11 @@ function VideoHandoffFields() {
         onToggle={() => updateSettings.mutate({ clipOwnerApproveEnabled: !clipOwnerOn })}
         hint={
           clipOwnerOn
-            ? `Ролик от монтажёра приходит агенту, за которым объект, с кнопками «Подтвердить» и «Вернуть монтажёру». Не ответил за ${clipOwnerHours} ч — ролик публикуется сам, но не ночью: с 00:00 до 07:00 ждёт до 07:00. Руководство может решить в любой момент.`
+            ? `Ролик от монтажёра приходит только агенту, за которым объект, с кнопками «Подтвердить» и «Вернуть монтажёру»; руководству и админу в Telegram он не приходит (в карточке объекта кнопки есть). ${
+                clipOwnerHours > 0
+                  ? `Не ответил за ${clipOwnerHours} ч — ролик публикуется сам, но не ночью: с 00:00 до 07:00 ждёт до 07:00.`
+                  : "Сам ролик не опубликуется, пока агент не решит; раз в 6 часов ему придёт напоминание."
+              }`
             : "Выключено — решение по готовому ролику за руководством (переключатель выше)."
         }
       />
@@ -1395,20 +1432,20 @@ function VideoHandoffFields() {
         <div className="mod">
           <div className="t">
             <b>Через сколько часов публиковать без ответа</b>
-            <span style={{ whiteSpace: "normal" }}>Если хозяин объекта молчит, ролик уходит в публикацию сам.</span>
+            <span style={{ whiteSpace: "normal" }}>Если хозяин объекта молчит, ролик уходит в публикацию сам. «Не публиковать сам» — ролик ждёт ответа хозяина.</span>
           </div>
           <div className="acts">
             <select
               className="inp"
-              style={{ maxWidth: 140 }}
+              style={{ maxWidth: 200 }}
               aria-label="Через сколько часов публиковать без ответа"
               value={clipOwnerHours}
               onChange={(e) => updateSettings.mutate({ clipOwnerAutoPublishHours: Number(e.target.value) })}
               disabled={updateSettings.isPending}
             >
-              {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
+              {[0, 1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
                 <option key={h} value={h}>
-                  {h} ч
+                  {h === 0 ? "Не публиковать сам" : `${h} ч`}
                 </option>
               ))}
             </select>
