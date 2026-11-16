@@ -118,7 +118,7 @@ describe("Последствия одобренной заявки", () => {
     expect(after!.lastAgentAttemptAt!.getTime()).toBeGreaterThan(before.getTime());
   });
 
-  it("объектов не осталось — карточка уходит в потерянные с причиной", async () => {
+  it("объектов не осталось — карточка уходит в Корзину с причиной (не висит в «Без контакта»)", async () => {
     const { seller, property } = await makeSellerWithProperty();
 
     await applySellerRefusal({
@@ -129,7 +129,9 @@ describe("Последствия одобренной заявки", () => {
     });
 
     const after = await prisma.client.findUnique({ where: { id: seller.id } });
-    expect(after?.status).toBe("LOST");
+    // «Потерянных» больше нет (16.11.2026): отказ, закрывающий работу, — Корзина.
+    expect(after?.status).not.toBe("LOST");
+    expect(after?.deletedAt).not.toBeNull();
     expect(after?.refusalReason).toBe("OWNER_CANCELLED");
   });
 
