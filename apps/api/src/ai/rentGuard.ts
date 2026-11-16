@@ -134,8 +134,24 @@ function smallSum(budget: number | undefined): budget is number {
   return typeof budget === "number" && Number.isFinite(budget) && budget >= THOUSANDS_SHORTHAND_MIN && budget < THOUSANDS_SHORTHAND_MAX;
 }
 
-export function looksLikeThousandsShorthand(budget: number | undefined, clientText: string): boolean {
+/**
+ * Бот только что спросил валюту: «Ин ба доллар аст ё ҳазор сомонӣ?» / «в долларах или тысячах сомони?».
+ * Только ответ «сомони» НА ЭТОТ вопрос значит тысячи (повторное ревью #207, С7: «да» владельца на
+ * сужение решения 03.09 нет — «1500 сомони» первым сообщением остаётся прежним путём).
+ */
+const CURRENCY_QUESTION = /доллар[^.?!\n]{0,25}(?:ё|ё\s+ки|или)[^.?!\n]{0,25}сомон/iu;
+
+export function botAskedCurrency(previousBotText: string | null | undefined): boolean {
+  return CURRENCY_QUESTION.test(previousBotText ?? "");
+}
+
+export function looksLikeThousandsShorthand(
+  budget: number | undefined,
+  clientText: string,
+  previousBotText?: string | null
+): boolean {
   if (!smallSum(budget)) return false;
+  if (!botAskedCurrency(previousBotText)) return false;
   return SOMONI_WORD.test(clientText) && !MONTH_WORDS.test(clientText) && !looksLikeRentRequest(clientText);
 }
 

@@ -483,7 +483,13 @@ export { MIN_REAL_PURCHASE_TJS };
  *   запрет на аренду стоит и в промте, но однажды модель написала «иҷора надорем»
  *   и тут же выставила intent=buy, и живой агент получил арендатора как покупателя.
  */
-export function mergeDraft(draft: LeadDraft, result: QualifyResult, clientText?: string): LeadDraft {
+export function mergeDraft(
+  draft: LeadDraft,
+  result: QualifyResult,
+  clientText?: string,
+  /** Прошлая реплика бота: «сомони» считается тысячами только в ответ на вопрос о валюте. */
+  previousBotText?: string
+): LeadDraft {
   const text = clientText ?? "";
   const locationOutsideDushanbe = result.lead?.locationOutsideDushanbe ?? draft.locationOutsideDushanbe;
   const locationDifferentCountry = result.lead?.locationDifferentCountry ?? draft.locationDifferentCountry;
@@ -492,9 +498,9 @@ export function mergeDraft(draft: LeadDraft, result: QualifyResult, clientText?:
    * (16.11.2026, ai/rentGuard.ts::looksLikeThousandsShorthand). Сумма прошлого хода лежит в
    * budgetUnrealistic: в поля бюджета она не годилась, а уточнение пришло отдельным ходом.
    */
-  const somoniThisTurn = looksLikeThousandsShorthand(draft.budgetUnrealistic, text);
+  const somoniThisTurn = looksLikeThousandsShorthand(draft.budgetUnrealistic, text, previousBotText);
   const modelMax = result.lead?.budgetMax ?? draft.budgetMax ?? (somoniThisTurn ? draft.budgetUnrealistic : undefined);
-  const thousands = looksLikeThousandsShorthand(modelMax, text);
+  const thousands = looksLikeThousandsShorthand(modelMax, text, previousBotText);
   const modelMin = result.lead?.budgetMin ?? draft.budgetMin;
   const rawMin =
     thousands && typeof modelMin === "number" && modelMin < THOUSANDS_SHORTHAND_MAX ? modelMin * 1000 : modelMin;

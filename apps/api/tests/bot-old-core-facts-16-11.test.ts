@@ -159,10 +159,22 @@ describe("бюджет «то 900–950»: не отказ «аренды нет
 
   it("следующим ходом «Сомони» (ответ на «доллар ё ҳазор сомонӣ?») → до 950 000, покупка", () => {
     const first = mergeDraft({ intent: "buy" } as never, turn({ budgetMin: 900, budgetMax: 950 }) as never, "То 900и 950");
-    const d = mergeDraft(first, { reply: [], ready: false, intent: "buy" } as never, "Сомони");
+    const d = mergeDraft(first, { reply: [], ready: false, intent: "buy" } as never, "Сомони", "Ин ба доллар аст ё ҳазор сомонӣ?");
     expect(d.intent).toBe("buy");
     expect(d.budgetMax).toBe(950_000);
     expect(d.budgetUnrealistic).toBeUndefined();
+  });
+
+  it("«сомони» БЕЗ вопроса бота о валюте тысячами не считается (повторное ревью, С7)", () => {
+    const first = mergeDraft({ intent: "buy" } as never, turn({ budgetMin: 900, budgetMax: 950 }) as never, "То 900и 950");
+    const d = mergeDraft(first, { reply: [], ready: false, intent: "buy" } as never, "Сомони", "Дар кадом минтақа мекобед?");
+    expect(d.budgetMax).toBeUndefined();
+  });
+
+  it("«1500 сомони» первым сообщением, без вопроса о валюте, — прежний путь владельца 03.09: аренда", () => {
+    const d = mergeDraft({} as never, turn({ budgetMax: 1500 }) as never, "Хона 1500 сомони", "Ассалому алейкум! Чӣ хизмат карда метавонем?");
+    expect(d.intent).toBe("rent");
+    expect(d.budgetMax).toBeUndefined();
   });
 
   it("«то 150» без валюты молча в 150 000 сомони НЕ превращается (это часто 150 тыс. $)", () => {

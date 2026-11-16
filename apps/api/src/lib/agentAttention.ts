@@ -57,11 +57,13 @@ export async function requestAgentAttention(
   try {
     const card = await prisma.client.findUnique({
       where: { id: clientId },
-      select: { shortId: true, fullName: true, assignedAgentId: true, agentAttentionRequestedAt: true, createdAt: true },
+      select: { shortId: true, fullName: true, assignedAgentId: true, agentAttentionRequestedAt: true, createdAt: true, acceptedAt: true },
     });
     if (!card?.assignedAgentId) return "no_agent";
     if (card.agentAttentionRequestedAt) return "duplicate";
-    if (reason === "call_promised" && now.getTime() - card.createdAt.getTime() < FRESH_LEAD_QUIET_MS) return "fresh_lead";
+    // Свежесть — от приёма заявки, а не от создания карточки: у старого клиента новая заявка (повторное ревью, С1-а′).
+    const leadAt = card.acceptedAt ?? card.createdAt;
+    if (reason === "call_promised" && now.getTime() - leadAt.getTime() < FRESH_LEAD_QUIET_MS) return "fresh_lead";
     if (!(await markAgentAttention(clientId))) return "duplicate";
     const text = TEXTS[reason];
     await sendPushToAgent(card.assignedAgentId, {
