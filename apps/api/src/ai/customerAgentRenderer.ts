@@ -913,6 +913,8 @@ function repeatedBlockNotice(text: string, input: RepeatInput): string | null {
   if (context?.surface !== "dm") return null;
   const notices = noticeLineSet(), questionLines = questionLineSet(), socials = socialLineSet();
   const lines = splitLines(text);
+  // Candidate's answer: the specialist's phone is THE answer (owner 10–11.11), never swapped for «Понял.».
+  if (lines.includes(recruitmentPhoneLine(lang))) return null;
   const content = lines.filter(line => !socials.has(line) && !notices.has(line) && !questionLines.has(line));
   const listLike = content.some(line => /^\d+\.\s/u.test(line) || VACANCY_LIST_HEADERS.includes(line));
   // A fact the customer asks for right now is the answer, said again; a list or a long block is not.
