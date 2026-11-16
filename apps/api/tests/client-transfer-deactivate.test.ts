@@ -33,6 +33,8 @@ let districtId: string;
 let agentId: string;
 let secondAgentId: string;
 let token: string;
+let managerToken: string;
+let managerId: string;
 let propertyId: string;
 const clientIds: string[] = [];
 const interactionIds: string[] = [];
@@ -104,6 +106,12 @@ beforeAll(async () => {
     })
   ).id;
   token = await login(`+992971${runId}`);
+  // Передачу клиента делает руководитель (у агентов роут закрыт, 16.11.2026) — от имени хозяина карточки.
+  const manager = await prisma.agent.create({
+    data: { fullName: "Руководитель передачи", phone: `+992975${runId}`, role: "MANAGER", passwordHash },
+  });
+  managerId = manager.id;
+  managerToken = await login(`+992975${runId}`);
   propertyId = (
     await prisma.property.create({
       data: {
@@ -126,7 +134,7 @@ afterAll(async () => {
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.property.deleteMany({ where: { id: propertyId } });
-  await prisma.agent.deleteMany({ where: { id: { in: [agentId, secondAgentId] } } });
+  await prisma.agent.deleteMany({ where: { id: { in: [agentId, secondAgentId, managerId] } } });
   await prisma.district.deleteMany({ where: { id: districtId } });
   await prisma.$disconnect();
 });
@@ -136,7 +144,7 @@ describe("POST /clients/:id/transfer", () => {
     const c = await makeClient();
     const res = await request(app)
       .post(`/api/v1/clients/${c.id}/transfer`)
-      .set("Authorization", `Bearer ${token}`)
+      .set("Authorization", `Bearer ${managerToken}`)
       .send({ reason: "NO_TRUST" });
     expect(res.status).toBe(409);
   });
@@ -146,7 +154,7 @@ describe("POST /clients/:id/transfer", () => {
     await makeShowing(c.id);
     const res = await request(app)
       .post(`/api/v1/clients/${c.id}/transfer`)
-      .set("Authorization", `Bearer ${token}`)
+      .set("Authorization", `Bearer ${managerToken}`)
       .send({ reason: "NO_TRUST", comment: "две недели не выходили на связь" });
     expect(res.status).toBe(200);
 
@@ -204,7 +212,7 @@ describe("POST /clients/:id/transfer", () => {
     await makeShowing(c.id);
     const res = await request(app)
       .post(`/api/v1/clients/${c.id}/transfer`)
-      .set("Authorization", `Bearer ${token}`)
+      .set("Authorization", `Bearer ${managerToken}`)
       .send({ reason: "OTHER", comment: "что угодно" });
     expect(res.status).toBe(400);
   });

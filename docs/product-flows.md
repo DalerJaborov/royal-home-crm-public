@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **757**. Развилок в самих путях: **2493**; вместе с задачами по расписанию и фоновыми заданиями — **4119**. Модулей: **84**.
+Путей: **760**. Развилок в самих путях: **2494**; вместе с задачами по расписанию и фоновыми заданиями — **4123**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4155,6 +4155,9 @@
 
 `apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
+- если !can(req, "clients.assign")
+  - return res.status(403).json({ error: "Передавать клиентов может только руководитель" });
+    · ответ 403 — «Передавать клиентов может только руководитель»
 - const parsed = clientTransferSchema.safeParse(req.body);
   · проверяет данные схемой clientTransferSchema
 - если !parsed.success
@@ -12430,7 +12433,7 @@
 
 ### POST /api/v1/properties/:id/transfer
 
-`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.editForeign
+`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);
   · зовёт transferPropertyByManager()
@@ -12460,6 +12463,8 @@
       · дословно из кода
   - const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: actor.…
     · зовёт transferPropertyWithSeller()
+  - void recordRopTransfer({ kind: "PROPERTY", targetId: property.id, fromAgentId: result.fromAgentId, toAgentId,…
+    · зовёт recordRopTransfer()
   - logAgentAudit(actor.id, "PROPERTY_TRANSFER", "Property", property.id, { fromAgentId: result.fromAgentId, toAg…
     · зовёт logAgentAudit()
 - res.status(outcome.status).json(outcome.body);
@@ -17839,6 +17844,31 @@
   - return res.status(422).json({ error: "Речь не распознана — похоже, запись пустая" });
     · ответ 422 — «Речь не распознана — похоже, запись пустая»
 - res.json({ text: text.trim() });
+  · ответ 200
+
+## /api/v1/transfer-requests
+
+### POST /api/v1/transfer-requests/:id/respond
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const outcome = await reviewRopTransfer(who(req), req.params.id, req.body);
+  · зовёт reviewRopTransfer()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### GET /api/v1/transfer-requests/outgoing
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
+
+- res.json({ items: await listOutgoingTransferRequests(who(req)) });
+  · ответ 200
+
+### GET /api/v1/transfer-requests/pending
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- res.json({ items: await listPendingTransferReviews(who(req)) });
   · ответ 200
 
 ## /api/v1/ui-shell
@@ -25836,6 +25866,40 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка сводки на завтра", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### transfer-request-tick — */5 * * * *
+
+- пробует
+  - const { stuck, reminded } = await runTransferRequestTick();
+    · зовёт runTransferRequestTick()
+    - const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: "DECLINED", resultNote: EXECU…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of stuck
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "DECLINED", res…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count
+        - publishTransferChanged([row.requestedById], row.id);
+          · зовёт publishTransferChanged()
+    - const due = await prisma.ownershipTransferRequest.findMany({ where: { status: "PENDING", remindCount: { lt: T…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of due
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "PENDING", remi…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count === 0
+        - continue;
+          · переходит к следующему
+      - await notifyReviewers(row);
+        · зовёт notifyReviewers()
+  - если stuck + reminded > 0
+    - console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка тика запросов передачи", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
