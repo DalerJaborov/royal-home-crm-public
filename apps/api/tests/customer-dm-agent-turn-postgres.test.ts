@@ -29,6 +29,7 @@ import { dushanbeDateString } from "../src/lib/dushanbeTime.js";
 import { waitFor } from "./helpers/waitFor.js";
 import * as heldMessageModule from "../src/lib/customerHeldMessage.js";
 import { admitOutbound } from "../src/lib/outboundShield.js";
+import * as outboundShieldModule from "../src/lib/outboundShield.js";
 
 // Actual signed durable intake → FINAL → elected owner → real counted model
 // adapter → tools → encrypted P12 plan. Only external HTTP is synthetic.
@@ -1155,6 +1156,26 @@ describe("never silence (16.11.2026)", () => {
       text: "Инро аниқ агенти мо мегӯяд. Рақами телефонатонро нависед, то агенти мо занг занад." });
     const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } });
     await waitFor(async () => !!(await prisma.botConversation.findUniqueOrThrow({ where: { id: ticket.conversationId! } })).silenceAlertFor);
+  });
+  it("a bare «Рахмат» whose reply the shield would cut gets NO hand-off line (re-review #205, Н-2)", async () => {
+    const spy = vi.spyOn(outboundShieldModule, "coreReplyRepeatBlocked")
+      .mockImplementation(async (_channel, _peer, texts) => texts.length === 1 ? [...texts] : []);
+    try {
+      const f = await fixture("Рахмат");
+      const result = await runCustomerDmAgentTurn(f.eventKey);
+      if (result.status === "planned") {
+        const parts = await prisma.customerOutboxPart.findMany({ where: { id: { in: result.partIds } } });
+        for (const part of parts) {
+          const payload = decodeCustomerOutboxPayload(part);
+          expect(payload.kind === "text" ? payload.text : "").not.toContain("агенти мо");
+          expect(payload.kind === "text" ? payload.text : "").not.toContain("наш агент");
+        }
+      }
+      // and a real question with the same cut reply DOES get the line (the branch is alive)
+      const g = await fixture("Хона даркор, нархаш чанд?");
+      expect(await textOf(await runCustomerDmAgentTurn(g.eventKey))).toMatchObject({ kind: "text",
+        text: expect.stringContaining("агенти мо") });
+    } finally { spy.mockRestore(); }
   });
   it("«Хорошо, спасибо» with the model insisting on skip: no hand-off line, no outbox (review #205, В-1)", async () => {
     const f = await fixture("Хорошо, спасибо");

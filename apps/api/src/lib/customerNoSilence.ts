@@ -69,12 +69,16 @@ const ASKS = /[?？]|(?:^|[\s,.!])(?:как\p{L}*|какой|какая|како
  * «Хорошо в каком городе», «гучо равем», «Да Душанбе хона», «339694444» → line; «Асалом», «Гумшавен», «Пагоҳ занг занам» →
  * silence + push as before.
  */
-export function customerSafetyLineFits(reason: string, inputText: string, talksBusiness: (text: string) => boolean): boolean {
+export function customerSafetyLineFits(reason: string, inputText: string, talksBusiness: (text: string) => boolean,
+  botAskedQuestion = false): boolean {
   if (reason === "staff_or_supported_reply_required") return true; // the model itself decided a person is needed
   const own = clientOwnWords(inputText ?? "").trim();
-  if (!own || customerThanksOnly(own) || ACK_ONLY.test(own)) return false;
+  if (!own || customerThanksOnly(own)) return false;
+  // «Да» / «Ҳа» / «Бале» right after the bot's own question is an ANSWER, not an "ok" (re-review #205, Н-3).
+  if (ACK_ONLY.test(own)) return botAskedQuestion && AFFIRM.test(own);
   return reason !== "unsupported_decision_evidence" || ASKS.test(own) || talksBusiness(own);
 }
+const AFFIRM = /^\s*(?:да|ҳа|ха|бале|ага|хоп|хорошо|ок|ok)\s*[.!]*\s*$/iu;
 const ACK_ONLY = /^(?:ок|ok|okay|окей|хоп|хуб|ладно|хорошо|понятно|ясно|фаҳмидам|фахмидам|бале|да|ҳа|ха|👍|👌|🙏|❤️|\s|[.!,])+$/iu;
 
 /* NO model retry here (16.11.2026, decided on facts): ФАКТ BotTurnTrace 7 days to 16.11 — 29 of 32 `turn_unavailable` are

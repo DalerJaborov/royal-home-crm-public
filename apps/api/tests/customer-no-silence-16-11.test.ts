@@ -59,6 +59,14 @@ describe("фраза только там, где клиенту нужен от�
     expect(fits("round_limit", "Чавоб метиен?")).toBe(true);
     expect(fits("staff_or_supported_reply_required", "Рахмат")).toBe(true);
   });
+  it("«Да» / «Ҳа» после вопроса бота — ответ по делу; без вопроса бота — как «ок» (повторное ревью #205, Н-3)", () => {
+    for (const text of ["Да", "Ҳа", "Бале."]) {
+      expect(customerSafetyLineFits("round_limit", text, clientTalksBusiness, true), text).toBe(true);
+      expect(customerSafetyLineFits("round_limit", text, clientTalksBusiness, false), text).toBe(false);
+    }
+    expect(customerSafetyLineFits("round_limit", "Рахмат", clientTalksBusiness, true)).toBe(false);
+    expect(customerSafetyLineFits("round_limit", "👍", clientTalksBusiness, true)).toBe(false);
+  });
 });
 
 describe("страховочная фраза — проверенные строки двери «это скажет агент»", () => {

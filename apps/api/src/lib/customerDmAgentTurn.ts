@@ -280,6 +280,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // The safety door (lib/customerNoSilence.ts): one hand-off line instead of silence, never a repeat the shield would
     // cut, and the person learns through alertClientWaiting(follow_up). Null when it cannot be planned (claim lost,
     // principal changed, every candidate line would be a repeat): the caller keeps the old held path.
+    /** The bot's own last line asked the customer something: a bare «Да» is then an answer (re-review #205, Н-3). */
+    const lastBotAsked = () => /[?？]/u.test(remembered.context.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? "");
     const planSafetyLine = async (why: string): Promise<CustomerDmAgentTurnResult | null> => {
       try {
         const assistantTexts = remembered.context.turns.filter(turn => turn.role === "assistant").map(turn => turn.text);
@@ -507,7 +509,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       }
       // Never silence (16.11.2026): nothing was written and the claim is still ours — one short verified line, and the
       // responsible person is told through the one door (follow_up). Planning failing keeps the old path below.
-      if (customerSafetyLineAllowed(reason) && customerSafetyLineFits(reason, fullInput(), clientTalksBusiness) &&
+      if (customerSafetyLineAllowed(reason) && customerSafetyLineFits(reason, fullInput(), clientTalksBusiness, lastBotAsked()) &&
           mutations.committedReceipts.length === 0 && !(result.status === "held" && result.unknownToolCalls.length)) {
         const planned = await planSafetyLine(reason);
         if (planned) {
@@ -548,6 +550,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // NOTHING (ФАКТ 11–15.11: 15 cut, 4 ended in silence). Say the hand-off line instead — only when the reply carries no
     // receipt or property delivery that a plain line must not replace (then the old behaviour stays). 16.11.2026.
     if (mutations.receipts.length === 0 && !result.evidence.some(e => ["receipt", "facts", "property_unresolved"].includes(e.value.kind)) &&
+        // the same "does this input want an answer" filter as the held path (re-review #205, Н-2): no line on a bare «спасибо»
+        customerSafetyLineFits("repeat_shield", fullInput(), clientTalksBusiness, lastBotAsked()) &&
         (await customerReplyRepeatBlocked(mutations.principal, [sealed.text])).has(sealed.text)) {
       const planned = await planSafetyLine("repeat_shield");
       if (planned) return planned;
