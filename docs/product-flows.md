@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4082**. Модулей: **84**.
+Путей: **754**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4086**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20295,18 +20295,21 @@
       - если !episode || episode.since.getTime() > threshold
         - continue;
           · переходит к следующему
-      - если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()
-        - continue;
-          · переходит к следующему
       - если customerSpamMuteActive(customerSpamMuteFrom(spam), now)
         - continue;
           · переходит к следующему
-    - если due.length === 0
+      - если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()
+        - если row.pausedUntil && row.pausedUntil.getTime() > now.getTime()
+          - repeat.push({ id: row.id, clientId: row.clientId, episode });
+            · дословно из кода
+        - continue;
+          · переходит к следующему
+    - если due.length === 0 && repeat.length === 0
       - return { checked: rows.length, alerted: 0, skippedOffHours: false };
         · дословно из кода
     - const tickets = keys.length ? await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: …
       · читает в базе: customerPropertyIngressTicket
-    - const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d)
+    - const lastCall = await fetchLastCallContactByClient([...new Set([...due, ...repeat].map((d)
       · зовёт fetchLastCallContactByClient()
     - для каждого: const d of due
       - пробует
@@ -20323,6 +20326,20 @@
             · дословно из кода
       - если сорвалось
         - reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
+          · зовёт reportCronRowError()
+    - для каждого: const d of repeat
+      - пробует
+        - если allIntentional
+          - continue;
+            · переходит к следующему
+        - если called && called.getTime() > d.episode.since.getTime()
+          - continue;
+            · переходит к следующему
+        - если (await repeatClientWaiting({ conversationId: d.id, since: d.episode.since, now })) === "sent"
+          - alerted++;
+            · дословно из кода
+      - если сорвалось
+        - reportCronRowError("Сторож «клиент ждёт ответа» (повтор)", d.id, err);
           · зовёт reportCronRowError()
   - если alerted > 0
     - console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);

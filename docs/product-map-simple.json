@@ -16,10 +16,10 @@
   "paths": 754,
   "cron": 137,
   "jobs": 33,
-  "conditions": 4066,
+  "conditions": 4070,
   "untranslatedUnique": 464,
   "untranslatedTotal": 595,
-  "partialUnique": 1105,
+  "partialUnique": 1106,
   "translatedShare": 85
  },
  "untranslated": [
@@ -66128,28 +66128,49 @@
            "more": true
           },
           {
-           "t": "если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
-           "more": true
-          },
-          {
            "t": "если customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
            "k": "if",
            "a": [],
            "c": [],
            "raw": "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
            "more": true
+          },
+          {
+           "t": "если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
+           "more": true
           }
          ]
         },
         {
-         "t": "если due количество — «0»",
+         "t": "если due количество — «0» и repeat количество — «0»",
          "k": "if",
          "a": [],
          "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
         },
         {
          "t": "и так по каждому",
