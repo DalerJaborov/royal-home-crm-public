@@ -1,5 +1,7 @@
 import { prisma } from "../db.js";
+import type { Prisma } from "../generated/prisma/client.js";
 import { TERMINAL_CLIENT_STATUSES } from "./clientContact.js";
+import { TALKED_CALL_WHERE } from "./noContact.js";
 
 /**
  * СКОЛЬКО ПОКУПАТЕЛЕЙ У АГЕНТА В РАБОТЕ — счётчик нагрузки, НЕ лимит.
@@ -19,6 +21,38 @@ export const BUYERS_IN_WORK_WHERE = {
   kind: "BUYER" as const,
   status: { notIn: [...TERMINAL_CLIENT_STATUSES] },
 };
+
+/** За сколько дней клиент считается живой нагрузкой агента. */
+export const ACTIVE_LOAD_DAYS = 30;
+
+/**
+ * ЖИВАЯ НАГРУЗКА — ПО ЧЕМУ ЧЕСТНАЯ РАЗДАЧА ВЫБИРАЕТ АГЕНТА (16.11.2026).
+ *
+ * После снятия «Неактивных», «Отложенных» и «Потерянных» все старые покупатели
+ * вернулись в «в работе». Если считать нагрузку по ним, у опытного агента сотня
+ * давно молчащих карточек, у новичка ноль — и новичок получал бы КАЖДУЮ заявку.
+ * Поэтому нагрузка = покупатели в работе, с которыми за последние
+ * {@link ACTIVE_LOAD_DAYS} дней был настоящий контакт (то же правило, что
+ * «Без контакта»: разговор по телефону или сообщение самого клиента,
+ * lib/noContact.ts), или по которым идёт сделка, или которые достались агенту за
+ * эти же дни (свежая заявка — уже работа, даже до первого звонка).
+ */
+export function activeBuyersLoadWhere(now = new Date()): Prisma.ClientWhereInput {
+  const since = new Date(now.getTime() - ACTIVE_LOAD_DAYS * 24 * 3600_000);
+  return {
+    AND: [
+      { deletedAt: null, ...BUYERS_IN_WORK_WHERE },
+      {
+        OR: [
+          { lastClientMessageAt: { gte: since } },
+          { interactions: { some: { ...TALKED_CALL_WHERE, createdAt: { gte: since } } } },
+          { deals: { some: { stage: { notIn: ["COMPLETED", "CANCELLED"] } } } },
+          { assignedAt: { gte: since } },
+        ],
+      },
+    ],
+  };
+}
 
 export interface AgentLoad {
   /** Все покупатели в работе. */

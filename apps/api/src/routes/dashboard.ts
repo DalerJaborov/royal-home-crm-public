@@ -17,7 +17,7 @@ import { buildDashboardInsights } from "../lib/dashboardInsights.js";
 import { withMaskedClient, clientNamePhoneSafe, clientPhoneFor } from "../lib/clientPhone.js";
 import { presentInteractions, transcriptAccess } from "../lib/callTranscripts.js";
 import { firstCallCandidateWindow, firstCallStatus } from "../leads.js";
-import { BUYERS_IN_WORK_WHERE } from "../lib/agentLoad.js";
+import { activeBuyersLoadWhere } from "../lib/agentLoad.js";
 import { AWAITING_REVIEW_WHERE } from "../lib/telephony/awaitingReview.js";
 import { ownIncomingCallsOr } from "../lib/telephony/ownIncomingCalls.js";
 import {
@@ -487,11 +487,12 @@ dashboardRouter.get("/team-live", requireAuth, requirePermission("dashboard.anal
   const [activeLoad, pendingAccept, acceptedToday, escalated, unaccepted, unacceptedTotal, escalatedTotal, queuedTotal] =
     await Promise.all([
     // «Активная нагрузка» — покупатели в работе
-    // (BUYERS_IN_WORK_WHERE, см. lib/agentLoad.ts). Здесь считалось по статусам
+    // с живым контактом (activeBuyersLoadWhere, см. lib/agentLoad.ts — то же, что у
+    // честной раздачи). Здесь считалось по статусам
     // NEW/CONTACTED/HOT/COLD, в плитке «Кто перегружен» — без COLD, а в
     // «Контроле руководителя» — по слотам: три числа про одного агента на
     // соседних экранах. Определение теперь одно на всю CRM.
-    prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, deletedAt: null, ...BUYERS_IN_WORK_WHERE }, _count: { _all: true } }),
+    prisma.client.groupBy({ by: ["assignedAgentId"], where: { AND: [{ assignedAgentId: { in: ids } }, activeBuyersLoadWhere()] }, _count: { _all: true } }),
     prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, acceptedAt: null, deletedAt: null }, _count: { _all: true } }),
     prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, acceptedAt: { gte: startOfDay }, deletedAt: null }, _count: { _all: true } }),
     prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, acceptedAt: null, escalatedAt: { not: null }, deletedAt: null }, _count: { _all: true } }),

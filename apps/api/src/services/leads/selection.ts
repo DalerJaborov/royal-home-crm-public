@@ -1,5 +1,5 @@
 import { prisma } from "../../db.js";
-import { BUYERS_IN_WORK_WHERE } from "../../lib/agentLoad.js";
+import { activeBuyersLoadWhere } from "../../lib/agentLoad.js";
 import { agentsOnShowingOrCall, agentsWithUncalledAcceptedLead } from "../../lib/agentOccupancyShield.js";
 import { dushanbeStartOfToday } from "../../lib/dushanbeTime.js";
 import { LEAD_RECEIVING_ROLES, dushanbeWeekday } from "@royal-home/shared";
@@ -431,12 +431,12 @@ export async function pickAgentForLead(
       // «справедливое» распределение обходит агента из-за записей в Корзине.
       /**
        * ЗАГРУЗКА — ТЕМ ЖЕ ПРАВИЛОМ, ЧТО И ДАШБОРД (B14, решение владельца
-       * 02.10.2026): покупатели в работе (BUYERS_IN_WORK_WHERE, lib/agentLoad.ts).
-       * Раньше здесь считались все клиенты со статусами NEW/CONTACTED/HOT/COLD —
-       * вместе с продавцами и неактивными: агент с 15 продавцами считался самым
-       * загруженным и не получал лидов, хотя дашборд показывал ему свободные места.
+       * 02.10.2026). С 16.11.2026 это ЖИВАЯ нагрузка (activeBuyersLoadWhere,
+       * lib/agentLoad.ts): покупатели с настоящим контактом за 30 дней, сделкой в
+       * работе или свежей заявкой. Давно молчащие карточки опытного агента
+       * нагрузкой не считаются — иначе новичок получал бы каждую заявку.
        */
-      where: { assignedAgentId: { in: ids }, deletedAt: null, ...BUYERS_IN_WORK_WHERE },
+      where: { AND: [{ assignedAgentId: { in: ids } }, activeBuyersLoadWhere()] },
       _count: { _all: true },
     }),
     lastAssignedById(ids),
