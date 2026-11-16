@@ -32,22 +32,18 @@ export function ClientTrashReviewSheet({
       onClose={onClose}
       wide
       title={data ? `Разбор: ${data.client.fullName}` : "Разбор удалённого клиента"}
+      // «Закрыть» уже есть в шапке шторки; в подвале остаётся только звонок.
       footer={
-        <>
-          <button className="pill ghost" type="button" onClick={onClose}>
-            Закрыть
-          </button>
-          {canCall && (
-            <CallClientButton
-              clientId={clientId}
-              phone={phone}
-              variant="full"
-              label="Позвонить клиенту"
-              className="pill"
-              title="Звонок идёт через АТС. Карточка останется в Корзине"
-            />
-          )}
-        </>
+        canCall ? (
+          <CallClientButton
+            clientId={clientId}
+            phone={phone}
+            variant="full"
+            label="Позвонить клиенту"
+            className="pill"
+            title="Звонок идёт через АТС. Карточка останется в Корзине"
+          />
+        ) : undefined
       }
     >
       {isLoading && <p className="sub">Загружаем историю…</p>}
