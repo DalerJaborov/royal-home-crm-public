@@ -14,7 +14,7 @@ import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { handleMontajerVideo, handleMontajerReceiveCallback, handleVoicelessCopyCallback } from "./montajerReceive.js";
 import { parseMontajerCallback, parseMontajerText, runMontajerCommand } from "./montajerBot.js";
 import { appendTelegramConversationMessages } from "../messengers/appendMessages.js";
-import { batchWindowFor, debounceAndMerge } from "../messengers/debounceBuffer.js";
+import { batchWindowFor, debounceAndMerge, quickRepeatMergeEnabled } from "../messengers/debounceBuffer.js";
 import { markLastTelegramReplyUndelivered } from "../messengers/appendMessages.js";
 import { deliverVoiceToConversation } from "../lib/conversationDelivery.js";
 import { synthesizeChatVoiceReply, pcmToWavBuffer } from "../ai/tts.js";
@@ -1854,7 +1854,8 @@ async function replyAfterWindow(p: {
       p.conversationId,
       p.text,
       { voice: p.voice, media: p.hasMedia, messageId: p.messageId },
-      batchWindowFor({ accepted: !!p.registeredClientId, hasMedia: p.hasMedia })
+      batchWindowFor({ accepted: !!p.registeredClientId, hasMedia: p.hasMedia,
+        mergeQuickRepeats: !!p.registeredClientId && (await quickRepeatMergeEnabled()) })
     );
     if (!batch) return; // клиент дописал — ответит более свежий вызов, за всю пачку
     const images = drainBatchImages(p.conversationId);

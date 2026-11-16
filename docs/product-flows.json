@@ -130718,6 +130718,14 @@
        ]
       },
       {
+       "k": "do",
+       "t": "const pickedDistrict = typeof extract.districtName === \"string\" && districtPickAllowed(extract.districtName.t…",
+       "a": [
+        "зовёт districtPickAllowed()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "next.address && next.address !== base.address",
        "a": [],

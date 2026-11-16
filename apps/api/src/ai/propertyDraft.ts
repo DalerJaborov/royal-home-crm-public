@@ -1,3 +1,4 @@
+import { districtListForPrompt, districtPickAllowed } from "../lib/serviceArea.js";
 import {
   PROPERTY_CONDITIONS,
   PROPERTY_TYPES,
@@ -198,7 +199,7 @@ function buildSystemPrompt(districtNames: string[]): string {
     "карточки ЕГО ОБЪЕКТА — квартиры, дома или участка, который он предлагает нам на продажу. " +
     "Источники двух видов: переписка в мессенджере и расшифровки телефонных разговоров. " +
     SELLER_OBJECT_RULES +
-    (districtNames.length > 0 ? `Районы агентства: ${districtNames.join(", ")}. Другие названия в districtName не пиши. ` : "") +
+    (districtNames.length > 0 ? `Районы агентства: ${districtListForPrompt(districtNames)}. Другие названия в districtName не пиши. ` : "") +
     `Типы недвижимости: ${PROPERTY_TYPES.map((t) => `${t} = ${PROPERTY_TYPE_LABELS[t]}`).join("; ")}. ` +
     "НЕСКОЛЬКО ОБЪЕКТОВ. Продавец мог рассказать сразу о двух и более своих объектах (разные квартиры, " +
     "квартира и участок). Тогда в objectsCount поставь их число и НЕ СМЕШИВАЙ их параметры в один набор полей: " +
@@ -336,7 +337,7 @@ export async function buildPropertyDraftSuggestion(clientId: string): Promise<Pr
   suggestion.currency = asCurrency(extract.currency);
   suggestion.address = asAddress(extract.address);
 
-  const district = resolveDistrict(extract.districtName);
+  const district = districtPickAllowed(extract.districtName, transcript) ? resolveDistrict(extract.districtName) : null;
   if (district) {
     suggestion.districtId = district.id;
     suggestion.districtName = district.name;

@@ -91,11 +91,13 @@ describe("B. блок, уже отправленный в разговоре, н
   it("без памяти строк тот же блок при новом разговоре уходит как есть", () => {
     expect(render("расскажите", context([user("привет"), bot("Здравствуйте!")]), all)).toBe(block());
   });
-  it("вопрос, который ещё не задавали, остаётся после короткой строки", () => {
+  // 15.11.2026: the short line is the hand-off to a person; without a phone it already asks for the phone, so no second question.
+  it("без номера короткая строка — передача агенту с просьбой номера, второго вопроса нет", () => {
     const a = block();
     const again = render("расскажите", context([user("расскажите"), bot(a)]), all, { question: "budget" })!;
-    expect(again.split(NL)).toHaveLength(2);
-    expect(again.endsWith("Какой бюджет вы рассматриваете?")).toBe(true);
+    expect(again.split(NL)).toHaveLength(1);
+    expect(again).toMatch(/номер телефона/u);
+    expect(again).not.toMatch(/выше|Повторю/u);
   });
   it("короткая строка во второй раз другая, третьей копии нет", () => {
     const a = block();

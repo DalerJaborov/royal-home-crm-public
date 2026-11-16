@@ -39,10 +39,10 @@ it("editing customerBuyerNeeds changes coreHash and rendererHash, and nothing el
   expect(after.rendererHash).not.toBe(before.rendererHash);
   expect({ ...after, coreHash: before.coreHash, rendererHash: before.rendererHash }).toEqual(before);
 });
-// The grounded free-phrase validator decides what the customer reads: editing it must change the renderer hash, and nothing else.
-it("editing customerAgentSay changes rendererHash only", async () => {
+// The grounded free-phrase validator and the hand-off wording decide what the customer reads: editing them changes the renderer hash, and nothing else.
+it.each(["customerAgentSay", "customerAgentStaffFollowUp"])("editing %s changes rendererHash only", async name => {
   const snapshot = createCustomerAgentProviderSnapshot(), before = await buildCurrentCustomerAgentManifest(snapshot);
-  artifact.changed = "customerAgentSay";
+  artifact.changed = name;
   const after = await buildCurrentCustomerAgentManifest(snapshot);
   expect(after.rendererHash).not.toBe(before.rendererHash);
   expect({ ...after, rendererHash: before.rendererHash }).toEqual(before);

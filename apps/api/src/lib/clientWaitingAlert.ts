@@ -109,7 +109,20 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
 
 /** escalate — модель сама решила «нужен сотрудник»; failed — ход бота сломался (лимит шагов,
  *  сбой, очередь сдалась); silence — сторож увидел молчание через 30 минут. */
-export type ClientWaitingTrigger = "escalate" | "failed" | "silence";
+/** follow_up — бот ответил клиенту «это скажет агент» / «агент позвонит» (15.11.2026): обещание правдиво, только
+ *  если ответственный узнал. Эпизод — эта реплика клиента (`since`), а не окно в 6 ч: каждое обещание доходит. */
+export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up";
+
+/** A person (an agent in the CRM or staff from the messenger app) answered in the chat after `since`. Pure. */
+export function humanRepliedSince(messages: unknown, since: Date): boolean {
+  if (!Array.isArray(messages)) return false;
+  return messages.some(raw => {
+    const m = raw as { role?: unknown; at?: unknown; by?: { kind?: unknown } | null } | null;
+    if (!m || m.role !== "assistant" || typeof m.at !== "string") return false;
+    const kind = m.by && typeof m.by === "object" ? m.by.kind : undefined;
+    return (kind === "agent" || kind === "manual") && new Date(m.at).getTime() > since.getTime();
+  });
+}
 export type ClientWaitingOutcome = "agent" | "director" | "skipped";
 
 const CHANNEL_NAME: Record<string, string> = {
@@ -142,6 +155,8 @@ interface WaitingChat {
   release(since: Date): Promise<void>;
   /** Ответить из CRM нельзя (Telegram Direct) — подсказка, где отвечать. */
   replyHint: string;
+  /** Последний сигнал «клиент ждёт» по этой переписке (только BotConversation; у Telegram-таблиц нет). */
+  lastAlertAt: Date | null;
 }
 
 const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } | null } | null | undefined) =>
@@ -162,6 +177,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string): Promise<W
       messages: chat.messages,
       agentId: activeAgent(chat.client),
       replyHint: "Ответьте клиенту.",
+      lastAlertAt: previous,
       async claim(since) {
         if (previous && previous.getTime() >= since.getTime()) return false;
         const claimed = await prisma.botConversation.updateMany({
@@ -187,6 +203,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string): Promise<W
     agentId: activeAgent(chat.client),
     // Telegram Direct из CRM не отвечает (инбокс: canReply=false) — честно говорим, где отвечать.
     replyHint: source === "telegram" ? "Ответьте клиенту." : "Ответьте клиенту в Telegram — из CRM в эту переписку ответить нельзя.",
+    lastAlertAt: null,
     async claim(since) {
       const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
         VALUES (${randomUUID()},${TELEGRAM_EPISODE_CLAIM},${key(since)},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
@@ -210,6 +227,8 @@ export async function alertClientWaiting(input: {
   trigger: ClientWaitingTrigger;
   /** Для failed: почему бот не ответил, простыми словами (без служебных кодов). */
   why?: string;
+  /** Для follow_up: время реплики клиента, на которую бот пообещал агента (ключ эпизода). */
+  since?: Date;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
@@ -218,8 +237,11 @@ export async function alertClientWaiting(input: {
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
-  const since = episode?.since ?? (input.trigger !== "silence" ? now : null);
+  const since = input.since ?? episode?.since ?? (input.trigger !== "silence" ? now : null);
   if (!since) return "skipped";
+  // «Агент уточнит» — one CRITICAL per chat until a person answers in the chat (re-review #201, Н-нов-3; owner: rarely
+  // disturb people): three empty searches in a row are one signal, not three.
+  if (input.trigger === "follow_up" && chat.lastAlertAt && !humanRepliedSince(chat.messages, chat.lastAlertAt)) return "skipped";
 
   // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба.
   if (!(await chat.claim(since))) return "skipped";
@@ -227,7 +249,9 @@ export async function alertClientWaiting(input: {
   const name = chat.name;
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
   const body =
-    input.trigger === "escalate"
+    input.trigger === "follow_up"
+      ? `${name}: бот ответил клиенту, что это уточнит агент. Ответьте клиенту или позвоните.`
+      : input.trigger === "escalate"
       ? `${name}: бот решил, что нужен сотрудник, и не ответил. ${chat.replyHint}`
       : input.trigger === "failed"
         // Правда о причине (ревью 193-3, 15.11): бот сломался, а не «решил».

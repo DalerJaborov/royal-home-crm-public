@@ -1,3 +1,4 @@
+import { districtPickAllowed, RUDAKI_DISTRICT_NAME } from "./serviceArea.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { customerAgentCompanyKnowledgeSchema, customerAgentCompanyPolicyCallSchema, customerAgentPropertySearchCallSchema, customerToolCallSchema, customerAgentCompanyInformationCallSchema,
@@ -45,9 +46,11 @@ async function current(principal: CustomerPrincipal): Promise<boolean> {
 }
 async function searchPolicy(args: CustomerAgentPropertySearchArgs) {
   const [policy, money, features] = await Promise.all([loadMatchPolicy(), loadMoneyContext(), loadCustomerAgentFeaturePolicy()]);
-  const exact = args.districtName ? await prisma.district.findFirst({ where: { name: { equals: args.districtName, mode: "insensitive" } }, select: { name: true } }) : null;
+  // Точное имя «Рудаки (район)» — только если в самих словах модели район, а не проспект (districtPickAllowed).
+  const exact = args.districtName && districtPickAllowed(args.districtName, args.districtName) ? await prisma.district.findFirst({ where: { name: { equals: args.districtName, mode: "insensitive" } }, select: { name: true } }) : null;
   const place = args.districtName && !exact ? await resolveSearchPlace(args.districtName) : null;
-  const requestedDistrict = place?.suburban ? null : place?.districtName ?? place?.placeDistrictName;
+  // «район Рудаки» словами — район Рудаки (за городом, но свой район в справочнике, lib/serviceArea.ts); «Рудаки» — проспект.
+  const requestedDistrict = place?.districtName === RUDAKI_DISTRICT_NAME ? RUDAKI_DISTRICT_NAME : place?.suburban ? null : place?.districtName ?? place?.placeDistrictName;
   const mapped = requestedDistrict ? await prisma.district.findFirst({ where: { name: { equals: requestedDistrict, mode: "insensitive" } }, select: { name: true } }) : null;
   const districtName = exact?.name ?? mapped?.name ?? null;
   const hash = createHash("sha256").update(JSON.stringify({ query: args, budgetToleranceRatio: policy.budgetToleranceRatio,
