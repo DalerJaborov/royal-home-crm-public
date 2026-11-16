@@ -217,6 +217,28 @@ describe("GET /clients/trash/:id/review", () => {
     }
   });
 
+  it("лента «Показать более ранние»: курсор, права и закрытая для живых карточек ручка", async () => {
+    const all = await request(app).get(`/api/v1/clients/trash/${ids.client}/review`).set("Authorization", `Bearer ${tokens.rop}`);
+    expect(all.body.interactions.length).toBeGreaterThan(0);
+    expect(all.body.hasMore).toBe(false);
+    const last = all.body.interactions[all.body.interactions.length - 1] as { id: string; createdAt: string };
+    const older = await request(app)
+      .get(`/api/v1/clients/trash/${ids.client}/review/timeline?before=${encodeURIComponent(last.createdAt)}&beforeId=${last.id}`)
+      .set("Authorization", `Bearer ${tokens.rop}`);
+    expect(older.status).toBe(200);
+    expect(older.body.items).toEqual([]);
+    expect(older.body.hasMore).toBe(false);
+    const noCursor = await request(app).get(`/api/v1/clients/trash/${ids.client}/review/timeline?limit=1`).set("Authorization", `Bearer ${tokens.rop}`);
+    expect(noCursor.body.items).toHaveLength(1);
+    expect(noCursor.body.hasMore).toBe(true);
+    const half = await request(app).get(`/api/v1/clients/trash/${ids.client}/review/timeline?before=2100-01-01T00:00:00.000Z`).set("Authorization", `Bearer ${tokens.rop}`);
+    expect(half.status).toBe(400);
+    const agent = await request(app).get(`/api/v1/clients/trash/${ids.client}/review/timeline`).set("Authorization", `Bearer ${tokens.owner}`);
+    expect(agent.status).toBe(403);
+    const live = await request(app).get(`/api/v1/clients/trash/${ids.live}/review/timeline`).set("Authorization", `Bearer ${tokens.rop}`);
+    expect(live.status).toBe(404);
+  });
+
   it("агент без права «Архив» — 403; живая карточка — 404", async () => {
     const agent = await request(app).get(`/api/v1/clients/trash/${ids.client}/review`).set("Authorization", `Bearer ${tokens.owner}`);
     expect(agent.status).toBe(403);

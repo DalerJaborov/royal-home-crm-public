@@ -19,7 +19,7 @@ import { canCallArchivedClient } from "../../lib/archiveReviewCall.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../../lib/clientPhone.js";
 import { investigationViewerRole } from "../../auth/investigations.js";
 import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
-import { presentClientTimeline, TIMELINE_INTERACTION_SELECT } from "./card.js";
+import { presentClientTimeline, TIMELINE_INTERACTION_SELECT, timelineQuerySchema } from "./card.js";
 
 export const trashReviewRouter = Router();
 
@@ -45,6 +45,41 @@ const AUDIT_LABELS: Record<string, string> = {
   RESTORE: "Восстановил из Корзины",
   ARCHIVE_REVIEW_CALL: "Позвонил из Корзины (разбор)",
 };
+
+/**
+ * «Показать более ранние» в шторке разбора: тот же курсор (createdAt, id), что у ленты карточки
+ * (GET /clients/:id/timeline), но для карточки из Корзины, которая обычной ручке закрыта.
+ */
+trashReviewRouter.get("/trash/:id/review/timeline", requireAuth, requirePermission("archive.view"), async (req, res) => {
+  const parsed = timelineQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+  const { before, beforeId, type, limit } = parsed.data;
+  if ((before && !beforeId) || (!before && beforeId)) {
+    return res.status(400).json({ error: "Курсор задаётся парой before и beforeId" });
+  }
+  const client = await prisma.client.findFirst({
+    where: { id: req.params.id, deletedAt: { not: null } },
+    select: { id: true, assignedAgentId: true },
+  });
+  if (!client) return res.status(404).json({ error: "Клиент не найден в Корзине" });
+  const baseWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ? { type } : {}) };
+  const where =
+    before && beforeId
+      ? { ...baseWhere, OR: [{ createdAt: { lt: before } }, { createdAt: before, id: { lt: beforeId } }] }
+      : baseWhere;
+  const [rows, total] = await Promise.all([
+    prisma.interaction.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      select: TIMELINE_INTERACTION_SELECT,
+    }),
+    prisma.interaction.count({ where: baseWhere }),
+  ]);
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
+});
 
 trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archive.view"), async (req, res) => {
   const client = await prisma.client.findFirst({
@@ -94,7 +129,7 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
     prisma.interaction.findMany({
       where: interactionWhere,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: REVIEW_INTERACTIONS_LIMIT,
+      take: REVIEW_INTERACTIONS_LIMIT + 1,
       select: { ...TIMELINE_INTERACTION_SELECT },
     }),
     prisma.interaction.count({ where: interactionWhere }),
@@ -106,6 +141,8 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
   ]);
   const deletedAutomatically = client.deletedById === null || manualTrash === 0;
 
+  const hasMore = rows.length > REVIEW_INTERACTIONS_LIMIT;
+  const page = hasMore ? rows.slice(0, REVIEW_INTERACTIONS_LIMIT) : rows;
   const labels = deleteReasonLabelsFor(client.kind);
   const phonesAllowed = can(req, "clients.viewPhone");
   res.json({
@@ -146,8 +183,9 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
       agentName: a.agentName,
       createdAt: a.createdAt,
     })),
-    interactions: await presentClientTimeline(req, client.assignedAgentId, rows),
+    interactions: await presentClientTimeline(req, client.assignedAgentId, page),
     interactionsTotal: total,
+    hasMore,
     canCall: canCallArchivedClient({ can: (p) => can(req, p) }),
   });
 });

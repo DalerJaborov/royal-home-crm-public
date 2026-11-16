@@ -571,7 +571,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   res.json(transferAccess ? { ...payload, access: transferAccess } : payload);
 });
 
-const timelineQuerySchema = z.object({
+export const timelineQuerySchema = z.object({
   /** Курсор — последняя уже показанная запись (createdAt, id); без него — с самой свежей. */
   before: z.coerce.date().optional(),
   beforeId: z.string().uuid().optional(),

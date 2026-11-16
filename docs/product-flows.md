@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **755**. Развилок в самих путях: **2487**; вместе с задачами по расписанию и фоновыми заданиями — **4113**. Модулей: **84**.
+Путей: **756**. Развилок в самих путях: **2490**; вместе с задачами по расписанию и фоновыми заданиями — **4116**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4799,6 +4799,31 @@
 - const summary: ClientsSummary = { buyers, sellers, mine, other, lost, newToday, newYesterday, awaitingAgent: …
   · зовёт clientNamePhoneSafe()
 - res.json(summary);
+  · ответ 200
+
+### GET /api/v1/clients/trash/:id/review/timeline
+
+`apps/api/src/routes/clients/trashReview.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+
+- const parsed = timelineQuerySchema.safeParse(req.query);
+  · проверяет данные схемой timelineQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- если (before && !beforeId) || (!before && beforeId)
+  - return res.status(400).json({ error: "Курсор задаётся парой before и beforeId" });
+    · ответ 400 — «Курсор задаётся парой before и beforeId»
+- const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…
+  · читает в базе: client
+- если !client
+  - return res.status(404).json({ error: "Клиент не найден в Корзине" });
+    · ответ 404 — «Клиент не найден в Корзине»
+- const baseWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ?…
+  · зовёт visibleInteractionWhere()
+- const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
+  · читает в базе: interaction
+  · считает в базе: interaction
+- res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
   · ответ 200
 
 ### GET /api/v1/clients/trash/:id/review
