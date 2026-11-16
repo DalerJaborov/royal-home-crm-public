@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 754,
-  "forks": 4082,
+  "forks": 4086,
   "mounts": 84,
   "cron": 137,
   "jobs": 33,
@@ -90044,7 +90044,7 @@
           },
           {
            "k": "if",
-           "t": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
+           "t": "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
            "a": [],
            "c": [
             {
@@ -90059,9 +90059,24 @@
           },
           {
            "k": "if",
-           "t": "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
+           "t": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
            "a": [],
            "c": [
+            {
+             "k": "if",
+             "t": "row.pausedUntil && row.pausedUntil.getTime() > now.getTime()",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "repeat.push({ id: row.id, clientId: row.clientId, episode });",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
             {
              "k": "do",
              "t": "continue;",
@@ -90076,7 +90091,7 @@
         },
         {
          "k": "if",
-         "t": "due.length === 0",
+         "t": "due.length === 0 && repeat.length === 0",
          "a": [],
          "c": [
           {
@@ -90099,7 +90114,7 @@
         },
         {
          "k": "do",
-         "t": "const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d)",
+         "t": "const lastCall = await fetchLastCallContactByClient([...new Set([...due, ...repeat].map((d)",
          "a": [
           "зовёт fetchLastCallContactByClient()"
          ],
@@ -90178,6 +90193,80 @@
             {
              "k": "do",
              "t": "reportCronRowError(\"Сторож «клиент ждёт ответа»\", d.id, err);",
+             "a": [
+              "зовёт reportCronRowError()"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const d of repeat",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "allIntentional",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "called && called.getTime() > d.episode.since.getTime()",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "(await repeatClientWaiting({ conversationId: d.id, since: d.episode.since, now })) === \"sent\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "alerted++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "reportCronRowError(\"Сторож «клиент ждёт ответа» (повтор)\", d.id, err);",
              "a": [
               "зовёт reportCronRowError()"
              ],
