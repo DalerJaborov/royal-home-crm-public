@@ -49,6 +49,11 @@ export const SUBURB_SEARCH_REFUSAL =
 /** Зона одной фразой — для текстов ботов. */
 export const SERVICE_AREA_RU = "Душанбе и район Рудаки";
 
+/** Старые фразы зоны (до Рудаки, 15.11.2026): клиенту больше не уходят, нужны только чтобы бот узнавал их в памяти старых чатов. */
+export const RETIRED_SERVICE_AREA_LINES: readonly string[] = [
+  "Мутаассифона, мо танҳо дар Душанбе кор мекунем.", "К сожалению, мы работаем только в городе Душанбе.",
+];
+
 /** Город компании из знаний (AGENCY_FACTS.city) → «где работаем» словами клиента. */
 export function serviceAreaIn(city: string, language: "ru" | "tg"): string {
   if (city !== "Душанбе") return language === "tg" ? `дар ${city}` : `в городе ${city}`;

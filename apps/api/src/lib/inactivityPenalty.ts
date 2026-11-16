@@ -101,6 +101,7 @@ export async function runInactivityCheck(now = new Date()): Promise<InactivityRu
       assignedAgentId: true,
       acceptedAt: true,
       interactions: {
+        where: { archiveReview: false },
         orderBy: { createdAt: "desc" },
         take: 1,
         select: { createdAt: true },

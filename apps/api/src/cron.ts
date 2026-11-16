@@ -32,6 +32,7 @@ import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
 import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
 import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
+import { runTransferRequestTick } from "./lib/ownershipTransferRequest.js";
 import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
@@ -2874,6 +2875,19 @@ export function startCronJobs() {
       if (alerted > 0) console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа комментариев без ответа", err);
+    }
+  });
+
+  /**
+   * ПЕРЕДАЧА РОП (16.11.2026, lib/ownershipTransferRequest.ts): отклонённая директором передача,
+   * возврат которой не завершился (падение процесса), помечается FAILED.
+   */
+  scheduleTracked("transfer-request-tick", "*/5 * * * *", async () => {
+    try {
+      const { stuck, reminded } = await runTransferRequestTick();
+      if (stuck + reminded > 0) console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
+    } catch (err) {
+      reportCronTickError("Ошибка тика запросов передачи", err);
     }
   });
 

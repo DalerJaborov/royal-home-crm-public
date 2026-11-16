@@ -446,15 +446,28 @@ export function VideoDetail({
 
           <section className="card">
             <div className="sec-h stack">
-              <h2>Ролик</h2>
-              <span className="note">{facts}</span>
+              <h2>{item.mediaKind === "PHOTO" ? "Фото" : "Ролик"}</h2>
+              {item.mediaKind !== "PHOTO" && <span className="note">{facts}</span>}
             </div>
-            <VideoPlayerWithFallback
-              src={src}
-              onDownload={() => window.open(src, "_blank", "noopener")}
-              style={{ width: "100%", maxHeight: 460, borderRadius: "var(--r-md)", background: "var(--track)" }}
-            />
-            {item.coverUrl && (
+            {item.mediaKind === "PHOTO" ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8 }}>
+                {item.imagePaths.map((p, i) => (
+                  <img
+                    key={p}
+                    src={mediaSrc(p)}
+                    alt={`Фото ${i + 1}`}
+                    style={{ width: "100%", aspectRatio: "4 / 5", objectFit: "cover", borderRadius: "var(--r-md)", background: "var(--track)" }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <VideoPlayerWithFallback
+                src={src}
+                onDownload={() => window.open(src, "_blank", "noopener")}
+                style={{ width: "100%", maxHeight: 460, borderRadius: "var(--r-md)", background: "var(--track)" }}
+              />
+            )}
+            {item.coverUrl && item.mediaKind !== "PHOTO" && (
               <div style={{ marginTop: 12 }}>
                 <div className="sec-t">Обложка · {SOCIAL_VIDEO_COVER_MODE_LABELS[item.coverMode]}</div>
                 <img

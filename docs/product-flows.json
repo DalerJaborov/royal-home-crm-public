@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 757,
-  "forks": 4126,
-  "mounts": 84,
-  "cron": 143,
+  "endpoints": 763,
+  "forks": 4151,
+  "mounts": 85,
+  "cron": 144,
   "jobs": 33,
   "hidden": 0
  },
@@ -860,7 +860,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite"
+    "requireAdsWrite",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -990,7 +991,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite"
+    "requireAdsWrite",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -6585,7 +6587,7 @@
       },
       {
        "k": "if",
-       "t": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\")",
+       "t": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
        "a": [],
        "c": [
         {
@@ -12536,31 +12538,38 @@
      ]
     },
     {
-     "k": "do",
-     "t": "const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));",
-     "a": [
-      "зовёт foreignWriteDenied()"
-     ],
-     "c": []
-    },
-    {
      "k": "if",
-     "t": "denied",
+     "t": "!archiveReview",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: denied });",
+       "t": "const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));",
        "a": [
-        "ответ 403"
+        "зовёт foreignWriteDenied()"
        ],
        "c": []
+      },
+      {
+       "k": "if",
+       "t": "denied",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: denied });",
+         "a": [
+          "ответ 403"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
     {
      "k": "if",
-     "t": "client.deletedAt",
+     "t": "client.deletedAt && !archiveReview",
      "a": [],
      "c": [
       {
@@ -12637,7 +12646,7 @@
     },
     {
      "k": "if",
-     "t": "ownAgentIdForAccept && !client.acceptedAt && client.kind !== \"OTHER\" && client.assignedAgentId === ownAgentId…",
+     "t": "!archiveReview && ownAgentIdForAccept && !client.acceptedAt && client.kind !== \"OTHER\" && client.assignedAgen…",
      "a": [],
      "c": [
       {
@@ -12735,11 +12744,26 @@
     },
     {
      "k": "do",
-     "t": "const result = await originateCallToClient(req.agent!.id, client, { phoneOverride });",
+     "t": "const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });",
      "a": [
       "команда телефонии"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "archiveReview && (result.ok || result.status === 502)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "logAudit(req, \"ARCHIVE_REVIEW_CALL\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullNam…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -12748,7 +12772,7 @@
      "c": [
       {
        "k": "if",
-       "t": "result.status === 502",
+       "t": "result.status === 502 && !archiveReview",
        "a": [],
        "c": [
         {
@@ -17993,7 +18017,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: await presentTimeline(req, client.assignedAgentId, page), total, hasMore });",
+     "t": "res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });",
      "a": [
       "ответ 200"
      ],
@@ -18084,6 +18108,21 @@
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!can(req, \"clients.assign\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Передавать клиентов может только руководитель\" });",
+       "a": [
+        "ответ 403 — «Передавать клиентов может только руководитель»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const parsed = clientTransferSchema.safeParse(req.body);",
@@ -18752,6 +18791,14 @@
      "a": [
       "считает в базе: interaction",
       "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const withMessages = { ...client, hadConductedShowing: conductedShowing, callsCount, hadRealCall: realCalls >…",
+     "a": [
+      "зовёт presentClientTimeline()"
      ],
      "c": []
     },
@@ -19796,6 +19843,14 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p)",
+       "a": [
+        "зовёт canCallArchivedClient()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "!canAccessAssignedAgent(req, full.assignedAgentId)",
        "a": [],
@@ -19875,11 +19930,26 @@
     },
     {
      "k": "do",
-     "t": "const result = await originateCallToClient(req.agent!.id, client);",
+     "t": "const result = await originateCallToClient(req.agent!.id, client, { archiveReview });",
      "a": [
       "команда телефонии"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "archiveReview && (result.ok || result.status === 502)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "logAudit(req, \"ARCHIVE_REVIEW_CALL\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullNam…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -20885,6 +20955,181 @@
     {
      "k": "do",
      "t": "res.json(summary);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/trash/:id/review/timeline",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/trash/:id/review/timeline",
+   "file": "apps/api/src/routes/clients/trashReview.ts",
+   "router": "trashReviewRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: archive.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = timelineQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой timelineQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "(before && !beforeId) || (!before && beforeId)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Курсор задаётся парой before и beforeId\" });",
+       "a": [
+        "ответ 400 — «Курсор задаётся парой before и beforeId»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Клиент не найден в Корзине\" });",
+       "a": [
+        "ответ 404 — «Клиент не найден в Корзине»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const baseWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ?…",
+     "a": [
+      "зовёт visibleInteractionWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: \"desc\" …",
+     "a": [
+      "читает в базе: interaction",
+      "считает в базе: interaction"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/trash/:id/review",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/trash/:id/review",
+   "file": "apps/api/src/routes/clients/trashReview.ts",
+   "router": "trashReviewRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: archive.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Клиент не найден в Корзине\" });",
+       "a": [
+        "ответ 404 — «Клиент не найден в Корзине»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const interactionWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id };",
+     "a": [
+      "зовёт visibleInteractionWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [request, audit, rows, total, manualTrash] = await Promise.all([ prisma.clientDeleteRequest.findFirst({…",
+     "a": [
+      "читает в базе: clientDeleteRequest",
+      "читает в базе: auditLog",
+      "читает в базе: interaction",
+      "считает в базе: interaction",
+      "считает в базе: auditLog"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ client: { id: client.id, shortId: client.shortId, fullName: clientNamePhoneSafe(client.fullName, p…",
      "a": [
       "ответ 200"
      ],
@@ -25041,6 +25286,29 @@
       },
       {
        "k": "do",
+       "t": "const annulTarget = await prisma.deal.findUnique({ where: { id: dealId }, select: { agentId: true } });",
+       "a": [
+        "читает в базе: deal"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "annulTarget && isOwnDealWithoutFinance(req, annulTarget)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Свою сделку аннулирует директор\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
        "t": "const parsed = dealAnnulSchema.safeParse(body);",
        "a": [
         "проверяет данные схемой dealAnnulSchema"
@@ -25465,7 +25733,7 @@
     },
     {
      "k": "if",
-     "t": "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && !can(req, \"deals.complete\")",
+     "t": "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && (!can(req, \"deals.complete\") || (deal.ag…",
      "a": [],
      "c": [
       {
@@ -25832,12 +26100,12 @@
      "c": [
       {
        "k": "if",
-       "t": "!can(req, \"finance.manage\") && !can(req, \"deals.setCommission\")",
+       "t": "!can(req, \"finance.manage\")",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return fail(403, { error: \"Недостаточно прав\" });",
+         "t": "return fail(403, { error: \"Отметить выплату может только директор\" });",
          "a": [
           "дословно из кода"
          ],
@@ -26209,6 +26477,21 @@
        ]
       },
       {
+       "k": "if",
+       "t": "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && isOwnDealWithoutFinance(req, existing)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Свою сделку закрывает директор: вы продавец, второй человек должен подтвердить\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "const commissionExceedsPrice = finalSoldPrice !== null && finalSoldPrice !== undefined && finalRealtorAmount …",
        "a": [
@@ -26538,6 +26821,36 @@
         {
          "k": "do",
          "t": "return fail(400, { error: \"Комиссия (риелтор + компания) не может превышать фактическую цену продажи\", });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Деньги закрытой сделки меняет только директор\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRepricingClosed && !can(req, \"finance.manage\")",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Комиссию закрытой сделки меняет только директор\" });",
          "a": [
           "дословно из кода"
          ],
@@ -54685,8 +54998,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.editForeign"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
@@ -54816,6 +55128,14 @@
        "t": "const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: actor.…",
        "a": [
         "зовёт transferPropertyWithSeller()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "void recordRopTransfer({ kind: \"PROPERTY\", targetId: property.id, fromAgentId: result.fromAgentId, toAgentId,…",
+       "a": [
+        "зовёт recordRopTransfer()"
        ],
        "c": []
       },
@@ -57648,6 +57968,21 @@
       "зовёт changedPropertyFields()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "(req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Цену и контакт собственника меняет агент объекта или руководитель\" });",
+       "a": [
+        "ответ 403 — «Цену и контакт собственника меняет агент объекта или руководитель»"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -76938,6 +77273,141 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/photos",
+   "mount": "/api/v1/social-videos",
+   "full": "/api/v1/social-videos/photos",
+   "file": "apps/api/src/routes/socialVideos.ts",
+   "router": "socialVideosRouter",
+   "top": "apps/api/src/routes/socialVideos.ts::socialVideosRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireMarketingRole",
+    "socialPhotoPostUpload.array(\"photos\", SOCIAL_PHOTO_POST_MAX_IMAGES)"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "files.length === 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(400).json({ error: \"Приложите хотя бы одно фото (поле photos)\" });",
+         "a": [
+          "ответ 400 — «Приложите хотя бы одно фото (поле photos)»"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const fields = socialVideoCreateFieldsSchema.safeParse(req.body);",
+       "a": [
+        "проверяет данные схемой socialVideoCreateFieldsSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!fields.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(400).json({ error: fields.error.issues[0]?.message ?? \"Неверные поля формы\" });",
+         "a": [
+          "ответ 400"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const item = await createSocialPhotoPostFromUpload({ files: files.map((f)",
+       "a": [
+        "зовёт createSocialPhotoPostFromUpload()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SOCIAL_VIDEO_CREATED\", \"SocialVideoPost\", item.id, { kind: \"PHOTO\", photos: files.length, size…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.status(201).json(item);",
+       "a": [
+        "ответ 201"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "err instanceof SocialVideoError",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(err.status).json({ error: err.message });",
+         "a": [
+          "ответ (код зависит от условия)"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/trends",
    "mount": "/api/v1/social-videos",
@@ -78924,6 +79394,93 @@
     {
      "k": "do",
      "t": "res.json({ text: text.trim() });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/respond",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/:id/respond",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const outcome = await reviewRopTransfer(who(req), req.params.id, req.body);",
+     "a": [
+      "зовёт reviewRopTransfer()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(outcome.status).json(outcome.body);",
+     "a": [
+      "ответ (код зависит от условия)"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/outgoing",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/outgoing",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: transfers.request"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json({ items: await listOutgoingTransferRequests(who(req)) });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/pending",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/pending",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json({ items: await listPendingTransferReviews(who(req)) });",
      "a": [
       "ответ 200"
      ],
@@ -83418,6 +83975,21 @@
                 },
                 {
                  "k": "if",
+                 "t": "providerAcceptedReply && result.agentSignal",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "void requestAgentAttention(result.agentSignal.clientId, result.agentSignal.reason);",
+                   "a": [
+                    "зовёт requestAgentAttention()"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "if",
                  "t": "result.reply2",
                  "a": [],
                  "c": [
@@ -85848,6 +86420,21 @@
        "t": "return res.status(400).json({ error: \"Для боевого режима укажите номер группы объявлений постоянной кампании …",
        "a": [
         "ответ 400 — «Для боевого режима укажите номер группы объявлений постоянной…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "touchesLive && !req.agent?.permissions.has(\"finance.manage\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Боевой режим автопродвижения включает только директор\" });",
+       "a": [
+        "ответ 403 — «Боевой режим автопродвижения включает только директор»"
        ],
        "c": []
       }
@@ -88820,7 +89407,7 @@
         },
         {
          "k": "do",
-         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", clientId: { in: withClient.map((r)",
+         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", archiveReview: false, clientId: { in…",
          "a": [
           "читает в базе: interaction"
          ],
@@ -114243,7 +114830,7 @@
         },
         {
          "k": "do",
-         "t": "const problem = telegramDeliveryProblem(info, now, previousPending);",
+         "t": "const problem = telegramDeliveryProblem(info, now, previousPending, telegramUpdatesMode());",
          "a": [
           "зовёт telegramDeliveryProblem()"
          ],
@@ -116133,6 +116720,162 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка сводки на завтра\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "transfer-request-tick",
+   "when": "*/5 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { stuck, reminded } = await runTransferRequestTick();",
+       "a": [
+        "зовёт runTransferRequestTick()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: \"DECLINED\", resultNote: EXECU…",
+         "a": [
+          "читает в базе: ownershipTransferRequest"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of stuck",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"DECLINED\", res…",
+           "a": [
+            "меняет в базе: ownershipTransferRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claim.count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "publishTransferChanged([row.requestedById], row.id);",
+             "a": [
+              "зовёт publishTransferChanged()"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const due = await prisma.ownershipTransferRequest.findMany({ where: { status: \"PENDING\", remindCount: { lt: T…",
+         "a": [
+          "читает в базе: ownershipTransferRequest"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of due",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"PENDING\", remi…",
+           "a": [
+            "меняет в базе: ownershipTransferRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claim.count === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await notifyReviewers(row);",
+           "a": [
+            "зовёт notifyReviewers()"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runTransferRequestTick() — apps/api/src/lib/ownershipTransferRequest.ts"
+      },
+      {
+       "k": "if",
+       "t": "stuck + reminded > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка тика запросов передачи\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -127218,9 +127961,9 @@
              "c": [
               {
                "k": "do",
-               "t": "await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…",
+               "t": "await markAgentAttention(client.id);",
                "a": [
-                "меняет в базе: client"
+                "зовёт markAgentAttention()"
                ],
                "c": []
               }
@@ -133317,11 +134060,49 @@
          "c": [
           {
            "k": "do",
-           "t": "const claims = findOffCatalogClaims({ text: result.reply.join(\"\\n\"), allowedText: propsBlock + \"\\n\" + history…",
+           "t": "const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…",
            "a": [
-            "зовёт findOffCatalogClaims()"
+            "зовёт applyObjectFactGuards()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "facts.streets.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.afterPlace.join(\"\\n\"), \"place\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "facts.renovationRemoved > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.reply.join(\"\\n\"), \"renovation\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError(\"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -134118,11 +134899,49 @@
          "c": [
           {
            "k": "do",
-           "t": "const claims = findOffCatalogClaims({ text: result.reply.join(\"\\n\"), allowedText: propsBlock + \"\\n\" + history…",
+           "t": "const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…",
            "a": [
-            "зовёт findOffCatalogClaims()"
+            "зовёт applyObjectFactGuards()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "facts.streets.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.afterPlace.join(\"\\n\"), \"place\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "facts.renovationRemoved > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.reply.join(\"\\n\"), \"renovation\");",
+             "a": [
+              "зовёт traceFilterDelta()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logSystemError(\"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",

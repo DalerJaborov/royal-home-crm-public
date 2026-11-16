@@ -112,7 +112,7 @@ export async function checkNoAnswerStreakForTrafficLight(clientId: string, now: 
     }
 
     const recent = await prisma.interaction.findMany({
-      where: { clientId: client.id, type: "CALL", callAttempt: { in: ["TALKED", "NO_ANSWER"] } },
+      where: { clientId: client.id, type: "CALL", archiveReview: false, callAttempt: { in: ["TALKED", "NO_ANSWER"] } },
       orderBy: { createdAt: "desc" },
       take: STREAK_THRESHOLD,
       select: { callAttempt: true, createdAt: true },

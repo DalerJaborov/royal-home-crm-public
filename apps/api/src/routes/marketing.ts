@@ -100,16 +100,10 @@ export function requireMarketingRole<P>(req: Request<P>, res: Response, next: Ne
 }
 
 /** Подключение и отключение каналов компании (TikTok, Threads, Search Console, Яндекс, пароль
- *  приложения): только роли маркетинга и руководства. Право marketing.access (его получает и РОП)
+ *  приложения): только директор (finance.manage; решение владельца 16.11.2026, строже прежнего «маркетинг и руководство»). Право marketing.access (его получает и РОП)
  *  этого не открывает — подключённый не тем человеком канал уводит ролики компании на чужую страницу
  *  (ревью 14.11.2026). */
-export function requireChannelAdmin<P>(req: Request<P>, res: Response, next: NextFunction) {
-  if (!req.agent) return res.status(401).json({ error: "Требуется авторизация" });
-  if (req.agent.role !== "MARKETING" && req.agent.role !== "DIRECTOR" && req.agent.role !== "ADMIN") {
-    return res.status(403).json({ error: "Каналы подключает маркетинг или руководство" });
-  }
-  next();
-}
+export { requireChannelAdmin } from "../lib/marketingRole.js";
 
 /** /editors-load — своя очередь монтажа, её видят маркетинг, монтажёр, директор и админ. */
 function requireEditorsLoadRole<P>(req: Request<P>, res: Response, next: NextFunction) {

@@ -200,6 +200,7 @@ export async function fetchLastCallContactByClient(clientIds: string[]): Promise
     where: {
       clientId: { in: clientIds },
       type: "CALL",
+      archiveReview: false,
       agentId: { not: null },
       // Тот же критерий «состоявшегося разговора», что в silentClientAutoDeactivate.ts:
       // недозвон (outcome = NO_ANSWER) и звонок без проставленного итога (outcome = null)

@@ -49,7 +49,8 @@ export function activityPeriodBounds(from?: Date, to?: Date): { start?: Date; en
 }
 
 export function activityWhere(scope: ActivityScope): Prisma.InteractionWhereInput {
-  const where: Prisma.InteractionWhereInput = {};
+  // Разбор удалённого клиента из Корзины — не работа агента (lib/archiveReviewCall.ts).
+  const where: Prisma.InteractionWhereInput = { archiveReview: false };
   if (scope.ownAgentId) where.agentId = scope.ownAgentId;
   else if (scope.agentId) where.agentId = scope.agentId;
   if (scope.type) where.type = scope.type;

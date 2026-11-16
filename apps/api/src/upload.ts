@@ -5,7 +5,13 @@ import crypto from "node:crypto";
 import multer from "multer";
 import { looksLikeHeicName } from "./lib/heicInput.js";
 import sharp from "sharp";
-import { SOCIAL_VIDEO_UPLOAD_MAX_BYTES, SOCIAL_VIDEO_COVER_MAX_BYTES, SOCIAL_VIDEO_COVER_MIME_TYPES } from "@royal-home/shared";
+import {
+  SOCIAL_VIDEO_UPLOAD_MAX_BYTES,
+  SOCIAL_VIDEO_COVER_MAX_BYTES,
+  SOCIAL_VIDEO_COVER_MIME_TYPES,
+  SOCIAL_PHOTO_POST_MAX_BYTES,
+  SOCIAL_PHOTO_POST_MAX_IMAGES,
+} from "@royal-home/shared";
 
 /**
  * Отказ загрузчика по типу файла (fileFilter). Отдельный класс, чтобы общий
@@ -365,6 +371,19 @@ export const socialVideoUpload = multer({
   limits: { fileSize: SOCIAL_VIDEO_UPLOAD_MAX_BYTES, files: 1, fields: 10, parts: 12, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("video/")) return cb(new UploadRejectedError("Допустимо только видео (MP4 или MOV)"));
+    cb(null, true);
+  },
+});
+
+/** Фото-пост в разделе публикаций (16.11.2026): до 10 снимков по 20 МБ в память — sharp перекладывает их в JPEG. */
+export const socialPhotoPostUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: SOCIAL_PHOTO_POST_MAX_BYTES, files: SOCIAL_PHOTO_POST_MAX_IMAGES, fields: 10, parts: SOCIAL_PHOTO_POST_MAX_IMAGES + 10, fieldSize: 64 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    // HEIC с айфона браузер часто отдаёт как application/octet-stream — пускаем по имени, sharpFromUpload разберёт.
+    if (!file.mimetype.startsWith("image/") && !/\.(heic|heif)$/i.test(file.originalname)) {
+      return cb(new UploadRejectedError("Допустимы только фото (JPEG, PNG, WebP, HEIC)"));
+    }
     cb(null, true);
   },
 });

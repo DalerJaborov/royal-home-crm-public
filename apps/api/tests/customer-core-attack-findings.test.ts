@@ -113,7 +113,8 @@ describe("class 4: a repeated reply is varied, never silenced", () => {
   it("words a bare acknowledgement differently the third time instead of letting the shield swallow it", () => {
     const ack = (turns: Array<{ role: "user" | "assistant"; text: string }>) => renderCustomerAgentDecision({
       decision: { kind: "reply", refs: [], social: "acknowledge", question: "none" }, evidence: [], language: "ru", requestedFacts: [],
-      knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm", inputText: "цена 1500000", verifiedContext: context(turns) });
+      knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm", inputText: "ладно", verifiedContext: context(turns) });
+    // 16.11.2026 (audit): «Понял.» alone is not an answer to a message with a price; such input goes to a person (customer-bot-audit-16-11).
     expect(ack([])).toBe("Понял.");
     expect(ack([user("в Фирдавси"), bot("Понял.")])).toBe("Понял.");
     const third = ack([user("в Фирдавси"), bot("Понял."), user("120 метров"), bot("Понял.")]);
