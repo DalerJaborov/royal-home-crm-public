@@ -124,8 +124,13 @@ const NOZA_TAIL = RECRUITMENT_CONTACT.phone.replace(/\D/gu, "").slice(-9);
 /** The candidate's own phone numbers in their words, parsed by the project's strict phone parser (review #206 В2: never a
  *  date «20.11.2026», a salary «3000-5000» or years «2019 2024»); Noza's own number quoted back is not theirs. */
 export function candidatePhones(text: string | undefined): string[] {
-  return extractAllPhones(clientOwnWords(text ?? "")).filter(phone => phone.replace(/\D/gu, "").slice(-9) !== NOZA_TAIL);
+  const words = clientOwnWords(text ?? "");
+  const phones = extractAllPhones(words).filter(phone => phone.replace(/\D/gu, "").slice(-9) !== NOZA_TAIL);
+  // A bare nine-digit run with no phone word around it («ИНН 123456789») is not a phone (re-review #206 Н3).
+  if (PHONE_CONTEXT.test(words.toLowerCase())) return phones;
+  return phones.filter(phone => !new RegExp(`(?<!\\d)${phone.replace(/\D/gu, "").slice(-9)}(?!\\d)`, "u").test(words.replace(/\+?992/gu, " ")));
 }
+const PHONE_CONTEXT = /номер|телефон|тел\.|тел\s|whatsapp|ватсап|вотсап|вацап|телеграм|telegram|рақам|раками|ракам|занг|звон|позвон|\+992|для\s+связи/u;
 export function candidatePhoneGiven(text: string | undefined): boolean { return candidatePhones(text).length > 0; }
 export type RecruitmentFollowUp = "phone_given" | "complaint" | "ask" | null;
 /** What a candidate's message is, once Noza's number is known to them. */

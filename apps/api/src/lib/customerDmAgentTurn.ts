@@ -591,7 +591,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // «Передал ваш номер Нозе» is said only together with the vacancy owners' signal, in the same transaction (review #206 В3).
     const recruitmentAlert = (tx: Parameters<typeof enqueueRecruitmentCandidateAlertTx>[0]) => enqueueRecruitmentCandidateAlertTx(tx, {
       replyText: sealed.text, customerText: fullInput(), conversationId: principal.scope.conversationId,
-      channel: principal.scope.channel, eventKey: claim.eventKey });
+      channel: principal.scope.channel, eventKey: claim.eventKey, peer: principal.scope.peer });
     try {
       partIds = await prisma.$transaction(async tx => {
         const ids = await createCustomerOutboxPartsTx(tx, { principal, agentClaim: claim,

@@ -29,20 +29,28 @@ export function recruitmentAlertKind(replyText: string): RecruitmentAlertKind | 
 /** Queue the vacancy owners' signal in the caller's transaction; throws if it cannot be queued (the reply must not go then). */
 export async function enqueueRecruitmentCandidateAlertTx(tx: TxClient, input: {
   replyText: string; customerText: string; conversationId: string; channel: string; eventKey: string;
+  /** The transport peer: for WhatsApp it is the candidate's own number. */
+  peer?: string; name?: string | null;
 }): Promise<RecruitmentAlertKind | null> {
   const kind = recruitmentAlertKind(input.replyText);
   if (!kind) return null;
   const phones = candidatePhones(input.customerText);
   if (kind === "phone_given" && !phones.length) throw new Error("Recruitment alert without a candidate phone");
   const tail = phones.map(phone => phone.replace(/\D/gu, "").slice(-9)).join("-");
+  // Who to call and where the chat is (re-review #206 Н2): the number from the message, else the WhatsApp number, and the
+  // name if the card has one; the link opens this very chat.
+  const peerPhone = input.channel === "WHATSAPP" && /^\d{7,15}$/u.test(input.peer ?? "") ? `+${input.peer}` : null;
+  const reach = [input.name?.trim() || null, phones.length ? phones.join(", ") : peerPhone].filter(Boolean).join(", ");
+  const who = reach ? `${reach} (${input.channel})` : `чат ${input.channel}, номера в переписке нет`;
+  const url = `/messages?open=${input.conversationId}`;
   const queued = await enqueueDirectorAlert(kind === "phone_given" ? {
     title: "💼 Кандидат оставил номер",
-    body: `Перезвоните кандидату: ${phones.join(", ")} (${input.channel}). Бот ответил, что Ноза сама позвонит.`,
-    url: "/messages", kind: "oversight", tag: `candidate-phone-${input.conversationId}-${tail}`, recipientPermission: "vacancies.view",
+    body: `Перезвоните кандидату: ${who}. Бот ответил, что Ноза сама позвонит.`,
+    url, kind: "oversight", tag: `candidate-phone-${input.conversationId}-${tail}`, recipientPermission: "vacancies.view",
   } : {
     title: "💼 Кандидат не может дозвониться",
-    body: `Кандидат пишет, что не может дозвониться до Нозы (${input.channel}). Бот ответил, что Ноза сама позвонит.`,
-    url: "/messages", kind: "oversight", tag: `candidate-unreachable-${input.conversationId}-${input.eventKey.slice(0, 16)}`,
+    body: `Кандидат не может дозвониться до Нозы: ${who}. Бот ответил, что Ноза сама позвонит.`,
+    url, kind: "oversight", tag: `candidate-unreachable-${input.conversationId}-${input.eventKey.slice(0, 16)}`,
     recipientPermission: "vacancies.view",
   }, tx);
   if (!queued) throw new Error("Recruitment alert was not queued");

@@ -114,6 +114,13 @@ describe("6. ссылка — не «о каком объекте речь», «
       turns: [user("Хочу купить квартиру"), bot("Какой бюджет вы рассматриваете?")] })!;
     expect(customerReplyCallsStaff(text)).toBe(false);
   });
+  it.each([["до 50000. А в Сино есть варианты?", "ru", "Хочу купить квартиру", "Какой бюджет вы рассматриваете?"],
+    ["50000 доллар, ипотека хаст?", "tg", "Хона мехарам", "Чӣ қадар маблағ дар назар доред?"]] as const)(
+    "вопрос клиента вместе с данными (повторное ревью Н1): «%s» → человек, не следующий вопрос анкеты", (input, language, first, asked) => {
+    const text = render(input, { language, decision: { social: "acknowledge" }, turns: [user(first), bot(asked)] })!;
+    expect(customerReplyCallsStaff(text)).toBe(true);
+    expect(text).not.toMatch(/Сколько комнат|Кадом тарафи/u);
+  });
   it("вопрос с цифрами, на который нечего ответить, → человек", () => {
     const text = render("а 92 мкр есть?", { language: "ru", decision: { social: "acknowledge" } })!;
     expect(customerReplyCallsStaff(text)).toBe(true);
@@ -208,7 +215,7 @@ describe("ревью #206: вакансии без ложных срабатыв
   it("жалоба до номера Нозы — не «передал Нозе»", () => {
     expect(job("Звоню, не берут трубку", [user("Я по поводу вакансии")])).not.toContain("Передал Нозе");
   });
-  it.each(["Могу выйти с 20.11.2026", "Зарплата 3000-5000?", "Опыт с 2019 2024", "Мне 25 лет, опыт 3 года"])("«%s» — не номер телефона", input => {
+  it.each(["Могу выйти с 20.11.2026", "Зарплата 3000-5000?", "Опыт с 2019 2024", "Мне 25 лет, опыт 3 года", "ИНН 123456789"])("«%s» — не номер телефона", input => {
     expect(job(input)).not.toContain("передал ваш номер");
   });
   it.each(["Мой номер 93 555 12 34", "+992 93 555 1234", "WhatsApp: 935551234"])("«%s» — номер кандидата", input => {
@@ -225,6 +232,13 @@ describe("ревью #206: вакансии без ложных срабатыв
     expect(rows[0]).toMatchObject({ recipientPermission: "vacancies.view" });
     expect(String(rows[0].body)).toMatch(/93.?555.?12.?34|935551234/u);
     expect(rows[0].tag).not.toBe(rows[1].tag);
+    expect(rows[0].url).toBe("/messages?open=c1");
+    // «Cannot get through» (re-review Н2): who to call and the link to this chat.
+    rows.length = 0;
+    await enqueueRecruitmentCandidateAlertTx(tx as never, { replyText: "Извините, что не получилось связаться. Передал Нозе, она сама вам позвонит.",
+      customerText: "Звоню, не берут трубку", conversationId: "c2", channel: "WHATSAPP", eventKey: "a".repeat(64), peer: "992935551234" });
+    expect(rows[0]).toMatchObject({ url: "/messages?open=c2", recipientPermission: "vacancies.view" });
+    expect(String(rows[0].body)).toContain("+992935551234");
     expect(await enqueueRecruitmentCandidateAlertTx(tx as never, { replyText: "Понял.", customerText: "ок", conversationId: "c1", channel: "WHATSAPP", eventKey: "e".repeat(64) })).toBeNull();
     const broken = { pendingDirectorAlert: { create: async () => { throw new Error("db down"); } } };
     await expect(enqueueRecruitmentCandidateAlertTx(broken as never, { replyText: reply, customerText: "Мой номер 93 555 12 34", conversationId: "c1", channel: "WHATSAPP", eventKey: "e".repeat(64) })).rejects.toThrow();

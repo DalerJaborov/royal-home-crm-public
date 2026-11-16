@@ -1114,12 +1114,14 @@ function acknowledgementOnlyGuard(text: string, input: RepeatInput): string {
   if (!lines.length || !lines.every(line => acks.has(line))) return text;
   const asksNow = asksNowOf(input);
   if (!customerSubstantiveInput(input.inputText, asksNow)) return text;
-  // A seller's facts or a buyer's budget are an ordinary questionnaire answer: the next question, no hand-off (review #206 С1).
-  const next = nothingNewLine(input, new Set(splitLines(input.verifiedContext?.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? "")));
-  if (!acks.has(next)) return next;
-  if (!asksNow) return text;
-  if (input.verifiedContext?.publicState.topic === "job") {
-    return recruitmentPhoneSaidBefore(input.verifiedContext) ? recruitmentFollowUpLine("ask", input.language) : recruitmentPhoneLine(input.language);
+  // The customer's own question comes first («до 50000. А в Сино есть варианты?», re-review #206 Н1; do-not-say №27):
+  // a person answers it. Only a statement — a seller's facts, a buyer's budget — gets the next questionnaire step (С1).
+  if (asksNow) {
+    if (input.verifiedContext?.publicState.topic === "job") {
+      return recruitmentPhoneSaidBefore(input.verifiedContext) ? recruitmentFollowUpLine("ask", input.language) : recruitmentPhoneLine(input.language);
+    }
+    return handOffLine(input);
   }
-  return handOffLine(input);
+  const next = nothingNewLine(input, new Set(splitLines(input.verifiedContext?.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? "")));
+  return acks.has(next) ? text : next;
 }
