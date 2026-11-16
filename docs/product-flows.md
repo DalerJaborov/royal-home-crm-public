@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4085**. Модулей: **84**.
+Путей: **754**. Развилок в самих путях: **2476**; вместе с задачами по расписанию и фоновыми заданиями — **4084**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18741,6 +18741,9 @@
                 · дословно из кода
             - await stampOutgoingMid( msg.channel, msg.senderId, await sendReplyText(result.reply), customerTransport );
               · зовёт stampOutgoingMid()
+            - если providerAcceptedReply && result.agentSignal
+              - void requestAgentAttention(result.agentSignal.clientId, result.agentSignal.reason);
+                · зовёт requestAgentAttention()
             - если result.reply2
               - await showMetaReadAndTyping(msg.channel, msg.senderId, undefined, true, account.token, customerTransport);
                 · дословно из кода
@@ -27902,8 +27905,8 @@
           · дословно из кода
       - если client?.assignedAgentId
         - если !client.agentAttentionRequestedAt
-          - await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…
-            · меняет в базе: client
+          - await markAgentAttention(client.id);
+            · зовёт markAgentAttention()
         - await logTimeline({ clientId: client.id, actor: { kind: "client", source: "lead-only-handover", subjectAgentI…
           · зовёт logTimeline()
       - если input.propertyId
@@ -29222,28 +29225,19 @@
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "discount");
       · зовёт traceFilterDelta()
     - если draft.intent !== "sell" && draft.intent !== "job"
-      - const claims = findOffCatalogClaims({ text: result.reply.join("\n"), allowedText: propsBlock + "\n" + history…
-        · зовёт findOffCatalogClaims()
-      - если claims.streets.length > 0
-        - const kept = stripOffCatalogStreets(result.reply, claims.streets);
-          · зовёт stripOffCatalogStreets()
-        - result.reply = kept.length > 0 ? kept : [placeAskAgentReply(lastClientLanguage(history))];
-          · зовёт placeAskAgentReply()
-        - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "place");
+      - const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…
+        · зовёт applyObjectFactGuards()
+      - если facts.streets.length > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
           · зовёт traceFilterDelta()
+      - если facts.renovationRemoved > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
+          · зовёт traceFilterDelta()
+        - void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…
+          · запись в журнал ошибок
       - если what.length > 0
         - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
           · запись в журнал ошибок
-    - если draft.intent !== "sell" && draft.intent !== "job"
-      - const renovation = guardRenovationClaims(result.reply, propsBlock);
-        · зовёт guardRenovationClaims()
-      - если renovation.removed > 0
-        - result.reply = renovation.bubbles.length > 0 ? renovation.bubbles : [placeAskAgentReply(lastClientLanguage(hi…
-          · зовёт placeAskAgentReply()
-        - void logSystemError( "ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза вырез…
-          · запись в журнал ошибок
-        - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "renovation");
-          · зовёт traceFilterDelta()
     - result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…
       · зовёт applyAvailabilityGuard()
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "availability");
@@ -29414,28 +29408,19 @@
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "discount");
       · зовёт traceFilterDelta()
     - если draft.intent !== "sell" && draft.intent !== "job"
-      - const claims = findOffCatalogClaims({ text: result.reply.join("\n"), allowedText: propsBlock + "\n" + history…
-        · зовёт findOffCatalogClaims()
-      - если claims.streets.length > 0
-        - const kept = stripOffCatalogStreets(result.reply, claims.streets);
-          · зовёт stripOffCatalogStreets()
-        - result.reply = kept.length > 0 ? kept : [placeAskAgentReply(lastClientLanguage(history))];
-          · зовёт placeAskAgentReply()
-        - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "place");
+      - const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…
+        · зовёт applyObjectFactGuards()
+      - если facts.streets.length > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
           · зовёт traceFilterDelta()
+      - если facts.renovationRemoved > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
+          · зовёт traceFilterDelta()
+        - void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…
+          · запись в журнал ошибок
       - если what.length > 0
         - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
           · запись в журнал ошибок
-    - если draft.intent !== "sell" && draft.intent !== "job"
-      - const renovation = guardRenovationClaims(result.reply, propsBlock);
-        · зовёт guardRenovationClaims()
-      - если renovation.removed > 0
-        - result.reply = renovation.bubbles.length > 0 ? renovation.bubbles : [placeAskAgentReply(lastClientLanguage(hi…
-          · зовёт placeAskAgentReply()
-        - void logSystemError( "ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза вырез…
-          · запись в журнал ошибок
-        - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "renovation");
-          · зовёт traceFilterDelta()
     - result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…
       · зовёт applyAvailabilityGuard()
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "availability");

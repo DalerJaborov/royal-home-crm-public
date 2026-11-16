@@ -16,7 +16,7 @@
   "paths": 754,
   "cron": 138,
   "jobs": 33,
-  "conditions": 4069,
+  "conditions": 4068,
   "untranslatedUnique": 463,
   "untranslatedTotal": 594,
   "partialUnique": 1105,
@@ -83582,21 +83582,14 @@
            "more": true
           },
           {
-           "t": "если what количество больше 0",
+           "t": "если renovation removed больше 0",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
-          }
-         ]
-        },
-        {
-         "t": "если intent не «sell» и intent не «job»",
-         "k": "if",
-         "a": [],
-         "c": [
+          },
           {
-           "t": "если removed больше 0",
+           "t": "если what количество больше 0",
            "k": "if",
            "a": [],
            "c": [],
@@ -83899,21 +83892,14 @@
            "more": true
           },
           {
-           "t": "если what количество больше 0",
+           "t": "если renovation removed больше 0",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
-          }
-         ]
-        },
-        {
-         "t": "если intent не «sell» и intent не «job»",
-         "k": "if",
-         "a": [],
-         "c": [
+          },
           {
-           "t": "если removed больше 0",
+           "t": "если what количество больше 0",
            "k": "if",
            "a": [],
            "c": [],
