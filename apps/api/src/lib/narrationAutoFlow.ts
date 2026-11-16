@@ -23,7 +23,7 @@ import { narrationFacts, narrationFactsCurrent, narrationHash, narrationScriptEr
 import { logSystemError } from "./systemError.js";
 import { NARRATION_CLOSED_STATUSES as CLOSED_STATUSES, retireNarrationsOfClosedProperties, setPropertyNarrationOff } from "./narrationOptOut.js";
 import { narrationLastChoiceFor, rememberNarrationChoice } from "./narrationLastChoice.js";
-import { VOICELESS_COPY_HINT } from "./narrationMontajerNote.js";
+import { voicelessCopyHint } from "./narrationMontajerNote.js";
 import { sendToMontajer } from "./montageObservers.js";
 import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 
@@ -263,11 +263,12 @@ export async function requestNarrationSoundRemake(propertyId: string, versionId:
   if (!oldSent) return "NO_OLD_NARRATION";
   // С 11.11.2026 голос накладывает CRM: монтажёр присылает тот же ролик без голоса — дальше смена
   // цены обходится без него (remixFromMaster). Рубильник выключен — по-старому, звук меняет он.
-  const mixByCrm = narrationMixByCrm((await loadNarrationConfiguration()).config);
+  const { config } = await loadNarrationConfiguration();
+  const mixByCrm = narrationMixByCrm(config);
   const longer = opts.voiceLonger ? " Новая озвучка длиннее ролика: удлините ролик под голос." : "";
   const sent = await sendBackToMontajer(propertyId, version.approvedById, "NARRATION_CHANGED", mixByCrm
     ? `Новая озвучка, версия ${version.revision}: монтаж и кадры прежние.${longer} Пришлите тот же ролик БЕЗ голоса (музыка и звуки можно) — голос CRM наложит сама. Аудио придёт следом, для длины.`
-    : `Новая озвучка, версия ${version.revision}: замените в ролике только голос, музыку и монтаж не трогайте.${longer} Новый mp3 придёт следом. При сдаче пришлите и тот же ролик без голоса — дальше смену цены CRM сделает сама.`, null, { removeFromSocial: "on-new-video" });
+    : `Новая озвучка, версия ${version.revision}: замените в ролике только голос, музыку и монтаж не трогайте.${longer} Новый mp3 придёт следом.${voicelessCopyHint(config) ? " При сдаче пришлите и тот же ролик без голоса — дальше смену цены CRM сделает сама." : ""}`, null, { removeFromSocial: "on-new-video" });
   if (!sent.ok) {
     void logSystemError("api", `Озвучка: замена звука в ролике не поставлена: ${sent.error}`, { dedupKey: `narration-sound-remake:${versionId}` });
     return "REFUSED";
@@ -293,7 +294,7 @@ export async function requestNarrationAddVoice(propertyId: string, versionId: st
   if ((p.publishedChannels?.length ?? 0) > 0 || p.instagramUrl || everSent > 0) return "SKIPPED";
   if (!version || version.status !== "READY" || !version.approvedAt || !version.approvedById) return "SKIPPED";
   const sent = await sendBackToMontajer(propertyId, version.approvedById, "NARRATION_CHANGED",
-    `Озвучка к ролику №${p.shortId} пришла после сдачи: вклейте голос в этот ролик, музыку и монтаж не трогайте. mp3 придёт следом. ${VOICELESS_COPY_HINT}`, null, {});
+    `Озвучка к ролику №${p.shortId} пришла после сдачи: вклейте голос в этот ролик, музыку и монтаж не трогайте. mp3 придёт следом.${voicelessCopyHint((await loadNarrationConfiguration()).config)}`, null, {});
   if (!sent.ok) {
     void logSystemError("api", `Озвучка: возврат «вклейте голос» не поставлен: ${sent.error}`, { dedupKey: `narration-add-voice:${versionId}` });
     return "REFUSED";
