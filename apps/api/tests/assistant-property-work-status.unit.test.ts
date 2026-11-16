@@ -72,7 +72,7 @@ describe("property work status evidence", () => {
       ...ownScope, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffDeliveredAt: { not: null }, videoHandoffManualSince: null,
     }) });
     expect(db.count).toHaveBeenNthCalledWith(3, { where: expect.objectContaining({ ...ownScope, videoHandoffStatus: "QUEUED" }) });
-    const director = { ...agent, role: "DIRECTOR" };
+    const director = { ...agent, role: "DIRECTOR", permissions: new Set(["marketing.access"]) } as AssistantActor;
     expect(await getPropertyWorkStatusTool.run({ scope: "queue" }, { actor: director })).toMatchObject({ scope: "COMPANY_QUEUE" });
     const where = (db.count.mock.lastCall as unknown as [{ where: object }])[0].where;
     expect(where).not.toHaveProperty("OR");

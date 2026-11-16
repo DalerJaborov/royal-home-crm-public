@@ -48157,7 +48157,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -48401,7 +48401,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -48730,7 +48730,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49256,7 +49256,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49330,7 +49330,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49396,7 +49396,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49508,7 +49508,7 @@
     },
     {
      "k": "do",
-     "t": "const deliveries = manager(req.agent?.role) ? await prisma.propertyNarrationDelivery.findMany({ where: { prop…",
+     "t": "const deliveries = manager(req.agent) ? await prisma.propertyNarrationDelivery.findMany({ where: { propertyId…",
      "a": [
       "читает в базе: propertyNarrationDelivery"
      ],
@@ -49516,7 +49516,7 @@
     },
     {
      "k": "do",
-     "t": "const subscription = manager(req.agent?.role) ? await prisma.ownerReportSubscription.findUnique({ where: { pr…",
+     "t": "const subscription = manager(req.agent) ? await prisma.ownerReportSubscription.findUnique({ where: { property…",
      "a": [
       "читает в базе: ownerReportSubscription"
      ],
@@ -49524,7 +49524,7 @@
     },
     {
      "k": "do",
-     "t": "const reports = manager(req.agent?.role) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p…",
+     "t": "const reports = manager(req.agent) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p.id },…",
      "a": [
       "читает в базе: ownerReportDelivery"
      ],
@@ -49799,7 +49799,7 @@
       },
       {
        "k": "if",
-       "t": "latest?.approvedAt && !manager(req.agent?.role)",
+       "t": "latest?.approvedAt && !manager(req.agent)",
        "a": [],
        "c": [
         {
@@ -61554,7 +61554,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -65387,7 +65387,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -65632,7 +65633,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -65748,7 +65750,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -65822,7 +65825,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -66075,7 +66079,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -77389,7 +77394,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -77648,7 +77654,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -77943,7 +77950,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -78322,7 +78330,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
