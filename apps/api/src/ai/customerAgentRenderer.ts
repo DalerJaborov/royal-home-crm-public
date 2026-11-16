@@ -210,7 +210,7 @@ const AD_INTEREST_QUESTION = { ru: "Подскажите, пожалуйста, 
 const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
   none: { ru: "", tg: "" },
   property: { ru: "Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.", tg: "Шумо кадом объектро дар назар доред? Рақами объект ё пайвандашро фиристед." },
-  budget: { ru: "Какой бюджет вы рассматриваете?", tg: "То чанд ҳазор сомонӣ мехоҳед?" },
+  budget: { ru: "Какой бюджет вы рассматриваете?", tg: "Чӣ қадар маблағ дар назар доред?" },
   location: { ru: "Какой район вам подходит?", tg: "Кадом тарафи шаҳрро мехоҳед?" },
   rooms: { ru: "Сколько комнат вам нужно?", tg: "Чанд ҳуҷра?" },
   name: { ru: "Как к вам обращаться?", tg: "Номи шумо чист?" },
@@ -301,7 +301,7 @@ const outcomes: Record<CustomerReceiptOutcome, { ru: string; tg: string }> = {
   showing_cancelled: { ru: "Запись на показ отменена.", tg: "Сабти тамошо бекор шуд." },
   owner_question_recorded: { ru: "Вопрос собственнику сохранён.", tg: "Савол ба соҳибмулк сабт шуд." },
 };
-function factSegments(value: Extract<CustomerAgentObservation, { kind: "facts" }>, language: "ru" | "tg", question = ""): string[] {
+function factSegments(value: Extract<CustomerAgentObservation, { kind: "facts" }>, language: "ru" | "tg", question = "", numbered = true): string[] {
   const f = value.facts, tg = language === "tg", result: string[] = [];
   if (f.availability === "SOLD") return [customerPropertyAvailabilityLine(f, language)];
   for (const kind of new Set(value.kinds)) {
@@ -309,7 +309,9 @@ function factSegments(value: Extract<CustomerAgentObservation, { kind: "facts" }
       const amount = f.price?.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
       const money = amount ? `${amount} ${f.currency === "USD" ? tg ? "доллар" : "USD" : tg ? "сомонӣ" : "сомони"}` : null;
       // Tajik as the phrasebook says it (live-agent-phrases: «Нархаш {цена} сомонӣ.», «Нархаш {цена} доллар аст.»).
-      result.push(money ? tg ? `Нархаш ${money}${f.currency === "USD" ? " аст" : ""}.` : `Цена объекта №${f.shortId}: ${money}.`
+      // Two prices in one reply must say whose (review #206 С3): «Объекти №191: нархаш … доллар аст.», bare under a list header.
+      const tgPrice = `${money}${f.currency === "USD" ? " аст" : ""}.`;
+      result.push(money ? tg ? numbered ? `Объекти №${f.shortId}: нархаш ${tgPrice}` : `Нархаш ${tgPrice}` : `Цена объекта №${f.shortId}: ${money}.`
         : tg ? "Нархи дақиқро ҳоло тасдиқ карда наметавонам." : "Точную цену пока не могу подтвердить.");
       // Server arithmetic over the confirmed price and area only (never a model figure).
       if (customerAsksPricePerSqm(question)) result.push(pricePerSqmLine(f, language));
@@ -470,7 +472,7 @@ function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | 
   };
   for (const [index, card] of cards.entries()) {
     lines.push(`${index + 1}. ${tg ? "Объект" : "Объект"} №${card.facts.shortId}`);
-    lines.push(...factSegments({ kind: "facts", facts: card.facts, kinds: ["price", "address"] }, language));
+    lines.push(...factSegments({ kind: "facts", facts: card.facts, kinds: ["price", "address"] }, language, "", false));
     if (card.listing.rooms !== null && card.listing.type === "APARTMENT") lines.push(tg ? `Ҳуҷраҳо: ${card.listing.rooms}.` : `Комнат: ${card.listing.rooms}.`);
     if (card.facts.characteristics) lines.push(...customerPropertyCharacteristicLines(card.facts.characteristics, language,
       language === "tg" ? "масоҳат ошёна таъмир" : "площадь этаж ремонт"));
@@ -768,7 +770,7 @@ function renderDecisionCore(input: {
     const kind = customerRecruitmentFollowUp(input.inputText, ASKS_NOW.test(clientOwnWords(input.inputText ?? "")) || jobScheduleAsked);
     // The candidate gave their number after Noza's, or cannot reach her: a person takes over (the turn signals one, the one door
     // lib/customerDmAgentTurn.ts::signalStaffFollowUp), one line, nothing else (audit 16.11.2026).
-    if (kind === "complaint" || kind === "phone_given" && nozaSaidBefore) {
+    if ((kind === "complaint" || kind === "phone_given") && nozaSaidBefore) {
       const line = recruitmentFollowUpLine(kind, lang);
       return line.length <= input.maxOutputChars ? line : null;
     }
@@ -1069,7 +1071,9 @@ function avoidRepeatedReply(text: string, input: RepeatInput): string {
 export function renderCustomerAgentDecision(input: Parameters<typeof renderDecisionCore>[0]): string | null {
   const d = input.decision;
   // A forwarded publication that is not ours, with nothing asked (nothing, a heart, like-exchange words): one short line, no fact.
-  if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && customerAgentShareNotice(input.attachmentInput, input.language) !== null &&
+  // Not in a job dialogue: a candidate's forwarded post is their material (the core now renders with the attachment too, review #206 В4).
+  if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && input.verifiedContext?.publicState.topic !== "job" &&
+      customerAgentShareNotice(input.attachmentInput, input.language) !== null &&
       customerDmForeignShareNoise(input.inputText ?? "") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
     const line = customerAgentShareNotice(input.attachmentInput, input.language)!;
     return line.length <= input.maxOutputChars ? line : null;
@@ -1108,7 +1112,14 @@ function acknowledgementOnlyGuard(text: string, input: RepeatInput): string {
   if (input.surface !== "dm" || input.decision.kind === "propose") return text;
   const lines = splitLines(text), acks = new Set(SOCIAL_FAMILIES[0].flatMap(pair => [pair.ru, pair.tg]));
   if (!lines.length || !lines.every(line => acks.has(line))) return text;
-  if (!customerSubstantiveInput(input.inputText, asksNowOf(input))) return text;
-  if (input.verifiedContext?.publicState.topic === "job") return recruitmentFollowUpLine("ask", input.language);
+  const asksNow = asksNowOf(input);
+  if (!customerSubstantiveInput(input.inputText, asksNow)) return text;
+  // A seller's facts or a buyer's budget are an ordinary questionnaire answer: the next question, no hand-off (review #206 С1).
+  const next = nothingNewLine(input, new Set(splitLines(input.verifiedContext?.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? "")));
+  if (!acks.has(next)) return next;
+  if (!asksNow) return text;
+  if (input.verifiedContext?.publicState.topic === "job") {
+    return recruitmentPhoneSaidBefore(input.verifiedContext) ? recruitmentFollowUpLine("ask", input.language) : recruitmentPhoneLine(input.language);
+  }
   return handOffLine(input);
 }

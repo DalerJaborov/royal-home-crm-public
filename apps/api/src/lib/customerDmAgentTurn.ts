@@ -43,6 +43,7 @@ import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } f
 import { logSystemError } from "./systemError.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
+import { enqueueRecruitmentCandidateAlertTx } from "./customerRecruitmentAlert.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
 import { reconcileCustomerShowcaseReply } from "./customerShowcaseReceipt.js";
@@ -587,17 +588,29 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       ...(sealed.witness ? { publicDataWitness: sealed.witness } : {}) };
     const sidecars = [...mediaParts, ...(voicePart ? [voicePart] : [])];
     let partIds: string[];
+    // «Передал ваш номер Нозе» is said only together with the vacancy owners' signal, in the same transaction (review #206 В3).
+    const recruitmentAlert = (tx: Parameters<typeof enqueueRecruitmentCandidateAlertTx>[0]) => enqueueRecruitmentCandidateAlertTx(tx, {
+      replyText: sealed.text, customerText: fullInput(), conversationId: principal.scope.conversationId,
+      channel: principal.scope.channel, eventKey: claim.eventKey });
     try {
-      partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal, agentClaim: claim,
-        parts: [textPart, ...sidecars], receiptAuthorities: mutations.receiptAuthorities }));
+      partIds = await prisma.$transaction(async tx => {
+        const ids = await createCustomerOutboxPartsTx(tx, { principal, agentClaim: claim,
+          parts: [textPart, ...sidecars], receiptAuthorities: mutations.receiptAuthorities });
+        await recruitmentAlert(tx);
+        return ids;
+      });
     } catch (error) {
       // The media attachment is optional to the already sealed text response.
       // If its witness/reservation becomes stale during the planning TX, retry
       // the same idempotent text plan alone. An intentional buyer-guide follow
       // instruction is part of textPart and remains guarded with its marker.
       if (!sidecars.length) throw error;
-      partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal, agentClaim: claim,
-        parts: [textPart], receiptAuthorities: mutations.receiptAuthorities }));
+      partIds = await prisma.$transaction(async tx => {
+        const ids = await createCustomerOutboxPartsTx(tx, { principal, agentClaim: claim,
+          parts: [textPart], receiptAuthorities: mutations.receiptAuthorities });
+        await recruitmentAlert(tx);
+        return ids;
+      });
     }
     // «Это скажет агент» / «агент позвонит» is only true if the responsible person learns about it now (15.11.2026): the one
     // door alertClientWaiting (assigned agent, else management), keyed by THIS customer message, not a 6 h window.

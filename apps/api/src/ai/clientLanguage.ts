@@ -36,16 +36,6 @@ const TAJIK_WORDS =
   /(?<![а-яёҳҷӣӯқғ])(ман|шумо|мо|хона|хонаи|мехохам|мехоҳам|мехаред|дорем|доред|даркор|аст|ҳаст|хаст|чанд|кучо|куҷо|нест|лозим|бошад|мешавад|мешава|кадом|барои|бале|ки|ва|бо|аз|дар|ин|намефамум|намефахмам|намефаҳмам|намефаҳмум|намедонам|наметавонам|уруси|урус|русӣ|маош|кор|нарх(?:аш|и|ат|ро)?|чанпул|чи|ака|апа|хуб|(?:на)?шуд(?:ааст)?|мешид|мегрифти|хавли|мефурӯш(?:ам|ем)?|мефуруш(?:ам|ем)?|мефурош(?:ам|ем)?|фурӯшам|фуруш(?:ам|ем)?|дорам|доштам|доштм|кучост|куҷост|кучо|пул|пули|офисатон|офистон|хонаатон|мумкин|лутфан|биёед|харидан|фурухтан|ичора|арзон|кай|акс|фиристед|фиристам|мефиристам|мефиристед|метавонам|метавонед|метавонем|метавонад|кунам|кунем|кунед|кунад|тамошо|фардо|ошёна|ошёнаи|чандум|вазифа|вазифаи|вазифаҳо|кушода|бинам|бинед|нависам|нависед|гирам|гиред|биёям|биёед|мерасам|барам)(?![а-яёҳҷӣӯқғ])/giu;
 
 /**
- * ДУШАНБИНСКИЙ РАЗГОВОРНЫЙ ТАДЖИКСКИЙ (аудит 16.11.2026, `convs-5d.jsonl`: 18 ответов в 14 чатах ушли по-русски
- * таджикоязычным клиентам). Литературный список выше не знает, как пишут в чате: «медоден», «мечуед», «мекнен»,
- * «нависад», «фуруши», «коргар», «кучодай», «гучо», «дорум». Глагольные основы с «ме-» в русском не встречаются
- * (проверено против «мебель», «медленно», «медицина», «мега»: основы ниже их не задевают). Слова — из
- * `tajik-phrasebook/references/client-chat-vocabulary.md` и живых фраз аудита.
- */
-const TAJIK_COLLOQUIAL =
-  /(?<![а-яёҳҷӣӯқғ])(?:ме(?:кун|кн|диҳ|дих|дод|чу|ҷу|хар|фур|фру|фр[уӯ]ш|гир|бин|гу|гӯ|фаҳм|фахм|дон|тон|рас|ой|омад|нав|шин|ғ|рав|зан|п[уӯ]рс|пурс|кашем|кобам|кобем|кобед|шава|шад)[а-яёҳҷӣӯқғ]*|на(?:мекун|мекн|медон|мефахм|мефаҳм|мешава|мешад|висад|висен|висед|вистм|вистам)[а-яёҳҷӣӯқғ]*|нависад|навис[еи]н|фур[уӯ]ши|фурши|фрӯши|коргар[а-яёҳҷӣӯқғ]*|к[уӯ][чҷ]ода[ий]?|кичо[а-яёҳҷӣӯқғ]*|гучо[а-яёҳҷӣӯқғ]*|ягон[а-яёҳҷӣӯқғ]*|хама[аш]*|ҳама[аш]*|хато|дорум|дорм|дорен|дорем|агар|як|ака[ҷч]он|апа[ҷч]он|чии|чиба|чаро|хозир|ҳозир|пагох|пагоҳ|шумоба|шумора|шумо[рн]о|хонаи|хонам|хонаам[а-яёҳҷӣӯқғ]*|хонагӣ|хонага[ий]?|хучра[а-яёҳҷӣӯқғ]*|ҳуҷра[а-яёҳҷӣӯқғ]*|ошена[а-яёҳҷӣӯқғ]*|нархаш|нархи|нархат|чанд[та]?|чанде|ҳамин|хамин|хамту|ҳамту|кори|маълумот[а-яёҳҷӣӯқғ]*|маьлумот[а-яёҳҷӣӯқғ]*|маоумот[а-яёҳҷӣӯқғ]*|маъоумот[а-яёҳҷӣӯқғ]*|гирифтен|гирифтед|занг|зангзан[а-яёҳҷӣӯқғ]*|рақам[а-яёҳҷӣӯқғ]*|раками[а-яёҳҷӣӯқғ]*|ракам|ракамат[а-яёҳҷӣӯқғ]*|нест|не\s+мешава|дошта|доштаед|боша|бошен|бдай|бдаст|хастам|хастем|хастед|хастан|сола|солам|солаам)(?![а-яёҳҷӣӯқғ])/giu;
-
-/**
  * ПРИВЕТСТВИЕ И «СПАСИБО» ЯЗЫКА НЕ ЗАДАЮТ (03.10.2026, живой сбой в Instagram).
  * «Салом можно окончательную цену и когда можно посмотреть?» — русская фраза с
  * таджикским приветствием, так в Душанбе здороваются и русскоязычные. Раньше
@@ -58,7 +48,7 @@ const TAJIK_GREETINGS =
 
 /** Частые русские слова. Тоже служебные: в короткой фразе они попадаются почти всегда. */
 const RUSSIAN_WORDS =
-  /(?<![а-яёҳҷӣӯқғ])(сколько|стоят|стоит|услуги|ваши|ваш|ваша|что|как|где|когда|почему|можно|хочу|нужно|есть|нет|не|это|он|она|они|вы|мне|меня|для|или|тоже|ещё|еще|пожалуйста|здравствуйте|добрый|спасибо|квартиру|квартира|дом|цена|цену|район|купить|продать|привет|посмотреть|окончательную|скажите|подскажите|интересует|какой|какая|какие|сейчас|будет|звоните|позвоните|номер|я|мы|в|с|по|вас|нас|вам|нам|так|но|все|всё|понял|поняла|понятно|извините|хорошо|ладно|работа|работу|работе|работы|рекламу|реклама|увидела|увидел|написала|написал|ищете|ищите|ищу|продажам|продажи|городе|город|здесь|там|был|была|было|уже|только|если|чтобы|нужна|нужен|можете|хотела|хотел|узнать|подробнее|звонила|звонил|берёт|берет|трубку|никто|ничего|вакансию|вакансии|график|офисный)(?![а-яёҳҷӣӯқғ])/giu;
+  /(?<![а-яёҳҷӣӯқғ])(сколько|стоят|стоит|услуги|ваши|ваш|ваша|что|как|где|когда|почему|можно|хочу|нужно|есть|нет|не|это|он|она|они|вы|мне|меня|для|или|тоже|ещё|еще|пожалуйста|здравствуйте|добрый|спасибо|квартиру|квартира|дом|цена|цену|район|купить|продать|привет|посмотреть|окончательную|скажите|подскажите|интересует|какой|какая|какие|сейчас|будет|звоните|позвоните|номер)(?![а-яёҳҷӣӯқғ])/giu;
 
 /** Слова с буквой, которой в русском нет (ҳ, ҷ, ӣ, ӯ, қ, ғ): одна такая — уже таджикский. */
 const TAJIK_LETTER_WORDS = /[а-яёҳҷӣӯқғ]*[ҳҷӣӯқғ][а-яёҳҷӣӯқғ]*/giu;
@@ -91,8 +81,6 @@ const ENGLISH_WORDS =
  */
 const TAJIK_LATIN_WORDS =
   /(^|[^a-z])(salom|assalomu|alaykum|alejkum|rahmat|tashakkur|khona|xona|hona|honai|khonai|xonai|chand|chandta|pul|kuja|kujo|kucho|kuchost|kujost|narkh|narx|narxi|narxash|nark|dorem|doram|dorad|darkor|nest|hast|ast|ki|va|bo|ba|az|dar|baroi|mekhokham|mexoham|mehocham|mekhoham|lozim|mumkin|khub|xub|chi|kay|arzon|qimat|kor|bormi|kvartira|ofis|ofisatonro?)([^a-z]|$)/gi;
-const UZBEK_LATIN_WORDS =
-  /(^|[^a-zʻʼ'])(bu|haqida|yana|olsam|bo[ʻʼ']?ladimi|bo[ʻʼ']?ladi|kerak|qancha|uy|uyni|sotaman|sotib|olaman|ishlaysizmi|ish|batafsil|ko[ʻʼ']?proq)([^a-zʻʼ']|$)/gi;
 const ENGLISH_STRONG_WORDS =
   /(^|[^a-z])(the|and|you|your|are|is|does|have|has|can|could|would|want|need|price|how|much|many|what|where|when|hello|please|thanks|thank|apartment|apartments|house|buy|sell|rent|for|with|about|of)([^a-z]|$)/gi;
 
@@ -145,21 +133,30 @@ export function stripNonLanguage(text: string): string {
 
 export type ClientLanguageScores = { tajik: number; russian: number; greetings: number };
 /** Word counts behind detectClientLanguage, for callers that must break a "mixed" tie themselves. */
-export function clientLanguageScores(text: string): ClientLanguageScores {
+export function clientLanguageScores(text: string, extension?: ClientLanguageExtension): ClientLanguageScores {
   const trimmed = prepare(text);
-  return { tajik: tajikCount(trimmed), russian: count(RUSSIAN_WORDS, trimmed),
+  return { tajik: tajikCount(trimmed, extension), russian: russianCount(trimmed, extension),
     greetings: count(TAJIK_GREETINGS, trimmed) };
 }
 
-/** Tajik evidence: special letters and literary function words (counted as before 16.11.2026) plus the colloquial
- *  Dushanbe forms that neither list already matched at the same position. */
-function tajikCount(text: string): number {
+/**
+ * Extra word lists of ONE caller (16.11.2026, review #206 С2): the customer core reads Dushanbe colloquial Tajik and more
+ * Russian function words, while the legacy chat bot and the voice keep exactly the lists above. Without an extension
+ * every function here behaves as before.
+ */
+export interface ClientLanguageExtension { tajik?: RegExp; russian?: RegExp; uzbekLatin?: RegExp }
+/** Base counts, plus extension words at positions the base lists did not already match. */
+function extendedCount(text: string, base: RegExp[], extra: RegExp | undefined): number {
+  const total = base.reduce((sum, re) => sum + count(re, text), 0);
+  if (!extra) return total;
   const seen = new Set<number>();
-  for (const re of [TAJIK_LETTER_WORDS, TAJIK_WORDS]) for (const match of text.matchAll(new RegExp(re.source, re.flags))) seen.add(match.index ?? -1);
-  let extra = 0;
-  for (const match of text.matchAll(new RegExp(TAJIK_COLLOQUIAL.source, TAJIK_COLLOQUIAL.flags))) if (!seen.has(match.index ?? -1)) extra += 1;
-  return count(TAJIK_LETTER_WORDS, text) + count(TAJIK_WORDS, text) + extra;
+  for (const re of base) for (const match of text.matchAll(new RegExp(re.source, re.flags))) seen.add(match.index ?? -1);
+  let more = 0;
+  for (const match of text.matchAll(new RegExp(extra.source, extra.flags))) if (!seen.has(match.index ?? -1)) more += 1;
+  return total + more;
 }
+const tajikCount = (text: string, extension?: ClientLanguageExtension) => extendedCount(text, [TAJIK_LETTER_WORDS, TAJIK_WORDS], extension?.tajik);
+const russianCount = (text: string, extension?: ClientLanguageExtension) => extendedCount(text, [RUSSIAN_WORDS], extension?.russian);
 
 function prepare(text: string): string {
   /**
@@ -177,14 +174,15 @@ function prepare(text: string): string {
   return stripNonLanguage(unwrapUntrusted(withoutFiles).replace(SYSTEM_MARKER, " "));
 }
 
-export function detectClientLanguage(text: string): ClientLanguage {
+export function detectClientLanguage(text: string, extension?: ClientLanguageExtension): ClientLanguage {
   const trimmed = prepare(text);
   // Слишком коротко («ок», «👍», «[📷]») — по такому языка не определить, и
   // навязывать модели язык на основании двух букв опаснее, чем не навязывать.
   if (trimmed.length < 4) {
     // Три буквы — уже слово, если это однозначно таджикское («Кор», «Ман»); голое «нет»/«ок» язык не задаёт.
     const long = (re: RegExp) => (trimmed.match(re) ?? []).filter(word => word.length >= 3).length;
-    return long(TAJIK_LETTER_WORDS) + long(TAJIK_WORDS) + long(TAJIK_COLLOQUIAL) > 0 && count(RUSSIAN_WORDS, trimmed) === 0 ? "tg" : "unknown";
+    return long(TAJIK_LETTER_WORDS) + long(TAJIK_WORDS) + (extension?.tajik ? long(extension.tajik) : 0) > 0 &&
+      russianCount(trimmed, extension) === 0 ? "tg" : "unknown";
   }
 
   /**
@@ -193,8 +191,8 @@ export function detectClientLanguage(text: string): ClientLanguage {
    * чего в сообщении больше; «смесь» — только когда обоих поровну по-честному.
    */
   const greetings = count(TAJIK_GREETINGS, trimmed);
-  const tajik = tajikCount(trimmed);
-  const russian = count(RUSSIAN_WORDS, trimmed);
+  const tajik = tajikCount(trimmed, extension);
+  const russian = russianCount(trimmed, extension);
 
   if (tajik > 0 && russian > 0) {
     if (russian >= tajik * 2) return "ru";
@@ -211,8 +209,7 @@ export function detectClientLanguage(text: string): ClientLanguage {
   if (!HAS_CYRILLIC.test(trimmed) && HAS_LATIN.test(trimmed)) {
     // Таджикские слова латиницей перевешивают случайное «in»/«to»; чисто английская фраза остаётся «unknown».
     const tajikLatin = count(TAJIK_LATIN_WORDS, trimmed), english = count(ENGLISH_STRONG_WORDS, trimmed);
-    // Uzbek Latin («Bu haqida yana maʼlumot olsam boʻladimi?», audit 16.11.2026) is not Tajik: no language is forced.
-    if (count(UZBEK_LATIN_WORDS, trimmed) > tajikLatin) return "unknown";
+    if (extension?.uzbekLatin && count(extension.uzbekLatin, trimmed) > tajikLatin) return "unknown";
     if (tajikLatin > 0 && tajikLatin >= english) return "tg";
     return ENGLISH_WORDS.test(trimmed) ? "unknown" : "tg";
   }

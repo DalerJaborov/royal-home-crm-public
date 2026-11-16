@@ -899,3 +899,23 @@ describe("grounded free phrase (say): lifted before the strict parse, shadow by 
     expect(customerAgentDecisionSchema.parse(result.decision)).toMatchObject({ say: GOOD });
   });
 });
+
+// Review #206 В4 (16.11.2026): the core and the delivery seal render with the same inputs. An ad-button text together with a
+// forwarded post used to give «what are you interested in» in the core and «which object» at the seal → render_changed → silence.
+describe("core text equals the sealed re-render when an attachment comes with the ad button", () => {
+  it.each([[{ kinds: ["share"] }], [undefined]] as const)("attachment %j", async attachmentInput => {
+    const { customerAgentVerifiedContextSchema: schema } = await import("@royal-home/shared");
+    const { renderCustomerAgentDecision } = await import("../src/ai/customerAgentRenderer.js");
+    const verifiedContext = schema.parse({ surface: "dm", revisionId: hash, turns: [], publicState: { language: "unknown", topic: "unknown", openQuestion: "none" } });
+    const f = fixture({ inputText: "Привет! Можно узнать об этом подробнее?", requestedFacts: [], verifiedContext,
+      ...(attachmentInput ? { attachmentInput: attachmentInput as never } : {}) });
+    f.modelTurn.mockResolvedValue(final({ kind: "clarify", question: "property" }));
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    if (result.status !== "ready") return; // an attachment-only branch may hold; the point is no divergence when it answers
+    const sealed = renderCustomerAgentDecision({ decision: result.decision, evidence: result.evidence, inputText: f.frame.inputText,
+      language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", knowledgeSourceHash: hash,
+      verifiedContext, ...(attachmentInput ? { attachmentInput: attachmentInput as never } : {}) });
+    expect(sealed).toBe(result.text);
+    if (!attachmentInput) expect(result.text).toContain("купить, продать недвижимость или работа у нас");
+  });
+});

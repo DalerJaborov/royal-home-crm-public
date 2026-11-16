@@ -20,6 +20,7 @@
  */
 import { clientSaidNothingSubstantive, isAdTemplateOpener } from "./adTemplatePhrase.js";
 import { clientOwnWords } from "./untrustedContent.js";
+import { extractAllPhones } from "../lib/shared/phoneText.js";
 import { RECRUITMENT_CONTACT } from "@royal-home/shared";
 import type { CustomerAgentVerifiedContext } from "@royal-home/shared";
 
@@ -43,12 +44,15 @@ export function customerAdOpening(input: { inputText?: string; verifiedContext?:
   const users = input.verifiedContext.turns.filter(turn => turn.role === "user").map(turn => turn.text);
   const words = [...users, input.inputText ?? ""];
   if (!words.every(text => clientSaidNothingSubstantive(text))) return false;
+  // After the bot has shown objects or vacancies, «можно поподробнее» is about them, never the opening (review #206 С4).
+  if (input.verifiedContext.turns.some(turn => turn.role === "assistant" && SHOWN_SOMETHING.test(turn.text))) return false;
   return words.some(text => isAdTemplateOpener(text)) || !input.verifiedContext.turns.some(turn => turn.role === "assistant");
 }
 
+const SHOWN_SOMETHING = /Объект\s*№|^\s*\d+\.\s|ваканси|Ҷой(?:ҳо)?и\s+кори|Нархаш|Цена\s+объекта|https?:\/\//imu;
 /** Every greeting line the bot can send (current and earlier wording): the memory of "already greeted". */
 export const GREETING_REPLY_LINES: readonly string[] = ["Здравствуйте!", "Добрый день!", "Здравствуйте, рад вас слышать!",
-  "Салом!", "Ассалому алайкум!", "Ваалайкум ассалом!", "Салом, хуш омадед!"];
+  "Салом!", "Ассалому алайкум!", "Ассалому алейкум!", "Ваалайкум ассалом!", "Салом, хуш омадед!"];
 const SALAAM = /(?:^|[\s,.!])(?:ас+алому?|ас+алом|салом|салам|assalomu|salom)?\s*(?:а?лей?к[уӯ]м|алайк[уӯ]м|алек[уӯ]м|алекум\p{L}*|алеккум|aleykum|alaykum|alaikum)/iu;
 /** «Ассалому алейкум» is answered «Ваалайкум ассалом!» (phrasebook rule 2), never «Салом!». */
 export function customerGreetingLine(language: Lang, inputText: string | undefined, greet: Pair): string {
@@ -109,18 +113,25 @@ export const RECRUITMENT_FOLLOW_UP_LINES: readonly string[] = [RECRUITMENT_PHONE
 export function recruitmentFollowUpFixedLines(): string[] {
   return [RECRUITMENT_PHONE_TAKEN, RECRUITMENT_COMPLAINT, RECRUITMENT_ASK_NOZA, RECRUITMENT_THANKS_NOZA, RECEIPT_AGAIN].flatMap(pair => [pair.ru, pair.tg]);
 }
-const COMPLAINT = /звонил|звонила|дозвон|не\s+(?:берут|бер[её]т|отвечает|отвечают|поднимает|поднимают|в\s+курсе)|никто\s+не|трубку|собеседовани|занг\s+зад|намегир|ҷавоб\s+намедиҳ|чавоб\s+намедих|чавоб\s+намети|ҷавоб\s+намети|телефон(?:атон|тон)?\s+(?:хомуш|намегир)/u;
-const NOZA_DIGITS = RECRUITMENT_CONTACT.phone.replace(/\D/gu, "");
-/** The candidate's own phone in their words (7–12 digits, not Noza's own number quoted back). */
-export function candidatePhoneGiven(text: string | undefined): boolean {
-  const digits = (clientOwnWords(text ?? "").match(/\+?\d[\d\s().-]{5,16}\d/gu) ?? []).map(value => value.replace(/\D/gu, ""));
-  return digits.some(value => value.length >= 7 && value.length <= 12 && !value.endsWith(NOZA_DIGITS) && !NOZA_DIGITS.endsWith(value));
+/** "I called and nobody answers" in ONE sentence (review #206 В1): a call word AND a no-answer word. «Когда собеседование?»,
+ *  «Мне Ноза звонила, всё хорошо», «Хорошо, никто не против» are not complaints. */
+const CALL_WORD = /звон|дозвон|занг|трубк|телефон/u;
+const NO_ANSWER = /не\s+(?:берут|бер[её]т|отвечает|отвечают|поднимает|поднимают|могу\s+дозвон)|никто\s+не\s+(?:берет|берёт|отвечает|поднимает|взял)|не\s+дозвон|намегир|ҷавоб\s+намедиҳ|чавоб\s+намедих|ҷавоб\s+на(?:дод|гирифт)|чавоб\s+на(?:дод|гирифт)|хомуш/u;
+function complaint(text: string | undefined): boolean {
+  return own(text).split(/[.!?？\n]+/u).some(part => CALL_WORD.test(part) && NO_ANSWER.test(part));
 }
+const NOZA_TAIL = RECRUITMENT_CONTACT.phone.replace(/\D/gu, "").slice(-9);
+/** The candidate's own phone numbers in their words, parsed by the project's strict phone parser (review #206 В2: never a
+ *  date «20.11.2026», a salary «3000-5000» or years «2019 2024»); Noza's own number quoted back is not theirs. */
+export function candidatePhones(text: string | undefined): string[] {
+  return extractAllPhones(clientOwnWords(text ?? "")).filter(phone => phone.replace(/\D/gu, "").slice(-9) !== NOZA_TAIL);
+}
+export function candidatePhoneGiven(text: string | undefined): boolean { return candidatePhones(text).length > 0; }
 export type RecruitmentFollowUp = "phone_given" | "complaint" | "ask" | null;
 /** What a candidate's message is, once Noza's number is known to them. */
 export function customerRecruitmentFollowUp(text: string | undefined, asksNow: boolean): RecruitmentFollowUp {
   if (candidatePhoneGiven(text)) return "phone_given";
-  if (COMPLAINT.test(own(text))) return "complaint";
+  if (complaint(text)) return "complaint";
   return asksNow ? "ask" : null;
 }
 export function recruitmentFollowUpLine(kind: Exclude<RecruitmentFollowUp, null> | "thanks", language: Lang): string {

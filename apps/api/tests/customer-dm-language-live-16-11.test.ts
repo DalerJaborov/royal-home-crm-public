@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 // Pure functions: no database is touched; the stub keeps tests/setup.ts from resetting one.
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: async () => {} } }));
-import { customerDmDialogueLanguage, resolveCustomerDmLanguage } from "../src/ai/customerDmLanguage.js";
+import { customerDmDialogueLanguage, detectCustomerCoreLanguage, resolveCustomerDmLanguage } from "../src/ai/customerDmLanguage.js";
 import { detectClientLanguage } from "../src/ai/clientLanguage.js";
 import { adTemplateLanguage, clientSaidNothingSubstantive, isAdTemplateOpener } from "../src/ai/adTemplatePhrase.js";
 
@@ -68,7 +68,7 @@ describe("кнопка рекламы — признак, а не язык", () 
     expect(resolveCustomerDmLanguage(RU_AD, ["Хонаи фуруши дорам"])).toBe("tg");
   });
   it("узбекская латиница не считается таджикской (7e3d0a3d, 12.11)", () => {
-    expect(detectClientLanguage("Bu haqida yana maʼlumot olsam boʻladimi?")).toBe("unknown");
+    expect(detectCustomerCoreLanguage("Bu haqida yana maʼlumot olsam boʻladimi?")).toBe("unknown");
   });
 });
 

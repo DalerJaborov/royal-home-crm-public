@@ -333,7 +333,8 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
   const renderDecision = (decision: CustomerAgentDecision) => renderCustomerAgentDecision({ decision, evidence, inputText: frame.inputText,
     language: frame.language, requestedFacts: frame.requestedFacts, knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars,
     surface: frame.surface, knowledgeSourceHash: revision.knowledgeSourceHash, verifiedContext: context ?? undefined,
-    mediaPerception: perception, approvedFileState });
+    // The same inputs as the delivery seal renders with (review #206 В4): an attachment changes the opening question.
+    attachmentInput: frame.attachmentInput, mediaPerception: perception, approvedFileState });
   const ready = async (d: CustomerAgentDecision, text: string, extra: { fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string; say?: CustomerCoreSay } = {}): Promise<CustomerCoreResult> => {
     await check();
     // decision is a validated MODEL suggestion, not canonical state. Expose
