@@ -163,7 +163,8 @@ describe("«Аннулировать» закрытую сделку (C10)", () 
     expect(prop?.soldAt).toBeNull();
     expect(prop?.assignedAgentId).toBeNull();
     const buyer = await prisma.client.findUnique({ where: { id: client.id } });
-    expect(buyer?.status).toBe("HOT");
+    // «Горячий» снят 16.11.2026: после аннулирования клиент снова в работе — «На контакте».
+    expect(buyer?.status).toBe("CONTACTED");
 
     const reversed = await prisma.royalScoreEvent.findFirst({
       where: { agentId, kind: "deal_closed_reversed", sourceId: deal.id },

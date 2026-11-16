@@ -47,9 +47,6 @@ const TEAM_MONTH_ROW_LIMIT = 50_000;
 const STAGE_STATUSES: ClientStatus[] = [
   "NEW",
   "CONTACTED",
-  "HOT",
-  "COLD",
-  "UNRESPONSIVE",
   "DEAL_CLOSED",
   "ARCHIVED",
 ];

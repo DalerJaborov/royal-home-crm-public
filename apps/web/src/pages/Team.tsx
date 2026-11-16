@@ -12,19 +12,12 @@ import type { Role } from "@royal-home/shared";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { formatMoney, pluralizeRu, relativeTime } from "../lib/format";
 import { CLIENT_STATUS_LABELS } from "../lib/clientFormat";
-import type { ClientStatus } from "@royal-home/shared";
 import { initials, presenceOf } from "../lib/theme2026Person";
 import { avatarTone } from "../lib/avatarTone";
 import { scrollableRegion } from "../lib/a11y";
 import { useSyncFiltersToUrl } from "../hooks/useUrlFilters";
 import { TeamTabs } from "../components/SectionTabs";
 import { useCleanShell } from "../hooks/useCleanShell";
-
-/** Статусы, которые показывает мини-разбивка «по этапам» на строке агента
- *  (экран «Команда по этапам», антифрод, мозговой штурм владельца 20-21.08.2026):
- *  только живая нагрузка, LOST/DEAL_CLOSED/ARCHIVED здесь не нужны, это уже не
- *  портфель, за которым нужно следить руководству. */
-const STAGE_BADGE_STATUSES: ClientStatus[] = ["NEW", "CONTACTED", "HOT", "COLD", "UNRESPONSIVE"];
 
 /** Достижения месяца: по одному значку на номинацию, только среди активных с ненулевым результатом.
  *  Комиссия приходит null у смотрящего без finance.view (ночная проверка 24.09.2026, №159/М4) —
@@ -803,15 +796,15 @@ function TeamChips({
   achievements: ReturnType<typeof achievementsOf> | null;
   stages: TeamStagesAgent | undefined;
 }) {
-  const statusChips = stages ? STAGE_BADGE_STATUSES.filter((s) => (stages.byStatus[s] ?? 0) > 0) : [];
+  // Значки статусов («Горячий: 3», «Холодный: 5») сняты 16.11.2026 вместе со
+  // статусами-папками: на строке агента остаются показы и сделки.
   const hasAchievement =
     achievements !== null &&
     (achievements.commission === member.id ||
       achievements.deals === member.id ||
       achievements.showings === member.id ||
       achievements.speed === member.id);
-  const hasStages =
-    statusChips.length > 0 || (stages?.showingsScheduled ?? 0) > 0 || (stages?.dealsInProgress ?? 0) > 0;
+  const hasStages = (stages?.showingsScheduled ?? 0) > 0 || (stages?.dealsInProgress ?? 0) > 0;
   if (!hasAchievement && !hasStages) return null;
 
   return (
@@ -820,11 +813,6 @@ function TeamChips({
       {achievements?.deals === member.id && <span className="chip ok">Больше всех сделок</span>}
       {achievements?.showings === member.id && <span className="chip ok">Больше всех показов</span>}
       {achievements?.speed === member.id && <span className="chip">Быстрее всех берёт лиды</span>}
-      {statusChips.map((s) => (
-        <span className="chip mute" key={s}>
-          {CLIENT_STATUS_LABELS[s]}: {stages?.byStatus[s]}
-        </span>
-      ))}
       {(stages?.showingsScheduled ?? 0) > 0 && (
         <span className="chip mute">Показов назначено: {stages?.showingsScheduled}</span>
       )}

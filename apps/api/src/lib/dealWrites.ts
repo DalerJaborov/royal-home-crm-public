@@ -973,7 +973,7 @@ export async function updateDealFor(
         if (otherClosedClientDeals === 0) {
           await tx.client.updateMany({
             where: { id: existing.clientId, status: "DEAL_CLOSED" },
-            data: { status: "HOT" },
+            data: { status: "CONTACTED" },
           });
         }
       }

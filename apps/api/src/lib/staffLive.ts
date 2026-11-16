@@ -72,7 +72,7 @@ export async function loadStaffLive(id: string, viewer: StaffLiveViewer) {
   const canSeePhone = viewer.can("clients.viewPhone");
   const canHear = viewer.can("calls.hearRecording");
 
-  const [session, nextTask, botChats, tgChats, callBuckets, missedIncoming, lastCalls, statusRows, loadCounts, unaccepted] =
+  const [session, nextTask, botChats, tgChats, callBuckets, missedIncoming, lastCalls, loadCounts, unaccepted] =
     await runLimited(
       [
         // 1) Устройство и когда последний раз был.
@@ -175,13 +175,8 @@ export async function loadStaffLive(id: string, viewer: StaffLiveViewer) {
               callAnalysis: { select: { score: true, agreedNextStep: true } },
             },
           }),
-        // 8) Портфель по этапам.
-        () =>
-          prisma.client.groupBy({
-            by: ["status"],
-            where: { assignedAgentId: id, deletedAt: null },
-            _count: { _all: true },
-          }),
+        // 8) «Портфель по этапам» (разбивка по статусам) снят 16.11.2026 вместе
+        // со статусами-папками — остались нагрузка и не принятые.
         // 9) Нагрузка — тем же правилом, что очередь fair (lib/agentLoad.ts).
         () => agentLoadCounts([id]),
         // 10) Выдано, но не принято.
@@ -276,7 +271,6 @@ export async function loadStaffLive(id: string, viewer: StaffLiveViewer) {
     leads: {
       inWork: (loadCounts.get(id) ?? NO_LOAD).total,
       unaccepted,
-      byStatus: Object.fromEntries(statusRows.map((r) => [r.status, r._count._all])),
     },
     chats,
     calls: {

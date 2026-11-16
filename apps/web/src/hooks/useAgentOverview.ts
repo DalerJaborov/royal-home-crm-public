@@ -179,10 +179,7 @@ export interface AgentLive {
   };
   leads: {
     inWork: number;
-    /** 0 = раздача без предела, полосу нагрузки не рисуем. */
-    limit: number;
     unaccepted: number;
-    byStatus: Record<string, number>;
   };
   chats: {
     conversationId: string;

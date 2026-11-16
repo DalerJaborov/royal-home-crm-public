@@ -335,7 +335,7 @@ const TOOLS: AssistantTool[] = [
       type: "object",
       properties: {
         q: { type: "string", description: "Подстрока имени или телефона" },
-        status: { type: "string", enum: ["NEW", "CONTACTED", "HOT", "COLD", "UNRESPONSIVE", "DEAL_CLOSED", "ARCHIVED"] },
+        status: { type: "string", enum: ["NEW", "CONTACTED", "DEAL_CLOSED", "ARCHIVED"] },
         source: { type: "string", enum: ["WEBSITE", "INSTAGRAM", "FACEBOOK", "WHATSAPP", "TELEGRAM", "REFERRAL", "PHONE_CALL", "WALK_IN"] },
       },
     },

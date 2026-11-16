@@ -171,6 +171,9 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   /** Срез «Ждут принятия» — плитка «Без агента» ниже; тот же честный серверный
    *  фильтр (`pendingAcceptance`), что у ПК (pages/Clients.tsx). */
   const [pendingSlice, setPendingSlice] = useState(() => urlParams.get("slice") === "pending");
+  /** Срез «Без контакта» — плитка с тем же числом; правило одно на всю CRM
+   *  (packages/shared/src/clientNoContact.ts), список даёт сервер. */
+  const [noContactSlice, setNoContactSlice] = useState(() => urlParams.get("slice") === "noContact");
   /**
    * `new` и `phone` — одноразовые: без уборки возврат «назад» к этому экрану
    * снова открывал бы форму с уже набранным номером. Остальные параметры
@@ -209,6 +212,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
     // Страницы у среза обычные (02.10.2026): прежний потолок `pageSize: 100`
     // без «Показать ещё» молча обрезал список на сотом клиенте.
     ...(pendingSlice ? { pendingAcceptance: true } : {}),
+    ...(noContactSlice ? { noContact: true } : {}),
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
     scope: clientListScope({ allMine: isAllMineRoute, other: false, searching,
       pending: pendingSlice, noResponseYesterday }),
@@ -238,6 +242,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   function updateExtraFilters(patch: Partial<typeof extraFilters>) {
     setExtraFilters((f) => ({ ...f, ...patch }));
     setPendingSlice(false);
+    setNoContactSlice(false);
     setNoResponseYesterday(false);
     setPage(1);
   }
@@ -250,7 +255,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   const items = useAccumulatedPages(
     data?.items,
     page,
-    `${kind}:${section}:${isAllMineRoute}:${slice}:${debouncedQ}:${JSON.stringify(extraFilters)}:${pendingSlice}:${noResponseYesterday}`,
+    `${kind}:${section}:${isAllMineRoute}:${slice}:${debouncedQ}:${JSON.stringify(extraFilters)}:${pendingSlice}:${noContactSlice}:${noResponseYesterday}`,
     headPage?.items
   );
   // Самолечение пустого списка (hooks/useEmptyListGuard.ts, одна дверь с ПК).
@@ -467,6 +472,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
               className="tile"
               onClick={() => {
                 setPendingSlice(true);
+                setNoContactSlice(false);
                 setNoResponseYesterday(false);
                 setPage(1);
                 focusList();
@@ -482,13 +488,18 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
               type="button"
               className="tile"
               onClick={() => {
-                updateExtraFilters({ sort: "contact_asc" });
+                // Срез по тому же правилу, что и число на плитке (сервер,
+                // `/clients?noContact=1`, lib/noContact.ts), а не сортировка.
+                setNoContactSlice(true);
+                setPendingSlice(false);
+                setNoResponseYesterday(false);
+                setPage(1);
                 focusList();
               }}
-              title="Список: давно не общались"
+              title="Срез «Без контакта»"
             >
               <div className={summary.noContactOverDay > 0 ? "v crit" : "v"}>{num(summary.noContactOverDay)}</div>
-              <div className={summary.noContactOverDay > 0 ? "l crit" : "l"}>без контакта больше суток</div>
+              <div className={summary.noContactOverDay > 0 ? "l crit" : "l"}>без контакта</div>
             </button>
             <Link className="tile" to="/calendar?type=SHOWING&date=today" title="Календарь показов">
               <div className="v">{num(summary.showings.today)}</div>
@@ -512,7 +523,9 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
             <div className="state">
               {pendingSlice
                 ? "Никто не ждёт принятия."
-                : q
+                : noContactSlice
+                  ? "Все клиенты на связи."
+                  : q
                   ? "Никого не нашли, проверьте написание."
                   : "В этом срезе пока пусто."}
             </div>

@@ -712,11 +712,6 @@ function FocusCard({ task }: { task: Interaction }) {
           <div className="n">{client?.fullName ?? "Клиент"}</div>
           <div className="s">{task.property?.title ?? task.nextAction ?? "Ждёт ответа"}</div>
         </div>
-        {client?.status === "HOT" && (
-          <span className="chip crit" style={{ marginLeft: "auto" }}>
-            горячий
-          </span>
-        )}
       </div>
       <p className="why">{focusReason(task)}</p>
       <div className="acts">

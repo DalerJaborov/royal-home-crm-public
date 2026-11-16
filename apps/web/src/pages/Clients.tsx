@@ -225,6 +225,12 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
    * список и число сходятся. Неизвестному значению `slice` экран не верит.
    */
   const [noResponseYesterday, setNoResponseYesterday] = useState(() => searchParams.get("slice") === "noResponseYesterday");
+  /**
+   * «Без контакта» — то же число, что на плитке телефона и в «Контроле
+   * руководителя»: правило одно (packages/shared/src/clientNoContact.ts), список
+   * даёт сервер (`noContact`, lib/noContact.ts). Приходит и по ссылке (`?slice=noContact`).
+   */
+  const [noContactSlice, setNoContactSlice] = useState(() => searchParams.get("slice") === "noContact");
   // Дебаунс строки поиска — см. тот же комментарий в Properties.tsx.
   const debouncedQuery = useDebouncedValue(filters.q, 350);
   useSyncFiltersToUrl(
@@ -236,7 +242,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
       agentId: filters.agentId,
       q: debouncedQuery?.trim() || undefined,
       sort: filters.sort,
-      slice: pendingSlice ? "pending" : noResponseYesterday ? "noResponseYesterday" : undefined,
+      slice: pendingSlice ? "pending" : noResponseYesterday ? "noResponseYesterday" : noContactSlice ? "noContact" : undefined,
     },
     // `page` — вычищаем из старых ссылок и закладок (см. начальное состояние выше);
     // `status` — фильтр удалённых статусов (16.11.2026).
@@ -268,6 +274,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
     scope: clientListScope({ allMine: isAllMineRoute, other: isOther, searching,
       pending: pendingSlice, noResponseYesterday }),
     ...(pendingSlice ? { pendingAcceptance: true } : {}),
+    ...(noContactSlice ? { noContact: true } : {}),
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
     // «Прочие обращения»: свежие сверху (серверный порядок по умолчанию и есть рабочий).
     ...(isOther && !filters.sort && !noResponseYesterday ? { sort: DEFAULT_CLIENT_SORT } : {}),
@@ -288,6 +295,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
       q: debouncedQuery,
       kind: searchAcrossKinds || isAllMineRoute || allKinds ? undefined : sectionKind ?? kind,
       pendingSlice,
+      noContactSlice,
       noResponseYesterday,
       isAllMineRoute,
     }),
@@ -357,7 +365,8 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
         : `${kindWord}${inWorkCount != null ? ` · ${num(inWorkCount)}` : ""}`;
 
   const currentSort = filters.sort ?? DEFAULT_CLIENT_SORT;
-  const slice: "all" | "pending" | "yesterday" = pendingSlice ? "pending" : noResponseYesterday ? "yesterday" : "all";
+  const slice: "all" | "pending" | "yesterday" | "noContact" =
+    pendingSlice ? "pending" : noResponseYesterday ? "yesterday" : noContactSlice ? "noContact" : "all";
   const activeFilterCount =
     [filters.source, filters.districtId, filters.agentId].filter(Boolean).length + (slice !== "all" ? 1 : 0);
   const showSwitches = !isOther && !isAllMineRoute;
@@ -366,6 +375,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   const resetFilters = () => {
     setFilters((f) => ({ q: f.q, sort: f.sort, page: 1 }));
     setPendingSlice(false);
+    setNoContactSlice(false);
     setNoResponseYesterday(false);
   };
   const patchFilters = (patch: Partial<ClientFilters>) => setFilters((f) => ({ ...f, ...patch, page: 1 }));
@@ -455,8 +465,31 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
       {mobile && segment}
 
       {/* Тихие строки вместо карточек-уведомлений (договор §6.1): ждёт агента, похожие карточки */}
-      {!isOther && ((oldest && summary) || (duplicates && duplicates.length > 0)) && (
+      {!isOther && ((oldest && summary) || (duplicates && duplicates.length > 0) || !!summary?.noContactOverDay) && (
         <Card tight className={clean ? "clean-client-notices" : undefined}>
+          {/* «Без контакта» — то же число, что плитка на телефоне (MobileClientsList)
+              и «Контроль руководителя»: одно правило, один счётчик (16.11.2026). */}
+          {!!summary?.noContactOverDay && (
+            <div className="quiet crit">
+              <span className="dot crit" />
+              <span className="txt">
+                Без контакта: {num(summary.noContactOverDay)} — ни разговора по телефону, ни сообщения от клиента.
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-pressed={noContactSlice}
+                onClick={() => {
+                  setNoContactSlice(!noContactSlice);
+                  setPendingSlice(false);
+                  setNoResponseYesterday(false);
+                  setFilters((f) => ({ ...f, page: 1 }));
+                }}
+              >
+                {noContactSlice ? "Все клиенты" : "Показать"}
+              </Button>
+            </div>
+          )}
           {oldest && summary && (
             <div className="quiet crit">
               <span className="dot crit" />
@@ -634,12 +667,14 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
                 value={slice}
                 onChange={(id) => {
                   setPendingSlice(id === "pending");
+                  setNoContactSlice(id === "noContact");
                   setNoResponseYesterday(id === "yesterday");
                   setFilters((f) => ({ ...f, page: 1 }));
                 }}
                 options={[
                   { id: "all", label: "Все" },
                   { id: "pending", label: "Ждут принятия", count: summary?.awaitingAgent.count },
+                  { id: "noContact", label: "Без контакта", count: summary?.noContactOverDay },
                   ...(slice === "yesterday" ? [{ id: "yesterday" as const, label: "Вчера без ответа" }] : []),
                 ]}
               />
