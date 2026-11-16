@@ -46,6 +46,8 @@ export interface ManualExpenseLike {
   exchangeRate?: unknown;
   /** Поставщик, выбранный человеком или узнанный помощницей (Expense.vendor). */
   vendor?: string | null;
+  /** Счёт оплачивает ИИ, которым работает CRM (Expense.coversAiUsage). */
+  coversAiUsage?: boolean | null;
 }
 
 export interface AutoExpenseOverlap {
@@ -136,6 +138,16 @@ export function manualExpenseVendor(row: Pick<ManualExpenseLike, "vendor" | "not
   return isAiEstimateVendor(found) ? found : null;
 }
 
+/**
+ * Оплачивает ли ручной счёт ИИ, которым работает CRM: отметил человек — как отметил; иначе по словам
+ * только «Оплата Gemini» без признаков подписки на чат (Plus/Pro/Max/подписка) — ревью 17.11.
+ */
+export function manualExpenseCoversAiUsage(row: Pick<ManualExpenseLike, "vendor" | "coversAiUsage" | "note" | "counterparty">): boolean {
+  if (typeof row.coversAiUsage === "boolean") return row.coversAiUsage && isAiEstimateVendor(row.vendor ?? manualExpenseVendor(row));
+  const vendor = manualExpenseVendor(row);
+  return isAiEstimateVendor(vendor) && !NOT_AI_USAGE.test(textOf(row as ManualExpenseLike));
+}
+
 export function findAutoExpenseOverlap(
   manual: ManualExpenseLike,
   autoRows: readonly AutoExpenseRowLike[],
@@ -148,8 +160,9 @@ export function findAutoExpenseOverlap(
   const manualVendor = manual.vendor ?? vendorOfText(textOf(manual));
   // Явный счёт поставщика ИИ — это правда о расходе, а не повтор оценки: оценку этого
   // поставщика за месяц CRM сама перестаёт считать (splitAiEstimate, 17.11.2026).
-  // «Оплата ИИ» без поставщика по-прежнему спрашивается: непонятно, счёт это или повтор оценки.
-  const billedAiVendor = isAiEstimateVendor(manualVendor);
+  // «Оплата ИИ» без поставщика и подписка на чат по-прежнему спрашиваются: непонятно, счёт это
+  // за обращения CRM или повтор оценки.
+  const billedAiVendor = manualExpenseCoversAiUsage(manual);
   let best: AutoExpenseOverlap | null = null;
   for (const auto of autoRows) {
     const kind = autoExpenseKindOf(auto.autoKey);

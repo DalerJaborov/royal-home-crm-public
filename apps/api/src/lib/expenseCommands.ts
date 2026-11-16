@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
-  AUTO_EXPENSE_OVERLAP_CODE, CLIENT_SOURCES, isAiEstimateVendor, manualExpenseVendor, expenseCategorySchema, expenseCreateSchema, expensePaymentSchema, expenseUpdateSchema,
+  AUTO_EXPENSE_OVERLAP_CODE, CLIENT_SOURCES, isAiEstimateVendor, manualExpenseCoversAiUsage, manualExpenseVendor, expenseCategorySchema, expenseCreateSchema, expensePaymentSchema, expenseUpdateSchema,
   recurringOccurrenceSchema, recurringWorkspaceFields, type ClientSource,
 } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
@@ -22,7 +22,11 @@ import { describeError } from "./describeError.js";
  * Финансах учтён дважды. Сбой пересчёта расход не отменяет — ночной крон догонит.
  */
 async function refreshAiEstimateIfBilled(vendors: (string | null | undefined)[], months: string[]): Promise<void> {
-  if (!vendors.some(isAiEstimateVendor)) return;
+  if (vendors.some(isAiEstimateVendor)) await refreshAiEstimate(months);
+}
+
+/** Пересчёт оценки ИИ за месяцы; сбой не роняет запись (ночной крон догонит свежие месяцы). */
+export async function refreshAiEstimate(months: string[]): Promise<void> {
   try {
     await upsertAiExpenses([...new Set(months)]);
   } catch (err) {
@@ -97,6 +101,8 @@ export async function createExpense(raw: unknown, opts: CreateExpenseOptions): P
     ...rest,
     // Поставщик: выбран человеком или узнан по словам («Оплата Gemini») — только ИИ (17.11.2026).
     vendor: manualExpenseVendor(rest),
+    // Счёт за ИИ самой CRM: отметил человек или «Оплата Gemini» без признаков подписки на чат.
+    coversAiUsage: manualExpenseCoversAiUsage(rest),
     paymentDate: rest.paymentDate ? expenseDay(rest.paymentDate) : null,
     month: expenseMonthToDate((rest.status ?? "PAID") === "PAID" && rest.paymentDate ? rest.paymentDate.slice(0, 7) : month),
     createdById: opts.agentId,
@@ -112,7 +118,7 @@ export async function createExpense(raw: unknown, opts: CreateExpenseOptions): P
   // второй раз не пишем (14.11.2026): человек видит, что уже учтено, и подтверждает «другой».
   // Повтор того же запроса (ключ уже записан) проверку не проходит заново — строка уже есть.
   if (!confirmAutoOverlap && !(requestKey && await db.expense.findUnique({ where: { requestKey }, select: { id: true } }))) {
-    const found = await findManualOverlap(data.month.toISOString().slice(0, 7), { ...rest, vendor: data.vendor, exchangeRate: rate }, { db, money: opts.money, cache: opts.overlapCache });
+    const found = await findManualOverlap(data.month.toISOString().slice(0, 7), { ...rest, vendor: data.vendor, coversAiUsage: data.coversAiUsage, exchangeRate: rate }, { db, money: opts.money, cache: opts.overlapCache });
     if (found) fail(409, found.text, { code: AUTO_EXPENSE_OVERLAP_CODE, overlap: found.overlap });
   }
   const expense = requestKey
@@ -190,6 +196,7 @@ export async function updateExpense(id: string, raw: unknown): Promise<{ expense
       agentId: finalCategory === "SALARY" ? finalAgentId : null, note: finalNote, counterparty: rest.counterparty ?? row.counterparty,
       amount: rest.amount ?? row.amount, currency: rest.currency ?? row.currency, exchangeRate: rest.exchangeRate ?? row.exchangeRate,
       vendor: rest.vendor === undefined ? row.vendor : rest.vendor,
+      coversAiUsage: rest.coversAiUsage ?? row.coversAiUsage,
     });
     if (found) fail(409, found.text, { code: AUTO_EXPENSE_OVERLAP_CODE, overlap: found.overlap });
   }
@@ -269,7 +276,11 @@ export async function setExpensePayment(id: string, paid: boolean, raw: unknown)
   const p = expensePaymentSchema.safeParse(raw);
   if (!p.success) fail(400, "Неверная дата");
   try {
-    return await changeExpensePayment(id, paid, p.data!.paymentDate);
+    const before = await prisma.expense.findUnique({ where: { id }, select: { month: true } });
+    const changed = await changeExpensePayment(id, paid, p.data!.paymentDate);
+    // Оплата меняет статус (а то и месяц) счёта за ИИ — оценка пересчитывается сразу.
+    await refreshAiEstimateIfBilled([changed.vendor], [changed.month.toISOString().slice(0, 7), ...(before ? [before.month.toISOString().slice(0, 7)] : [])]);
+    return changed;
   } catch (error) {
     if (error instanceof ExpenseLifecycleError) fail(error.status, error.message);
     throw error;
@@ -443,6 +454,8 @@ export async function changeRecurringOccurrence(
       await tx.recurringExpense.update({ where: { id: template.id }, data: { skippedDates: { set: latest.skippedDates.filter(d => d !== day) } } });
       return changed;
     });
+    // Оплата/откат платежа подписки за ИИ — оценка месяца пересчитывается сразу, после транзакции.
+    if (expense) await refreshAiEstimateIfBilled([template.coversAiUsage ? template.vendor : null], [expense.month.toISOString().slice(0, 7), day.slice(0, 7)]);
     return { expense, dueDate: day };
   } catch (error) {
     if (error instanceof ExpenseLifecycleError) fail(error.status, error.message);

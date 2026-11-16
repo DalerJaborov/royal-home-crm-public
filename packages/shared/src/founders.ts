@@ -133,12 +133,13 @@ export function founderContributionTotals(
 }
 
 /**
- * Строка отчёта похожа на взнос учредителя («взнос Баходур», «вклад от Илхома», «аз Мирсаид»):
- * возвращает учредителя из списка или null. Имя ищется по основе (первые 4 буквы без окончания:
- * «Баходура», «Баходуру» → «Баходур»). Без слова «взнос/вклад/вложил/инвест» имя само по себе
- * взносом не считается: «такси Илхому» — расход.
+ * Строка отчёта похожа на взнос учредителя («взнос Баходур», «вклад от Илхома», «Мирсаид вложил»):
+ * возвращает учредителя из списка или null. Нужно слово «взнос/вклад/вложил/инвест» И имя целым словом
+ * с падежным окончанием («Баходура», «Илхому»): «Али» в «оплатили» не находится. «Учредители» само по
+ * себе взносом не считается (ревью 17.11: «Обед учредителей», «учредители оплатили сервер» — расходы).
  */
-const CONTRIBUTION_WORDS = /взнос|вклад|влож|инвест|учредит|муассис|саҳм|сахм|ҳисса|хисса/iu;
+const CONTRIBUTION_WORDS = /взнос|вклад|влож|инвест|саҳм|сахм|ҳисса|хисса/iu;
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export function founderOfContributionText(
   text: string | null | undefined,
   founders: readonly { id: string; name: string; deleted?: boolean }[],
@@ -149,8 +150,8 @@ export function founderOfContributionText(
     if (f.deleted) continue;
     const name = f.name.trim().toLowerCase().replace(/ё/g, "е");
     if (!name) continue;
-    const stem = name.length > 5 ? name.slice(0, name.length - 1) : name;
-    if (lower.includes(stem)) return { id: f.id, name: f.name };
+    const word = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(name)}\\p{L}{0,3}(?![\\p{L}\\p{N}])`, "u");
+    if (word.test(lower)) return { id: f.id, name: f.name };
   }
   return null;
 }

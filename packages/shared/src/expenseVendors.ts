@@ -70,7 +70,8 @@ export function vendorOfText(text: string | null | undefined): ExpenseVendor | n
  */
 export function aiLogVendor(provider: string | null | undefined, model: string | null | undefined): ExpenseVendor | null {
   const p = (provider ?? "").toLowerCase();
-  const m = (model ?? "").toLowerCase();
+  // Старые записи хранят имя модели с префиксом API: «models/gemini-…».
+  const m = (model ?? "").toLowerCase().replace(/^models\//, "");
   if (p === "google" || p === "gemini" || m.startsWith("gemini") || m.startsWith("imagen") || m.startsWith("veo")) return "GEMINI";
   if (p === "openai" || m.startsWith("gpt") || m.startsWith("dall-e") || m.startsWith("text-embedding") || m.startsWith("whisper") || m.startsWith("tts-")) return "OPENAI";
   if (p === "anthropic" || p === "claude" || m.startsWith("claude")) return "ANTHROPIC";
@@ -92,8 +93,9 @@ export interface AiEstimateSplit {
 }
 
 /**
- * ПРАВИЛО «СЧЁТ ПОСТАВЩИКА СИЛЬНЕЕ ОЦЕНКИ»: за месяц, где у поставщика ИИ есть настоящий счёт
- * или подписка (`billedVendors`), его оценка по журналу в расход не идёт. Суммы — центы доллара;
+ * ПРАВИЛО «СЧЁТ ПОСТАВЩИКА СИЛЬНЕЕ ОЦЕНКИ»: за месяц, где у поставщика ИИ есть ОПЛАЧЕННЫЙ счёт,
+ * помеченный «оплата ИИ, которым работает CRM» (`Expense.coversAiUsage`, ревью 17.11: подписка на
+ * чат ChatGPT Plus / Claude Max обращения CRM не оплачивает), его оценка по журналу в расход не идёт. Суммы — центы доллара;
  * округление один раз на месяц, как и раньше (оценка приходит долями цента за вызов).
  */
 export function splitAiEstimate(groups: readonly AiCostGroup[], billedVendors: Iterable<string>): AiEstimateSplit {
@@ -126,13 +128,15 @@ export function aiEstimateNote(split: Pick<AiEstimateSplit, "coveredCents" | "co
  * Готовые подписки для быстрого добавления: название и поставщик. Сумму, валюту и день списания
  * вводит человек — придумывать цены нельзя (правило владельца: данные не выдумывать).
  */
-export const SUBSCRIPTION_PRESETS: readonly { vendor: ExpenseVendor; title: string; counterparty: string }[] = [
-  { vendor: "GEMINI", title: "Gemini (Google AI)", counterparty: "Google" },
-  { vendor: "META_VERIFIED", title: "Meta Verified (синяя галочка)", counterparty: "Meta" },
-  { vendor: "ELEVENLABS", title: "ElevenLabs (голос)", counterparty: "ElevenLabs" },
-  { vendor: "OPENAI", title: "ChatGPT / OpenAI", counterparty: "OpenAI" },
-  { vendor: "ANTHROPIC", title: "Claude", counterparty: "Anthropic" },
-  { vendor: "SERVER", title: "Сервер CRM", counterparty: "" },
-  { vendor: "DOMAIN", title: "Домен royalhome.tj", counterparty: "" },
-  { vendor: "TELEGRAM_PREMIUM", title: "Telegram Premium", counterparty: "Telegram" },
+export const SUBSCRIPTION_PRESETS: readonly { vendor: ExpenseVendor; title: string; counterparty: string; coversAiUsage: boolean }[] = [
+  // Gemini и ElevenLabs — это и есть ИИ, которым работает CRM (API и голос): их счёт снимает оценку.
+  { vendor: "GEMINI", title: "Gemini API (ИИ для CRM)", counterparty: "Google", coversAiUsage: true },
+  { vendor: "META_VERIFIED", title: "Meta Verified (синяя галочка)", counterparty: "Meta", coversAiUsage: false },
+  { vendor: "ELEVENLABS", title: "ElevenLabs (голос)", counterparty: "ElevenLabs", coversAiUsage: true },
+  // Подписки на чат (ChatGPT Plus, Claude Pro/Max) обращения CRM не оплачивают: оценку не трогают.
+  { vendor: "OPENAI", title: "ChatGPT (подписка на чат)", counterparty: "OpenAI", coversAiUsage: false },
+  { vendor: "ANTHROPIC", title: "Claude (подписка на чат)", counterparty: "Anthropic", coversAiUsage: false },
+  { vendor: "SERVER", title: "Сервер CRM", counterparty: "", coversAiUsage: false },
+  { vendor: "DOMAIN", title: "Домен royalhome.tj", counterparty: "", coversAiUsage: false },
+  { vendor: "TELEGRAM_PREMIUM", title: "Telegram Premium", counterparty: "Telegram", coversAiUsage: false },
 ];

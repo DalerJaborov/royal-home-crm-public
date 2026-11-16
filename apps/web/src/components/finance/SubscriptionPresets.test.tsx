@@ -57,6 +57,43 @@ describe("быстрое добавление подписок", () => {
     expect(body).toMatchObject({ vendor: "ELEVENLABS", title: preset.title, counterparty: preset.counterparty, category: "OTHER", amount: 55, currency: "USD", period: "MONTH", autoPay: true, active: true });
   });
 
+  it("Gemini: галочка «оплата ИИ CRM» стоит и уходит в шаблон", async () => {
+    const preset = SUBSCRIPTION_PRESETS.find((p) => p.vendor === "GEMINI")!;
+    render(<ClaudeExpenseSheet month="2026-11" canManage initialRecurring initialPreset={preset} onClose={vi.fn()} />);
+    expect((screen.getByLabelText(/Это оплата ИИ, которым работает CRM/) as HTMLInputElement).checked).toBe(true);
+    fireEvent.change(screen.getByLabelText("Сумма расхода"), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
+    await waitFor(() => expect(h.saveRecurring).toHaveBeenCalledTimes(1));
+    expect((h.saveRecurring.mock.calls[0][0] as { body: Record<string, unknown> }).body).toMatchObject({ vendor: "GEMINI", coversAiUsage: true });
+  });
+
+  it("ChatGPT: галочка видна, но снята, уходит false", async () => {
+    const preset = SUBSCRIPTION_PRESETS.find((p) => p.vendor === "OPENAI")!;
+    render(<ClaudeExpenseSheet month="2026-11" canManage initialRecurring initialPreset={preset} onClose={vi.fn()} />);
+    expect((screen.getByLabelText(/Это оплата ИИ, которым работает CRM/) as HTMLInputElement).checked).toBe(false);
+    fireEvent.change(screen.getByLabelText("Сумма расхода"), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
+    await waitFor(() => expect(h.saveRecurring).toHaveBeenCalledTimes(1));
+    expect((h.saveRecurring.mock.calls[0][0] as { body: Record<string, unknown> }).body).toMatchObject({ vendor: "OPENAI", coversAiUsage: false });
+  });
+
+  it("не ИИ-сервис: галочки нет, а смена на него сбрасывает значение", async () => {
+    const preset = SUBSCRIPTION_PRESETS.find((p) => p.vendor === "GEMINI")!;
+    render(<ClaudeExpenseSheet month="2026-11" canManage initialRecurring initialPreset={preset} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Сервис"), { target: { value: "SERVER" } });
+    expect(screen.queryByLabelText(/Это оплата ИИ, которым работает CRM/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Сумма расхода"), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
+    await waitFor(() => expect(h.saveRecurring).toHaveBeenCalledTimes(1));
+    expect((h.saveRecurring.mock.calls[0][0] as { body: Record<string, unknown> }).body).toMatchObject({ vendor: "SERVER", coversAiUsage: false });
+  });
+
+  it("подробности подписки: подпись про ИИ CRM", () => {
+    h.rows[0] = { ...h.rows[0], coversAiUsage: true } as typeof h.rows[0];
+    render(<ClaudeSubscriptions month="2026-11" canManage onAdd={vi.fn()} />);
+    expect(screen.getByText(/Оплачивает ИИ CRM: оценку этого сервиса за месяц не считаем/)).toBeTruthy();
+  });
+
   it("у обычного расхода сервис по умолчанию не выбран", () => {
     render(<ClaudeExpenseSheet month="2026-11" canManage onClose={vi.fn()} />);
     expect((screen.getByLabelText("Сервис") as HTMLSelectElement).value).toBe("");

@@ -12,11 +12,11 @@ export type ClaudeUpcoming = ExpenseUpcomingItem;
 export interface ClaudeExpense extends Expense {
   status?: "PLANNED" | "PAID"; paymentDate?: string | null; counterparty?: string | null;
   paymentMethod?: ClaudePaymentMethod | null; categoryId?: string | null;
-  exchangeRate?: string | null; vendor?: ExpenseVendor | null; receipts?: ExpenseReceiptItem[]; createdById?: string | null; createdBy?: { id: string; fullName: string } | null; recurringId?: string | null; occurrenceDate?: string | null; createdAt?: string; amountTjs?: number;
+  exchangeRate?: string | null; vendor?: ExpenseVendor | null; coversAiUsage?: boolean; receipts?: ExpenseReceiptItem[]; createdById?: string | null; createdBy?: { id: string; fullName: string } | null; recurringId?: string | null; occurrenceDate?: string | null; createdAt?: string; amountTjs?: number;
 }
 export interface ClaudeRecurring extends RecurringExpense {
   period?: "WEEK" | "MONTH" | "QUARTER" | "YEAR"; startsOn?: string | null; endsOn?: string | null;
-  autoPay?: boolean; categoryId?: string | null; counterparty?: string | null; vendor?: ExpenseVendor | null;
+  autoPay?: boolean; categoryId?: string | null; counterparty?: string | null; vendor?: ExpenseVendor | null; coversAiUsage?: boolean;
   paymentMethod?: ClaudePaymentMethod | null; nextDate?: string | null; skippedDates?: string[];
 }
 export interface ClaudeExpenseInput {
@@ -24,7 +24,7 @@ export interface ClaudeExpenseInput {
   amount: number; exchangeRate?: number | null; category: ExpenseCategory; month: string; currency: Currency;
   note: string | null; source: ClientSource | null; agentId: string | null;
   status: "PLANNED" | "PAID"; paymentDate: string | null; categoryId: string | null;
-  counterparty: string | null; paymentMethod: ClaudePaymentMethod | null; vendor?: ExpenseVendor | null;
+  counterparty: string | null; paymentMethod: ClaudePaymentMethod | null; vendor?: ExpenseVendor | null; coversAiUsage?: boolean;
 }
 export type ClaudeRecurringInput = Partial<Omit<ClaudeRecurring, "id" | "amount">> & { amount?: number };
 export interface ClaudeExpenseFilters {

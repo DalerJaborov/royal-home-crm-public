@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aiEstimateNote, aiLogVendor, autoExpenseOverlapText, findAutoExpenseOverlap, founderContributionTotals, founderOfContributionText,
-  manualExpenseVendor, splitAiEstimate, vendorOfText,
+  manualExpenseCoversAiUsage, manualExpenseVendor, splitAiEstimate, SUBSCRIPTION_PRESETS, vendorOfText,
 } from "@royal-home/shared";
 
 /**
@@ -44,6 +44,18 @@ describe("поставщик по словам строки", () => {
     expect(aiLogVendor("elevenlabs", "eleven_v3")).toBe("ELEVENLABS");
     expect(aiLogVendor(null, "deepseek-chat")).toBe("DEEPSEEK");
     expect(aiLogVendor(null, "unknown-model")).toBeNull();
+    expect(aiLogVendor(null, "models/gemini-2.5-flash")).toBe("GEMINI");
+  });
+
+  it("счёт за ИИ самой CRM: «Оплата Gemini» да; подписка на чат (Plus/Max/подписка) нет; отметка человека сильнее слов", () => {
+    expect(manualExpenseCoversAiUsage({ note: "Оплата Gemini", counterparty: null })).toBe(true);
+    expect(manualExpenseCoversAiUsage({ note: "Claude Max подписка", counterparty: null })).toBe(false);
+    expect(manualExpenseCoversAiUsage({ note: "ChatGPT Plus", counterparty: null })).toBe(false);
+    expect(manualExpenseCoversAiUsage({ note: "ОПЛАТА ИИ", counterparty: null })).toBe(false);
+    expect(manualExpenseCoversAiUsage({ note: "Claude Max", counterparty: null, vendor: "ANTHROPIC", coversAiUsage: true })).toBe(true);
+    expect(manualExpenseCoversAiUsage({ note: "Сервер", counterparty: null, vendor: "SERVER", coversAiUsage: true })).toBe(false);
+    const covers = Object.fromEntries(SUBSCRIPTION_PRESETS.map((p) => [p.vendor, p.coversAiUsage]));
+    expect(covers).toMatchObject({ GEMINI: true, ELEVENLABS: true, OPENAI: false, ANTHROPIC: false, META_VERIFIED: false });
   });
 });
 
@@ -137,5 +149,11 @@ describe("взносы учредителей", () => {
     expect(founderOfContributionText("Мирсаид вложил", founders)?.id).toBe("m");
     expect(founderOfContributionText("такси Илхому", founders)).toBeNull();
     expect(founderOfContributionText("взнос Старый", founders)).toBeNull();
+    // Ревью 17.11: «учредители» без слова «взнос» и имя внутри другого слова — не взнос.
+    expect(founderOfContributionText("Обед учредителей с Баходуром", founders)).toBeNull();
+    expect(founderOfContributionText("Учредители оплатили сервер, Илхом", founders)).toBeNull();
+    const short = [{ id: "a", name: "Али" }];
+    expect(founderOfContributionText("вклад: оплатили аренду", short)).toBeNull();
+    expect(founderOfContributionText("вклад Али", short)?.id).toBe("a");
   });
 });

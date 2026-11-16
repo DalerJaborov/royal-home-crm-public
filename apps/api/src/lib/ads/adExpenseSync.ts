@@ -154,7 +154,8 @@ export async function upsertAiExpenses(months: string[]): Promise<number> {
       // У самой строки оценки ai:<месяц> поставщика нет — она сюда не попадает. Фильтр по autoKey
       // здесь нельзя: NOT по пустому autoKey в SQL даёт «неизвестно» и прячет ручные счета.
       prisma.expense.findMany({
-        where: { month: from, deletedAt: null, vendor: { in: [...AI_ESTIMATE_VENDORS] } },
+        // Только оплаченный счёт за ИИ самой CRM (ревью 17.11): план и подписка на чат оценку не снимают.
+        where: { month: from, deletedAt: null, status: "PAID", coversAiUsage: true, vendor: { in: [...AI_ESTIMATE_VENDORS] } },
         select: { vendor: true },
         distinct: ["vendor"],
       }),
@@ -192,11 +193,12 @@ async function upsertAutoExpense(row: {
   try {
     const existing = await prisma.expense.findUnique({
       where: { autoKey: row.autoKey },
-      select: { id: true, deletedAt: true, amount: true, currency: true, note: true },
+      select: { id: true, deletedAt: true, amount: true, currency: true, note: true, manualEditedAt: true },
     });
 
-    // Человек удалил строку — не воскрешаем и не трогаем.
-    if (existing?.deletedAt) return false;
+    // Человек удалил строку — не воскрешаем и не трогаем. Человек поправил сумму — тоже (аудит №4:
+    // ночной пересчёт откатывал правку директора; найдено ревью 17.11 рядом).
+    if (existing?.deletedAt || existing?.manualEditedAt) return false;
 
     // Нулевой расход не заводим: пустая строка «0 с.» в Финансах — шум. Но если
     // строка уже есть (расход был, потом Meta пересчитала в ноль) — обновляем.

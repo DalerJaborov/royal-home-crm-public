@@ -4,7 +4,7 @@ import {
   type FounderContributionItem, type FounderItem, type FounderTotals,
 } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
-import type { Founder, FounderContribution } from "../generated/prisma/client.js";
+import { Prisma, type Founder, type FounderContribution } from "../generated/prisma/client.js";
 import { centsToTjs, fromCents, loadMoneyContext, NO_USD_RATE_TEXT, toCents, usdRateForWrite } from "./money.js";
 import { todayExpenseDay } from "./expenseWorkspace.js";
 
@@ -139,9 +139,27 @@ export async function createContribution(raw: unknown, opts: CreateContributionO
     date: data.date, month: monthDate(data.date.slice(0, 7)), note: data.note?.trim() || null, createdById: opts.agentId,
     requestKey: opts.requestKey ?? null,
   };
-  const created = opts.requestKey
-    ? await db.founderContribution.upsert({ where: { requestKey: opts.requestKey }, update: {}, create: row, include: { founder: { select: { name: true } } } })
-    : await db.founderContribution.create({ data: row, include: { founder: { select: { name: true } } } });
+  const include = { founder: { select: { name: true } } } as const;
+  // Повтор с тем же ключом (двойное нажатие, повтор пачки) — тот же взнос; другой взнос под тем же
+  // ключом — 409, как у расходов (ревью 17.11: upsert молча отдавал старый).
+  const replay = async () => {
+    const existing = await db.founderContribution.findUnique({ where: { requestKey: opts.requestKey! }, include });
+    if (!existing) return null;
+    const same = existing.founderId === row.founderId && Number(existing.amount) === row.amount && existing.currency === row.currency && existing.date === row.date;
+    if (!same) fail(409, "Этот ключ уже использован для другого взноса", { code: "IDEMPOTENCY_CONFLICT" });
+    return existing;
+  };
+  let created = opts.requestKey ? await replay() : null;
+  if (!created) {
+    try {
+      created = await db.founderContribution.create({ data: row, include });
+    } catch (err) {
+      // Два одинаковых запроса в одну секунду: второй видит запись первого.
+      if (!(opts.requestKey && err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
+      created = await replay();
+      if (!created) throw err;
+    }
+  }
   return (await contributionDtos([created], db))[0]!;
 }
 
@@ -195,20 +213,32 @@ export async function restoreContribution(id: string): Promise<FounderContributi
 /** Итоги по учредителям: за месяц и за всё время. Используют Деньги и PDF-отчёт. */
 export async function founderTotals(month: string): Promise<FounderTotals> {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) fail(400, "Формат месяца: ГГГГ-ММ");
-  const [founders, contributions, money] = await Promise.all([
+  const [founders, groups, money] = await Promise.all([
     prisma.founder.findMany({ take: FOUNDERS_LIMIT }),
-    // Все взносы за всё время: учредителей трое, взносов немного. Предел — защита от порчи данных.
-    prisma.founderContribution.findMany({
+    // Суммы базой по учредителю, месяцу, валюте и курсу — без потолка строк (ревью 17.11): сколько
+    // бы взносов ни накопилось, итог «за всё время» не обрезается.
+    prisma.founderContribution.groupBy({
+      by: ["founderId", "month", "currency", "exchangeRate"],
       where: { deletedAt: null },
-      select: { founderId: true, amount: true, currency: true, exchangeRate: true, month: true },
-      take: CONTRIBUTIONS_LIMIT * 4,
+      _sum: { amount: true },
+      _count: { _all: true },
     }),
     loadMoneyContext(),
   ]);
-  return founderContributionTotals(
+  const rows = groups.map((g) => ({
+    founderId: g.founderId, amount: g._sum.amount ?? 0, currency: g.currency, exchangeRate: g.exchangeRate,
+    month: g.month.toISOString().slice(0, 7), count: g._count._all,
+  }));
+  const totals = founderContributionTotals(
     founders.map((f) => ({ id: f.id, name: f.name, sortOrder: f.sortOrder, deleted: !!f.deletedAt })),
-    contributions.map((c) => ({ ...c, month: c.month.toISOString().slice(0, 7) })),
+    rows,
     month,
     money.usdToTjs,
   );
+  // Счётчики взносов — по числу строк, а не групп.
+  for (const f of totals.founders) {
+    f.allTimeCount = rows.filter((r) => r.founderId === f.founderId).reduce((n, r) => n + r.count, 0);
+    f.monthCount = rows.filter((r) => r.founderId === f.founderId && r.month === month).reduce((n, r) => n + r.count, 0);
+  }
+  return totals;
 }

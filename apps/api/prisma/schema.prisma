@@ -5444,6 +5444,10 @@ model Expense {
   /// packages/shared/src/expenseVendors.ts). У строки из шаблона-подписки копируется из шаблона.
   /// Счёт поставщика ИИ за месяц снимает его ОЦЕНКУ из строки ai:<месяц> (splitAiEstimate).
   vendor          String?
+  /// Счёт оплачивает ИИ, которым работает CRM (API Gemini, голос ElevenLabs). Только такой
+  /// ОПЛАЧЕННЫЙ счёт снимает оценку поставщика из ai:<месяц>; подписка на чат (ChatGPT Plus,
+  /// Claude Max) обращения CRM не оплачивает и оценку не трогает (ревью 17.11.2026).
+  coversAiUsage   Boolean         @default(false)
 
   @@index([month])
   @@index([vendor, month])
@@ -5718,6 +5722,8 @@ model RecurringExpense {
   /// Поставщик подписки (17.11.2026, список — packages/shared/src/expenseVendors.ts): Gemini,
   /// Meta Verified («синяя галочка»), ElevenLabs… null — обычный повторяющийся платёж.
   vendor            String?
+  /// Строки этой подписки оплачивают ИИ, которым работает CRM (см. Expense.coversAiUsage).
+  coversAiUsage     Boolean         @default(false)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 

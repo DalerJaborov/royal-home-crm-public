@@ -7,6 +7,7 @@ import { upsertAiExpenses } from "../src/lib/ads/adExpenseSync.js";
 import { createExpense, deleteExpense } from "../src/lib/expenseCommands.js";
 import { confirmAssistantAction, createPendingAssistantAction, undoAssistantAction } from "../src/lib/assistantActions.js";
 import { parseBatchArgs, resolveRows } from "../src/ai/assistant/tools/expenseBatchTool.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 /**
  * Подписки и взносы учредителей на настоящей базе (17.11.2026).
@@ -58,6 +59,18 @@ describe("счёт поставщика сильнее оценки ИИ", () =>
 
     await deleteExpense(expense.id);
     expect(Number((await ai())!.amount)).toBe(40);
+  });
+
+  it("план счёта Gemini и подписка на чат Claude Max оценку не снимают", async () => {
+    const ai = () => prisma.expense.findUnique({ where: { autoKey: `ai:${M}` } });
+    const planned = await createExpense({ category: "OTHER", amount: 2000, currency: "TJS", month: M, note: "Оплата Gemini", status: "PLANNED" }, { agentId: directorId });
+    expect(planned.expense.coversAiUsage).toBe(true);
+    expect(Number((await ai())!.amount)).toBe(40);
+    const chat = await createExpense({ category: "OTHER", amount: 200, currency: "TJS", month: M, note: "Claude Max подписка" }, { agentId: directorId });
+    expect(chat.expense.coversAiUsage).toBe(false);
+    expect(Number((await ai())!.amount)).toBe(40);
+    await deleteExpense(planned.expense.id);
+    await deleteExpense(chat.expense.id);
   });
 
   it("«Оплата ИИ» без названия сервиса — по-прежнему «уже учтено»", async () => {
@@ -160,5 +173,16 @@ describe("пачка Шабнам: взнос учредителя", () => {
 
     await undoAssistantAction(action.id, actor());
     expect((await prisma.founderContribution.findUnique({ where: { id: contribution!.id } }))!.deletedAt).not.toBeNull();
+  });
+
+  it("«Оплата Gemini» через Шабнам снимает оценку сразу после записи, откат возвращает", async () => {
+    const ai = async () => Number((await prisma.expense.findUnique({ where: { autoKey: `ai:${M}` } }))!.amount);
+    await upsertAiExpenses([M]);
+    expect(await ai()).toBe(40);
+    const action = await createPendingAssistantAction(actor(), "add_expenses", { lang: "ru", items: [{ title: "Оплата Gemini", amount: 2000, currency: "TJS", date: `${M}-21` }], chatRef: `subs-gem-${stamp}` });
+    await confirmAssistantAction(action.id, actor());
+    await waitFor(async () => expect(await ai()).toBe(10));
+    await undoAssistantAction(action.id, actor());
+    await waitFor(async () => expect(await ai()).toBe(40));
   });
 });

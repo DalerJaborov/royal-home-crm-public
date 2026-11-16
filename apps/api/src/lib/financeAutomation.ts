@@ -101,6 +101,7 @@ export async function processRecurringExpenses(): Promise<{ created: number; rem
                 source: t.category === "ADVERTISING" ? t.source : null,
                 agentId: t.category === "SALARY" ? t.agentId : null,
                 vendor: t.vendor,
+                coversAiUsage: t.coversAiUsage,
                 note: `${t.title} — повторяющийся платёж, строка заведена автоматически.${t.note ? ` ${t.note}` : ""}`,
               },
             }),

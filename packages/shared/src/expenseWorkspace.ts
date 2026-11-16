@@ -17,6 +17,8 @@ export const expenseWorkspaceFields = {
     exchangeRate: z.number().positive().max(1000).nullish(),
     /** Поставщик подписки или счёта (17.11.2026): Gemini, Meta Verified… null — не указан. */
     vendor: expenseVendorSchema.nullish(),
+    /** Счёт оплачивает ИИ, которым работает CRM (API): снимает оценку этого поставщика за месяц. */
+    coversAiUsage: z.boolean().optional(),
 };
 export const expenseCategorySchema = z.object({
     title: z.string().trim().min(1).max(100), rootCategory: z.enum(EXPENSE_CATEGORIES),
@@ -28,6 +30,7 @@ export const recurringWorkspaceFields = {
     autoPay: z.boolean().optional(), categoryId: expenseWorkspaceFields.categoryId,
     counterparty: expenseWorkspaceFields.counterparty, paymentMethod: expenseWorkspaceFields.paymentMethod,
     vendor: expenseWorkspaceFields.vendor,
+    coversAiUsage: expenseWorkspaceFields.coversAiUsage,
 };
 export const recurringOccurrenceSchema = z.object({ dueDate: expenseDateSchema, paymentDate: expenseDateSchema.optional() }).strict();
 export const expensePaymentSchema = z.object({ paymentDate: expenseDateSchema.optional() }).strict();

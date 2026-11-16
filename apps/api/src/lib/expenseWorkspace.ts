@@ -159,7 +159,7 @@ export async function materializeOccurrence(template: RecurringExpense, dueDate:
     return db.expense.upsert({ where: { autoKey }, update: {}, create: { autoKey, recurringId: template.id, occurrenceDate: dueDate,
             month: expenseDay(`${dueDate.slice(0, 7)}-01`), amount: template.amount, currency: template.currency, category: template.category,
             source: template.source, agentId: template.agentId, note: template.title, categoryId: template.categoryId, counterparty: template.counterparty,
-            paymentMethod: template.paymentMethod, vendor: template.vendor, status, paymentDate: status === "PAID" ? expenseDay(paymentDate ?? dueDate) : expenseDay(dueDate),
+            paymentMethod: template.paymentMethod, vendor: template.vendor, coversAiUsage: template.coversAiUsage, status, paymentDate: status === "PAID" ? expenseDay(paymentDate ?? dueDate) : expenseDay(dueDate),
             createdById: actorId, exchangeRate: status === "PAID" ? (template.currency === "USD" ? money.usdToTjs : 1) : null, rateCapturedAt: status === "PAID" ? new Date() : null } });
 }
 export async function upcomingExpenses(from: string, to: string): Promise<ExpenseUpcomingItem[]> {
@@ -225,7 +225,7 @@ export async function processWorkspaceRecurringExpenses(): Promise<number> {
                 if (created?.vendor && created.autoKey && Date.now() - created.createdAt.getTime() < 10 * 60_000) {
                     const createdMonth = created.month.toISOString().slice(0, 7);
                     await warnManualOverlapsForAuto(created.autoKey, createdMonth);
-                    if (isAiEstimateVendor(created.vendor)) await upsertAiExpenses([createdMonth]).catch((error: unknown) => logSystemError("cron", `Оценка ИИ за ${createdMonth} не пересчитана: ${error instanceof Error ? error.message : String(error)}`));
+                    if (created.coversAiUsage && isAiEstimateVendor(created.vendor)) await upsertAiExpenses([createdMonth]).catch((error: unknown) => logSystemError("cron", `Оценка ИИ за ${createdMonth} не пересчитана: ${error instanceof Error ? error.message : String(error)}`));
                 }
                 count++;
             }

@@ -1,7 +1,9 @@
 -- Подписки с поставщиком и взносы учредителей (17.11.2026). Только добавления.
 ALTER TABLE "Expense" ADD COLUMN "vendor" TEXT;
+ALTER TABLE "Expense" ADD COLUMN "coversAiUsage" BOOLEAN NOT NULL DEFAULT false;
 CREATE INDEX "Expense_vendor_month_idx" ON "Expense"("vendor", "month");
 ALTER TABLE "RecurringExpense" ADD COLUMN "vendor" TEXT;
+ALTER TABLE "RecurringExpense" ADD COLUMN "coversAiUsage" BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE "Founder" (
     "id" TEXT NOT NULL,

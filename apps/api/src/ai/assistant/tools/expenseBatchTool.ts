@@ -8,7 +8,7 @@ import { prisma, type TxClient } from "../../../db.js";
 import type { Prisma } from "../../../generated/prisma/client.js";
 import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { canonicalJson } from "../../../lib/canonicalJson.js";
-import { createExpense } from "../../../lib/expenseCommands.js";
+import { createExpense, refreshAiEstimate } from "../../../lib/expenseCommands.js";
 import { createContribution, FounderCommandError, listFounders } from "../../../lib/founderContributions.js";
 import { findManualOverlap, newOverlapCache } from "../../../lib/expenseAutoOverlap.js";
 import { todayExpenseDay } from "../../../lib/expenseWorkspace.js";
@@ -471,6 +471,9 @@ const executor: AssistantActionExecutor<BatchArgs> = {
     const money = await rateContextFor(args, tx);
     const keys = rowRequestKeys(args, actor.agentId);
     const ids: string[] = [];
+    // Счета за ИИ самой CRM в пачке: оценку их месяцев пересчитываем ПОСЛЕ коммита (ревью 17.11:
+    // внутри транзакции строки ещё не видны, а ночной крон смотрит только два свежих месяца).
+    const billedMonths = new Set<string>();
     const contributionIds: string[] = [];
     const skipped: number[] = [];
     const overlapCache = newOverlapCache();
@@ -493,6 +496,7 @@ const executor: AssistantActionExecutor<BatchArgs> = {
       }
       const { expense, month } = await createExpense(row.body, { agentId: actor.agentId, requestKey: keys[i]!, db: tx, money, overlapCache }).catch(asActionError);
       ids.push(expense.id);
+      if (expense.coversAiUsage) billedMonths.add(expense.month.toISOString().slice(0, 7));
       audits.push(expenseCreateAudit(args, i, row, expense, month, actor, actionId, agent?.fullName ?? "Неизвестно"));
     }
     // След каждой строки, как у POST /expenses, — одной вставкой на пачку.
@@ -500,6 +504,7 @@ const executor: AssistantActionExecutor<BatchArgs> = {
     return {
       result: { expenseIds: ids, count: ids.length, skipped, contributionIds },
       audit: ids.length ? { entityType: "Expense", entityId: ids[0] ?? null } : { entityType: "FounderContribution", entityId: contributionIds[0] ?? null },
+      ...(billedMonths.size ? { afterCommit: () => { void refreshAiEstimate([...billedMonths]); } } : {}),
     };
   },
   transactionalUndo: {
@@ -509,11 +514,13 @@ const executor: AssistantActionExecutor<BatchArgs> = {
       await lockSources(args, actor.agentId, tx);
       assertSnapshot({ existing: recordedState(await existingBatch(args, actor.agentId, tx)), rows: snapshotRows(await resolveRows(args, tx), (result as { skipped?: number[] }).skipped ?? []) });
       const ids = (result as { expenseIds: string[] }).expenseIds;
+      const billed = await tx.expense.findMany({ where: { id: { in: ids }, coversAiUsage: true }, select: { month: true } });
+      const billedMonths = [...new Set(billed.map((row) => row.month.toISOString().slice(0, 7)))];
       // Откат = в корзину, как «Удалить» на экране: запись остаётся в архиве.
       await tx.expense.updateMany({ where: { id: { in: ids }, deletedAt: null }, data: { deletedAt: new Date(), version: { increment: 1 } } });
       const contributionIds = (result as { contributionIds?: string[] }).contributionIds ?? [];
       if (contributionIds.length) await tx.founderContribution.updateMany({ where: { id: { in: contributionIds }, deletedAt: null }, data: { deletedAt: new Date() } });
-      return {};
+      return billedMonths.length ? { afterCommit: () => refreshAiEstimate(billedMonths) } : {};
     },
   },
 };
