@@ -413,7 +413,10 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
   // Длина (16.11.2026): (а) ускорение до 15 % → (б) короче шаблон → (в) + стоп-кадр до 3 с → (г) монтажёр.
   let mixed = await mixFromStoredMaster({ masterKey, voiceKey: latest.storageKey, outPath, fit: { allowFreeze: false } });
   if (!mixed.ok && mixed.code === "VOICE_LONGER" && mixed.voiceSec && mixed.masterSec) {
-    const shorter = await requestShorterNarration(propertyId, latest.id, mixed.voiceSec, mixed.masterSec).catch(() => null);
+    const shorter = await requestShorterNarration(propertyId, latest.id, mixed.voiceSec, mixed.masterSec).catch((err) => {
+      void logSystemError("video-handoff", `Объект №${p.shortId}: короткий текст озвучки не заказан — ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-shorter:${latest.id}` });
+      return null;
+    });
     if (shorter) {
       // Отметка на этой версии: тик её больше не сводит; ролик сведётся из укороченной.
       await prisma.property.updateMany({ where: { id: propertyId, videoMasterStorageKey: masterKey },

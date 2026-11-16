@@ -619,7 +619,8 @@ export function startCronJobs() {
   scheduleTracked("narration-auto-master", "* * * * *", async () => {
     const { runMachineMastersTick } = await import("./lib/narrationAutoFlow.js");
     await runMachineMastersTick();
-  }, undefined, undefined, { timeoutMs: 15 * 60_000 });
+    // Звук + отделение (до 15 мин) + мастер + перемикс: с запасом; замок объекта живёт 40 мин.
+  }, undefined, undefined, { timeoutMs: 30 * 60_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {
     const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");
     await runSellerControlTick();

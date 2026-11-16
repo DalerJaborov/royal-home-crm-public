@@ -10,7 +10,7 @@
  * что у маршрута approve), новая версия — requestAutoNarration (та же дверь
  * генерации и тот же дневной потолок).
  */
-import { machineSeparationEnabled } from "../lib/narrationAutoMaster.js";
+import { machineSeparationEnabled, publishedClip } from "../lib/narrationAutoMaster.js";
 import { formatPropertyCode, isReadOnlyRole, type PermissionId } from "@royal-home/shared";
 import { loadAgentAccess } from "../auth/middleware.js";
 import { prisma } from "../db.js";
@@ -117,7 +117,7 @@ export async function notifyNarrationApproval(versionId: string): Promise<void> 
 type ApprovalReason = "ready" | "backfill" | "remind" | "escalate";
 async function notifyNarrationApprovalTo(versionId: string, recipientId: string | null, reason: ApprovalReason): Promise<boolean> {
   const version = await prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, include: { property: { select: {
-    id: true, shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true, videoHandoffStatus: true, videoMasterStorageKey: true } } } });
+    id: true, shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true, videoHandoffStatus: true, videoMasterStorageKey: true, publishedChannels: true, instagramUrl: true } } } });
   if (!version || version.status !== "READY" || !version.storageKey) return false;
   const p = version.property;
   const ownerAgentId = p.assignedAgentId ?? p.intakeAgentId ?? p.createdById;
@@ -129,7 +129,8 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
   const remade = p.videoHandoffStatus === "RECEIVED";
   // Звук в вышедшем ролике меняет CRM: есть ролик без голоса или CRM уберёт старый голос сама (16.11.2026).
   const { config } = await loadNarrationConfiguration();
-  const crmVoice = !!p.videoMasterStorageKey || machineSeparationEnabled(config);
+  // Машина берёт только вышедший ролик; сданный, но не вышедший — «вклейте голос» монтажёру (ревью 16.11).
+  const crmVoice = !!p.videoMasterStorageKey || (machineSeparationEnabled(config) && publishedClip(p));
   const ownerName = reason === "escalate" && ownerAgentId ? (await prisma.agent.findUnique({ where: { id: ownerAgentId }, select: { fullName: true } }))?.fullName ?? "Агент" : "Агент";
   const feed = {
     // Вид «Задачи»: агент может выключить такие пуши в своих настройках уведомлений.
