@@ -675,6 +675,12 @@ html[data-shell="clean"] .clean-messages .dlg-row .t>b {
   .cef-sub-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
   .cef-sub-presets>span { color: var(--cef-muted); font-size: 13px; }
   .cef-sub-presets button.cef-chip { min-height: 44px; }
+  /* Телефон: одна строка с прокруткой вбок, чтобы подписки не уезжали под восемь заготовок. */
+  @media (max-width: 767px) {
+    .cef-sub-presets { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -16px; padding-inline: 16px; }
+    .cef-sub-presets::-webkit-scrollbar { display: none; }
+    .cef-sub-presets>span, .cef-sub-presets button.cef-chip { flex: none; white-space: nowrap; }
+  }
   .cef-founders-note { margin: -6px 0 16px; }
   .cef-founder-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px; margin: 0 0 22px; }
   .cef-founder-card { display: grid; align-content: start; min-width: 0; gap: 4px; padding: 16px 20px; background: var(--cef-card); border-radius: 18px; box-shadow: var(--cef-shadow); }
