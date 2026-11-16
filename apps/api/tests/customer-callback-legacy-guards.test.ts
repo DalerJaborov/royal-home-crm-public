@@ -103,7 +103,8 @@ describe("staff queue current ACL before LIMIT / rollback visibility", () => {
   });
   it.each([true, false])("topic uses current contact visibility (%s), including raw input handles/links/phone", async allowed => {
     const topic = "Нужен оператор +992910044995 @synthetic_contact t.me/synthetic_contact wa.me/992910044995";
-    mocks.agent.mockResolvedValue({ isActive: true, role: "ADMIN", permissions: allowed ? {} : { revoked: ["clients.viewPhone"] } });
+    // 16.11.2026 номера только директору: видит DIRECTOR; ADMIN даже с выданным clients.viewPhone — маска.
+    mocks.agent.mockResolvedValue(allowed ? { isActive: true, role: "DIRECTOR", permissions: {} } : { isActive: true, role: "ADMIN", permissions: { granted: ["clients.viewPhone"] } });
     mocks.list.mockResolvedValue([{ id: randomUUID(), customerActionId: randomUUID(), requestKind: "HUMAN", lifecycleStatus: "QUEUED",
       lifecycleRevision: 1n, assignedAgentId: null, acceptedAt: null, closureReason: null, topic,
       channel: "INSTAGRAM", phone: null, requestedAt: new Date(), conversationId: randomUUID(), clientId: null }]);

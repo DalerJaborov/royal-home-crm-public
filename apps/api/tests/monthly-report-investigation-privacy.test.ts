@@ -23,6 +23,8 @@ beforeAll(async () => {
     ["admin", "ADMIN", [], []],
     ["adminNoFinance", "ADMIN", [], ["finance.view"]],
     ["adminNoPhone", "ADMIN", [], ["clients.viewPhone"]],
+    // 16.11.2026 номера только директору: полный номер видит DIRECTOR, ADMIN — маска.
+    ["director", "DIRECTOR", [], []],
   ] as const) {
     const id = randomUUID(); ids.push(id);
     await prisma.agent.create({ data: { id, fullName: `Synthetic report ${key}`, phone: `monthly-private-${id}`, role, passwordHash: "unused", permissions: { granted: [...granted], revoked: [...revoked] } } });
@@ -63,8 +65,11 @@ describe("monthly report historical private snapshot projection", () => {
     const row=response.body.agents.find((item:{agentId:string})=>item.agentId===ids[0]);
     expect(row).toBeTruthy();expect(row.robotResponses).toBe(1);expect(row.unresolvedSurvey).toBe(1);
     expect(row.agentName).not.toContain(phoneCanary);
-    const allowed=await request(app).get("/api/v1/reports/post-showing-cohort").set("Authorization",`Bearer ${tokens.admin}`);
+    const allowed=await request(app).get("/api/v1/reports/post-showing-cohort").set("Authorization",`Bearer ${tokens.director}`);
     expect(allowed.status).toBe(200);expect(allowed.body.agents.find((item:{agentId:string})=>item.agentId===ids[0]).agentName).toContain(phoneCanary);
+    // 16.11.2026: ADMIN без роли директора номер больше не видит.
+    const adminView=await request(app).get("/api/v1/reports/post-showing-cohort").set("Authorization",`Bearer ${tokens.admin}`);
+    expect(adminView.status).toBe(200);expect(adminView.body.agents.find((item:{agentId:string})=>item.agentId===ids[0]).agentName).not.toContain(phoneCanary);
   });
   it.each(["agentGranted", "securityGranted", "adminRevoked"])("%s cannot read investigation metrics through GET or PATCH", async actor => {
     const get = await request(app).get("/api/v1/reports/monthly").set("Authorization", `Bearer ${tokens[actor]}`);
