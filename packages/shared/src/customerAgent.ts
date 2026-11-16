@@ -104,6 +104,9 @@ export const customerAgentVerifiedContextSchema = z.object({
    * 24 hours), wider than `turns`. Used only by the server renderer to never resend a block it
    * already sent (A, B, A included); never shown to the model, never text or authority. */
   sentLineDigests: z.array(z.string().regex(/^[a-f0-9]{32}$/)).max(400).optional(),
+  /** Language of the customer's last decisive words in the wider history (up to 50 inputs, audit 16.11.2026): the
+   *  six-turn memory forgot a Tajik dialogue after a dot, a phone or a pack of photos. A fallback, never a request. */
+  dialogueLanguage: z.enum(["ru", "tg"]).optional(),
 }).strict();
 export type CustomerAgentVerifiedContext = z.infer<typeof customerAgentVerifiedContextSchema>;
 

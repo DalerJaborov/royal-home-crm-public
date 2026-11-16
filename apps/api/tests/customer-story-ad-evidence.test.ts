@@ -69,7 +69,7 @@ describe("P1 an ad without a link or number says so in its own words", () => {
     const ru = render("ru"), tg = render("tg");
     expect(ru).toBe("Подскажите, пожалуйста, что вас интересует?");
     expect(ru).not.toMatch(/не определился|ссылк|номер/u);
-    expect(tg).toBe("Бигӯед, лутфан, ба шумо чӣ лозим аст?");
+    expect(tg).toBe("Чӣ хизмат кунам?");
     expect(tg).not.toMatch(/муайян нашуд|пайванд|рақам/u);
   });
 });

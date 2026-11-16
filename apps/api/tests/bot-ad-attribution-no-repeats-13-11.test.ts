@@ -63,7 +63,8 @@ describe("A. реклама без объекта: один живой вопр�
   const unresolved: CustomerAgentEvidence = { ref: "e0", value: { kind: "property_unresolved", status: "missing", reason: "ad_unmapped" } };
   it("первый раз спрашивает, что интересует", () => {
     const text = render("Здравствуйте", context([]), [unresolved], { kind: "clarify", question: "property" });
-    expect(text).toBe("Подскажите, пожалуйста, что вас интересует?");
+    // 16.11.2026 (audit): nothing of the customer's own yet — the live opening question names the three topics.
+    expect(text).toBe("Подскажите, что вас интересует: купить, продать недвижимость или работа у нас?");
   });
   it("второй раз тот же вопрос не задаётся", () => {
     const first = render("Здравствуйте", context([]), [unresolved], { kind: "clarify", question: "property" })!;
@@ -123,7 +124,9 @@ describe("B. список вакансий показывается один р�
     const text = render(question, context([user("какие есть вакансии?"), bot(listed)], {}, "job"), [catalog])!;
     expect(text).not.toContain("Сейчас открыты вакансии:");
     expect(text).not.toContain(second.titleRu);
-    expect(text).toContain(recruitmentPhoneLine("ru"));
+    // 16.11.2026 (audit): Noza's number is given once per chat; a follow-up question is pointed to her without repeating it.
+    expect(text).not.toContain(recruitmentPhoneLine("ru"));
+    expect(text).toContain("Ноза");
   });
   it("список ловится и по памяти строк, когда ход со списком выпал из шести последних", () => {
     const digests = listed.split(NL).map(customerAgentLineDigest);
