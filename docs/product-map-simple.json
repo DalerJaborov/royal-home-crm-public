@@ -16,10 +16,10 @@
   "paths": 760,
   "cron": 143,
   "jobs": 33,
-  "conditions": 4107,
+  "conditions": 4112,
   "untranslatedUnique": 468,
   "untranslatedTotal": 600,
-  "partialUnique": 1119,
+  "partialUnique": 1121,
   "translatedShare": 85
  },
  "untranslated": [
@@ -84545,6 +84545,20 @@
          "a": [],
          "c": [
           {
+           "t": "если streets количество больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если renovation removed больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
            "t": "если what количество больше 0",
            "k": "if",
            "a": [],
@@ -84840,6 +84854,20 @@
          "k": "if",
          "a": [],
          "c": [
+          {
+           "t": "если streets количество больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если renovation removed больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
           {
            "t": "если what количество больше 0",
            "k": "if",

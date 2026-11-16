@@ -78,6 +78,8 @@ import { extractPostAcceptFacts } from "../ai/postAcceptFacts.js";
 import { countNoContactComplaints, looksLikeNoContactComplaint, looksLikeWantsHumanAgent } from "../ai/complaintGuard.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
+import { requestAgentAttention } from "../lib/agentAttention.js";
+import { newerClientMessagePending } from "./turnSupersede.js";
 import { detectAgencyPitch } from "../ai/agencyPitchGuard.js";
 import { guardFired } from "../ai/guardMetrics.js";
 import { createLeadFromChannel } from "../leads.js";
@@ -3052,26 +3054,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * Без назначенного агента отмечать некого — обычная раздача заявки решит
      * этот случай сама.
      */
-    if (looksLikeWantsHumanAgent(text)) {
-      void (async () => {
-        const card = await prisma.client.findUnique({
-          where: { id: conversation.clientId! },
-          select: { shortId: true, fullName: true, assignedAgentId: true, agentAttentionRequestedAt: true },
-        });
-        if (!card?.assignedAgentId || card.agentAttentionRequestedAt) return;
-        await prisma.client
-          .update({ where: { id: conversation.clientId! }, data: { agentAttentionRequestedAt: new Date() } })
-          .catch(() => {});
-        await sendPushToAgent(card.assignedAgentId, {
-          kind: "message",
-          level: "CRITICAL",
-          title: `${card.fullName} хочет поговорить с вами`,
-          body: "Клиент попросил живого агента — бот отвечает вместо вас, пока вы не свяжетесь сами.",
-          url: `/clients/${card.shortId}`,
-          tag: `agent-attention-${conversation.clientId}`,
-        }).catch((err) => console.error("[push] просьба живого агента:", err instanceof Error ? err.message : err));
-      })();
-    }
+    // Одна дверь с обещанием звонка (lib/agentAttention.ts, 16.11.2026).
+    if (looksLikeWantsHumanAgent(text)) void requestAgentAttention(conversation.clientId!, "wants_human");
 
     // Дальше — никакого отдельного «гейта на закрытый разговор» и никакого
     // отдельного захвата хода: ниже по функции те же debounceAndMerge и
@@ -3692,11 +3676,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   const finishQualifyTurn = async (
     result: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>
-  ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer }> => {
+  ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer; agentSignal?: MessengerTurnResult["agentSignal"] }> => {
     // Если уже ждали телефон — оставляем этот этап (модель могла сбросить ready).
     // `merged` — слова самого клиента: по ним код отсекает аренду, не полагаясь
     // на то, что модель прочла запрет в промте (см. ai/rentGuard.ts).
-    const mergedDraft = mergeDraft(draft, result, merged);
+    const mergedDraft = mergeDraft(draft, result, merged, [...history].reverse().find((m) => m.role === "assistant")?.content);
     if (draft.stage === "awaiting_phone") mergedDraft.stage = "awaiting_phone";
     /**
      * НОМЕР УЖЕ ЕСТЬ — СТАДИЯ «ЖДЁМ НОМЕР» НЕ ВОЗВРАЩАЕТСЯ (13.10.2026).
@@ -4031,10 +4015,16 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * протухшая пауза потерянного клиента, которую ход сознательно обошёл,
      * новой не считается.
      */
-    const pauseNow = await prisma.botConversation
-      .findUnique({ where: { id: conversation.id }, select: { pausedUntil: true } })
-      .then((row) => row?.pausedUntil ?? null)
+    const lateRow = await prisma.botConversation
+      .findUnique({ where: { id: conversation.id }, select: { pausedUntil: true, pendingSince: true, pendingMessages: true } })
       .catch(() => null);
+    const pauseNow = lateRow?.pausedUntil ?? null;
+    // Пока бот думал, клиент написал ещё — отвечает следующий ход (messengers/turnSupersede.ts).
+    const newerPending = newerClientMessagePending(lateRow, !!input.skipSaveIncoming);
+    if (newerPending) {
+      guardFired("superseded_by_newer_message");
+      return { reply: "", ready: mergedDraft.stage === "awaiting_phone", shouldReply: false };
+    }
     if (
       pauseNow &&
       pauseNow.getTime() > Date.now() &&
@@ -4193,6 +4183,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       ready: mergedDraft.stage === "awaiting_phone",
       ...(outgoing ? {} : { shouldReply: false }),
       ...(replyVoiceWav ? { replyVoiceWav } : {}),
+      // Обещан звонок клиенту с номером — сигнал агенту шлёт отправитель ПОСЛЕ доставки
+      // (routes/webhooks.ts → lib/agentAttention.ts), а не здесь: ответ ещё может не уйти.
+      ...(outgoing && filtered.promisedCall && conversation.clientId
+        ? { agentSignal: { clientId: conversation.clientId, reason: "call_promised" as const } }
+        : {}),
     };
   };
 
