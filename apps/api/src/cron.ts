@@ -607,6 +607,11 @@ export function startCronJobs() {
     const { executeQueuedNarrationDeliveries } = await import("./lib/narrationDelivery.js");
     await executeQueuedNarrationDeliveries();
   });
+  // Озвучка свободного текста (16.11.2026): файлы и тексты старше суток, зависшие генерации.
+  scheduleTracked("free-narration-purge", "*/30 * * * *", async () => {
+    const { purgeFreeNarrations } = await import("./lib/freeNarration.js");
+    await purgeFreeNarrations();
+  });
   // Автоозвучка (11.11.2026): черновик по фактам → генерация → одно сообщение агенту → монтажёру.
   scheduleTracked("narration-auto-flow", "* * * * *", async () => {
     const { runNarrationAutoFlow } = await import("./lib/narrationAutoFlow.js");

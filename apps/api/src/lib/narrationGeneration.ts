@@ -41,16 +41,18 @@ export function narrationProviderReady(config: NarrationConfig, key: string | nu
  * Расход за сутки по Душанбе: каждая начатая генерация, включая неудачные (деньги могли списаться).
  * Образцы голосов (11.11.2026) — в том же потолке: это та же платная озвучка.
  */
-export async function narrationBudgetUsage(db: Pick<Tx, "propertyNarrationVersion" | "narrationVoiceSample"> = prisma, now = new Date()) {
+export async function narrationBudgetUsage(db: Pick<Tx, "propertyNarrationVersion" | "narrationVoiceSample" | "freeNarration"> = prisma, now = new Date()) {
   const since = dushanbeStartOfToday(now);
-  const [rows, samples] = await Promise.all([
+  const [rows, samples, free] = await Promise.all([
     db.propertyNarrationVersion.findMany({ where: { generationStartedAt: { gte: since } }, select: { script: true, language: true }, take: 5000 }),
     db.narrationVoiceSample.findMany({ where: { generationStartedAt: { gte: since } }, select: { chars: true }, take: 5000 }),
+    // Озвучка свободного текста (16.11.2026) — тот же дневной потолок.
+    db.freeNarration.findMany({ where: { generationStartedAt: { gte: since } }, select: { chars: true }, take: 5000 }),
   ]);
   return {
     // Считаем то, что реально ушло в ElevenLabs: таджикские цифры уже словами (ревью 12.11.2026).
-    usedChars: (rows ?? []).reduce((sum, r) => sum + speechChars(r.script, r.language), 0) + (samples ?? []).reduce((sum, r) => sum + r.chars, 0),
-    usedGenerations: (rows ?? []).length + (samples ?? []).length,
+    usedChars: (rows ?? []).reduce((sum, r) => sum + speechChars(r.script, r.language), 0) + (samples ?? []).reduce((sum, r) => sum + r.chars, 0) + (free ?? []).reduce((sum, r) => sum + r.chars, 0),
+    usedGenerations: (rows ?? []).length + (samples ?? []).length + (free ?? []).length,
   };
 }
 
@@ -60,7 +62,7 @@ export function speechChars(script: string, language: string | null | undefined)
 }
 
 /** Под общим замком: две генерации одновременно не проскочат мимо потолка. */
-async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date): Promise<boolean> {
+export async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date): Promise<boolean> {
   await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext('property-narration-budget'))) AS budget_lock`;
   const limits = narrationLimits(config);
   const used = await narrationBudgetUsage(tx, now);

@@ -108,6 +108,7 @@ export * from "./instagramAppBinding.js";
 export * from "./recruitmentCommunications.js";
 export * from "./reelsAutoBoost.js";
 export * from "./propertyNarration.js";
+export * from "./freeNarration.js";
 export * from "./tajikSpeechNumbers.js";
 export * from "./investigationCases.js";
 export * from "./propertyRemoval.js";

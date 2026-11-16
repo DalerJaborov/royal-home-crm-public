@@ -27,6 +27,7 @@ import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
+import { handleFreeNarrationCallback, handleFreeNarrationMessage } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
@@ -836,6 +837,8 @@ export async function handleAssistantPrivate(
     if (msg.document && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
     // «Править текст» озвучки (15 минут после кнопки) — раньше мастера объекта и общего ответа.
     if (!isForwarded && await handleNarrationTextReply(msg, agent)) return;
+    // «Озвучь текст» (16.11.2026): дословная озвучка текста сотрудника выбранным голосом — telegram/assistantFreeNarration.ts.
+    if (!isForwarded && await handleFreeNarrationMessage(msg, agent)) return;
     // Ответ «к какому объекту ролик» (30 минут после вопроса) — telegram/staffClip.ts.
     if (!isForwarded && await handleStaffClipText(msg, agent)) return;
     if (!isForwarded && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
@@ -1720,6 +1723,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
   if (await handleTelegramPropertyDraftCallback(query)) return true;
   if (await handlePropertyOfferCallback(query)) return true;
   if (await handleNarrationCallback(query)) return true;
+  if (await handleFreeNarrationCallback(query)) return true;
   if (await handleStaffClipCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);

@@ -78,7 +78,7 @@ const copy = {
   },
 } as const;
 
-async function chatLang(chatId: string): Promise<Lang> {
+export async function chatLang(chatId: string): Promise<Lang> {
   const state = await prisma.telegramDialogState.findUnique({ where: { chatId }, select: { payload: true } }).catch(() => null);
   return state?.payload && typeof state.payload === "object" && "lang" in state.payload && state.payload.lang === "tg" ? "tg" : "ru";
 }
@@ -222,7 +222,7 @@ export async function remindPendingNarrationApprovals(now: Date = new Date()): P
 }
 
 /** Образцы голосов файлами — только уже готовые (их платно один раз готовит руководство). */
-async function sendVoiceSamples(chatId: string, config: Awaited<ReturnType<typeof loadNarrationConfiguration>>["config"], lang: Lang, intro: string): Promise<void> {
+export async function sendVoiceSamples(chatId: string, config: Awaited<ReturnType<typeof loadNarrationConfiguration>>["config"], lang: Lang, intro: string): Promise<void> {
   const ready = new Map((await readyVoiceSamples(config)).filter((s) => s.lang === lang).map((s) => [s.voiceId, s.storageKey]));
   const voices = config.voices.slice(0, MAX_CHOICES).filter((v) => ready.has(v.id));
   if (!voices.length) return;
