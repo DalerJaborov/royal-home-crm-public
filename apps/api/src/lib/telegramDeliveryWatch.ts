@@ -14,7 +14,7 @@
 // Тревога руководству в «Здоровье системы» (не пуш сотрудникам: кому отвечать, неизвестно),
 // не чаще раза в 6 часов на причину. Рубильник Settings.telegramDeliveryWatchEnabled.
 import { prisma } from "../db.js";
-import { getWebhookInfo, isTelegramEnabled, type TelegramWebhookInfo } from "../telegram/api.js";
+import { getWebhookInfo, isTelegramEnabled, telegramUpdatesMode, type TelegramWebhookInfo } from "../telegram/api.js";
 import { logSystemError } from "./systemError.js";
 
 export const TELEGRAM_ERROR_FRESH_MS = 30 * 60_000;
@@ -29,8 +29,15 @@ export function resetTelegramDeliveryWatchForTests(): void {
 }
 
 /** Что не так с доставкой. Чистая функция: null — всё в порядке. */
-export function telegramDeliveryProblem(info: TelegramWebhookInfo, now: Date, pendingBefore: number): { key: string; text: string } | null {
-  if (!info.url) return { key: "no-webhook", text: "у бота Telegram не установлен вебхук — сообщения клиентов в Telegram до CRM не доходят" };
+export function telegramDeliveryProblem(info: TelegramWebhookInfo, now: Date, pendingBefore: number,
+  mode: "webhook" | "polling" = "webhook"): { key: string; text: string } | null {
+  if (mode === "polling") {
+    // CRM забирает сообщения сама (getUpdates): пустой адрес вебхука — норма (ложная тревога прода 16.11).
+    // Установленный вебхук, наоборот, авария: Telegram тогда не отдаёт getUpdates, поллер ничего не получает.
+    if (info.url) return { key: "webhook-blocks-polling", text: "у бота Telegram установлен вебхук, а CRM забирает сообщения сама (long polling) — сообщения до CRM не доходят" };
+  } else if (!info.url) {
+    return { key: "no-webhook", text: "у бота Telegram не установлен вебхук — сообщения клиентов в Telegram до CRM не доходят" };
+  }
   const errorAt = info.last_error_date ? info.last_error_date * 1000 : 0;
   if (errorAt && now.getTime() - errorAt <= TELEGRAM_ERROR_FRESH_MS) {
     const why = (info.last_error_message ?? "без описания").slice(0, 200);
@@ -60,7 +67,7 @@ export async function runTelegramDeliveryWatch(now: Date = new Date(),
     // Сбой самого запроса — не тревога о доставке: о недоступности Telegram и ключе бота говорят свои сторожа (api.ts).
     return { skipped: "read_failed", alarmed: false };
   }
-  const problem = telegramDeliveryProblem(info, now, previousPending);
+  const problem = telegramDeliveryProblem(info, now, previousPending, telegramUpdatesMode());
   previousPending = info.pending_update_count ?? 0;
   if (!problem) return { skipped: null, alarmed: false };
   void logSystemError("telegram", `Telegram → CRM: ${problem.text}. Клиенты могут писать боту, а CRM их не видит.`,

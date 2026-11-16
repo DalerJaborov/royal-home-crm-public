@@ -41,6 +41,16 @@ export function isTelegramEnabled(): boolean {
 }
 
 /**
+ * КАК CRM ПОЛУЧАЕТ СООБЩЕНИЯ TELEGRAM — ОДНО МЕСТО (16.11.2026). Задан TELEGRAM_WEBHOOK_SECRET —
+ * вебхук (routes/webhooks.ts), нет — long polling (telegram/poller.ts). По этому же признаку
+ * поллер решает, запускаться ли, а сторож доставки (lib/telegramDeliveryWatch.ts) — чего ждать
+ * от getWebhookInfo: при polling пустой адрес вебхука — норма, а не авария.
+ */
+export function telegramUpdatesMode(): "webhook" | "polling" {
+  return process.env.TELEGRAM_WEBHOOK_SECRET ? "webhook" : "polling";
+}
+
+/**
  * МАСКИРУЕТ ТОКЕН БОТА ВНУТРИ ПУТИ НА ТОМЕ СВОЕГО BOT API-СЕРВЕРА (24.09.2026).
  *
  * `--local` раскладывает файлы по подкаталогу с именем самого бота, и `getFile`
