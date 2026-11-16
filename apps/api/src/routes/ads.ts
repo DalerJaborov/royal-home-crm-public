@@ -73,7 +73,7 @@ adsRouter.use(requireAuth);
 
 function requireAdsRead<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.agent) return res.status(401).json({ error: "Требуется авторизация" });
-  if (req.agent.role === "MARKETING" || req.agent.permissions.has("finance.view")) return next();
+  if (req.agent.role === "MARKETING" || req.agent.permissions.has("finance.view") || req.agent.permissions.has("marketing.access")) return next();
   return res.status(403).json({ error: "Недостаточно прав" });
 }
 
@@ -1019,7 +1019,7 @@ adsRouter.get("/property/:id", async (req, res) => {
     postUrl: ads.find((a) => a.postUrl)?.postUrl ?? null,
   };
   // Право то же, что у остальных ручек раздела: finance.view или роль MARKETING.
-  const canSeeMoney = req.agent!.role === "MARKETING" || req.agent!.permissions.has("finance.view");
+  const canSeeMoney = req.agent!.role === "MARKETING" || req.agent!.permissions.has("finance.view") || req.agent!.permissions.has("marketing.access");
   if (!canSeeMoney) return res.json(base);
 
   /**

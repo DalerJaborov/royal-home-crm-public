@@ -982,7 +982,7 @@ const settingsUpdateSchema = z.object({
   clipReviewEnabled: z.boolean().optional(),
   /** Готовый ролик подтверждает хозяин объекта, без ответа — автопубликация (11.11.2026). */
   clipOwnerApproveEnabled: z.boolean().optional(),
-  clipOwnerAutoPublishHours: z.number().int().min(1).max(48).optional(),
+  clipOwnerAutoPublishHours: z.number().int().min(0).max(48).optional(),
   // videoModeratorAgentId УБРАН из схемы (01.11.2026): интерфейс убран 23.09.2026,
   // ни одна строка сервера поле не читает. Колонка в базе остаётся до общего дропа.
   videoMontajerAgentId: z.string().max(64).nullable().optional(),

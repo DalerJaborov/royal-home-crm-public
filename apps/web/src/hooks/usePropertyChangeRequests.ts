@@ -51,7 +51,7 @@ export function useCreatePropertyChangeRequest(propertyId: string) {
   return useMutation({
     // Ключ повтора держит форма до успеха: двойное нажатие «Отправить» не заведёт две заявки.
     mutationFn: (vars: { body: CreatePropertyChangeRequestInput; idempotencyKey: string }) =>
-      api<{ request: PropertyChangeRequestDto }>(`/properties/${propertyId}/change-requests`, {
+      api<{ request: PropertyChangeRequestDto; applied?: boolean; message?: string }>(`/properties/${propertyId}/change-requests`, {
         method: "POST",
         body: vars.body,
         idempotencyKey: vars.idempotencyKey,

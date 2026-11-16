@@ -673,8 +673,7 @@ export function PropertyVideoFixCard({
   const canEdit = requestedCanEdit && !property.offSite;
   const isMontajerView = viewer === "montajer";
   const qc = useQueryClient();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canUnpublish = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
+  const canUnpublish = useCan()("marketing.access");
   /* Подключённые сети — чтобы в ходе публикации не обещать выход туда, куда ролик
      и не собирался (05.10.2026). Только тем, кому статус каналов вообще виден. */
   const { data: channelsStatus } = useChannelsStatus(canUnpublish);
@@ -2426,8 +2425,8 @@ interface RepostRecord {
  */
 export function RepostBlock({ property, readOnly, canEdit }: { property: Property; readOnly?: boolean; canEdit: boolean }) {
   const qc = useQueryClient();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canPublish = !readOnly && (role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN");
+  const canMarketing = useCan()("marketing.access");
+  const canPublish = !readOnly && canMarketing;
   const enabled = !readOnly && !property.offSite && property.status === "AVAILABLE";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2563,8 +2562,8 @@ interface SocialExtrasRemoval {
  */
 export function SocialExtrasBlock({ property, readOnly }: { property: Property; readOnly?: boolean }) {
   const qc = useQueryClient();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canRemove = !readOnly && (role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN");
+  const canMarketing = useCan()("marketing.access");
+  const canRemove = !readOnly && canMarketing;
   const propertyId = property.id;
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 754,
-  "forks": 4085,
+  "forks": 4079,
   "mounts": 84,
   "cron": 138,
   "jobs": 33,
@@ -16538,22 +16538,22 @@
    "tree": [
     {
      "k": "do",
-     "t": "const client = await prisma.client.findUnique({ where: { id: req.params.id } });",
+     "t": "const result = await restoreClientFromTrash(req.params.id, req.agent!.id);",
      "a": [
-      "читает в базе: client"
+      "зовёт restoreClientFromTrash()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!client || !client.deletedAt",
+     "t": "!result.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден в корзине\" });",
+       "t": "return res.status(result.status).json({ error: result.error });",
        "a": [
-        "ответ 404 — «Клиент не найден в корзине»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -16561,199 +16561,9 @@
     },
     {
      "k": "do",
-     "t": "const owner = client.assignedAgentId ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId },…",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const restored = await prisma.$transaction(async (tx)",
-     "a": [
-      "пробрасывает ошибку дальше",
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: client",
-      "читает в базе: agent",
-      "меняет в базе: client"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${client.id} FOR UPDATE`;",
-       "a": [
-        "обращается к базе своим SQL"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const current = await tx.client.findUnique({ where: { id: client.id } });",
-       "a": [
-        "читает в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return false;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "loop",
-       "t": "для каждого: const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? \"\").localeCompare(b[0] ?? \"\"))",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "id && !completedAssignment",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw`SELECT id FROM \"Agent\" WHERE id = ${id} FOR SHARE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true…",
-           "a": [
-            "читает в базе: agent"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "eligible(agent) !== expected",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return false;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "await tx.client.update({ where: { id: client.id }, data: { deletedAt: null, deletedById: null, ...(ownerGone …",
-       "a": [
-        "меняет в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "ownerGone || restoredAgentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const changed = await changeClientAgent({ clientId: client.id, toAgentId: restoredAgentId, reason: restoredAg…",
-         "a": [
-          "зовёт changeClientAgent()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!changed.ok",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw restoreConflict;",
-           "a": [
-            "пробрасывает ошибку дальше"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!restored",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Карточка изменилась. Обновите страницу\" });",
-       "a": [
-        "ответ 409 — «Карточка изменилась. Обновите страницу»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "toQueue",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const supervisors = (await findAgentsWithPermission(\"clients.assign\")).filter((id)",
-       "a": [
-        "зовёт findAgentsWithPermission()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "sendPushToAgents(supervisors, { title: \"♻️ Карточка восстановлена без агента\", body: `${client.fullName} — ве…",
-       "a": [
-        "push-уведомление"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"RESTORE\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullName, phone: cl…",
+     "t": "logAudit(req, \"RESTORE\", \"Client\", result.client.id, { shortId: result.client.shortId, fullName: result.clien…",
      "a": [
       "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId] });",
-     "a": [
-      "зовёт publishClientUpdated()"
      ],
      "c": []
     },
@@ -20993,6 +20803,14 @@
     },
     {
      "k": "do",
+     "t": "const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, \"clients.delete\") });",
+     "a": [
+      "зовёт pendingDeleteHideWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const today = dushanbeDayRange(now);",
      "a": [
       "зовёт dushanbeDayRange()"
@@ -21171,29 +20989,6 @@
       "зовёт scopeToOwnAgent()"
      ],
      "c": []
-    },
-    {
-     "k": "do",
-     "t": "const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, \"clients.delete\") });",
-     "a": [
-      "зовёт pendingDeleteHiddenClientIds()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "idsToHide.length > 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.id = { notIn: idsToHide };",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
     },
     {
      "k": "if",
@@ -46099,7 +45894,23 @@
     },
     {
      "k": "do",
-     "t": "const result = await createPropertyChangeRequest({ propertyId: req.params.id, actor: { agentId: req.agent!.id…",
+     "t": "const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { status: true, ass…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const direct = property !== null && canApplyChangeDirectly(actor, property, parsed.data.kind, { removeFromSoc…",
+     "a": [
+      "зовёт canApplyChangeDirectly()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const result = await createPropertyChangeRequest({ propertyId: req.params.id, actor, body: parsed.data, apply…",
      "a": [
       "зовёт createPropertyChangeRequest()"
      ],
@@ -46115,6 +45926,44 @@
        "t": "return res.status(result.status).json({ error: result.error });",
        "a": [
         "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "direct",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const applied = await applyOwnChangeRequestNow(result.request.id, req.agent!.id);",
+       "a": [
+        "зовёт applyOwnChangeRequestNow()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!applied.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(applied.status).json({ error: applied.error });",
+         "a": [
+          "ответ (код зависит от условия)"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return res.status(201).json({ request: applied.request, applied: applied.request.status === \"APPROVED\", messa…",
+       "a": [
+        "ответ 201"
        ],
        "c": []
       }
@@ -48293,7 +48142,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -48537,7 +48386,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -48866,7 +48715,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49392,7 +49241,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49466,7 +49315,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49532,7 +49381,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -49644,7 +49493,7 @@
     },
     {
      "k": "do",
-     "t": "const deliveries = manager(req.agent?.role) ? await prisma.propertyNarrationDelivery.findMany({ where: { prop…",
+     "t": "const deliveries = manager(req.agent) ? await prisma.propertyNarrationDelivery.findMany({ where: { propertyId…",
      "a": [
       "читает в базе: propertyNarrationDelivery"
      ],
@@ -49652,7 +49501,7 @@
     },
     {
      "k": "do",
-     "t": "const subscription = manager(req.agent?.role) ? await prisma.ownerReportSubscription.findUnique({ where: { pr…",
+     "t": "const subscription = manager(req.agent) ? await prisma.ownerReportSubscription.findUnique({ where: { property…",
      "a": [
       "читает в базе: ownerReportSubscription"
      ],
@@ -49660,7 +49509,7 @@
     },
     {
      "k": "do",
-     "t": "const reports = manager(req.agent?.role) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p…",
+     "t": "const reports = manager(req.agent) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p.id },…",
      "a": [
       "читает в базе: ownerReportDelivery"
      ],
@@ -49935,7 +49784,7 @@
       },
       {
        "k": "if",
-       "t": "latest?.approvedAt && !manager(req.agent?.role)",
+       "t": "latest?.approvedAt && !manager(req.agent)",
        "a": [],
        "c": [
         {
@@ -61690,7 +61539,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!manager(req.agent?.role)",
+     "t": "!manager(req.agent)",
      "a": [],
      "c": [
       {
@@ -65523,7 +65372,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -65768,7 +65618,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -65884,7 +65735,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -65958,7 +65810,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -66211,7 +66064,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -69055,7 +68909,7 @@
     },
     {
      "k": "do",
-     "t": "logAudit(req, \"COVER_OPENAI_SETTINGS\", \"Settings\", \"singleton\", { keyChanged: apiKey !== undefined, ...(enabl…",
+     "t": "logAudit(req, \"COVER_OPENAI_SETTINGS\", \"Settings\", \"singleton\", { keyChanged: apiKey !== undefined, ...(opena…",
      "a": [
       "зовёт logAudit()"
      ],
@@ -77525,7 +77379,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -77784,7 +77639,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -78079,7 +77935,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -78458,7 +78315,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireMarketingRole"
+    "requireMarketingRole",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -78547,7 +78405,15 @@
     },
     {
      "k": "do",
-     "t": "const text = await transcribeAudio(req.file.buffer, req.file.originalname || \"voice.webm\", req.file.mimetype);",
+     "t": "const mediaType = normalizeDictationMime(req.file.mimetype) ?? \"audio/webm\";",
+     "a": [
+      "зовёт normalizeDictationMime()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const text = await transcribeAudio(req.file.buffer, req.file.originalname || \"voice.webm\", mediaType);",
      "a": [
       "зовёт transcribeAudio()"
      ],
