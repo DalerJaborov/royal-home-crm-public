@@ -27,6 +27,8 @@ import { customerFenceSchema } from "@royal-home/shared";
 import { readCustomerActionProperty } from "../src/lib/customerActionProperty.js";
 import { dushanbeDateString } from "../src/lib/dushanbeTime.js";
 import { waitFor } from "./helpers/waitFor.js";
+import * as heldMessageModule from "../src/lib/customerHeldMessage.js";
+import { admitOutbound } from "../src/lib/outboundShield.js";
 
 // Actual signed durable intake → FINAL → elected owner → real counted model
 // adapter → tools → encrypted P12 plan. Only external HTTP is synthetic.
@@ -149,7 +151,7 @@ async function fixture(text = "Здравствуйте, хочу купить �
     }
     throw new Error("Unqualified synthetic endpoint");
   }));
-  return { eventKey, io, bodies, setCountInvalid() { countOk = false; }, setMissingMetaMid(value = true) { missingMetaMid = value; },
+  return { eventKey, io, bodies, peer, accountId: id, setCountInvalid() { countOk = false; }, setMissingMetaMid(value = true) { missingMetaMid = value; },
     setReplies(value: unknown[][]) { replies = value; generated = 0; }, setOnGenerate(value: () => Promise<void>) { onGenerate = value; },
     setFollowerState(value: boolean) { followerState = value; },
     setSiteRead(value: NonNullable<typeof siteRead>) { siteRead = value; },
@@ -1140,25 +1142,36 @@ describe("never silence (16.11.2026)", () => {
     const second = await textOf(await runCustomerDmAgentTurn(await f.receive("Гучо равем?")));
     expect(second).toEqual({ kind: "text", text: "Инро аниқ агенти мо мегӯяд." });
   });
-  it("a reply the shield would cut as a third verbatim repeat becomes the hand-off line instead of nothing", async () => {
-    const same = { text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "budget" }) };
+  it("a reply the shield WOULD cut (said twice already) becomes the hand-off line, and the person is signalled", async () => {
     const f = await fixture("Хона даркор");
-    let key = f.eventKey; const texts: string[] = [];
-    for (const next of ["Хона даркор", "Хона даркор!", "Хона даркор!!"]) {
-      if (texts.length) key = await f.receive(next);
-      f.setReplies([[same]]);
-      const result = await runCustomerDmAgentTurn(key);
-      const payload = await textOf(result);
-      if (payload.kind !== "text") throw Error("text expected");
-      texts.push(payload.text);
-      if (result.status === "planned") {
-        await prisma.backgroundJob.updateMany({ where: { dedupeKey: { in: result.partIds.map(id => `customer-outbox-dispatch:${id}`) } }, data: { runAt: new Date("2099-01-01") } });
-        expect(await dispatchCustomerOutboxPart(result.partIds[0])).toEqual({ status: "accepted" });
-      }
+    const reply = "Салом!\nШумо чӣ қадар буҷет дар назар доред?"; // what this Tajik input renders to
+    // Seed the shield exactly as two earlier sends of this text did (same key as the transport: channel, peer, account).
+    for (let i = 0; i < 2; i++) {
+      expect(await admitOutbound({ channel: "INSTAGRAM", subscriberId: f.peer, text: reply, transport: f.accountId, answersInbound: true }))
+        .toMatchObject({ allowed: true });
     }
-    // Each planned text reached the customer (nothing SUPPRESSED); the third is NOT the third copy of the same line.
-    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: key, status: "SUPPRESSED" } })).toBe(0);
-    if (texts[0] === texts[1]) expect(texts[2]).not.toBe(texts[0]);
+    const result = await runCustomerDmAgentTurn(f.eventKey);
+    expect(await textOf(result)).toEqual({ kind: "text",
+      text: "Инро аниқ агенти мо мегӯяд. Рақами телефонатонро нависед, то агенти мо занг занад." });
+    const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } });
+    await waitFor(async () => !!(await prisma.botConversation.findUniqueOrThrow({ where: { id: ticket.conversationId! } })).silenceAlertFor);
+  });
+  it("«Хорошо, спасибо» with the model insisting on skip: no hand-off line, no outbox (review #205, В-1)", async () => {
+    const f = await fixture("Хорошо, спасибо");
+    const skip = { text: JSON.stringify({ kind: "skip", reason: "no_reply_needed" }) };
+    f.setReplies([[skip], [skip]]);
+    expect(await runCustomerDmAgentTurn(f.eventKey)).toMatchObject({ status: "held" });
+    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: f.eventKey } })).toBe(0);
+  });
+  it("the model's escalate still pushes the person WITH the customer's words (review #205, С-3)", async () => {
+    const spy = vi.spyOn(heldMessageModule, "notifyEscalatedCustomerTurn");
+    try {
+      const f = await fixture("Я подошёл на собеседование, а тут никто не в курсе");
+      f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
+      await textOf(await runCustomerDmAgentTurn(f.eventKey));
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].text).toContain("никто не в курсе");
+    } finally { spy.mockRestore(); }
   });
   it("an employee pausing the chat during generation still gets NO bot line (the person took over)", async () => {
     const f = await fixture("Нарх 550000с"); f.setOnGenerate(async () => {

@@ -64,7 +64,8 @@ import { z } from "zod";
 import { customerDeliveryTransportSchema } from "./customerDeliveryContracts.js";
 import { coreReplyRepeatBlocked } from "./outboundShield.js";
 import { customerHeldForChangedContext, customerSafetyCandidateLines, customerSafetyLine,
-  customerSafetyLineAllowed, customerSafetyMemory } from "./customerNoSilence.js";
+  customerSafetyLineAllowed, customerSafetyLineFits, customerSafetyMemory } from "./customerNoSilence.js";
+import { clientTalksBusiness } from "../messengers/sharedMedia.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -287,7 +288,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (blocked.has(line) || !await current(linkWait)) return null;
         const partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
           parts: [{ payload: { kind: "text" as const, text: line } }] }));
-        void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt);
+        // The model's own escalate keeps its push with the customer's words (caller); every other line is one follow_up.
+        if (why !== "staff_or_supported_reply_required") void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt);
         void logSystemError("ai", `Бот не смог ответить по существу (${why}) — клиенту ушла короткая фраза «это скажет агент», ответственному — сигнал`,
           { dedupKey: `customer-safety-line:${why}`, quietPult: true });
         return { status: "planned", partIds };
@@ -505,10 +507,17 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       }
       // Never silence (16.11.2026): nothing was written and the claim is still ours — one short verified line, and the
       // responsible person is told through the one door (follow_up). Planning failing keeps the old path below.
-      if (customerSafetyLineAllowed(reason) && mutations.committedReceipts.length === 0 &&
-          !(result.status === "held" && result.unknownToolCalls.length)) {
+      if (customerSafetyLineAllowed(reason) && customerSafetyLineFits(reason, fullInput(), clientTalksBusiness) &&
+          mutations.committedReceipts.length === 0 && !(result.status === "held" && result.unknownToolCalls.length)) {
         const planned = await planSafetyLine(reason);
-        if (planned) return planned;
+        if (planned) {
+          // «Передать сотруднику»: the person still gets the customer's own words (review #205, С-3), as before this change.
+          if (result.status === "ready" && result.decision.kind === "escalate") {
+            await notifyEscalatedCustomerTurn({ conversationId: lane.ticket.conversationId, channel: lane.principal.scope.channel,
+              text: fullInput() });
+          }
+          return planned;
+        }
       }
       await releaseHeldClaim(claim, reason);
       // The model handed the turn to staff and the customer gets no reply: a

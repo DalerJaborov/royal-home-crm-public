@@ -259,9 +259,9 @@ describe("repeatClientWaiting — человек взял переписку и 
     expect(after.pausedUntil?.getTime()).toBe(pausedUntil.getTime());
   });
 
-  it("бот не на паузе — повтора нет (это сбой бота, первого сигнала достаточно); человек ответил — повтора нет", async () => {
+  it("бот не на паузе — повтора нет; человек ответил — повтора нет; прямой вызов без паузы — не «sent» и после таймера (М-1)", async () => {
     const t0 = new Date();
-    const notPaused = await conversation([{ role: "user", content: "Нарх 550000с", at: minutesAgo(40, t0) }]);
+    const notPaused = await conversation([{ role: "assistant", content: "Нарх?", by: { kind: "manual" } }, { role: "user", content: "Нарх 550000с", at: minutesAgo(40, t0) }]);
     const answered = await conversation([{ role: "user", content: "Дар н Рудаки", at: minutesAgo(40, t0) }]);
     await prisma.botConversation.update({ where: { id: answered }, data: { pausedUntil: new Date(t0.getTime() + 12 * 3600_000) } });
     await runClientSilenceSweep(t0);
@@ -273,7 +273,60 @@ describe("repeatClientWaiting — человек взял переписку и 
     await runClientSilenceSweep(new Date(t0.getTime() + (20 + CLIENT_WAITING_REPEAT_MINUTES) * 60_000));
     expect(repeatPush(notPaused)).toHaveLength(0);
     expect(repeatPush(answered)).toHaveLength(0);
-    expect(await repeatClientWaiting({ conversationId: notPaused, since: new Date(minutesAgo(40, t0)),
-      now: new Date(t0.getTime() + 10 * 3600_000) })).not.toBe("sent");
+    const since = new Date(minutesAgo(40, t0));
+    expect(await repeatClientWaiting({ conversationId: notPaused, since, now: new Date(t0.getTime() + 60_000) })).toBe("armed");
+    expect(await repeatClientWaiting({ conversationId: notPaused, since, now: new Date(t0.getTime() + 5 * 3600_000) })).toBe("skipped");
+  });
+
+  it("паузу поставил сам бот (щит, оффтопик) — «взял сотрудник» не пишем (ревью #205, С-1)", async () => {
+    const t0 = new Date();
+    const id = await conversation([{ role: "assistant", content: "Чӣ хизмат карда метавонем?" }, { role: "user", content: "Ягон варянт боша", at: minutesAgo(40, t0) }]);
+    await prisma.botConversation.update({ where: { id }, data: { pausedUntil: new Date(t0.getTime() + 6 * 3600_000) } });
+    await runClientSilenceSweep(t0);
+    await runClientSilenceSweep(new Date(t0.getTime() + 10 * 60_000));
+    await runClientSilenceSweep(new Date(t0.getTime() + (20 + CLIENT_WAITING_REPEAT_MINUTES) * 60_000));
+    expect(ownPush(id)).toHaveLength(1);
+    expect(repeatPush(id)).toHaveLength(0);
+  });
+
+  it("старая пауза (эпизод старше суток) не будит никого после выкатки; рубильник сторожа пауз выключает повтор (С-2)", async () => {
+    const t0 = new Date();
+    const since = new Date(t0.getTime() - 25 * 3600_000);
+    const old = await conversation([{ role: "assistant", content: "Бюджет?", by: { kind: "manual" } }, { role: "user", content: "700 та дорем Ака", at: since.toISOString() }]);
+    await prisma.botConversation.update({ where: { id: old }, data: { pausedUntil: new Date(t0.getTime() + 3600_000), silenceAlertFor: since } });
+    expect(await repeatClientWaiting({ conversationId: old, since, now: t0 })).toBe("armed");
+    expect(await repeatClientWaiting({ conversationId: old, since, now: new Date(t0.getTime() + 3 * 3600_000) })).toBe("skipped");
+
+    const fresh = await conversation([{ role: "assistant", content: "Бюджет?", by: { kind: "manual" } }, { role: "user", content: "700 та дорем Ака", at: minutesAgo(40, t0) }]);
+    await prisma.botConversation.update({ where: { id: fresh }, data: { pausedUntil: new Date(t0.getTime() + 12 * 3600_000) } });
+    const saved = await prisma.$queryRaw<{ v: boolean | null }[]>`SELECT "botPauseWatchEnabled" AS v FROM "Settings" WHERE id='singleton'`;
+    await prisma.$executeRaw`UPDATE "Settings" SET "botPauseWatchEnabled"=false WHERE id='singleton'`;
+    try {
+      await runClientSilenceSweep(t0);
+      await runClientSilenceSweep(new Date(t0.getTime() + 10 * 60_000));
+      await runClientSilenceSweep(new Date(t0.getTime() + (20 + CLIENT_WAITING_REPEAT_MINUTES) * 60_000));
+      expect(ownPush(fresh)).toHaveLength(1);
+      expect(repeatPush(fresh)).toHaveLength(0);
+    } finally {
+      await prisma.$executeRaw`UPDATE "Settings" SET "botPauseWatchEnabled"=${saved[0]?.v ?? null} WHERE id='singleton'`;
+    }
+  });
+});
+
+describe("follow_up — звонок агента считается ответом (ревью #205, С-4)", () => {
+  it("второе обещание «это скажет агент» после звонка агента доходит; без звонка и ответа — нет", async () => {
+    const t0 = Date.now();
+    const id = await conversation([{ role: "user", content: "Чавоб метиен?", at: new Date(t0 - 30 * 60_000).toISOString() }]);
+    expect(await alertClientWaiting({ conversationId: id, trigger: "follow_up", since: new Date(t0 - 30 * 60_000) })).toBe("agent");
+    expect(await alertClientWaiting({ conversationId: id, trigger: "follow_up", since: new Date(t0 - 20 * 60_000) })).toBe("skipped");
+    const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+    await prisma.interaction.create({ data: { clientId: conv.clientId!, agentId, type: "CALL", outcome: "POSITIVE", notes: "позвонил",
+      createdAt: new Date(t0 - 10 * 60_000) } });
+    try {
+      expect(await alertClientWaiting({ conversationId: id, trigger: "follow_up", since: new Date(t0 - 5 * 60_000) })).toBe("agent");
+      expect(ownPush(id)).toHaveLength(2);
+    } finally {
+      await prisma.interaction.deleteMany({ where: { clientId: conv.clientId! } });
+    }
   });
 });

@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CUSTOMER_NO_SAFETY_LINE_REASONS, CUSTOMER_SAFETY_LINE_REASONS, customerHeldForChangedContext,
-  customerSafetyLine, customerSafetyLineAllowed, customerSafetyMemory } from "../src/lib/customerNoSilence.js";
+  customerSafetyLine, customerSafetyLineAllowed, customerSafetyLineFits, customerSafetyMemory } from "../src/lib/customerNoSilence.js";
+import { clientTalksBusiness } from "../src/messengers/sharedMedia.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE } from "../src/lib/customerIntendedSilence.js";
 import { customerReplyCallsStaff } from "../src/ai/customerAgentStaffFollowUp.js";
 import { isOurBrandCaption, latinOf, silentOnForeignShare } from "../src/messengers/sharedMedia.js";
@@ -36,9 +37,27 @@ describe("сторож: каждая причина HELD ядра — ровно
     for (const reason of ["round_limit", "unsupported_decision_evidence", "turn_unavailable", "staff_or_supported_reply_required"]) {
       expect(customerSafetyLineAllowed(reason)).toBe(true);
     }
-    for (const reason of ["effect_unknown", "customer_turn_budget_or_context", "original_context_changed", "input_limit", "что-то новое"]) {
+    for (const reason of ["effect_unknown", "customer_turn_budget_or_context", "original_context_changed", "input_limit", "что-то новое",
+      "surface_decision_denied", "turn_deadline"]) {
       expect(customerSafetyLineAllowed(reason)).toBe(false);
     }
+  });
+});
+
+describe("фраза только там, где клиенту нужен ответ (ревью #205, В-1) — настоящие тексты 11–15.11", () => {
+  const fits = (reason: string, text: string) => customerSafetyLineFits(reason, text, clientTalksBusiness);
+  it("«модели нечего сказать» — фраза только на вопрос или дело", () => {
+    for (const text of ["Даруни хонахора чхел дидан мумкин?", "Tojukira namedoni ?", "Хорошо в каком городе", "гучо равем",
+      "Да Душанбе хона", "339694444"]) expect(fits("unsupported_decision_evidence", text), text).toBe(true);
+    for (const text of ["Асалом", "Гумшавен", "Пагоҳ занг занам"]) expect(fits("unsupported_decision_evidence", text), text).toBe(false);
+  });
+  it("на «спасибо», «ок», 👍 — никогда, при любой причине; «передать сотруднику» — всегда", () => {
+    for (const text of ["Хорошо, спасибо", "Рахмат ака", "ок", "👍"]) {
+      expect(fits("round_limit", text), text).toBe(false);
+      expect(fits("turn_unavailable", text), text).toBe(false);
+    }
+    expect(fits("round_limit", "Чавоб метиен?")).toBe(true);
+    expect(fits("staff_or_supported_reply_required", "Рахмат")).toBe(true);
   });
 });
 
@@ -76,6 +95,8 @@ describe("свой рекламный ролик Арвана — не чужо�
     // по границе слова: чужое слово, начинающееся так же, нашим не становится
     expect(isOurBrandCaption("Arvanita games", "Арван")).toBe(false);
     expect(isOurBrandCaption("Arvan Estate", null)).toBe(false);
+    // короткое имя латиницей не сверяем (ревью #205, М-4): «Дом» не делает чужой «Dom»-ролик своим
+    expect(isOurBrandCaption("Dom Perignon party", "Дом")).toBe(false);
   });
   it("решение владельца 03.10 не тронуто: чужой ролик без слов и без признаков жилья — молчим", () => {
     expect(silentOnForeignShare({ foreignShare: true, fromAd: false, text: "", caption: null, card: null })).toBe(true);

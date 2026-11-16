@@ -4,7 +4,7 @@ import { sendPushToAgent } from "../push.js";
 import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE } from "./customerIntendedSilence.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
-import { fetchLastCallContactByClient } from "./botPauseWatch.js";
+import { fetchLastCallContactByClient, loadBotPauseWatchSettings } from "./botPauseWatch.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
@@ -154,6 +154,7 @@ export async function alertClientWaiting(input: {
       messages: true,
       optedOutAt: true,
       silenceAlertFor: true,
+      clientId: true,
       client: {
         select: {
           fullName: true,
@@ -172,7 +173,12 @@ export async function alertClientWaiting(input: {
   if (chat.silenceAlertFor && chat.silenceAlertFor.getTime() >= since.getTime()) return "skipped";
   // «Агент уточнит» — one CRITICAL per chat until a person answers in the chat (re-review #201, Н-нов-3; owner: rarely
   // disturb people): three empty searches in a row are one signal, not three.
-  if (input.trigger === "follow_up" && chat.silenceAlertFor && !humanRepliedSince(chat.messages, chat.silenceAlertFor)) return "skipped";
+  // A completed CALL after the previous signal is an answer too (review #205, С-4): the agent who phoned the customer learns
+  // about the NEXT promise "the agent will tell", instead of never hearing of this chat again.
+  if (input.trigger === "follow_up" && chat.silenceAlertFor && !humanRepliedSince(chat.messages, chat.silenceAlertFor)) {
+    const called = chat.clientId ? (await fetchLastCallContactByClient([chat.clientId])).get(chat.clientId) : undefined;
+    if (!called || called.getTime() <= chat.silenceAlertFor.getTime()) return "skipped";
+  }
 
   // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба.
   const previous = chat.silenceAlertFor;
@@ -277,7 +283,10 @@ export async function runClientSilenceSweep(now: Date = new Date()): Promise<Cli
     if (row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()) {
       // Already signalled once. A person TOOK this chat (the bot is paused) and the customer is still unanswered:
       // the second, last signal (repeatClientWaiting). The bot stays paused (owner decision on the pause unchanged).
-      if (row.pausedUntil && row.pausedUntil.getTime() > now.getTime()) repeat.push({ id: row.id, clientId: row.clientId, episode });
+      if (row.pausedUntil && row.pausedUntil.getTime() > now.getTime() && personTookChat(row.messages) &&
+          now.getTime() - episode.since.getTime() <= REPEAT_EPISODE_MAX_AGE_MS) {
+        repeat.push({ id: row.id, clientId: row.clientId, episode });
+      }
       continue;
     }
     due.push({ id: row.id, clientId: row.clientId, episode });
@@ -307,7 +316,8 @@ export async function runClientSilenceSweep(now: Date = new Date()): Promise<Cli
       reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
     }
   }
-  for (const d of repeat) {
+  const repeatOn = repeat.length > 0 && (await loadBotPauseWatchSettings()).enabled;
+  for (const d of repeatOn ? repeat : []) {
     try {
       const allIntentional = d.episode.untracked === 0 && d.episode.eventKeys.every((k) => intentional.has(k));
       if (allIntentional) continue;
@@ -333,6 +343,25 @@ export async function runClientSilenceSweep(now: Date = new Date()): Promise<Cli
  * `client-waiting-repeat-armed` (сторож впервые увидел сигнал) и `client-waiting-repeat` (повтор ушёл).
  */
 export const CLIENT_WAITING_REPEAT_MINUTES = 120;
+/** Only a fresh episode is repeated (review #205, С-2/М-3): no wake-up for old pauses right after a deploy (ФАКТ prod
+ *  16.11: 2 such chats in the last 24 h), and the ProcessedMessage marks (cleaned after 3 days) never re-arm it. */
+const REPEAT_EPISODE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A PERSON took the chat (review #205, С-1): the last message from our side before the customer's unanswered tail is a
+ * human's (an agent in the CRM or staff from the messenger app). A pause the bot set itself (repeat shield, off-topic
+ * hand-over) is not "an employee took the chat" — that silence is the 30-minute sweep's, with its own words. Pure.
+ */
+export function personTookChat(messages: unknown): boolean {
+  if (!Array.isArray(messages)) return false;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: unknown; by?: { kind?: unknown } | null } | null;
+    if (!m || m.role !== "assistant") continue;
+    const kind = m.by && typeof m.by === "object" ? m.by.kind : undefined;
+    return kind === "agent" || kind === "manual";
+  }
+  return false;
+}
 const REPEAT_ARMED = "client-waiting-repeat-armed";
 const REPEAT_SENT = "client-waiting-repeat";
 
@@ -350,7 +379,8 @@ export async function repeatClientWaiting(input: { conversationId: string; since
     select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, pausedUntil: true,
       client: { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } },
   });
-  if (!chat || chat.optedOutAt || chat.client?.deletedAt || !chat.pausedUntil || chat.pausedUntil <= now) return "skipped";
+  if (!chat || chat.optedOutAt || chat.client?.deletedAt || !chat.pausedUntil || chat.pausedUntil <= now || !personTookChat(chat.messages)) return "skipped";
+  if (now.getTime() - input.since.getTime() > REPEAT_EPISODE_MAX_AGE_MS) return "skipped";
   const episode = waitingEpisodeOf(chat.messages);
   if (!episode || episode.since.getTime() !== input.since.getTime()) return "skipped"; // answered meanwhile
   // Atomic: two ticks or two instances never both send.
@@ -363,14 +393,16 @@ export async function repeatClientWaiting(input: { conversationId: string; since
   const url = `/messages?open=${chat.id}`;
   const tag = `client-waiting-repeat-${chat.id}`;
   const agent = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
+  let agentPushed = false;
   try {
-    if (agent) await sendPushToAgent(agent, { kind: "message", level: "CRITICAL", title: "💬 Клиент всё ещё ждёт ответа", body, url, tag });
+    if (agent) { await sendPushToAgent(agent, { kind: "message", level: "CRITICAL", title: "💬 Клиент всё ещё ждёт ответа", body, url, tag }); agentPushed = true; }
     const queued = await enqueueDirectorAlert({ title: "💬 Клиент ждёт ответа после передачи сотруднику", body, url, kind: "message",
       level: "CRITICAL", severity: "critical", tag, recipientRoles: ["DIRECTOR", "ADMIN"], ...(agent ? { excludeAgentId: agent } : {}) });
     if (!queued && !agent) throw new Error("очередь тревог руководству недоступна");
     return "sent";
   } catch (err) {
-    await prisma.processedMessage.deleteMany({ where: { channel: REPEAT_SENT, messageId: key } }).catch(() => {});
+    // Release only when NOBODY was told (review #205, М-5): a pushed agent must not get the same push again in 10 minutes.
+    if (!agentPushed) await prisma.processedMessage.deleteMany({ where: { channel: REPEAT_SENT, messageId: key } }).catch(() => {});
     void logSystemError("api", `Повторный сигнал «клиент ждёт ответа» не отправлен: ${err instanceof Error ? err.message : String(err)}`,
       { dedupKey: "client-waiting-repeat-failed" });
     return "skipped";

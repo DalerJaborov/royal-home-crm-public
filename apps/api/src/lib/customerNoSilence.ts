@@ -21,13 +21,15 @@
 import { customerPhoneAskLines, customerStaffFollowUpFixedLines, customerStaffFollowUpLine, PHONE_ASK_TEXT,
   type FollowUpMemory } from "../ai/customerAgentStaffFollowUp.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE } from "./customerIntendedSilence.js";
+import { clientOwnWords } from "../ai/untrustedContent.js";
+import { customerThanksOnly } from "../ai/customerAgentStaffFollowUp.js";
 
 /** The bot could not produce a supported answer and changed nothing: the customer gets one short hand-off line. */
 export const CUSTOMER_SAFETY_LINE_REASONS: readonly string[] = [
   // the model / provider failed or ran out of its bounds
-  "turn_unavailable", "turn_deadline", "round_limit", "tool_limit", "output_limit",
-  // the model answered something the server cannot render or must not send
-  "unsupported_decision_evidence", "invalid_model_decision", "surface_decision_denied", "invalid_model_call",
+  "turn_unavailable", "round_limit", "tool_limit", "output_limit",
+  // the model answered something the server cannot render; ONLY when the customer asked something (customerSafetyLineFits)
+  "unsupported_decision_evidence", "invalid_model_decision", "invalid_model_call",
   "invalid_model_turn", "missing_model_parts", "invalid_call_id", "duplicate_call_id", "call_id_reused",
   // a read the answer needed failed
   "unavailable_tool", "facts_unavailable",
@@ -41,6 +43,10 @@ export const CUSTOMER_NO_SAFETY_LINE_REASONS: readonly string[] = [
   "receipt_requires_reconciliation", // a committed result must be confirmed, not replaced
   "repeated_effect_denied", // the model tried to repeat an action: a person decides
   "operation_stopped", // the turn was stopped on purpose (superseded / shutdown)
+  // the model insisted on `skip` (no_reply_needed / duplicate: «рахмат», «ок», a doubled message) where a DM must answer:
+  // nothing to say, so no "the agent will tell" either (review #205, В-1; ФАКТ prod 7 days to 16.11: 0 such turns)
+  "surface_decision_denied",
+  "turn_deadline", // the original deadline passed: the claim is no longer ours, nothing can be planned (review #205, М-2)
   "original_context_changed", // the chat changed under the turn: a newer input answers (see customerDmAgentTurn)
   "customer_turn_budget_or_context", // the daily turn ceiling against abuse: no endless replies to a flood
   "input_limit", "model_payload_limit", // an oversized request is refused as a resource/abuse bound, not answered
@@ -53,6 +59,23 @@ export const CUSTOMER_NO_SAFETY_LINE_REASONS: readonly string[] = [
 export function customerSafetyLineAllowed(reason: string): boolean {
   return CUSTOMER_SAFETY_LINE_REASONS.includes(reason) && !CUSTOMER_TURN_INTENDED_SILENCE.includes(reason);
 }
+
+/** A question in the customer's own words (RU/TG, colloquial spelling): «?», «каком городе», «куҷо/гучо», «мумкин», «чанд». */
+const ASKS = /[?？]|(?:^|[\s,.!])(?:как\p{L}*|какой|какая|какое|каком|сколько|где|когда|почему|зачем|что|есть\s+ли|можно|мумкин|чанд|кай|куҷо|кучо|гучо|кужо|чӣ|чи|чаро|кадом\p{L}*|нархаш|ҳаст|хаст|метиен|медиҳед|медиед)(?=$|[\s,.!?])/iu;
+/**
+ * Is the hand-off line a fitting answer to THIS input (review #205, В-1)? Never to a bare "thank you / ok". For
+ * `unsupported_decision_evidence` (the model had nothing supported to say) only when the customer asked something or
+ * talks business (housing words, a phone number). ФАКТ prod 7 days to 16.11, 11 such inputs: «…дидан мумкин?»,
+ * «Хорошо в каком городе», «гучо равем», «Да Душанбе хона», «339694444» → line; «Асалом», «Гумшавен», «Пагоҳ занг занам» →
+ * silence + push as before.
+ */
+export function customerSafetyLineFits(reason: string, inputText: string, talksBusiness: (text: string) => boolean): boolean {
+  if (reason === "staff_or_supported_reply_required") return true; // the model itself decided a person is needed
+  const own = clientOwnWords(inputText ?? "").trim();
+  if (!own || customerThanksOnly(own) || ACK_ONLY.test(own)) return false;
+  return reason !== "unsupported_decision_evidence" || ASKS.test(own) || talksBusiness(own);
+}
+const ACK_ONLY = /^(?:ок|ok|okay|окей|хоп|хуб|ладно|хорошо|понятно|ясно|фаҳмидам|фахмидам|бале|да|ҳа|ха|👍|👌|🙏|❤️|\s|[.!,])+$/iu;
 
 /* NO model retry here (16.11.2026, decided on facts): ФАКТ BotTurnTrace 7 days to 16.11 — 29 of 32 `turn_unavailable` are
  * `original_context_changed` (the customer wrote again: the newer input answers, see customerHeldForChangedContext), the

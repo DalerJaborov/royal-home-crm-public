@@ -656,7 +656,9 @@ export function isOurBrandCaption(caption: string | undefined | null, accountBra
   // Имя аккаунта кириллицей («Арван»), а ролики и описание видео подписаны латиницей («Arvan Estate», ник
   // arvan__estate): 16.11.2026, аудит молчания — наш же рекламный ролик Арвана считался чужим, бот молчал
   // 14–25 минут до сторожа зависших. Сверяем и латинское написание того же имени.
-  return [brand, latinOf(brand)].filter((name, i, all) => name.length >= 3 && all.indexOf(name) === i).some(name => {
+  // The Latin spelling only for a name of 5+ letters (review #205, М-4): «Дом» → «dom» would make a foreign «Dom» reel ours.
+  const latin = latinOf(brand);
+  return [brand, ...(latin.length >= 5 ? [latin] : [])].filter((name, i, all) => name.length >= 3 && all.indexOf(name) === i).some(name => {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(caption);
   });
