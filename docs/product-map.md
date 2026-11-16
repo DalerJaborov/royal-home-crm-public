@@ -406,7 +406,7 @@
 | Сервис | Ключей настроек | Где используется (файлов) |
 |---|---|---|
 | Instagram Graph через прокси | 2 | 1 |
-| Telegram | 5 | 6 |
+| Telegram | 5 | 7 |
 | WhatsApp, Instagram Direct, Messenger (Meta) | 9 | 14 |
 | Бюджет Google Cloud | 1 | 1 |
 | Голосовой ИИ на звонках (Gemini Live) | 9 | 5 |
