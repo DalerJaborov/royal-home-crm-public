@@ -1,9 +1,9 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 760,
-  "forks": 4128,
-  "mounts": 85,
+  "endpoints": 771,
+  "forks": 4138,
+  "mounts": 86,
   "cron": 143,
   "jobs": 33,
   "hidden": 0
@@ -32341,6 +32341,729 @@
         "ответ 500 — «Не удалось посчитать прогноз»"
        ],
        "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "PATCH",
+   "path": "/:id/restore",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders/:id/restore",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view",
+    "write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const row = await restoreFounder(req.params.id);",
+       "a": [
+        "зовёт restoreFounder()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"RESTORE\", \"Founder\", row.id, { name: row.name });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json(row);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "DELETE",
+   "path": "/:id",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders/:id",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view",
+    "write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const row = await deleteFounder(req.params.id);",
+       "a": [
+        "зовёт deleteFounder()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"DELETE\", \"Founder\", row.id, { name: row.name });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json(row);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "PATCH",
+   "path": "/:id",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders/:id",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view",
+    "write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const row = await updateFounder(req.params.id, req.body);",
+       "a": [
+        "зовёт updateFounder()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"UPDATE\", \"Founder\", row.id, { changed: Object.keys(req.body ?? {}) });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json(row);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "PATCH",
+   "path": "/contributions/:id/restore",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders/contributions/:id/restore",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view",
+    "write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const row = await restoreContribution(req.params.id);",
+       "a": [
+        "зовёт restoreContribution()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"RESTORE\", \"FounderContribution\", row.id, {});",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json(row);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "DELETE",
+   "path": "/contributions/:id",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders/contributions/:id",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view",
+    "write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const row = await deleteContribution(req.params.id);",
+       "a": [
+        "зовёт deleteContribution()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"DELETE\", \"FounderContribution\", row.id, { founderId: row.founderId, amount: row.amount.toStrin…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.status(204).end();",
+       "a": [
+        "ответ 204"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "PATCH",
+   "path": "/contributions/:id",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders/contributions/:id",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view",
+    "write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const row = await updateContribution(req.params.id, req.body);",
+       "a": [
+        "зовёт updateContribution()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"UPDATE\", \"FounderContribution\", row.id, { changed: Object.keys(req.body ?? {}) });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json(row);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/contributions",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders/contributions",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await listContributions(req.query));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/contributions",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders/contributions",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view",
+    "write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const row = await createContribution(req.body, { agentId: req.agent!.id, requestKey });",
+       "a": [
+        "зовёт createContribution()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"FOUNDER_CONTRIBUTION_CREATE\", \"FounderContribution\", row.id, { founderId: row.founderId, amoun…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.status(201).json(row);",
+       "a": [
+        "ответ 201"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/totals",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders/totals",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await founderTotals(String(req.query.month ?? \"\")));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json(await listFounders({ includeDeleted: req.query.includeDeleted === \"1\" || req.query.includeDeleted ==…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/",
+   "mount": "/api/v1/founders",
+   "full": "/api/v1/founders",
+   "file": "apps/api/src/routes/founders.ts",
+   "router": "foundersRouter",
+   "top": "apps/api/src/routes/founders.ts::foundersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: finance.view",
+    "write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const row = await createFounder(req.body);",
+       "a": [
+        "зовёт createFounder()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"FOUNDER_CREATE\", \"Founder\", row.id, { name: row.name });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.status(201).json(row);",
+       "a": [
+        "ответ 201"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!failed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     }
