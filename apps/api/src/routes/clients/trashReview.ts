@@ -68,6 +68,13 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
   if (!client) return res.status(404).json({ error: "Клиент не найден в Корзине" });
 
   const interactionWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id };
+  // «Показать более ранние»: курсор (createdAt, id) последней показанной записи.
+  const beforeRaw = typeof req.query.before === "string" ? new Date(req.query.before) : null;
+  const beforeId = typeof req.query.beforeId === "string" ? req.query.beforeId : null;
+  const cursorWhere =
+    beforeRaw && !Number.isNaN(beforeRaw.getTime()) && beforeId
+      ? { OR: [{ createdAt: { lt: beforeRaw } }, { createdAt: beforeRaw, id: { lt: beforeId } }] }
+      : {};
   const [request, audit, rows, total, manualTrash] = await Promise.all([
     // Причина — из одобренной заявки; отклонённая не причина удаления.
     prisma.clientDeleteRequest.findFirst({
@@ -92,9 +99,9 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
       select: { id: true, action: true, agentName: true, createdAt: true },
     }),
     prisma.interaction.findMany({
-      where: interactionWhere,
+      where: { ...interactionWhere, ...cursorWhere },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: REVIEW_INTERACTIONS_LIMIT,
+      take: REVIEW_INTERACTIONS_LIMIT + 1,
       select: { ...TIMELINE_INTERACTION_SELECT },
     }),
     prisma.interaction.count({ where: interactionWhere }),
@@ -105,6 +112,8 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
       : Promise.resolve(0),
   ]);
   const deletedAutomatically = client.deletedById === null || manualTrash === 0;
+  const hasMore = rows.length > REVIEW_INTERACTIONS_LIMIT;
+  const page = hasMore ? rows.slice(0, REVIEW_INTERACTIONS_LIMIT) : rows;
 
   const labels = deleteReasonLabelsFor(client.kind);
   const phonesAllowed = can(req, "clients.viewPhone");
@@ -146,8 +155,9 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
       agentName: a.agentName,
       createdAt: a.createdAt,
     })),
-    interactions: await presentClientTimeline(req, client.assignedAgentId, rows),
+    interactions: await presentClientTimeline(req, client.assignedAgentId, page),
     interactionsTotal: total,
+    hasMore,
     canCall: canCallArchivedClient({ can: (p) => can(req, p) }),
   });
 });

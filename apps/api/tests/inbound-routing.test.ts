@@ -227,7 +227,7 @@ async function seedCall(channelId: string): Promise<string> {
 
 async function route(
   channelId: string,
-  options: { answered?: boolean; clientId?: string | null } = {}
+  options: { answered?: boolean; clientId?: string | null; archiveReviewerId?: string } = {}
 ): Promise<{ decision: string | null; routedToId: string | null }> {
   const recordId = await seedCall(channelId);
   await routeIncomingToAssignedAgent({
@@ -236,6 +236,7 @@ async function route(
     phone: clientPhone,
     clientId: options.clientId === null ? undefined : (options.clientId ?? clientId),
     recordId,
+    archiveReviewerId: options.archiveReviewerId,
     isAnswered: () => !!options.answered,
   });
   const row = await prisma.incomingCall.findUnique({
@@ -407,6 +408,29 @@ describe("перевод входящего на ответственного", 
     const result = await route(`ch-deleted-${runId}`);
     expect(result.decision).toBe("client_deleted");
     expect(redirects()).toEqual([]);
+  });
+
+  it("перезвон из Корзины тому, кто звонил для разбора, уходит ему, а карточка не оживает", async () => {
+    await prisma.client.update({ where: { id: clientId }, data: { deletedAt: new Date() } });
+    setEndpoints([{ technology: "SIP", resource: ext.second, state: "online" }]);
+    const result = await route(`ch-archive-cb-${runId}`, { clientId: null, archiveReviewerId: agentB });
+    expect(result).toEqual({ decision: "routed", routedToId: agentB });
+    expect(varSent("RH_ROUTE_TARGET")).toBe(ext.second);
+    const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+    expect(card.deletedAt).not.toBeNull();
+    expect(card.assignedAgentId).toBe(agentA);
+  });
+
+  it("перезвон из Корзины, а звонивший заморожен — звонок остаётся в очереди", async () => {
+    await prisma.client.update({ where: { id: clientId }, data: { deletedAt: new Date() } });
+    await prisma.agent.update({ where: { id: agentB }, data: { frozenAt: new Date() } });
+    try {
+      const result = await route(`ch-archive-cb2-${runId}`, { clientId: null, archiveReviewerId: agentB });
+      expect(result.decision).toBe("agent_frozen");
+      expect(redirects()).toEqual([]);
+    } finally {
+      await prisma.agent.update({ where: { id: agentB }, data: { frozenAt: null } });
+    }
   });
 
   it("незнакомый номер — звонок остаётся в очереди", async () => {

@@ -529,6 +529,11 @@ export interface RouteRequest {
   recordId?: string;
   /** Снял ли оператор трубку ПРЯМО СЕЙЧАС. Спрашивается дважды: до и после станции. */
   isAnswered: () => boolean;
+  /**
+   * Клиент из Корзины перезванивает тому, кто недавно звонил ему для «разбора удалённого» (владелец
+   * 16.11.2026): звонок уходит этому сотруднику, а не оператору без контекста. Сама карточка не оживает.
+   */
+  archiveReviewerId?: string;
 }
 
 /**
@@ -567,7 +572,9 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
   if (!request.channelName) return { routed: false, reason: "redirect_failed" };
   if (request.isAnswered()) return { routed: false, reason: "already_answered" };
 
-  let { matchCount, client } = await loadRouteClient(request.phone, request.clientId);
+  let { matchCount, client } = request.archiveReviewerId
+    ? await loadArchiveReviewerRoute(request.archiveReviewerId)
+    : await loadRouteClient(request.phone, request.clientId);
 
   /**
    * СНЯТИЕ LOST ВХОДЯЩИМ ЗВОНКОМ (аудит 02.09.2026, баг B3). Клиент в статусе
@@ -888,6 +895,32 @@ export async function continueStasisChannelToAgent(input: {
     return false;
   }
   return true;
+}
+
+/**
+ * Перезвон клиента из Корзины тому, кто звонил ему для разбора (lib/archiveReviewCall.ts): «карточка» для
+ * решения о переводе — сам звонивший как ответственный. Дальше работают те же проверки (активен, не
+ * заморожен, есть аппарат, не занят), карточка в базе не меняется.
+ */
+async function loadArchiveReviewerRoute(
+  agentId: string
+): Promise<{ matchCount: number; client: RouteClient | null }> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId },
+    select: { id: true, isActive: true, frozenAt: true, sipExtension: true, phone: true, whisperLanguage: true },
+  });
+  if (!agent) return { matchCount: 0, client: null };
+  return {
+    matchCount: 1,
+    client: {
+      deletedAt: null,
+      status: "CONTACTED",
+      workStatus: "ACTIVE",
+      acceptedAt: new Date(),
+      lastAgentId: null,
+      assignedAgent: agent,
+    },
+  };
 }
 
 /**

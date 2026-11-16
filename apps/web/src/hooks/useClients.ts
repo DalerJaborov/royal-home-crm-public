@@ -300,6 +300,8 @@ export interface ClientTrashReview {
   audit: { id: string; action: string; label: string; agentName: string; createdAt: string }[];
   interactions: Interaction[];
   interactionsTotal: number;
+  /** Есть записи старше показанных — «Показать более ранние». */
+  hasMore?: boolean;
   canCall: boolean;
 }
 
@@ -308,6 +310,8 @@ export function useClientTrashReview(clientId: string | null) {
     queryKey: ["clients-trash-review", clientId],
     queryFn: () => api<ClientTrashReview>(`/clients/trash/${clientId}/review`),
     enabled: !!clientId,
+    // Звонок разбора и его итог появляются в истории сами, пока шторка открыта.
+    refetchInterval: 15_000,
   });
 }
 

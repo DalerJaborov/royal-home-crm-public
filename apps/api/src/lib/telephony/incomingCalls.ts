@@ -255,6 +255,8 @@ interface LiveIncoming {
   /** Номер в виде CRM (+992…). */
   phone: string;
   startedAt: Date;
+  /** Звонит клиент из Корзины, которому недавно звонил сотрудник для «разбора» — ему и перевод. */
+  archiveReviewerId?: string;
   /** Момент соединения с оператором. Пусто — разговора так и не было. */
   bridgedAt?: Date;
   /**
@@ -545,6 +547,17 @@ async function setupIncomingCall(entry: LiveIncoming): Promise<void> {
   // звонком (а тем более ставить по ней задачу) — не наше решение.
   const known = match && !match.deletedAt ? match : null;
   entry.clientId = known?.id;
+  if (match?.deletedAt) {
+    // Перезвон после «разбора удалённого» (lib/archiveReviewCall.ts): 72 часа, тому, кто звонил.
+    const review = await prisma.interaction
+      .findFirst({
+        where: { clientId: match.id, archiveReview: true, type: "CALL", agentId: { not: null }, createdAt: { gte: new Date(Date.now() - 72 * 3600_000) } },
+        orderBy: { createdAt: "desc" },
+        select: { agentId: true },
+      })
+      .catch(() => null);
+    entry.archiveReviewerId = review?.agentId ?? undefined;
+  }
   if (known) {
     // Имя и короткий номер — отдельным запросом: findClientByPhoneDigits ищет по
     // хвосту номера сырым SQL и возвращает только то, что нужно для сверки. Окну
@@ -683,6 +696,7 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
     phone: entry.phone,
     clientId: entry.clientId,
     recordId: entry.recordId,
+    archiveReviewerId: entry.archiveReviewerId,
     // Функцией, а не значением: между решением и действием лежит поход к станции,
     // и оператор мог снять трубку ровно в этот промежуток. Перевод соединённого
     // звонка оборвал бы живой разговор.
