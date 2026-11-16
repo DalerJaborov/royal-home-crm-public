@@ -37,7 +37,9 @@ export function voiceSeparatorUrl(): string | null {
 
 export type VoiceSeparation =
   | { ok: true; words: number; speechSec: number; separateMs: number; checkMs: number; text: string }
-  | { ok: false; code: "OFF" | "TIMEOUT" | "FAILED"; error: string };
+  /** ABSENT — сервиса нет в сети (образ не собран): ждать нечего. TIMEOUT — сервис занят этим роликом
+   *  дальше предела: повтор встал бы в ту же очередь. Повторяют только FAILED (перезапуск, 5xx). */
+  | { ok: false; code: "OFF" | "ABSENT" | "TIMEOUT" | "FAILED"; error: string };
 
 /** Звук ролика (WAV) → музыка без голоса в outPath (FLAC) + сколько речи распознано в музыке. */
 export async function separateVoice(input: { audioPath: string; outPath: string; timeoutMs?: number }): Promise<VoiceSeparation> {
@@ -82,7 +84,7 @@ export async function separateVoice(input: { audioPath: string; outPath: string;
       req.destroy();
       done({ ok: false, code: "TIMEOUT", error: `Сервис отделения голоса не ответил за ${Math.round(timeoutMs / 60_000)} мин.` });
     }, timeoutMs);
-    req.on("error", (err) => done({ ok: false, code: "FAILED", error: `Сервис отделения голоса недоступен: ${err.message.slice(0, 200)}` }));
+    req.on("error", (err: NodeJS.ErrnoException) => done({ ok: false, code: err.code === "ENOTFOUND" ? "ABSENT" : "FAILED", error: `Сервис отделения голоса недоступен: ${err.message.slice(0, 200)}` }));
     req.end(body);
   });
 }

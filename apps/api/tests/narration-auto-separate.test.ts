@@ -28,7 +28,7 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   sendPushToAgent: vi.fn(async () => 0),
   sendPushToAgents: vi.fn(async () => 0),
 }));
-const sep = vi.hoisted(() => ({ words: 0, fail: null as string | null, calls: 0 }));
+const sep = vi.hoisted(() => ({ words: 0, fail: null as string | null, failCode: "FAILED" as "FAILED" | "ABSENT" | "TIMEOUT", calls: 0 }));
 vi.mock("../src/lib/voiceSeparator.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/lib/voiceSeparator.js")>();
   const { spawnSync: run } = await import("node:child_process");
@@ -36,7 +36,7 @@ vi.mock("../src/lib/voiceSeparator.js", async (importOriginal) => {
     ...real,
     separateVoice: vi.fn(async (input: { audioPath: string; outPath: string }) => {
       sep.calls++;
-      if (sep.fail) return { ok: false as const, code: "FAILED" as const, error: sep.fail };
+      if (sep.fail) return { ok: false as const, code: sep.failCode, error: sep.fail };
       // «Музыка без голоса» той же длины, что звук ролика.
       const r = run(process.env.FFMPEG_BIN || "ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", input.audioPath, "-af", "volume=0.3", "-c:a", "flac", input.outPath], { stdio: "ignore" });
       if (r.status !== 0) return { ok: false as const, code: "FAILED" as const, error: "ffmpeg в подмене" };
@@ -144,7 +144,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  sep.words = 0; sep.fail = null; sep.calls = 0;
+  sep.words = 0; sep.fail = null; sep.failCode = "FAILED"; sep.calls = 0;
   sendBack.mockClear();
   if (ffmpegReady) await setConfig();
 });
@@ -250,6 +250,16 @@ describe.skipIf(!ffmpegReady)("старый голос убирает CRM (16.11
     expect(await makeMachineMaster(a.p.id, new Date(Date.now() + 22 * 60_000))).toBe("FAILED");
     expect(sep.calls).toBe(3);
     expect(sendBack).toHaveBeenCalledTimes(1);
+
+    // Сервиса нет вовсе (образ не собран) или не уложился в предел — сразу монтажёру, без повторов.
+    sendBack.mockClear();
+    for (const code of ["ABSENT", "TIMEOUT"] as const) {
+      sep.failCode = code;
+      const x = await priceChanged(media.v3);
+      expect(await makeMachineMaster(x.p.id)).toBe("FAILED");
+    }
+    expect(sendBack).toHaveBeenCalledTimes(2);
+    sep.failCode = "FAILED";
     expect((await prisma.property.findUniqueOrThrow({ where: { id: a.p.id } })).videoMasterAutoError).toContain("недоступен");
 
     sendBack.mockClear();

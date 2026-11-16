@@ -147,8 +147,9 @@ async function makeClaimed(propertyId: string, deps: MachineMasterDeps, now: Dat
       await runFfmpeg({ args: ["-y", "-hide_banner", "-loglevel", "error", "-i", finalDisk, "-vn", "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le", wav], timeoutMs: 120_000, label: "звук ролика для отделения голоса" });
       const sep = await separateVoice({ audioPath: wav, outPath: music });
       if (!sep.ok) {
-        // Сервис не ответил или перезапускался (выкат) — это не приговор ролику: повтор с паузой.
-        if (sep.code !== "OFF" && c.attempts + 1 < TRANSIENT_ATTEMPTS) {
+        // Сервис перезапускался (выкат) или ответил 5xx — не приговор ролику: повтор с паузой.
+        // Нет сервиса вовсе или не уложился в предел — сразу монтажёру (скорость важнее).
+        if (sep.code === "FAILED" && c.attempts + 1 < TRANSIENT_ATTEMPTS) {
           await prisma.property.updateMany({ where: { id: c.id, videoHandoffFinalPath: c.finalPath },
             data: { videoMasterAutoAttempts: { increment: 1 }, videoMasterAutoRetryAt: new Date(now.getTime() + RETRY_PAUSE_MS) } });
           void logSystemError("video-handoff", `Объект №${c.shortId}: сервис отделения голоса не справился (попытка ${c.attempts + 1} из ${TRANSIENT_ATTEMPTS}), повтор через 10 мин — ${sep.error}`, { dedupKey: `narration-auto-master-retry:${c.id}` });
@@ -187,6 +188,7 @@ async function makeClaimed(propertyId: string, deps: MachineMasterDeps, now: Dat
 
 /** Отказ: отметка на этом готовом ролике (повтора нет), журнал руководству, объект — монтажёру по-старому. */
 async function fail(deps: MachineMasterDeps, c: Pick<Need, "id" | "shortId" | "finalPath">, reason: string, kind: "VOICE_LEFT" | "ERROR" | "OFF" = "ERROR"): Promise<"FAILED"> {
+  // OFF (машину выключили) — без строки журнала на каждый объект: одна сводка за тик (runMachineMasters).
   const head = kind === "VOICE_LEFT" ? "Старый голос не убрался" : kind === "OFF" ? "Машина выключена" : "Старый голос убрать не получилось";
   await prisma.property.updateMany({ where: { id: c.id, videoHandoffFinalPath: c.finalPath },
     data: { videoMasterAutoError: `${head}: ${reason}`.slice(0, 500), videoMasterAutoErrorFinalPath: c.finalPath, videoMasterAutoRetryAt: null } });
@@ -200,6 +202,7 @@ async function fail(deps: MachineMasterDeps, c: Pick<Need, "id" | "shortId" | "f
     });
   }
   const toEditor = sent === "SOUND_REMAKE" || sent === "ADD_VOICE";
+  if (kind === "OFF") return "FAILED";
   void logSystemError("video-handoff", `Объект №${c.shortId}: старый голос из ролика не убран — ${reason} ${toEditor
     ? "Объект ушёл монтажёру заменить звук."
     : "Монтажёру не ушло (голос в ролике вклеен не по передаче CRM) — в соцсетях прежний ролик; решите вручную."}`, { dedupKey: `narration-auto-master:${c.id}:${latest?.id ?? "none"}` });
@@ -225,14 +228,16 @@ export async function runMachineMasters(deps: MachineMasterDeps, now: Date = new
     select: { id: true }, orderBy: { id: "asc" }, take: 50,
   });
   cursor = rows.length === 50 ? rows[rows.length - 1]!.id : null;
+  let handedOff = 0;
   for (const row of rows) {
     const n = await need(row.id);
     if (!n) continue;
     // Машину выключили (рубильник, нет адреса сервиса) после того, как объект ей отдали: не висеть
-    // молча — монтажёру по-старому, одна отметка на этот ролик.
-    if (!enabled) { await fail(deps, n, "в настройках выключено или сервис не подключён.", "OFF"); continue; }
+    // молча — монтажёру по-старому, одна отметка на этот ролик, одна строка журнала на тик.
+    if (!enabled) { await fail(deps, n, "в настройках выключено или сервис не подключён.", "OFF"); handedOff++; continue; }
     if (n.retryAt && n.retryAt > now) continue;
     return makeMachineMaster(row.id, deps, now);
   }
+  if (handedOff) void logSystemError("video-handoff", `Озвучка: старый голос из роликов машина не убирает (выключено в настройках или сервис не подключён) — ${handedOff} объект(ов) отданы по-старому монтажёру.`, { dedupKey: "narration-auto-master-off" });
   return "IDLE";
 }
