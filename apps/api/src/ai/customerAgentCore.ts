@@ -341,7 +341,8 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     // cannot accidentally put the server back into awaiting-phone state.
     return { status: "ready", decision: clone(d), question: customerAgentRenderedQuestion({ decision: d, evidence, surface: frame.surface,
       knownPhoneSource: frame.knownPhoneSource, requestedFacts: frame.requestedFacts,
-      verifiedContext: context ?? undefined, inputText: frame.inputText, approvedFileState }), text, evidence: clone(evidence), rounds, toolCalls, ...extra };
+      verifiedContext: context ?? undefined, inputText: frame.inputText, approvedFileState,
+      attachmentInput: frame.attachmentInput, mediaPerception: frame.mediaPerception }), text, evidence: clone(evidence), rounds, toolCalls, ...extra };
   };
   /** A committed write must never end in silence. When the model fails to produce a usable final (rounds spent, bad or
    * disallowed decision, unrenderable refs), the server answers from the receipt(s) alone through the normal renderer and

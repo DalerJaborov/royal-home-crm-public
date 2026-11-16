@@ -54,7 +54,7 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     f.script([[call("get_company_policy", { topic: "commission" }, "commission")], [reply(["e0"], "role")]]);
     const out = await f.deliver(event);
     expect(out.text).toContain("барои фурӯшанда 2%, барои харидор 0%");
-    expect(out.text).toContain("Шумо амвол харидан мехоҳед ё фурӯхтан?"); noPersonalQuestion(out.text);
+    expect(out.text).toContain("Шумо хона мехаред ё мефурӯшед?"); noPersonalQuestion(out.text);
     expect(out.publicData).toMatchObject({ observations: [{ kind: "company_policy", topic: "commission" }] });
     await noActions(event);
   });
@@ -98,7 +98,7 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     const b = await f.capture(o, "Меня зовут Рустам");
     f.script([[call("save_contact", { name: "Рустам" }, "name")], [reply(["e0"], "phone")]]);
     const second = await f.deliver(b);
-    expect(second.text).toBe("Контактные данные сохранены."); noPersonalQuestion(second.text);
+    expect(second.text).toBe("Спасибо, записал."); noPersonalQuestion(second.text);
     const receipts = customerDeliveryReceiptsSchema.parse(second.row.receiptRefsJson);
     expect(receipts).toMatchObject([{ kind: "contact", outcome: "contact_saved" }]);
     const inquiry = await prisma.customerInquiry.findUniqueOrThrow({ where: { id: second.row.inquiryId! } });

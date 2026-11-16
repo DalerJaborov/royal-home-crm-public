@@ -18,7 +18,7 @@
  * ТАДЖИКСКИЙ — по скиллу tajik-phrasebook. Фразы без пометки взяты из live-agent-phrases.md как есть. Фразы,
  * собранные по образцу (их нет в разговорнике дословно), перечислены в описании PR для проверки владельцем.
  */
-import { clientSaidNothingSubstantive } from "./adTemplatePhrase.js";
+import { clientSaidNothingSubstantive, isAdTemplateOpener } from "./adTemplatePhrase.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { RECRUITMENT_CONTACT } from "@royal-home/shared";
 import type { CustomerAgentVerifiedContext } from "@royal-home/shared";
@@ -33,11 +33,17 @@ export const AD_OPEN_QUESTION: Pair = {
   ru: "Подскажите, что вас интересует: купить, продать недвижимость или работа у нас?",
   tg: "Чӣ хизмат кунам?",
 };
-/** The customer has not said a single word of their own in this conversation: only the ad button text and greetings. */
-export function customerAdOpening(input: { inputText?: string; verifiedContext?: CustomerAgentVerifiedContext }): boolean {
+/** The customer has not said a single word of their own in this conversation: only the ad button text and greetings.
+ *  Text only (a photo or a reel is the customer's material), and either the ad button is there or the bot has not spoken yet
+ *  (a «?» after the bot's own question is a repair, not an opening). */
+export function customerAdOpening(input: { inputText?: string; verifiedContext?: CustomerAgentVerifiedContext;
+  attachmentInput?: unknown; mediaPerception?: unknown }): boolean {
   if (input.verifiedContext?.surface !== "dm" || input.verifiedContext.publicState.topic === "job") return false;
+  if (input.attachmentInput || input.mediaPerception || !clientOwnWords(input.inputText ?? "").trim()) return false;
   const users = input.verifiedContext.turns.filter(turn => turn.role === "user").map(turn => turn.text);
-  return [...users, input.inputText ?? ""].every(text => clientSaidNothingSubstantive(text));
+  const words = [...users, input.inputText ?? ""];
+  if (!words.every(text => clientSaidNothingSubstantive(text))) return false;
+  return words.some(text => isAdTemplateOpener(text)) || !input.verifiedContext.turns.some(turn => turn.role === "assistant");
 }
 
 /** Every greeting line the bot can send (current and earlier wording): the memory of "already greeted". */
@@ -64,11 +70,9 @@ export function customerRentalAsked(text: string | undefined): boolean { return 
 export function customerInputHasLink(text: string | undefined): boolean {
   return /https?:\/\/|www\.|instagram\.com|instagr\.am|fb\.watch|facebook\.com|wa\.me|royalhome\.tj/iu.test(text ?? "");
 }
-/** The message carries something: digits (a price, a floor, an area, a phone), a question or more than three words. */
+/** The message carries something: digits (a price, a floor, an area, a phone) or a question. */
 export function customerSubstantiveInput(text: string | undefined, asksNow: boolean): boolean {
-  const t = own(text);
-  if (asksNow || /\d{2,}/u.test(t)) return true;
-  return t.replace(/[\p{P}\p{S}]+/gu, " ").split(/\s+/u).filter(word => /\p{L}/u.test(word)).length > 3;
+  return asksNow || /\d{2,}/u.test(own(text));
 }
 
 /** Where the agency works (owner 15–16.11.2026): Dushanbe and the Rudaki district. Other cities: refused. */
@@ -93,10 +97,17 @@ const RECRUITMENT_ASK_NOZA: Pair = {
   ru: `Это подробно расскажет ${RECRUITMENT_CONTACT.name} по телефону.`,
   tg: `Инро аниқ ${RECRUITMENT_CONTACT.name} мегӯяд.`,
 };
+/** The candidate wrote about themselves after Noza's number was given: thanks, and she tells the rest (no number again). */
+const RECRUITMENT_THANKS_NOZA: Pair = {
+  ru: `Спасибо! Все подробности расскажет ${RECRUITMENT_CONTACT.name} по телефону.`,
+  tg: `Ташаккур! Ҳамаи тафсилотро ${RECRUITMENT_CONTACT.name} мегӯяд.`,
+};
+/** A receipt already said in this chat, and nothing else to say: the same fact in other words (never silence). */
+export const RECEIPT_AGAIN: Pair = { ru: "Хорошо, записал.", tg: "Хуб, қайд кардам." };
 /** Lines after which a person must be told (one door: lib/customerDmAgentTurn.ts::signalStaffFollowUp). */
 export const RECRUITMENT_FOLLOW_UP_LINES: readonly string[] = [RECRUITMENT_PHONE_TAKEN, RECRUITMENT_COMPLAINT].flatMap(pair => [pair.ru, pair.tg]);
 export function recruitmentFollowUpFixedLines(): string[] {
-  return [RECRUITMENT_PHONE_TAKEN, RECRUITMENT_COMPLAINT, RECRUITMENT_ASK_NOZA].flatMap(pair => [pair.ru, pair.tg]);
+  return [RECRUITMENT_PHONE_TAKEN, RECRUITMENT_COMPLAINT, RECRUITMENT_ASK_NOZA, RECRUITMENT_THANKS_NOZA, RECEIPT_AGAIN].flatMap(pair => [pair.ru, pair.tg]);
 }
 const COMPLAINT = /звонил|звонила|дозвон|не\s+(?:берут|бер[её]т|отвечает|отвечают|поднимает|поднимают|в\s+курсе)|никто\s+не|трубку|собеседовани|занг\s+зад|намегир|ҷавоб\s+намедиҳ|чавоб\s+намедих|чавоб\s+намети|ҷавоб\s+намети|телефон(?:атон|тон)?\s+(?:хомуш|намегир)/u;
 const NOZA_DIGITS = RECRUITMENT_CONTACT.phone.replace(/\D/gu, "");
@@ -112,8 +123,9 @@ export function customerRecruitmentFollowUp(text: string | undefined, asksNow: b
   if (COMPLAINT.test(own(text))) return "complaint";
   return asksNow ? "ask" : null;
 }
-export function recruitmentFollowUpLine(kind: Exclude<RecruitmentFollowUp, null>, language: Lang): string {
-  return (kind === "phone_given" ? RECRUITMENT_PHONE_TAKEN : kind === "complaint" ? RECRUITMENT_COMPLAINT : RECRUITMENT_ASK_NOZA)[language];
+export function recruitmentFollowUpLine(kind: Exclude<RecruitmentFollowUp, null> | "thanks", language: Lang): string {
+  return (kind === "phone_given" ? RECRUITMENT_PHONE_TAKEN : kind === "complaint" ? RECRUITMENT_COMPLAINT
+    : kind === "thanks" ? RECRUITMENT_THANKS_NOZA : RECRUITMENT_ASK_NOZA)[language];
 }
 /** Noza's number was already said in this chat (current or retired wording). */
 export function recruitmentPhoneLineSaid(said: (line: string) => boolean, lines: readonly string[]): boolean {

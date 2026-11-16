@@ -54,7 +54,7 @@ const TAJIK_COLLOQUIAL =
  * слова решают язык, только когда больше в сообщении ничего нет («Салом!»).
  */
 const TAJIK_GREETINGS =
-  /(?<![а-яёҳҷӣӯқғ])(салом|саломалейкум|асалом|асаломалейкум|ассалом|ассалому|ассаломуалейкум|алейкум|алайкум|раҳмат|ташаккур)(?![а-яёҳҷӣӯқғ])/giu;
+  /(?<![а-яёҳҷӣӯқғ])(салом|саломалейкум|асалом|асаломалейкум|ассалом|ассалому|ассаломуалейкум|алейкум|алайкум|рахмат|раҳмат|ташаккур)(?![а-яёҳҷӣӯқғ])/giu;
 
 /** Частые русские слова. Тоже служебные: в короткой фразе они попадаются почти всегда. */
 const RUSSIAN_WORDS =
@@ -92,7 +92,7 @@ const ENGLISH_WORDS =
 const TAJIK_LATIN_WORDS =
   /(^|[^a-z])(salom|assalomu|alaykum|alejkum|rahmat|tashakkur|khona|xona|hona|honai|khonai|xonai|chand|chandta|pul|kuja|kujo|kucho|kuchost|kujost|narkh|narx|narxi|narxash|nark|dorem|doram|dorad|darkor|nest|hast|ast|ki|va|bo|ba|az|dar|baroi|mekhokham|mexoham|mehocham|mekhoham|lozim|mumkin|khub|xub|chi|kay|arzon|qimat|kor|bormi|kvartira|ofis|ofisatonro?)([^a-z]|$)/gi;
 const UZBEK_LATIN_WORDS =
-  /(^|[^a-zʻʼ'])(bu|haqida|yana|olsam|bo[ʻʼ']?ladimi|bo[ʻʼ']?ladi|kerak|bormi|qancha|uy|uyni|sotaman|sotib|olaman|ishlaysizmi|ish|batafsil|ko[ʻʼ']?proq)([^a-zʻʼ']|$)/gi;
+  /(^|[^a-zʻʼ'])(bu|haqida|yana|olsam|bo[ʻʼ']?ladimi|bo[ʻʼ']?ladi|kerak|qancha|uy|uyni|sotaman|sotib|olaman|ishlaysizmi|ish|batafsil|ko[ʻʼ']?proq)([^a-zʻʼ']|$)/gi;
 const ENGLISH_STRONG_WORDS =
   /(^|[^a-z])(the|and|you|your|are|is|does|have|has|can|could|would|want|need|price|how|much|many|what|where|when|hello|please|thanks|thank|apartment|apartments|house|buy|sell|rent|for|with|about|of)([^a-z]|$)/gi;
 
@@ -212,7 +212,7 @@ export function detectClientLanguage(text: string): ClientLanguage {
     // Таджикские слова латиницей перевешивают случайное «in»/«to»; чисто английская фраза остаётся «unknown».
     const tajikLatin = count(TAJIK_LATIN_WORDS, trimmed), english = count(ENGLISH_STRONG_WORDS, trimmed);
     // Uzbek Latin («Bu haqida yana maʼlumot olsam boʻladimi?», audit 16.11.2026) is not Tajik: no language is forced.
-    if (count(UZBEK_LATIN_WORDS, trimmed) >= Math.max(1, tajikLatin)) return "unknown";
+    if (count(UZBEK_LATIN_WORDS, trimmed) > tajikLatin) return "unknown";
     if (tajikLatin > 0 && tajikLatin >= english) return "tg";
     return ENGLISH_WORDS.test(trimmed) ? "unknown" : "tg";
   }

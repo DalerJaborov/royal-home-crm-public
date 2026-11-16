@@ -9,7 +9,7 @@ const catalog = { kind: "open_vacancies" as const, collecting: true, positions,
 const video = positions.find(row => row.key === "smm-videographer")!;
 const phoneLine = (language: "ru" | "tg") => language === "ru"
   ? "Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста."
-  : "Маълумоти пурраро дар бораи кор мутахассиси мо Ноза бо телефон медиҳад: 777 070 100. Лутфан занг занед.";
+  : "Дар бораи кор ҳамаи тафсилотро Ноза мегӯяд. Ба ӯ занг занед: 777 070 100.";
 const renderJob = (inputText: string, language: "ru" | "tg" = "ru", question = "none", extra = {}) => renderCustomerAgentDecision({
   decision: { kind: "reply", refs: ["e0"], social: "none", question }, evidence: [{ ref: "e0", value: catalog }],
   requestedFacts: [], knownPhoneSource: "none", surface: "dm", language, inputText, maxOutputChars: 4000,
@@ -69,7 +69,7 @@ describe("relevant verified answers instead of complete cards", () => {
       decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "job_tools" },
       evidence: [{ ref: "e0", value: catalog }, { ref: "e1", value: { kind: "receipt", outcome: "job_application_saved" } }],
     })!;
-    expect(result).toContain("Сведения добавлены к отклику");
+    expect(result).toContain("Спасибо, записал");
     expect(result).toContain(phoneLine("ru"));
     expect(result).not.toContain("Какими программами");
     expect(result).not.toMatch(/Бухоро|резюме|Снимать недвижимость|Открыта вакансия/u);
@@ -79,7 +79,7 @@ describe("relevant verified answers instead of complete cards", () => {
       decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "none" },
       evidence: [{ ref: "e0", value: catalog }, { ref: "e1", value: { kind: "receipt", outcome: "job_application_saved" } }],
     })!;
-    expect(result).toContain(phoneLine("ru")); expect(result).toContain("Сведения добавлены к отклику");
+    expect(result).toContain(phoneLine("ru")); expect(result).toContain("Спасибо, записал");
     expect(result).not.toContain("Размер зарплаты"); expect(result).not.toContain("Бухоро");
   });
   it.each(["Вот работы. Сколько платите?", "Сколько платите"])("answers the conditions question alongside a saved application with the phone line: %s", input => {
@@ -89,7 +89,7 @@ describe("relevant verified answers instead of complete cards", () => {
     })!;
     expect(result).toContain(phoneLine("ru"));
     expect(result).not.toContain("Размер зарплаты");
-    expect(result).toContain("Сведения добавлены к отклику");
+    expect(result).toContain("Спасибо, записал");
   });
   it.each(["ru", "tg"] as const)("gives a public candidate the phone line in %s without requesting their CV publicly or claiming a DM was sent", language => {
     const result = renderJob(language === "ru" ? "Есть вакансии?" : "Ҷойи кор ҳаст?", language, "job_experience", { surface: "public_comment" })!;

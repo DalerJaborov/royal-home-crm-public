@@ -31,7 +31,7 @@ import { detectOutsideCoverage } from "./coverageGuard.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
   customerAdOpening, customerGreetingLine, customerAlreadyGreeted, customerLegalAsked, customerRentalAsked, customerInputHasLink,
-  customerSubstantiveInput, customerServiceArea, GREETING_REPLY_LINES } from "./customerAgentLiveWording.js";
+  customerSubstantiveInput, customerServiceArea, GREETING_REPLY_LINES, RECEIPT_AGAIN } from "./customerAgentLiveWording.js";
 
 export type CustomerReceiptOutcome = CustomerMutationReceipt["outcome"];
 export type CustomerAgentObservation =
@@ -73,7 +73,7 @@ function recruitmentPhoneSaidBefore(context: CustomerAgentVerifiedContext | unde
 /** The ad button or a bare greeting, nothing of the customer's own and no object in hand: the opening question is asked. */
 const OPENING_QUESTIONS: readonly string[] = ["property", "topic", "role", "clarify_previous", "budget", "location", "rooms", "seller_details", "preferences", "none"];
 function adOpeningTurn(input: { surface: CustomerAgentSurface; decision: CustomerAgentDecision; evidence: readonly CustomerAgentEvidence[];
-  inputText?: string; verifiedContext?: CustomerAgentVerifiedContext }): boolean {
+  inputText?: string; verifiedContext?: CustomerAgentVerifiedContext; attachmentInput?: unknown; mediaPerception?: unknown }): boolean {
   return input.surface === "dm" && input.decision.kind !== "propose" && !customerInputHasLink(input.inputText) &&
     !input.evidence.some(e => e.value.kind === "facts" || e.value.kind === "publication_properties" || e.value.kind === "receipt" ||
       e.value.kind === "open_vacancies" && "refs" in input.decision && input.decision.refs.includes(e.ref)) &&
@@ -146,7 +146,8 @@ function intakeProgress(input: { verifiedContext?: CustomerAgentVerifiedContext;
 }
 export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDecision; evidence: readonly CustomerAgentEvidence[];
   surface: CustomerAgentSurface; knownPhoneSource: "none" | "current_input" | "scoped_contact"; requestedFacts?: readonly CustomerPropertyFactKind[];
-  verifiedContext?: CustomerAgentVerifiedContext; inputText?: string; approvedFileState?: CustomerAgentApprovedFileState } & RecruitmentMaterial): CustomerAgentRenderedQuestion {
+  verifiedContext?: CustomerAgentVerifiedContext; inputText?: string; approvedFileState?: CustomerAgentApprovedFileState;
+  attachmentInput?: unknown; mediaPerception?: unknown } & RecruitmentMaterial): CustomerAgentRenderedQuestion {
   const d = input.decision;
   if (d.kind === "skip" || d.kind === "escalate" || d.kind === "moderation_proposal") return "none";
   if (d.kind === "propose") return "confirmation";
@@ -563,7 +564,7 @@ function renderDecisionCore(input: {
   const lines: string[] = [];
   let experienceInvitationIncluded = false;
   let furnitureAnswerIncluded = false;
-  let outsideRefusal = false, emptySearch = false, scopeAlreadySaid = false, jobScheduleAsked = false, nozaAlreadyGiven = false;
+  let outsideRefusal = false, emptySearch = false, scopeAlreadySaid = false, jobScheduleAsked = false, nozaAlreadyGiven = false, receiptSaidBefore = false;
   const nozaSaidBefore = input.surface === "dm" && recruitmentPhoneSaidBefore(input.verifiedContext);
   // Noza's number goes once per conversation (audit 16.11.2026: the same line 2-7 times in 18 chats).
   const pushRecruitmentPhone = () => { if (nozaSaidBefore) nozaAlreadyGiven = true; else if (!lines.includes(recruitmentPhoneLine(lang))) lines.push(recruitmentPhoneLine(lang)); };
@@ -606,7 +607,8 @@ function renderDecisionCore(input: {
   const sayText = sayVerdict?.ok ? sayVerdict.text : null;
   // One greeting per conversation, in the customer's form: «Ассалому алейкум» → «Ваалайкум ассалом!» (audit 16.11.2026:
   // «Салом!» four times in one chat, «Понял.» instead of a hello to a candidate).
-  const greetedBefore = input.surface === "dm" && customerAlreadyGreeted(line => lineSentBefore(input.verifiedContext, line));
+  const greetedBefore = input.surface === "dm" && (customerAlreadyGreeted(line => lineSentBefore(input.verifiedContext, line)) ||
+    !!input.verifiedContext?.turns.some(turn => turn.role === "assistant" && GREETING_REPLY_LINES.some(greeting => turn.text.trimStart().startsWith(greeting))));
   const greeting = d.social === "greet" && !greetedBefore ? customerGreetingLine(lang, input.inputText, social.greet) : "";
   if (input.surface === "public_comment" && d.social === "thank" && isCustomerPublicAppreciation(input.inputText ?? "")) {
     lines.push(customerPublicThanks(input.inputText!, lang));
@@ -668,6 +670,7 @@ function renderDecisionCore(input: {
       const line = outcomes[item.value.outcome][lang];
       // «Спасибо, записал.» once, not after every answer (audit 16.11.2026: five times in one chat).
       if (!(input.surface === "dm" && ["job_application_saved", "contact_saved"].includes(item.value.outcome) && lineSentBefore(input.verifiedContext, line))) lines.push(line);
+      else receiptSaidBefore = true;
     }
     if (item.value.kind === "proposal") lines.push(item.value.summary[lang]);
     if (item.value.kind === "company_policy") {
@@ -676,7 +679,8 @@ function renderDecisionCore(input: {
       if (item.value.topic === "negotiation" && input.surface === "dm" && customerTradeInQuestion(input.inputText ?? "")) continue;
       // «Не могу гарантировать юридическую чистоту» to «Хочу продать квартиру» (5 chats) and «арендой не занимаемся» to a
       // word that is not about rent: these lines answer only their own question (audit 16.11.2026).
-      if (input.surface === "dm" && (item.value.topic === "legal" && !customerLegalAsked(input.inputText) ||
+      // Only against the customer's actual words: a render without input (the memory allow-list) keeps every line.
+      if (input.surface === "dm" && input.inputText !== undefined && (item.value.topic === "legal" && !customerLegalAsked(input.inputText) ||
           item.value.topic === "rental" && !item.value.knowledge.rent && !customerRentalAsked(input.inputText))) { scopeAlreadySaid = true; continue; }
       if (item.value.topic === "service_scope" && input.surface === "dm") {
         const scope = serviceScopeLines(item.value, lang, input, line => lineSentBefore(input.verifiedContext, line));
@@ -772,8 +776,10 @@ function renderDecisionCore(input: {
     if ((jobScheduleAsked || nozaAlreadyGiven && kind === "ask") && !content.length) {
       lines.push(recruitmentFollowUpLine("ask", lang));
       if (!nozaSaidBefore) pushRecruitmentPhone();
-    }
+    } else if (nozaAlreadyGiven && !content.length && !receiptSaidBefore) lines.push(recruitmentFollowUpLine("thanks", lang));
   }
+  // The receipt was already said and nothing else is left: the same fact in other words, never an empty reply.
+  if (receiptSaidBefore && !lines.some(line => line && !isSocialLine(line))) lines.push(RECEIPT_AGAIN[lang]);
   if (furnitureQuestion && !furnitureAnswerIncluded) lines.push(lang === "tg"
     ? "Маълумоти тасдиқшуда нест, ки мебел бо объект дода мешавад ё ба нарх дохил аст."
     : "В подтверждённых данных не указано, останется ли мебель и входит ли она в стоимость.");
@@ -820,8 +826,10 @@ function renderDecisionCore(input: {
   // The résumé is asked once: not after a document/photo/own account, and not a second time.
   const aboutHandled = (question === "job_experience" || requiredFact === "about") && input.surface !== "public_comment" &&
     (experienceInvitationIncluded || recruitmentAboutHandled({ ...input, ...material }));
+  // Somebody else's link keeps the business question below; our own link that did not resolve goes to a person.
   const linkUnresolved = input.surface === "dm" && question === "property" && customerInputHasLink(input.inputText) &&
-    !evidence.some(e => e?.value.kind === "facts");
+    !evidence.some(e => e?.value.kind === "facts" ||
+      e?.value.kind === "property_unresolved" && (e.value.reason === "untrusted_origin" || e.value.reason === "unsupported"));
   if (adOpening && (question === "topic" || question === "none") && !lines.some(line => line && !isSocialLine(line))) {
     lines.push(AD_OPEN_QUESTION[lang]);
   } else if (linkUnresolved) {
