@@ -156,6 +156,32 @@ describe("POST /clients/:id/transfer", () => {
     expect(note).not.toBeNull();
   });
 
+  /**
+   * Предел передач исчерпан (16.11.2026): «Потерянных» больше нет, а карточку в
+   * Корзину убирает человек. Клиент остаётся у агента и на виду, руководителю
+   * уходит заявка на удаление (lib/clientDeleteRequest.ts).
+   */
+  it("предел передач исчерпан — карточка у агента, руководителю заявка на удаление", async () => {
+    const max = (await prisma.settings.findUnique({ where: { id: "singleton" }, select: { leadMaxTransfers: true } }))?.leadMaxTransfers ?? 3;
+    const c = await makeClient();
+    await prisma.client.update({ where: { id: c.id }, data: { refusalCount: max - 1 } });
+    await makeShowing(c.id);
+    const res = await request(app)
+      .post(`/api/v1/clients/${c.id}/transfer`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ reason: "NO_TRUST", comment: "не сложилось и у этого" });
+    expect(res.status).toBe(200);
+
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.deletedAt).toBeNull();
+    expect(after.status).not.toBe("LOST");
+    expect(after.assignedAgentId).toBe(agentId);
+    expect(after.escalatedAt).toBeNull();
+    const request_ = await prisma.clientDeleteRequest.findFirst({ where: { clientId: c.id, status: "PENDING" } });
+    expect(request_?.requestedById).toBe(agentId);
+    expect(request_?.comment).toContain("Предел передач");
+  });
+
   it("причина, отличная от NO_TRUST, границей API отклоняется (задача F, сужение)", async () => {
     const c = await makeClient();
     await makeShowing(c.id);

@@ -118,7 +118,7 @@ describe("Последствия одобренной заявки", () => {
     expect(after!.lastAgentAttemptAt!.getTime()).toBeGreaterThan(before.getTime());
   });
 
-  it("объектов не осталось — карточка уходит в Корзину с причиной (не висит в «Без контакта»)", async () => {
+  it("объектов не осталось — руководителю уходит заявка на удаление, причина в карточке", async () => {
     const { seller, property } = await makeSellerWithProperty();
 
     await applySellerRefusal({
@@ -129,10 +129,14 @@ describe("Последствия одобренной заявки", () => {
     });
 
     const after = await prisma.client.findUnique({ where: { id: seller.id } });
-    // «Потерянных» больше нет (16.11.2026): отказ, закрывающий работу, — Корзина.
+    // «Потерянных» больше нет (16.11.2026). В Корзину карточку убирает человек:
+    // CRM заводит заявку на удаление руководителю, сама не удаляет.
     expect(after?.status).not.toBe("LOST");
-    expect(after?.deletedAt).not.toBeNull();
+    expect(after?.deletedAt).toBeNull();
     expect(after?.refusalReason).toBe("OWNER_CANCELLED");
+    const request = await prisma.clientDeleteRequest.findFirst({ where: { clientId: seller.id, status: "PENDING" } });
+    expect(request?.requestedById).toBe(agentId);
+    expect(request?.comment).toContain("снял последний объект");
   });
 
   /** ГЛАВНАЯ ПРОВЕРКА: вход в СБ вернулся. */

@@ -1,8 +1,9 @@
+import { PROPERTY_DELETE_REQUEST_REASON_LABELS, type PropertyDeleteRequestReason } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { recomputeSellerCardState } from "./sellerCardState.js";
 import { logTimeline } from "./timeline.js";
-import { trashClient } from "./trashClient.js";
+import { fileEndOfWorkDeleteRequest } from "./clientDeleteRequest.js";
 
 /**
  * ОТКАЗ ПРОДАВЦА, ОФОРМЛЕННЫЙ ЧЕРЕЗ СНЯТИЕ ОБЪЕКТА (владелец 09.09.2026).
@@ -70,20 +71,13 @@ export async function applySellerRefusal(input: SellerRefusalInput): Promise<voi
 
   // Отказ продавца, после которого объектов в работе не осталось и сделок не было, —
   // конец работы по карточке. «Потерянных» больше нет (владелец 16.11.2026), поэтому,
-  // как и отказ покупателя (lib/clientRefuse.ts), карточка уходит в Корзину с
-  // причиной. Иначе она висела бы в работе и через сутки попала бы в «Без контакта»,
-  // обвиняя агента, который всё оформил правильно. «Продан в обход» остаётся у
-  // агента: по нему идёт проверка СБ.
+  // как и отказ покупателя (lib/clientRefuse.ts), руководителю уходит заявка на
+  // удаление: в Корзину карточку убирает человек, а не автоматика. «Продан в обход»
+  // остаётся у агента: по нему идёт проверка СБ.
   if (verdict?.next === "LOST" && !SECURITY_REVIEW_REASONS.has(input.reason)) {
-    const trashed = await trashClient(seller.id, input.requestedById);
-    if (!trashed.ok) {
-      await logTimeline({
-        clientId: seller.id,
-        actor: { kind: "system", source: "refuse", subjectAgentId: seller.assignedAgentId },
-        type: "SYSTEM",
-        notes: `Работа завершена, но в Корзину карточка не убрана: ${trashed.error}`,
-      }).catch(() => {});
-    }
+    await fileEndOfWorkDeleteRequest(seller, input.requestedById,
+      `Продавец снял последний объект №${property.shortId} «${property.title}» (причина: ${PROPERTY_DELETE_REQUEST_REASON_LABELS[input.reason as PropertyDeleteRequestReason] ?? input.reason}). Объектов в работе и сделок нет — работа по карточке завершена.` +
+        (input.comment?.trim() ? ` Комментарий: ${input.comment.trim()}` : ""));
   }
 }
 

@@ -42,7 +42,7 @@ import { dushanbeDateTimeString } from "./dushanbeTime.js";
 import { changeClientAgent, ClientOwnerRaceError, throwIfNotClaimed } from "./changeClientAgent.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { lastConductedShowingPropertyId } from "./propertyVoice/showingProperty.js";
-import { trashClient } from "./trashClient.js";
+import { fileEndOfWorkDeleteRequest } from "./clientDeleteRequest.js";
 
 export interface RefuseClientInput {
   clientId: string;
@@ -271,7 +271,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
       : needsSecurityReview
       ? `Отказ №${refusalCount} — работа по назначению завершена`
       : escalate
-      ? `Отказ №${refusalCount} — предел передач (${maxTransfers}) исчерпан, работа завершена — клиент убран в Корзину`
+      ? `Отказ №${refusalCount} — предел передач (${maxTransfers}) исчерпан, работа завершена — заявка на удаление отправлена руководителю`
       : !nextAgentId
         ? `Отказ №${refusalCount} — снят с агента, передан руководству`
         : `Отказ №${refusalCount}`,
@@ -361,18 +361,20 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
           assignmentRefusedAt: new Date(),
           assignmentRefusedByAgentId: client.assignedAgentId,
           assignmentCompletedAt: needsManagementDecision ? null : new Date(),
-          // Предел передач исчерпан — работа закончена: карточка уходит в
-          // Корзину сразу после этой транзакции (владелец 16.11.2026: состояния
-          // «Потерянный» больше нет). Проверка СБ идёт ПЕРВОЙ по приоритету: пока
-          // человек не решил, карточка на проверке, а не в Корзине.
+          // Предел передач исчерпан — работа закончена: после этой транзакции
+          // руководителю уходит заявка на удаление (владелец 16.11.2026: состояния
+          // «Потерянный» больше нет, «пусть сами люди решают»). Проверка СБ идёт
+          // ПЕРВОЙ по приоритету: пока человек не решил, карточка на проверке.
+          // Статус карточки отказ больше не трогает: «Горячий»/«Холодный» сняты
+          // вместе с остальными статусами-папками (16.11.2026).
           ...(needsSecurityReview
             ? { securityReview: "PENDING" as const, securityReviewedAt: null, securityReviewedById: null }
             : needsManagementDecision ? {}
             : escalate
               ? { ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}) }
               : isHot
-                ? { hotSince: client.hotSince ?? new Date(), status: "HOT" as const }
-                : { status: "COLD" as const }),
+                ? { hotSince: client.hotSince ?? new Date() }
+                : {}),
           ...(needsManagementDecision ? {} : nextAgentId ? { assignedAt: new Date(), acceptedAt: null } : { escalatedAt: new Date() }),
         },
         tx,
@@ -385,24 +387,18 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
   }
 
   /**
-   * КОНЕЦ РАБОТЫ = КОРЗИНА (владелец 16.11.2026: «ничего лишнего»). Раньше
-   * карточка становилась «Потерянной» (status LOST) и через 90 дней уезжала в
-   * Корзину сама. Теперь сразу обычное мягкое удаление — восстановимо руками и
-   * само, когда клиент снова напишет или позвонит (services/leads/intake.ts,
-   * resumeExistingChannelLead). Причина отказа уже лежит в хронологии выше.
-   * Открытая сделка или объект продавца в работе удаление не пускают —
-   * карточка остаётся у агента с эскалацией руководству, и это видно в ленте.
+   * КОНЕЦ РАБОТЫ = ЗАЯВКА НА УДАЛЕНИЕ РУКОВОДИТЕЛЮ (владелец 16.11.2026: «ничего
+   * лишнего», «пусть сами люди решают»). Раньше карточка становилась «Потерянной»
+   * (status LOST) и через 90 дней уезжала в Корзину сама. Теперь в Корзину её
+   * убирает руководитель, одобрив заявку (lib/clientDeleteRequest.ts — та же
+   * очередь, что у кнопки агента). Причина отказа уже лежит в хронологии выше.
+   * Клиент, который снова напишет или позвонит, вернёт карточку и из Корзины
+   * (services/leads/intake.ts, resumeExistingChannelLead).
    */
   if (escalate && !needsSecurityReview) {
-    const trashed = await trashClient(client.id, input.actorAgentId ?? client.assignedAgentId);
-    if (!trashed.ok) {
-      await logTimeline({
-        clientId: client.id,
-        actor: { kind: "system", source: "refuse", subjectAgentId: client.assignedAgentId },
-        type: "SYSTEM",
-        notes: `Работа завершена, но в Корзину карточка не убрана: ${trashed.error}`,
-      }).catch(() => {});
-    }
+    await fileEndOfWorkDeleteRequest(client, input.actorAgentId ?? client.assignedAgentId,
+      `Отказ клиента: ${reasonLabel}. Предел передач (${maxTransfers}) исчерпан — работа по карточке завершена.` +
+        (comment?.trim() ? ` Комментарий агента: ${comment.trim()}` : ""));
   }
 
   // A review or a preserved second role is not a lost client and earns no loss event.

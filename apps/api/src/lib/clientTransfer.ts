@@ -15,6 +15,7 @@ import { changeClientAgent, ClientOwnerRaceError, throwIfNotClaimed } from "./ch
 import { publishClientUpdated } from "./livePublish.js";
 import { closeOwnershipSatellites } from "./ownershipSatellites.js";
 import { logTimeline } from "./timeline.js";
+import { fileEndOfWorkDeleteRequest } from "./clientDeleteRequest.js";
 
 const MS_PER_DAY = 86_400_000;
 
@@ -331,8 +332,8 @@ async function transferClientByAgentUnguarded(input: {
   if (escalate) {
     // Предел передач исчерпан. До 16.11.2026 карточка уходила в «Потерянные»
     // (status LOST); этого состояния больше нет (владелец: «ничего лишнего»).
-    // Клиент остаётся у того же агента, escalatedAt зовёт руководителя решить,
-    // кому его отдать, — тот же сигнал, что и у «свободных агентов нет».
+    // Клиент остаётся у того же агента и на виду, а руководителю уходит заявка
+    // на удаление (ниже, после транзакции) — «пусть сами люди решают».
     await prisma.$transaction(async (tx) => {
       /**
        * outcome="NEGATIVE": передача, исчерпавшая предел, — неудачный исход
@@ -359,7 +360,6 @@ async function transferClientByAgentUnguarded(input: {
         skipInteraction: true,
         data: {
           refusalCount,
-          escalatedAt: new Date(),
           ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}),
         },
         // Владелец из снимка — иначе эскалация ложилась бы на карточку, которую
@@ -396,13 +396,13 @@ async function transferClientByAgentUnguarded(input: {
     // reassignClientSummaries с toAgentId=null гасит ВСЕ виды (аудит 02.09 §7 шаг 6):
     // call_result/showing_book и так гасятся, а meeting/property/card_fill теперь
     // тоже закрываются вместо того чтобы висеть на агенте, у которого клиент уже LOST.
-    void enqueueDirectorAlert({
-      title: `⚠️ ${client.fullName}: предел передач исчерпан`,
-      body: `${reasonLabel}. Назначьте агента вручную.`,
-      url: `/clients/${client.shortId}`,
-      tag: `transfer-exhausted-${client.id}`,
-      recipientPermission: "clients.assign",
-    });
+    // Решение — руководителю заявкой на удаление (16.11.2026, та же очередь, что
+    // у кнопки агента и у отказа, lib/clientDeleteRequest.ts): одобрит — карточка
+    // в Корзине, отклонит — остаётся у агента. Пуш руководству шлёт сама заявка.
+    await fileEndOfWorkDeleteRequest(client, input.agentId,
+      `Предел передач (${maxTransfers}) исчерпан: ${reasonLabel}` +
+        (input.comment?.trim() ? `. ${input.comment.trim()}` : "") +
+        ". Работа по карточке завершена.");
     return { ok: true, lost: true };
   }
 
