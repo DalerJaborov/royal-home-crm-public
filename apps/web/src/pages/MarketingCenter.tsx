@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ArrowRight, Camera, CalendarClock, CheckCheck, Clapperboard, LayoutDashboard, List, Radio, Rocket, Search } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/auth";
+import { useCan } from "../lib/permissions";
 import {
   useMarketingQueue,
   useMarketingSummary,
@@ -391,9 +392,8 @@ export function MarketingCenter() {
   // на сервере (routes/marketing.ts). Монтажёр НЕ входит в canViewQueue: у него
   // нет доступа к /queue и /summary, только к /editors-load. ADMIN — в обеих,
   // как DIRECTOR (решение владельца 22.08.2026, полная видимость).
-  const canViewQueue = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
-  const canViewEditorsLoad =
-    role === "MARKETING" || role === "EDITOR" || role === "DIRECTOR" || role === "ADMIN";
+  const canViewQueue = useCan()("marketing.access");
+  const canViewEditorsLoad = canViewQueue || role === "EDITOR";
   const canView = canViewQueue || canViewEditorsLoad;
   // Монтажёр открывается сразу на своей единственной вкладке — переключателя
   // на «Очередь подготовки» у него нет вовсе (см. рендер вкладок ниже).

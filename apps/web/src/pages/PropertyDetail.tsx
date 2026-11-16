@@ -538,7 +538,7 @@ function PropertyViewCard({
   // назначенный агент при заполненном интейкере видели кнопки и получали 403.
   const myRole = useAuthStore((s) => s.agent?.role);
   const myId = useAuthStore((s) => s.agent?.id);
-  const canMarkGroupShare = !accountReadOnly && !isTrashed && canMarkFacebookGroupShare(myRole, myId, property);
+  const canMarkGroupShare = !accountReadOnly && !isTrashed && canMarkFacebookGroupShare(can("marketing.access"), myId, property);
 
   const legacyAgentMobile = useLegacyAgentMobile();
   const photos = property.photos ?? [];
@@ -586,7 +586,7 @@ function PropertyViewCard({
   // «Решить сейчас» — только когда в блоке есть что показать (lib/propertySolve.ts):
   // у агента на объекте в продаже от блока оставался один заголовок.
   const role = useAuthStore((s) => s.agent?.role);
-  const marketingRole = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
+  const marketingRole = can("marketing.access");
   const { data: channelsStatus } = useChannelsStatus(marketingRole);
   // Статус меняется и из просмотра (24.09.2026, пункт 5 разбора): тем же, кому
   // открыта правка, и тем же списком, что в правке.
@@ -2323,8 +2323,7 @@ function CompleteEditingButton({ propertyId }: { propertyId: string }) {
  */
 function TikTokPublishButton({ property }: { property: Property }) {
   const readOnly = useIsReadOnly();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canSeeMarketing = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
+  const canSeeMarketing = useCan()("marketing.access");
   const { data: channelsStatus } = useChannelsStatus(canSeeMarketing);
   const publish = useTikTokManualPublish(property.id);
   const [result, setResult] = useState<{ ok: boolean; note?: string; error?: string } | null>(null);

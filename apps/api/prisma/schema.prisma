@@ -4071,6 +4071,8 @@ model Client {
   /// по workStatus=DEFERRED + deferredUntil<=now — без составного индекса это
   /// полный проход по всей таблице клиентов на каждом тике.
   @@index([workStatus, deferredUntil])
+  /// Пуши «новое объявление на площадке подошло покупателю» (14.11.2026).
+  marketAlerts BuyerMarketAlert[]
 }
 
 /// Желаемое место поиска покупателя — координата с радиусом (владелец 12.09.2026,
@@ -5996,6 +5998,20 @@ model Settings {
   botInstagramEnabled               Boolean   @default(true)
   botFacebookEnabled                Boolean   @default(true)
   botTelegramEnabled                Boolean   @default(true)
+  /// СТОРОЖ «TELEGRAM: КЛИЕНТ БЕЗ ОТВЕТА» (15.11.2026, lib/clientWaitingAlert.ts):
+  /// реплика клиента в Telegram-боте или Telegram Direct без ответа дольше 30 минут —
+  /// пуш ответственному через ту же дверь, что у Meta. Включён: переписок в Telegram
+  /// единицы в неделю, массовых пушей не бывает.
+  telegramSilenceWatchEnabled       Boolean   @default(true)
+  /// СТОРОЖ «TELEGRAM НЕ ДОСТАВЛЯЕТ В CRM» (15.11.2026, lib/telegramDeliveryWatch.ts):
+  /// getWebhookInfo — вебхук не установлен, свежая ошибка доставки, очередь копится —
+  /// тревога руководству. Включён: пушей сотрудникам нет.
+  telegramDeliveryWatchEnabled      Boolean   @default(true)
+  /// СТОРОЖ «ВЕБХУК WHATSAPP ЗАМОЛЧАЛ» (15.11.2026, lib/whatsappWebhookWatch.ts):
+  /// входящие WhatsApp Meta отдаёт только вебхуком, сверить их не с чем. Номер жив,
+  /// а входящих в рабочие часы нет дольше обычного — тревога руководству в «Здоровье
+  /// системы» (не пуш сотрудникам). Включён.
+  whatsappWebhookWatchEnabled       Boolean   @default(true)
   /// ЧАТ НА САЙТЕ (23.08.2026) — виджет в углу royalhome.tj, тот же бот, что и в
   /// мессенджерах (см. messengers/websiteChat.ts). Отдельный рубильник, а не общий
   /// с каналами Meta: у сайта нет ни ключей, ни транспорта, гасить его приходится
@@ -6618,6 +6634,9 @@ model Settings {
   openaiApiKey                      String?
   /// Обложки ChatGPT вообще: выключено — публикация идёт без обложки.
   coverGenerationEnabled            Boolean   @default(true)
+  /// Рубильник OpenAI целиком (14.11.2026, владелец: «Опен ии полностью выключи»).
+  /// false — никаких вызовов api.openai.com, обложки только шаблоном, без тревог об оплате OpenAI.
+  openaiEnabled                     Boolean   @default(false)
   /// Качество gpt-image-1: low | medium | high.
   openaiImageQuality                String    @default("high") // не используется с 01.11.2026, константа в коде
   /// Потолок картинок ChatGPT за сутки по Душанбе (обложка = 2 картинки, повтор — ещё одна).
@@ -7019,6 +7038,11 @@ model Settings {
   botCanConfirmShowings             Boolean   @default(true)
   botCanFollowUp                    Boolean   @default(true)
   botCanAnswerComments              Boolean   @default(true)
+  /// КОММЕНТАРИЙ СО СБОЕМ БОТА — ЧЕЛОВЕКУ (15.11.2026, lib/commentWaitingAlert.ts, В2
+  /// владельца): ИИ недоступен после повторов, технический отказ ядра, комментарий
+  /// застрял в очереди дольше 30 минут — одна сводка за тик тем, кто читает
+  /// переписки. Включён: таких комментариев единицы, пушей по одному на каждый нет.
+  commentFailureWatchEnabled        Boolean   @default(true)
   /// ЕСТЬ ЛИ ДЕЖУРНЫЙ ОПЕРАТОР / КОЛЛ-ЦЕНТР (смысл уточнён 23.08.2026).
   /// Включено — просьба «перезвоните мне» живёт отдельной записью: push дежурному,
   /// АТС соединяет его с клиентом, очередь видна баннером на главной.
@@ -7113,6 +7137,12 @@ model Settings {
   /// Только в режиме «только заявки»: «хотим посмотреть», «куда ехать», «адрес»
   /// и таджикские равные — заявка агенту сразу, с объектом, если он известен.
   botHotIntentHandover              Boolean   @default(true)
+  /// Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026). По умолчанию ВЫКЛ.
+  marketBuyerAlertsEnabled          Boolean   @default(false)
+  /// Когда рубильник пуша «объявление под покупателя» включили (ставит первый прогон; null при выключенном). «Новое» считается от неё.
+  marketBuyerAlertsEnabledAt        DateTime?
+  /// Подбор покупателю с площадок только от собственников: без агентств и продавцов с 3+ объявлениями. По умолчанию ВКЛ.
+  marketOwnersOnly                  Boolean   @default(true)
   /// ЯВНОЕ КЭШИРОВАНИЕ СИСТЕМНОГО ПРОМТА GEMINI (30.08.2026). Неявный кэш Google
   /// (по умолчанию, без этого тумблера) срабатывает где-то в половине случаев —
   /// задокументированное поведение самого Google, не наша недоработка. Явный кэш
@@ -7686,6 +7716,10 @@ model Settings {
   /// сейчас»: иначе выключатель означал бы «не присылать пуш», а не «не собирать».
   problemReportWeeklyEnabled   Boolean  @default(true)
   problemReportMonthlyEnabled  Boolean  @default(true)
+  /// PDF финансового отчёта за прошлый месяц директорам в Telegram, 1-го числа (14.11.2026).
+  /// Выключено по умолчанию; LastSent — месяц «ГГГГ-ММ», уже разосланный (защита от повтора).
+  financePdfMonthlyEnabled     Boolean  @default(false)
+  financePdfMonthlyLastSent    String?
 
   /// ПОДСКАЗКА АГЕНТУ ПЕРЕД СОЕДИНЕНИЕМ (идея владельца 20.08.2026: «агент ответил на
   /// звонок, но даже не знает, с кем общается»). Станция играет агенту в ухо короткую
@@ -11206,6 +11240,7 @@ model MarketListing {
   priceSnapshots MarketPriceSnapshot[]
   /// Совпадения с нашими объектами: только обратная сторона связи, колонок нет.
   ownMatches     PropertyMarketMatch[]
+  buyerAlerts    BuyerMarketAlert[]
 
   @@unique([source, sourceId])
   @@index([dealType, propertyType, isActive])
@@ -11234,6 +11269,39 @@ model MarketPriceSnapshot {
   @@index([listingId, seenAt])
 }
 
+/// ИСТОРИЯ МЕДИАН РЫНКА ПО СЕГМЕНТАМ (14.11.2026): ночной снимок «сколько стоит м² в районе».
+///
+/// Каталог хранит только сегодняшнее состояние; прошлую медиану из него не восстановить, и «динамика
+/// по району» без записи вперёд останется пустой. Раз в сутки (по Душанбе, после ночного сбора)
+/// пишем по строке на сегмент: район × комнаты × тип дома × аудитория. Строка ниже порога MIN_SAMPLE
+/// (8) не пишется вовсе: цифры по трём объявлениям — выдумка. Повторный запуск в те же сутки
+/// переписывает строки этого дня (удаляет и вставляет в одной транзакции), дублей не будет.
+/// Только квартиры-продажа (аренду каталог не ведёт).
+model MarketMedianDaily {
+  id                  String   @id @default(uuid())
+  /// Сутки по Душанбе, «ГГГГ-ММ-ДД» (границы только через lib/dushanbeTime.ts).
+  day                 String
+  city                String
+  /// Название района; «*» — весь город (сумма по районам, у которых район известен).
+  districtName        String
+  /// Число комнат; 0 — любое.
+  rooms               Int
+  /// NEW — новостройка (современный дом), SECONDARY — вторичка, ANY — любой (включая «не указан»).
+  building            String
+  /// ALL — весь рынок, OWNERS — только собственники (не агентство и меньше 3 активных объявлений у продавца).
+  audience            String
+  /// Сколько уникальных объявлений в выборке (после склейки дублей между площадками).
+  count               Int
+  medianPerSqmTjs     Int?
+  averagePerSqmTjs    Int?
+  medianPriceTjs      Int?
+  averagePriceTjs     Int?
+  createdAt           DateTime @default(now())
+
+  @@unique([day, city, districtName, rooms, building, audience])
+  @@index([city, districtName, rooms, building, audience, day])
+}
+
 /// НАШ ОБЪЕКТ НАЙДЕН НА ЧУЖОЙ ПЛОЩАДКЕ (02.11.2026).
 ///
 /// Клиент мог выставить квартиру ещё и на Somon/Paydo — агент должен знать и
@@ -11248,6 +11316,25 @@ model MarketPriceSnapshot {
 /// (агент сказал «не он» — больше не показываем и не уведомляем).
 /// notifiedAt — когда агенту ушёл пуш о находке; lastPriceTjs — цена на площадке
 /// в момент последнего пуша: повторно будим агента, только если она сдвинулась.
+/// Пуш агенту «новое объявление на площадке подошло вашему покупателю» (14.11.2026,
+/// lib/market/buyerAlerts.ts). Одна строка = одна пара клиент+объявление: по уникальному
+/// ключу пара уходит агенту ровно один раз. notifiedAt — когда ушёл пуш (общий у пачки
+/// объявлений одного пуша), по нему же считается суточный предел пушей на клиента.
+model BuyerMarketAlert {
+  id         String        @id @default(uuid())
+  clientId   String
+  client     Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  listingId  String
+  listing    MarketListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  /// Агент клиента на момент пуша.
+  agentId    String
+  notifiedAt DateTime      @default(now())
+
+  @@unique([clientId, listingId])
+  @@index([clientId, notifiedAt])
+  @@index([listingId])
+}
+
 model PropertyMarketMatch {
   id           String        @id @default(uuid())
   propertyId   String
