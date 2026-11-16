@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUp, Workflow } from "lucide-react";
 import { useAuthStore } from "../store/auth";
 import { canReadPreparation } from "../lib/preparationAccess";
+import { useCan } from "../lib/permissions";
 import {
   useCancelVideoHandoff,
   useEditorQueue,
@@ -48,7 +49,8 @@ export function Pipeline() {
   const clean = useCleanShell();
   const role = useAuthStore((s) => s.agent?.role);
   const isEditor = role === "EDITOR";
-  const allowed = canReadPreparation(role);
+  const canMarketing = useCan()("marketing.access");
+  const allowed = canReadPreparation(role, canMarketing);
 
   if (!allowed) {
     return (

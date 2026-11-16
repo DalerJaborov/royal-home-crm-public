@@ -193,11 +193,11 @@ beforeAll(async () => {
   const logoUrl = await writeUpload(`cover-ai-logo-${runId}.png`, logo);
   settingsBefore = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { coverProvider: true, companyLogoUrl: true, openaiApiKey: true, coverGenerationEnabled: true, openaiCoverDailyLimit: true, openaiCandidates: true, openaiTextMode: true, openaiImageModel: true },
+    select: { coverProvider: true, companyLogoUrl: true, openaiApiKey: true, openaiEnabled: true, coverGenerationEnabled: true, openaiCoverDailyLimit: true, openaiCandidates: true, openaiTextMode: true, openaiImageModel: true },
   });
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { companyLogoUrl: logoUrl, openaiApiKey: encryptSecret("sk-test-settings-key"), coverProvider: "OPENAI", coverGenerationEnabled: true, openaiCoverDailyLimit: 1000 },
+    data: { companyLogoUrl: logoUrl, openaiApiKey: encryptSecret("sk-test-settings-key"), openaiEnabled: true, coverProvider: "OPENAI", coverGenerationEnabled: true, openaiCoverDailyLimit: 1000 },
   });
 });
 

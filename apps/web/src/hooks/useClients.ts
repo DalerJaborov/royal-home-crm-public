@@ -9,6 +9,7 @@ import type { Client, Paginated, Property } from "../types";
 import { useProperties } from "./useProperties";
 import { withRetryKey, type RetryKey } from "./useRetryKey";
 import { useAccumulatedPages } from "./useAccumulatedPages";
+import { audioFileNameFor } from "../lib/audioRecording";
 
 /** Оптимистично правит открытую карточку клиента в кэше (кэш по shortId из URL,
  *  значение — Client с .id=uuid). Возвращает снимок для отката при реальной ошибке. */
@@ -591,7 +592,7 @@ export function useSendClientVoiceMessage(clientId: string, conversationId?: str
   return useMutation({
     mutationFn: (blob: Blob) => {
       const form = new FormData();
-      form.append("audio", blob, "voice.webm");
+      form.append("audio", blob, audioFileNameFor(blob.type));
       if (conversationId) form.append("conversationId", conversationId);
       return api<{ ok: boolean }>(`/clients/${clientId}/message-voice`, { method: "POST", body: form });
     },

@@ -1365,6 +1365,8 @@ export interface PropertyCoverAttempt {
 }
 
 export interface CoverRuntimeSettings {
+  /** Рубильник OpenAI целиком (Settings.openaiEnabled, 14.11.2026). */
+  openaiEnabled: boolean;
   coverGenerationEnabled: boolean;
   /** Кто рисует (28.09.2026): TEMPLATE — наш шаблон, OPENAI — ChatGPT. */
   coverProvider: CoverProvider;
@@ -1385,14 +1387,19 @@ export interface CoverRuntimeSettings {
 export async function loadCoverRuntimeSettings(): Promise<CoverRuntimeSettings> {
   const s = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { coverGenerationEnabled: true, coverProvider: true, coverPhotoRedraw: true, coverReferenceSquareUrl: true, coverReferenceStoryUrl: true, openaiCoverDailyLimit: true, companyLogoUrl: true },
+    select: { coverGenerationEnabled: true, coverProvider: true, coverPhotoRedraw: true, coverReferenceSquareUrl: true, coverReferenceStoryUrl: true, openaiCoverDailyLimit: true, companyLogoUrl: true, openaiEnabled: true },
   });
+  // OpenAI выключен рубильником (14.11.2026) — обложка только шаблоном и без
+  // перерисовки фото: иначе путь OPENAI/перерисовка падал бы «ключ не задан» и
+  // писал ошибки, по которым шли напоминания об оплате.
+  const openaiOn = s?.openaiEnabled ?? false;
   return {
+    openaiEnabled: openaiOn,
     coverGenerationEnabled: s?.coverGenerationEnabled ?? true,
-    coverPhotoRedraw: s?.coverPhotoRedraw ?? true,
+    coverPhotoRedraw: openaiOn ? (s?.coverPhotoRedraw ?? true) : false,
     coverReferenceSquareUrl: s?.coverReferenceSquareUrl ?? null,
     coverReferenceStoryUrl: s?.coverReferenceStoryUrl ?? null,
-    coverProvider: (COVER_PROVIDERS as readonly string[]).includes(s?.coverProvider ?? "") ? (s!.coverProvider as CoverProvider) : DEFAULT_COVER_PROVIDER,
+    coverProvider: !openaiOn ? "TEMPLATE" : (COVER_PROVIDERS as readonly string[]).includes(s?.coverProvider ?? "") ? (s!.coverProvider as CoverProvider) : DEFAULT_COVER_PROVIDER,
     openaiCoverDailyLimit: s?.openaiCoverDailyLimit ?? 60,
     // Внутренние параметры генерации — константы с 01.11.2026 (lib/settingsConstants.ts,
     // значения прода); колонки Settings.openai* (кроме лимита) не читаются.
@@ -1477,7 +1484,8 @@ export async function createPropertyCover(
     },
     await loadMoneyContext()
   );
-  const provider = options.provider ?? settings.coverProvider;
+  // Явный provider (кнопка пробы, добор) тоже не ходит в OpenAI, если он выключен рубильником.
+  const provider = settings.openaiEnabled ? (options.provider ?? settings.coverProvider) : "TEMPLATE";
   if (provider === "TEMPLATE") return createTemplateCover(property, property.photos, values, settings, options, started);
 
   let attempt: PropertyCoverAttempt;
