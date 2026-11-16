@@ -66,8 +66,8 @@ describe("early scoped read-only qualifier invocation", () => {
     const value = lane(); const result = await processScopedCustomerQualifierTurn(input(), value);
     const [history, draft, options] = f.model.mock.calls[0];
     expect(history).toEqual(value.context.history); expect(draft).toEqual({ stage: "chatting" });
-    expect(options).toMatchObject({ customerContext: value.context, contactProfile: null, phoneKnown: false,
-      abilities: { callback: false, showings: false, askOwner: false, vacancies: false } });
+    // Only server facts reach the one door now (one brain, step 3b): no prompt context of the deleted old bot.
+    expect(options).toEqual({ phoneKnown: false, accountId: "account-A", channel: "INSTAGRAM", conversationId: "native-A" });
     expect(options.name).toBeUndefined(); expect(options.scenarioId).toBeUndefined(); expect(options.showcase).toBeUndefined();
     expect(JSON.stringify([history, draft, options])).not.toContain("PRIVATE");
     expect(result.customerReplyPrincipal).toBe(principal); expect(result.accepted).toBe(false);

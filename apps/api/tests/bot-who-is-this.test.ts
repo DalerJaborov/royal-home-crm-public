@@ -46,9 +46,6 @@ const SHOWCASE = { canSendPhotos: false, alreadyShownShortIds: [], photosPerOffe
 
 const result = (over: Partial<QualifyResult> = {}): QualifyResult => ({ reply: ["ок"], ready: false, ...over });
 
-describe("поле «кто пишет» в схеме ответа модели", () => {
-
-});
 
 describe("метка живёт дольше одного хода, но намерение старше", () => {
   const base: LeadDraft = { stage: "chatting" };
@@ -110,12 +107,6 @@ const profile = (category: ContactProfileForPrompt["category"]): ContactProfileF
   crm: null,
 });
 
-describe("досье подсказывает роль, пока разговор ещё ничего не сказал (§10.4)", () => {
-
-
-
-
-});
 
 describe("перевод метки в категорию досье", () => {
   it("«не понял» категорией не становится", () => {
