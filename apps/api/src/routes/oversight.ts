@@ -113,14 +113,6 @@ export function stalledClientsWhere(now: Date, hotScoreThreshold: number): Prism
 // «Переведён в Неактивные» пишется одной строкой из lib/clientWorkStatus.ts
 // (deactivateClient) — структурной колонки с причиной нет (ТЗ п. 22 хранит её
 // только текстом в хронологии), поэтому событие ищем по этому тексту.
-function inactiveEventsWhere(): Prisma.InteractionWhereInput {
-  return {
-    type: "SYSTEM",
-    notes: { contains: "переведён в Неактивные" },
-    client: { deletedAt: null },
-  };
-}
-
 // Передача между агентами (lib/clientTransfer.ts, transferClientByAgent) и
 // передача дел уходящего сотрудника (lib/agentHandover.ts) — обе пишут
 // заметку с этим текстом. Автоматическое переназначение непринятого лида
@@ -308,15 +300,14 @@ interface EndlessNegotiationItem {
 
 /**
  * Сигнал «Серия у одного агента» (антифрод, владелец 01.09.2026): 3+
- * (Settings.agentLossSeriesThreshold) переводов в «Неактивные» ИЛИ прямых
- * потерь (Client.status=LOST) у ОДНОГО агента за последние
+ * (Settings.agentLossSeriesThreshold) потерь (Client.status=LOST) у ОДНОГО агента за последние
  * AGENT_LOSS_SERIES_WINDOW_DAYS дней — не общая цифра по компании (та уже
  * есть плитками recentInactive/recentTransfers), а разбивка по конкретному
  * исполнителю: три случая подряд у новичка — возможно, ему нужна помощь; у
  * опытного — стоит присмотреться.
  *
- * «Неактивные» считаем тем же событием, что и общая плитка (inactiveEventsWhere,
- * agentId — кто выполнил перевод). «Потеря» — по Client.status=LOST/lostAt
+ * «Неактивных» и новых LOST с 16.11.2026 нет (владелец: «ничего лишнего») —
+ * сигнал считает только старые потери до отдельного решения. «Потеря» — по Client.status=LOST/lostAt
  * (schema.prisma: ставится во ВСЕХ трёх местах, где карточка уходит в LOST —
  * ручной отказ, эскалация передач, светофор неактивных), ответственный агент —
  * lastAgentId (переживает и уход в INACTIVE, и в LOST — см. схему), а если он
@@ -331,12 +322,7 @@ export async function findAgentLossSeries(since: Date) {
   // помощники в этом файле потолок имеют (take: 500), здесь его просто забыли.
   // Клиентов приходится группировать по паре полей: ответственный — lastAgentId,
   // а если он пуст, запасной вариант assignedAgentId (см. doc-comment выше).
-  const [inactiveEvents, lostClients] = await Promise.all([
-    prisma.interaction.groupBy({
-      by: ["agentId"],
-      where: { ...inactiveEventsWhere(), createdAt: { gte: since } },
-      _count: { _all: true },
-    }),
+  const [lostClients] = await Promise.all([
     prisma.client.groupBy({
       by: ["lastAgentId", "assignedAgentId"],
       where: { status: "LOST", lostAt: { gte: since }, deletedAt: null },
@@ -346,7 +332,6 @@ export async function findAgentLossSeries(since: Date) {
 
   const counts = new Map<string, number>();
   // Строки теперь сгруппированы, поэтому прибавляется размер группы, а не единица.
-  for (const e of inactiveEvents) if (e.agentId) counts.set(e.agentId, (counts.get(e.agentId) ?? 0) + e._count._all);
   for (const c of lostClients) {
     const agentId = c.lastAgentId ?? c.assignedAgentId;
     if (!agentId) continue;

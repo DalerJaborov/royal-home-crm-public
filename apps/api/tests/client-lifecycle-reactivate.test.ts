@@ -72,9 +72,6 @@ async function makeInactiveClient() {
       kind: "BUYER",
       status: "NEW",
       workStatus: "INACTIVE",
-      inactiveLevel: "YELLOW",
-      inactiveSince: new Date(Date.now() - 48 * 60 * 60 * 1000),
-      inactivePingCount: 1,
       assignedAgentId: agentId,
       lastAgentId: agentId,
       acceptedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
@@ -191,9 +188,6 @@ describe("reactivateClientFromLost (B3)", () => {
 
     const reloaded = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
     expect(reloaded.workStatus).toBe("ACTIVE");
-    expect(reloaded.inactiveLevel).toBeNull();
-    expect(reloaded.inactiveSince).toBeNull();
-    expect(reloaded.inactivePingCount).toBe(0);
   });
 
   it("повторная реактивация уже активного клиента идемпотентна", async () => {

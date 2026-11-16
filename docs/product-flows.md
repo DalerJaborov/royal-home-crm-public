@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2454**; вместе с задачами по расписанию и фоновыми заданиями — **4042**. Модулей: **84**.
+Путей: **747**. Развилок в самих путях: **2454**; вместе с задачами по расписанию и фоновыми заданиями — **4039**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -22980,41 +22980,6 @@
   - для каждого: const row of rows
     - await executeNarrationDelivery(row.id);
       · зовёт executeNarrationDelivery()
-
-### no-answer-tail — */30 * * * *
-
-- пробует
-  - const created = await processNoAnswerTailAnchors();
-    · зовёт processNoAnswerTailAnchors()
-    - const anchors = await prisma.interaction.findMany({ where: { type: "SYSTEM", nextAction: null, completedAt: n…
-      · читает в базе: interaction
-    - если anchors.length === 0
-      - return 0;
-        · дословно из кода
-    - const [callbacks, talked] = await Promise.all([ prisma.incomingCall.findMany({ where: { clientId: { in: ancho…
-      · читает в базе: incomingCall
-      · читает в базе: interaction
-    - const clients = await prisma.client.findMany({ where: { id: { in: anchorClientIds } }, select: { id: true, fu…
-      · читает в базе: client
-    - const results = await mapWithConcurrency(anchors, TICK_CONCURRENCY, async (anchor)
-      · меняет в базе: interaction
-      - если !eligible || !client
-        - await prisma.interaction.update({ where: { id: anchor.id }, data: { completedAt: now } });
-          · меняет в базе: interaction
-      - await upsertAutoTask({ clientId: client.id, kind: "no_answer_tail_retry", actor: { kind: "system", source: "n…
-        · зовёт upsertAutoTask()
-      - await prisma.interaction.update({ where: { id: anchor.id }, data: { completedAt: now } });
-        · меняет в базе: interaction
-  - если created > 0
-    - console.log(`[cron] Хвост дозвона: заведено задач ${created}`);
-      · пишет строку в журнал сервера
-- если сорвалось
-  - reportCronTickError("Ошибка хвоста дозвона", err);
-    · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
 
 ### operator-queue-presence — */5 * * * *
 

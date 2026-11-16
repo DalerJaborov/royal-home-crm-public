@@ -239,8 +239,8 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
       slice: pendingSlice ? "pending" : noResponseYesterday ? "noResponseYesterday" : undefined,
     },
     // `page` — вычищаем из старых ссылок и закладок (см. начальное состояние выше);
-    // `status`, `workStatus`, `inactiveLevel` — фильтры удалённых статусов (16.11.2026).
-    ["new", "phone", "page", "status", "workStatus", "inactiveLevel"]
+    // `status` — фильтр удалённых статусов (16.11.2026).
+    ["new", "phone", "page", "status"]
   );
   /** Смена раздела (`?kind=` в том же адресе) — лента начинается заново. */
   useEffect(() => {

@@ -34,7 +34,6 @@ import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
 import { runBuyerThinkingSlowTrackTick } from "./lib/buyerThinkingSlowTrack.js";
-import { processNoAnswerTailAnchors } from "./lib/noAnswerStreak.js";
 import { calculateDailyKpiForAllAgents } from "./kpi.js";
 import { isWithinWorkingHours } from "./lib/workingHours.js";
 import { refreshUsdToTjsRateFromAlif } from "./lib/exchangeRate.js";
@@ -2917,29 +2916,7 @@ export function startCronJobs() {
     { timeoutMs: 5 * 60_000 }
   );
 
-  /**
-   * «ХВОСТ» ДОЗВОНА (01.09.2026, Settings.noAnswerTail*) — та же частота, что у
-   * соседних лёгких тиков выше: маячков в выборке за раз немного (см. take: 200 в
-   * processNoAnswerTailAnchors), гонять чаще незачем — задача агенту всё равно
-   * рассчитана на дни, а не минуты.
-   */
-  scheduleTracked(
-    "no-answer-tail",
-    "*/30 * * * *",
-    async () => {
-      try {
-        const created = await processNoAnswerTailAnchors();
-        if (created > 0) console.log(`[cron] Хвост дозвона: заведено задач ${created}`);
-      } catch (err) {
-        reportCronTickError("Ошибка хвоста дозвона", err);
-      }
-    },
-    undefined,
-    undefined,
-    // Тот же инцидент 11-12.09, что и у buyer-thinking-slow-track — оба тика
-    // делали до 200 последовательных findUnique/count на строку.
-    { timeoutMs: 5 * 60_000 }
-  );
+  // «Хвост» дозвона (no-answer-tail) удалён 16.11.2026 вместе со светофором.
 
   /**
    * ЭСКАЛАЦИЯ ПРОПУЩЕННЫХ РУКОВОДСТВУ УДАЛЕНА (владелец 20.09.2026: «полностью

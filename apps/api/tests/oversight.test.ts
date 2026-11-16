@@ -37,7 +37,6 @@ let savedLossSeriesThreshold: number | null = null;
 let negotiatingClientFullName: string;
 let calmNegotiationClientFullName: string;
 let lossSeriesAgentId: string;
-let trafficLightAgentId: string;
 
 async function login(phone: string) {
   const res = await request(app).post("/api/v1/auth/login").send({ phone, password });
@@ -532,29 +531,21 @@ beforeAll(async () => {
   ).id;
   agentIds.push(lossSeriesAgentId);
 
-  // Два перевода в «Неактивные» + одна прямая потеря (LOST, lastAgentId) за
-  // 7 дней — суммарно три случая, должен попасть в /agent-loss-series.
+  // Три старые потери (LOST, lastAgentId) за 7 дней — должен попасть в
+  // /agent-loss-series. «Неактивных» с 16.11.2026 нет, сигнал считает только LOST.
   for (let i = 0; i < 2; i++) {
     const c = await prisma.client.create({
       data: {
-        fullName: `Серия потерь — неактивный ${i} ${runId}`,
+        fullName: `Серия потерь — потеря ${i} ${runId}`,
         phone: `+99297${i}${runId}`,
         source: "PHONE_CALL",
-        assignedAgentId: lossSeriesAgentId,
-        workStatus: "INACTIVE",
+        assignedAgentId: null,
+        lastAgentId: lossSeriesAgentId,
+        status: "LOST",
+        lostAt: new Date(now - DAY),
       },
     });
     clientIds.push(c.id);
-    const interaction = await prisma.interaction.create({
-      data: {
-        clientId: c.id,
-        agentId: lossSeriesAgentId,
-        type: "SYSTEM",
-        notes: "Клиент переведён в Неактивные: Думает (инициатор: Клиент).",
-        createdAt: new Date(now - DAY),
-      },
-    });
-    interactionIds.push(interaction.id);
   }
   const lostBySeriesAgent = await prisma.client.create({
     data: {
@@ -583,85 +574,6 @@ beforeAll(async () => {
     },
   });
   clientIds.push(oldLoss.id);
-
-  // ─── «Светофор неактивных — сейчас» (GET /oversight/traffic-light-summary) ───
-
-  const passwordHash4 = await bcrypt.hash(password, 10);
-  trafficLightAgentId = (
-    await prisma.agent.create({
-      data: { fullName: "Агент светофора", phone: `+992974${runId}`, role: "AGENT", passwordHash: passwordHash4 },
-    })
-  ).id;
-  agentIds.push(trafficLightAgentId);
-
-  // Два RED, один YELLOW, один GREEN у этого агента — должны сложиться в
-  // { red: 2, yellow: 1, green: 1 } и попасть в totals той же суммой.
-  for (let i = 0; i < 2; i++) {
-    const c = await prisma.client.create({
-      data: {
-        fullName: `Светофор RED ${i} ${runId}`,
-        phone: `+99297${5 + i}${runId}`,
-        source: "PHONE_CALL",
-        assignedAgentId: trafficLightAgentId,
-        workStatus: "INACTIVE",
-        inactiveLevel: "RED",
-      },
-    });
-    clientIds.push(c.id);
-  }
-  const yellowClient = await prisma.client.create({
-    data: {
-      fullName: `Светофор YELLOW ${runId}`,
-      phone: `+992977${runId}`,
-      source: "PHONE_CALL",
-      assignedAgentId: trafficLightAgentId,
-      workStatus: "INACTIVE",
-      inactiveLevel: "YELLOW",
-    },
-  });
-  clientIds.push(yellowClient.id);
-  const greenClient = await prisma.client.create({
-    data: {
-      fullName: `Светофор GREEN ${runId}`,
-      phone: `+992978${runId}`,
-      source: "PHONE_CALL",
-      assignedAgentId: trafficLightAgentId,
-      workStatus: "INACTIVE",
-      inactiveLevel: "GREEN",
-    },
-  });
-  clientIds.push(greenClient.id);
-
-  // Активный клиент того же агента с ПРОШЛЫМ inactiveLevel (уже возвращён в
-  // работу) — не должен попасть в сводку: workStatus=ACTIVE, светофор смотрит
-  // только на ТЕКУЩЕЕ состояние (см. комментарий у Client.inactiveLevel).
-  const returnedToActive = await prisma.client.create({
-    data: {
-      fullName: `Светофор — вернулся в работу ${runId}`,
-      phone: `+992979${runId}`,
-      source: "PHONE_CALL",
-      assignedAgentId: trafficLightAgentId,
-      workStatus: "ACTIVE",
-      inactiveLevel: "RED",
-    },
-  });
-  clientIds.push(returnedToActive.id);
-
-  // Неактивный без агента (карточка, у которой предел попыток светофора уже
-  // исчерпан и её увели в LOST, assignedAgentId=null, см. promoteToLost) — не
-  // должна попасть ни в чей портфель.
-  const orphanedInactive = await prisma.client.create({
-    data: {
-      fullName: `Светофор — без агента ${runId}`,
-      phone: `+992980${runId}`,
-      source: "PHONE_CALL",
-      assignedAgentId: null,
-      status: "LOST",
-      workStatus: "INACTIVE",
-      inactiveLevel: "RED",
-    },
-  });
-  clientIds.push(orphanedInactive.id);
 });
 
 afterAll(async () => {
@@ -792,7 +704,7 @@ describe("GET /oversight/*", () => {
     expect(row.rounds).toBeGreaterThanOrEqual(2);
   });
 
-  it("/agent-loss-series находит агента с 3+ переводами/потерями за 7 дней, не считает старую потерю", async () => {
+  it("/agent-loss-series находит агента с 3+ потерями за 7 дней, не считает старую потерю", async () => {
     const res = await request(app).get("/api/v1/oversight/agent-loss-series").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.threshold).toBe(3);

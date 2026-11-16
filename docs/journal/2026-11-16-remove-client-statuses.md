@@ -43,6 +43,16 @@
     (`/lost-clients`, `/inactive-clients`, `/deferred-clients`, `/lead-funnel`)
     ведут на `/clients`. Отметка у клиента — только факт: Корзина, прочее
     обращение, закрытая сделка, ждёт принятия, причина с сервера.
+  - **Светофор вырезан из кода целиком** (уточнение владельца через координатора):
+    никто больше не читает и не пишет `inactiveLevel`, `inactivePingCount`,
+    `inactiveSince`, `inactiveReasonKey`, `inactiveEnteredAt` (снимки ручного
+    назначения, восстановление из Корзины, звонок клиента, подбор, дубли, общий
+    тип `MatchingClient`); `inactiveExitData` заменён на `resumeWorkData`
+    (только workStatus=ACTIVE). Удалён «хвост» дозвона: крон `no-answer-tail`,
+    `processNoAnswerTailAnchors`, маячки `noAnswerTail:` при эскалации и поля
+    `noAnswerTail*` в правилах дисциплины. Сигнал «Серия у агента» считает только
+    старые LOST. Прочие кроны (inactivity-check, тревоги) не тронуты — отдельное
+    решение владельца. Колонки остаются до миграции.
   - **Миграция данных** `20261116150000_client_work_status_normalize`: INACTIVE/
     DEFERRED → ACTIVE, каждое изменение — строкой в `StageEvent` (откуда), колонки
     не трогаются, повторный запуск ничего не делает. Карточки с нерешённым

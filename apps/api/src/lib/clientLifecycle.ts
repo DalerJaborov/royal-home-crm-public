@@ -16,8 +16,8 @@ import { changeClientAgent } from "./changeClientAgent.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { sendPushToAgent } from "../push.js";
 import { returnAcceptDueFromNow } from "./workingDue.js";
-import { inactiveExitData } from "./clientContact.js";
-export { inactiveExitData } from "./clientContact.js";
+import { resumeWorkData } from "./clientContact.js";
+export { resumeWorkData } from "./clientContact.js";
 
 export interface ReactivateClientInput {
   clientId: string;
@@ -65,18 +65,10 @@ export function reactivationResetData(client: { status: string; workStatus: stri
     data.lostAt = null;
     data.refusalCount = 0;
   }
-  if (client.workStatus === "INACTIVE" || client.status === "LOST") Object.assign(data, inactiveExitData());
+  if (client.workStatus === "INACTIVE" || client.status === "LOST") Object.assign(data, resumeWorkData());
   return data;
 }
 
-/**
- * Выход из Неактивных без смены status — только рабочий статус и поля
- * светофора. Отдельно от reactivationResetData для путей, которые не решают
- * судьбу LOST (клиент позвонил сам — lib/telephony/autoLeadFromCall.ts), но
- * обязаны гасить светофор так же, как обычный возврат: иначе уровень,
- * счётчик попыток и точка отсчёта прошлого цикла остаются висеть на
- * активной карточке.
- */
 /**
  * Снимает флаги LOST/INACTIVE и либо назначает агенту, либо возвращает в
  * очередь руководителя. Логирует через logSystemError с тегом [lifecycle].

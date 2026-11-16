@@ -18,7 +18,8 @@ import { describe, expect, it } from "vitest";
  *     «Отложенный», «Потерянный», «В архиве» — каждое оставшееся место названо
  *     ниже с причиной; новое место без причины — красный тест;
  *  3. лимит активных лидов никто не читает;
- *  4. кроны светофора, автостатусов, автокорзины не регистрируются снова.
+ *  4. кроны светофора, автостатусов, автокорзины, «хвоста» дозвона не регистрируются;
+ *  5. поля светофора (inactive*) код не читает и не пишет.
  *
  * Проверено внесением поломки: строка `workStatus: "INACTIVE"` в любом файле
  * lib/ вне списка ниже краснит пункт 2 (16.11.2026).
@@ -115,6 +116,15 @@ describe("папок и статусов клиента больше нет — 
     expect(readers, "«Лимитов заявок больше нет и не будет» (владелец 16.11.2026)").toEqual([]);
   });
 
+  it("поля светофора (inactiveLevel, inactivePingCount, inactiveSince, inactiveReasonKey, inactiveEnteredAt) код не читает и не пишет", () => {
+    const users = FILES.flatMap((f) =>
+      codeLines(f)
+        .filter((line) => /inactive(Level|PingCount|Since|ReasonKey|EnteredAt)|processNoAnswerTailAnchors|noAnswerTail/.test(line))
+        .map((line) => `${rel(f)}: ${line.trim()}`)
+    );
+    expect(users, "Светофор удалён из кода целиком (владелец 16.11.2026); колонки снимет отдельная миграция").toEqual([]);
+  });
+
   it("кроны светофора, автостатусов, отложенных и автокорзины не регистрируются", () => {
     const cron = codeLines(path.join(SRC, "cron.ts")).join("\n");
     for (const name of [
@@ -123,6 +133,7 @@ describe("папок и статусов клиента больше нет — 
       "client-auto-statuses",
       "silent-client-auto-deactivate",
       "lost-inactive-trash-sweep",
+      "no-answer-tail",
     ]) {
       expect(cron.includes(`"${name}"`), name).toBe(false);
     }

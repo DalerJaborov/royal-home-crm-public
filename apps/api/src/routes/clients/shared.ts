@@ -312,9 +312,6 @@ export function computeHiddenReason(client: {
   kind: ClientKind;
   status: string;
   workStatus: string;
-  inactiveReasonKey?: string | null;
-  deferredUntil?: Date | null;
-  deferredReason?: string | null;
   escalatedAt?: Date | null;
   acceptedAt: Date | null;
   securityReview?: string | null;
