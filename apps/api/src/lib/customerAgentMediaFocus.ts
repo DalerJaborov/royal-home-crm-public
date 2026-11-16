@@ -6,7 +6,8 @@ import { loadCustomerAgentMediaObservation } from "./customerAgentMediaObservati
 import { customerAgentClaimAcceptsPrincipal, customerAgentClaimCurrentTx, type CustomerAgentClaim } from "./customerAgentClaim.js";
 import { loadPublicCustomerPrincipal, revalidateCustomerPrincipal, type CustomerPrincipal } from "./customerPrincipal.js";
 import { pinCustomerAgentTurnTx } from "./customerAgentRevision.js";
-import { customerPropertyEvidenceFromText, mergeCustomerPropertyEvidence } from "./customerPropertyEvidence.js";
+import { customerPropertyEvidenceFromMedia, mergeCustomerPropertyEvidence } from "./customerPropertyEvidence.js";
+import { loadDeferredCustomerMediaEvidence } from "./customerDeferredInput.js";
 import { resolveCustomerPropertyEvidence, type CustomerPropertyRegistry } from "./customerPropertyResolver.js";
 import { customerPropertyRegistry, customerPropertyRegistryWithOwnSiteRead } from "./customerPropertyRegistry.js";
 import { createCustomerOwnSiteIdentityReader, customerOwnSiteListingId, type CustomerOwnSiteReadWait } from "./customerOwnSiteIdentity.js";
@@ -32,11 +33,26 @@ export async function enrichCustomerAgentMediaFocus(input: FocusInput): Promise<
   if (!before.snapshot.state.capabilities.publicRead) return { status: "unchanged" };
   const media = await loadCustomerAgentMediaObservation(input.claim);
   if (!media) return { status: "unchanged" };
-  const candidates = customerPropertyEvidenceFromText([media.transcript, media.subject === "listing_card" ? media.readableText : ""].join("\n"));
+  const candidates = customerPropertyEvidenceFromMedia(media);
   if (candidates.some(item => item.kind === "untrusted_reference" && item.reference === "too_many_references")) return { status: "held", reason: "media_reference_overflow" };
   const selectors = candidates.filter(item => item.kind === "public_selector");
   if (!selectors.length) return { status: "unchanged" };
   return enrichFocus(input, selectors, media.speech === "partial");
+}
+
+/** The current words name no object, but the customer's own media just before them did and was set aside for
+ * these words (loadDeferredCustomerMediaEvidence): the same resolver/focus as the same-turn media focus. Never
+ * overrides an object this message names itself. */
+export async function enrichCustomerAgentDeferredMediaFocus(input: FocusInput): ReturnType<typeof enrichCustomerAgentMediaFocus> {
+  if (input.ticket.evidence.length) return { status: "unchanged" };
+  const deferred = await loadDeferredCustomerMediaEvidence(input.principal);
+  if (!deferred.evidence.length || deferred.latestOrder === null) return { status: "unchanged" };
+  // Too many numbers on the pictures identify nothing: the words are answered as they are, never held into silence.
+  if (deferred.evidence.some(item => item.kind === "untrusted_reference")) return { status: "unchanged" };
+  // A reference the customer gave AFTER that media (a shared post with its own ID, a typed number) stays the object.
+  const focus = await readCustomerPropertyFocus(input.ticket);
+  if (focus?.focus.evidence.length && BigInt(focus.focus.lastEvidenceOrder) > BigInt(deferred.latestOrder)) return { status: "unchanged" };
+  return enrichFocus(input, deferred.evidence, false);
 }
 
 type LinkReads = { registry: CustomerPropertyRegistry; wait: CustomerOwnSiteReadWait };

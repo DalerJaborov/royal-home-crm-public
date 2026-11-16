@@ -24,7 +24,9 @@ import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { createCustomerOutboxPartsTx } from "./customerOutbox.js";
 import type { CustomerDeliveryPayload } from "./customerDeliveryContracts.js";
 import { createCustomerAgentMutationSession, type CustomerAgentMutationSession } from "./customerAgentMutationSession.js";
-import { enrichCustomerAgentMediaFocus, enrichCustomerAgentSelectionFocus, enrichCustomerAgentLinkFocus, createCustomerAgentLinkReads } from "./customerAgentMediaFocus.js";
+import { enrichCustomerAgentMediaFocus, enrichCustomerAgentSelectionFocus, enrichCustomerAgentLinkFocus, createCustomerAgentLinkReads,
+  enrichCustomerAgentDeferredMediaFocus } from "./customerAgentMediaFocus.js";
+import { customerPropertyVideoRequested, readCustomerPropertyVideoAnswer } from "./customerPropertyVideoAnswer.js";
 import { issueCustomerHandoverAckTx, planCustomerHandoverAckTx } from "./customerHandoverAck.js";
 import { readDmCustomerAgentDataWitness, sealDmCustomerAgentDeliveryEvidence,
   type CustomerAgentDataReadWitness } from "./customerAgentDeliveryEvidence.js";
@@ -239,6 +241,18 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (remembered.status !== "current") { await releaseHeldClaim(claim, remembered.reason); return remembered; }
       }
     }
+    // Words without an object of their own, right after the customer's own media that named one (16.11.2026): that
+    // media's turn was set aside for these words before its media focus ran, so take its «Объект №N» now.
+    if (!prepared.media.length) {
+      const deferred = await enrichCustomerAgentDeferredMediaFocus({ principal: planningPrincipal, claim, ticket: lane.ticket, linkReads });
+      if (deferred.status === "held") { await releaseHeldClaim(claim, deferred.reason); return deferred; }
+      if (deferred.status === "updated") {
+        planningPrincipal = deferred.principal; focus = deferred.focus;
+        remembered = await loadCustomerAgentVerifiedDmContext({ principal: planningPrincipal,
+          revision: claim.pin.revision, wait: { signal: runtime.operation.signal, deadlineAt: runtime.operation.deadlineAt } });
+        if (remembered.status !== "current") { await releaseHeldClaim(claim, remembered.reason); return remembered; }
+      }
+    }
     const selected = await enrichCustomerAgentSelectionFocus({ principal: planningPrincipal, claim, ticket: lane.ticket, linkReads });
     if (selected.status === "held") { await releaseHeldClaim(claim, selected.reason); return selected; }
     if (selected.status === "updated") {
@@ -278,6 +292,21 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     if (leadOnly.enabled) {
       const plan = await leadOnlyTurn();
       if (plan) return await planLeadOnly(plan);
+    }
+    // «Видео этой квартиры есть?» about the object in focus: the CRM answers (lib/customerPropertyVideoAnswer.ts) — the
+    // published reel, or an honest «the agent will send it» that also reaches the agent through the one follow-up door.
+    const videoFocusId = focus?.snapshot.focus.status === "resolved" ? focus.snapshot.focus.propertyId : null;
+    if (!leadOnly.enabled && videoFocusId && remembered.context.publicState.topic !== "job" && customerPropertyVideoRequested(fullInput())) {
+      const video = await readCustomerPropertyVideoAnswer(videoFocusId, language);
+      if (video && await current(linkWait)) {
+        const property = managedCustomerPropertyReply({ id: planningPrincipal.scope.conversationId, channel: planningPrincipal.scope.channel,
+          subscriberId: planningPrincipal.scope.peer, accountId: planningPrincipal.scope.accountId, endpointScopeId: planningPrincipal.scope.endpointScopeId },
+          focus, video.text, { status: "admitted", ticket: lane.ticket }).delivery;
+        const partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
+          parts: [{ payload: { kind: "text" as const, text: video.text }, property }] }));
+        if (video.agentPromised) void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt);
+        return { status: "planned", partIds };
+      }
     }
     const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(fullInput(), { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
       (!text.trim() && prepared.attachmentInput && (prepared.attachmentPropertyReference || mediaReferenceResolved) && focus?.snapshot.focus.status === "resolved"
