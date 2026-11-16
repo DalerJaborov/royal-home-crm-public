@@ -61,6 +61,9 @@ export type PushKind =
   | "payment"
   /** Объект вышел в сетях — пост, чтобы поделиться у себя (lib/agentSharePost.ts). */
   | "publication"
+  /** Сотрудник удалил свой объект или клиента через помощницу — руководству: «лежит в Корзине, можно
+   *  восстановить» (15.11.2026, lib/trashRemovalNotice.ts). */
+  | "trash"
   /** БЕЗОПАСНОСТЬ (10.11.2026): изменение прав и ролей сотрудников, серия
    *  неверных кодов входа (lib/staffSecurityNotify.ts). НЕ ОТКЛЮЧАЕТСЯ — не в
    *  PUSH_KINDS, а в ALWAYS_ON_KINDS ниже, с причиной для человека. */
@@ -141,6 +144,8 @@ export const DEFAULT_LEVEL_BY_KIND: Record<PushKind, NotificationLevel> = {
   // помечает CRITICAL явно.
   payment: "OTHER",
   publication: "OTHER",
+  // Удаление в Корзину — к сведению руководству, восстановить можно кнопкой.
+  trash: "OTHER",
   security: "CRITICAL",
 };
 
@@ -199,6 +204,11 @@ export const PUSH_KINDS: { key: PushKind; label: string; hint: string }[] = [
     key: "publication",
     label: "Публикации объектов",
     hint: "Ваш объект вышел в сетях — пост, чтобы поделиться у себя",
+  },
+  {
+    key: "trash",
+    label: "Удаления в Корзину",
+    hint: "Сотрудник удалил свой объект или клиента — они лежат в Корзине, оттуда их можно вернуть кнопкой",
   },
 ];
 

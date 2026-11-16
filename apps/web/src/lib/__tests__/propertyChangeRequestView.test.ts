@@ -6,6 +6,7 @@ import {
 } from "@royal-home/shared";
 import {
   CHANGE_KIND_BUTTONS,
+  createdChangeRequestNotice,
   UNPUBLISH_EMPTY_HINT,
   buildCardDataBody,
   buildOtherBody,
@@ -187,5 +188,20 @@ describe("итог заявки", () => {
     expect(changeResultView(dto({ status: "FAILED", error: null }))?.failed).toBeTruthy();
     expect(changeResultView(dto({ status: "PENDING" }))).toBeNull();
     expect(changeResultView(dto({ status: "REJECTED" }))).toBeNull();
+  });
+});
+
+describe("createdChangeRequestNotice: что сказать после отправки", () => {
+  it("применено сразу — сообщение сервера или «Готово»", () => {
+    expect(createdChangeRequestNotice({ request: { status: "APPROVED" }, applied: true, message: "Цена обновлена" })).toEqual({ tone: "success", text: "Цена обновлена" });
+    expect(createdChangeRequestNotice({ request: { status: "APPROVED" }, applied: true }).text).toBe("Готово — изменено сразу");
+  });
+  it("не применилось (FAILED) — причина сервера, а не «отправлена директору»", () => {
+    const n = createdChangeRequestNotice({ request: { status: "FAILED", error: "Объект уже у монтажёра" }, applied: false, message: "Объект уже у монтажёра" });
+    expect(n).toEqual({ tone: "error", text: "Объект уже у монтажёра" });
+    expect(createdChangeRequestNotice({ request: { status: "FAILED", error: "Сбой" } })).toEqual({ tone: "error", text: "Сбой" });
+  });
+  it("обычная заявка — отправлена директору", () => {
+    expect(createdChangeRequestNotice({ request: { status: "PENDING" } })).toEqual({ tone: "success", text: "Заявка отправлена директору" });
   });
 });

@@ -67,6 +67,7 @@ coverOpenAiRouter.get("/openai", requireAuth, requirePermission("settings.manage
     keyConfigured: !!fromSettings || !!envKey,
     keyMasked: fromSettings ? maskKey(fromSettings) : envKey ? maskKey(envKey) : null,
     keySource: fromSettings ? "settings" : envKey ? "env" : null,
+    openaiEnabled: runtime.openaiEnabled,
     enabled: runtime.coverGenerationEnabled,
     provider: runtime.coverProvider,
     referenceSquareUrl: runtime.coverReferenceSquareUrl,
@@ -96,6 +97,8 @@ coverOpenAiRouter.get("/openai", requireAuth, requirePermission("settings.manage
 const updateSchema = z.object({
   /** Пустая строка — очистить ключ в Настройках (вернуться на .env). */
   apiKey: z.string().trim().max(400).optional(),
+  /** Рубильник OpenAI целиком (14.11.2026): false — ни одного вызова api.openai.com. */
+  openaiEnabled: z.boolean().optional(),
   enabled: z.boolean().optional(),
   /** Кто рисует: TEMPLATE — наш шаблон, OPENAI — ChatGPT (28.09.2026). */
   provider: z.enum(COVER_PROVIDERS).optional(),
@@ -109,11 +112,12 @@ const updateSchema = z.object({
 coverOpenAiRouter.put("/openai", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Проверьте поля", details: parsed.error.flatten() });
-  const { apiKey, enabled, provider, photoRedraw, dailyLimit } = parsed.data;
+  const { apiKey, openaiEnabled, enabled, provider, photoRedraw, dailyLimit } = parsed.data;
   await prisma.settings.update({
     where: { id: "singleton" },
     data: {
       ...(apiKey !== undefined ? { openaiApiKey: apiKey ? encryptSecret(apiKey) : null } : {}),
+      ...(openaiEnabled !== undefined ? { openaiEnabled } : {}),
       ...(enabled !== undefined ? { coverGenerationEnabled: enabled } : {}),
       ...(provider !== undefined ? { coverProvider: provider } : {}),
       ...(photoRedraw !== undefined ? { coverPhotoRedraw: photoRedraw } : {}),
@@ -122,6 +126,7 @@ coverOpenAiRouter.put("/openai", requireAuth, requirePermission("settings.manage
   });
   logAudit(req, "COVER_OPENAI_SETTINGS", "Settings", "singleton", {
     keyChanged: apiKey !== undefined,
+    ...(openaiEnabled !== undefined ? { openaiEnabled } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
     ...(provider !== undefined ? { provider } : {}),
     ...(photoRedraw !== undefined ? { photoRedraw } : {}),

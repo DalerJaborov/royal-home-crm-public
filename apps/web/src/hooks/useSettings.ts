@@ -203,6 +203,8 @@ export interface Settings {
   botCanConfirmShowings: boolean;
   botCanFollowUp: boolean;
   botCanAnswerComments: boolean;
+  /** Комментарий, на который бот не ответил из-за сбоя, — сводкой тем, кто читает переписки (15.11.2026). */
+  commentFailureWatchEnabled: boolean;
   /** «Соедините с оператором»: очередь звонков и push агентам. */
   botCanRequestCallback: boolean;
   /** Дежурный оператор обратных звонков; null — авто-соединения нет. */
@@ -1068,6 +1070,8 @@ export interface OpenAiCoverSettings {
   keyConfigured: boolean;
   keyMasked: string | null;
   keySource: "settings" | "env" | null;
+  /** Рубильник OpenAI целиком (14.11.2026): false — ни одного вызова OpenAI, обложки только шаблоном. */
+  openaiEnabled: boolean;
   enabled: boolean;
   /** Кто рисует: TEMPLATE — наш шаблон, OPENAI — ChatGPT (28.09.2026). */
   provider: CoverProvider;
@@ -1115,7 +1119,7 @@ export function useUpdateOpenAiCovers() {
   const qc = useQueryClient();
   return useMutation({
     // Качество, кандидаты, режим текста, фото и модель — константы на сервере с 01.11.2026.
-    mutationFn: (input: Partial<{ apiKey: string; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
+    mutationFn: (input: Partial<{ apiKey: string; openaiEnabled: boolean; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
       api<{ ok: true }>("/settings/cover-templates/openai", { method: "PUT", body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: OPENAI_COVERS_KEY }),
   });
