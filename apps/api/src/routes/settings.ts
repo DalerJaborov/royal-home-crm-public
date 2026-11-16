@@ -885,6 +885,9 @@ const settingsUpdateSchema = z.object({
   botWebsiteChatEnabled: z.boolean().optional(),
   /** Рубильник прямой интеграции с Meta (WhatsApp, Instagram, Messenger). */
   metaEnabled: z.boolean().optional(),
+  /** Сверка переписок с Meta: не дошедшее до CRM — «Ответьте вручную» (15.11.2026), по площадке. */
+  messengerInboxReconcileEnabled: z.boolean().optional(),
+  instagramInboxReconcileEnabled: z.boolean().optional(),
   /** Ключи Meta. Пустая строка — очистить и вернуться на переменную окружения. */
   metaAppSecret: secretField(500),
   /** Номер приложения Meta — нужен, чтобы обменять маркер рекламы на 60-дневный. */
@@ -1961,6 +1964,9 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Отключение транспорта обрывает связь с клиентами в Instagram и WhatsApp —
     // в журнале действий должно быть видно, кто и когда это сделал.
     ...(rest.metaEnabled !== undefined ? { metaEnabled: rest.metaEnabled } : {}),
+    // Выключенная сверка — «не дошедшее до CRM никто не увидит»: кто и когда, должно быть видно.
+    ...(rest.messengerInboxReconcileEnabled !== undefined ? { messengerInboxReconcileEnabled: rest.messengerInboxReconcileEnabled } : {}),
+    ...(rest.instagramInboxReconcileEnabled !== undefined ? { instagramInboxReconcileEnabled: rest.instagramInboxReconcileEnabled } : {}),
     // Выключенный сторож — «комментарий со сбоем бота никто не заметит»: кто и когда, должно быть видно.
     ...(rest.commentFailureWatchEnabled !== undefined ? { commentFailureWatchEnabled: rest.commentFailureWatchEnabled } : {}),
     // Смена весов KPI меняет и рейтинг, и распределение лидов — в журнале

@@ -944,6 +944,8 @@ function repeatedBlockNotice(text: string, input: RepeatInput): string | null {
 }
 
 function avoidRepeatedReply(text: string, input: RepeatInput): string {
+  // A job candidate: the specialist's phone is THE answer (owner 10–11.11), said again rather than swapped for «Понял.».
+  if (splitLines(text).includes(recruitmentPhoneLine(input.language))) return text;
   const turns = input.verifiedContext?.turns ?? [];
   const blockNotice = repeatedBlockNotice(text, input);
   if (blockNotice) return blockNotice;

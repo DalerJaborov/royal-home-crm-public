@@ -155,7 +155,7 @@ interface WaitingChat {
   release(since: Date): Promise<void>;
   /** Ответить из CRM нельзя (Telegram Direct) — подсказка, где отвечать. */
   replyHint: string;
-  /** Когда по этой переписке уже был сигнал (BotConversation.silenceAlertFor); у Telegram-таблиц отметки нет — null. */
+  /** Последний сигнал «клиент ждёт» по этой переписке (только BotConversation; у Telegram-таблиц нет). */
   lastAlertAt: Date | null;
 }
 
@@ -240,7 +240,7 @@ export async function alertClientWaiting(input: {
   const since = input.since ?? episode?.since ?? (input.trigger !== "silence" ? now : null);
   if (!since) return "skipped";
   // «Агент уточнит» — one CRITICAL per chat until a person answers in the chat (re-review #201, Н-нов-3; owner: rarely
-  // disturb people): three empty searches in a row are one signal, not three. The episode itself is claimed below (#198).
+  // disturb people): three empty searches in a row are one signal, not three.
   if (input.trigger === "follow_up" && chat.lastAlertAt && !humanRepliedSince(chat.messages, chat.lastAlertAt)) return "skipped";
 
   // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба.
@@ -250,7 +250,7 @@ export async function alertClientWaiting(input: {
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
   const body =
     input.trigger === "follow_up"
-      ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
+      ? `${name}: бот ответил клиенту, что это уточнит агент. Ответьте клиенту или позвоните.`
       : input.trigger === "escalate"
       ? `${name}: бот решил, что нужен сотрудник, и не ответил. ${chat.replyHint}`
       : input.trigger === "failed"
