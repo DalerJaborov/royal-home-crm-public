@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4103**. Модулей: **84**.
+Путей: **756**. Развилок в самих путях: **2490**; вместе с задачами по расписанию и фоновыми заданиями — **4116**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -66,6 +66,9 @@
 - если next.enabled && !next.dryRun && !next.adSetId
   - return res.status(400).json({ error: "Для боевого режима укажите номер группы объявлений постоянной кампании …
     · ответ 400 — «Для боевого режима укажите номер группы объявлений постоянной…»
+- если touchesLive && !req.agent?.permissions.has("finance.manage")
+  - return res.status(403).json({ error: "Боевой режим автопродвижения включает только директор" });
+    · ответ 403 — «Боевой режим автопродвижения включает только директор»
 - await prisma.settings.update({ where: { id: "singleton" }, data: { ...(patch.enabled !== undefined && { reels…
   · меняет в базе: settings
 - logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { reelsAutoBoost: patch });
@@ -233,7 +236,7 @@
 
 ### POST /api/v1/ads/connect
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
+`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite, requireChannelAdmin
 
 - пробует
   - const url = await buildConnectUrl(req.agent!.id);
@@ -263,7 +266,7 @@
 
 ### POST /api/v1/ads/disconnect
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
+`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite, requireChannelAdmin
 
 - await prisma.settings.updateMany({ where: { id: "singleton" }, data: { metaAdsToken: null, metaAdsTokenRefres…
   · меняет в базе: settings
@@ -1501,7 +1504,7 @@
   - если !property
     - return res.status(404).json({ error: "Объект не найден" });
       · ответ 404 — «Объект не найден»
-  - если !isResponsible && !can(req, "properties.viewOwners") && !can(req, "properties.editForeign")
+  - если !isResponsible && !can(req, "properties.viewOwners") && !can(req, "properties.editForeign") && !can(req, "pro…
     - return res.status(403).json({ error: "Недостаточно прав" });
       · ответ 403 — «Недостаточно прав»
 - const privateLessonIds = await privateLessonAuditIds(investigationViewerRole(req));
@@ -2885,12 +2888,13 @@
 - если !canAccessAssignedAgent(req, client.assignedAgentId)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
-- const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));
-  · зовёт foreignWriteDenied()
-- если denied
-  - return res.status(403).json({ error: denied });
-    · ответ 403
-- если client.deletedAt
+- если !archiveReview
+  - const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));
+    · зовёт foreignWriteDenied()
+  - если denied
+    - return res.status(403).json({ error: denied });
+      · ответ 403
+- если client.deletedAt && !archiveReview
   - return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
     · ответ 409 — «Карточка в Корзине — сначала восстановите её»
 - const selection = resolveClientPhoneSelection(client, parsed.data);
@@ -2907,7 +2911,7 @@
     · ответ 429 — «Подождите ${redialWaitSeconds} с: предыдущий вызов не дошёл до вашего…»
 - const ownAgentIdForAccept = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- если ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgentId === ownAgentId…
+- если !archiveReview && ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgen…
   - await acceptLead({ clientId: client.id, agentId: ownAgentIdForAccept }).catch((err)
     · зовёт acceptLead()
 - если parsed.data.phone && !requestedPhone
@@ -2927,10 +2931,13 @@
   - если requestedTail !== phoneTail(client.phone)
     - phoneOverride = requestedPhone;
       · дословно из кода
-- const result = await originateCallToClient(req.agent!.id, client, { phoneOverride });
+- const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });
   · команда телефонии
+- если archiveReview && (result.ok || result.status === 502)
+  - logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, { shortId: client.shortId, fullName: client.fullNam…
+    · зовёт logAudit()
 - если !result.ok
-  - если result.status === 502
+  - если result.status === 502 && !archiveReview
     - await markAgentAttempt(client.id, new Date(), req.agent!.id);
       · зовёт markAgentAttempt()
   - return res.status(result.status).json({ error: result.error });
@@ -4125,7 +4132,7 @@
 - const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
   · читает в базе: interaction
   · считает в базе: interaction
-- res.json({ items: await presentTimeline(req, client.assignedAgentId, page), total, hasMore });
+- res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
   · ответ 200
 
 ### POST /api/v1/clients/:id/to-candidate
@@ -4298,6 +4305,8 @@
 - const [conductedShowing, callsCount, realCalls] = await Promise.all([ prisma.interaction.count({ where: { ...…
   · считает в базе: interaction
   · читает в базе: settings
+- const withMessages = { ...client, hadConductedShowing: conductedShowing, callsCount, hadRealCall: realCalls >…
+  · зовёт presentClientTimeline()
 - const sellerPropertyAddress = client.kind === "SELLER" ? await loadSellerPropertyAddress(client.id) : null;
   · зовёт loadSellerPropertyAddress()
 - const presentedClient = presentClient( responseClient, can(req, "clients.viewPhone") && !gateUntilAccepted, c…
@@ -4531,6 +4540,8 @@
 - если existing
   - const full = await prisma.client.findUniqueOrThrow({ where: { id: existing.id }, select: { id: true, shortId:…
     · читает в базе: client
+  - archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p)
+    · зовёт canCallArchivedClient()
   - если !canAccessAssignedAgent(req, full.assignedAgentId)
     - return res.status(403).json({ error: "Этот номер уже принадлежит другому клиенту — недостаточно прав" });
       · ответ 403 — «Этот номер уже принадлежит другому клиенту — недостаточно прав»
@@ -4547,8 +4558,11 @@
       · ответ 409
   - client = await prisma.client.create({ data: { fullName: `Исходящий ***${digits.replace(/\D/g, "").slice(-2)}`…
     · создаёт в базе: client
-- const result = await originateCallToClient(req.agent!.id, client);
+- const result = await originateCallToClient(req.agent!.id, client, { archiveReview });
   · команда телефонии
+- если archiveReview && (result.ok || result.status === 502)
+  - logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, { shortId: client.shortId, fullName: client.fullNam…
+    · зовёт logAudit()
 - если !result.ok
   - return res.status(result.status).json({ error: result.error });
     · ответ (код зависит от условия)
@@ -4785,6 +4799,51 @@
 - const summary: ClientsSummary = { buyers, sellers, mine, other, lost, newToday, newYesterday, awaitingAgent: …
   · зовёт clientNamePhoneSafe()
 - res.json(summary);
+  · ответ 200
+
+### GET /api/v1/clients/trash/:id/review/timeline
+
+`apps/api/src/routes/clients/trashReview.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+
+- const parsed = timelineQuerySchema.safeParse(req.query);
+  · проверяет данные схемой timelineQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- если (before && !beforeId) || (!before && beforeId)
+  - return res.status(400).json({ error: "Курсор задаётся парой before и beforeId" });
+    · ответ 400 — «Курсор задаётся парой before и beforeId»
+- const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…
+  · читает в базе: client
+- если !client
+  - return res.status(404).json({ error: "Клиент не найден в Корзине" });
+    · ответ 404 — «Клиент не найден в Корзине»
+- const baseWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ?…
+  · зовёт visibleInteractionWhere()
+- const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
+  · читает в базе: interaction
+  · считает в базе: interaction
+- res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
+  · ответ 200
+
+### GET /api/v1/clients/trash/:id/review
+
+`apps/api/src/routes/clients/trashReview.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+
+- const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…
+  · читает в базе: client
+- если !client
+  - return res.status(404).json({ error: "Клиент не найден в Корзине" });
+    · ответ 404 — «Клиент не найден в Корзине»
+- const interactionWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id };
+  · зовёт visibleInteractionWhere()
+- const [request, audit, rows, total, manualTrash] = await Promise.all([ prisma.clientDeleteRequest.findFirst({…
+  · читает в базе: clientDeleteRequest
+  · читает в базе: auditLog
+  · читает в базе: interaction
+  · считает в базе: interaction
+  · считает в базе: auditLog
+- res.json({ client: { id: client.id, shortId: client.shortId, fullName: clientNamePhoneSafe(client.fullName, p…
   · ответ 200
 
 ### GET /api/v1/clients/trash
@@ -5752,6 +5811,11 @@
   - если !can(req, "deals.complete")
     - return fail(403, { error: "Аннулировать сделку может только руководитель" });
       · дословно из кода
+  - const annulTarget = await prisma.deal.findUnique({ where: { id: dealId }, select: { agentId: true } });
+    · читает в базе: deal
+  - если annulTarget && isOwnDealWithoutFinance(req, annulTarget)
+    - return fail(403, { error: "Свою сделку аннулирует директор" });
+      · дословно из кода
   - const parsed = dealAnnulSchema.safeParse(body);
     · проверяет данные схемой dealAnnulSchema
   - если !parsed.success
@@ -5844,7 +5908,7 @@
 - если !deal
   - return res.status(404).json({ error: "Сделка не найдена" });
     · ответ 404 — «Сделка не найдена»
-- если (deal.stage === "PENDING_APPROVAL" || deal.stage === "COMPLETED") && !can(req, "deals.complete")
+- если (deal.stage === "PENDING_APPROVAL" || deal.stage === "COMPLETED") && (!can(req, "deals.complete") || (deal.ag…
   - return res.status(409).json({ error: deal.stage === "COMPLETED" ? "Сделка закрыта — удалить её документ может…
     · ответ 409
 - const doc = await getDealDocument(parsedParams.data.docId);
@@ -5929,8 +5993,8 @@
 
 - const outcome = await markDealPayoutFor(req, req.params.id, req.body);
   · зовёт markDealPayoutFor()
-  - если !can(req, "finance.manage") && !can(req, "deals.setCommission")
-    - return fail(403, { error: "Недостаточно прав" });
+  - если !can(req, "finance.manage")
+    - return fail(403, { error: "Отметить выплату может только директор" });
       · дословно из кода
   - const parsed = dealPayoutSchema.safeParse(body);
     · проверяет данные схемой dealPayoutSchema
@@ -6010,6 +6074,9 @@
   - если data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && !canCompleteDeal(req)
     - return fail(403, { error: "Закрыть сделку может только руководитель" });
       · дословно из кода
+  - если data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && isOwnDealWithoutFinance(req, existing)
+    - return fail(403, { error: "Свою сделку закрывает директор: вы продавец, второй человек должен подтвердить" });
+      · дословно из кода
   - const commissionExceedsPrice = finalSoldPrice !== null && finalSoldPrice !== undefined && finalRealtorAmount …
     · зовёт sumCents()
   - const isDirectComplete = data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && existing.stage !== "…
@@ -6076,6 +6143,12 @@
           · зовёт logAudit()
   - если commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…
     - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
+      · дословно из кода
+  - если existing.stage === "COMPLETED" && !can(req, "finance.manage") && (data.commissionAmount !== undefined || data…
+    - return fail(403, { error: "Деньги закрытой сделки меняет только директор" });
+      · дословно из кода
+  - если isRepricingClosed && !can(req, "finance.manage")
+    - return fail(403, { error: "Комиссию закрытой сделки меняет только директор" });
       · дословно из кода
   - если isRepricingClosed && data.commissionAmount === undefined && data.commissionPercent !== undefined
     - const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…
@@ -13019,6 +13092,9 @@
     · ответ 400
 - const changedFields = changedPropertyFields( Object.fromEntries(Object.entries(parsed.data).filter(([k])
   · зовёт changedPropertyFields()
+- если (req.agent!.role === "MARKETING" || req.agent!.role === "EDITOR") && !ownsProperty(req.agent!.id, existing) &…
+  - return res.status(403).json({ error: "Цену и контакт собственника меняет агент объекта или руководитель" });
+    · ответ 403 — «Цену и контакт собственника меняет агент объекта или руководитель»
 - если existing.status === "SOLD" && changedFields.some((f) => f === "soldPrice" || f === "currency" || f === "price…
   - return res.status(403).json({ error: "Цену и валюту проданного объекта исправляет руководитель" });
     · ответ 403 — «Цену и валюту проданного объекта исправляет руководитель»
@@ -19929,7 +20005,7 @@
     - если withClient.length === 0
       - return { byCall: 0, expired };
         · дословно из кода
-    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", clientId: { in: withClient.map((r)
+    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", archiveReview: false, clientId: { in…
       · читает в базе: interaction
     - если calls.length === 0
       - return { byCall: 0, expired };

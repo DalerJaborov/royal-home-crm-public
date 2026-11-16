@@ -11,6 +11,7 @@ const password = "testpass123";
 
 let districtId: string;
 let adminId: string;
+let viewDirectorId: string;
 let agentAId: string;
 let agentBId: string;
 let clientAId: string;
@@ -24,6 +25,7 @@ let dealAId: string;
 let dealBId: string;
 
 let adminToken: string;
+let viewDirectorToken: string;
 let agentAToken: string;
 let agentBToken: string;
 
@@ -48,6 +50,12 @@ beforeAll(async () => {
     data: { fullName: "Тест Админ", phone: `+992990${runId}`, role: "ADMIN", passwordHash },
   });
   adminId = admin.id;
+
+  // 16.11.2026 номера и контакты собственников видит только директор — положительные кейсы ведём от него.
+  const viewDirector = await prisma.agent.create({
+    data: { fullName: "Тест Директор (видит номера)", phone: `+992980${runId}`, role: "DIRECTOR", passwordHash },
+  });
+  viewDirectorId = viewDirector.id;
 
   const agentA = await prisma.agent.create({
     data: { fullName: "Агент А", phone: `+992991${runId}`, role: "AGENT", passwordHash },
@@ -135,6 +143,7 @@ beforeAll(async () => {
   dealBId = dealB.id;
 
   adminToken = await login(admin.phone);
+  viewDirectorToken = await login(viewDirector.phone);
   agentAToken = await login(agentA.phone);
   agentBToken = await login(agentB.phone);
 });
@@ -147,7 +156,7 @@ afterAll(async () => {
   await prisma.property.deleteMany({ where: { id: { in: [propertyAId, propertyBId] } } });
   // По самому агенту, а не по списку его клиентов: раздача лидов могла отдать
   // нашему агенту карточку, которую этот файл не заводил (см. helpers).
-  await deleteAgentsWithTraces([adminId, agentAId, agentBId]);
+  await deleteAgentsWithTraces([adminId, viewDirectorId, agentAId, agentBId]);
   await prisma.district.deleteMany({ where: { id: districtId } });
   await prisma.$disconnect();
 });
@@ -396,12 +405,20 @@ describe("Объекты — видимость контакта владель�
     expect(res.body.ownerContact).toBeNull();
   });
 
-  it("admin видит ownerContact в любом случае", async () => {
+  it("директор видит ownerContact в любом случае (16.11.2026: контакты собственников — только директору)", async () => {
+    const res = await request(app)
+      .get(`/api/v1/properties/${propertyAShortId}`)
+      .set("Authorization", `Bearer ${viewDirectorToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.ownerContact).toBeTruthy();
+  });
+
+  it("admin чужой объект без контакта собственника: 16.11.2026 номера только директору", async () => {
     const res = await request(app)
       .get(`/api/v1/properties/${propertyAShortId}`)
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.ownerContact).toBeTruthy();
+    expect(res.body.ownerContact).toBeNull();
   });
 
   it("не назначенный агент не может изменить чужой объект (403)", async () => {
@@ -441,10 +458,17 @@ describe("Распределение лидов и контакты до при�
     expect(res.body.phone).not.toBe(`+992986${runId}`);
   });
 
-  it("admin видит телефон лида без маски и до принятия", async () => {
-    const res = await request(app).get(`/api/v1/clients/${leadShortId}`).set("Authorization", `Bearer ${adminToken}`);
+  it("директор видит телефон лида без маски и до принятия (16.11.2026 номера только директору)", async () => {
+    const res = await request(app).get(`/api/v1/clients/${leadShortId}`).set("Authorization", `Bearer ${viewDirectorToken}`);
     expect(res.status).toBe(200);
     expect(res.body.phone).toBe(`+992986${runId}`);
+  });
+
+  it("admin видит маску телефона лида: 16.11.2026 номера только директору", async () => {
+    const res = await request(app).get(`/api/v1/clients/${leadShortId}`).set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.phone).toContain("•");
+    expect(res.body.phone).not.toBe(`+992986${runId}`);
   });
 
   it("до принятия агент не может добавить взаимодействие (403)", async () => {
