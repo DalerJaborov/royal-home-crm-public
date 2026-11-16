@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { categoryFromWhoIsThis } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
-import { mergeDraft, NON_CLIENT_SCENARIOS, qualifySchema, resolveEffectiveWhoIsThis } from "../src/ai/leadQualifier.js";
+import { mergeDraft } from "../src/ai/leadDraftMerge.js";
 import { isNonClientRole } from "../src/ai/roleAbilities.js";
 import { WHO_IS_THIS } from "../src/ai/botContract.js";
-import type { BotAbilities, LeadDraft, QualifyResult } from "../src/ai/leadQualifier.js";
+import type { BotAbilities } from "../src/ai/botContract.js";
+import type { LeadDraft } from "../src/ai/leadDraft.js";
+import type { ChannelTurnResult as QualifyResult } from "../src/ai/channelTurnResult.js";
 import type { ContactProfileForPrompt } from "../src/ai/contactProfileBlock.js";
 import { attachContactProfile } from "../src/lib/contactProfiles.js";
 import { rememberContactTurn } from "../src/lib/contactProfileMemory.js";
@@ -44,25 +46,6 @@ const SHOWCASE = { canSendPhotos: false, alreadyShownShortIds: [], photosPerOffe
 
 const result = (over: Partial<QualifyResult> = {}): QualifyResult => ({ reply: ["ок"], ready: false, ...over });
 
-describe("поле «кто пишет» в схеме ответа модели", () => {
-  it("тумблер выключен — поля нет вовсе", () => {
-    const off = qualifySchema(false, false, { ...ALL_ON, promptEconomy: false }, false);
-    expect(off.properties).not.toHaveProperty("whoIsThis");
-    // Направление разговора при этом на месте: тумблер про роли, а не про intent.
-    expect(off.properties).toHaveProperty("intent");
-  });
-
-  it("тумблер включён — поле есть, и в нём нет SPAM", () => {
-    const on = qualifySchema(false, false, ALL_ON, false);
-    const field = (on.properties as Record<string, { enum?: string[] }>).whoIsThis;
-    expect(field).toBeDefined();
-    expect(field.enum).toContain("VENDOR");
-    expect(field.enum).toContain("PARTNER");
-    // Спам ловится кодом до вызова модели. Спросить у неё «это спам?» значило бы
-    // дать ей повод замолчать в ответ живому человеку.
-    expect(field.enum).not.toContain("SPAM");
-  });
-});
 
 describe("метка живёт дольше одного хода, но намерение старше", () => {
   const base: LeadDraft = { stage: "chatting" };
@@ -97,13 +80,6 @@ describe("метка живёт дольше одного хода, но нам�
  * человеку, которому тем же промтом запрещено предлагать жильё.
  */
 describe("сценарии и права знают одних и тех же «не клиентов»", () => {
-  it("списки совпадают ключ в ключ", () => {
-    const withScenario = Object.keys(NON_CLIENT_SCENARIOS).sort();
-    const withNarrowedRights = WHO_IS_THIS.filter((who) => isNonClientRole(who)).sort();
-    expect(withScenario).toEqual(withNarrowedRights);
-    // Список не пустой — иначе тест «совпадают» проходил бы на двух пустых.
-    expect(withScenario.length).toBeGreaterThan(0);
-  });
 
   it("покупатель, продавец, кандидат и «не понял» — клиенты, прав им не снимают", () => {
     for (const who of ["BUYER", "SELLER", "JOB", "CLIENT_CARE", "OTHER", "UNKNOWN"] as const) {
@@ -131,30 +107,6 @@ const profile = (category: ContactProfileForPrompt["category"]): ContactProfileF
   crm: null,
 });
 
-describe("досье подсказывает роль, пока разговор ещё ничего не сказал (§10.4)", () => {
-  it("новый разговор, досье помнит рекламщика — подсказка встаёт сразу", () => {
-    expect(resolveEffectiveWhoIsThis({ whoIsThis: undefined }, profile("VENDOR"), true)).toBe("VENDOR");
-  });
-
-  it("тумблер выключен — подсказки нет вовсе, даже если досье её знает", () => {
-    expect(resolveEffectiveWhoIsThis({ whoIsThis: undefined }, profile("VENDOR"), false)).toBeUndefined();
-  });
-
-  it("разговор уже классифицировал сам — метка этого хода побеждает, досье не спрашивается", () => {
-    expect(resolveEffectiveWhoIsThis({ whoIsThis: "PARTNER" }, profile("VENDOR"), true)).toBe("PARTNER");
-  });
-
-  it("покупатель и продавец из досье не подставляются — рента от покупки так не отличить", () => {
-    expect(resolveEffectiveWhoIsThis({ whoIsThis: undefined }, profile("BUYER"), true)).toBeUndefined();
-    expect(resolveEffectiveWhoIsThis({ whoIsThis: undefined }, profile("SELLER"), true)).toBeUndefined();
-  });
-
-  it("«пока не понятно» и без досье — подсказки нет, интейк как обычно", () => {
-    expect(resolveEffectiveWhoIsThis({ whoIsThis: undefined }, profile("UNKNOWN"), true)).toBeUndefined();
-    expect(resolveEffectiveWhoIsThis({ whoIsThis: undefined }, null, true)).toBeUndefined();
-    expect(resolveEffectiveWhoIsThis({ whoIsThis: undefined }, undefined, true)).toBeUndefined();
-  });
-});
 
 describe("перевод метки в категорию досье", () => {
   it("«не понял» категорией не становится", () => {

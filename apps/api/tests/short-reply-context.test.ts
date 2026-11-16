@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildShortReplySystem } from "../src/ai/leadQualifier.js";
+import { buildShortReplySystem } from "../src/ai/shortAgentReply.js";
 
 /**
  * Короткие реплики бота вне основного хода: напоминание молчащему клиенту и

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clientSelfStatedName, looksLikeRealName } from "../src/ai/replyGuards.js";
-import { buildShortReplySystem, maskHistoryForModel } from "../src/ai/leadQualifier.js";
+import { buildShortReplySystem, maskHistoryForModel } from "../src/ai/shortAgentReply.js";
 
 /**
  * 18.08.2026 — владелец получил жалобу: бот назвал клиента по ФИО, взятому из

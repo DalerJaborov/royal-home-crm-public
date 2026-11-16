@@ -7,7 +7,8 @@ import { logSystemError } from "../lib/systemError.js";
 import { neutralizeFence } from "./untrustedContent.js";
 import { describeError } from "../lib/describeError.js";
 import { sendPushToAgents } from "../push.js";
-import { resolveBotPersona, BOT_CORE_RULES } from "./legacyQualifyDoor.js";
+import { CUSTOMER_AGENT_SYSTEM } from "./customerAgentPrompt.js";
+import { CUSTOMER_AGENT_ANSWER_GUIDANCE } from "./customerAgentAnswer.js";
 import type { ChatMessage } from "./shared.js";
 import { getClosedGroupKeys, groupKey } from "../lib/botAuditGroups.js";
 
@@ -16,8 +17,8 @@ import { getClosedGroupKeys, groupKey } from "../lib/botAuditGroups.js";
  * нарушениях правил бота из скриншотов, присланных клиентами компании).
  *
  * Судья — тот же Claude, которому даём РЕАЛЬНЫЙ, актуальный текст правил бота
- * (тот же `resolveBotPersona()` + `BOT_CORE_RULES`, что реально уходит в
- * системный промт продающего бота — не копия текста руками, чтобы находки не
+ * (с 16.11.2026 — системный промпт ядра `CUSTOMER_AGENT_SYSTEM` + правила ответа
+ * `CUSTOMER_AGENT_ANSWER_GUIDANCE`, ровно то, что уходит модели — не копия текста руками, чтобы находки не
  * протухали, когда кто-то поправит промт), просим перечитать диалог и найти,
  * где бот сам себе противоречит.
  *
@@ -341,7 +342,9 @@ export interface AuditRunSummary {
  *  счёта за один клик. */
 export async function runBotAudit(hours: number = WINDOW_HOURS): Promise<AuditRunSummary> {
   const [rulesText, conversations, closedGroupKeys] = await Promise.all([
-    resolveBotPersona(null).then((persona) => persona + BOT_CORE_RULES),
+    // One brain, step 3b (16.11.2026): the old bot's persona + BOT_CORE_RULES are gone with it. The rules every customer reply
+    // now follows are the core's pinned system prompt plus the per-turn answer guidance (ai/customerAgentAnswer.ts).
+    Promise.resolve(`${CUSTOMER_AGENT_SYSTEM}\n\n${CUSTOMER_AGENT_ANSWER_GUIDANCE}`),
     loadConversationsToJudge(hours),
     // Группы (type+why), которые владелец уже разобрал вердиктом «бот прав» —
     // не заводим по ним новые находки заново (17.09.2026, «повторы исключить

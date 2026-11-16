@@ -15,7 +15,7 @@ import { createCustomerMessengerFixture, type CustomerMessengerFixture } from ".
 
 const { push, shortReply } = vi.hoisted(() => ({ push: vi.fn(async (..._args: unknown[]) => 1), shortReply: vi.fn(async (..._args: unknown[]) => null) }));
 vi.mock("../src/push.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/push.js")>()), sendPushToAgents: push }));
-vi.mock("../src/ai/leadQualifier.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/ai/leadQualifier.js")>()), shortAgentReply: shortReply }));
+vi.mock("../src/ai/shortAgentReply.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/ai/shortAgentReply.js")>()), shortAgentReply: shortReply }));
 
 /** Real PG effect-kernel/staff/job gates. EXECUTING journal rows are trusted
  * server fixtures, NOT proof of customer authorization; signed ingress and the

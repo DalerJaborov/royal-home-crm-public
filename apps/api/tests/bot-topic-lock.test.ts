@@ -47,6 +47,11 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText: aiCall,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => aiCall(input as never)),
+}));
 
 /** Уникальный хвост: база общая с соседними наборами, пересечься диалогами нельзя. */
 const runId = `tl-${Date.now().toString(36)}`;
@@ -71,7 +76,7 @@ function modelReply(reply: string[], topic: Record<string, unknown> = {}) {
 
 /** Параметры последнего вызова квалификатора: промт и схема инструмента. */
 function lastQualifyCall(): { system: string; systemStable?: string; schema?: any } {
-  const calls = aiCall.mock.calls.filter(([params]) => params?.endpoint === "lead-qualify");
+  const calls = aiCall.mock.calls.filter(([params]) => params?.endpoint === "channel-turn");
   expect(calls.length).toBeGreaterThan(0);
   return calls[calls.length - 1][0];
 }
@@ -291,140 +296,6 @@ describe("постфильтр дописывает забытый вопрос"
     expect(repeatsQuestion("Буҷети шумо чанд ҳазор?", BUDGET_QUESTION)).toBe(true);
     expect(repeatsQuestion("Мо дар маркази шаҳр ҳастем", BUDGET_QUESTION)).toBe(false);
   });
-});
-
-describe("живой диалог: состояние темы копится в базе", () => {
-  const subscriberId = `${runId}-live`;
-
-  it("вопрос бота запоминается, уход с темы возвращает его клиенту, ответ закрывает", async () => {
-    await setTopicLock(true, 1);
-
-    // ХОД 1: бот спрашивает про бюджет.
-    aiCall.mockResolvedValue(
-      modelReply([BUDGET_QUESTION], {
-        topic: "price",
-        topicLabel: "буҷет",
-        openQuestion: BUDGET_QUESTION,
-        clientAnsweredOpenQuestion: false,
-      })
-    );
-    await processMessengerTurn({ channel: "INSTAGRAM", subscriberId, text: "Салом, хона мекобам" });
-
-    const afterAsk = await readConversation(subscriberId);
-    expect(afterAsk?.topic).toBe("price");
-    expect(afterAsk?.topicLabel).toBe("буҷет");
-    expect(afterAsk?.openQuestion).toBe(BUDGET_QUESTION);
-    expect(afterAsk?.offTopicTurns).toBe(0);
-    expect(afterAsk?.topicSetAt).toBeInstanceOf(Date);
-
-    // ХОД 2: клиент спрашивает совсем о другом, а модель про свой вопрос забывает —
-    // возвращает пустой openQuestion и отвечает только на реплику клиента.
-    aiCall.mockResolvedValue(
-      modelReply(["Мо дар маркази шаҳр ҳастем"], {
-        topic: "price",
-        openQuestion: "",
-        clientAnsweredOpenQuestion: false,
-      })
-    );
-    const drifted = await processMessengerTurn({
-      channel: "INSTAGRAM",
-      subscriberId,
-      text: "Шумо кучо ҷойгиред?",
-    });
-
-    // Промт этого хода: и состояние, и дословное предписание.
-    const call = lastQualifyCall();
-    expect(call.system).toContain(`НЕЗАКРЫТЫЙ ВОПРОС: "${BUDGET_QUESTION}"`);
-    expect(call.system).toContain("ЗАДАНИЕ НА ЭТОТ ХОД");
-    // Переменная часть промта — да, кэшируемый префикс — никогда: состояние меняется
-    // каждый ход и внутри кэш-блока стоило бы дороже, чем экономило.
-    expect(call.systemStable ?? "").not.toContain("НЕЗАКРЫТЫЙ ВОПРОС");
-
-    // Модель предписание не выполнила — вопрос дописал код. Именно это и есть гарантия.
-    const said = [drifted.reply, drifted.reply2].filter(Boolean).join("\n");
-    expect(said).toContain("Буҷетатон");
-
-    const afterDrift = await readConversation(subscriberId);
-    // Вопрос НЕ потерян: закрыть его может только ответ клиента или смена темы.
-    expect(afterDrift?.openQuestion).toBe(BUDGET_QUESTION);
-    expect(afterDrift?.offTopicTurns).toBe(1);
-
-    // ХОД 3: клиент наконец отвечает. Проверяем заодно, что прошлый ход честно
-    // рассказал модели, сколько раз вопрос обошли стороной.
-    aiCall.mockResolvedValue(
-      modelReply(["Кадом тарафро дидан мехоҳед?"], {
-        topic: "price",
-        topicLabel: "буҷет",
-        openQuestion: "Кадом тарафро дидан мехоҳед?",
-        clientAnsweredOpenQuestion: true,
-      })
-    );
-    const answered = await processMessengerTurn({ channel: "INSTAGRAM", subscriberId, text: "То 50 ҳазор доллар" });
-    expect(lastQualifyCall().system).toContain("Клиент не ответил 1 ходов.");
-
-    // Вопрос про бюджет больше не догоняет человека, который на него ответил.
-    expect([answered.reply, answered.reply2].filter(Boolean).join("\n")).not.toContain("Буҷетатон");
-
-    const afterAnswer = await readConversation(subscriberId);
-    expect(afterAnswer?.offTopicTurns).toBe(0);
-    expect(afterAnswer?.openQuestion).toBe("Кадом тарафро дидан мехоҳед?");
-  }, 30_000);
-
-  it("состояние переживает перезапуск: оно целиком в записи диалога", async () => {
-    // В памяти процесса живут только подсказки одного хода (turnHint). Тема обязана
-    // лежать в базе: разговор о квартире тянется сутками, а контейнер перезапускается.
-    const row = await readConversation(subscriberId);
-    const reread = await prisma.botConversation.findUnique({
-      where: { id: row!.id },
-      select: { topic: true, topicLabel: true, openQuestion: true, offTopicTurns: true, topicSetAt: true },
-    });
-    expect(reread).toEqual({
-      topic: "price",
-      topicLabel: "буҷет",
-      openQuestion: "Кадом тарафро дидан мехоҳед?",
-      offTopicTurns: 0,
-      topicSetAt: expect.any(Date),
-    });
-    // И то же самое, прочитанное так, как его читает ход диалога.
-    expect(topicStateOf(reread!).openQuestion).toBe("Кадом тарафро дидан мехоҳед?");
-  });
-});
-
-describe("рубильник выключен — всё как раньше", () => {
-  const subscriberId = `${runId}-off`;
-
-  it("ни строки в промте, ни поля в схеме, ни правки реплики, ни записи в базу", async () => {
-    await setTopicLock(false, 1);
-    // Положительный ответ соблюдает схему выключенного рубильника: поля темы
-    // модель не возвращает. Запрещённые поля проверяются отдельным reject-тестом.
-    aiCall.mockResolvedValue(modelReply(["Мо дар маркази шаҳр ҳастем"]));
-
-    const result = await processMessengerTurn({ channel: "INSTAGRAM", subscriberId, text: "Шумо кучо ҷойгиред?" });
-
-    const call = lastQualifyCall();
-    expect(call.system).not.toContain("ТЕМА:");
-    expect(call.system).not.toContain("НЕЗАКРЫТЫЙ ВОПРОС");
-    expect(call.system).not.toContain("ЗАДАНИЕ НА ЭТОТ ХОД");
-    // Схема инструмента — тоже прежняя: лишнее обязательное поле стоит токенов на
-    // каждом ходе и меняет поведение модели даже там, где мы его не читаем.
-    expect(Object.keys(call.schema.properties)).not.toContain("topic");
-    expect(Object.keys(call.schema.properties)).not.toContain("openQuestion");
-    // `confident` — не «лишнее поле»: его читают на КАЖДОМ ходе и в каждом канале
-    // (ai/leadKind.ts решает по нему тип карточки). Добавлено 30.08.2026 по разбору
-    // прода: без признака уверенности «модель не поняла» молча превращалось в
-    // «покупатель», и мусорный лид уходил живому агенту. Рубильник темы к нему
-    // отношения не имеет — в отличие от topic/openQuestion ниже по списку.
-    expect(call.schema.required).toEqual(["reply", "ready", "confident"]);
-
-    // Реплика уходит ровно такой, какой её вернула модель.
-    expect(result.reply).toBe("Мо дар маркази шаҳр ҳастем");
-    expect(result.reply2).toBeUndefined();
-
-    const row = await readConversation(subscriberId);
-    expect(row?.topic).toBeNull();
-    expect(row?.openQuestion).toBeNull();
-    expect(row?.offTopicTurns).toBe(0);
-  }, 30_000);
 });
 
 /**

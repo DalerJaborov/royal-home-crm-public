@@ -19,7 +19,6 @@ import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { verifyAccessToken } from "../auth/jwt.js";
 import { audioUpload, upload, uploadsDir } from "../upload.js";
 import { encryptSecret, decryptSecretSafe } from "../crypto.js";
-import { DEFAULT_BOT_PERSONA } from "../ai/legacyQualifyDoor.js";
 import { DEFAULT_LIVE_VOICE_PROMPT, buildLiveVoiceSystemPrompt } from "../ai/liveVoicePersona.js";
 import { withSelfGenderReminder, withSelfGenderRule } from "../ai/liveVoiceSelfGender.js";
 import { DEFAULT_COMMENT_PROMPT } from "../messengers/comments.js";
@@ -384,11 +383,10 @@ function toPublicSettings(settings: {
     metaIgTokenAvailable: metaReadiness.igTokenAvailable,
     /** Маркер берётся у основного аккаунта списка — поле сейчас запасное. */
     metaIgTokenFromAccount: metaReadiness.igTokenFromAccount,
-    // Отдаём ДЕЙСТВУЮЩУЮ «личность» (текст владельца из БД или дефолт из кода).
-    // Обязательные правила бота сюда НЕ входят и в это поле не показываются: они
-    // приклеиваются к промту всегда (ai/leadQualifier.ts → BOT_CORE_RULES), и владелец
-    // не должен ни повторять их у себя, ни бояться случайно отменить.
-    botSystemPrompt: botSystemPrompt || DEFAULT_BOT_PERSONA,
+    // «Личность» бота — только текст владельца (16.11.2026, один мозг, шаг 3б). Дефолтный текст старого бота удалён
+    // вместе с ним: ядро говорит по своему закреплённому промпту, а этот текст доходит до него как голос компании
+    // (lib/customerAgentBrandRead.ts, рубильник CUSTOMER_AGENT_BRAND_VOICE). Пусто — значит своего голоса нет.
+    botSystemPrompt: botSystemPrompt || "",
     botSystemPromptIsCustom: !!botSystemPrompt,
     // То же и для промта комментариев: наружу уходит ДЕЙСТВУЮЩИЙ текст, пустая
     // настройка означает «работает зашитый по умолчанию», а не «промта нет».
@@ -1721,7 +1719,7 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...(botSystemPrompt !== undefined
       ? {
           botSystemPrompt:
-            botSystemPrompt.trim() && botSystemPrompt.trim() !== DEFAULT_BOT_PERSONA.trim() ? botSystemPrompt : null,
+            botSystemPrompt.trim() ? botSystemPrompt : null,
         }
       : {}),
     // И у промта комментариев: пусто → null → бот берёт зашитый по умолчанию.

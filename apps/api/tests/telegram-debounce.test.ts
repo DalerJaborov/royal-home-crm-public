@@ -33,6 +33,11 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => callAiText(input as never)),
+}));
 
 delete process.env.TELEGRAM_BOT_TOKEN;
 
@@ -81,7 +86,7 @@ function textUpdate(chatId: string, text: string) {
 
 /** Только ходы квалификатора: сторожа и разборы тоже зовут модель, но отвечает клиенту один этот ход. */
 function qualifyCalls() {
-  return callAiText.mock.calls.filter((call) => (call[0] as { endpoint?: string }).endpoint === "lead-qualify");
+  return callAiText.mock.calls.filter((call) => (call[0] as { endpoint?: string }).endpoint === "channel-turn");
 }
 
 beforeAll(async () => {
@@ -118,7 +123,7 @@ beforeEach(() => {
   removeKeyboard.mockResolvedValue(undefined);
   callAiText.mockReset();
   callAiText.mockImplementation(async (params: { endpoint?: string }) =>
-    params.endpoint === "lead-qualify"
+    params.endpoint === "channel-turn"
       ? { reply: ["Понял вас: трёхкомнатная в Сино. Какой бюджет?"], ready: false, intent: "buy", confident: true }
       : null
   );

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { mergeDraft, type LeadDraft, type QualifyResult } from "../src/ai/leadQualifier.js";
+import { mergeDraft } from "../src/ai/leadDraftMerge.js";
+import type { LeadDraft } from "../src/ai/leadDraft.js";
+import type { ChannelTurnResult as QualifyResult } from "../src/ai/channelTurnResult.js";
 
 /**
  * Продажа объекта ЗА ПРЕДЕЛАМИ Таджикистана (Россия и т.п.) — владелец 19.08.2026:

@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import { runLegacyQualifyTurn, type QualifyTurnOptions } from "../ai/legacyQualifyDoor.js";
+import { runCustomerChannelTurn, type ChannelTurnOptions } from "../ai/customerChannelTurn.js";
 import { detectClientLanguage } from "../ai/clientLanguage.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
 import { EMPTY_TOPIC_STATE } from "../ai/topicLock.js";
@@ -50,16 +50,11 @@ async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial:
   if (!budgetRow || !await refresh()) return { ...HELD };
   const budget = aiDailyBudgetOf({ ...budgetRow, clientId: null });
   if (budget.turnsLeft <= 0) return { ...HELD };
-  const options = (): QualifyTurnOptions => ({
-    customerContext: lane.context, contactProfile: null, phoneKnown: lane.context.knownPhoneSource !== "none",
-    accountId: lane.principal.scope.accountId, channel: input.channel, conversationId: lane.ticket.conversationId,
-    abilities: { showings: false, callback: false, askOwner: false, vacancies: false,
-      links: true, cautious: true, promptEconomy: true },
-    topic: { settings: { enabled: false, driftTurns: 1 }, state: { ...EMPTY_TOPIC_STATE } },
-  });
+  const options = (): ChannelTurnOptions => ({ phoneKnown: lane.context.knownPhoneSource !== "none",
+    accountId: lane.principal.scope.accountId, channel: input.channel, conversationId: lane.ticket.conversationId });
   if (!input.retryOfPaidTurn) await spendAiTurns(lane.ticket.conversationId, budget.dayKey);
   if (!await refresh()) return { ...HELD };
-  const result = await runLegacyQualifyTurn([...lane.context.history], { ...lane.context.draft }, options(), { channel: input.channel,
+  const result = await runCustomerChannelTurn([...lane.context.history], { ...lane.context.draft }, options(), { channel: input.channel,
     traceAccount: input.accountExternalId ?? null, eventId: input.messageId ?? null, ...(input.retryOfPaidTurn ? { repeat: "retry" as const } : {}) });
   if (!await refresh()) return { ...HELD };
   if (!result) return { ...HELD, aiUnavailable: true };
@@ -75,9 +70,9 @@ async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial:
     fallbackLanguageWords: [text], accountId: lane.principal.scope.accountId,
   }, {
     // A regeneration is the same read-only call, with the same original proof.
-    regenerate: blockedAction ? undefined : async retryDirective => {
+    regenerate: blockedAction ? undefined : async () => {
       if (!await refresh()) return null;
-      const retry = await runLegacyQualifyTurn([...lane.context.history], { ...lane.context.draft }, { ...options(), retryDirective },
+      const retry = await runCustomerChannelTurn([...lane.context.history], { ...lane.context.draft }, options(),
         { channel: input.channel, repeat: "regeneration" });
       if (!await refresh() || !retry) return null;
       return retry.askOwner || retry.callbackRequest || retry.jobApplication || retry.showPropertyNumber || retry.sendGuide || retry.showing

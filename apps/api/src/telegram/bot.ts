@@ -30,7 +30,8 @@ import { fetchTelegramAlbumAttachments, telegramUnsupportedMark } from "./attach
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { stripUntrusted, wrapUntrusted } from "../ai/untrustedContent.js";
 import type { ChatMessage, ImageInput, StoredAttachment } from "../ai/client.js";
-import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
+import { runCustomerChannelTurn } from "../ai/customerChannelTurn.js";
+import { mergeDraft } from "../ai/leadDraftMerge.js";
 import { extractTypedPhone, extractVolunteeredPhone, normalizeDigits } from "../lib/shared/phoneText.js";
 import { lastClientLanguage } from "../ai/shortAgentReply.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
@@ -696,7 +697,7 @@ export async function finishTelegramQualifyTurn(params: {
   draft: LeadDraft;
   history: ChatMessage[];
   text: string;
-  turn: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>;
+  turn: NonNullable<Awaited<ReturnType<typeof runCustomerChannelTurn>>>;
   capabilities: Awaited<ReturnType<typeof loadBotCapabilities>>;
   /** Клиент в ЭТОМ ходе прислал голосовое — условие для голосового ответа
    *  (см. докстринг у синтеза ниже). Повтор из jobs/telegramReplyRetry.ts
@@ -2002,11 +2003,9 @@ async function replyToBatch(p: {
   // заводить колонку ради потока, которого там почти нет.
   // showcase не передаётся тоже: отправка фотографий в чат есть только в каналах Meta
   // (см. messengers/propertyShowcase.ts), и промт по умолчанию считает, что показа нет.
-  const result = await runLegacyQualifyTurn(promptHistory, draft, {
-    images: p.images,
-    abilities,
+  const result = await runCustomerChannelTurn(promptHistory, draft, {
+    channel: "TELEGRAM",
     conversationId: conversation.id,
-    contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
     phoneKnown: clientPhoneKnown,
   }, { channel: "TELEGRAM" });
 

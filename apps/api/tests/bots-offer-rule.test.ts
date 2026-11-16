@@ -34,7 +34,6 @@ const { BOT_OFFER_SELECT, BOTS_OFFER_MODE, botMayOffer, botOfferableWhere, botOf
 );
 type BotOfferMode = import("../src/lib/propertyMatch.js").BotOfferMode;
 const { handlePropertyTool, newPropertyCallMemory, propertiesSmsText } = await import("../src/lib/telephony/liveVoicePropertyTools.js");
-const { propertyLink } = await import("../src/ai/leadQualifier.js");
 
 const runId = Date.now().toString(36);
 const TAG = `Правило-${runId}`;
@@ -193,17 +192,4 @@ describe("ссылка клиенту", () => {
     expect(sendSms).not.toHaveBeenCalled();
   });
 
-  it("текст СМС и ссылка чата — одной функцией botOfferLink", () => {
-    const reel = { id: "r1", publishedOnSite: false, instagramUrl: REEL, siteListingId: null };
-    const none = { id: "n1", publishedOnSite: false, instagramUrl: null, siteListingId: null };
-    const site = { id: "s1", publishedOnSite: true, instagramUrl: REEL, siteListingId: null };
-    expect(botOfferLink(reel)).toBe(REEL);
-    expect(botOfferLink(none)).toBeNull();
-    expect(botOfferLink(site)).toBe("https://royalhome.tj/listing/by-crm/s1");
-    expect(propertyLink(reel, "WEBSITE")).toBe(REEL);
-    expect(propertyLink(none, "WHATSAPP")).toBeNull();
-    const fields = { rooms: 2, areaSqm: 60, price: 500_000, currency: "TJS", district: { name: "Сино" } };
-    expect(propertiesSmsText([{ ...reel, ...fields }])).toContain(`: ${REEL}`);
-    expect(propertiesSmsText([{ ...none, ...fields }])).not.toContain("https://");
-  });
 });

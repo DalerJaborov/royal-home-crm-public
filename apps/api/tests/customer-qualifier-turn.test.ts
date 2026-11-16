@@ -11,7 +11,7 @@ vi.mock("../src/db.js", async importOriginal => {
     customerPropertyIngressTicket: { findUnique: f.pinRead },
     $disconnect: () => original.prisma.$disconnect() } };
 });
-vi.mock("../src/ai/leadQualifier.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/leadQualifier.js")>()), runQualifyTurn: f.model }));
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()), runCustomerChannelTurn: f.model }));
 vi.mock("../src/ai/topicLock.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/topicLock.js")>()), EMPTY_TOPIC_STATE: { topic: null, topicLabel: null, openQuestion: null, offTopicTurns: 0 } }));
 vi.mock("../src/lib/aiDailyBudget.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/aiDailyBudget.js")>()), aiDailyBudgetOf: f.budget, spendAiTurns: f.spend }));
 vi.mock("../src/lib/customerQualifierContext.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/customerQualifierContext.js")>()), refreshCustomerQualifierProjection: f.refresh }));
@@ -66,8 +66,8 @@ describe("early scoped read-only qualifier invocation", () => {
     const value = lane(); const result = await processScopedCustomerQualifierTurn(input(), value);
     const [history, draft, options] = f.model.mock.calls[0];
     expect(history).toEqual(value.context.history); expect(draft).toEqual({ stage: "chatting" });
-    expect(options).toMatchObject({ customerContext: value.context, contactProfile: null, phoneKnown: false,
-      abilities: { callback: false, showings: false, askOwner: false, vacancies: false } });
+    // Only server facts reach the one door now (one brain, step 3b): no prompt context of the deleted old bot.
+    expect(options).toEqual({ phoneKnown: false, accountId: "account-A", channel: "INSTAGRAM", conversationId: "native-A" });
     expect(options.name).toBeUndefined(); expect(options.scenarioId).toBeUndefined(); expect(options.showcase).toBeUndefined();
     expect(JSON.stringify([history, draft, options])).not.toContain("PRIVATE");
     expect(result.customerReplyPrincipal).toBe(principal); expect(result.accepted).toBe(false);

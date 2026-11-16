@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AGENCY_FACTS, companyInfoBlock } from "../src/ai/agencyFacts.js";
-import { AGENCY_COMPANY_INFO, SCENARIO_JOB } from "../src/ai/leadQualifier.js";
+import { AGENCY_COMPANY_INFO } from "../src/ai/agencyVoice.js";
 import { buildLiveVoiceSystemPrompt } from "../src/ai/liveVoicePersona.js";
 import { buildConsultantSystemPrompt } from "../src/ai/liveVoiceConsultantPersona.js";
 import { cleanOutgoingReply } from "../src/ai/replyGuards.js";
@@ -159,12 +159,4 @@ describe("public agency telephone (owner decision 14.10.2026)", () => {
     expect(cleanOutgoingReply("Цена 320 000 - 350 000 сомони, площадь 120 м²")).toContain("320 000 - 350 000");
   });
 
-  it("resume paths give photos/text alternatives without directing files to unavailable WhatsApp", () => {
-    for (const instruction of [SCENARIO_JOB, VACANCIES_DISABLED_RULE]) {
-      expect(instruction).not.toContain(RETIRED_PHONE);
-      expect(instruction).not.toMatch(/(?:на|наш) WhatsApp/i);
-      expect(instruction).toMatch(/фото/i);
-      expect(instruction).toMatch(/текст/i);
-    }
-  });
 });

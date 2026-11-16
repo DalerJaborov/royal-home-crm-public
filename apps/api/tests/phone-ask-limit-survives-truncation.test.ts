@@ -26,6 +26,11 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText: callAi,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => callAi(input as never)),
+}));
 
 const runId = Date.now().toString(36);
 const PHONE_ASK = "Рақами телефонатонро нависед, то агент тамос гирад.";
@@ -94,7 +99,7 @@ describe("Бот не просит номер заново после обрез
 
     const result = await processMessengerTurn({ channel: "INSTAGRAM", subscriberId, text: "Боз чӣ гап?" });
 
-    expect(callAi).toHaveBeenCalledWith(expect.objectContaining({ endpoint: "lead-qualify" }));
+    expect(callAi).toHaveBeenCalledWith(expect.objectContaining({ endpoint: "channel-turn" }));
     const sent = [result.reply, result.reply2].filter(Boolean).join("\n");
     expect(sent).not.toContain("Рақами телефонатон");
     expect(sent).not.toContain("Номератон");

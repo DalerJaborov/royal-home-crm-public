@@ -11,11 +11,11 @@ import { loadCustomerDmCoreQualifierLane, loadCustomerQualifierLane } from "../s
 import { appendScopedCustomerReply, recordScopedCustomerInput } from "../src/lib/customerQualifierLedger.js";
 import * as append from "../src/messengers/appendMessages.js";
 import { processMessengerTurn } from "../src/messengers/conversation.js";
-import { runQualifyTurn } from "../src/ai/leadQualifier.js";
+import { runCustomerChannelTurn as runQualifyTurn } from "../src/ai/customerChannelTurn.js";
 import { scheduleSellerFactsRefreshForConversation } from "../src/lib/sellerFacts.js";
 import { createCustomerRolloutFixture } from "./helpers/customerRolloutFixture.js";
 
-vi.mock("../src/ai/leadQualifier.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/ai/leadQualifier.js")>()), runQualifyTurn: vi.fn() }));
+vi.mock("../src/ai/customerChannelTurn.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()), runCustomerChannelTurn: vi.fn() }));
 vi.mock("../src/lib/sellerFacts.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/sellerFacts.js")>()), scheduleSellerFactsRefreshForConversation: vi.fn() }));
 // Genuine signed Meta RAW → PENDING → recovery FINAL. The first recorded IN is
 // explicit in each test; this fixture never records a message before returning.

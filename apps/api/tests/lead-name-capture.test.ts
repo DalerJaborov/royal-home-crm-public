@@ -81,6 +81,11 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText: callAi,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => callAi(input as never)),
+}));
 
 const runId = Date.now().toString(36);
 const SUBSCRIBER = `namecap-${runId}`;
@@ -150,7 +155,7 @@ describe("Приём заявки без имени", () => {
     callAi.mockResolvedValue({ reply: "Хуб, Дилноза! Дар кадом ноҳия ҷустуҷӯ мекунед?", ready: false, confident: true, topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false });
     const result = await processMessengerTurn({ channel: "INSTAGRAM", subscriberId: SUBSCRIBER, text: "Дилноза" });
     expect(result.shouldReply).not.toBe(false);
-    expect(callAi.mock.calls.some((call) => call[0]?.endpoint === "lead-qualify")).toBe(true);
+    expect(callAi.mock.calls.some((call) => call[0]?.endpoint === "channel-turn")).toBe(true);
 
     const conv = await prisma.botConversation.findFirst({
       where: { channel: "INSTAGRAM", subscriberId: SUBSCRIBER },
@@ -170,7 +175,7 @@ describe("Приём заявки без имени", () => {
     callAi.mockResolvedValue({ reply: "Пожалуйста! Если появятся вопросы — пишите.", ready: false, confident: true, topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false });
     const result = await processMessengerTurn({ channel: "INSTAGRAM", subscriberId: SUBSCRIBER, text: "Спасибо!" });
     expect(result.shouldReply).not.toBe(false);
-    expect(callAi.mock.calls.some((call) => call[0]?.endpoint === "lead-qualify")).toBe(true);
+    expect(callAi.mock.calls.some((call) => call[0]?.endpoint === "channel-turn")).toBe(true);
   });
 });
 
@@ -221,7 +226,7 @@ describe("Дополнительные номера — только после 
     callAi.mockResolvedValue({ reply: "Раҳмат, Фаридун! Ва боз рақами дигаре доред?", ready: false, confident: true, topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false });
     const result = await processMessengerTurn({ channel: "INSTAGRAM", subscriberId: SUBSCRIBER2, text: "Фаридун" });
     expect(result.shouldReply).not.toBe(false);
-    expect(callAi.mock.calls.some((call) => call[0]?.endpoint === "lead-qualify")).toBe(true);
+    expect(callAi.mock.calls.some((call) => call[0]?.endpoint === "channel-turn")).toBe(true);
 
     const conv = await prisma.botConversation.findFirst({
       where: { channel: "INSTAGRAM", subscriberId: SUBSCRIBER2 },

@@ -3,7 +3,7 @@ import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { processMessengerTurn as actualProcessMessengerTurn } from "../src/messengers/conversation.js";
-import { extractVolunteeredPhone, unparsedPhoneAttempt } from "../src/ai/leadQualifier.js";
+import { extractVolunteeredPhone, unparsedPhoneAttempt } from "../src/lib/shared/phoneText.js";
 import { findPhonesWithoutLead } from "../src/lib/phoneLeadWatchdog.js";
 
 /**

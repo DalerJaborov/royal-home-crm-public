@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractPrices, guardDiscounts, guardPrices } from "../src/ai/priceGuard.js";
 import { wrapUntrusted } from "../src/ai/untrustedContent.js";
-import { priceGuardFallbackReply } from "../src/ai/leadQualifier.js";
+import { priceGuardFallbackReply } from "../src/ai/shortAgentReply.js";
 
 /**
  * Сверка цен — фильтр, который обязан быть трусливым.

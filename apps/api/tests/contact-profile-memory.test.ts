@@ -3,7 +3,7 @@ import { parseContactFacts } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { contactProfileForPrompt, rememberContactTurn } from "../src/lib/contactProfileMemory.js";
 import { identitiesForMessengerChannel, resolveContactProfile } from "../src/lib/contactProfiles.js";
-import type { LeadDraft } from "../src/ai/leadQualifier.js";
+import type { LeadDraft } from "../src/ai/leadDraft.js";
 
 /**
  * ПАМЯТЬ БОТА О ЧЕЛОВЕКЕ — что уходит в досье после хода и что возвращается в промт.

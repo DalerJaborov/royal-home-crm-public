@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { stripMarkdown, cleanOutgoingReply } from "../src/ai/replyGuards.js";
 import { languageInstruction } from "../src/ai/clientLanguage.js";
 import { otherCountryRefusalReply } from "../src/messengers/conversation.js";
-import { priceGuardFallbackReply } from "../src/ai/leadQualifier.js";
+import { priceGuardFallbackReply } from "../src/ai/shortAgentReply.js";
 import { availabilityGuardFallbackReply } from "../src/ai/availabilityGuard.js";
 
 /**

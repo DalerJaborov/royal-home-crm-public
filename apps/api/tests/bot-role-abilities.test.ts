@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { abilitiesForIntent } from "../src/ai/roleAbilities.js";
-import type { BotAbilities, LeadIntent, ShowcaseAbility } from "../src/ai/leadQualifier.js";
+import type { BotAbilities, LeadIntent, ShowcaseAbility } from "../src/ai/botContract.js";
 
 /**
  * ПРАВА БОТА ПО РОЛИ СОБЕСЕДНИКА.

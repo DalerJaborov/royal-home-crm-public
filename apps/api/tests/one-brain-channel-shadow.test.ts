@@ -27,7 +27,6 @@ vi.mock("../src/lib/customerAgentPublicReads.js", async importOriginal => ({ ...
 const { customerAgentChannelMode, customerAgentShadowChannels, customerAgentLegacyChannelKey, customerAgentShadowDailyCap } =
   await import("../src/lib/customerAgentChannelSwitch.js");
 const { runLegacyCoreShadow, legacyShadowTurns, legacyShadowCoreView, resetLegacyShadowState } = await import("../src/lib/customerAgentLegacyShadow.js");
-const { legacyTurnSummary } = await import("../src/ai/legacyQualifyDoor.js");
 
 const revisionId = "a".repeat(64);
 const secret = "synthetic-one-brain-shadow-secret-0000000000";
@@ -78,15 +77,6 @@ describe("channel switch", () => {
     expect(customerAgentShadowDailyCap({})).toBe(200);
     expect(customerAgentShadowDailyCap({ CUSTOMER_AGENT_SHADOW_DAILY_CAP: "0" })).toBe(0);
     expect(customerAgentShadowDailyCap({ CUSTOMER_AGENT_SHADOW_DAILY_CAP: "-3" })).toBe(200);
-  });
-});
-
-describe("legacy door summary", () => {
-  it("flags only: reply count, phone ask, action; no text", () => {
-    expect(legacyTurnSummary(null)).toEqual({ replied: false, bubbles: 0, askedPhone: false, action: "none" });
-    const summary = legacyTurnSummary({ reply: ["Хорошо!", " ", "Напишите ваш номер телефона"], ready: false, lead: null, callbackRequest: "x" });
-    expect(summary).toEqual({ replied: true, bubbles: 2, askedPhone: true, action: "callback" });
-    expect(legacyTurnSummary({ reply: ["ok"], ready: false, lead: null, showPropertyNumber: 0 }).action).toBe("property");
   });
 });
 

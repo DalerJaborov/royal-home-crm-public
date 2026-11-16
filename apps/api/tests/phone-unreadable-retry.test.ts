@@ -7,7 +7,7 @@ import {
   looksDialable,
   unparsedPhoneAttempt,
   unreadablePhoneAttempt,
-} from "../src/ai/leadQualifier.js";
+} from "../src/lib/shared/phoneText.js";
 import { processMessengerTurn } from "../src/messengers/conversation.js";
 import { createCustomerMessengerFixture, type CustomerMessengerFixture } from "./helpers/customerMessengerFixture.js";
 

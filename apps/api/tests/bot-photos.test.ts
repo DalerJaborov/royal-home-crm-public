@@ -57,6 +57,11 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => callAiText(input as never)),
+}));
 
 // Публичный адрес CRM ставим ДО импорта модулей: по нему Meta забирает картинку, и без
 // него отправлять нечего. Читается он лениво, но привычка ставить окружение раньше
@@ -101,7 +106,7 @@ function modelReply(raw: unknown) {
   callAiText.mockResolvedValue(raw);
 }
 function expectValidModelTurn(turn: Awaited<ReturnType<typeof actualProcessMessengerTurn>>) {
-  expect(callAiText).toHaveBeenCalledWith(expect.objectContaining({ endpoint: "lead-qualify" }));
+  expect(callAiText).toHaveBeenCalled();
   // Legacy successful finish omits this optional flag; unavailable explicitly
   // sets true. Keep the actual success shape, model-call and useful-OUT checks.
   expect(turn.aiUnavailable).toBeUndefined();
@@ -615,46 +620,6 @@ describe("отправленное видно в переписке CRM", () => 
 });
 
 describe("неопределённый старый показ не является receipt фотографии", () => {
-  it("валидный model turn с legacy unknown mark сохраняет цену/новый вопрос без media и ложного ACK", async () => {
-    const thread = await photoThread("FACEBOOK", SUBSCRIBER);
-    const inputText = `Объект №${withPhotosShortId}: расмҳои квартираро фиристед, нархаш чанд?`;
-    const eventId = `photo-unknown-${runId}`;
-    // The legacy unknown mark proves neither current focus nor a price. Resolve
-    // a literal current selector against the real public card independently.
-    const admission = await admitCustomerPropertyInput({ channel: "FACEBOOK", peer: SUBSCRIBER,
-      accountExternalId: thread.account.externalId, transport: thread.transport, eventKind: "message", eventId,
-      evidence: customerPropertyEvidenceFromText(inputText) });
-    expect(admission.status).toBe("admitted");
-    if (admission.status !== "admitted") throw new Error("Expected owned current-selector admission");
-    const resolved = await resolveCustomerPropertyTurnContext(admission, [admission.ticket]);
-    expect(resolved?.facts?.propertyId).toBe(propertyIds[0]); expect(resolved?.facts?.price).toBe("400000");
-    // Make this target the deterministic top match in the actual legacy catalog;
-    // neither a model-selected number nor test-injected text is a price source.
-    await prisma.property.update({ where: { id: propertyIds[0] }, data: { rooms: 2 } });
-    await prisma.botConversation.update({ where: { id: thread.id }, data: {
-      leadDraft: { stage: "chatting", intent: "buy", type: "APARTMENT", rooms: 2, districtName: `Тест-район-фото-${runId}` },
-    } });
-    await prisma.shownProperty.create({ data: { channel: "FACEBOOK", recipientId: SUBSCRIBER,
-      shortId: withPhotosShortId, endpointScopeId: null, sentAt: new Date() } });
-    const model = { reply: ["Ана расмҳояш. Нархаш 400 000 сомонӣ. Чӣ донистан мехоҳед?"],
-      ready: false, confident: true, topic: "photos", openQuestion: "", clientAnsweredOpenQuestion: false,
-      showPropertyNumber: withPhotosShortId };
-    modelReply(model);
-    const turn = await processMessengerTurn({ channel: "FACEBOOK", subscriberId: SUBSCRIBER,
-      messageId: eventId, text: inputText, customerPropertyEventKind: "message", customerPropertyAdmission: admission });
-    expect(callAiText).toHaveBeenCalled();
-    const qualifier = callAiText.mock.calls.find(([input]) => input?.endpoint === "lead-qualify")?.[0] as { system?: string } | undefined;
-    const targetLine = qualifier?.system?.split("\n").find(line => line.startsWith(`- №${withPhotosShortId} `));
-    expect(Boolean(targetLine)).toBe(true); expect(/400\s?000/u.test(targetLine ?? "")).toBe(true);
-    expectValidModelTurn(turn);
-    expect(turn.reply).not.toMatch(/Ана\s+расмҳояш/iu);
-    expect(turn.reply).toContain("400 000"); expect(turn.reply).toContain("Чӣ донистан мехоҳед?");
-    expect(sendImage).not.toHaveBeenCalled(); expect(sendMessage).not.toHaveBeenCalled(); expect(sendLocation).not.toHaveBeenCalled();
-    const stored = await prisma.botConversation.findUniqueOrThrow({ where: { id: thread.id }, select: { messages: true } });
-    const history = stored.messages as { role: string; content: string; attachments?: unknown[] }[];
-    expect(history.at(-1)?.content).toBe(turn.reply);
-    expect(history.some(message => (message.attachments?.length ?? 0) > 0)).toBe(false);
-  });
   it("вызов отправки без MID остаётся unknown и не подтверждает фотографии клиенту", async () => {
     sendImage.mockResolvedValue(undefined); sendMessage.mockResolvedValue(undefined);
     modelReply({ reply: ["Ана расмҳояш"], ready: false, confident: true, topic: "other",

@@ -54,7 +54,8 @@ import {
   topicStateOf,
   topicStateUpdate,
 } from "../ai/topicLock.js";
-import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
+import { runCustomerChannelTurn } from "../ai/customerChannelTurn.js";
+import { mergeDraft } from "../ai/leadDraftMerge.js";
 import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
@@ -3639,35 +3640,12 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   const topicSettings = await loadTopicLockSettings();
   const topicState = topicStateOf(conversation);
+  // What the brain (ai/customerChannelTurn.ts) needs about this turn: server facts only. The old prompt inputs (showcase,
+  // abilities, topic lock, contact profile, scenario) served the deleted old bot (one brain, step 3b, 16.11.2026).
   const qualifyOptions = {
-    name: conversation.name ?? name,
-    images,
-    // Манера продажи, доставшаяся этому диалогу. Берём ИЗ ЗАПИСИ, а не выбираем
-    // заново: сценарий обязан быть один и тот же от «салом» до телефона.
-    scenarioId: conversation.salesScenario,
-    showcase: await describeShowcase(
-      channel,
-      subscriberId,
-      capabilities.photos,
-      capabilities.photosPerOffer,
-      input.customerTransport
-    ),
-    abilities: botAbilitiesOf(capabilities),
-    topic: { settings: topicSettings, state: topicState },
-    // Свой промт аккаунта, если он задан (messengers/accounts.ts): Royal Home Info
-    // говорит не то же, что продающий основной.
     accountId: account.id,
-    // Канал разговора — сейчас нужен ровно для одного: какую ссылку на объект
-    // дать модели (см. propertyLink в leadQualifier.ts). Посетителю сайта — на
-    // сайт, а не на Instagram, куда его незачем уводить.
     channel,
-    // Стоимость хода уходит в AiLog привязанной к диалогу (см. logAiCall) —
-    // 13.09.2026, «стоимость разговора нигде не видна».
     conversationId: conversation.id,
-    // Досье собеседника: всё, что мы знаем о человеке по его прошлым разговорам и
-    // звонкам в любом канале (lib/contactProfileMemory.ts). Пустое досье даёт null
-    // и в промт не печатается вовсе.
-    contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
     // Телефон уже в карточке — см. clientPhoneKnown выше.
     phoneKnown: clientPhoneKnown,
   };
@@ -3688,7 +3666,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * чем-то другим, всё равно не теряется.
    */
   const finishQualifyTurn = async (
-    result: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>
+    result: NonNullable<Awaited<ReturnType<typeof runCustomerChannelTurn>>>
   ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer }> => {
     // Если уже ждали телефон — оставляем этот этап (модель могла сбросить ready).
     // `merged` — слова самого клиента: по ним код отсекает аренду, не полагаясь
@@ -3986,9 +3964,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         accountId: account.id,
       },
       {
-        regenerate: async (retryDirective) =>
+        regenerate: async () =>
           // A regeneration of the same turn: the shadow already ran for it.
-          (await runLegacyQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }, { channel, repeat: "regeneration" }))?.reply ?? null,
+          (await runCustomerChannelTurn(nextHistory, draft, qualifyOptions, { channel, repeat: "regeneration" }))?.reply ?? null,
         shieldBlocked: (bubbles) => repeatBlockedTexts(channel, subscriberId, bubbles, undefined, input.customerTransport),
       }
     );
@@ -4202,7 +4180,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   if (!input.retryOfPaidTurn) await spendAiTurns(conversation.id, budget.dayKey);
   // One brain, step 2: the per-channel shadow (lib/customerAgentChannelSwitch.ts). A paid retry repeats an already-shadowed turn.
-  const result = await runLegacyQualifyTurn(nextHistory, draft, qualifyOptions, { channel, traceAccount: input.accountExternalId ?? null,
+  const result = await runCustomerChannelTurn(nextHistory, draft, qualifyOptions, { channel, traceAccount: input.accountExternalId ?? null,
     eventId: input.skipSaveIncoming ? null : input.messageId ?? null, ...(input.retryOfPaidTurn ? { repeat: "retry" as const } : {}) });
 
   if (!result) {

@@ -7,8 +7,8 @@ import { createHash } from "node:crypto";
  * The core run and the DB are faked where the adapter is wired; the pure parts run for real.
  */
 const f = vi.hoisted(() => ({ qualify: vi.fn(), channelCore: vi.fn(), alert: vi.fn(async () => "sent"), schedule: vi.fn() }));
-vi.mock("../src/ai/leadQualifier.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/ai/leadQualifier.js")>()),
-  runQualifyTurn: f.qualify }));
+vi.mock("../src/lib/systemError.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()),
+  logSystemError: f.qualify }));
 vi.mock("../src/lib/customerChannelCore.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/customerChannelCore.js")>()),
   runChannelCoreTurn: f.channelCore }));
 vi.mock("../src/lib/channelStaffAlert.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/channelStaffAlert.js")>()),
@@ -18,7 +18,7 @@ vi.mock("../src/lib/customerAgentLegacyShadow.js", async importOriginal => ({ ..
 
 const { customerAgentChannelMode, customerAgentCoreChannels } = await import("../src/lib/customerAgentChannelSwitch.js");
 const { channelCoreTurns, channelCoreIntake, channelCoreOutcome } = await import("../src/lib/customerChannelCore.js");
-const { runLegacyQualifyTurn, channelCoreQualifyResult } = await import("../src/ai/legacyQualifyDoor.js");
+const { runCustomerChannelTurn: runLegacyQualifyTurn, channelCoreQualifyResult } = await import("../src/ai/customerChannelTurn.js");
 const { youtubeCoreDecision } = await import("../src/messengers/youtubeCoreComment.js");
 const { customerIntakeLocation } = await import("../src/ai/customerAgentIntake.js");
 const { customerAgentBrandBlock, CUSTOMER_AGENT_BRAND_VOICE_MAX } = await import("../src/ai/customerAgentBrand.js");
@@ -36,7 +36,7 @@ const bot = (content: string) => ({ role: "assistant" as const, content });
 
 beforeEach(() => {
   vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", ""); vi.stubEnv("CUSTOMER_AGENT_CHANNEL_SHADOW", "");
-  f.qualify.mockReset().mockResolvedValue({ reply: ["old bot"], ready: false, lead: null });
+  f.qualify.mockReset().mockResolvedValue(undefined);
   f.channelCore.mockReset(); f.alert.mockClear(); f.schedule.mockReset();
 });
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -102,20 +102,29 @@ describe("adapter pure parts", () => {
   });
 });
 
-describe("the legacy door routes a `core` channel to the adapter", () => {
+describe("the one door after the old bot's removal (customerChannelTurn)", () => {
   const options = { conversationId: "conv-1" } as never;
-  it("default: the old bot answers, the core is not called (today's behaviour)", async () => {
+  it("default (channel not on the core): no bot answers, staff are told, the customer gets nothing — never a silent drop", async () => {
     const result = await runLegacyQualifyTurn([user("Салом")] as never, { stage: "chatting" }, options, { channel: "TELEGRAM" });
-    expect(result?.reply).toEqual(["old bot"]);
+    expect(result).toEqual({ reply: [], ready: false, lead: null, silent: "staff" });
     expect(f.channelCore).not.toHaveBeenCalled();
+    expect(f.alert).toHaveBeenCalledWith({ channel: "TELEGRAM", conversationId: "conv-1", text: "Салом", why: "bot_retired" });
+    expect(f.qualify).toHaveBeenCalled(); // one line in «Здоровье системы» per channel
   });
-  it("`core`: the old bot is never called; the verified reply goes out in the old shape", async () => {
+  it("Meta subjects still on the LEGACY lane: a person answers (their door to the core is rolloutConfig), even with `all`", async () => {
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "all");
+    const result = await runLegacyQualifyTurn([user("x")] as never, { stage: "chatting" }, { channel: "INSTAGRAM", conversationId: "c-ig" } as never, { channel: "INSTAGRAM" });
+    expect(f.channelCore).not.toHaveBeenCalled();
+    expect(result?.silent).toBe("staff");
+    expect(f.alert).toHaveBeenCalledWith(expect.objectContaining({ channel: "INSTAGRAM", conversationId: "c-ig", why: "bot_retired" }));
+  });
+  it("`core`: the verified reply goes out in the channels' shape", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram");
     f.channelCore.mockResolvedValue({ status: "reply", text: "Какой бюджет?", askedPhone: false, intake });
     const result = await runLegacyQualifyTurn([user("Нужна квартира")] as never, { stage: "chatting" }, options, { channel: "TELEGRAM" });
-    expect(f.qualify).not.toHaveBeenCalled();
     expect(result).toMatchObject({ reply: ["Какой бюджет?"], ready: false, intent: "buy" });
     expect(f.channelCore.mock.calls[0][1]).toEqual({ mode: "live" });
+    expect(f.alert).not.toHaveBeenCalled();
   });
   it("`core` + escalate: nothing to the customer, staff are told", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "website");
@@ -128,26 +137,24 @@ describe("the legacy door routes a `core` channel to the adapter", () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram");
     f.channelCore.mockResolvedValue({ status: "unavailable", reason: "turn_deadline" });
     expect(await runLegacyQualifyTurn([user("x")] as never, { stage: "chatting" }, options, { channel: "TELEGRAM", repeat: "retry" })).toBeNull();
-    expect(f.qualify).not.toHaveBeenCalled();
   });
-  it("`core`: a guard's regeneration does not run the core twice (its text is already verified)", async () => {
+  it("a guard's regeneration never runs a brain twice", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram");
     expect(await runLegacyQualifyTurn([user("x")] as never, { stage: "chatting" }, options, { channel: "TELEGRAM", repeat: "regeneration" })).toBeNull();
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "");
+    expect(await runLegacyQualifyTurn([user("x")] as never, { stage: "chatting" }, options, { channel: "TELEGRAM", repeat: "regeneration" })).toBeNull();
     expect(f.channelCore).not.toHaveBeenCalled();
-    expect(f.qualify).not.toHaveBeenCalled();
+    expect(f.alert).not.toHaveBeenCalled();
   });
-  it("Meta channels never reach the adapter, even with `all`", async () => {
-    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "all");
-    await runLegacyQualifyTurn([user("x")] as never, { stage: "chatting" }, { channel: "INSTAGRAM" } as never, { channel: "INSTAGRAM" });
-    expect(f.channelCore).not.toHaveBeenCalled();
-    expect(f.qualify).toHaveBeenCalledTimes(1);
-  });
-  it("repeats never start a second shadow", async () => {
+  it("`shadow` without core: the core runs in shadow, staff still answer; repeats start neither", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_SHADOW", "telegram");
     await runLegacyQualifyTurn([user("x")] as never, { stage: "chatting" }, options, { channel: "TELEGRAM", repeat: "retry" });
     expect(f.schedule).not.toHaveBeenCalled();
+    expect(f.alert).not.toHaveBeenCalled();
     await runLegacyQualifyTurn([user("x")] as never, { stage: "chatting" }, options, { channel: "TELEGRAM" });
     expect(f.schedule).toHaveBeenCalledTimes(1);
+    expect(f.schedule.mock.calls[0][0]).toMatchObject({ legacy: { replied: false } });
+    expect(f.alert).toHaveBeenCalledTimes(1);
   });
 });
 

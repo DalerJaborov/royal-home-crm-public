@@ -18,7 +18,7 @@ const runQualifyTurn = vi.hoisted(() => vi.fn(async () => null as null | { reply
 const sendPushToAgent = vi.hoisted(() => vi.fn(async () => 1));
 
 vi.mock("../src/telegram/bot.js", () => ({ finishTelegramQualifyTurn }));
-vi.mock("../src/ai/leadQualifier.js", () => ({ runQualifyTurn }));
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()), runCustomerChannelTurn: runQualifyTurn }));
 vi.mock("../src/messengers/botCapabilities.js", () => ({
   loadBotCapabilities: async () => ({ callback: false }),
   botAbilitiesOf: () => ({}),

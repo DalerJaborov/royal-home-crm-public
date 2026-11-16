@@ -16,10 +16,10 @@
   "paths": 754,
   "cron": 137,
   "jobs": 33,
-  "conditions": 4044,
-  "untranslatedUnique": 464,
-  "untranslatedTotal": 594,
-  "partialUnique": 1102,
+  "conditions": 4048,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 593,
+  "partialUnique": 1104,
   "translatedShare": 85
  },
  "untranslated": [
@@ -341,7 +341,6 @@
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
   "items.some((i) => i.propertyId === req.params.id)",
-  "key && customerAgentChannelMode(key) === \"core\"",
   "key.startsWith(\"client:\")",
   "key.startsWith(\"td_\")",
   "lastAlertDay === today",
@@ -83585,7 +83584,7 @@
      "a": [],
      "c": [
       {
-       "t": "если key && customerAgentChannelMode(key) === \"core\"",
+       "t": "если есть ключ и mode — «core»",
        "k": "if",
        "a": [],
        "c": [
@@ -83594,9 +83593,26 @@
          "k": "if",
          "a": [],
          "c": []
+        },
+        {
+         "t": "если статус (ответ) — «unavailable» или статус (ответ) — «moderate»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если статус (ответ) — «staff»",
+         "k": "if",
+         "a": [],
+         "c": []
         }
-       ],
-       "raw": "key && customerAgentChannelMode(key) === \"core\""
+       ]
+      },
+      {
+       "t": "если repeat — «regeneration»",
+       "k": "if",
+       "a": [],
+       "c": []
       },
       {
        "t": "если нет: repeat",
@@ -83604,14 +83620,28 @@
        "a": [],
        "c": [
         {
-         "t": "пробует сделать",
-         "k": "try",
+         "t": "если есть ключ и mode — «shadow»",
+         "k": "if",
          "a": [],
-         "c": []
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": []
+          }
+         ]
         },
         {
-         "t": "если не получилось",
-         "k": "catch",
+         "t": "запись в журнал ошибок",
+         "k": "do",
          "a": [],
          "c": []
         }

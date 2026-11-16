@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dropRepeatedBubbles } from "../src/ai/replyRepeatGuard.js";
-import { isRepeatOfLastReply, normalizeReplyBubbles } from "../src/ai/leadQualifier.js";
+import { isRepeatOfLastReply, normalizeReplyBubbles } from "../src/ai/replyBubbles.js";
 
 /**
  * БОТ ПОВТОРИЛ СЕБЯ СЛОВО В СЛОВО (живая проверка владельца на проде 17.09.2026).

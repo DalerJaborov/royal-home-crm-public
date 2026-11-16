@@ -7,7 +7,7 @@ import {
   stripLeadingAck,
   stripRepeatGreeting,
 } from "../src/ai/replyGuards.js";
-import { ensurePhoneAskKept, normalizeReplyBubbles } from "../src/ai/leadQualifier.js";
+import { ensurePhoneAskKept, normalizeReplyBubbles } from "../src/ai/replyBubbles.js";
 import { guardReply } from "../src/ai/offTopicGuard.js";
 import { logSystemError } from "../src/lib/systemError.js";
 

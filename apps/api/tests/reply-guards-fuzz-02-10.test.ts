@@ -12,7 +12,7 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
 }));
 
 import { cleanOutgoingReply, stripRepeatGreeting, stripLeadingAck, stripFillerWords } from "../src/ai/replyGuards.js";
-import { normalizeReplyBubbles } from "../src/ai/leadQualifier.js";
+import { normalizeReplyBubbles } from "../src/ai/replyBubbles.js";
 import { guardPrices, guardDiscounts } from "../src/ai/priceGuard.js";
 import { guardAvailability } from "../src/ai/availabilityGuard.js";
 import { stripRecruiting } from "../src/ai/recruitingGuard.js";

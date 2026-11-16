@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractTypedPhone, normalizeDigits } from "../src/ai/leadQualifier.js";
+import { extractTypedPhone, normalizeDigits } from "../src/lib/shared/phoneText.js";
 
 /**
  * Клиент, которого бот явно спросил про телефон (стадия awaiting_phone), набирает

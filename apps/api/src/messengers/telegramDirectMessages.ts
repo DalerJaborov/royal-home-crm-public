@@ -26,7 +26,6 @@ import { fetchTelegramAlbumAttachments, telegramUnsupportedMark } from "../teleg
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { stripUntrusted, wrapUntrusted } from "../ai/untrustedContent.js";
 import type { ChatMessage, ImageInput, StoredAttachment } from "../ai/client.js";
-import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractTypedPhone, extractVolunteeredPhone, normalizeDigits } from "../lib/shared/phoneText.js";
 import { lastClientLanguage } from "../ai/shortAgentReply.js";
 import { type LeadDraft } from "../ai/leadDraft.js";

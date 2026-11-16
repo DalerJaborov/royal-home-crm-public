@@ -20,7 +20,6 @@ const { prisma } = await import("../src/db.js");
 const { bookShowing, cancelShowing, resolveShowingSlot, showingTimeLabel } = await import(
   "../src/lib/showingBooking.js"
 );
-const { showingPromptBlock } = await import("../src/ai/leadQualifier.js");
 
 const runId = Date.now();
 let districtId: string;
@@ -176,33 +175,6 @@ describe("Разбор расплывчатого времени", () => {
 
   it("подпись времени для агента — в часах Душанбе, а не UTC", () => {
     expect(showingTimeLabel(new Date("2026-08-01T13:00:00.000Z"))).toBe("01.08 в 18:00");
-  });
-});
-
-describe("Промт про показ", () => {
-  it("сообщает модели дату и время Душанбе, а не UTC", () => {
-    // 20:00 UTC 31 июля — в Душанбе уже 1 августа, 01:00.
-    expect(showingPromptBlock(new Date("2026-07-31T20:00:00.000Z"))).toContain("01.08.2026, 01:00");
-  });
-
-  it("различает назначить, перенести и отменить — иначе модель заведёт вторую встречу", () => {
-    const block = showingPromptBlock(NOW);
-    expect(block).toContain("action=book");
-    expect(block).toContain("action=reschedule");
-    expect(block).toContain("action=cancel");
-  });
-
-  /**
-   * Тот же блок приклеивается и к разговору ПОСЛЕ приёма заявки, где стоит прямой
-   * запрет «НЕ проси телефон снова». Безусловное «договорился о встрече — тут же
-   * попроси номер», да ещё с готовой таджикской фразой и ниже по тексту, этот запрет
-   * перебивало: человек, чей номер уже у нас, получал просьбу дать его снова.
-   */
-  it("до заявки просит номер, после заявки — запрещает просить его снова", () => {
-    expect(showingPromptBlock(NOW, false)).toContain("тут же попроси номер");
-    const afterLead = showingPromptBlock(NOW, true);
-    expect(afterLead).not.toContain("тут же попроси номер");
-    expect(afterLead).toContain("просить его ещё раз ЗАПРЕЩЕНО");
   });
 });
 

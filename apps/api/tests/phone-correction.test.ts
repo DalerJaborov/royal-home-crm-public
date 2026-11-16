@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ASKED_FOR_NAME, PHONE_CORRECTION } from "../src/messengers/conversation.js";
-import { isRepeatOfLastReply, normalizeReplyBubbles } from "../src/ai/leadQualifier.js";
+import { isRepeatOfLastReply, normalizeReplyBubbles } from "../src/ai/replyBubbles.js";
 
 /**
  * КЛИЕНТ ИСПРАВЛЯЕТ НОМЕР — верный обязан стать ОСНОВНЫМ.

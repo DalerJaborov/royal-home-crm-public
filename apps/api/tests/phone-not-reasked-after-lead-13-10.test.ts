@@ -16,6 +16,11 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText: qualify,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => qualify(input as never)),
+}));
 
 let messengerFixture: CustomerMessengerFixture;
 function processMessengerTurn(input: Parameters<typeof actualProcessMessengerTurn>[0]) {
@@ -82,7 +87,7 @@ describe("номер уже принят — бот не возвращаетс�
     // Отказ boundary тоже оставил бы done: тест обязан пройти настоящий ход.
     expect(result.aiUnavailable ?? false).toBe(false);
     expect(result.shouldReply).not.toBe(false);
-    expect(qualify.mock.calls.some(([params]) => params.endpoint === "lead-qualify")).toBe(true);
+    expect(qualify.mock.calls.some(([params]) => params.endpoint === "channel-turn")).toBe(true);
 
     const conv = await prisma.botConversation.findUnique({
       where: { channel_subscriberId: { channel: "WHATSAPP", subscriberId: SUBSCRIBER } },
