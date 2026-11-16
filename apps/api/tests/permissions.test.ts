@@ -102,7 +102,8 @@ describe("Реестр прав (чистые функции)", () => {
     for (const id of DIRECTOR_ONLY_PERMISSIONS) {
       expect(perms.has(id)).toBe(false);
     }
-    expect(DIRECTOR_ONLY_PERMISSIONS).toEqual([]);
+    // 16.11.2026: номера телефонов — только директору (clients.viewPhone, properties.viewOwners).
+    expect([...DIRECTOR_ONLY_PERMISSIONS].sort()).toEqual(["clients.viewPhone", "properties.viewOwners"]);
   });
 
   it("revoked сильнее granted — снятая галочка не возвращается через granted", () => {
@@ -184,24 +185,24 @@ describe("properties.viewAll разбито на viewOwners/editForeign (сло�
 
   it("properties.viewAll удалено из реестра — щит сотрудника не предлагает его новым назначением", () => {
     expect(ASSIGNABLE_PERMISSIONS).not.toContain("properties.viewAll");
-    expect(ASSIGNABLE_PERMISSIONS).toContain("properties.viewOwners");
+    expect(ASSIGNABLE_PERMISSIONS).not.toContain("properties.viewOwners"); // только директор, 16.11.2026
     expect(ASSIGNABLE_PERMISSIONS).toContain("properties.editForeign");
   });
 
   it("устаревший id из старого клиента отбрасывается схемой мягко, не 400-ит запрос (шаг 6 слоя 4)", () => {
     const parsed = permissionOverridesSchema.safeParse({
-      granted: ["properties.viewAll", "properties.viewOwners"],
+      granted: ["properties.viewAll", "properties.editForeign"],
       revoked: [],
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.granted).toEqual(["properties.viewOwners"]);
+      expect(parsed.data.granted).toEqual(["properties.editForeign"]);
     }
   });
 
-  it("SECURITY по пресету видит контакты собственника, но не правит чужую карточку (roles-check.md §2.1)", () => {
+  it("SECURITY по пресету не видит контакты собственника (только директор, 16.11.2026) и не правит чужую карточку", () => {
     const security = resolvePermissions("SECURITY", null);
-    expect(security.has("properties.viewOwners")).toBe(true);
+    expect(security.has("properties.viewOwners")).toBe(false);
     expect(security.has("properties.editForeign")).toBe(false);
   });
 
@@ -211,10 +212,11 @@ describe("properties.viewAll разбито на viewOwners/editForeign (сло�
     expect(editor.has("properties.editForeign")).toBe(true);
   });
 
-  it("DIRECTOR/ADMIN/MANAGER/MARKETING по пресету получают оба права — прежний объём доступа не сузился", () => {
-    for (const role of ["DIRECTOR", "ADMIN", "MANAGER", "MARKETING"] as const) {
+  it("контакты собственников — только директор; правку чужих карточек сохраняют ADMIN/MANAGER/MARKETING", () => {
+    expect(resolvePermissions("DIRECTOR", null).has("properties.viewOwners")).toBe(true);
+    for (const role of ["ADMIN", "MANAGER", "MARKETING"] as const) {
       const perms = resolvePermissions(role, null);
-      expect(perms.has("properties.viewOwners")).toBe(true);
+      expect(perms.has("properties.viewOwners")).toBe(false);
       expect(perms.has("properties.editForeign")).toBe(true);
     }
   });
@@ -473,10 +475,10 @@ describe("calls.hearRecording — прослушивание записи отд
     expect(perms.has("calls.transcripts")).toBe(true);
   });
 
-  it("MARKETING получает calls.hearRecording вместе с calls.transcripts", () => {
+  it("MARKETING больше НЕ получает ни звука, ни расшифровок чужих звонков (16.11.2026, аудит прав М3)", () => {
     const perms = resolvePermissions("MARKETING");
-    expect(perms.has("calls.hearRecording")).toBe(true);
-    expect(perms.has("calls.transcripts")).toBe(true);
+    expect(perms.has("calls.hearRecording")).toBe(false);
+    expect(perms.has("calls.transcripts")).toBe(false);
   });
 
   it("AGENT НЕ получает calls.hearRecording, хотя calls.ownTranscripts (чтение своих) остаётся", () => {
@@ -577,9 +579,13 @@ describe("роли SHAREHOLDER и HEAD_OF_SALES — пресеты и конст
 
   it("РОП: управляет продажами, но без денег компании, настроек и сотрудников", () => {
     for (const id of [
-      "clients.viewAll", "clients.viewPhone", "clients.assign", "deals.complete", "deals.setCommission", "reports.view",
+      "clients.viewAll", "clients.assign", "deals.complete", "deals.setCommission", "reports.view",
     ]) {
       expect(rop.has(id), id).toBe(true);
+    }
+    // 16.11.2026: номера только директору, чужие карточки — заявкой, звук звонков закрыт.
+    for (const id of ["clients.viewPhone", "properties.viewOwners", "properties.editForeign", "calls.hearRecording"]) {
+      expect(rop.has(id), id).toBe(false);
     }
     for (const id of [
       "finance.view", "finance.manage", "settings.view", "settings.manage", "agents.manage",

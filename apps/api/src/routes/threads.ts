@@ -1,3 +1,4 @@
+import { requireChannelAdmin } from "../lib/marketingRole.js";
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";
@@ -53,7 +54,7 @@ threadsRouter.use(requireAuth);
 threadsRouter.use(requireMarketingRole);
 
 /** Адрес окна Threads, куда фронт делает `window.location.href = url`. */
-threadsRouter.get("/oauth/start", async (req, res) => {
+threadsRouter.get("/oauth/start", requireChannelAdmin, async (req, res) => {
   const app = await loadAppCredentials();
   if (!app) {
     return res.status(400).json({ error: "Не заполнены App ID и App Secret Threads — сначала внесите их в Настройках" });
@@ -76,7 +77,7 @@ threadsRouter.get("/oauth/start", async (req, res) => {
  * (App ID/App Secret) НЕ трогаем — то же решение, что у TikTok: приложение
  * остаётся зарегистрированным, отключается только аккаунт-канал.
  */
-threadsRouter.post("/disconnect", async (req, res) => {
+threadsRouter.post("/disconnect", requireChannelAdmin, async (req, res) => {
   await prisma.settings.update({
     where: { id: "singleton" },
     data: {

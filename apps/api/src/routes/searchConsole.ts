@@ -1,3 +1,4 @@
+import { requireChannelAdmin } from "../lib/marketingRole.js";
 import { Router } from "express";
 import { searchOverviewQuerySchema, yandexAppSchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -60,7 +61,7 @@ searchConsoleRouter.get("/overview", async (req, res) => {
 });
 
 /** Адрес входа Google, куда фронт делает `window.location.assign(url)`. */
-searchConsoleRouter.get("/oauth/start", async (req, res) => {
+searchConsoleRouter.get("/oauth/start", requireChannelAdmin, async (req, res) => {
   const app = await loadGoogleApp();
   if (!app) {
     return res.status(400).json({
@@ -82,7 +83,7 @@ searchConsoleRouter.get("/oauth/start", async (req, res) => {
   res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` });
 });
 
-searchConsoleRouter.post("/disconnect", async (req, res) => {
+searchConsoleRouter.post("/disconnect", requireChannelAdmin, async (req, res) => {
   await prisma.settings.update({
     where: { id: "singleton" },
     data: { searchConsoleRefreshToken: null, searchConsoleSiteUrl: null, searchConsoleConnectedAt: null },
@@ -179,7 +180,7 @@ searchConsoleRouter.get("/yandex/overview", async (req, res) => {
   res.json({ ...result, redirectUri: yandexRedirectUri() });
 });
 
-searchConsoleRouter.put("/yandex/app", async (req, res) => {
+searchConsoleRouter.put("/yandex/app", requireChannelAdmin, async (req, res) => {
   const parsed = yandexAppSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Проверьте ID и пароль" });
   // Другое приложение — прежний вход к нему не подходит: подключаться заново.
@@ -199,7 +200,7 @@ searchConsoleRouter.put("/yandex/app", async (req, res) => {
   res.json({ ok: true });
 });
 
-searchConsoleRouter.get("/yandex/oauth/start", async (req, res) => {
+searchConsoleRouter.get("/yandex/oauth/start", requireChannelAdmin, async (req, res) => {
   const app = await loadYandexApp();
   if (!app) return res.status(400).json({ error: "Сначала внесите ID и пароль приложения Яндекса" });
   const params = new URLSearchParams({
@@ -214,7 +215,7 @@ searchConsoleRouter.get("/yandex/oauth/start", async (req, res) => {
   res.json({ url: `https://oauth.yandex.ru/authorize?${params.toString()}` });
 });
 
-searchConsoleRouter.post("/yandex/disconnect", async (req, res) => {
+searchConsoleRouter.post("/yandex/disconnect", requireChannelAdmin, async (req, res) => {
   await prisma.settings.update({
     where: { id: "singleton" },
     data: {

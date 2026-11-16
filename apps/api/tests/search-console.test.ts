@@ -39,7 +39,13 @@ vi.mock("../src/messengers/meta.js", async (importOriginal) => ({
 vi.mock("../src/auth/middleware.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/auth/middleware.js")>()),
   requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
-    (req as unknown as { agent: { id: string; role: string } }).agent = { id: "a1", role: String(req.headers["x-role"] ?? "ADMIN") };
+    // 16.11.2026: подключать/отключать каналы — только с finance.manage (requireChannelAdmin читает permissions).
+    // Заголовок x-no-finance снимает право: проверка «без finance.manage — 403».
+    (req as unknown as { agent: { id: string; role: string; permissions: Set<string> } }).agent = {
+      id: "a1",
+      role: String(req.headers["x-role"] ?? "ADMIN"),
+      permissions: new Set(req.headers["x-no-finance"] ? [] : ["finance.manage"]),
+    };
     next();
   },
 }));
@@ -209,6 +215,11 @@ describe("GET /search-console/overview", () => {
     google.tokenOk = true;
     const good = await request(app).get("/api/v1/search-console/overview");
     expect(good.body.error).toBeNull();
+  });
+
+  it("16.11.2026: подключение и отключение канала без finance.manage — 403", async () => {
+    expect((await request(app).get("/api/v1/search-console/oauth/start").set("x-no-finance", "1")).status).toBe(403);
+    expect((await request(app).post("/api/v1/search-console/disconnect").set("x-no-finance", "1")).status).toBe(403);
   });
 
   it("неверный период — 400; не маркетинг — 403", async () => {

@@ -213,8 +213,18 @@ describe("Главная: виджет «Топ объектов» и право
     }
   });
 
-  it("менеджеру контакт приходит, и признак «скрыто» честно false — значит правило вообще применяется, а не поле просто отсутствует", async () => {
+  it("менеджеру контакт НЕ приходит (16.11.2026: контакты собственников — только директору), признак «скрыто» true", async () => {
     const res = await request(app).get("/api/v1/dashboard/summary").set("Authorization", `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.topProperties.length).toBeGreaterThan(0);
+    for (const p of res.body.topProperties) {
+      expect(p.ownerContact).toBeFalsy();
+      expect(p.ownerContactHidden).toBe(true);
+    }
+  });
+
+  it("директору контакт приходит, и признак «скрыто» честно false — значит правило вообще применяется, а не поле просто отсутствует", async () => {
+    const res = await request(app).get("/api/v1/dashboard/summary").set("Authorization", `Bearer ${directorToken}`);
     expect(res.status).toBe(200);
     expect(res.body.topProperties.length).toBeGreaterThan(0);
     for (const p of res.body.topProperties) {

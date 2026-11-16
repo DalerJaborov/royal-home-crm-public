@@ -953,6 +953,18 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     existing as unknown as Record<string, unknown>
   );
 
+  // МАРКЕТИНГ И МОНТАЖЁР РАБОТАЮТ С МАТЕРИАЛАМИ, НЕ С ЦЕНОЙ (аудит прав М9/Д3,
+  // владелец 16.11.2026). Право «правка чужих карточек» им нужно для фото, видео и
+  // описания; цену, валюту и контакт собственника чужого объекта они меняют только
+  // заявкой через агента или руководство.
+  if (
+    (req.agent!.role === "MARKETING" || req.agent!.role === "EDITOR") &&
+    !ownsProperty(req.agent!.id, existing) &&
+    changedFields.some((f) => f === "price" || f === "currency" || f === "soldPrice" || f === "ownerContact")
+  ) {
+    return res.status(403).json({ error: "Цену и контакт собственника меняет агент объекта или руководитель" });
+  }
+
   // ЦЕНА ПРОДАННОГО ОБЪЕКТА — ТОЛЬКО РУКОВОДСТВУ (глубокая проверка 02.10.2026,
   // D12). Выгрузка бухгалтерии (routes/expenses.ts) берёт soldPrice ?? price и
   // валюту объекта: агент, поправивший их после закрытия сделки, менял сумму в
