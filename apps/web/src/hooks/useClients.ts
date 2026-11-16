@@ -300,6 +300,8 @@ export interface ClientTrashReview {
   audit: { id: string; action: string; label: string; agentName: string; createdAt: string }[];
   interactions: Interaction[];
   interactionsTotal: number;
+  /** Есть записи старше показанных. */
+  hasMore?: boolean;
   canCall: boolean;
 }
 
