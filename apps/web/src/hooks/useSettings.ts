@@ -203,6 +203,8 @@ export interface Settings {
   botCanConfirmShowings: boolean;
   botCanFollowUp: boolean;
   botCanAnswerComments: boolean;
+  /** Комментарий, на который бот не ответил из-за сбоя, — сводкой тем, кто читает переписки (15.11.2026). */
+  commentFailureWatchEnabled: boolean;
   /** «Соедините с оператором»: очередь звонков и push агентам. */
   botCanRequestCallback: boolean;
   /** Дежурный оператор обратных звонков; null — авто-соединения нет. */
