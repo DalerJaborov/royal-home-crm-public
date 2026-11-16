@@ -1,4 +1,5 @@
-import { getUpdates, isTelegramEnabled, telegramUpdateChatId, telegramUpdatesMode, type TelegramUpdate } from "./api.js";
+import { getUpdates, isTelegramEnabled, telegramUpdateChatId, type TelegramUpdate } from "./api.js";
+import { telegramUpdatesMode } from "./updatesMode.js";
 import { ASSISTANT_DEADLINE_SEC } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { raiseCriticalAlarm } from "../lib/channelKeyAlarm.js";

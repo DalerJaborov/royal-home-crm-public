@@ -14,7 +14,8 @@
 // Тревога руководству в «Здоровье системы» (не пуш сотрудникам: кому отвечать, неизвестно),
 // не чаще раза в 6 часов на причину. Рубильник Settings.telegramDeliveryWatchEnabled.
 import { prisma } from "../db.js";
-import { getWebhookInfo, isTelegramEnabled, telegramUpdatesMode, type TelegramWebhookInfo } from "../telegram/api.js";
+import { getWebhookInfo, isTelegramEnabled, type TelegramWebhookInfo } from "../telegram/api.js";
+import { telegramUpdatesMode } from "../telegram/updatesMode.js";
 import { logSystemError } from "./systemError.js";
 
 export const TELEGRAM_ERROR_FRESH_MS = 30 * 60_000;

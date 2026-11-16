@@ -45,7 +45,7 @@ const held = await import("../src/lib/customerHeldMessage.js");
 const { reportUnansweredCustomerTurn } = await import("../src/lib/customerTurnSilence.js");
 const payloadLib = await import("../src/lib/customerIngressPayload.js");
 const tgDelivery = await import("../src/lib/telegramDeliveryWatch.js");
-const { telegramUpdatesMode } = await import("../src/telegram/api.js");
+const { telegramUpdatesMode } = await import("../src/telegram/updatesMode.js");
 
 const runId = Date.now().toString(36);
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();

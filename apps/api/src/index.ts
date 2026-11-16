@@ -1,7 +1,7 @@
 import { runStationHealthTick } from "./lib/telephony/stationHealth.js";
 import { recoverInterruptedTelegramDraftUploads } from "./telegram/assistantPropertyDraft.js";
 import "./loadEnv.js";
-import { telegramUpdatesMode } from "./telegram/api.js";
+import { telegramUpdatesMode } from "./telegram/updatesMode.js";
 import { assertProductionEnv } from "./env-check.js";
 import { app } from "./app.js";
 import { prisma } from "./db.js";
