@@ -1945,6 +1945,11 @@
       "label": "Тянет из рекламного кабинета объявления и расходы"
     },
     {
+      "id": "meta-inbox-reconcile",
+      "expr": "3-59/10 * * * *",
+      "label": null
+    },
+    {
       "id": "monthly-problem-report",
       "expr": "10 9 1 * *",
       "label": "Разбор проблемных мест за прошедший месяц"
@@ -2353,7 +2358,7 @@
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
       "keys": 9,
-      "files": 13
+      "files": 14
     },
     {
       "name": "Бюджет Google Cloud",
