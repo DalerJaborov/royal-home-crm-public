@@ -3990,7 +3990,10 @@ function handleCallerLanguage(session: LiveVoiceSession, action: CallerLanguageA
     if (action.kind === "switch") {
       session.replyGuard.setLanguage(action.to);
       session.transcript.push(`[язык] звонящий говорит ${action.to === "ru" ? "по-русски" : "по-таджикски"} — робот переходит на этот язык`);
-      sendLanguageNote(session, callerLanguageSwitchNote(action.to, { languageTool: session.provider === "elevenlabs" }));
+      sendLanguageNote(
+        session,
+        callerLanguageSwitchNote(action.to, { languageTool: session.provider === "elevenlabs", askedForTajik: action.askedForTajik === true })
+      );
     } else {
       session.transcript.push("[язык] язык звонящего не ясен — робот спрашивает, на каком удобнее");
       sendLanguageNote(session, callerLanguageAskNote());
