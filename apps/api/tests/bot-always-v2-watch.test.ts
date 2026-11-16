@@ -39,7 +39,7 @@ vi.mock("../src/lib/customerConversationScope.js", async (importOriginal) => {
 });
 
 const { prisma } = await import("../src/db.js");
-const { runClientSilenceSweep, CLIENT_WAITING_MINUTES } = await import("../src/lib/clientWaitingAlert.js");
+const { runClientSilenceSweep, CLIENT_WAITING_MINUTES, alertClientWaiting } = await import("../src/lib/clientWaitingAlert.js");
 const wa = await import("../src/lib/whatsappWebhookWatch.js");
 const held = await import("../src/lib/customerHeldMessage.js");
 const { reportUnansweredCustomerTurn } = await import("../src/lib/customerTurnSilence.js");
@@ -135,6 +135,14 @@ describe("Telegram: клиент без ответа — та же дверь, �
     expect(alert).not.toBeNull();
     expect(alert!.body).toContain("в Telegram");
     expect(alert!.url).toBe(`/messages?open=td_${id}`);
+  });
+
+  it("«агент уточнит» в Telegram Direct — с той же подсказкой отвечать в Telegram (свод #201 с #198, 16.11)", async () => {
+    const id = await tgChat([{ role: "user", content: "Сколько комиссия?", at: minutesAgo(1) }], { direct: true, agent: true });
+    expect(await alertClientWaiting({ conversationId: id, source: "telegramDirect", trigger: "follow_up" })).toBe("agent");
+    const body = String((pushesFor(`td_${id}`).at(-1)?.[1] as { body?: string } | undefined)?.body);
+    expect(body).toContain("уточнит агент");
+    expect(body).toContain("из CRM в эту переписку ответить нельзя");
   });
 
   it("пуш не ушёл — отметка эпизода снимается, следующий тик пробует снова", async () => {
