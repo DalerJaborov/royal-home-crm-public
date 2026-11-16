@@ -58,6 +58,7 @@ import { pushRouter } from "./routes/push.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { publicFeedRouter } from "./routes/publicFeed.js";
 import { expensesRouter } from "./routes/expenses.js";
+import { foundersRouter } from "./routes/founders.js";
 import { financeRouter } from "./routes/finance.js";
 import { teamRouter, agentOverviewRouter } from "./routes/team.js";
 import { hallOfFameRouter } from "./routes/hallOfFame.js";
@@ -740,6 +741,7 @@ app.use("/api/v1/webhooks", webhooksRouter);
 // Открытые данные для сайта (лента Instagram) — без ключа, см. routes/publicFeed.ts.
 app.use("/api/v1/public", publicFeedRouter);
 app.use("/api/v1/expenses", expensesRouter);
+app.use("/api/v1/founders", foundersRouter);
 // Расчёты поверх денег (прогноз комиссии) — рядом с расходами, но своим путём.
 app.use("/api/v1/finance", financeRouter);
 app.use("/api/v1/security", securityRouter);

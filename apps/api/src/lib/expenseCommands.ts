@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
-  AUTO_EXPENSE_OVERLAP_CODE, CLIENT_SOURCES, expenseCategorySchema, expenseCreateSchema, expensePaymentSchema, expenseUpdateSchema,
+  AUTO_EXPENSE_OVERLAP_CODE, CLIENT_SOURCES, isAiEstimateVendor, manualExpenseVendor, expenseCategorySchema, expenseCreateSchema, expensePaymentSchema, expenseUpdateSchema,
   recurringOccurrenceSchema, recurringWorkspaceFields, type ClientSource,
 } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
@@ -12,6 +12,23 @@ import {
   validateExpenseCategory,
 } from "./expenseWorkspace.js";
 import { findManualOverlap, type OverlapCache } from "./expenseAutoOverlap.js";
+import { upsertAiExpenses } from "./ads/adExpenseSync.js";
+import { logSystemError } from "./systemError.js";
+import { describeError } from "./describeError.js";
+
+/**
+ * Счёт поставщика ИИ появился, изменился или ушёл в корзину — оценка ИИ за этот месяц
+ * пересчитывается сразу (правило splitAiEstimate), а не ночью: иначе до утра Gemini в
+ * Финансах учтён дважды. Сбой пересчёта расход не отменяет — ночной крон догонит.
+ */
+async function refreshAiEstimateIfBilled(vendors: (string | null | undefined)[], months: string[]): Promise<void> {
+  if (!vendors.some(isAiEstimateVendor)) return;
+  try {
+    await upsertAiExpenses([...new Set(months)]);
+  } catch (err) {
+    void logSystemError("api", `Оценка ИИ за ${months.join(", ")} не пересчитана после счёта поставщика: ${describeError(err)}`);
+  }
+}
 
 /**
  * ОДНА ДВЕРЬ ЗАПИСИ РАСХОДОВ (10.11.2026).
@@ -78,6 +95,8 @@ export async function createExpense(raw: unknown, opts: CreateExpenseOptions): P
   const rate = rest.currency === "USD" ? (rest.exchangeRate ?? (rest.status === "PLANNED" ? null : settingsRate)) : 1;
   const data = {
     ...rest,
+    // Поставщик: выбран человеком или узнан по словам («Оплата Gemini») — только ИИ (17.11.2026).
+    vendor: manualExpenseVendor(rest),
     paymentDate: rest.paymentDate ? expenseDay(rest.paymentDate) : null,
     month: expenseMonthToDate((rest.status ?? "PAID") === "PAID" && rest.paymentDate ? rest.paymentDate.slice(0, 7) : month),
     createdById: opts.agentId,
@@ -93,7 +112,7 @@ export async function createExpense(raw: unknown, opts: CreateExpenseOptions): P
   // второй раз не пишем (14.11.2026): человек видит, что уже учтено, и подтверждает «другой».
   // Повтор того же запроса (ключ уже записан) проверку не проходит заново — строка уже есть.
   if (!confirmAutoOverlap && !(requestKey && await db.expense.findUnique({ where: { requestKey }, select: { id: true } }))) {
-    const found = await findManualOverlap(data.month.toISOString().slice(0, 7), { ...rest, exchangeRate: rate }, { db, money: opts.money, cache: opts.overlapCache });
+    const found = await findManualOverlap(data.month.toISOString().slice(0, 7), { ...rest, vendor: data.vendor, exchangeRate: rate }, { db, money: opts.money, cache: opts.overlapCache });
     if (found) fail(409, found.text, { code: AUTO_EXPENSE_OVERLAP_CODE, overlap: found.overlap });
   }
   const expense = requestKey
@@ -102,6 +121,8 @@ export async function createExpense(raw: unknown, opts: CreateExpenseOptions): P
   if (requestKey && expense.autoFingerprint !== fingerprint) {
     fail(409, "Этот ключ уже использован для другого расхода", { code: "IDEMPOTENCY_CONFLICT" });
   }
+  // Внутри чужой транзакции (пачка помощницы) строка ещё не видна — оценку догонит ночной крон.
+  if (!opts.db) await refreshAiEstimateIfBilled([expense.vendor], [expense.month.toISOString().slice(0, 7)]);
   return { expense, month };
 }
 
@@ -168,6 +189,7 @@ export async function updateExpense(id: string, raw: unknown): Promise<{ expense
       category: finalCategory, source: finalCategory === "ADVERTISING" ? finalSource : null,
       agentId: finalCategory === "SALARY" ? finalAgentId : null, note: finalNote, counterparty: rest.counterparty ?? row.counterparty,
       amount: rest.amount ?? row.amount, currency: rest.currency ?? row.currency, exchangeRate: rest.exchangeRate ?? row.exchangeRate,
+      vendor: rest.vendor === undefined ? row.vendor : rest.vendor,
     });
     if (found) fail(409, found.text, { code: AUTO_EXPENSE_OVERLAP_CODE, overlap: found.overlap });
   }
@@ -193,6 +215,7 @@ export async function updateExpense(id: string, raw: unknown): Promise<{ expense
         ...(rest.amount !== undefined && row.autoKey ? { manualEditedAt: new Date() } : {}),
       },
     });
+    await refreshAiEstimateIfBilled([row.vendor, expense.vendor], [row.month.toISOString().slice(0, 7), expense.month.toISOString().slice(0, 7)]);
     return { expense, changed: Object.keys(parsed.data!) };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
@@ -205,10 +228,12 @@ export async function updateExpense(id: string, raw: unknown): Promise<{ expense
 /** DELETE /expenses/:id — мягкое удаление: запись остаётся в архиве. */
 export async function deleteExpense(id: string, version?: number): Promise<Expense> {
   try {
-    return await prisma.expense.update({
+    const deleted = await prisma.expense.update({
       where: { id, ...(version !== undefined ? { version, deletedAt: null } : {}) },
       data: { deletedAt: new Date(), version: { increment: 1 } },
     });
+    await refreshAiEstimateIfBilled([deleted.vendor], [deleted.month.toISOString().slice(0, 7)]);
+    return deleted;
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
       if (version !== undefined) fail(409, "Расход уже изменён. Обновите запись перед удалением", { code: "EXPENSE_VERSION_CONFLICT" });
@@ -230,7 +255,9 @@ export async function restoreExpense(id: string, opts: { confirmAutoOverlap?: bo
     if (found) fail(409, found.text, { code: AUTO_EXPENSE_OVERLAP_CODE, overlap: found.overlap });
   }
   try {
-    return await prisma.expense.update({ where: { id }, data: { deletedAt: null } });
+    const restored = await prisma.expense.update({ where: { id }, data: { deletedAt: null } });
+    await refreshAiEstimateIfBilled([restored.vendor], [restored.month.toISOString().slice(0, 7)]);
+    return restored;
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") fail(404, "Расход не найден");
     throw err;

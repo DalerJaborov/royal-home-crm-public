@@ -672,6 +672,26 @@ html[data-shell="clean"] .clean-messages .dlg-row .t>b {
   .cef-sub-summary { display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 16px; margin: 0 0 18px; }
   .cef-sub-summary>div { display: grid; align-content: start; min-width: 0; gap: 6px; min-height: 108px; padding: 18px 24px; background: var(--cef-card); border-radius: 18px; box-shadow: var(--cef-shadow); }
   .cef-sub-summary>div strong { font-size: 24px; font-weight: 500; }
+  .cef-sub-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+  .cef-sub-presets>span { color: var(--cef-muted); font-size: 13px; }
+  .cef-sub-presets button.cef-chip { min-height: 44px; }
+  .cef-founders-note { margin: -6px 0 16px; }
+  .cef-founder-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px; margin: 0 0 22px; }
+  .cef-founder-card { display: grid; align-content: start; min-width: 0; gap: 4px; padding: 16px 20px; background: var(--cef-card); border-radius: 18px; box-shadow: var(--cef-shadow); }
+  .cef-founder-card>span { font-size: 15px; font-weight: 500; overflow-wrap: anywhere; }
+  .cef-founder-card>span em { color: var(--cef-muted); font-size: 12px; font-style: normal; }
+  .cef-founder-card>strong { font-size: 24px; font-weight: 500; }
+  .cef-founder-total { background: color-mix(in srgb,var(--cef-accent) 7%,var(--cef-card)); }
+  .cef-founders-h { margin: 20px 0 10px; font-size: 16px; font-weight: 600; }
+  .cef-founder-list, .cef-founder-names { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+  .cef-founder-list .cef-row + .cef-row { margin-top: 0; }
+  .cef-founder-list .cef-amount { display: grid; justify-items: end; font-size: 16px; font-weight: 600; white-space: nowrap; }
+  .cef-founder-actions { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+  .cef-founder-names li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 6px 14px; border-radius: 14px; background: var(--cef-row); }
+  .cef-founder-names li>span:first-child { min-width: 0; overflow-wrap: anywhere; }
+  .cef-founder-edit, .cef-founder-add { display: flex; align-items: center; gap: 8px; width: 100%; }
+  .cef-founder-add { margin-top: 12px; }
+  .cef-founder-edit input, .cef-founder-add input { flex: 1; min-width: 0; min-height: 44px; padding: 8px 12px; border: 1px solid rgb(217 221 228); border-radius: 12px; background: var(--cef-card); }
   .cef-subscription-detail { padding: 24px; border-radius: 20px; background: var(--cef-card); box-shadow: var(--cef-shadow); align-self: start; }
   .cef-subscription-detail h4 { margin: 20px 0 4px; font-size: 16px; font-weight: 600; }
   .cef-subscription-detail dt { color: var(--cef-muted); font-size: 13px; }
@@ -744,6 +764,9 @@ html[data-shell="clean"] .clean-messages .dlg-row .t>b {
   }
   @media (max-width: 819px) {
     .cef-page { padding: 16px 12px; }
+    .cef-founder-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .cef-founder-card { padding: 14px; }
+    .cef-founder-card>strong { font-size: 20px; }
     .cef h1 { font-size: 30px; }
     .cef h2 { font-size: 18px; }
     .cef-card, .cef-table, .cef-calendar-day-panel { padding: 18px; border-radius: 18px; }

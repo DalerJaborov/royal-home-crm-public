@@ -1,4 +1,5 @@
 import { centsToTjs, fromCents, toCents } from "./money.js";
+import { EXPENSE_VENDOR_LABELS, isAiEstimateVendor, vendorOfText, type ExpenseVendor } from "./expenseVendors.js";
 
 /**
  * РАСХОД, КОТОРЫЙ CRM УЖЕ СЧИТАЕТ САМА, НЕ ВНОСИТСЯ ВТОРОЙ РАЗ РУКАМИ (14.11.2026).
@@ -20,7 +21,7 @@ import { centsToTjs, fromCents, toCents } from "./money.js";
  * сколько CRM уже насчитала, и подтверждает, что это ДРУГОЙ расход.
  */
 
-export type AutoExpenseKind = "ads_meta" | "ads_other" | "ai" | "deal_salary" | "recurring";
+export type AutoExpenseKind = "ads_meta" | "ads_other" | "ai" | "deal_salary" | "recurring" | "subscription";
 
 export interface AutoExpenseRowLike {
   autoKey: string;
@@ -30,6 +31,8 @@ export interface AutoExpenseRowLike {
   exchangeRate?: unknown;
   agentId?: string | null;
   source?: string | null;
+  /** Поставщик подписки (Expense.vendor, 17.11.2026): у строки из шаблона-подписки. */
+  vendor?: string | null;
 }
 
 export interface ManualExpenseLike {
@@ -41,6 +44,8 @@ export interface ManualExpenseLike {
   amount: unknown;
   currency?: string | null;
   exchangeRate?: unknown;
+  /** Поставщик, выбранный человеком или узнанный помощницей (Expense.vendor). */
+  vendor?: string | null;
 }
 
 export interface AutoExpenseOverlap {
@@ -55,6 +60,8 @@ export interface AutoExpenseOverlap {
   manualAmountTjs: number;
   /** Суммы почти совпадают (±10 %) — почти наверняка одна и та же трата. */
   amountClose: boolean;
+  /** Для вида subscription: поставщик подписки. */
+  vendor?: string | null;
 }
 
 /** Вид автоматической строки по её ключу. */
@@ -118,6 +125,17 @@ const amountTjs = (amount: unknown, currency: string | null | undefined, rate: u
  * почти всегда разная: курс, день списания, НДС). Остальное (повторяющийся платёж, реклама
  * другой площадки) — по разделу и близкой сумме (±10 %), иначе слишком много ложных тревог.
  */
+/**
+ * Какого поставщика записать в ручную строку: выбранного человеком, иначе узнанного по словам —
+ * только поставщика ИИ (его счёт снимает оценку CRM за месяц, splitAiEstimate). Прочих по словам
+ * не пишем: «сервер» в заметке офиса ещё не подписка.
+ */
+export function manualExpenseVendor(row: Pick<ManualExpenseLike, "vendor" | "note" | "counterparty">): ExpenseVendor | null {
+  if (row.vendor) return row.vendor as ExpenseVendor;
+  const found = vendorOfText(`${row.note ?? ""} ${row.counterparty ?? ""}`);
+  return isAiEstimateVendor(found) ? found : null;
+}
+
 export function findAutoExpenseOverlap(
   manual: ManualExpenseLike,
   autoRows: readonly AutoExpenseRowLike[],
@@ -126,6 +144,12 @@ export function findAutoExpenseOverlap(
   const kinds = manualExpenseAutoKinds(manual);
   const manualTjs = amountTjs(manual.amount, manual.currency ?? "TJS", manual.exchangeRate, usdToTjs);
   const close = (a: number, b: number) => a > 0 && b > 0 && Math.abs(a - b) <= Math.max(a, b) * 0.1;
+  // Поставщик ручной строки: выбран явно или узнан по словам («Оплата Gemini», «синяя галочка»).
+  const manualVendor = manual.vendor ?? vendorOfText(textOf(manual));
+  // Явный счёт поставщика ИИ — это правда о расходе, а не повтор оценки: оценку этого
+  // поставщика за месяц CRM сама перестаёт считать (splitAiEstimate, 17.11.2026).
+  // «Оплата ИИ» без поставщика по-прежнему спрашивается: непонятно, счёт это или повтор оценки.
+  const billedAiVendor = isAiEstimateVendor(manualVendor);
   let best: AutoExpenseOverlap | null = null;
   for (const auto of autoRows) {
     const kind = autoExpenseKindOf(auto.autoKey);
@@ -135,6 +159,18 @@ export function findAutoExpenseOverlap(
     const amountClose = close(manualTjs, autoTjs);
     // Доля по сделкам: тот же сотрудник и либо слова «доля/процент/сделка», либо близкая сумма —
     // оклад и аванс того же агента в том же месяце не переспрашиваем.
+    // Подписка с поставщиком: ручная строка того же поставщика — повтор при любой сумме
+    // (курс, налог банка, смена тарифа), слова «подписка» тут не спасают.
+    if (kind === "recurring" && auto.vendor) {
+      if (manualVendor !== auto.vendor) continue;
+      const overlap: AutoExpenseOverlap = {
+        kind: "subscription", autoKey: auto.autoKey, autoAmount: Number(auto.amount), autoCurrency: auto.currency,
+        autoAmountTjs: autoTjs, manualAmountTjs: manualTjs, amountClose, vendor: auto.vendor,
+      };
+      if (!best || best.kind !== "subscription" || (amountClose && !best.amountClose)) best = overlap;
+      continue;
+    }
+    if (kind === "ai" && billedAiVendor) continue;
     const byKind = (kind === "ads_meta" || kind === "ai") && kinds.includes(kind)
       || kind === "deal_salary" && kinds.includes("deal_salary") && auto.agentId === manual.agentId
         && (amountClose || DEAL_SHARE_WORDS.test(textOf(manual)));
@@ -146,7 +182,7 @@ export function findAutoExpenseOverlap(
       kind, autoKey: auto.autoKey, autoAmount: Number(auto.amount), autoCurrency: auto.currency,
       autoAmountTjs: autoTjs, manualAmountTjs: manualTjs, amountClose,
     };
-    if (!best || (amountClose && !best.amountClose)) best = overlap;
+    if (!best || (best.kind !== "subscription" && amountClose && !best.amountClose)) best = overlap;
   }
   return best;
 }
@@ -157,6 +193,7 @@ const KIND_RU: Record<AutoExpenseKind, string> = {
   ai: "Расход на ИИ (обращения CRM к Claude и Gemini)",
   deal_salary: "Доля этого сотрудника по закрытым сделкам",
   recurring: "Повторяющийся платёж из шаблона",
+  subscription: "Подписка",
 };
 
 const MONTHS_RU = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
@@ -177,12 +214,17 @@ export function autoExpenseOverlapText(overlap: AutoExpenseOverlap, month: strin
   const auto = overlap.autoCurrency === "USD"
     ? `${num(overlap.autoAmount)} $ (≈ ${num(overlap.autoAmountTjs)} с.)`
     : `${num(overlap.autoAmountTjs)} с.`;
+  const what = overlap.kind === "subscription" && overlap.vendor
+    ? `Подписка «${EXPENSE_VENDOR_LABELS[overlap.vendor as ExpenseVendor] ?? overlap.vendor}», CRM записывает её каждый месяц сама`
+    : KIND_RU[overlap.kind];
   const hint = overlap.kind === "ai"
     ? "Если это подписка или другой сервис, а не обращения CRM, подтвердите запись."
-    : overlap.kind === "deal_salary"
+    : overlap.kind === "subscription"
+      ? "Если это разовая доплата сверх подписки, подтвердите запись."
+      : overlap.kind === "deal_salary"
       ? "Если это оклад или премия сверх доли, подтвердите запись."
       : "Если это другой платёж, подтвердите запись.";
-  return `Этот расход, похоже, уже учтён автоматически: ${KIND_RU[overlap.kind]} за ${expenseMonthWords(month)}, ${auto}. Второй раз не записываю. ${hint}`;
+  return `Этот расход, похоже, уже учтён автоматически: ${what} за ${expenseMonthWords(month)}, ${auto}. Второй раз не записываю. ${hint}`;
 }
 
 /** Код ответа API, по которому форма предлагает «Всё равно записать». */

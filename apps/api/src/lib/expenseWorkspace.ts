@@ -1,8 +1,10 @@
 import type { Prisma, RecurringExpense, Expense } from "../generated/prisma/client.js";
 import { z } from "zod";
-import { expenseListQuerySchema, EXPENSE_CATEGORY_LABELS, EXPENSE_METHOD_LABELS, type ExpenseSortKey, type ExpenseUpcomingItem } from "@royal-home/shared";
+import { expenseListQuerySchema, isAiEstimateVendor, EXPENSE_CATEGORY_LABELS, EXPENSE_METHOD_LABELS, type ExpenseSortKey, type ExpenseUpcomingItem } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { logSystemError } from "./systemError.js";
+import { warnManualOverlapsForAuto } from "./expenseAutoOverlap.js";
+import { upsertAiExpenses } from "./ads/adExpenseSync.js";
 import { expenseCentsToTjs, fromCents, loadMoneyContext, NO_USD_RATE_TEXT, usdRateForWrite, type MoneyContext } from "./money.js";
 import { Prisma as PrismaRuntime } from "../generated/prisma/client.js";
 type ExpenseTransaction = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
@@ -157,7 +159,7 @@ export async function materializeOccurrence(template: RecurringExpense, dueDate:
     return db.expense.upsert({ where: { autoKey }, update: {}, create: { autoKey, recurringId: template.id, occurrenceDate: dueDate,
             month: expenseDay(`${dueDate.slice(0, 7)}-01`), amount: template.amount, currency: template.currency, category: template.category,
             source: template.source, agentId: template.agentId, note: template.title, categoryId: template.categoryId, counterparty: template.counterparty,
-            paymentMethod: template.paymentMethod, status, paymentDate: status === "PAID" ? expenseDay(paymentDate ?? dueDate) : expenseDay(dueDate),
+            paymentMethod: template.paymentMethod, vendor: template.vendor, status, paymentDate: status === "PAID" ? expenseDay(paymentDate ?? dueDate) : expenseDay(dueDate),
             createdById: actorId, exchangeRate: status === "PAID" ? (template.currency === "USD" ? money.usdToTjs : 1) : null, rateCapturedAt: status === "PAID" ? new Date() : null } });
 }
 export async function upcomingExpenses(from: string, to: string): Promise<ExpenseUpcomingItem[]> {
@@ -198,7 +200,7 @@ export async function processWorkspaceRecurringExpenses(): Promise<number> {
             for (const day of occurrenceDates(t, t.startsOn, today)) {
                 if (t.skippedDates.includes(day))
                     continue;
-                await prisma.$transaction(async (tx) => {
+                const created = await prisma.$transaction(async (tx) => {
                     await tx.$queryRaw `SELECT "id" FROM "RecurringExpense" WHERE "id"=${t.id} FOR UPDATE`;
                     const latest = await tx.recurringExpense.findUnique({ where: { id: t.id } });
                     if (!latest || latest.deletedAt || !latest.active || latest.skippedDates.includes(day))
@@ -215,7 +217,16 @@ export async function processWorkspaceRecurringExpenses(): Promise<number> {
                             void logSystemError("cron", `Повторяющийся платёж «${latest.title}» (${latest.id}) за ${day}: автооплата пропущена — ${error.message}`);
                         }
                     }
+                    return row;
                 });
+                // Подписка с поставщиком: ручная «Оплата Gemini» за этот месяц уже была — тревога
+                // директору (обратная сторона правила «расход дважды»); счёт поставщика ИИ — пересчёт оценки.
+                // Только что заведённая строка (а не прошлая, которую тик видит каждую ночь).
+                if (created?.vendor && created.autoKey && Date.now() - created.createdAt.getTime() < 10 * 60_000) {
+                    const createdMonth = created.month.toISOString().slice(0, 7);
+                    await warnManualOverlapsForAuto(created.autoKey, createdMonth);
+                    if (isAiEstimateVendor(created.vendor)) await upsertAiExpenses([createdMonth]).catch((error: unknown) => logSystemError("cron", `Оценка ИИ за ${createdMonth} не пересчитана: ${error instanceof Error ? error.message : String(error)}`));
+                }
                 count++;
             }
         }
