@@ -398,30 +398,7 @@ describe("Заглушка «не расслышал» — только когд
     expect(job!.payload).toMatchObject({ conversationId: conversation.id });
   }, 20_000);
 
-  it("Direct Messages: проверки вычистили ответ — нейтральная реплика, заглушки нет", async () => {
-    const topic = 610000000 + (runId % 100000);
-    await prisma.telegramDirectConversation.create({
-      data: {
-        chatId: String(DM_CHAT_ID),
-        topicId: String(topic),
-        fromUserId: String(topic),
-        leadDraft: { stage: "awaiting_phone", intent: "buy", confident: true } as any,
-        phoneAsksSent: 3,
-        messages: [
-          { role: "user", content: "Хона мехоҳам" },
-          { role: "assistant", content: "Рақами телефонатонро нависед?" },
-        ] as any,
-        lastMessageAt: new Date(),
-      },
-    });
-    callAiText.mockResolvedValue({ reply: ["Рақамро нависед?"], ready: false, intent: "buy", confident: true });
-    await handleTelegramUpdate(dmUpdate(topic, topic, "Майлаш, баъдтар"));
-
-    expect(callAiText).toHaveBeenCalled();
-    const sent = sendMessage.mock.calls.map((c) => c[1]);
-    expect(sent).toEqual([NEUTRAL_REPLIES.statement.tg]);
-    expect(sent[0]).not.toMatch(/Бубахшед|не расслышал/);
-  }, 20_000);
+  // Direct Messages: модель в этом канале больше не отвечает (один мозг, шаг 3, 16.11.2026) — см. telegram-direct-auto-reply-retired.
 });
 
 describe("Telegram: /start не стирает переписку", () => {
