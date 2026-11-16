@@ -130,7 +130,7 @@ import { isReactionOnly } from "../ai/replyGuards.js";
 import { looksLikeMoneyRequest } from "../ai/moneyRequestGuard.js";
 import { screenIncomingText } from "../ai/inboundScreen.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
-import { isHandedToStaff } from "../lib/metaInboxReconcile.js";
+import { isHandedToStaff, notifyLateDelivery, staffAnsweredLate } from "../lib/metaInboxReconcile.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { leadMagnetSilencesBot, tryLeadMagnetMessage } from "../lib/leadMagnet.js";
 import { isWithinWorkingHours } from "../lib/workingHours.js";
@@ -1680,10 +1680,16 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // сверка Страниц не дождалась вебхука и сказала сотруднику «Ответьте вручную»; если Meta
   // дошлёт это сообщение позже (после простоя сервера), бот ответил бы второй раз. Только
   // если в запросе одни такие личные сообщения Messenger — без эха, статусов и комментариев.
-  if (incoming.length > 0 && incoming.every((m) => m.channel === "FACEBOOK" && !m.isEcho && m.messageId) &&
+  // Ревью 199-1: молчим, ТОЛЬКО если человек уже ответил (живой ответ в Graph). Иначе сообщение идёт обычным
+  // путём — текст в CRM, бот отвечает (ночью клиент не ждёт утра), — а человеку уходит «дошло, бот отвечает».
+  let lateHanded: typeof incoming | null = null;
+  if (incoming.length > 0 && incoming.every((m) => (m.channel === "FACEBOOK" || m.channel === "INSTAGRAM") && !m.isEcho && m.messageId) &&
       !metaBodyHasChanges(req.body) && await isHandedToStaff(incoming.map((m) => m.messageId!))) {
-    console.log(`[вебхук] FACEBOOK: повтор ${incoming.length} сообщ., уже отданных сотруднику по сверке Страниц — бот молчит`);
-    return res.json({ ok: true });
+    if (await staffAnsweredLate(incoming)) {
+      console.log(`[вебхук] ${incoming[0]!.channel}: повтор ${incoming.length} сообщ., сотрудник уже ответил по сверке — бот молчит`);
+      return res.json({ ok: true });
+    }
+    lateHanded = incoming;
   }
   // Short durable intake precedes the provider ACK when the scoped rollout
   // is enabled. No model/provider call occurs here. OFF follows legacy intake.
@@ -1721,6 +1727,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       if ((durableIngress.status === "persisted" || durableIngress.status === "bypass") && durableIngress.held?.length) {
         await notifyHeldCustomerMessages(durableIngress.held);
       }
+      if (lateHanded) await notifyLateDelivery(lateHanded);
       // Immutable admissions precede profile/media/ad enrichment. Scoped
       // pending payloads/jobs have already committed before the ACK above.
       {
