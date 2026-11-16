@@ -630,7 +630,8 @@ export function InteractionTimeline({
         limit: String(OLDER_BATCH),
       });
       if (type) params.set("type", type);
-      const page = await api<OlderPage>(`${timelinePath ?? `/clients/${clientId}/timeline`}?${params.toString()}`);
+      const basePath = timelinePath ?? "/clients/" + clientId + "/timeline";
+      const page = await api<OlderPage>(basePath + "?" + params.toString());
       setOlder({
         key: ownerKey,
         pinned: state.pinned.length > 0 ? state.pinned : interactions,
