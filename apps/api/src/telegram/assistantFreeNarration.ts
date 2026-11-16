@@ -16,13 +16,14 @@ import { pickNarrationVoice, type NarrationConfig } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { claimCallback } from "../lib/telegramCallbackClaim.js";
 import {
-  cancelFreeNarration, clearFreeNarrationTextWait, createFreeNarrationRequest, freeNarrationFilePath, pendingFreeNarrationTextWait, runFreeNarration,
-  setFreeNarrationLang, startFreeNarrationTextWait, type FreeNarrationRow, type FreeNarrationRunOutcome,
+  cancelFreeNarration, claimFreeNarration, clearFreeNarrationTextWait, createFreeNarrationRequest, executeFreeNarration, freeNarrationFilePath, pendingFreeNarrationTextWait,
+  setFreeNarrationLang, startFreeNarrationTextWait, type FreeNarrationClaim, type FreeNarrationRow, type FreeNarrationRunOutcome,
 } from "../lib/freeNarration.js";
 import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
 import { narrationLastChoiceFor } from "../lib/narrationLastChoice.js";
 import { findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
 import { logSystemError } from "../lib/systemError.js";
+import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { answerCallbackQuery, editMessageText, sendDocumentFile, sendMessage, sendMessageWithButtons, type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton } from "./api.js";
 import { chatLang, sendVoiceSamples } from "./assistantNarration.js";
 
@@ -31,7 +32,7 @@ const MAX_VOICE_BUTTONS = 8;
 
 export type FreeNarrationTrigger = { kind: "text"; text: string } | { kind: "ask" } | { kind: "bare" };
 
-const VERB = "(?:озвуч(?:ь|ьте)(?:\\s+это)?|(?:ин\\s+)?(?:матнро\\s+)?(?:овоз(?:онӣ)?\\s+(?:кун(?:ед)?|деҳ|дех|диҳед|дихед)|хонда\\s+(?:деҳ|дех|диҳед|дихед)))";
+const VERB = "(?:озвуч(?:ь|ьте)(?:\\s+это)?|(?<noun>(?:ин\\s+)?матнро\\s+)?(?:овоз(?:онӣ)?\\s+(?:кун(?:ед)?|деҳ|дех|диҳед|дихед)|хонда\\s+(?:деҳ|дех|диҳед|дихед)))";
 const MODIFIER = "(?<mod>(?:\\s+(?:этот\\s+)?текст|\\s+дословно|\\s+слово\\s+в\\s+слово|\\s+матн(?:ро)?|\\s+айнан|\\s+калима\\s+ба\\s+калима)+)?";
 const PLEASE = "(?:\\s*,?\\s*(?:пожалуйста|лутфан))?";
 const TRIGGER = new RegExp(`^\\s*(?:(?:шабнам|shabnam)\\s*[,:!-]?\\s*)?${VERB}${MODIFIER}${PLEASE}(?![\\p{L}\\p{N}])(?<rest>[\\s\\S]*)$`, "iu");
@@ -45,7 +46,8 @@ export function parseFreeNarrationTrigger(raw: string): FreeNarrationTrigger | n
   const m = TRIGGER.exec(raw);
   if (!m?.groups) return null;
   const rest = m.groups.rest ?? "";
-  const modifier = !!m.groups.mod;
+  // «матнро овоз кун» несёт слово «текст» так же, как «озвучь текст»: спрашиваем текст, а не молчим.
+  const modifier = !!m.groups.mod || !!m.groups.noun;
   const colon = /^[ \t]*:[ \t]*([\s\S]*)$/u.exec(rest);
   if (colon) return colon[1].trim() ? { kind: "text", text: colon[1].trim() } : { kind: "ask" };
   const lineBreak = /^[ \t]*\r?\n([\s\S]*)$/u.exec(rest);
@@ -53,7 +55,10 @@ export function parseFreeNarrationTrigger(raw: string): FreeNarrationTrigger | n
   if (!rest.trim() || /^[\s.!?]*$/u.test(rest)) return modifier ? { kind: "ask" } : { kind: "bare" };
   if (modifier && /^[ \t]/u.test(rest)) {
     const text = rest.replace(/^[ \t]*[,—–-]?[ \t]*/u, "").trim();
-    return text ? { kind: "text", text } : { kind: "ask" };
+    if (!text) return { kind: "ask" };
+    // «озвучь дословно последний ответ», «озвучь текст объявления ОБ-12»: короткий хвост про ответ или объект это вопрос помощнику.
+    if (text.split(/\s+/u).length < 5 && /ответ|ОБ-?\s?\d|объявлени/iu.test(text)) return null;
+    return { kind: "text", text };
   }
   return null;
 }
@@ -73,7 +78,7 @@ const copy = {
     head: (chars: number, lang: string) => `Текст принят: ${chars} знаков, язык: ${lang}. Выберите голос, он прочитает слово в слово.`,
     langName: { ru: "русский", tg: "таджикский", none: "не определён, читаю как есть" },
     samples: "Образцы голосов: одна и та же фраза. Послушайте и выберите ниже.",
-    b: { samples: "🎧 Послушать образцы", cancel: "✖️ Отмена", def: "по умолчанию", last: "последний раз выбран", male: "муж.", female: "жен." },
+    b: { resend: "📎 Прислать файл", samples: "🎧 Послушать образцы", cancel: "✖️ Отмена", def: "по умолчанию", last: "последний раз выбран", male: "муж.", female: "жен." },
     preparing: "⏳ Готовлю озвучку…",
     caption: (voice: string, chars: number) => `Озвучка для монтажа, голос ${voice}, ${chars} знаков`,
     limitPerson: (limit: number) => `Сегодня вы уже сделали ${limit} озвучек. Остальное завтра.`,
@@ -83,21 +88,21 @@ const copy = {
     quota: "Кредиты ElevenLabs закончились. Сообщите руководителю.",
     stale: "Этот запрос устарел. Пришлите текст заново.",
     voiceChanged: "Список голосов обновился. Пришлите текст заново.",
-    fileLost: "Озвучка готова, но файл не отправился. Нажмите на голос ещё раз, повторно платить не придётся.",
+    fileLost: "Озвучка готова, но файл не отправился. Нажмите «Прислать файл», повторно платить не придётся.",
   },
   tg: {
     noAccess: "Шумо ба овозонии матн дастрасӣ надоред.",
     off: "Овозонии матн ҳоло дар танзимот хомӯш аст.",
     notConfigured: "Овозонӣ ҳоло танзим нашудааст: овоз ё калид нест. Ба роҳбар нависед.",
     tooShort: "Матн хеле кӯтоҳ аст.",
-    tooLong: (max: number, len: number) => `Матн аз ${max} аломат дарозтар аст (дар шумо ${len} аломат). Онро кӯтоҳ кунед ё қисм-қисм фиристед.`,
+    tooLong: (max: number, len: number) => `Матн аз ${max} аломат дарозтар аст, шумо ${len} аломат навиштед. Онро кӯтоҳ кунед ё қисм-қисм фиристед.`,
     ask: "Хуб. Матнро бо як паём фиристед, на бо овоз. Барои бекор кардан «бекор» нависед.",
     voiceOnly: "Матнро, лутфан, бо паём фиристед, на бо овоз.",
     cancelled: "Бекор шуд.",
     head: (chars: number, lang: string) => `Матн қабул шуд: ${chars} аломат, забон: ${lang}. Овозро интихоб кунед, он айнан мехонад.`,
     langName: { ru: "русӣ", tg: "тоҷикӣ", none: "муайян нашуд, ҳамон тавр мехонам" },
     samples: "Намунаи овозҳо: ҳамон як ҷумла. Гӯш кунед ва дар поён интихоб кунед.",
-    b: { samples: "🎧 Намунаҳоро гӯш кунед", cancel: "✖️ Бекор", def: "асосӣ", last: "бори охир интихоб шуд", male: "мард", female: "зан" },
+    b: { resend: "📎 Файлро фиристед", samples: "🎧 Намунаҳоро гӯш кунед", cancel: "✖️ Бекор", def: "асосӣ", last: "бори охир интихоб шуд", male: "мард", female: "зан" },
     preparing: "⏳ Овоз тайёр мешавад…",
     caption: (voice: string, chars: number) => `Овоз барои монтаж, овози ${voice}, ${chars} аломат`,
     limitPerson: (limit: number) => `Имрӯз шумо аллакай ${limit} бор овозонӣ кардед. Боқӣ фардо.`,
@@ -107,7 +112,7 @@ const copy = {
     quota: "Кредитҳои ElevenLabs тамом шуданд. Ба роҳбар хабар диҳед.",
     stale: "Ин дархост кӯҳна шуд. Матнро аз нав фиристед.",
     voiceChanged: "Рӯйхати овозҳо навсозӣ шуд. Матнро аз нав фиристед.",
-    fileLost: "Овоз тайёр аст, аммо файл нарафт. Боз ба овоз пахш кунед, бори дуюм пул намеравад.",
+    fileLost: "Овоз тайёр аст, аммо файл нарафт. «Файлро фиристед»-ро пахш кунед, бори дуюм пул намеравад.",
   },
 } as const;
 
@@ -165,13 +170,13 @@ async function createAndShow(chatId: string, agentId: string, text: string, lang
 
 /**
  * Личный чат: true — сообщение наше (просьба «озвучь» или текст после неё). false — обычное сообщение,
- * дальше работает помощник. Вызывать только для не пересланных сообщений.
+ * дальше работает помощник. Пересланное сообщение принимается только как текст, которого мы уже ждём.
  */
-export async function handleFreeNarrationMessage(msg: TelegramIncomingMessage, agent: { id: string }): Promise<boolean> {
+export async function handleFreeNarrationMessage(msg: TelegramIncomingMessage, agent: { id: string }, forwarded = false): Promise<boolean> {
   if (msg.chat.type !== "private") return false;
   const chatId = String(msg.chat.id);
-  const text = (msg.text ?? "").trim();
-  const trigger = text ? parseFreeNarrationTrigger(text) : null;
+  const text = (forwarded ? msg.text ?? msg.caption ?? "" : msg.text ?? "").trim();
+  const trigger = !forwarded && text ? parseFreeNarrationTrigger(text) : null;
   const waiting = await pendingFreeNarrationTextWait(agent.id, chatId);
   const lang = await chatLang(chatId);
   const c = copy[lang];
@@ -190,8 +195,9 @@ export async function handleFreeNarrationMessage(msg: TelegramIncomingMessage, a
     const repliedText = replied && replied.from?.is_bot !== true ? (replied.text ?? replied.caption ?? "").trim() : "";
     if (repliedText) { await createAndShow(chatId, agent.id, repliedText, lang); return true; }
     if (trigger.kind === "bare") return false;
-    if (!await startFreeNarrationTextWait(agent.id, chatId)) { await sendMessage(chatId, c.noAccess); return true; }
-    await sendMessage(chatId, c.ask);
+    // Права и рубильник проверяются до просьбы прислать текст.
+    const started = await startFreeNarrationTextWait(agent.id, chatId);
+    await sendMessage(chatId, started === "OK" ? c.ask : started === "OFF" ? c.off : started === "NOT_CONFIGURED" ? c.notConfigured : c.noAccess);
     return true;
   } catch (err) {
     void logSystemError("telegram", `Озвучка текста в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-message" });
@@ -244,19 +250,22 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
     const { config } = await loadNarrationConfiguration();
     const voice = config.voices[Number(arg)];
     if (!voice || voiceHash(voice.id) !== hash) { await answer(c.voiceChanged); return true; }
-    if (row.status === "READY") { await answer(); await deliver(chatId, row, voice.name, lang); return true; }
+    const retryData = query.data ?? "";
+    if (row.status === "READY") { await answer(); await deliver(chatId, row, voice.name, lang, undefined, retryData); return true; }
     await answer(c.preparing);
-    if (messageId) await editMessageText(chatId, messageId, `${query.message?.text ?? ""}\n\n${c.preparing}`, null).catch(() => {});
-    const outcome = await runFreeNarration({ id, agentId: agent.id, voiceId: voice.id });
-    if (outcome.status === "READY") {
-      await deliver(chatId, outcome.row, outcome.voiceName ?? voice.name, lang, outcome.audio);
-      if (messageId) await editMessageText(chatId, messageId, `✅ ${c.caption(outcome.voiceName ?? voice.name, outcome.row.chars)}`, null).catch(() => {});
+    // Занять запись быстро, а вызов ElevenLabs и отправку файла (до двух минут) вынести из обработчика:
+    // очередь входящих у бота одна на все чаты, долгий обработчик остановил бы их всех.
+    const claimed = await claimFreeNarration({ id, agentId: agent.id, voiceId: voice.id });
+    if (claimed.status === "ALREADY_READY") { await deliver(chatId, claimed.row, voice.name, lang, undefined, retryData); return true; }
+    if (claimed.status !== "CLAIMED") {
+      const text = failureText(claimed, lang) ?? c.failed;
+      if (messageId && (claimed.status === "LIMIT_PERSON" || claimed.status === "BUDGET")) await editMessageText(chatId, messageId, text, null).catch(() => {});
+      else await sendMessage(chatId, text);
       return true;
     }
-    if (outcome.status === "ALREADY_READY") { await deliver(chatId, outcome.row, voice.name, lang); return true; }
-    const text = failureText(outcome, lang) ?? c.failed;
-    if (messageId && (outcome.status === "LIMIT_PERSON" || outcome.status === "BUDGET")) await editMessageText(chatId, messageId, text, null).catch(() => {});
-    else await sendMessage(chatId, text);
+    if (messageId) await editMessageText(chatId, messageId, `${query.message?.text ?? ""}\n\n${c.preparing}`, null).catch(() => {});
+    void trackBackgroundTask(finishFreeNarration(chatId, claimed.claim, lang, messageId, retryData));
+    return true;
   } catch (err) {
     void logSystemError("telegram", `Озвучка текста, кнопка Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-callback" });
     await answer(c.failed);
@@ -264,16 +273,37 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
   return true;
 }
 
-/** Файл документом: из хранилища, а если сохранить не удалось, то прямо из памяти. */
-async function deliver(chatId: string, row: FreeNarrationRow, voiceName: string, lang: Lang, audio?: Buffer): Promise<void> {
+/** Фон: вызов ElevenLabs, отправка файла, итог в сообщении. Ошибки не уходят наружу: запись уже занята, итог должен дойти до человека. */
+async function finishFreeNarration(chatId: string, claim: FreeNarrationClaim, lang: Lang, messageId: number | undefined, retryData: string): Promise<void> {
   const c = copy[lang];
+  try {
+    const outcome = await executeFreeNarration(claim);
+    if (outcome.status === "READY") {
+      await deliver(chatId, outcome.row, outcome.voiceName ?? claim.voiceName ?? "", lang, outcome.audio, retryData);
+      if (messageId) await editMessageText(chatId, messageId, `✅ ${c.caption(outcome.voiceName ?? claim.voiceName ?? "", outcome.row.chars)}`, null).catch(() => {});
+      return;
+    }
+    await sendMessage(chatId, failureText(outcome, lang) ?? c.failed);
+  } catch (err) {
+    void logSystemError("telegram", `Озвучка текста в Шабнам, фон: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-background" });
+    await sendMessage(chatId, c.failed).catch(() => {});
+  }
+}
+
+/** Файл документом: из хранилища, а если сохранить не удалось, то прямо из памяти. Не вышло: кнопка «Прислать файл» (без новой оплаты). */
+async function deliver(chatId: string, row: FreeNarrationRow, voiceName: string, lang: Lang, audio?: Buffer, retryData?: string): Promise<void> {
+  const c = copy[lang];
+  const lost = async () => {
+    if (retryData) await sendMessageWithButtons(chatId, c.fileLost, [[{ text: c.b.resend, callback_data: retryData }]]);
+    else await sendMessage(chatId, c.fileLost);
+  };
   const path = await freeNarrationFilePath(row.id, row.agentId);
   const file = path ? { path } : audio;
-  if (!file) { await sendMessage(chatId, c.fileLost); return; }
+  if (!file) { await lost(); return; }
   try {
     await sendDocumentFile(chatId, file, `ozvuchka-${row.id.slice(0, 8)}.mp3`, c.caption(voiceName, row.chars), 60_000, true);
   } catch (err) {
     void logSystemError("telegram", `Озвучка текста: файл не ушёл в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-send" });
-    await sendMessage(chatId, c.fileLost);
+    await lost();
   }
 }

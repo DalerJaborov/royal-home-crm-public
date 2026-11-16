@@ -22,8 +22,8 @@ export function NarrationSettingsPanel() {
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [modelId, setModelId] = useState<string | null>(null), [voicesText, setVoicesText] = useState<string | null>(null);
   const [autoGenerate, setAutoGenerate] = useState<boolean | null>(null), [mixByCrm, setMixByCrm] = useState<boolean | null>(null);
-  const [backfill, setBackfill] = useState<boolean | null>(null), [monthlyPreview, setMonthlyPreview] = useState<boolean | null>(null);
-  const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string }>({});
+  const [backfill, setBackfill] = useState<boolean | null>(null), [monthlyPreview, setMonthlyPreview] = useState<boolean | null>(null), [freeEnabled, setFreeEnabled] = useState<boolean | null>(null);
+  const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string; freePerson?: string; freeMax?: string; freeShare?: string }>({});
   const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null);
   const [rulesDraft, setRulesDraft] = useState<Rule[] | null>(null);
 
@@ -91,6 +91,17 @@ export function NarrationSettingsPanel() {
       </fieldset>
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
+        <legend className="text-sm font-semibold">Озвучка текста в помощнике</legend>
+        <Check checked={freeEnabled ?? config.freeNarrationEnabled !== false} onChange={setFreeEnabled}>Сотрудники могут прислать Шабнам любой текст, выбрать голос и получить аудиофайл. Читается слово в слово</Check>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <label className="block text-sm">Озвучек на человека в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freePerson ?? String(config.freeNarrationPerPersonDaily ?? 5)} onChange={(e) => setLimitsText({ ...limitsText, freePerson: e.target.value })} /></label>
+          <label className="block text-sm">Символов в одном тексте<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freeMax ?? String(config.freeNarrationMaxChars ?? 1500)} onChange={(e) => setLimitsText({ ...limitsText, freeMax: e.target.value })} /></label>
+          <label className="block text-sm">Доля от дневного предела, %<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freeShare ?? String(config.freeNarrationBudgetPercent ?? 30)} onChange={(e) => setLimitsText({ ...limitsText, freeShare: e.target.value })} /></label>
+        </div>
+        <p className="text-sm text-[var(--muted)]">Доля нужна, чтобы чужие тексты не съели озвучку роликов: больше этой части дневного предела на них не тратится.</p>
+      </fieldset>
+
+      <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Шаблоны текста</legend>
         <p className="text-sm text-[var(--muted)]">
           Агент выбирает голос, и текст ставится сам из шаблона этого языка. Несколько шаблонов на язык: у агента появляется кнопка «Другой вариант»,
@@ -134,9 +145,14 @@ export function NarrationSettingsPanel() {
           autoGenerate: autoGenerate ?? !!config.autoGenerate, mixByCrm: mixByCrm ?? config.mixByCrm === true, backfillMontageQueue: backfill ?? config.backfillMontageQueue === true,
           ...(rulesDraft ? { pronunciationRules: rulesDraft.filter((r) => r.word.trim() && (r.alias?.trim() || r.phoneme?.trim())) } : {}),
           dailyCharLimit: number(limitsText.chars, config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, config.dailyGenerationLimit),
-          debounceMinutes: number(limitsText.pause, config.debounceMinutes), ...(templatesDraft ? { templates: templatesDraft } : {}) };
+          debounceMinutes: number(limitsText.pause, config.debounceMinutes),
+          freeNarrationEnabled: freeEnabled ?? config.freeNarrationEnabled !== false,
+          freeNarrationPerPersonDaily: Math.min(100, Math.max(1, number(limitsText.freePerson, config.freeNarrationPerPersonDaily ?? 5) ?? 5)),
+          freeNarrationMaxChars: Math.min(5000, Math.max(50, number(limitsText.freeMax, config.freeNarrationMaxChars ?? 1500) ?? 1500)),
+          freeNarrationBudgetPercent: Math.min(100, Math.max(1, number(limitsText.freeShare, config.freeNarrationBudgetPercent ?? 30) ?? 30)),
+          ...(templatesDraft ? { templates: templatesDraft } : {}) };
         const saved = await api<{ message?: string }>("/properties/narration-settings", { method: "PUT", body: patch });
-        setRulesDraft(null); setTemplatesDraft(null); setVoicesText(null); setLimitsText({});
+        setRulesDraft(null); setTemplatesDraft(null); setVoicesText(null); setLimitsText({}); setFreeEnabled(null);
         setMessage(saved.message ?? "Настройки озвучки сохранены.");
       })}>Сохранить настройки озвучки</button>}
       {message && <p className="text-sm" role="status">{message}</p>}

@@ -47,6 +47,7 @@ export type FreeNarrationCreateOutcome =
   | { status: "OFF" }
   | { status: "NOT_CONFIGURED" }
   | { status: "TOO_SHORT" }
+  | { status: "KEY_CONFLICT" }
   | { status: "TOO_LONG"; max: number; length: number };
 
 /** Запрос на озвучку текста: голос выбирается следующим шагом. Повтор с тем же requestKey ничего не создаёт. */
@@ -72,19 +73,23 @@ export async function createFreeNarrationRequest(input: {
   } catch (err) {
     if (input.requestKey && err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       const row = await prisma.freeNarration.findUnique({ where: { requestKey: input.requestKey } });
-      if (row && row.agentId === input.agentId) return { status: "EXISTS", row };
+      // Тот же ключ с другим текстом: это не повтор, старую озвучку не отдаём (текст мог быть убран уборкой, тогда сравнивать нечего).
+      if (row && row.agentId === input.agentId) return row.script && row.script !== text ? { status: "KEY_CONFLICT" } : { status: "EXISTS", row };
       return { status: "NO_ACCESS" };
     }
     throw err;
   }
 }
 
-/** «Озвучь текст» без текста: ждём его следующим сообщением (15 минут). */
-export async function startFreeNarrationTextWait(agentId: string, chatId: string): Promise<boolean> {
-  if (!await canUseFreeNarration(agentId)) return false;
+/** «Озвучь текст» без текста: ждём его следующим сообщением (15 минут). Права и рубильник проверяются сразу. */
+export async function startFreeNarrationTextWait(agentId: string, chatId: string): Promise<"OK" | "NO_ACCESS" | "OFF" | "NOT_CONFIGURED"> {
+  if (!await canUseFreeNarration(agentId)) return "NO_ACCESS";
+  const { config, key } = await loadNarrationConfiguration();
+  if (!freeNarrationEnabled(config)) return "OFF";
+  if (!narrationProviderReady(config, key)) return "NOT_CONFIGURED";
   await prisma.freeNarration.deleteMany({ where: { chatId, status: "AWAITING_TEXT" } });
   await prisma.freeNarration.create({ data: { agentId, source: "TELEGRAM", chatId, status: "AWAITING_TEXT" } });
-  return true;
+  return "OK";
 }
 export async function pendingFreeNarrationTextWait(agentId: string, chatId: string, now = new Date()): Promise<boolean> {
   const row = await prisma.freeNarration.findFirst({ where: { chatId, agentId, status: "AWAITING_TEXT", createdAt: { gte: new Date(now.getTime() - FREE_NARRATION_TEXT_WINDOW_MS) } }, select: { id: true } });
@@ -125,14 +130,17 @@ export type FreeNarrationRunOutcome =
   | { status: "LIMIT_PERSON"; limit: number }
   | { status: "FAILED"; errorCode: string; quota: boolean };
 
+/** Занятая запись: деньги за неё уже зарезервированы, дальше её обязан довести executeFreeNarration. */
+export type FreeNarrationClaim = { id: string; agentId: string; script: string; voiceId: string; voiceName: string | null; lang: NarrationLang | null; config: NarrationConfig; key: string };
+export type FreeNarrationClaimOutcome = { status: "CLAIMED"; claim: FreeNarrationClaim } | Exclude<FreeNarrationRunOutcome, { status: "READY" }>;
+
 /**
- * Выбор голоса = платный шаг. Захват под общим замком бюджета: потолок на человека и общий дневной
- * потолок озвучки проверяются до вызова ElevenLabs, а переход AWAITING_VOICE → GENERATING одной
- * записью не даёт второму нажатию (или повтору запроса) начать вторую генерацию.
+ * Выбор голоса = платный шаг, часть первая: ЗАНЯТЬ запись. Захват под общим замком бюджета: потолок на
+ * человека, общий дневной потолок озвучки и доля свободных текстов проверяются до вызова ElevenLabs, а
+ * переход AWAITING_VOICE → GENERATING одной записью не даёт второму нажатию (или повтору запроса)
+ * начать вторую генерацию. Быстрая: Telegram занимает запись в обработчике, а долгий вызов отдаёт в фон.
  */
-export async function runFreeNarration(input: {
-  id: string; agentId: string; voiceId?: string; lang?: NarrationLang | null; now?: Date; fetcher?: typeof fetch;
-}): Promise<FreeNarrationRunOutcome> {
+export async function claimFreeNarration(input: { id: string; agentId: string; voiceId?: string; lang?: NarrationLang | null; now?: Date }): Promise<FreeNarrationClaimOutcome> {
   const now = input.now ?? new Date();
   const row = await prisma.freeNarration.findUnique({ where: { id: input.id } });
   if (!row || row.agentId !== input.agentId || row.status === "AWAITING_TEXT") return { status: "GONE" };
@@ -149,11 +157,12 @@ export async function runFreeNarration(input: {
   const lang = effectiveLang(input.lang !== undefined ? input.lang : (row.lang as NarrationLang | null), config);
   const script = narrationSpeechText(row.script, lang);
   const limits = freeNarrationLimits(config);
-  if (row.script.length > limits.maxChars) return { status: "FAILED", errorCode: "TOO_LONG", quota: false };
+  // Предел длины мог уменьшиться после создания запроса.
+  if (row.script.length > limits.maxChars) return { status: "ALREADY_FAILED", errorCode: "TOO_LONG" };
 
   const claimed = await prisma.$transaction(async (tx) => {
     // budgetAllows берёт общий замок бюджета озвучки: две генерации разом не проскочат мимо потолков.
-    if (!await budgetAllows(tx, script.length, config, now)) return "BUDGET" as const;
+    if (!await budgetAllows(tx, script.length, config, now, limits.budgetPercent)) return "BUDGET" as const;
     if (await freeNarrationUsedToday(input.agentId, now, tx) >= limits.perPersonDaily) return "LIMIT_PERSON" as const;
     const moved = await tx.freeNarration.updateMany({ where: { id: row.id, agentId: input.agentId, status: "AWAITING_VOICE" },
       data: { status: "GENERATING", voiceId, lang, chars: script.length, generationStartedAt: now } });
@@ -162,24 +171,35 @@ export async function runFreeNarration(input: {
   if (claimed === "BUDGET") return { status: "BUDGET" };
   if (claimed === "LIMIT_PERSON") return { status: "LIMIT_PERSON", limit: limits.perPersonDaily };
   if (claimed === "ALREADY") return { status: "ALREADY_RUNNING" };
+  return { status: "CLAIMED", claim: { id: row.id, agentId: input.agentId, script, voiceId, voiceName: config.voices.find((v) => v.id === voiceId)?.name ?? null, lang, config, key } };
+}
 
-  const guard = { id: row.id, status: "GENERATING" };
-  const result = await generateNarrationAudio({ script, voiceId, config, apiKey: key, lang }, input.fetcher);
+/** Часть вторая: вызов ElevenLabs (до минуты), сохранение файла, запись итога. Не бросает. */
+export async function executeFreeNarration(claim: FreeNarrationClaim, fetcher?: typeof fetch): Promise<Extract<FreeNarrationRunOutcome, { status: "READY" | "FAILED" }>> {
+  const guard = { id: claim.id, status: "GENERATING" };
+  const result = await generateNarrationAudio({ script: claim.script, voiceId: claim.voiceId, config: claim.config, apiKey: claim.key, lang: claim.lang }, fetcher);
   if (result.status !== "READY") {
     await prisma.freeNarration.updateMany({ where: guard, data: { status: result.status, errorCode: result.errorCode } });
     const quota = result.errorCode === NARRATION_QUOTA_EXCEEDED;
     void logSystemError("api", `Озвучка текста: ElevenLabs не выдал аудио (${result.errorCode})`, { dedupKey: `free-narration:${result.errorCode}` });
     return { status: "FAILED", errorCode: result.errorCode, quota };
   }
-  const storageKey = `${FREE_NARRATION_FOLDER}/${row.id}.mp3`;
+  const storageKey = `${FREE_NARRATION_FOLDER}/${claim.id}.mp3`;
   let stored: string | null = storageKey;
   try { await localVideoUpload(storageKey, result.audio); } catch (err) {
     stored = null;
     void logSystemError("api", `Озвучка текста: файл не сохранён: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration:persist" });
   }
-  const done = await prisma.freeNarration.update({ where: { id: row.id }, data: { status: "READY", storageKey: stored, providerRequestId: result.requestId, errorCode: stored ? null : "AUDIO_PERSISTENCE_FAILED" } });
-  await rememberNarrationChoice(input.agentId, { voiceId }).catch(() => {});
-  return { status: "READY", row: done, voiceName: config.voices.find((v) => v.id === voiceId)?.name ?? null, storageKey: stored, audio: result.audio };
+  const done = await prisma.freeNarration.update({ where: { id: claim.id }, data: { status: "READY", storageKey: stored, providerRequestId: result.requestId, errorCode: stored ? null : "AUDIO_PERSISTENCE_FAILED" } });
+  await rememberNarrationChoice(claim.agentId, { voiceId: claim.voiceId }).catch(() => {});
+  return { status: "READY", row: done, voiceName: claim.voiceName, storageKey: stored, audio: result.audio };
+}
+
+/** Занять и сразу довести (REST): то же, что Telegram делает в два приёма. */
+export async function runFreeNarration(input: { id: string; agentId: string; voiceId?: string; lang?: NarrationLang | null; now?: Date; fetcher?: typeof fetch }): Promise<FreeNarrationRunOutcome> {
+  const claimed = await claimFreeNarration(input);
+  if (claimed.status !== "CLAIMED") return claimed;
+  return executeFreeNarration(claimed.claim, input.fetcher);
 }
 
 /** Файл готовой озвучки: только владельцу и только пока не прошли сутки. */
@@ -191,12 +211,13 @@ export async function freeNarrationFilePath(id: string, agentId: string): Promis
 /** Уборка (cron): файлы и тексты старше суток, зависшие генерации, брошенные ожидания. Расход остаётся. */
 export async function purgeFreeNarrations(now = new Date()): Promise<{ files: number; stale: number; dropped: number }> {
   const old = new Date(now.getTime() - FREE_NARRATION_KEEP_MS);
-  const withFiles = await prisma.freeNarration.findMany({ where: { storageKey: { not: null }, createdAt: { lt: old } }, select: { id: true, storageKey: true }, take: 500 });
+  const withFiles = await prisma.freeNarration.findMany({ where: { storageKey: { not: null }, createdAt: { lt: old } }, orderBy: { createdAt: "asc" }, select: { id: true, storageKey: true }, take: 500 });
   for (const r of withFiles) {
     if (r.storageKey && !await localVideoDelete(r.storageKey)) { void logSystemError("api", "Озвучка текста: старый файл не удалился", { dedupKey: "free-narration:purge" }); continue; }
     await prisma.freeNarration.update({ where: { id: r.id }, data: { storageKey: null, script: "" } });
   }
-  await prisma.freeNarration.updateMany({ where: { createdAt: { lt: old }, status: { in: ["FAILED", "UNKNOWN"] }, script: { not: "" } }, data: { script: "" } });
+  // Текст любой законченной записи (в том числе готовой, но без файла) не живёт дольше суток.
+  await prisma.freeNarration.updateMany({ where: { createdAt: { lt: old }, status: { in: ["READY", "FAILED", "UNKNOWN"] }, storageKey: null, script: { not: "" } }, data: { script: "" } });
   const stale = await prisma.freeNarration.updateMany({ where: { status: "GENERATING", generationStartedAt: { lt: new Date(now.getTime() - STALE_GENERATING_MS) } }, data: { status: "UNKNOWN", errorCode: "STALE_GENERATING" } });
   const dropped = await prisma.freeNarration.deleteMany({ where: { status: { in: ["AWAITING_TEXT", "AWAITING_VOICE"] }, createdAt: { lt: old } } });
   return { files: withFiles.length, stale: stale.count, dropped: dropped.count };

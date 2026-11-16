@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 757,
-  "forks": 4124,
+  "forks": 4126,
   "mounts": 84,
   "cron": 143,
   "jobs": 33,
@@ -61698,6 +61698,21 @@
     },
     {
      "k": "if",
+     "t": "created.status === \"KEY_CONFLICT\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(422).json({ error: \"Этот ключ уже использован для другого текста. Возьмите новый ключ повто…",
+       "a": [
+        "ответ 422 — «Этот ключ уже использован для другого текста. Возьмите новый ключ…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "created.status === \"TOO_LONG\"",
      "a": [],
      "c": [
@@ -61721,6 +61736,38 @@
     },
     {
      "k": "if",
+     "t": "outcome.status === \"READY\" && !outcome.storageKey",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.setHeader(\"X-Free-Narration-Id\", outcome.row.id);",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Cache-Control\", \"private, no-store\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.type(\"audio/mpeg\").send(outcome.audio);",
+       "a": [
+        "ответ 200",
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "ready",
      "a": [],
      "c": [
@@ -61731,9 +61778,9 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.status(502).json({ error: \"Озвучка сделана, но файл не сохранился. Повторите запрос с новым ключом…",
+         "t": "return res.status(410).json({ error: \"Файл этой озвучки не сохранился и уже не получить. Отправьте текст зано…",
          "a": [
-          "ответ 502 — «Озвучка сделана, но файл не сохранился. Повторите запрос с новым…»"
+          "ответ 410 — «Файл этой озвучки не сохранился и уже не получить. Отправьте текст…»"
          ],
          "c": []
         }
@@ -94458,7 +94505,7 @@
       },
       {
        "k": "do",
-       "t": "await prisma.freeNarration.updateMany({ where: { createdAt: { lt: old }, status: { in: [\"FAILED\", \"UNKNOWN\"] …",
+       "t": "await prisma.freeNarration.updateMany({ where: { createdAt: { lt: old }, status: { in: [\"READY\", \"FAILED\", \"U…",
        "a": [
         "меняет в базе: freeNarration"
        ],

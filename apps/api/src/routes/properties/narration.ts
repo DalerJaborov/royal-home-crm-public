@@ -73,12 +73,18 @@ narrationRouter.post("/narration-free", async (req, res) => {
   if (created.status === "OFF") return res.status(403).json({ error: "Озвучка текста выключена в настройках" });
   if (created.status === "NOT_CONFIGURED") return res.status(409).json({ error: "Озвучка не настроена: нет ключа, модели или голосов" });
   if (created.status === "TOO_SHORT") return res.status(400).json({ error: "Текст слишком короткий" });
+  if (created.status === "KEY_CONFLICT") return res.status(422).json({ error: "Этот ключ уже использован для другого текста. Возьмите новый ключ повтора." });
   if (created.status === "TOO_LONG") return res.status(400).json({ error: `Текст длиннее ${created.max} знаков (у вас ${created.length})` });
   const outcome = await runFreeNarration({ id: created.row.id, agentId, voiceId: body.data.voiceId });
+  // Файл не сохранился, но озвучка уже оплачена: отдаём аудио из памяти прямо в ответе, повторять запрос (и платить) не нужно.
+  if (outcome.status === "READY" && !outcome.storageKey) {
+    res.setHeader("X-Free-Narration-Id", outcome.row.id); res.setHeader("Cache-Control", "private, no-store");
+    return res.type("audio/mpeg").send(outcome.audio);
+  }
   const ready = outcome.status === "READY" ? outcome.row : outcome.status === "ALREADY_READY" ? outcome.row : null;
   if (ready) {
     const file = ready.storageKey;
-    if (!file) return res.status(502).json({ error: "Озвучка сделана, но файл не сохранился. Повторите запрос с новым ключом позже." });
+    if (!file) return res.status(410).json({ error: "Файл этой озвучки не сохранился и уже не получить. Отправьте текст заново с новым ключом." });
     const { config } = await configuration();
     const result: FreeNarrationResult = { id: ready.id, status: "READY", chars: ready.chars, voiceId: ready.voiceId ?? "",
       voiceName: config.voices.find((v) => v.id === ready.voiceId)?.name ?? null, lang: ready.lang === "tg" || ready.lang === "ru" ? ready.lang : null,

@@ -838,7 +838,7 @@ export async function handleAssistantPrivate(
     // «Править текст» озвучки (15 минут после кнопки) — раньше мастера объекта и общего ответа.
     if (!isForwarded && await handleNarrationTextReply(msg, agent)) return;
     // «Озвучь текст» (16.11.2026): дословная озвучка текста сотрудника выбранным голосом — telegram/assistantFreeNarration.ts.
-    if (!isForwarded && await handleFreeNarrationMessage(msg, agent)) return;
+    if (await handleFreeNarrationMessage(msg, agent, isForwarded)) return;
     // Ответ «к какому объекту ролик» (30 минут после вопроса) — telegram/staffClip.ts.
     if (!isForwarded && await handleStaffClipText(msg, agent)) return;
     if (!isForwarded && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;

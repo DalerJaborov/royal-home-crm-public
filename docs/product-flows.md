@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **757**. Развилок в самих путях: **2497**; вместе с задачами по расписанию и фоновыми заданиями — **4124**. Модулей: **84**.
+Путей: **757**. Развилок в самих путях: **2499**; вместе с задачами по расписанию и фоновыми заданиями — **4126**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -13925,15 +13925,26 @@
 - если created.status === "TOO_SHORT"
   - return res.status(400).json({ error: "Текст слишком короткий" });
     · ответ 400 — «Текст слишком короткий»
+- если created.status === "KEY_CONFLICT"
+  - return res.status(422).json({ error: "Этот ключ уже использован для другого текста. Возьмите новый ключ повто…
+    · ответ 422 — «Этот ключ уже использован для другого текста. Возьмите новый ключ…»
 - если created.status === "TOO_LONG"
   - return res.status(400).json({ error: `Текст длиннее ${created.max} знаков (у вас ${created.length})` });
     · ответ 400 — «Текст длиннее ${created.max} знаков (у вас ${created.length})»
 - const outcome = await runFreeNarration({ id: created.row.id, agentId, voiceId: body.data.voiceId });
   · зовёт runFreeNarration()
+- если outcome.status === "READY" && !outcome.storageKey
+  - res.setHeader("X-Free-Narration-Id", outcome.row.id);
+    · ставит заголовок ответа
+  - res.setHeader("Cache-Control", "private, no-store");
+    · ставит заголовок ответа
+  - return res.type("audio/mpeg").send(outcome.audio);
+    · ответ 200
+    · ставит заголовок ответа
 - если ready
   - если !file
-    - return res.status(502).json({ error: "Озвучка сделана, но файл не сохранился. Повторите запрос с новым ключом…
-      · ответ 502 — «Озвучка сделана, но файл не сохранился. Повторите запрос с новым…»
+    - return res.status(410).json({ error: "Файл этой озвучки не сохранился и уже не получить. Отправьте текст зано…
+      · ответ 410 — «Файл этой озвучки не сохранился и уже не получить. Отправьте текст…»
   - return res.json(result);
     · ответ 200
 - смотря что в: outcome.status
@@ -21233,7 +21244,7 @@
         · переходит к следующему
     - await prisma.freeNarration.update({ where: { id: r.id }, data: { storageKey: null, script: "" } });
       · меняет в базе: freeNarration
-  - await prisma.freeNarration.updateMany({ where: { createdAt: { lt: old }, status: { in: ["FAILED", "UNKNOWN"] …
+  - await prisma.freeNarration.updateMany({ where: { createdAt: { lt: old }, status: { in: ["READY", "FAILED", "U…
     · меняет в базе: freeNarration
   - const stale = await prisma.freeNarration.updateMany({ where: { status: "GENERATING", generationStartedAt: { l…
     · меняет в базе: freeNarration
