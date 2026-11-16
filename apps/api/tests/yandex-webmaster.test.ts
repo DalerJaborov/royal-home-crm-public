@@ -77,13 +77,20 @@ vi.mock("../src/messengers/meta.js", async (importOriginal) => ({
     return json(404, { error_message: `нет подмены для ${url}` });
   }),
 }));
-vi.mock("../src/auth/middleware.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/auth/middleware.js")>()),
-  requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
-    (req as unknown as { agent: { id: string; role: string } }).agent = { id: "a1", role: String(req.headers["x-role"] ?? "ADMIN") };
-    next();
-  },
-}));
+vi.mock("../src/auth/middleware.js", async (importOriginal) => {
+  // Доступ к маркетингу — по праву marketing.access (#188): права агента — из пресета его роли.
+  const { resolvePermissions } = await import("@royal-home/shared");
+  return {
+    ...(await importOriginal<typeof import("../src/auth/middleware.js")>()),
+    requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+      const role = String(req.headers["x-role"] ?? "ADMIN");
+      (req as unknown as { agent: { id: string; role: string; permissions: ReadonlySet<string> } }).agent = {
+        id: "a1", role, permissions: resolvePermissions(role as never, null),
+      };
+      next();
+    },
+  };
+});
 
 const { prisma } = await import("../src/db.js");
 const { encryptSecret, decryptSecretSafe } = await import("../src/crypto.js");

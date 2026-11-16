@@ -88,7 +88,7 @@ statsRouter.get("/:id/voice", requireAuth, async (req, res) => {
     const agent = req.agent!;
     const voice = await loadPropertyVoice(id, {
       canSeeShowingFeedback: can(req, "dashboard.analytics"),
-      canSeeAdMoney: agent.role === "MARKETING" || can(req, "finance.view"),
+      canSeeAdMoney: agent.role === "MARKETING" || can(req, "finance.view") || can(req, "marketing.access"),
       dealsOwnAgentId: scopeDealsToOwnAgent(req) ?? null,
       canSeeAllDealMoney: can(req, "finance.view"),
       viewerId: agent.id,

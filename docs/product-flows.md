@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2476**; вместе с задачами по расписанию и фоновыми заданиями — **4084**. Модулей: **84**.
+Путей: **754**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4083**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4763,6 +4763,8 @@
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
+- const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
+  · зовёт pendingDeleteHideWhere()
 - const today = dushanbeDayRange(now);
   · зовёт dushanbeDayRange()
 - const yesterday = dushanbeDayRange(new Date(today.start.getTime() - 1));
@@ -4809,11 +4811,6 @@
     · ответ 403 — «Недостаточно прав»
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, "clients.delete") });
-  · зовёт pendingDeleteHiddenClientIds()
-- если idsToHide.length > 0
-  - where.id = { notIn: idsToHide };
-    · дословно из кода
 - если allMine
   - where.OR = [{ assignedAgentId: ownAgentId }, { lastAgentId: ownAgentId }];
     · дословно из кода
@@ -10877,7 +10874,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Генерация доступна маркетингу и руководству" });
     · ответ 403 — «Генерация доступна маркетингу и руководству»
 - const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…
@@ -10927,7 +10924,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Передачу готовит маркетинг или руководство" });
     · ответ 403 — «Передачу готовит маркетинг или руководство»
 - const parsed = narrationHandoffSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionI…
@@ -11003,7 +11000,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
     · ответ 403 — «Нет доступа»
 - const deliveryId = idSchema.safeParse(req.params.deliveryId);
@@ -11128,7 +11125,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
     · ответ 403 — «Нет доступа»
 - если !parsed.success
@@ -11145,7 +11142,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
     · ответ 403 — «Нет доступа»
 - если !z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success
@@ -11160,7 +11157,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
     · ответ 403 — «Нет доступа»
 - если !z.object({}).strict().safeParse(req.body).success
@@ -11185,11 +11182,11 @@
   - для каждого: const row of unresolved
     - if (!versions.some(v => v.id === row.id)) versions.push(row);
       · дословно из кода
-- const deliveries = manager(req.agent?.role) ? await prisma.propertyNarrationDelivery.findMany({ where: { prop…
+- const deliveries = manager(req.agent) ? await prisma.propertyNarrationDelivery.findMany({ where: { propertyId…
   · читает в базе: propertyNarrationDelivery
-- const subscription = manager(req.agent?.role) ? await prisma.ownerReportSubscription.findUnique({ where: { pr…
+- const subscription = manager(req.agent) ? await prisma.ownerReportSubscription.findUnique({ where: { property…
   · читает в базе: ownerReportSubscription
-- const reports = manager(req.agent?.role) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p…
+- const reports = manager(req.agent) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p.id },…
   · читает в базе: ownerReportDelivery
 - const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…
   · читает в базе: smsMessage
@@ -11252,7 +11249,7 @@
   - если (latest?.revision ?? 0) !== parsed.data.expectedRevision
     - return null;
       · дословно из кода
-  - если latest?.approvedAt && !manager(req.agent?.role)
+  - если latest?.approvedAt && !manager(req.agent)
     - return null;
       · дословно из кода
   - return tx.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: parsed.data.expectedRevision …
@@ -13892,7 +13889,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
     · ответ 403 — «Настройки доступны маркетингу и руководству»
 - res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceede…
@@ -14796,7 +14793,7 @@
 
 ### POST /api/v1/search-console/disconnect
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - await prisma.settings.update({ where: { id: "singleton" }, data: { searchConsoleRefreshToken: null, searchCon…
   · меняет в базе: settings
@@ -14809,7 +14806,7 @@
 
 ### GET /api/v1/search-console/oauth/start
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const app = await loadGoogleApp();
   · зовёт loadGoogleApp()
@@ -14837,7 +14834,7 @@
 
 ### PUT /api/v1/search-console/yandex/app
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const parsed = yandexAppSchema.safeParse(req.body);
   · проверяет данные схемой yandexAppSchema
@@ -14855,7 +14852,7 @@
 
 ### POST /api/v1/search-console/yandex/disconnect
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - await prisma.settings.update({ where: { id: "singleton" }, data: { yandexWebmasterRefreshToken: null, yandexW…
   · меняет в базе: settings
@@ -14868,7 +14865,7 @@
 
 ### GET /api/v1/search-console/yandex/oauth/start
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const app = await loadYandexApp();
   · зовёт loadYandexApp()
@@ -17483,7 +17480,7 @@
 
 ### POST /api/v1/threads/disconnect
 
-`apps/api/src/routes/threads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/threads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - await prisma.settings.update({ where: { id: "singleton" }, data: { threadsAccessToken: null, threadsTokenExpi…
   · меняет в базе: settings
@@ -17494,7 +17491,7 @@
 
 ### GET /api/v1/threads/oauth/start
 
-`apps/api/src/routes/threads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/threads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const app = await loadAppCredentials();
   · зовёт loadAppCredentials()
@@ -17613,7 +17610,7 @@
 
 ### POST /api/v1/tiktok/disconnect
 
-`apps/api/src/routes/tiktok.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/tiktok.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { tiktokClientKey: tr…
   · читает в базе: settings
@@ -17661,7 +17658,7 @@
 
 ### GET /api/v1/tiktok/oauth/start
 
-`apps/api/src/routes/tiktok.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/tiktok.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const app = await loadAppCredentials();
   · зовёт loadAppCredentials()

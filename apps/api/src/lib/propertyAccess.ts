@@ -1,5 +1,4 @@
 import { PROPERTY_PUBLISHED_ACTION_DENIED_MESSAGE, propertyEditLocked, type PermissionId } from "@royal-home/shared";
-import { hasMarketingRole } from "./marketingRole.js";
 
 /**
  * КТО МОЖЕТ УПРАВЛЯТЬ ОБЪЕКТОМ — ОДНО ПРАВИЛО НА REST И НА ИИ-ПОМОЩНИКА
@@ -78,7 +77,7 @@ export function canApplyChangeDirectly(
   if (!(OWN_DIRECT_CHANGE_KINDS as readonly string[]).includes(kind)) return false;
   // Перемонтаж со снятием постов видят подписчики, вернуть нельзя: «сразу» только тем, кому
   // это доступно и в sendBackDenied (роль маркетинга/руководства), остальным — заявкой.
-  if (kind === "REMAKE_VIDEO" && options?.removeFromSocial && !hasMarketingRole(actor.role)) return false;
+  if (kind === "REMAKE_VIDEO" && options?.removeFromSocial && !actor.can("marketing.access")) return false;
   if (kind === "PRICE_CHANGE" && property.status === "RESERVED" && !actor.can("properties.editForeign")) return false;
   return canManagePropertyAs(actor, property);
 }
