@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2461**; вместе с задачами по расписанию и фоновыми заданиями — **4046**. Модулей: **84**.
+Путей: **747**. Развилок в самих путях: **2463**; вместе с задачами по расписанию и фоновыми заданиями — **4048**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3039,17 +3039,17 @@
 - если existing
   - return res.status(409).json({ error: "По этому клиенту уже есть заявка — она ждёт решения руководства" });
     · ответ 409 — «По этому клиенту уже есть заявка — она ждёт решения руководства»
-- const request = await prisma.clientDeleteRequest.create({ data: { clientId: client.id, requestedById: req.age…
-  · создаёт в базе: clientDeleteRequest
-- logAudit(req, "DELETE_REQUEST", "Client", client.id, { requestId: request.id, reason: parsed.data.reason, sho…
+- const filed = await fileClientDeleteRequest({ clientId: client.id, requestedById: req.agent!.id, reason: pars…
+  · зовёт fileClientDeleteRequest()
+- если !filed.ok
+  - return res.status(404).json({ error: filed.error });
+    · ответ 404
+- если !filed.created
+  - return res.status(409).json({ error: "По этому клиенту уже есть заявка — она ждёт решения руководства" });
+    · ответ 409 — «По этому клиенту уже есть заявка — она ждёт решения руководства»
+- logAudit(req, "DELETE_REQUEST", "Client", client.id, { requestId: filed.id, reason: parsed.data.reason, short…
   · зовёт logAudit()
-- const author = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
-  · читает в базе: agent
-- void enqueueDirectorAlert({ title: "🗑️ Заявка на удаление клиента", body: `${author?.fullName ?? "Агент"}: $…
-  · зовёт enqueueDirectorAlert()
-- publishRequestUpdated({ requestId: request.id, clientId: client.id, agentIds: [req.agent!.id], stage: "PENDIN…
-  · зовёт publishRequestUpdated()
-- res.status(201).json({ ok: true, id: request.id, message: "Заявка отправлена — карточку удалит директор или а…
+- res.status(201).json({ ok: true, id: filed.id, message: "Заявка отправлена — карточку удалит директор или адм…
   · ответ 201
 
 ### POST /api/v1/clients/:id/duplicate-review/confirm
@@ -6027,7 +6027,7 @@
             - await tx.client.updateMany({ where: { id: cancelledProperty.sellerClientId, status: "DEAL_CLOSED" }, data: { …
               · меняет в базе: client
         - если otherClosedClientDeals === 0
-          - await tx.client.updateMany({ where: { id: existing.clientId, status: "DEAL_CLOSED" }, data: { status: "HOT" }…
+          - await tx.client.updateMany({ where: { id: existing.clientId, status: "DEAL_CLOSED" }, data: { status: "CONTAC…
             · меняет в базе: client
       - если isCompleting && hasExplicitSums
         - split = { commissionAmount: fromCents(sumCents([effRealtor, effCompany])), commissionIntakeAmount: 0, commiss…
@@ -9976,9 +9976,11 @@
 
 - const where = noContactWhere(new Date());
   · зовёт noContactWhere()
-- const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ lastClientMessageAt: { …
+- const [light, total] = await Promise.all([ prisma.client.findMany({ where, take: NO_CONTACT_ORDER_CAP, select…
   · читает в базе: client
   · считает в базе: client
+- const [rows] = await Promise.all([ prisma.client.findMany({ where: { id: { in: pageIds } }, select: { id: tru…
+  · читает в базе: client
 - res.json({ items: await markAcked("no-contact-clients", rows.map(({ interactions, ...c })
   · ответ 200
 
@@ -25656,6 +25658,8 @@
     - если !settings?.reactivationEnabled
       - return { enqueued: 0, skipped: "disabled" };
         · дословно из кода
+    - const cutoff = reactivationCutoff(settings.reactivationAfterDays, now);
+      · зовёт reactivationCutoff()
     - const weekKey = reactivationWeekKey(now);
       · зовёт reactivationWeekKey()
     - const cutoffKey = reactivationWeekKey(cutoff);
@@ -25664,7 +25668,7 @@
       · читает в базе: backgroundJob
     - const recentlyOffered = [ ...new Set( recentJobs .map((j)
       · зовёт parseReactivationKey()
-    - const candidates = await prisma.client.findMany({ where: { deletedAt: null, ...(recentlyOffered.length ? { id…
+    - const candidates = await prisma.client.findMany({ where: { AND: [reactivationCandidateWhere(cutoff), ...(rece…
       · читает в базе: client
     - если candidates.length === 0
       - return { enqueued: 0, skipped: null };
@@ -26595,6 +26599,10 @@
 - если client.reactivationOfferedToAgentId
   - return;
     · дальше не идёт, ничего не меняя
+- const eligibilitySettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { reactiva…
+  · читает в базе: settings
+- const stillEligible = (await prisma.client.count({ where: { AND: [{ id: client.id }, reactivationCandidateWhe…
+  · считает в базе: client
 - если !stillEligible
   - return;
     · дальше не идёт, ничего не меняя

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 747,
-  "forks": 4046,
+  "forks": 4048,
   "mounts": 84,
   "cron": 136,
   "jobs": 33,
@@ -13217,15 +13217,45 @@
     },
     {
      "k": "do",
-     "t": "const request = await prisma.clientDeleteRequest.create({ data: { clientId: client.id, requestedById: req.age…",
+     "t": "const filed = await fileClientDeleteRequest({ clientId: client.id, requestedById: req.agent!.id, reason: pars…",
      "a": [
-      "создаёт в базе: clientDeleteRequest"
+      "зовёт fileClientDeleteRequest()"
      ],
      "c": []
     },
     {
+     "k": "if",
+     "t": "!filed.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: filed.error });",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!filed.created",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"По этому клиенту уже есть заявка — она ждёт решения руководства\" });",
+       "a": [
+        "ответ 409 — «По этому клиенту уже есть заявка — она ждёт решения руководства»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "logAudit(req, \"DELETE_REQUEST\", \"Client\", client.id, { requestId: request.id, reason: parsed.data.reason, sho…",
+     "t": "logAudit(req, \"DELETE_REQUEST\", \"Client\", client.id, { requestId: filed.id, reason: parsed.data.reason, short…",
      "a": [
       "зовёт logAudit()"
      ],
@@ -13233,31 +13263,7 @@
     },
     {
      "k": "do",
-     "t": "const author = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void enqueueDirectorAlert({ title: \"🗑️ Заявка на удаление клиента\", body: `${author?.fullName ?? \"Агент\"}: $…",
-     "a": [
-      "зовёт enqueueDirectorAlert()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: request.id, clientId: client.id, agentIds: [req.agent!.id], stage: \"PENDIN…",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(201).json({ ok: true, id: request.id, message: \"Заявка отправлена — карточку удалит директор или а…",
+     "t": "res.status(201).json({ ok: true, id: filed.id, message: \"Заявка отправлена — карточку удалит директор или адм…",
      "a": [
       "ответ 201"
      ],
@@ -26328,7 +26334,7 @@
              "c": [
               {
                "k": "do",
-               "t": "await tx.client.updateMany({ where: { id: existing.clientId, status: \"DEAL_CLOSED\" }, data: { status: \"HOT\" }…",
+               "t": "await tx.client.updateMany({ where: { id: existing.clientId, status: \"DEAL_CLOSED\" }, data: { status: \"CONTAC…",
                "a": [
                 "меняет в базе: client"
                ],
@@ -44283,10 +44289,18 @@
     },
     {
      "k": "do",
-     "t": "const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ lastClientMessageAt: { …",
+     "t": "const [light, total] = await Promise.all([ prisma.client.findMany({ where, take: NO_CONTACT_ORDER_CAP, select…",
      "a": [
       "читает в базе: client",
       "считает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [rows] = await Promise.all([ prisma.client.findMany({ where: { id: { in: pageIds } }, select: { id: tru…",
+     "a": [
+      "читает в базе: client"
      ],
      "c": []
     },
@@ -115294,6 +115308,14 @@
         },
         {
          "k": "do",
+         "t": "const cutoff = reactivationCutoff(settings.reactivationAfterDays, now);",
+         "a": [
+          "зовёт reactivationCutoff()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const weekKey = reactivationWeekKey(now);",
          "a": [
           "зовёт reactivationWeekKey()"
@@ -115326,7 +115348,7 @@
         },
         {
          "k": "do",
-         "t": "const candidates = await prisma.client.findMany({ where: { deletedAt: null, ...(recentlyOffered.length ? { id…",
+         "t": "const candidates = await prisma.client.findMany({ where: { AND: [reactivationCandidateWhere(cutoff), ...(rece…",
          "a": [
           "читает в базе: client"
          ],
@@ -119665,6 +119687,22 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const eligibilitySettings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { reactiva…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const stillEligible = (await prisma.client.count({ where: { AND: [{ id: client.id }, reactivationCandidateWhe…",
+     "a": [
+      "считает в базе: client"
+     ],
+     "c": []
     },
     {
      "k": "if",
