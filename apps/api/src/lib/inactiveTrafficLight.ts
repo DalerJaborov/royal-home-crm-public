@@ -259,6 +259,7 @@ export async function countContactTrace(
       where: {
         clientId,
         type: "CALL",
+        archiveReview: false,
         recordingDurationSec: { gte: minSeconds },
       },
     }),
@@ -266,6 +267,7 @@ export async function countContactTrace(
       where: {
         clientId,
         type: "CALL",
+        archiveReview: false,
         OR: [
           // Станция довела вызов до телефона клиента — взял он трубку или нет.
           { callAttempt: { in: ["TALKED", "NO_ANSWER"] } },

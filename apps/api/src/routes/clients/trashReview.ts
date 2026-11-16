@@ -16,7 +16,7 @@ import { DELETE_REQUEST_REASON_LABELS, deleteReasonLabelsFor, type DeleteRequest
 import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission } from "../../auth/middleware.js";
 import { canCallArchivedClient } from "../../lib/archiveReviewCall.js";
-import { phoneSafeText } from "../../lib/clientPhone.js";
+import { clientNamePhoneSafe, phoneSafeText } from "../../lib/clientPhone.js";
 import { investigationViewerRole } from "../../auth/investigations.js";
 import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 import { presentClientTimeline, TIMELINE_INTERACTION_SELECT } from "./card.js";
@@ -61,14 +61,17 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
       deletedBy: { select: { id: true, fullName: true } },
       assignedAgentId: true,
       assignedAgent: { select: { id: true, fullName: true } },
+      // Ушёл в общую очередь перед удалением — прежний хозяин остаётся здесь.
+      lastAgent: { select: { id: true, fullName: true } },
     },
   });
   if (!client) return res.status(404).json({ error: "Клиент не найден в Корзине" });
 
   const interactionWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id };
-  const [request, audit, rows, total] = await Promise.all([
+  const [request, audit, rows, total, manualTrash] = await Promise.all([
+    // Причина — из одобренной заявки; отклонённая не причина удаления.
     prisma.clientDeleteRequest.findFirst({
-      where: { clientId: client.id },
+      where: { clientId: client.id, status: "APPROVED" },
       orderBy: { createdAt: "desc" },
       select: {
         reason: true,
@@ -95,7 +98,13 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
       select: { ...TIMELINE_INTERACTION_SELECT },
     }),
     prisma.interaction.count({ where: interactionWhere }),
+    // Ручное удаление оставляет запись TRASH от того же сотрудника; ночная уборка — нет
+    // (она подписывается первым админом, lib/lostInactiveTrashSweep.ts).
+    client.deletedById
+      ? prisma.auditLog.count({ where: { entityType: "Client", entityId: client.id, action: "TRASH", agentId: client.deletedById } })
+      : Promise.resolve(0),
   ]);
+  const deletedAutomatically = client.deletedById === null || manualTrash === 0;
 
   const labels = deleteReasonLabelsFor(client.kind);
   const phonesAllowed = can(req, "clients.viewPhone");
@@ -103,15 +112,16 @@ trashReviewRouter.get("/trash/:id/review", requireAuth, requirePermission("archi
     client: {
       id: client.id,
       shortId: client.shortId,
-      fullName: client.fullName,
+      // Имя старых карточек бывает «Входящий +992…» — маска как в списке Корзины.
+      fullName: clientNamePhoneSafe(client.fullName, phonesAllowed),
       kind: client.kind,
       status: client.status,
       createdAt: client.createdAt,
       deletedAt: client.deletedAt,
       // null и нет deletedBy — удалила автоматика (уборка потерянных/неактивных), а не человек.
-      deletedBy: client.deletedBy,
-      deletedAutomatically: client.deletedById === null,
-      owner: client.assignedAgent,
+      deletedBy: deletedAutomatically ? null : client.deletedBy,
+      deletedAutomatically,
+      owner: client.assignedAgent ?? client.lastAgent,
     },
     deleteRequest: request
       ? {

@@ -464,7 +464,8 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
   }
 
   const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });
-  if (archiveReview) {
+  // В журнал — только состоявшаяся команда станции: двойной клик и отказ «нет SIP» звонком не были.
+  if (archiveReview && (result.ok || result.status === 502)) {
     // След в журнале действий: кто и кому из Корзины звонил (номер маской, хозяин карточки не меняется).
     logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, {
       shortId: client.shortId,
@@ -759,6 +760,9 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
 
   const existing = await findClientByPhoneDigits(digits);
   let client: { id: string; shortId: number; phone: string; fullName: string; assignedAgentId: string | null };
+  // Номер удалённого клиента: звонок идёт, как решил владелец 18.08.2026, но это не работа агента
+  // (lib/archiveReviewCall.ts): без счёта звонков, Royal Score, статусов и задач карточки.
+  let archiveReview = false;
 
   if (existing) {
     // В Корзине или нет — звоним в любом случае: номер настоящий, блокировать
@@ -770,8 +774,10 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
     // к существующей записи, какой бы она ни была.
     const full = await prisma.client.findUniqueOrThrow({
       where: { id: existing.id },
-      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true, assignmentCompletedAt: true },
+      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true, assignmentCompletedAt: true, deletedAt: true },
     });
+    // Помечаем разбором только тех, кому он разрешён; остальным звонок идёт как раньше (решение 18.08.2026).
+    archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p) => can(req, p) });
     if (!canAccessAssignedAgent(req, full.assignedAgentId)) {
       return res.status(403).json({ error: "Этот номер уже принадлежит другому клиенту — недостаточно прав" });
     }
@@ -819,7 +825,19 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
     });
   }
 
-  const result = await originateCallToClient(req.agent!.id, client);
+  const result = await originateCallToClient(req.agent!.id, client, { archiveReview });
+  if (archiveReview && (result.ok || result.status === 502)) {
+    logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, {
+      shortId: client.shortId,
+      fullName: client.fullName,
+      phone: maskClientPhone(client.phone),
+      ownerAgentId: client.assignedAgentId,
+      via: "dial",
+      ok: result.ok,
+      channelId: result.ok ? (result.channelId ?? null) : null,
+      error: result.ok ? null : result.error.slice(0, 300),
+    });
+  }
   if (!result.ok) return res.status(result.status).json({ error: result.error });
 
   res.json({

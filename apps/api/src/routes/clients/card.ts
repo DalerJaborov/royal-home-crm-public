@@ -443,6 +443,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
           where: {
             clientId: client.id,
             type: "CALL",
+            archiveReview: false,
             ...visibleInteractionWhere(investigationViewerRole(req)),
             recordingDurationSec: { gte: s?.leadCallMinSeconds ?? 30 },
           },
