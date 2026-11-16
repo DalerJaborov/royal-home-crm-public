@@ -1,7 +1,8 @@
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { expenseCentsToTjs } from "./money.js";
 import { visibleInteractionWhere } from "./investigationPrivacy.js";
-import { canViewInvestigations } from "@royal-home/shared";
+import { canViewInvestigations, lastRealContactTime } from "@royal-home/shared";
+import { noContactWhere, TALKED_CALL_WHERE } from "./noContact.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { isOpenAiEnabled } from "../ai/openaiClient.js";
@@ -615,13 +616,15 @@ export interface McAttentionClient extends McEmptyable {
  * это вопрос владельца «а кому верить».
  */
 export async function loadAttentionClient(now: Date): Promise<McAttentionClient | (McEmptyable & { id: null })> {
+  /**
+   * С 16.11.2026 — из «Без контакта» по общему правилу (lib/noContact.ts,
+   * packages/shared/src/clientNoContact.ts): «касание» по lastContactAt двигали
+   * заметки агента, и пульт показывал «ждёт внимания» не того клиента, что
+   * счётчик «Без контакта». Порядок: непринятые первыми, затем давно молчащие.
+   */
   const row = await prisma.client.findFirst({
-    where: {
-      deletedAt: null,
-      status: { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] },
-      workStatus: "ACTIVE",
-    },
-    orderBy: [{ acceptedAt: { sort: "asc", nulls: "first" } }, { lastContactAt: "asc" }, { id: "asc" }],
+    where: noContactWhere(now),
+    orderBy: [{ acceptedAt: { sort: "asc", nulls: "first" } }, { lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
       shortId: true,
@@ -630,20 +633,22 @@ export async function loadAttentionClient(now: Date): Promise<McAttentionClient 
       kind: true,
       source: true,
       acceptedAt: true,
-      firstContactAt: true,
-      lastContactAt: true,
+      createdAt: true,
+      lastClientMessageAt: true,
+      interactions: { where: TALKED_CALL_WHERE, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
       assignedAgent: { select: { fullName: true } },
     },
   });
 
-  if (!row) return { id: null, reason: "Активных карточек в работе нет." };
+  if (!row) return { id: null, reason: "Клиентов без контакта нет." };
 
-  const hours = Math.max(0, Math.floor((now.getTime() - row.lastContactAt.getTime()) / 3_600_000));
+  const last = lastRealContactTime({ createdAt: row.createdAt, lastClientMessageAt: row.lastClientMessageAt, lastTalkedCallAt: row.interactions[0]?.createdAt });
+  const hours = Math.max(0, Math.floor((now.getTime() - (last ?? row.createdAt).getTime()) / 3_600_000));
   const why = !row.acceptedAt
     ? "карточку ещё не принял агент"
-    : !row.firstContactAt
-      ? "принята, но первого разговора не было"
-      : `последнее касание ${hours} ч назад`;
+    : !last
+      ? "принята, но контакта с клиентом ещё не было"
+      : `последний контакт ${hours} ч назад`;
 
   return {
     id: row.id,

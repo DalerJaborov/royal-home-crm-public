@@ -1,5 +1,5 @@
 import { canReadInvestigations } from "../auth/investigations.js";
-import { canViewInvestigations } from "@royal-home/shared";
+import { canViewInvestigations, lastRealContactTime } from "@royal-home/shared";
 import { requireInvestigations } from "../auth/investigations.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { Prisma } from "../generated/prisma/client.js";
@@ -291,42 +291,33 @@ interface EndlessNegotiationItem {
 
 /**
  * Сигнал «Серия у одного агента» (антифрод, владелец 01.09.2026): 3+
- * (Settings.agentLossSeriesThreshold) потерь (Client.status=LOST) у ОДНОГО агента за последние
+ * (Settings.agentLossSeriesThreshold) потерь у ОДНОГО агента за последние
  * AGENT_LOSS_SERIES_WINDOW_DAYS дней — не общая цифра по компании (та уже
  * есть плитками recentInactive/recentTransfers), а разбивка по конкретному
  * исполнителю: три случая подряд у новичка — возможно, ему нужна помощь; у
  * опытного — стоит присмотреться.
  *
- * «Неактивных» и новых LOST с 16.11.2026 нет (владелец: «ничего лишнего») —
- * сигнал считает только старые потери до отдельного решения. «Потеря» — по Client.status=LOST/lostAt
- * (schema.prisma: ставится во ВСЕХ трёх местах, где карточка уходит в LOST —
- * ручной отказ, эскалация передач, светофор неактивных), ответственный агент —
- * lastAgentId (переживает и уход в INACTIVE, и в LOST — см. схему), а если он
- * почему-то пуст (клиент был потерян, ни разу не побывав в Неактивных) —
- * запасной вариант assignedAgentId, каким он был на момент выборки.
+ * «ПОТЕРЯ» = ОФОРМЛЕННЫЙ ОТКАЗ (16.11.2026). Статуса LOST больше нет (владелец:
+ * «ничего лишнего»), поэтому серия считается по отказам: отметка
+ * Client.assignmentRefusedAt и тот, кто отказался, — assignmentRefusedByAgentId.
+ * Пишет их одна дверь — lib/clientRefuse.ts (кнопка агента, отказ продавца,
+ * детектор явного отказа в переписке). Карточки, уже убранные в Корзину по
+ * заявке, тоже считаются: потеря от этого не перестаёт быть потерей.
  */
 export async function findAgentLossSeries(since: Date) {
   const threshold = await loadAgentLossSeriesThreshold();
 
-  // groupBy, а не findMany: ниже от обеих выборок берутся ТОЛЬКО счётчики по
-  // агентам, а сами строки в память тащились целиком и без потолка — соседние
-  // помощники в этом файле потолок имеют (take: 500), здесь его просто забыли.
-  // Клиентов приходится группировать по паре полей: ответственный — lastAgentId,
-  // а если он пуст, запасной вариант assignedAgentId (см. doc-comment выше).
-  const [lostClients] = await Promise.all([
-    prisma.client.groupBy({
-      by: ["lastAgentId", "assignedAgentId"],
-      where: { status: "LOST", lostAt: { gte: since }, deletedAt: null },
-      _count: { _all: true },
-    }),
-  ]);
+  // groupBy, а не findMany: нужны только счётчики по агентам.
+  const refused = await prisma.client.groupBy({
+    by: ["assignmentRefusedByAgentId"],
+    where: { assignmentRefusedAt: { gte: since }, assignmentRefusedByAgentId: { not: null } },
+    _count: { _all: true },
+  });
 
   const counts = new Map<string, number>();
-  // Строки теперь сгруппированы, поэтому прибавляется размер группы, а не единица.
-  for (const c of lostClients) {
-    const agentId = c.lastAgentId ?? c.assignedAgentId;
-    if (!agentId) continue;
-    counts.set(agentId, (counts.get(agentId) ?? 0) + c._count._all);
+  for (const c of refused) {
+    if (!c.assignmentRefusedByAgentId) continue;
+    counts.set(c.assignmentRefusedByAgentId, (counts.get(c.assignmentRefusedByAgentId) ?? 0) + c._count._all);
   }
 
   const flaggedIds = [...counts.entries()].filter(([, count]) => count >= threshold).map(([id]) => id);
@@ -491,18 +482,46 @@ oversightRouter.get("/overdue-tasks", async (req, res) => {
 /**
  * GET /oversight/no-contact-clients — клиенты в работе без настоящего контакта
  * дольше порога (правило — packages/shared/src/clientNoContact.ts, выборка —
- * lib/noContact.ts). Сначала те, кто молчит дольше: новая карточка без единого
- * контакта считается от создания.
+ * lib/noContact.ts).
+ *
+ * ПОРЯДОК — ПО ПОСЛЕДНЕМУ НАСТОЯЩЕМУ КОНТАКТУ (16.11.2026): сначала карточки, с
+ * которыми контакта не было ни разу (давние первыми), потом — те, у кого
+ * последний разговор или сообщение клиента давнее всего. Последний контакт — это
+ * БОЛЬШЕЕ из «писал сам» и «разговор по телефону», а одним ORDER BY по двум
+ * источникам Prisma не сортирует. Поэтому порядок считается здесь по лёгкой
+ * выборке (только даты, до {@link NO_CONTACT_ORDER_CAP} строк), а полные строки
+ * читаются для одной страницы.
  */
+const NO_CONTACT_ORDER_CAP = 3000;
 oversightRouter.get("/no-contact-clients", async (req, res) => {
   const { page, pageSize } = parsePage(req);
   const where = noContactWhere(new Date());
-  const [rows, total] = await Promise.all([
+  const [light, total] = await Promise.all([
     prisma.client.findMany({
       where,
-      orderBy: [{ lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }, { id: "asc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      take: NO_CONTACT_ORDER_CAP,
+      select: {
+        id: true,
+        createdAt: true,
+        lastClientMessageAt: true,
+        interactions: { where: TALKED_CALL_WHERE, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+      },
+    }),
+    prisma.client.count({ where }),
+  ]);
+  const ordered = light
+    .map((c) => ({ id: c.id, created: c.createdAt.getTime(), last: lastRealContactTime({ createdAt: c.createdAt, lastClientMessageAt: c.lastClientMessageAt, lastTalkedCallAt: c.interactions[0]?.createdAt })?.getTime() ?? null }))
+    .sort((a, b) => {
+      if (a.last === null && b.last !== null) return -1;
+      if (a.last !== null && b.last === null) return 1;
+      const diff = (a.last ?? a.created) - (b.last ?? b.created);
+      return diff !== 0 ? diff : a.id.localeCompare(b.id);
+    });
+  const pageIds = ordered.slice((page - 1) * pageSize, page * pageSize).map((c) => c.id);
+  const position = new Map(pageIds.map((id, i) => [id, i]));
+  const [rows] = await Promise.all([
+    prisma.client.findMany({
+      where: { id: { in: pageIds } },
       select: {
         id: true,
         shortId: true,
@@ -519,8 +538,8 @@ oversightRouter.get("/no-contact-clients", async (req, res) => {
         },
       },
     }),
-    prisma.client.count({ where }),
   ]);
+  rows.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
   const canSeePhone = req.agent!.can("clients.viewPhone");
   res.json({
     items: await markAcked("no-contact-clients", rows.map(({ interactions, ...c }) => ({

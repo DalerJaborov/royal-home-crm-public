@@ -11,7 +11,9 @@ import { noContactWhere } from "../src/lib/noContact.js";
  *   • сообщение клиента в чате (в том числе боту) — контакт;
  *   • заметка/задача агента — НЕ контакт, даже если сдвинула lastContactAt;
  *   • разговор по телефону — контакт; недозвон — нет;
- *   • новая карточка без контакта считается от создания, lastContactAt не спасает.
+ *   • ПОРОГ ЯВНО: карточка без единого контакта — «без контакта» СРАЗУ, с момента
+ *     создания; был контакт — когда с последнего прошло больше NO_CONTACT_AFTER_DAYS;
+ *     lastContactAt не спасает.
  */
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -32,9 +34,16 @@ describe("правило в packages/shared", () => {
   it("заметки агента в правило не входят вовсе: старая карточка без звонка и сообщения — без контакта", () => {
     expect(isWithoutContact({ createdAt: old }, now)).toBe(true);
   });
-  it("новая карточка считается от создания: свежая ещё нет, после порога — да", () => {
-    expect(isWithoutContact({ createdAt: recent }, now)).toBe(false);
+  it("без единого контакта — «без контакта» сразу, даже свежая карточка", () => {
+    expect(isWithoutContact({ createdAt: new Date(now.getTime() - 60_000) }, now)).toBe(true);
     expect(isWithoutContact({ createdAt: old }, now)).toBe(true);
+  });
+  it("порог считается от последнего контакта: внутри порога — на связи, за порогом — без контакта", () => {
+    const justInside = new Date(now.getTime() - NO_CONTACT_AFTER_DAYS * DAY + 60_000);
+    const justOutside = new Date(now.getTime() - NO_CONTACT_AFTER_DAYS * DAY - 60_000);
+    expect(isWithoutContact({ createdAt: old, lastTalkedCallAt: justInside }, now)).toBe(false);
+    expect(isWithoutContact({ createdAt: old, lastTalkedCallAt: justOutside }, now)).toBe(true);
+    expect(isWithoutContact({ createdAt: old, lastClientMessageAt: justOutside }, now)).toBe(true);
   });
 });
 
@@ -89,6 +98,6 @@ describe("выборка сервера совпадает с правилом",
     expect(found.has(ids.noAnswer)).toBe(true); // недозвон — не контакт
     expect(found.has(ids.botChat)).toBe(false); // написал боту — контакт
     expect(found.has(ids.talked)).toBe(false); // поговорили по телефону — контакт
-    expect(found.has(ids.brandNew)).toBe(false); // свежая карточка ещё не «без контакта»
+    expect(found.has(ids.brandNew)).toBe(true); // свежая без единого контакта — сразу
   });
 });

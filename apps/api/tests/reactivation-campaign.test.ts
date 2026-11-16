@@ -72,8 +72,11 @@ async function makeClient(overrides: Record<string, unknown>) {
       kind: "BUYER",
       currency: "TJS",
       source: "WALK_IN",
-      status: "COLD",
-      lastContactAt: new Date(NOW.getTime() - 90 * 86_400_000), // 90 дней назад — старше дефолтных 60
+      // С 16.11.2026 отбор — по общему правилу «без контакта» (ни разговора, ни
+      // сообщения клиента дольше срока), а не по статусам COLD/LOST. Карточка
+      // заведена заведомо раньше чужих фикстур общей базы — пачка берёт давних первыми.
+      createdAt: new Date(NOW.getTime() - 20_000 * 86_400_000),
+      lastContactAt: new Date(NOW.getTime() - 90 * 86_400_000),
       ...overrides,
     },
   });
@@ -91,7 +94,8 @@ describe("Реактивация старых клиентов пачкой", ()
 
   it("клиент старше срока без касания — попадает в пачку; клиент внутри срока — нет", async () => {
     const old = await makeClient({ status: "COLD" });
-    const fresh = await makeClient({ status: "COLD", lastContactAt: new Date(NOW.getTime() - 10 * 86_400_000) });
+    // Клиент сам писал 10 дней назад — это настоящий контакт, рано звать обратно.
+    const fresh = await makeClient({ status: "COLD", lastClientMessageAt: new Date(NOW.getTime() - 10 * 86_400_000) });
 
     const result = await runReactivationCampaignTick(NOW);
     expect(result.skipped).toBeNull();

@@ -3,7 +3,8 @@ import { visibleCronWhere, visibleSystemErrorWhere } from "../lib/investigationO
 import { Prisma } from "../generated/prisma/client.js";
 import { countVisibleBackgroundJobs } from "../lib/backgroundJobPrivacy.js";
 import { Router, type Request } from "express";
-import { canViewInvestigations } from "@royal-home/shared";
+import { canViewInvestigations, lastRealContactTime, NO_CONTACT_AFTER_DAYS } from "@royal-home/shared";
+import { noContactWhere, TALKED_CALL_WHERE } from "../lib/noContact.js";
 import { investigationCallChannelIds } from "../lib/investigationCallChannels.js";
 import { listActive as activeRobotCalls } from "../lib/telephony/liveVoiceMonitor.js";
 import { prisma } from "../db.js";
@@ -73,8 +74,6 @@ import { visibleNewCandidatesWhere } from "../lib/vacancyVisibility.js";
 export const missionControlRouter = Router();
 
 const ZONE_LIST_CAP = 12;
-/** Дней без работы с клиентом в воронке — «завис» (карточка «Сделки в работе»). */
-const STUCK_CLIENT_DAYS = 3;
 
 type SectionResult<T> = T | { error: true };
 
@@ -167,7 +166,6 @@ async function buildLive(ctx: McContext) {
   const [hero, firstLine, callsZone] = await Promise.all([
     cachedSection(`hero:${seesMoney}:${ctx.canSeePhone}`, LIVE_TTL_MS, () =>
       section("hero", async () => {
-      const stuckCutoff = new Date(now.getTime() - STUCK_CLIENT_DAYS * 24 * 60 * 60 * 1000);
       const [forecast, pulse, leadsToday, leadsYesterday, morning, missedToday, dealsInPipeline, dealsInPipelineItems, stuckTotal] =
         await Promise.all([
           seesMoney ? computePlanForecast() : null,
@@ -183,23 +181,22 @@ async function buildLive(ctx: McContext) {
             where: { deletedAt: null, ...BUYERS_IN_WORK_WHERE },
             _count: { _all: true },
           }),
-          // items[]: «клиент завис» = клиент в активной воронке, с которым НЕТ работы
-          // STUCK_CLIENT_DAYS+ дней. Признак движения — Client.lastContactAt (метка
-          // работы сотрудника: звонок, показ, запись в хронологии; входящее сообщение
-          // её намеренно не двигает — клиент, который пишет боту, но которого никто не
-          // тронул, и есть «завис»). Раньше брались 5 самых НОВЫХ клиентов и
-          // помечались созданные 3+ дня назад — то есть самые свежие, не самые
-          // забытые. Теперь: самые давно молчащие первыми, предел 5, без N+1.
-          // Ссылка — на карточку клиента (тот же маршрут, что в канбане, Deals.tsx:120).
+          // items[]: «Без контакта» — ОДНО правило на всю CRM (16.11.2026,
+          // lib/noContact.ts, packages/shared/src/clientNoContact.ts): ни разговора
+          // по телефону, ни сообщения самого клиента; без единого контакта — сразу.
+          // Раньше здесь был свой счётчик «завис» по lastContactAt (его двигают
+          // заметки) с порогом 3 дня — второе число про то же на соседнем экране.
+          // Самые давно молчащие первыми, предел 5, без N+1.
           prisma.client.findMany({
-            where: { deletedAt: null, ...BUYERS_IN_WORK_WHERE, lastContactAt: { lt: stuckCutoff } },
-            orderBy: { lastContactAt: "asc" },
+            where: noContactWhere(now),
+            orderBy: [{ lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
             take: 5,
-            select: { id: true, shortId: true, fullName: true, status: true, lastContactAt: true },
+            select: {
+              id: true, shortId: true, fullName: true, status: true, createdAt: true, lastClientMessageAt: true,
+              interactions: { where: TALKED_CALL_WHERE, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+            },
           }),
-          prisma.client.count({
-            where: { deletedAt: null, ...BUYERS_IN_WORK_WHERE, lastContactAt: { lt: stuckCutoff } },
-          }),
+          prisma.client.count({ where: noContactWhere(now) }),
         ]);
       const pulseToday = pulse?.find((p) => p.period === "today") ?? null;
       return {
@@ -228,11 +225,12 @@ async function buildLive(ctx: McContext) {
         dealsInPipeline: {
           count: dealsInPipeline.reduce((s, r) => s + r._count._all, 0),
           byStage: dealsInPipeline.map((r) => ({ status: r.status, count: r._count._all })),
-          /** Клиентов в работе без движения STUCK_CLIENT_DAYS+ дней (всего, не только в items). */
+          /** Клиентов «Без контакта» по общему правилу (всего, не только в items). */
           stuckTotal,
-          stuckDays: STUCK_CLIENT_DAYS,
+          stuckDays: NO_CONTACT_AFTER_DAYS,
           items: dealsInPipelineItems.map((c) => {
-            const days = Math.floor((now.getTime() - c.lastContactAt.getTime()) / (24 * 60 * 60 * 1000));
+            const last = lastRealContactTime({ createdAt: c.createdAt, lastClientMessageAt: c.lastClientMessageAt, lastTalkedCallAt: c.interactions[0]?.createdAt });
+            const days = Math.floor((now.getTime() - (last ?? c.createdAt).getTime()) / (24 * 60 * 60 * 1000));
             return {
               id: c.id,
               // Имя карточки — через право на телефон: у заведённых до 20.08.2026
@@ -240,7 +238,7 @@ async function buildLive(ctx: McContext) {
               title: clientNamePhoneSafe(c.fullName, canSeePhone),
               href: `/clients/${c.shortId}`,
               tone: "warn" as const,
-              hint: `Без движения ${days} ${plural(days, "день", "дня", "дней")}`,
+              hint: last ? `Без контакта ${days} ${plural(days, "день", "дня", "дней")}` : "Контакта ещё не было",
               silentDays: days,
             };
           }),

@@ -17,19 +17,32 @@ export const TALKED_CALL_WHERE = {
 } satisfies Prisma.InteractionWhereInput;
 
 /**
- * Клиенты в работе (покупатели и продавцы с агентом), у которых дольше порога не
- * было настоящего контакта. Новая карточка без контакта попадает сюда, когда с её
- * создания прошёл порог — lastContactAt не читается вовсе.
+ * Условие правила без отбора «кто в работе»: настоящего контакта не было после
+ * `cutoff` — ни сообщения самого клиента, ни разговора по телефону. Карточка, с
+ * которой контакта не было ни разу, подходит сразу (оба условия выполнены).
+ * Тем же условием пользуются рассылка «вернуть клиента» (lib/reactivationCampaign.ts)
+ * и пауза бота (lib/conversationState.ts) — каждая со своим порогом.
+ */
+export function noContactSinceWhere(cutoff: Date): Prisma.ClientWhereInput {
+  return {
+    AND: [
+      { OR: [{ lastClientMessageAt: null }, { lastClientMessageAt: { lt: cutoff } }] },
+      { interactions: { none: { ...TALKED_CALL_WHERE, createdAt: { gte: cutoff } } } },
+    ],
+  };
+}
+
+/**
+ * Клиенты в работе (покупатели и продавцы с агентом) «без контакта» по общему
+ * правилу (packages/shared/src/clientNoContact.ts): контакта не было ни разу —
+ * сразу; был — когда с последнего прошло больше порога. lastContactAt не читается.
  */
 export function noContactWhere(now: Date = new Date()): Prisma.ClientWhereInput {
-  const cutoff = noContactCutoff(now);
   return {
     AND: [
       CLIENT_IN_WORK_WHERE,
       { kind: { in: ["BUYER", "SELLER"] }, assignedAgentId: { not: null } },
-      { createdAt: { lt: cutoff } },
-      { OR: [{ lastClientMessageAt: null }, { lastClientMessageAt: { lt: cutoff } }] },
-      { interactions: { none: { ...TALKED_CALL_WHERE, createdAt: { gte: cutoff } } } },
+      noContactSinceWhere(noContactCutoff(now)),
     ],
   };
 }

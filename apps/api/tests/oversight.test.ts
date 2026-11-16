@@ -531,8 +531,9 @@ beforeAll(async () => {
   ).id;
   agentIds.push(lossSeriesAgentId);
 
-  // Три старые потери (LOST, lastAgentId) за 7 дней — должен попасть в
-  // /agent-loss-series. «Неактивных» с 16.11.2026 нет, сигнал считает только LOST.
+  // Три отказа этого агента за 7 дней — должен попасть в /agent-loss-series.
+  // «Потеря» = оформленный отказ (16.11.2026, статуса LOST больше нет): отметка
+  // assignmentRefusedAt + кто отказался. Один из трёх уже в Корзине — считается.
   for (let i = 0; i < 2; i++) {
     const c = await prisma.client.create({
       data: {
@@ -541,27 +542,28 @@ beforeAll(async () => {
         source: "PHONE_CALL",
         assignedAgentId: null,
         lastAgentId: lossSeriesAgentId,
-        status: "LOST",
-        lostAt: new Date(now - DAY),
+        assignmentRefusedAt: new Date(now - DAY),
+        assignmentRefusedByAgentId: lossSeriesAgentId,
       },
     });
     clientIds.push(c.id);
   }
   const lostBySeriesAgent = await prisma.client.create({
     data: {
-      fullName: `Серия потерь — LOST ${runId}`,
+      fullName: `Серия потерь — в Корзине ${runId}`,
       phone: `+992972${runId}`,
       source: "PHONE_CALL",
       assignedAgentId: null,
       lastAgentId: lossSeriesAgentId,
-      status: "LOST",
-      lostAt: new Date(now - DAY),
+      assignmentRefusedAt: new Date(now - DAY),
+      assignmentRefusedByAgentId: lossSeriesAgentId,
+      deletedAt: new Date(now - DAY / 2),
     },
   });
   clientIds.push(lostBySeriesAgent.id);
 
-  // Тот же агент, но потеря случилась ДО окна в 7 дней — не должна попасть
-  // (проверяет, что окно действительно фильтрует по lostAt).
+  // Тот же агент, но отказ случился ДО окна в 7 дней — не должен попасть
+  // (проверяет, что окно действительно фильтрует по дате отказа).
   const oldLoss = await prisma.client.create({
     data: {
       fullName: `Старая потеря — не считается ${runId}`,
@@ -569,8 +571,8 @@ beforeAll(async () => {
       source: "PHONE_CALL",
       assignedAgentId: null,
       lastAgentId: lossSeriesAgentId,
-      status: "LOST",
-      lostAt: new Date(now - 30 * DAY),
+      assignmentRefusedAt: new Date(now - 30 * DAY),
+      assignmentRefusedByAgentId: lossSeriesAgentId,
     },
   });
   clientIds.push(oldLoss.id);

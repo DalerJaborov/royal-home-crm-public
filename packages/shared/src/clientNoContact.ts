@@ -13,24 +13,30 @@
  *   • сообщение клиента в любом чате — агенту или боту (Client.lastClientMessageAt).
  * Заметки, задачи, ручные записи агента и исходящие сообщения контактом НЕ являются.
  *
- * НОВАЯ КАРТОЧКА без единого контакта считается «без контакта» с момента создания:
- * точка отсчёта — createdAt, а не lastContactAt (тот при создании равен «сейчас»).
+ * ПОРОГ — ЯВНО (16.11.2026, решение после ревью):
+ *   • карточка, с которой НЕ БЫЛО ни одного настоящего контакта, — «без контакта»
+ *     СРАЗУ, с момента создания: ждать сутки, чтобы увидеть новую заявку, до
+ *     которой никто не дозвонился, незачем;
+ *   • карточка, с которой контакт был, — «без контакта», когда с ПОСЛЕДНЕГО
+ *     настоящего контакта прошло больше {@link NO_CONTACT_AFTER_DAYS} суток.
+ * `lastContactAt` не читается вовсе (его двигают заметки, а при создании он «сейчас»).
  */
 
-/** Сколько суток без настоящего контакта — уже «без контакта». */
+/** Сколько суток после последнего настоящего контакта — уже «без контакта». */
 export const NO_CONTACT_AFTER_DAYS = 1;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Граница: контакт раньше этого момента уже не считается свежим. */
-export function noContactCutoff(now: Date = new Date()): Date {
-  return new Date(now.getTime() - NO_CONTACT_AFTER_DAYS * DAY_MS);
+/** Граница: контакт раньше этого момента уже не считается свежим. `days` — для
+ *  других порогов того же правила (рассылка «вернуть клиента», пауза бота). */
+export function noContactCutoff(now: Date = new Date(), days: number = NO_CONTACT_AFTER_DAYS): Date {
+  return new Date(now.getTime() - days * DAY_MS);
 }
 
 type When = Date | string | null | undefined;
 
 export interface ClientContactFacts {
-  /** Когда карточка заведена — точка отсчёта, если контакта не было вовсе. */
+  /** Когда карточка заведена (для экрана: «контакта не было, карточка N дней»). */
   createdAt: Date | string;
   /** Последнее сообщение САМОГО клиента в любом чате (агенту или боту). */
   lastClientMessageAt?: When;
@@ -46,8 +52,12 @@ export function lastRealContactTime(f: ClientContactFacts): Date | null {
   return Number.isFinite(t) ? new Date(t) : null;
 }
 
-/** Клиент «без контакта»: настоящего контакта (или, без него, создания карточки) не было дольше порога. */
-export function isWithoutContact(f: ClientContactFacts, now: Date = new Date()): boolean {
-  const since = lastRealContactTime(f) ?? new Date(f.createdAt);
-  return since.getTime() < noContactCutoff(now).getTime();
+/**
+ * Клиент «без контакта»: настоящего контакта не было ни разу (сразу) или последний
+ * был раньше порога `days` суток.
+ */
+export function isWithoutContact(f: ClientContactFacts, now: Date = new Date(), days: number = NO_CONTACT_AFTER_DAYS): boolean {
+  const last = lastRealContactTime(f);
+  if (!last) return true;
+  return last.getTime() < noContactCutoff(now, days).getTime();
 }
