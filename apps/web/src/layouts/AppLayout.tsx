@@ -57,6 +57,9 @@ const OwnerQuestionsStrip = lazyWithReload(() =>
   import("../components/OwnerQuestionsBanner").then((m) => ({ default: m.OwnerQuestionsStrip }))
 );
 const CallWindow = lazyWithReload(() => import("../components/CallWindow").then((m) => ({ default: m.CallWindow })));
+const TransferConfirmWindow = lazyWithReload(() =>
+  import("../components/TransferConfirmWindow").then((m) => ({ default: m.TransferConfirmWindow }))
+);
 const IncomingLeadWindow = lazyWithReload(() =>
   import("../components/IncomingLeadWindow").then((m) => ({ default: m.IncomingLeadWindow }))
 );
@@ -366,6 +369,11 @@ export function AppLayout() {
           это дополнительный путь, а не замена (см. IncomingLeadWindow.tsx). */}
       <Suspense fallback={null}>
         <IncomingLeadWindow />
+      </Suspense>
+      {/* Большое окно «Подтвердить передачу?» хозяину карточки — на ПК и телефоне, слой 43:
+          ниже идущего разговора (45) и окна лида (44) (см. TransferConfirmWindow.tsx). */}
+      <Suspense fallback={null}>
+        <TransferConfirmWindow />
       </Suspense>
       {/* «Пробуждение» — заставка-приветствие ИИ. ПЕРЕЕХАЛА в App.tsx (08.09.2026,
           docs/ai-greeting-08-09/reports/P1-splash-v2.md) — здесь она жила внутри

@@ -51,7 +51,7 @@ beforeAll(async () => {
   const passwordHash = await bcrypt.hash(password, 10);
   agentId = (
     await prisma.agent.create({
-      data: { fullName: `Агент аномалии ${runId}`, phone: `+992926${runId}`, role: "AGENT", passwordHash },
+      data: { fullName: `Агент аномалии ${runId}`, phone: `+992926${runId}`, role: "MANAGER", passwordHash },
     })
   ).id;
   agentIds.push(agentId);

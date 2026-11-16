@@ -7,7 +7,7 @@ import { usableRouteId } from "../lib/routeId";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { ApiError } from "../lib/apiError";
 import { assignLeadErrorText } from "../lib/assignLeadError";
-import { ArrowLeft, ArrowRightLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, PhoneOff, RefreshCw, RotateCcw, Search, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
+import { ArrowLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, PhoneOff, RefreshCw, RotateCcw, Search, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
 import { ClientMoreMenu, countMoreItems, type MoreGroup, type MoreItem } from "../components/ClientMoreMenu";
 import { useProperties, useProperty } from "../hooks/useProperties";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
@@ -18,7 +18,6 @@ import { CallPhoneChooser, type CallPhoneOption } from "../components/CallPhoneC
 import { MatchPanel } from "../components/match/MatchPanel";
 import { CloseDealChoiceModal } from "../components/CloseDealChoiceModal";
 import { NewDealSheet } from "../components/NewDealSheet";
-import { TransferClientModal } from "../components/TransferClientModal";
 import { MergeClientModal } from "../components/MergeClientModal";
 import { useSimilarNotes, useDismissSimilarClient, type SimilarNotesClient } from "../hooks/useDuplicates";
 import { RequestDeleteClientModal } from "../components/RequestDeleteClientModal";
@@ -208,7 +207,6 @@ function ClientDetailCard() {
   // «Подбор · N» везде (владелец 17.09.2026 вечер) — открыта/закрыта, без режимов.
   const [showCloseDeal, setShowCloseDeal] = useState(false);
   const [showNewDeal, setShowNewDeal] = useState(false);
-  const [showTransfer, setShowTransfer] = useState(false);
   const [showMerge, setShowMerge] = useState<SimilarNotesClient | true | false>(false);
   /** Предупреждение перед повторным созданием объекта — «Создать объект из заявки»
    *  открывало ту же форму на любом клике, без единого признака, что у продавца уже
@@ -1012,14 +1010,6 @@ function ClientDetailCard() {
       onSelect: () => setShowCloseDeal(true),
     });
   }
-  if (!locked && !isSeller && !isOther && hadRealContact) {
-    mainItems.push({
-      key: "transfer",
-      label: "Передать другому агенту",
-      icon: ArrowRightLeft,
-      onSelect: () => setShowTransfer(true),
-    });
-  }
   if (!pending && canAssignClients && !isOther && client.assignedAgent && !showReassign) {
     mainItems.push({
       key: "reassign-open",
@@ -1429,7 +1419,6 @@ function ClientDetailCard() {
       {showEditForm && !locked && <ClientFormModal client={client} onClose={() => setShowEditForm(false)} />}
       {!locked && showCloseDeal && <CloseDealChoiceModal client={client} onClose={() => setShowCloseDeal(false)} />}
       {!locked && showNewDeal && <NewDealSheet client={client} onClose={() => setShowNewDeal(false)} />}
-      {!locked && showTransfer && <TransferClientModal client={client} onClose={() => setShowTransfer(false)} />}
       {!locked && canMerge && showMerge && (
         <MergeClientModal
           client={client}
