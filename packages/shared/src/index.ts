@@ -1,6 +1,7 @@
 export * from "./enums.js";
 export * from "./submitReply.js";
 export * from "./permissions.js";
+export * from "./transferRequest.js";
 export * from "./schemas.js";
 export * from "./labels.js";
 export * from "./querySchemas.js";

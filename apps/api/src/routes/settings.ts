@@ -831,6 +831,9 @@ const settingsUpdateSchema = z.object({
   botCanAnswerComments: z.boolean().optional(),
   /** Комментарий со сбоем бота (ИИ недоступен, отказ ядра, застрял) — сводкой человеку (15.11.2026). */
   commentFailureWatchEnabled: z.boolean().optional(),
+  /** Передача объекта/клиента с подтверждением хозяина: рубильник и срок ответа в часах (16.11.2026). */
+  ownerConfirmTransferEnabled: z.boolean().optional(),
+  ownerConfirmTransferHours: z.number().int().min(1).max(168).optional(),
   /** «Соедините с оператором»: бот записывает запрос звонка и зовёт агентов. */
   botCanRequestCallback: z.boolean().optional(),
   /** Дежурный оператор обратных звонков (сейчас Нурмухаммад, потом сменится —
@@ -1969,6 +1972,9 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...(rest.instagramInboxReconcileEnabled !== undefined ? { instagramInboxReconcileEnabled: rest.instagramInboxReconcileEnabled } : {}),
     // Выключенный сторож — «комментарий со сбоем бота никто не заметит»: кто и когда, должно быть видно.
     ...(rest.commentFailureWatchEnabled !== undefined ? { commentFailureWatchEnabled: rest.commentFailureWatchEnabled } : {}),
+    // Рубильник и срок передачи с подтверждением: выключенный — РОП не может передавать, кто и когда должно быть видно.
+    ...(rest.ownerConfirmTransferEnabled !== undefined ? { ownerConfirmTransferEnabled: rest.ownerConfirmTransferEnabled } : {}),
+    ...(rest.ownerConfirmTransferHours !== undefined ? { ownerConfirmTransferHours: rest.ownerConfirmTransferHours } : {}),
     // Смена весов KPI меняет и рейтинг, и распределение лидов — в журнале
     // должно быть видно, кто и когда её сделал.
     ...(rest.kpiWeights !== undefined ? { kpiWeights: rest.kpiWeights } : {}),

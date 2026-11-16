@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 754,
-  "forks": 4103,
-  "mounts": 84,
-  "cron": 142,
+  "endpoints": 759,
+  "forks": 4109,
+  "mounts": 85,
+  "cron": 143,
   "jobs": 33,
   "hidden": 0
  },
@@ -12068,6 +12068,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "await clientNeedsOwnerConfirm({ id: req.agent!.id, role: req.agent?.role }, req.params.id)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос…",
+       "a": [
+        "ответ 409 — «Эта карточка у другого агента. Чтобы передать клиента, отправьте…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const outcome = await assignClientManually({ clientId: req.params.id, toAgentId: parsed.data.agentId, accept:…",
      "a": [
@@ -18201,6 +18216,21 @@
        "t": "return res.status(403).json({ error: denied });",
        "a": [
         "ответ 403"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "req.agent?.role === \"HEAD_OF_SALES\" && client.assignedAgentId !== req.agent.id",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос…",
+       "a": [
+        "ответ 409 — «Эта карточка у другого агента. Чтобы передать клиента, отправьте…»"
        ],
        "c": []
       }
@@ -78460,6 +78490,163 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/:id/cancel",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/:id/cancel",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: transfers.request"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const outcome = await cancelTransferRequest(actorOf(req), req.params.id);",
+     "a": [
+      "зовёт cancelTransferRequest()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(outcome.status).json(outcome.body);",
+     "a": [
+      "ответ (код зависит от условия)"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/respond",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/:id/respond",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const outcome = await respondToTransferRequest(actorOf(req), req.params.id, req.body);",
+     "a": [
+      "зовёт respondToTransferRequest()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(outcome.status).json(outcome.body);",
+     "a": [
+      "ответ (код зависит от условия)"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/incoming",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/incoming",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json({ items: await listIncomingTransferRequests(req.agent!.id) });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/outgoing",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests/outgoing",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: transfers.request"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json({ items: await listOutgoingTransferRequests(req.agent!.id, skipsOwnerConfirm({ role: req.agent?.role…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/",
+   "mount": "/api/v1/transfer-requests",
+   "full": "/api/v1/transfer-requests",
+   "file": "apps/api/src/routes/transferRequests.ts",
+   "router": "transferRequestsRouter",
+   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: transfers.request"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const outcome = await createTransferRequest(actorOf(req), req.body);",
+     "a": [
+      "зовёт createTransferRequest()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(outcome.status).json(outcome.body);",
+     "a": [
+      "ответ (код зависит от условия)"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/config",
    "mount": "/api/v1/ui-shell",
@@ -115574,6 +115761,200 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка сводки на завтра\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "transfer-request-tick",
+   "when": "*/5 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { expired, reminded } = await runTransferRequestTick();",
+       "a": [
+        "зовёт runTransferRequestTick()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const overdue = await prisma.ownershipTransferRequest.findMany({ where: { status: \"PENDING\", expiresAt: { lte…",
+         "a": [
+          "читает в базе: ownershipTransferRequest"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of overdue",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"PENDING\" }, da…",
+           "a": [
+            "меняет в базе: ownershipTransferRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claim.count === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "logAgentAudit(null, \"TRANSFER_REQUEST_EXPIRED\", row.kind === \"PROPERTY\" ? \"Property\" : \"Client\", row.property…",
+           "a": [
+            "зовёт logAgentAudit()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: \"CONFIRMED\", resultNote: EXEC…",
+         "a": [
+          "читает в базе: ownershipTransferRequest"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of stuck",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"CONFIRMED\", re…",
+           "a": [
+            "меняет в базе: ownershipTransferRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claim.count === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const due = await prisma.ownershipTransferRequest.findMany({ where: { status: \"PENDING\", expiresAt: { gt: now…",
+         "a": [
+          "читает в базе: ownershipTransferRequest"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of due",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"PENDING\", remi…",
+           "a": [
+            "меняет в базе: ownershipTransferRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claim.count === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runTransferRequestTick() — apps/api/src/lib/ownershipTransferRequest.ts"
+      },
+      {
+       "k": "if",
+       "t": "expired + reminded > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Запросы передачи: закрыто по сроку ${expired}, напоминаний ${reminded}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка тика запросов передачи\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4103**. Модулей: **84**.
+Путей: **759**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4109**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2775,6 +2775,9 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
+- если await clientNeedsOwnerConfirm({ id: req.agent!.id, role: req.agent?.role }, req.params.id)
+  - return res.status(409).json({ error: "Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос…
+    · ответ 409 — «Эта карточка у другого агента. Чтобы передать клиента, отправьте…»
 - const outcome = await assignClientManually({ clientId: req.params.id, toAgentId: parsed.data.agentId, accept:…
   · зовёт assignClientManually()
 - если !outcome.ok
@@ -4174,6 +4177,9 @@
 - если denied
   - return res.status(403).json({ error: denied });
     · ответ 403
+- если req.agent?.role === "HEAD_OF_SALES" && client.assignedAgentId !== req.agent.id
+  - return res.status(409).json({ error: "Эта карточка у другого агента. Чтобы передать клиента, отправьте запрос…
+    · ответ 409 — «Эта карточка у другого агента. Чтобы передать клиента, отправьте…»
 - const gate = await canTransferClient(client.id);
   · зовёт canTransferClient()
 - если !gate.allowed
@@ -17735,6 +17741,49 @@
 - res.json({ text: text.trim() });
   · ответ 200
 
+## /api/v1/transfer-requests
+
+### POST /api/v1/transfer-requests/:id/cancel
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
+
+- const outcome = await cancelTransferRequest(actorOf(req), req.params.id);
+  · зовёт cancelTransferRequest()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### POST /api/v1/transfer-requests/:id/respond
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const outcome = await respondToTransferRequest(actorOf(req), req.params.id, req.body);
+  · зовёт respondToTransferRequest()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### GET /api/v1/transfer-requests/incoming
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- res.json({ items: await listIncomingTransferRequests(req.agent!.id) });
+  · ответ 200
+
+### GET /api/v1/transfer-requests/outgoing
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
+
+- res.json({ items: await listOutgoingTransferRequests(req.agent!.id, skipsOwnerConfirm({ role: req.agent?.role…
+  · ответ 200
+
+### POST /api/v1/transfer-requests
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
+
+- const outcome = await createTransferRequest(actorOf(req), req.body);
+  · зовёт createTransferRequest()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
 ## /api/v1/ui-shell
 
 ### GET /api/v1/ui-shell/config
@@ -25730,6 +25779,48 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка сводки на завтра", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### transfer-request-tick — */5 * * * *
+
+- пробует
+  - const { expired, reminded } = await runTransferRequestTick();
+    · зовёт runTransferRequestTick()
+    - const overdue = await prisma.ownershipTransferRequest.findMany({ where: { status: "PENDING", expiresAt: { lte…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of overdue
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "PENDING" }, da…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count === 0
+        - continue;
+          · переходит к следующему
+      - logAgentAudit(null, "TRANSFER_REQUEST_EXPIRED", row.kind === "PROPERTY" ? "Property" : "Client", row.property…
+        · зовёт logAgentAudit()
+    - const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: "CONFIRMED", resultNote: EXEC…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of stuck
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "CONFIRMED", re…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count === 0
+        - continue;
+          · переходит к следующему
+    - const due = await prisma.ownershipTransferRequest.findMany({ where: { status: "PENDING", expiresAt: { gt: now…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of due
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "PENDING", remi…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count === 0
+        - continue;
+          · переходит к следующему
+  - если expired + reminded > 0
+    - console.log(`[cron] Запросы передачи: закрыто по сроку ${expired}, напоминаний ${reminded}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка тика запросов передачи", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()

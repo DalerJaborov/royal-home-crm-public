@@ -1,4 +1,5 @@
 import type { Prisma } from "../generated/prisma/client.js";
+import { closeTransferRequestsForTarget } from "./ownershipTransferRequestClose.js";
 import { prisma, type TxClient } from "../db.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { sendPushToAgent } from "../push.js";
@@ -180,6 +181,8 @@ export async function transferPropertyToAgent(input: TransferPropertyInput): Pro
   }
 
   publishPropertyUpdated({ propertyId: property.id, agentId: input.toAgentId, stage: property.status, actorId: input.actorId });
+  // Ждущий запрос передачи с подтверждением тоже снимается: хозяин уже другой (ревью 16.11.2026).
+  await closeTransferRequestsForTarget({ propertyId: property.id }, input.toAgentId);
 
   if (input.notify ?? true) {
     void sendPushToAgent(input.toAgentId, {

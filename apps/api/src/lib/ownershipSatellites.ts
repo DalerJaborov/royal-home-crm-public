@@ -1,4 +1,5 @@
 import { prisma } from "../db.js";
+import { closeTransferRequestsForTarget } from "./ownershipTransferRequestClose.js";
 import { closeLeadPushNotification } from "../push.js";
 import { closeNotifications } from "./notifications.js";
 import { cancelPendingClientDeleteRequestOnTransfer } from "./trashClient.js";
@@ -76,6 +77,8 @@ export interface CloseOwnershipSatellitesInput {
 
 export async function closeOwnershipSatellites(input: CloseOwnershipSatellitesInput): Promise<void> {
   const { clientId, fromAgentId, toAgentId, reason } = input;
+  // Ждущий запрос «передать с подтверждением» теряет смысл, когда хозяин сменился другим путём (ревью 16.11.2026).
+  if (fromAgentId !== toAgentId) await closeTransferRequestsForTarget({ clientId }, toAgentId);
   const agentChanged = !!fromAgentId && fromAgentId !== toAgentId;
 
   /**

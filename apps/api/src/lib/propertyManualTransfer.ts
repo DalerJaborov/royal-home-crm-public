@@ -21,6 +21,8 @@ import { transferPropertyWithSeller } from "./propertyTransferWithSeller.js";
  */
 export interface PropertyTransferActor {
   id: string;
+  /** Роль нужна, чтобы закрыть прямую передачу для РОП: он передаёт только запросом хозяину (16.11.2026). */
+  role?: string | null;
   can: (permission: PermissionId) => boolean;
 }
 
@@ -35,6 +37,9 @@ const fail = (status: number, error: string, details?: unknown): PropertyTransfe
 });
 
 export function canTransferProperty(actor: PropertyTransferActor): boolean {
+  // РОП передаёт ТОЛЬКО с подтверждением хозяина (lib/ownershipTransferRequest.ts) — прямая передача, смена
+  // «Ответственного» в PATCH и инструмент помощника закрыты одной проверкой здесь (ревью 16.11.2026).
+  if (actor.role === "HEAD_OF_SALES") return false;
   return actor.can("properties.editForeign") && actor.can("clients.assign");
 }
 

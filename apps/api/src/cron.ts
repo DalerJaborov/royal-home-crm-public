@@ -32,6 +32,7 @@ import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
 import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
 import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
+import { runTransferRequestTick } from "./lib/ownershipTransferRequest.js";
 import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
@@ -2869,6 +2870,20 @@ export function startCronJobs() {
       if (alerted > 0) console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа комментариев без ответа", err);
+    }
+  });
+
+  /**
+   * ПЕРЕДАЧА С ПОДТВЕРЖДЕНИЕМ ХОЗЯИНА (16.11.2026, lib/ownershipTransferRequest.ts):
+   * хозяин не ответил за срок из настроек — запрос отменяется (директору не уходит);
+   * пока срок идёт — повторное напоминание раз в 30 минут.
+   */
+  scheduleTracked("transfer-request-tick", "*/5 * * * *", async () => {
+    try {
+      const { expired, reminded } = await runTransferRequestTick();
+      if (expired + reminded > 0) console.log(`[cron] Запросы передачи: закрыто по сроку ${expired}, напоминаний ${reminded}`);
+    } catch (err) {
+      reportCronTickError("Ошибка тика запросов передачи", err);
     }
   });
 

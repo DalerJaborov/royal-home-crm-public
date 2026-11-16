@@ -1246,6 +1246,58 @@ model PropertyDeleteRequest {
   @@index([propertyId, status])
 }
 
+/// Что передаёт запрос на передачу с подтверждением хозяина (16.11.2026).
+enum TransferRequestKind {
+  PROPERTY
+  CLIENT
+}
+
+/// PENDING — ждёт хозяина; CONFIRMED — передано; DECLINED — хозяин отказал; EXPIRED — не ответил за срок
+/// или объект/клиент уже сменил хозяина; CANCELLED — отозвал тот, кто просил; FAILED — хозяин подтвердил,
+/// но существующая передача отказала (причина в resultNote).
+enum TransferRequestStatus {
+  PENDING
+  CONFIRMED
+  DECLINED
+  EXPIRED
+  CANCELLED
+  FAILED
+}
+
+/// ПЕРЕДАЧА ОБЪЕКТА/КЛИЕНТА С ПОДТВЕРЖДЕНИЕМ ХОЗЯИНА (владелец 16.11.2026, lib/ownershipTransferRequest.ts).
+/// РОП просит передать, хозяин (fromAgentId на момент запроса) отвечает в большом окне. Сама передача
+/// выполняется только после «Подтвердить» теми же функциями, что и прямая (transferPropertyWithSeller /
+/// assignClientManually). Один живой запрос на объект и на клиента — частичный уникальный индекс в миграции.
+/// Связей на Agent/Property/Client нет намеренно: запрос переживает их удаление, а при ответе всё перепроверяется.
+model OwnershipTransferRequest {
+  id             String                @id @default(uuid())
+  kind           TransferRequestKind
+  status         TransferRequestStatus @default(PENDING)
+  propertyId     String?
+  clientId       String?
+  /// Хозяин на момент запроса — только он (и директор) отвечает.
+  fromAgentId    String
+  toAgentId      String
+  requestedById  String
+  reason         String
+  /// Срок ответа; не ответил — EXPIRED (cron lib/ownershipTransferRequest.ts).
+  expiresAt      DateTime
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  /// Почему подтверждённая передача не состоялась / почему запрос закрыт системой.
+  resultNote     String?
+  /// Повторные напоминания хозяину, пока не ответил.
+  lastRemindedAt DateTime?
+  remindCount    Int                   @default(0)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([fromAgentId, status])
+  @@index([requestedById, createdAt])
+  @@index([status, expiresAt])
+}
+
 /// Вид заявки агента на изменение ОПУБЛИКОВАННОГО объекта (07.10.2026) — зеркало
 /// PROPERTY_CHANGE_KINDS в packages/shared/src/propertyChangeRequest.ts.
 enum PropertyChangeKind {
@@ -7049,6 +7101,12 @@ model Settings {
   /// застрял в очереди дольше 30 минут — одна сводка за тик тем, кто читает
   /// переписки. Включён: таких комментариев единицы, пушей по одному на каждый нет.
   commentFailureWatchEnabled        Boolean   @default(true)
+  /// ПЕРЕДАЧА С ПОДТВЕРЖДЕНИЕМ ХОЗЯИНА (16.11.2026, lib/ownershipTransferRequest.ts). Включена: РОП просит
+  /// передать объект или клиента, хозяин отвечает в большом окне. Выключена — РОП передавать не может
+  /// (директор передаёт сразу, как раньше).
+  ownerConfirmTransferEnabled       Boolean   @default(true)
+  /// Сколько часов ждём ответа хозяина; не ответил — передача отменяется.
+  ownerConfirmTransferHours         Int       @default(24)
   /// ЕСТЬ ЛИ ДЕЖУРНЫЙ ОПЕРАТОР / КОЛЛ-ЦЕНТР (смысл уточнён 23.08.2026).
   /// Включено — просьба «перезвоните мне» живёт отдельной записью: push дежурному,
   /// АТС соединяет его с клиентом, очередь видна баннером на главной.

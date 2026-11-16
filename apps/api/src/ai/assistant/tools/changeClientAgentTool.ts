@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientNeedsOwnerConfirm } from "../../../lib/ownershipTransferRequest.js";
 import { formatClientCode } from "@royal-home/shared";
 import { prisma } from "../../../db.js";
 import { loadAgentAccess } from "../../../auth/middleware.js";
@@ -101,7 +102,15 @@ const clientSelect = {
 } as const;
 
 async function readSnapshot(args: Args, actor: AssistantActionActor): Promise<Snapshot> {
-  await requireAssignAccess(actor);
+  const access = await requireAssignAccess(actor);
+  // РОП передаёт чужого клиента только с подтверждением хозяина (16.11.2026) — прямое назначение закрыто и здесь.
+  if (await clientNeedsOwnerConfirm({ id: actor.agentId, role: access.role }, args.clientId)) {
+    throw new AssistantActionError(
+      409,
+      "CONFLICT",
+      "Эта карточка у другого агента — передать её можно только с подтверждением хозяина. Отправьте запрос на передачу из карточки клиента."
+    );
+  }
   const [client, match, openDeal] = await Promise.all([
     prisma.client.findUnique({ where: { id: args.clientId }, select: clientSelect }),
     findActiveAgentByName(args.agentName),

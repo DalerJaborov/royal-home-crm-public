@@ -133,7 +133,7 @@ export interface AssignClientManuallyInput {
   accept?: boolean;
   actor: ManualAssignActor;
   /** Откуда нажали. Помощник — `assistant`: хвост причины и поле `via` в AuditLog. */
-  via?: "rest" | "assistant";
+  via?: "rest" | "assistant" | "owner_confirm";
   /**
    * Состояние, которое видел человек, подтверждая действие (снимок превью
    * помощника). Задано — запись идёт ТОЛЬКО если карточка всё ещё в нём:
@@ -203,7 +203,8 @@ export async function assignClientManually(input: AssignClientManuallyInput): Pr
 
   const toSelf = toAgentId === actor.id;
   const supervisorName = supervisor?.fullName ?? "Руководитель";
-  const viaSuffix = input.via === "assistant" ? " (через ИИ-помощника)" : "";
+  const viaSuffix =
+    input.via === "assistant" ? " (через ИИ-помощника)" : input.via === "owner_confirm" ? " (с согласия прежнего хозяина)" : "";
   const assignReason =
     (accept || toSelf
       ? `${supervisorName} забрал(а) заявку себе и принял(а) её`
@@ -278,7 +279,7 @@ export async function assignClientManually(input: AssignClientManuallyInput): Pr
     toAgentName: target.fullName,
     accepted: true,
     previousAgentId: row.assignedAgentId,
-    ...(input.via === "assistant" ? { via: "assistant" } : {}),
+    ...(input.via === "assistant" || input.via === "owner_confirm" ? { via: input.via } : {}),
   });
 
   // Назначенному агенту нужен push — его никто не спрашивал, лид «прилетел» вручную.
