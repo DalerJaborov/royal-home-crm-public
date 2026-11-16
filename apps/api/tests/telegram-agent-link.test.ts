@@ -132,6 +132,11 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => callAiText(input as never)),
+}));
 
 // Маркер бота убираем: без него getBotUsername/getFile лезли бы в сеть. Проверяем
 // маршрутизацию, а не саму отправку — тем же приёмом, что и telegram-album.test.ts.

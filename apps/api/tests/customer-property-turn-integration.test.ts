@@ -9,6 +9,11 @@ const { callAi } = vi.hoisted(() => ({ callAi: vi.fn() }));
 vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()), callAiText: callAi,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => callAi(input as never)),
+}));
 vi.mock("../src/loadEnv.js", () => ({}));
 import { prisma } from "../src/db.js";
 import { processMessengerTurn } from "../src/messengers/conversation.js";

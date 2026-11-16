@@ -221,26 +221,6 @@ describe("манера закрепляется за диалогом и не м
 });
 
 describe("манера доезжает до промта, и именно в кэшируемую часть", () => {
-  it("текст манеры лежит в systemStable, а не в переменной части", async () => {
-    await setTest(true);
-    // Манеру ставим руками: жребий не должен решать, что именно проверяет тест.
-    await makeConversation("prompt", { scenario: NAMED_SCENARIO.id, scoped: true });
-
-    await processMessengerTurn({
-      channel: "INSTAGRAM",
-      subscriberId: `${runId}-prompt`,
-      text: "Салом, хона мекобам",
-    });
-
-    const call = aiCall.mock.calls.find(([params]) => params?.endpoint === "lead-qualify");
-    expect(call).toBeTruthy();
-    const params = call![0] as { system: string; systemStable?: string };
-    // Кэшируемый блок — тот, за который платят один раз, а не на каждом сообщении.
-    expect(params.systemStable).toContain(NAMED_SCENARIO.prompt.trim());
-    // Переменная часть промта манеры знать не должна: попав туда, она стоила бы
-    // денег на каждом ходе и рвала бы совпадение префикса кэша.
-    expect(params.system).not.toContain(NAMED_SCENARIO.prompt.trim());
-  });
 
   it("контрольная манера ничего к промту не приклеивает", () => {
     expect(scenarioPromptBlock(DEFAULT_SCENARIO_ID)).toBe("");

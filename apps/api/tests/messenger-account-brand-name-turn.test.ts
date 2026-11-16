@@ -16,6 +16,11 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText: callAi,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => callAi(input as never)),
+}));
 
 const runId = Date.now().toString(36);
 let settingsBefore: { botReplyDelaySec: number; botReplyMaxWaitSec: number } | null = null;
@@ -66,8 +71,7 @@ describe("ход аккаунта с именем компании", () => {
     expect(result.shouldReply).not.toBe(false);
     expect(result.reply).toContain("Арван");
     expect(result.reply).not.toMatch(/Royal Home/);
-    const arg = callAi.mock.calls[0]![0] as { system: string; systemStable: string };
-    expect(arg.system + arg.systemStable).not.toMatch(/Royal[  ]+Home/i);
+    // The old prompt is gone (one brain, step 3b): the customer-visible text is what is checked here.
   });
 
   it("аккаунт без имени: «Royal Home» остаётся как был", async () => {
@@ -75,7 +79,6 @@ describe("ход аккаунта с именем компании", () => {
     resetAccountsCache();
     const result = await turn(`brand-turn-${runId}-b`);
     expect(result.reply).toContain("Royal Home");
-    const arg = callAi.mock.calls[0]![0] as { system: string; systemStable: string };
-    expect(arg.system + arg.systemStable).toMatch(/Royal Home/);
+    // The old prompt is gone (one brain, step 3b): the customer-visible text is what is checked here.
   });
 });

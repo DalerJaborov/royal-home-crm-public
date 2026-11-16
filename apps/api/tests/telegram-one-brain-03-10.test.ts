@@ -45,6 +45,11 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText,
 }));
+// The brain of the channel body is the one door now (one brain, step 3b): it answers with this test's scripted model.
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()),
+  runCustomerChannelTurn: (await import("./helpers/fakeChannelBrain.js")).channelBrainFromModel((input) => callAiText(input as never)),
+}));
 
 delete process.env.TELEGRAM_BOT_TOKEN;
 
@@ -364,39 +369,7 @@ describe("Заглушка «не расслышал» — только когд
     expect(messages.at(-1)).toMatchObject({ role: "assistant", content: NEUTRAL_REPLIES.statement.tg });
   }, 20_000);
 
-  it("личка: пустой ответ модели отклоняется целиком, входящее сохраняется и ставится повтор", async () => {
-    const chatId = newChatId(6);
-    await prisma.telegramConversation.create({
-      data: {
-        chatId,
-        username: `empty_${runId}`,
-        leadDraft: { stage: "chatting" } as any,
-        messages: [
-          { role: "user", content: "Салом" },
-          { role: "assistant", content: "Ассалому алейкум! Чӣ хизмат карда метавонем?" },
-        ] as any,
-        lastMessageAt: new Date(),
-      },
-    });
-    callAiText.mockResolvedValue({ reply: [], ready: false, confident: true });
-    await handleTelegramUpdate(textUpdate(chatId, `empty_${runId}`, "Хона дар Сино мехарам"));
-
-    expect(callAiText).toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(requestContact).not.toHaveBeenCalled();
-    expect(removeKeyboard).not.toHaveBeenCalled();
-    expect(sendMessageWithButtons).not.toHaveBeenCalled();
-    const conversation = await prisma.telegramConversation.findUniqueOrThrow({ where: { chatId } });
-    const messages = conversation.messages as Array<{ role: string; content: string }>;
-    expect(messages).toHaveLength(3);
-    expect(messages.at(-1)).toMatchObject({ role: "user", content: "Хона дар Сино мехарам" });
-    expect(conversation.clientId).toBeNull();
-    const job = await waitFor(() => prisma.backgroundJob.findUnique({
-      where: { dedupeKey: `telegram-reply-retry:${conversation.id}` },
-    }), { label: "повтор Telegram после пустого ответа модели" });
-    expect(job!.type).toBe("telegram-reply-retry");
-    expect(job!.payload).toMatchObject({ conversationId: conversation.id });
-  }, 20_000);
+  // «Пустой ответ модели отклоняется» проверял разбор ответа удалённого старого бота (один мозг, шаг 3б).
 
   // Direct Messages: модель в этом канале больше не отвечает (один мозг, шаг 3, 16.11.2026) — см. telegram-direct-auto-reply-retired.
 });
