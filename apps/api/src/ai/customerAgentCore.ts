@@ -21,6 +21,16 @@ export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./custom
 
 export interface CustomerAgentContent { role: "user" | "model"; parts: readonly unknown[] }
 export interface CustomerAgentToolDefinition { name: CustomerAgentToolCall["name"]; description: string; parameters?: Record<string, unknown> }
+/** What the model sees for a refused tool call. Storage/provider details stay server-only; only closed, known reasons pass
+ * (review 16.11 K-3: a search budget outside sane bounds must be clarified with the customer, not read as «nothing found»). */
+export function customerAgentDeniedProjection(result: { status: string; reason?: string }): Record<string, string> {
+  if (result.status === "denied" && result.reason === "phone_required") return { status: "needs_input", field: "phone" };
+  if (result.status === "denied" && result.reason === "budget_out_of_range") {
+    return { status: "denied", reason: "budget_out_of_range",
+      hint: "Сумма бюджета вне разумных границ для своей валюты. Уточните у клиента сумму и валюту; не говорите, что ничего не нашлось." };
+  }
+  return { status: result.status };
+}
 export type CustomerAgentToolResult =
   | { status: "observed"; observation: CustomerAgentObservation }
   | { status: "denied" | "unavailable" | "unknown"; reason: string };
@@ -320,9 +330,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         context?.turns, context?.recruitmentKnown, context?.recruitmentAnswerTo) };
     } else {
       // Storage/provider details are server-only; do not inject raw error text.
-      projected = result.status === "denied" && result.reason === "phone_required"
-        ? { status: "needs_input", field: "phone" }
-        : { status: result.status };
+      projected = customerAgentDeniedProjection(result);
     }
     if (result.status !== "unknown") unsettledWrites.delete(callKey);
     if (id) seen.set(id, { call: serialized, result: clone(projected) });

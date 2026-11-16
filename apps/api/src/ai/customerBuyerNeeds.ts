@@ -213,8 +213,28 @@ function tokensOf(own: string): AmountToken[] {
 
 export interface BuyerBudgetReading { min?: number; max?: number; currency?: Currency }
 
+/**
+ * Million words a customer types (review 16.11, К-1/К-2): «1 млн 200 тысяч» / «1млн 200т» = 1 200 000, «миллион» = 1 000 000,
+ * «полтора миллиона» = 1 500 000, «полмиллиона» = 500 000, тадж. «як миллион», «якуним миллион», «ним миллион». Rewritten into the
+ * plain «N тыс» / «N млн» forms the reader below already understands, so every other rule (range, currency, sanity) stays one.
+ */
+export function normalizeMoneyWords(text: string): string {
+  const MLN = String.raw`(?:млн\.?|миллион\p{L}*)`;
+  const THOUSAND = String.raw`(?:тыс\p{L}*\.?|ҳазор\p{L}*|хазор\p{L}*|т\.?(?![\p{L}\p{N}]))`;
+  return text
+    // «1 млн 200 тысяч», «1,5 миллиона 300 тыс», «1млн 200т» → thousands with one unit.
+    .replace(new RegExp(String.raw`(?<![\p{L}\p{N}.,])(\d{1,3})\s*${MLN}\s*(\d{1,3})\s*${THOUSAND}`, "giu"),
+      (_m, mln: string, th: string) => `${Number(mln) * 1000 + Number(th)} тыс`)
+    .replace(new RegExp(String.raw`(?<![\p{L}\p{N}])(?:полтора|полторы|якуним|яку\s+ним)\s+${MLN}`, "giu"), "1500 тыс")
+    .replace(new RegExp(String.raw`(?<![\p{L}\p{N}])(?:пол\s*-?\s*|ним\s+)${MLN}`, "giu"), "500 тыс")
+    .replace(new RegExp(String.raw`(?<![\p{L}\p{N}])як\s+${MLN}`, "giu"), "1 млн")
+    // A bare «миллион» (no number before it): one million.
+    .replace(new RegExp(String.raw`(?<![\p{N}][\s.,]*)(?<![\p{L}\p{N}])(миллион\p{L}*|млн\.?)(?=[\s$.,!?]|$)`, "giu"), "1 млн");
+}
+
 /** The amounts in a customer's message as a budget (min/max in the customer's own currency), or undefined. Never invents a currency. */
-function budgetOf(own: string, asked: BuyerNeedKey | undefined): BuyerBudgetReading | undefined {
+function budgetOf(said: string, asked: BuyerNeedKey | undefined): BuyerBudgetReading | undefined {
+  const own = normalizeMoneyWords(said);
   const all = tokensOf(own);
   const priceQuestion = PRICE_QUESTION.test(own);
   // A token is money when it names a currency or a thousand/million, or sits after a budget marker with a plausible size.

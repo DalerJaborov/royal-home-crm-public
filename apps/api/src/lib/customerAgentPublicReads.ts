@@ -89,6 +89,8 @@ export interface CustomerAgentPublicDataOptions {
    * brands: office, hours and rules stay shared (customerCompanyInformation.ts). */
   brandName?: string | null;
 }
+/** Причина отказа поиска: бюджет вне разумных границ своей валюты — модель уточняет сумму, а не говорит «ничего не нашлось». */
+export const CUSTOMER_SEARCH_BUDGET_OUT_OF_RANGE = "budget_out_of_range";
 export type CustomerAgentPublicDataResult =
     { status: "observed"; observation: CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentPublicationObservation | CustomerAgentCompanyInformationObservation | CustomerAgentVacanciesObservation } |
     { status: "denied" | "unavailable"; reason: string };
@@ -101,11 +103,11 @@ export type CustomerAgentPublicDataResult =
 export async function readCustomerAgentPublicData(rawCall: unknown, options: CustomerAgentPublicDataOptions): Promise<CustomerAgentPublicDataResult> {
   const call = calls.safeParse(rawCall);
   if (!call.success) return { status: "denied", reason: "invalid_public_call" };
-  // Бюджет вне разумных границ своей валюты («50», лишний ноль) — тот же отказ, что у неверного вызова (14.11.2026): потолком каталога
+  // Бюджет вне разумных границ своей валюты («50», лишний ноль) — отказ с причиной (14.11.2026, ревью 16.11 К-3): потолком каталога
   // он не становится. Проверка здесь, а не в общей схеме: схема входит в отпечаток знаний версии бота (пара обновления V2).
   const budget = call.data.name === "search_public_properties" ? call.data.args.budget : undefined;
   if (budget && ![budget.min, budget.max].every(bound => bound === undefined || customerSearchBudgetSane(bound, budget.currency))) {
-    return { status: "denied", reason: "invalid_public_call" };
+    return { status: "denied", reason: CUSTOMER_SEARCH_BUDGET_OUT_OF_RANGE };
   }
   try {
     if (call.data.name === "get_company_information") return { status: "observed", observation: await readCustomerCompanyInformation(options.brandName) };

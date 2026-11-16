@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { customerAgentPropertySearchCallSchema, customerAgentVerifiedContextSchema, type CustomerAgentEvidence, type CustomerAgentVerifiedContext } from "@royal-home/shared";
 import { customerSearchBudgetSane } from "@royal-home/shared";
 import { readCustomerAgentPublicData } from "../src/lib/customerAgentPublicReads.js";
+import { customerAgentDeniedProjection } from "../src/ai/customerAgentCore.js";
 import { customerAgentIntake } from "../src/ai/customerAgentIntake.js";
 import { customerAgentRenderedQuestion, customerAgentQuestionCatalog } from "../src/ai/customerAgentRenderer.js";
 import { customerSearchContinuation, customerSearchIntent, customerSearchIntentWithKnownNeeds, customerSearchPreRead } from "../src/ai/customerAgentSearchIntent.js";
@@ -133,8 +134,14 @@ describe("the contract code holds (model arguments and the stored summary)", () 
     // The shared schema is in knowledgeSchemaHash (upgrade pair V2): it accepts the shape, the server refuses the amount.
     expect(customerAgentPropertySearchCallSchema.safeParse(call({ max: "60", currency: "USD" })).success).toBe(true);
     for (const budget of [{ max: "60", currency: "USD" }, { max: "900000000000", currency: "USD" }, { min: "100", max: "60000", currency: "USD" }]) {
-      expect(await readCustomerAgentPublicData(call(budget), {} as never)).toEqual({ status: "denied", reason: "invalid_public_call" });
+      expect(await readCustomerAgentPublicData(call(budget), {} as never)).toEqual({ status: "denied", reason: "budget_out_of_range" });
     }
+    // The model is told why (review 16.11 К-3): clarify the amount, never «nothing found».
+    const seen = customerAgentDeniedProjection({ status: "denied", reason: "budget_out_of_range" });
+    expect(seen).toMatchObject({ status: "denied", reason: "budget_out_of_range" });
+    expect(seen.hint).toContain("Уточните у клиента сумму и валюту");
+    expect(customerAgentDeniedProjection({ status: "denied", reason: "invalid_public_call" })).toEqual({ status: "denied" });
+    expect(customerAgentDeniedProjection({ status: "denied", reason: "phone_required" })).toEqual({ status: "needs_input", field: "phone" });
   });
   it("the verified context carries buyerNeeds strictly", () => {
     const base = { surface: "dm", revisionId: "a".repeat(64), turns: [], publicState: { language: "ru", topic: "unknown", openQuestion: "none" } };

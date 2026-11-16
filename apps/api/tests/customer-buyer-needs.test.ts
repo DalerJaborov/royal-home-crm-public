@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buyerNeedsFromMessages, buyerNeedsKnown, buyerNextQuestion, buyerQuestionAsked, customerSearchRequested, readBuyerNeeds } from "../src/ai/customerBuyerNeeds.js";
+import { buyerNeedsFromMessages, buyerNeedsKnown, buyerNextQuestion, buyerQuestionAsked, customerSearchRequested, normalizeMoneyWords, readBuyerNeeds } from "../src/ai/customerBuyerNeeds.js";
 
 /** Real forms (RU / TJ / mixed) in which a buyer names budget, rooms and place. Pure text, no model. */
 describe("budget in the customer's own words", () => {
@@ -46,6 +46,21 @@ describe("budget in the customer's own words", () => {
   it("rejects an amount outside the sane range for its currency (an extra zero, a floor number)", () => {
     expect(readBuyerNeeds("до 500 долларов").budget).toBeUndefined();
     expect(readBuyerNeeds("до 900000000 долларов").budget).toBeUndefined();
+  });
+});
+
+describe("million words (review 16.11, К-1/К-2)", () => {
+  it.each([
+    ["до 1 млн 200 тысяч сомони", 1_200_000], ["1 миллион 500 тысяч сомони", 1_500_000], ["бюджет 1млн 200т сомони", 1_200_000],
+    ["миллион сомони", 1_000_000], ["полтора миллиона сомони", 1_500_000], ["полмиллиона сомони", 500_000],
+    ["як миллион сомонӣ", 1_000_000], ["якуним миллион сомонӣ", 1_500_000], ["до 1,2 млн сомони", 1_200_000],
+  ] as const)("%s → %d TJS", (text, max) => {
+    expect(readBuyerNeeds(text).budget).toEqual({ max, currency: "TJS" });
+  });
+  it("a million without a number before it, in dollars, and the plain forms stay as they were", () => {
+    expect(normalizeMoneyWords("квартира за миллион долларов")).toBe("квартира за 1 млн долларов");
+    expect(readBuyerNeeds("от 40 до 60 тысяч долларов").budget).toEqual({ min: 40000, max: 60000, currency: "USD" });
+    expect(normalizeMoneyWords("до 1,2 млн сомони")).toBe("до 1,2 млн сомони");
   });
 });
 
