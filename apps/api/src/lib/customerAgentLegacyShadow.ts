@@ -1,17 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { customerAgentVerifiedContextSchema, type CustomerAgentLegacyChannel, type CustomerAgentToolCall,
-  type CustomerAgentVerifiedContext, type TraceLegacyShadow } from "@royal-home/shared";
-import { prisma } from "../db.js";
-import { runCustomerAgentTurn, type CustomerAgentToolResult, type CustomerCoreResult } from "../ai/customerAgentCore.js";
-import { customerAgentToolDefinitions } from "../ai/customerAgentToolDefinitions.js";
-import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
+import { type CustomerAgentLegacyChannel, type CustomerAgentVerifiedContext, type TraceLegacyShadow } from "@royal-home/shared";
+import type { CustomerCoreResult } from "../ai/customerAgentCore.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
 import { accountBrandName } from "../messengers/accounts.js";
-import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
-import { openPinnedCustomerAgentRuntime } from "./customerAgentRuntime.js";
-import { readCustomerAgentPublicData } from "./customerAgentPublicReads.js";
-import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
-import { withBotTurnTrace, traceCustomerCoreResult, traceLegacyShadow, customerManagedTraceEnabled, type TraceConfig } from "./botTurnTrace.js";
+import { traceLegacyShadow, customerManagedTraceEnabled, type TraceConfig } from "./botTurnTrace.js";
+import { runChannelCoreTurn } from "./customerChannelCore.js";
 import { customerAgentChannelMode, customerAgentLegacyChannelKey, customerAgentShadowChannels, customerAgentShadowDailyCap } from "./customerAgentChannelSwitch.js";
 import { dushanbeDateString } from "./dushanbeTime.js";
 
@@ -37,6 +29,8 @@ export interface LegacyTurnSummary { replied: boolean; bubbles: number; askedPho
 export interface LegacyShadowTurn {
   /** BotConversation channel: INSTAGRAM | FACEBOOK | WHATSAPP | WEBSITE | YOUTUBE | TELEGRAM. */
   channel: string;
+  /** `public_comment` for YouTube comments; private conversations otherwise. */
+  surface?: "dm" | "public_comment";
   /** MessengerAccount.id of the conversation (brand); null for channels without accounts. */
   accountId?: string | null;
   /** The SAME raw values the legacy trace keys use (account = accountExternalId, event = message id), so the
@@ -50,9 +44,7 @@ export interface LegacyShadowTurn {
   legacy: LegacyTurnSummary;
 }
 
-const SHADOW_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
 const MAX_PARALLEL = 2;
-const MAX_DEADLINE_MS = 60_000;
 let running = 0;
 let day = "";
 let spent = 0;
@@ -88,66 +80,26 @@ export async function runLegacyCoreShadow(turn: LegacyShadowTurn, options: { tra
   const key: CustomerAgentLegacyChannel | null = customerAgentLegacyChannelKey(turn.channel, brandName);
   // No trace storage, no comparison: never spend a model call that nobody can read.
   if (!key || customerAgentChannelMode(key) !== "shadow" || !customerManagedTraceEnabled()) return "skipped";
-  const { inputText, turns } = legacyShadowTurns(turn.history);
+  const { inputText } = legacyShadowTurns(turn.history);
   if (!inputText) return "skipped";
   const today = dushanbeDateString();
   if (today !== day) { day = today; spent = 0; }
   if (spent >= customerAgentShadowDailyCap() || running >= MAX_PARALLEL) return "skipped";
   spent++; running++;
   try {
-    const [policy] = await prisma.$queryRaw<Array<{ activeAgentRevisionId: string | null }>>`
-      SELECT "activeAgentRevisionId" FROM "CustomerRuntimePolicy" WHERE "id"='singleton'`;
-    if (!policy?.activeAgentRevisionId) return "skipped";
-    const [row] = await prisma.$queryRaw<Array<{ id: string; manifestJson: unknown }>>`
-      SELECT "id","manifestJson" FROM "CustomerAgentRevision" WHERE "id"=${policy.activeAgentRevisionId}`;
-    if (!row) return "skipped";
-    const revision = decodeCustomerAgentRevision(row);
-    return await withBotTurnTrace({ channel: turn.channel, account: turn.traceAccount ?? null, event: turn.eventId ?? null,
-      conversation: turn.conversationId ?? null, source: "internal", kind: "text",
-      managed: { surface: "dm", phase: "shadow", revisionId: revision.id } }, async () => {
-      const startedAt = Date.now();
-      const opened = await openPinnedCustomerAgentRuntime({ revision, providerOperationId: randomUUID(), originalReceivedAt: startedAt,
-        providerDeadlineAt: startedAt + Math.min(revision.limits.deadlineMs, MAX_DEADLINE_MS),
-        // No authority to re-check: the shadow owns no input, claim or customer.
-        assertCurrent: async () => true });
-      if (opened.status !== "ready") return "held" as const;
-      const runtime = opened.runtime;
-      try {
-        const priorUser = turns.filter(item => item.role === "user").map(item => item.text);
-        const language = resolveCustomerDmLanguage(inputText, priorUser);
-        const context = customerAgentVerifiedContextSchema.safeParse({ surface: "dm", revisionId: revision.id, turns,
-          publicState: { language: "unknown", topic: "unknown", openQuestion: "none" } });
-        const linkPreference = turn.channel === "WEBSITE" ? "site" as const : "social" as const;
-        const result = await runCustomerAgentTurn({ surface: "dm", language, inputText,
-          knownPhoneSource: turn.phoneKnown ? "scoped_contact" : "none", requestedFacts: [], revision, startedAt,
-          operation: runtime.operation, tools: customerAgentToolDefinitions([...SHADOW_TOOLS]),
-          ...(context.success ? { verifiedContext: context.data } : {}), sayMode: "shadow" }, {
-          assertCurrent: async () => true,
-          modelTurn: input => runtime.modelTurn(input),
-          executeAllowedTool: call => shadowTool(call, { knowledgeSourceHash: revision.knowledgeSourceHash, linkPreference, brandName }),
-          requestStop: () => runtime.stop(),
-          observeLateToolResult: () => {},
-        });
-        traceCustomerCoreResult(result);
+    let recorded = false;
+    // The same core run as the live channel adapter (lib/customerChannelCore.ts), in shadow: nothing is returned to send.
+    const outcome = await runChannelCoreTurn({ channel: turn.channel, channelKey: key, surface: turn.surface ?? "dm", accountId: turn.accountId ?? null,
+      traceAccount: turn.traceAccount ?? null, conversationId: turn.conversationId ?? null, eventId: turn.eventId ?? null,
+      history: turn.history, phoneKnown: turn.phoneKnown }, { mode: "shadow", traceConfig: options.traceConfig,
+      afterCore: (result, context) => {
         const core = legacyShadowCoreView(result);
         traceLegacyShadow({ channelKey: key, legacy: { ...turn.legacy, bubbles: Math.min(8, Math.max(0, turn.legacy.bubbles)) }, core,
           agree: { replied: core.replied === turn.legacy.replied, askedPhone: core.askedPhone === turn.legacy.askedPhone },
-          toolsOffered: SHADOW_TOOLS.length, historyTurns: context.success ? context.data.turns.length : 0 });
-        return "recorded" as const;
-      } finally {
-        // Settle the provider operation exactly like the live adapters (close only; aborting first could leave it HELD).
-        await runtime.close().catch(() => {});
-      }
-    }, options.traceConfig);
+          toolsOffered: context.toolsOffered, historyTurns: context.historyTurns });
+        recorded = true;
+      } });
+    if (recorded) return "recorded";
+    return outcome.status === "unavailable" ? "held" : "skipped";
   } finally { running--; }
-}
-
-/** Public reads only, from the same internal data service the live adapters use. Every write is denied. */
-async function shadowTool(call: CustomerAgentToolCall, options: { knowledgeSourceHash: string; linkPreference: "site" | "social"; brandName: string | null }): Promise<CustomerAgentToolResult> {
-  if (call.name === "get_agency_contact") return { status: "observed", observation: {
-    kind: "agency_contact", contact: { phone: PUBLIC_AGENCY_CONTACT.phone, digits: PUBLIC_AGENCY_CONTACT.digits, channel: "telephone" } } };
-  if (!(SHADOW_TOOLS as readonly string[]).includes(call.name)) return { status: "denied", reason: "shadow_read_only" };
-  const read = await readCustomerAgentPublicData(call, { knowledgeSourceHash: options.knowledgeSourceHash,
-    linkPreference: options.linkPreference, brandName: options.brandName });
-  return read.status === "observed" ? { status: "observed", observation: read.observation } : read;
 }

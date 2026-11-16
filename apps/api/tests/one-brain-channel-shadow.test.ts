@@ -119,7 +119,7 @@ describe("shadow run", () => {
     });
     const rec = recorder();
     expect(await runLegacyCoreShadow(turn({ channel: "INSTAGRAM", accountId: "acc-arvan", traceAccount: "1784" }), rec)).toBe("recorded");
-    expect(toolResults[0]).toEqual({ status: "denied", reason: "shadow_read_only" });
+    expect(toolResults[0]).toEqual({ status: "denied", reason: "channel_read_only" });
     expect(toolResults[1]).toMatchObject({ status: "observed" });
     expect(f.publicRead.mock.calls[0][1]).toMatchObject({ brandName: "Арван", linkPreference: "social" });
     const last = rec.rows.at(-1)!;

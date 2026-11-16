@@ -4,7 +4,7 @@ import { customerMutationReceiptSchema } from "./customerMutation.js";
 
 export const BOT_TURN_TRACE_COVERAGE = "meta_website_customer_bot_v1" as const;
 export const BOT_CUSTOMER_AGENT_TRACE_COVERAGE = "customer_agent_dm_public_v1" as const;
-/** TELEGRAM and YOUTUBE carry only the one-brain shadow record (phase "shadow"); their legacy turns are not traced. */
+/** TELEGRAM and YOUTUBE carry only the one-brain records: shadow (phase "shadow") and the core channel adapter (phase "channel"). */
 export const traceChannelSchema = z.enum(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE", "TELEGRAM", "YOUTUBE"]);
 export const traceSourceSchema = z.enum(["webhook", "website", "ai_retry", "manual_retry", "internal", "delivery_status"]);
 export const traceOutcomeSchema = z.enum(["incomplete", "completed", "duplicate", "remembered", "echo", "manual", "bot_off", "batched", "no_reply", "failed", "blocked", "partially_sent"]);
@@ -68,7 +68,7 @@ export const traceCustomerCoreStopCodeSchema = z.enum([
 const traceCustomerDecisionKindSchema = decisionKind;
 const traceCustomerSkipReasonSchema = z.enum(["no_reply_needed", "duplicate", "unsupported"]);
 export const traceManagedContextSchema = z.strictObject({
-  surface: customerAgentSurfaceSchema.exclude(["voice"]), phase: z.enum(["planning", "delivery", "shadow"]),
+  surface: customerAgentSurfaceSchema.exclude(["voice"]), phase: z.enum(["planning", "delivery", "shadow", "channel"]),
   revisionId: z.string().regex(/^[a-f0-9]{64}$/).optional(), operationKey: key,
 });
 export const traceCustomerCoreSchema = z.strictObject({

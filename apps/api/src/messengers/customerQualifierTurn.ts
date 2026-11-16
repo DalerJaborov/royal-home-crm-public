@@ -59,8 +59,8 @@ async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial:
   });
   if (!input.retryOfPaidTurn) await spendAiTurns(lane.ticket.conversationId, budget.dayKey);
   if (!await refresh()) return { ...HELD };
-  const result = await runLegacyQualifyTurn([...lane.context.history], { ...lane.context.draft }, options(), input.retryOfPaidTurn ? null
-    : { channel: input.channel, traceAccount: input.accountExternalId ?? null, eventId: input.messageId ?? null });
+  const result = await runLegacyQualifyTurn([...lane.context.history], { ...lane.context.draft }, options(), { channel: input.channel,
+    traceAccount: input.accountExternalId ?? null, eventId: input.messageId ?? null, ...(input.retryOfPaidTurn ? { repeat: "retry" as const } : {}) });
   if (!await refresh()) return { ...HELD };
   if (!result) return { ...HELD, aiUnavailable: true };
   const blockedAction = !!(result.askOwner || result.callbackRequest || result.jobApplication ||
@@ -77,7 +77,8 @@ async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial:
     // A regeneration is the same read-only call, with the same original proof.
     regenerate: blockedAction ? undefined : async retryDirective => {
       if (!await refresh()) return null;
-      const retry = await runLegacyQualifyTurn([...lane.context.history], { ...lane.context.draft }, { ...options(), retryDirective }, null);
+      const retry = await runLegacyQualifyTurn([...lane.context.history], { ...lane.context.draft }, { ...options(), retryDirective },
+        { channel: input.channel, repeat: "regeneration" });
       if (!await refresh() || !retry) return null;
       return retry.askOwner || retry.callbackRequest || retry.jobApplication || retry.showPropertyNumber || retry.sendGuide || retry.showing
         ? [inClientLanguage(NO_EFFECT, text)] : retry.reply;

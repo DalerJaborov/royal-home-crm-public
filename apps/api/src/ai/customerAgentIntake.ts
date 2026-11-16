@@ -2,6 +2,7 @@ import { collectSellerFacts, SELLER_FACT_ORDER, type SellerFactKey } from "./sel
 import { customerRoleSignals } from "./customerAgentRole.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
+import { detectForeignPlace, detectOutsideCoverage } from "./coverageGuard.js";
 
 /** Customer words only. This is conversational progress, never identity,
  * consent, a property record, a stored Profile or proof of a completed action. */
@@ -34,6 +35,23 @@ export function customerAgentIntake(turns: readonly { role: "user" | "assistant"
       /(?:бюджет|буҷет|бучет|могу\s+(?:потратить|заплатить)|до|то)\s*[:—-]?\s*\d/iu.test(text) ? "budget" : null,
       /(?:район|ноҳия|нохия|Сино|Фирдавс|Шоҳмансур|Шохмансур|Исмоил|ориентир|назди|тарафи)/iu.test(text) ? "location" : null,
     ].filter((v): v is "rooms" | "budget" | "location" => v !== null)))] : [] };
+}
+
+/**
+ * WHERE THE PROPERTY IS — the two lead-draft fields the old bot filled from its model schema (one brain, step 3):
+ * `locationOutsideDushanbe` (another city or district of Tajikistan: the lead goes to «Прочие обращения», the phone is still
+ * taken) and `locationDifferentCountry` (a SELLER's property abroad: no lead at all, as before). Code decides from the
+ * customer's own words only (ai/coverageGuard.ts); a mention of Dushanbe or Rudaki anywhere lifts both. Zone: Dushanbe + Rudaki.
+ * A buyer who lives abroad is our normal client, so "other country" is a seller-only verdict, exactly like the old field.
+ */
+export function customerIntakeLocation(ownTexts: readonly string[], role: "buyer" | "seller" | "unknown"):
+  { locationOutsideDushanbe?: true; locationDifferentCountry?: true; place?: string } {
+  const own = ownTexts.map(text => clientOwnWords(text)).filter(Boolean).join("\n");
+  if (!own.trim()) return {};
+  const outside = detectOutsideCoverage(own);
+  if (outside) return { locationOutsideDushanbe: true, place: outside.place };
+  const foreign = role === "seller" ? detectForeignPlace(own) : null;
+  return foreign ? { locationDifferentCountry: true, place: foreign.place } : {};
 }
 
 const labels: Record<SellerFactKey, { ru: string; tg: string }> = {

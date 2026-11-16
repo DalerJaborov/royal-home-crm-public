@@ -97,7 +97,7 @@ export const telegramReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       // память бота работала бы «в основном режиме, но не при повторе».
       contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
       phoneKnown,
-    }, null); // retry of an already-shadowed turn
+    }, { channel: "TELEGRAM", repeat: "retry" }); // a repeat of an already-shadowed turn (the core runs again in `core` mode)
     // Модель всё ещё лежит — исключение отдаёт задание очереди на следующую
     // ступень лесенки (см. aiReplyRetryPolicy.ts).
     if (!result) throw new Error("ИИ всё ещё недоступен");

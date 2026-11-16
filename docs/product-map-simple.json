@@ -16,10 +16,10 @@
   "paths": 754,
   "cron": 137,
   "jobs": 33,
-  "conditions": 4052,
-  "untranslatedUnique": 463,
-  "untranslatedTotal": 593,
-  "partialUnique": 1099,
+  "conditions": 4044,
+  "untranslatedUnique": 464,
+  "untranslatedTotal": 594,
+  "partialUnique": 1102,
   "translatedShare": 85
  },
  "untranslated": [
@@ -341,6 +341,7 @@
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
   "items.some((i) => i.propertyId === req.params.id)",
+  "key && customerAgentChannelMode(key) === \"core\"",
   "key.startsWith(\"client:\")",
   "key.startsWith(\"td_\")",
   "lastAlertDay === today",
@@ -422,7 +423,6 @@
   "req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" && (client.assignmentCompletedAt || client.dele…",
   "request?.kind !== \"PRICE_CHANGE\" || request.status !== \"PENDING\" || readPriceUndoGuard(request.payload)?.assi…",
   "requestedTail !== phoneTail(client.phone)",
-  "requirementsNotes.length + text.length + 1 <= 4000",
   "rest.phone !== undefined && rest.phone !== target.phone",
   "rest.phone && rest.phone !== existing.phone",
   "rest.role !== undefined && rest.role !== target.role",
@@ -485,7 +485,8 @@
   "wall.getUTCDay() !== settings.digestWeekday",
   "wall.getUTCHours() !== settings.digestHourDushanbe",
   "workStart === workEnd",
-  "youtubeRefreshToken && !skip.has(\"YOUTUBE\") && params.localVideoPath.startsWith(\"/uploads/\")"
+  "youtubeRefreshToken && !skip.has(\"YOUTUBE\") && params.localVideoPath.startsWith(\"/uploads/\")",
+  "zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000"
  ],
  "unknownCalls": [
   "GET /api/v1/properties/:x/group-share/:x/done — адрес есть, но другим способом"
@@ -79452,19 +79453,31 @@
          "raw": "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))"
         },
         {
+         "t": "если есть location different country",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
          "t": "и так по каждому",
          "k": "loop",
          "a": [],
          "c": [
           {
-           "t": "если requirementsNotes.length + text.length + 1 <= 4000",
+           "t": "если zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "requirementsNotes.length + text.length + 1 <= 4000",
+           "raw": "zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000",
            "more": true
           }
          ]
+        },
+        {
+         "t": "если есть zone заметка",
+         "k": "if",
+         "a": [],
+         "c": []
         }
        ]
       },
@@ -83418,55 +83431,6 @@
      "c": []
     },
     {
-     "t": "если это operator пауза активен",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если выключено: Telegram direct messages",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "внутри этого шага",
-     "k": "do",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: клиент",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если клиент не задан",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если нет: клиент или есть удалён at",
-       "k": "if",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если телефон known — «deleted»",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если нет: последний или роль (последний) не «user» или нет: content",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
      "t": "внутри этого шага",
      "k": "do",
      "a": [],
@@ -83477,8 +83441,38 @@
        "a": [],
        "c": [
         {
-         "t": "если нет: s",
+         "t": "если нет: переписка",
          "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если канал не «TELEGRAM» и канал не «TELEGRAM_DIRECT»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: чат или есть удалён at",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: recipients количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если claimed не «1»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "push-уведомление",
+         "k": "do",
          "a": [],
          "c": []
         }
@@ -83488,139 +83482,10 @@
        "t": "если не получилось",
        "k": "catch",
        "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "внутри этого шага",
-     "k": "do",
-     "a": [],
-     "c": [
-      {
-       "t": "если есть shadow",
-       "k": "if",
-       "a": [],
        "c": [
         {
-         "t": "пробует сделать",
-         "k": "try",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если не получилось",
-         "k": "catch",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если нет: ответ",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "поломка: «ИИ всё ещё недоступен»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "пробует сделать",
-     "k": "try",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если не получилось",
-     "k": "catch",
-     "a": [],
-     "c": [
-      {
-       "t": "поломка: «повтор не удался: ${describeError(err»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если не получилось",
-     "k": "catch",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: переписка",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "запись в журнал ошибок",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "если это private operation",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если source — «investigation»",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если сервер сейчас выключается",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "пробует сделать",
-         "k": "try",
-         "a": [],
-         "c": [
-          {
-           "t": "если есть недавняя запись",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "заводит: запись в журнале ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          },
-          {
-           "t": "если нет: quiet пульт",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если нет: ever просмотрено и нет: молчащие",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        },
-        {
-         "t": "если не получилось",
-         "k": "catch",
+         "t": "запись в журнал ошибок",
+         "k": "do",
          "a": [],
          "c": []
         }
@@ -83720,7 +83585,21 @@
      "a": [],
      "c": [
       {
-       "t": "если есть shadow",
+       "t": "если key && customerAgentChannelMode(key) === \"core\"",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если repeat — «regeneration»",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "key && customerAgentChannelMode(key) === \"core\""
+      },
+      {
+       "t": "если нет: repeat",
        "k": "if",
        "a": [],
        "c": [

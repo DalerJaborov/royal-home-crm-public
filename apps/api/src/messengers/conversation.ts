@@ -3988,7 +3988,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       {
         regenerate: async (retryDirective) =>
           // A regeneration of the same turn: the shadow already ran for it.
-          (await runLegacyQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }, null))?.reply ?? null,
+          (await runLegacyQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }, { channel, repeat: "regeneration" }))?.reply ?? null,
         shieldBlocked: (bubbles) => repeatBlockedTexts(channel, subscriberId, bubbles, undefined, input.customerTransport),
       }
     );
@@ -4202,8 +4202,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   if (!input.retryOfPaidTurn) await spendAiTurns(conversation.id, budget.dayKey);
   // One brain, step 2: the per-channel shadow (lib/customerAgentChannelSwitch.ts). A paid retry repeats an already-shadowed turn.
-  const result = await runLegacyQualifyTurn(nextHistory, draft, qualifyOptions, input.retryOfPaidTurn ? null
-    : { channel, traceAccount: input.accountExternalId ?? null, eventId: input.skipSaveIncoming ? null : input.messageId ?? null });
+  const result = await runLegacyQualifyTurn(nextHistory, draft, qualifyOptions, { channel, traceAccount: input.accountExternalId ?? null,
+    eventId: input.skipSaveIncoming ? null : input.messageId ?? null, ...(input.retryOfPaidTurn ? { repeat: "retry" as const } : {}) });
 
   if (!result) {
     /**

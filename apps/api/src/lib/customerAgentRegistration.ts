@@ -64,7 +64,9 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       // Режим «только заявки» (13.11.2026): решает, что ядро ответит и кому уйдёт заявка.
       "./customerLeadOnlyCore.js", "./leadOnlySettings.js", "../ai/leadOnlyMode.js", "./leadOnlyHandover.js",
       // Метка рекламы решает тему разговора ядра (вакансия, продавец, объект) — 13.11.2026.
-      "./adAttribution.js", "../ai/adTemplateOpener.js", "../ai/adTemplatePhrase.js"].map(apiFile)),
+      "./adAttribution.js", "../ai/adTemplateOpener.js", "../ai/adTemplatePhrase.js",
+      // Один мозг, шаг 3 (16.11.2026): адаптер каналов без своего ядра, голос компании по аккаунту, место объекта в анкете.
+      "./customerChannelCore.js", "./customerAgentBrandRead.js", "../ai/customerAgentBrand.js", "../ai/coverageGuard.js"].map(apiFile)),
     fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentStaffFollowUp.js", "../ai/customerAgentLiveWording.js", "../ai/adTemplatePhrase.js", "../ai/bannedWordsGuard.js", "../ai/customerAgentSay.js", "../ai/customerAgentAnswer.js", "../ai/catalogClaimsGuard.js", "../ai/priceGuard.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
       "./customerPropertyFacts.js"].map(apiFile).concat(["customerPropertyPresentation.js", "propertyFinish.js", "propertyTypeFields.js", "recruitmentContact.js"].map(path => new URL(path, sharedEntry)))),
     fileGroup(["customerAgent.js", "customerAgentDeliveryEvidence.js", "customerMutation.js", "customerState.js", "customerTools.js", "customerHandoverAck.js", "botTurnTrace.js", "customerAgentRollout.js", "customerAgentOwnerControls.js"].map(path => new URL(path, sharedEntry))),
