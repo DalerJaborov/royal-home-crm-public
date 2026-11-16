@@ -50,8 +50,10 @@
 
 ## Версия бота
 
-Меняются `coreHash`, `rendererHash`, `modelSchemaHash` (вопрос `budget_currency`, `buyerNeeds`), `toolSchemaHash` (описание
-инструмента), `promptHash` НЕ меняется (промпт не тронут: правила в `intakeGuidance` и описании инструмента). После выката ядро
+Меняются `coreHash`, `rendererHash`, `modelSchemaHash` (вопрос `budget_currency`, `buyerNeeds`); `toolSchemaHash` НЕ меняется
+(16.11: описание `search_public_properties` возвращено к main — его отпечаток закреплён в паре обновления
+`CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2`; прежние условия покупателя подставляет в поиск сервер,
+`customerSearchIntentWithKnownNeeds`, а модели то же правило даёт `intakeGuidance`), `promptHash` НЕ меняется (промпт не тронут: правила в `intakeGuidance` и описании инструмента). После выката ядро
 обновится по штатному пути (`customer-agent-auto-refresh`), кнопка не нужна только если ревизия подхватится сама; проверить.
 
 ## Пересечение с PR #173 (`claude/core-knowledge-13-11`)
