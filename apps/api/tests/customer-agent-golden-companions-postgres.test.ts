@@ -99,7 +99,8 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     const b = await f.capture(o, "Меня зовут Рустам");
     f.script([[call("save_contact", { name: "Рустам" }, "name")], [reply(["e0"], "phone")]]);
     const second = await f.deliver(b);
-    expect(second.text).toBe("Спасибо, записал."); noPersonalQuestion(second.text);
+    // #206 (audit 16.11.2026): the thank-you is said once per chat; the second receipt is «Хорошо, записал.».
+    expect(second.text).toBe("Хорошо, записал."); noPersonalQuestion(second.text);
     const receipts = customerDeliveryReceiptsSchema.parse(second.row.receiptRefsJson);
     expect(receipts).toMatchObject([{ kind: "contact", outcome: "contact_saved" }]);
     const inquiry = await prisma.customerInquiry.findUniqueOrThrow({ where: { id: second.row.inquiryId! } });
