@@ -154,6 +154,10 @@ services:
       BOT_TURN_TRACE_TEXT_ENABLED: "${BOT_TURN_TRACE_TEXT_ENABLED:-0}"
       # P03 fact-only replies. Mixed CRM actions stay on the legacy path.
       BOT_PROPERTY_CONTEXT_ENABLED: "${BOT_PROPERTY_CONTEXT_ENABLED:-0}"
+      # One brain, step 1 (16.11.2026, review #211): the model's own words around the
+      # template facts. Its own switch, never CUSTOMER_AGENT_SAY_MODE. Empty = shadow
+      # (verified and counted, never sent); live only by the exact word «live»; off.
+      CUSTOMER_AGENT_ANSWER_MODE: "${CUSTOMER_AGENT_ANSWER_MODE:-}"
       # Customer core switches (31.10.2026). Without these lines a value in
       # .env.production never reaches the container. Both are off by default:
       # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`

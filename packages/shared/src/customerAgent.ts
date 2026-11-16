@@ -31,16 +31,18 @@ const say = customerAgentSayTextSchema.optional();
 /** Why a model `say` did not reach the customer: the 14 validator verdicts plus `language_disabled` (tg is off in v1) and `shadow`
  * (valid, but the mode only counts it). One enum for the validator, the trace and the guard counters. */
 export const customerAgentSayDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "length", "question", "number_or_date", "contact", "promise",
-  "fact_claim", "place", "meta", "cliche", "language", "echo", "repeat", "double_greet", "shadow"]);
+  "fact_claim", "place", "meta", "cliche", "language", "echo", "repeat", "double_greet", "shadow", "rude"]);
 export type CustomerAgentSayDropReason = z.infer<typeof customerAgentSayDropReasonSchema>;
 export const customerAgentSayStatusSchema = z.enum(["absent", "used", "dropped"]);
-/** The whole customer reply in the model's own words (one-brain step 1, 16.11.2026). Lifted before the strict parse like `say`,
- * re-attached only after the server verifier (apps/api/src/ai/customerAgentAnswer.ts) accepted it in live mode; otherwise the template goes out. */
-export const customerAgentAnswerTextSchema = z.string().min(2).max(1200);
-const answer = customerAgentAnswerTextSchema.optional();
-/** Why the model's whole reply did not reach the customer. `shadow`: verified, but the mode only counts it. */
+/** The model's human words around the server's facts (one-brain step 1, redesigned after review #211): a lead-in, the one question in
+ * its own words, a closing line. Never a fact: every fact line comes verbatim from the template. Lifted before the strict parse like
+ * `say`, re-attached only after the server verifier (apps/api/src/ai/customerAgentAnswer.ts) accepted it in live mode. */
+const answerPart = z.string().min(1).max(300).optional();
+export const customerAgentAnswerPartsSchema = z.object({ lead: answerPart, ask: answerPart, close: answerPart }).strict();
+const answer = customerAgentAnswerPartsSchema.optional();
+/** Why the model's words did not reach the customer. `shadow`: verified, but the mode only counts it. `error`: the verifier threw (a bug; the template went out). */
 export const customerAgentAnswerDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "not_eligible", "template_payload", "length", "wooden", "rude",
-  "meta", "cliche", "question", "phone_ask", "promise", "claim", "number", "currency", "missing_fact", "place", "language", "repeat", "echo", "double_greet", "shadow"]);
+  "meta", "cliche", "question", "phone_ask", "promise", "claim", "number", "currency", "missing_fact", "place", "language", "repeat", "echo", "double_greet", "shadow", "error"]);
 export type CustomerAgentAnswerDropReason = z.infer<typeof customerAgentAnswerDropReasonSchema>;
 export const customerAgentSayModeSchema = z.enum(["shadow", "live"]);
 export type CustomerAgentSayMode = z.infer<typeof customerAgentSayModeSchema>;

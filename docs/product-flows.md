@@ -20299,7 +20299,7 @@
         - continue;
           · переходит к следующему
       - если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()
-        - если row.pausedUntil && row.pausedUntil.getTime() > now.getTime()
+        - если row.pausedUntil && row.pausedUntil.getTime() > now.getTime() && personTookChat(row.messages) && now.getTime()…
           - repeat.push({ id: row.id, clientId: row.clientId, episode });
             · дословно из кода
         - continue;
@@ -20327,7 +20327,9 @@
       - если сорвалось
         - reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
           · зовёт reportCronRowError()
-    - для каждого: const d of repeat
+    - const repeatOn = repeat.length > 0 && (await loadBotPauseWatchSettings()).enabled;
+      · зовёт loadBotPauseWatchSettings()
+    - для каждого: const d of repeatOn ? repeat : []
       - пробует
         - если allIntentional
           - continue;

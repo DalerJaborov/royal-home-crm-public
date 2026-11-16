@@ -90064,7 +90064,7 @@
            "c": [
             {
              "k": "if",
-             "t": "row.pausedUntil && row.pausedUntil.getTime() > now.getTime()",
+             "t": "row.pausedUntil && row.pausedUntil.getTime() > now.getTime() && personTookChat(row.messages) && now.getTime()…",
              "a": [],
              "c": [
               {
@@ -90203,8 +90203,16 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const repeatOn = repeat.length > 0 && (await loadBotPauseWatchSettings()).enabled;",
+         "a": [
+          "зовёт loadBotPauseWatchSettings()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
-         "t": "для каждого: const d of repeat",
+         "t": "для каждого: const d of repeatOn ? repeat : []",
          "a": [],
          "c": [
           {

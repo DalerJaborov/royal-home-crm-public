@@ -14,7 +14,8 @@ import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines, custom
 import { recruitmentPhoneLine, retiredRecruitmentPhoneLines } from "@royal-home/shared";
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
-import { validateCustomerAgentAnswer, type CustomerAgentAnswerVerdict } from "./customerAgentAnswer.js";
+import { validateCustomerAgentAnswer, type CustomerAgentAnswerVerdict, type CustomerAgentAnswerTemplate } from "./customerAgentAnswer.js";
+import { CUSTOMER_AGENT_ASK_KINDS, type CustomerAgentAskKind } from "./customerAgentHumanText.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
@@ -1107,35 +1108,78 @@ function renderTemplateDecision(input: Parameters<typeof renderDecisionCore>[0])
 }
 
 type RenderInput = Parameters<typeof renderDecisionCore>[0];
-const answerOf = (d: CustomerAgentDecision) => d.kind === "reply" || d.kind === "clarify" || d.kind === "propose" ? d.answer : undefined;
-const withoutAnswer = (d: CustomerAgentDecision): CustomerAgentDecision => {
-  if (!("answer" in d)) return d;
-  const { answer: _answer, ...rest } = d as CustomerAgentDecision & { answer?: string };
-  return rest as CustomerAgentDecision;
+const answerOf = (d: CustomerAgentDecision): unknown => d.kind === "reply" || d.kind === "clarify" || d.kind === "propose" ? d.answer : undefined;
+/** The decision without the model's own words: `answer` always; `say` too when the template is the base of a composed answer. */
+const withoutModelWords = (d: CustomerAgentDecision, say = false): CustomerAgentDecision => {
+  if (!("answer" in d) && !(say && "say" in d)) return d;
+  const { answer: _answer, say: _say, ...rest } = d as CustomerAgentDecision & { answer?: unknown; say?: string };
+  return (say || _say === undefined ? rest : { ...rest, say: _say }) as CustomerAgentDecision;
 };
 
 /**
- * The model's whole reply against the server's template for the SAME decision and evidence (one-brain step 1, customerAgentAnswer.ts).
+ * The template reply split for composition (customerAgentAnswer.ts): leading greeting/thanks/acknowledgement lines, the fact lines
+ * (copied verbatim) and the final fixed question the model may word itself — only the plain template of one of the ask kinds.
+ */
+function answerTemplateOf(input: RenderInput, text: string): CustomerAgentAnswerTemplate {
+  const lines = splitLines(text), social: string[] = [];
+  let index = 0;
+  while (index < lines.length && isSocialLine(lines[index])) social.push(lines[index++]);
+  const rest = lines.slice(index), last = rest.at(-1);
+  const kind = customerAgentRenderedQuestion(input);
+  const askKind = (CUSTOMER_AGENT_ASK_KINDS as readonly string[]).includes(kind) ? kind as CustomerAgentAskKind : null;
+  const replaceable = !!askKind && last !== undefined && last === questions[askKind][input.language];
+  return { social, facts: replaceable ? rest.slice(0, -1) : rest, question: replaceable ? { line: last!, kind: askKind! } : null };
+}
+
+/**
+ * The model's human words composed around the server's template for the SAME decision and evidence (customerAgentAnswer.ts).
  * null when the decision carries no answer. Pure: the core, this renderer and the delivery seal reach the same verdict from the same inputs.
  * Only the ordinary path is eligible: abuse, partnership, thanks, trade-in, foreign shares and any repeat/ack guard rewrite keep the template.
+ * A bug in the verifier is a verdict too (`error`): the template goes out, the turn never dies (review #211, п.9).
  */
-export function customerAgentAnswerVerdict(input: RenderInput, template = renderTemplateDecision({ ...input, decision: withoutAnswer(input.decision) })): CustomerAgentAnswerVerdict | null {
+export function customerAgentAnswerVerdict(input: RenderInput): CustomerAgentAnswerVerdict | null {
   const d = input.decision, answer = answerOf(d);
   if (answer === undefined) return null;
-  if (input.surface !== "dm") return { ok: false, reason: "surface_disabled" };
-  if (!template.plain || !template.text) return { ok: false, reason: "not_eligible" };
-  const refs = new Set(d.kind === "propose" ? [d.ref] : d.kind === "reply" || d.kind === "clarify" ? d.refs : []);
-  return validateCustomerAgentAnswer({ answer, template: template.text, language: input.language, surface: input.surface, inputText: input.inputText,
-    evidence: input.evidence.map(item => item.value), maxOutputChars: input.maxOutputChars,
-    selectedReceipts: input.evidence.filter(item => refs.has(item.ref) && item.value.kind === "receipt").map(item => String((item.value as { outcome?: unknown }).outcome)),
-    priorAssistantTurns: (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text),
-    attachment: d.kind === "reply" && d.attachment !== undefined });
+  try {
+    if (input.surface !== "dm") return { ok: false, reason: "surface_disabled" };
+    const plain = { ...input, decision: withoutModelWords(d, true) };
+    const template = renderTemplateDecision(plain);
+    if (!template.plain || !template.text) return { ok: false, reason: "not_eligible" };
+    return validateCustomerAgentAnswer({ answer, template: answerTemplateOf(plain, template.text), language: input.language, surface: input.surface,
+      inputText: input.inputText, maxOutputChars: input.maxOutputChars,
+      priorAssistantTurns: (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text),
+      attachment: d.kind === "reply" && d.attachment !== undefined });
+  } catch { return { ok: false, reason: "error" }; }
 }
 
 export function renderCustomerAgentDecision(input: RenderInput): string | null {
-  const template = renderTemplateDecision({ ...input, decision: withoutAnswer(input.decision) });
-  const verdict = customerAgentAnswerVerdict(input, template);
-  return verdict?.ok ? verdict.text : template.text;
+  const verdict = customerAgentAnswerVerdict(input);
+  return verdict?.ok ? verdict.text : renderTemplateDecision({ ...input, decision: withoutModelWords(input.decision) }).text;
+}
+
+/**
+ * A stored bot text whose sealed sideband says it asked this question: the question is its LAST line — the fixed sentence, or (since
+ * review #211) the model's own wording that the seal recorded structurally. The sideband marker is the record; this only checks that
+ * nothing follows the question.
+ */
+export function customerSealedQuestionLast(text: string, canonical: string): boolean {
+  if (text.endsWith(canonical)) return true;
+  const last = splitLines(text).at(-1) ?? "";
+  return /[?]$/u.test(last) && (last.match(/[?]/gu)?.length ?? 0) === 1;
+}
+
+/**
+ * The question the SENT text asks, recorded structurally for the delivery seal (review #211, п.4): the rendered question of the
+ * decision, when the text ends with its fixed template sentence OR with the model's own wording of that same question accepted by
+ * the answer verifier. A «да» to «Хотите, чтобы сотрудник вам позвонил?» is then consent like the template question.
+ */
+export function customerAgentSentQuestion(input: RenderInput, text: string): CustomerAgentRenderedQuestion {
+  const kind = customerAgentRenderedQuestion({ ...input, decision: withoutModelWords(input.decision) });
+  if (kind === "none" || kind === "confirmation") return "none";
+  const canonical = questions[kind][input.language];
+  if (canonical && text.endsWith(canonical)) return kind;
+  const verdict = customerAgentAnswerVerdict(input);
+  return verdict?.ok && verdict.text === text && verdict.asked === kind ? kind : "none";
 }
 
 /**
