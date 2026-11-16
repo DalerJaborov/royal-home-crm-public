@@ -39,7 +39,16 @@ describe("Настройки CRM: озвучка роликов", () => {
     const html = render(view({ canConfigure: false }));
     expect(html).toContain("Менять настройки озвучки может директор или администратор");
     expect(html).not.toContain("Сохранить настройки озвучки");
-    expect(html.match(/<fieldset[^>]*disabled/g)?.length).toBe(5);
+    expect(html.match(/<fieldset[^>]*disabled/g)?.length).toBe(6);
+  });
+  it("шаблоны и концовки (16.11.2026): у каждого галочки типов объекта, «только вручную», отдельный блок «Концовки»", () => {
+    const html = render(view({ config: { ...view().config,
+      templates: [{ id: "tg-apt-1", name: "Квартира 1", lang: "tg", text: "{вид} барои фурӯш.", propertyTypes: ["APARTMENT"] }, { id: "tg-short", name: "Кӯтоҳ", lang: "tg", text: "{вид} барои фурӯш.", manualOnly: true }],
+      endings: [{ id: "end-a", lang: "tg", text: "Ба мо дар Директ нависед ё занг занед.", propertyTypes: ["APARTMENT", "HOUSE"] }, { id: "end-b", lang: "tg", text: "Ба мо занг занед." }] } }));
+    for (const part of ["Концовки", "Добавить концовку", "Текст концовки", "Язык концовки", "Только вручную", "Подходит для", "Квартира", "Дом", "Участок", "Коммерция", "(любой объект)"]) expect(html).toContain(part);
+    // Отмечено только то, что сохранено: у «Квартира 1» одна галочка типа, у «Кӯтоҳ» «только вручную», у концовки А две; плюс два общих рубильника.
+    expect(html.match(/type="checkbox"[^>]*checked/g)?.length).toBe(1 + 1 + 2 + 2);
+    expect(html).toContain("Ба мо дар Директ нависед ё занг занед.");
   });
   it("кредиты закончились — предупреждение; без ключа образцы не заказать", () => {
     expect(render(view({ quotaExceeded: true }))).toContain("Кредиты ElevenLabs закончились");

@@ -18,13 +18,35 @@ import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNu
 export const NARRATION_LANGS = ["tg", "ru"] as const;
 export type NarrationLang = (typeof NARRATION_LANGS)[number];
 
+/** Типы объекта в фактах озвучки (Property.type): по ним шаблон и концовка подходят или нет. */
+export const NARRATION_PROPERTY_TYPES = ["APARTMENT", "HOUSE", "LAND", "COMMERCIAL"] as const;
+export type NarrationPropertyType = (typeof NARRATION_PROPERTY_TYPES)[number];
+export const NARRATION_PROPERTY_TYPE_LABELS: Record<NarrationPropertyType, string> = {
+  APARTMENT: "Квартира", HOUSE: "Дом", LAND: "Участок", COMMERCIAL: "Коммерция",
+};
+/** Нет поля или пусто — подходит всем типам (так работают все шаблоны, сохранённые до 16.11.2026). */
+const narrationPropertyTypesField = z.array(z.enum(NARRATION_PROPERTY_TYPES)).max(NARRATION_PROPERTY_TYPES.length).optional();
+
 export const narrationTemplateSchema = z.object({
   id: z.string().trim().regex(/^[a-z0-9-]{1,40}$/, "Код шаблона: латиница, цифры и дефис"),
   name: z.string().trim().min(1).max(60),
   lang: z.enum(NARRATION_LANGS),
   text: z.string().trim().min(10).max(2000),
+  propertyTypes: narrationPropertyTypesField,
+  /** true — в случайный выбор не входит и концовка сама не добавляется: шаблон берут только вручную
+   *  (прежние стартовые шаблоны 11.11.2026 со своим призывом внутри, объекты с ними продолжают работать). */
+  manualOnly: z.boolean().optional(),
 });
 export type NarrationTemplate = z.infer<typeof narrationTemplateSchema>;
+
+/** КОНЦОВКА (призыв) — отдельный список: итоговый текст = основная часть шаблона + одна подходящая концовка. */
+export const narrationEndingSchema = z.object({
+  id: z.string().trim().regex(/^[a-z0-9-]{1,40}$/, "Код концовки: латиница, цифры и дефис"),
+  lang: z.enum(NARRATION_LANGS),
+  text: z.string().trim().min(10).max(600),
+  propertyTypes: narrationPropertyTypesField,
+});
+export type NarrationEnding = z.infer<typeof narrationEndingSchema>;
 
 /**
  * НАСТРОЙКИ СИНТЕЗА (12.11.2026, задел под значения владельца после разбора документации v4).
@@ -65,7 +87,10 @@ const narrationConfigBase = z.object({
   /** Потолок расхода ElevenLabs за сутки по Душанбе: 0 — генерация остановлена. */
   dailyCharLimit: z.number().int().min(0).max(1_000_000).optional(),
   dailyGenerationLimit: z.number().int().min(0).max(1000).optional(),
-  templates: z.array(narrationTemplateSchema).max(20).optional(),
+  templates: z.array(narrationTemplateSchema).max(100).optional(),
+  /** Концовки (призыв в конце): выбираются случайно из подходящих по языку и типу объекта. */
+  endings: z.array(narrationEndingSchema).max(100).optional(),
+  /** Умолчание владельца: язык авто-выбора и запасной шаблон, если подходящих для случайного выбора нет. */
   defaultTemplateId: z.string().trim().max(40).optional(),
   defaultVoiceId: z.string().trim().max(100).optional(),
   /** Рубильник: озвучку на ролик накладывает CRM — монтажёр присылает только ролик без голоса.
@@ -94,9 +119,11 @@ const narrationConfigBase = z.object({
 });
 const uniqueVoices = (v: { voices: { id: string }[] }) => new Set(v.voices.map((voice) => voice.id)).size === v.voices.length;
 const uniqueTemplates = (v: { templates?: { id: string }[] }) => !v.templates || new Set(v.templates.map((t) => t.id)).size === v.templates.length;
+const uniqueEndings = (v: { endings?: { id: string }[] }) => !v.endings || new Set(v.endings.map((e) => e.id)).size === v.endings.length;
 export const narrationConfigSchema = narrationConfigBase
   .refine(uniqueVoices, "Голоса не должны повторяться")
-  .refine(uniqueTemplates, "Коды шаблонов не должны повторяться");
+  .refine(uniqueTemplates, "Коды шаблонов не должны повторяться")
+  .refine(uniqueEndings, "Коды концовок не должны повторяться");
 /** PUT настроек: поле, которого нет в запросе, остаётся прежним (старый экран не стирает шаблоны). */
 export const narrationConfigPatchSchema = narrationConfigBase.partial();
 export type NarrationConfig = z.infer<typeof narrationConfigSchema>;
@@ -169,9 +196,9 @@ export function narrationModelSupportsTajik(modelId: string | null | undefined):
   return NARRATION_TAJIK_MODELS.some((m) => m.id === modelId);
 }
 /** Таджикский шаблон и модель без таджикского не сочетаются. */
-export function narrationModelError(config: Pick<NarrationConfig, "modelId" | "templates">): string | null {
+export function narrationModelError(config: Pick<NarrationConfig, "modelId" | "templates" | "endings">): string | null {
   if (!config.modelId || narrationModelSupportsTajik(config.modelId)) return null;
-  if (!(config.templates ?? []).some((t) => t.lang === "tg")) return null;
+  if (![...(config.templates ?? []), ...(config.endings ?? [])].some((t) => t.lang === "tg")) return null;
   return `Модель ${config.modelId} не знает таджикского. Выберите ${NARRATION_TAJIK_MODELS.map((m) => m.id).join(" или ")}.`;
 }
 
@@ -245,8 +272,13 @@ function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<s
   };
 }
 
-/** Неизвестные слова в фигурных скобках и непарные скобки — ошибка шаблона. */
-export function narrationTemplateError(text: string): string | null {
+/**
+ * СТОРОЖ ТЕКСТА ШАБЛОНА И КОНЦОВКИ при сохранении (16.11.2026, правила владельца для роликов):
+ * неизвестные слова в {…}, скобки, длинное тире, цифры (числа пишем словами; внутри {…} не считаем,
+ * цифры подставляет само слово; для русского текста цифры допустимы — озвучка читает их верно),
+ * «Direct» латиницей (надо «Директ») и слово «брон». Одно место для шаблонов и концовок.
+ */
+export function narrationTemplateError(text: string, lang?: NarrationLang): string | null {
   for (const match of text.matchAll(/\{([^{}]*)\}/gu)) {
     if (!(NARRATION_PLACEHOLDERS as readonly string[]).includes(match[1])) return `Неизвестное слово {${match[1]}}. Можно: ${NARRATION_PLACEHOLDERS.map((p) => `{${p}}`).join(", ")}`;
   }
@@ -257,6 +289,9 @@ export function narrationTemplateError(text: string): string | null {
   }
   if (depth !== 0) return "Не закрыта квадратная скобка [";
   if (/[—–]/u.test(text)) return "Уберите длинное тире: в тексте для клиентов его не пишем";
+  if (lang !== "ru" && /\p{Nd}/u.test(text.replace(/\{[^{}]*\}/gu, ""))) return "В таджикском тексте цифры не пишем: числа только словами, например «се», а не «3». Цифры из объекта подставляют слова в фигурных скобках";
+  if (/direct/iu.test(text)) return "Слово Direct пишем по-русски: «Директ». Латиницей озвучка прочтёт его неверно";
+  if (/брон/iu.test(text)) return "Слово «брон» в текстах озвучки не используем: замените, например, на «вақт интихоб кунед»";
   return null;
 }
 
@@ -320,11 +355,20 @@ export function pickNarrationTemplate(config: Pick<NarrationConfig, "templates" 
     ?? null;
 }
 
-/** ЕДИНАЯ точка: текст озвучки из данных объекта для мастера CRM, Шабнам и сервера. */
-export function narrationDraftText(config: Pick<NarrationConfig, "templates" | "defaultTemplateId">, facts: NarrationFacts, templateId?: string | null): { text: string; templateId: string | null; lang: NarrationLang } {
+/**
+ * ЕДИНАЯ точка: текст озвучки из данных объекта для мастера CRM, Шабнам и сервера.
+ * Текст = основная часть шаблона + концовка по её коду (16.11.2026). Здесь НЕТ случайности: код концовки
+ * уже выбран (`chooseNarration`) и хранится в версии озвучки, поэтому повторная сборка того же текста
+ * (сверка «текст версии = шаблон по её фактам») всегда даёт то же самое. Нет кода или концовки другого
+ * языка — текст без концовки (так выглядят все версии, сделанные до 16.11.2026).
+ */
+export function narrationDraftText(config: Pick<NarrationConfig, "templates" | "defaultTemplateId" | "endings">, facts: NarrationFacts, templateId?: string | null, endingId?: string | null): { text: string; templateId: string | null; endingId: string | null; lang: NarrationLang } {
   const template = pickNarrationTemplate(config, templateId);
-  if (!template) return { text: suggestedNarration(facts), templateId: null, lang: "ru" };
-  return { text: renderNarrationTemplate(template, facts), templateId: template.id, lang: template.lang };
+  if (!template) return { text: suggestedNarration(facts), templateId: null, endingId: null, lang: "ru" };
+  const ending = endingId ? (config.endings ?? []).find((e) => e.id === endingId && e.lang === template.lang) ?? null : null;
+  const body = renderNarrationTemplate(template, facts);
+  const tail = ending ? renderNarrationTemplate(ending, facts) : "";
+  return { text: tail ? `${body} ${tail}` : body, templateId: template.id, endingId: ending?.id ?? null, lang: template.lang };
 }
 
 /** Языки, на которых у владельца есть хотя бы один шаблон, в постоянном порядке (сначала таджикский). */
@@ -333,25 +377,86 @@ export function narrationTemplateLangs(templates: readonly Pick<NarrationTemplat
 }
 
 /**
- * ВАРИАНТЫ ТЕКСТА ПО КРУГУ (14.11.2026, владелец: «несколько шаблонов, чтобы не каждый раз одинаковые»).
- * Следующий шаблон того же языка после `afterId` (прошлый выбор сотрудника). Нет прошлого или он
- * другого языка — первый шаблон языка. Один шаблон на язык — он же.
+ * СЛУЧАЙНЫЙ ВЫБОР БЕЗ ПОВТОРА (16.11.2026, владелец: «через одно ядро», «в случайном порядке»).
+ * Всё, что выбирает шаблон или концовку само, — мастер CRM, карточка, Шабнам, автоозвучка — идёт через
+ * `chooseNarration`. Случайность живёт ТОЛЬКО здесь и только в момент выбора; дальше версия озвучки хранит
+ * коды, и текст собирается по ним детерминированно (`narrationDraftText`).
  */
-export function nextNarrationTemplateId(templates: readonly Pick<NarrationTemplate, "id" | "lang">[], lang: NarrationLang, afterId?: string | null): string | null {
-  const same = templates.filter((t) => t.lang === lang);
-  if (!same.length) return null;
-  const at = same.findIndex((t) => t.id === afterId);
-  return same[(at + 1) % same.length].id;
+export type NarrationRandom = () => number;
+type TypedItem = { propertyTypes?: readonly string[] | undefined };
+
+/** Подходит ли шаблон или концовка объекту такого типа. Нет типов у шаблона или тип объекта неизвестен: подходит. */
+export function narrationFitsType(item: TypedItem, type: string | null | undefined): boolean {
+  return !item.propertyTypes?.length || !type || item.propertyTypes.includes(type);
+}
+function pickOne<T>(items: readonly T[], random: NarrationRandom): T | null {
+  return items.length ? items[Math.min(items.length - 1, Math.floor(random() * items.length))]! : null;
+}
+/** Из подходящих берём случайный, не равный `excludeId`; если кроме него ничего нет, он же. */
+function pickAvoiding<T extends { id: string }>(candidates: readonly T[], excludeId: string | null | undefined, random: NarrationRandom): T | null {
+  const others = candidates.filter((c) => c.id !== excludeId);
+  return pickOne(others.length ? others : candidates, random);
 }
 
+/** Шаблоны для ручного выбора: язык и тип подходят, в том числе «только вручную». */
+export function narrationVariants<T extends Pick<NarrationTemplate, "lang"> & TypedItem>(templates: readonly T[], lang: NarrationLang, type: string | null | undefined): T[] {
+  return templates.filter((t) => t.lang === lang && narrationFitsType(t, type));
+}
+
+/** Язык автовыбора: язык шаблона по умолчанию у владельца, иначе таджикский, иначе первый имеющийся. */
+export function narrationAutoLang(config: Pick<NarrationConfig, "templates" | "defaultTemplateId">): NarrationLang | null {
+  const templates = config.templates ?? [];
+  return templates.find((t) => t.id === config.defaultTemplateId)?.lang ?? (templates.some((t) => t.lang === "tg") ? "tg" : templates[0]?.lang ?? null);
+}
+
+export type NarrationChoiceInput = {
+  /** Выбор человека (кнопка, мастер): уважается всегда. */
+  templateId?: string | null; endingId?: string | null;
+  /** Что у объекта уже стоит (его прошлая версия): остаётся, пока подходит типу; новый случайный выбор его не повторяет. */
+  previous?: { templateId?: string | null; endingId?: string | null } | null;
+  /** Чего избегать у НОВОГО объекта: прошлый выбор сотрудника. Не «остаётся», а только исключается из случайного выбора. */
+  avoid?: { templateId?: string | null; endingId?: string | null } | null;
+  /** «Другой шаблон»: и шаблон, и концовка новые случайные, не равные прошлым. */
+  reroll?: boolean;
+  /** Язык случайного выбора (кнопка выбора языка); без него: язык прошлого шаблона, иначе умолчание владельца. */
+  lang?: NarrationLang;
+  random?: NarrationRandom;
+};
 /**
- * Шаблон нового объекта, если сотрудник его не выбирал: следующий вариант после его прошлого,
- * на том же языке. Мастер CRM показывает ровно его, сервер (мастер CRM и Шабнам) ставит его же.
- * Прошлого выбора нет — null, дальше работает обычный pickNarrationTemplate (умолчание владельца).
+ * Какой шаблон и какую концовку поставить объекту. Порядок:
+ *  1. Человек выбрал шаблон: он (и выбранная концовка, иначе прошлая, если подходит, иначе случайная).
+ *  2. Есть прошлый шаблон объекта и он подходит типу: остаётся тем же, вместе с прошлой концовкой. Смена цены
+ *     даёт тот же текст с новой ценой, а не новую случайность.
+ *  3. Иначе случайный шаблон языка (язык прошлого, иначе `narrationAutoLang`) из подходящих по типу и не «только
+ *     вручную», не равный прошлому; концовка так же случайная и не равная прошлой.
+ * Шаблон «только вручную» (прежние стартовые, со своим призывом внутри) концовку не получает, пока её не выбрали.
+ * Нет подходящих для случайного выбора: запасной шаблон по умолчанию (`pickNarrationTemplate`).
  */
-export function narrationRotatedTemplateId(templates: readonly Pick<NarrationTemplate, "id" | "lang">[], lastTemplateId?: string | null): string | null {
-  const last = templates.find((t) => t.id === lastTemplateId);
-  return last ? nextNarrationTemplateId(templates, last.lang, last.id) : null;
+export function chooseNarration(config: Pick<NarrationConfig, "templates" | "endings" | "defaultTemplateId">, type: string | null | undefined, input: NarrationChoiceInput = {}): { templateId: string | null; endingId: string | null } {
+  const templates = config.templates ?? [];
+  const endings = config.endings ?? [];
+  const random = input.random ?? Math.random;
+  const prevTemplate = templates.find((t) => t.id === input.previous?.templateId) ?? null;
+  const prevEnding = endings.find((e) => e.id === input.previous?.endingId) ?? null;
+  const avoidTemplate = templates.find((t) => t.id === input.avoid?.templateId) ?? null;
+  const avoidEnding = endings.find((e) => e.id === input.avoid?.endingId) ?? null;
+  const chosen = templates.find((t) => t.id === input.templateId) ?? null;
+  let template: NarrationTemplate | null = chosen;
+  let reused = false;
+  if (!template && !input.reroll && prevTemplate && narrationFitsType(prevTemplate, type) && (!input.lang || prevTemplate.lang === input.lang)) { template = prevTemplate; reused = true; }
+  if (!template) {
+    const lang = input.lang ?? prevTemplate?.lang ?? avoidTemplate?.lang ?? narrationAutoLang(config);
+    template = pickAvoiding(templates.filter((t) => t.lang === lang && !t.manualOnly && narrationFitsType(t, type)), prevTemplate?.id ?? avoidTemplate?.id, random)
+      ?? pickNarrationTemplate(config, null);
+  }
+  if (!template) return { templateId: null, endingId: null };
+  const sameLang = endings.filter((e) => e.lang === template!.lang);
+  const picked = sameLang.find((e) => e.id === input.endingId);
+  if (picked) return { templateId: template.id, endingId: picked.id };
+  if (template.manualOnly) return { templateId: template.id, endingId: null };
+  const keep = !input.reroll && (!!chosen || reused) && prevEnding && prevEnding.lang === template.lang && narrationFitsType(prevEnding, type) ? prevEnding : null;
+  const ending = keep ?? pickAvoiding(sameLang.filter((e) => narrationFitsType(e, type)), prevEnding?.id ?? avoidEnding?.id, random);
+  return { templateId: template.id, endingId: ending?.id ?? null };
 }
 
 /** Голос по умолчанию: выбранный владельцем, иначе первый в списке. */
@@ -374,6 +479,7 @@ export const narrationDraftSchema = z.object({
   script: z.string().trim().min(10).max(5000).optional(),
   voiceId: z.string().trim().max(100).optional(),
   templateId: z.string().trim().max(40).optional(),
+  endingId: z.string().trim().max(40).optional(),
   /** Агент правит текст или голос и сразу просит новое аудио (только при включённой автоозвучке). */
   generate: z.boolean().optional(),
 });
@@ -383,6 +489,7 @@ export const narrationWizardChoiceSchema = z.object({
   none: z.literal(true).optional(),
   script: z.string().trim().min(10).max(5000).optional(),
   templateId: z.string().trim().max(40).optional(),
+  endingId: z.string().trim().max(40).optional(),
   voiceId: z.string().trim().max(100).optional(),
 });
 export type NarrationWizardChoice = z.infer<typeof narrationWizardChoiceSchema>;
@@ -397,14 +504,14 @@ export type PropertyNarrationItem = {
   id: string; revision: number; script: string; voiceId: string | null; status: string;
   approvedAt: string | null; stale: boolean; hasAudio: boolean; errorCode: string | null; createdAt: string;
   canReconcile?: boolean;
-  source?: string; templateId?: string | null; language?: string | null; generateAfter?: string | null;
+  source?: string; templateId?: string | null; endingId?: string | null; language?: string | null; generateAfter?: string | null;
 };
 /** Что видит мастер: шаблоны и голоса без ключей и моделей. */
 export type NarrationOptionsView = {
-  templates: NarrationTemplate[]; voices: Array<{ id: string; name: string; gender?: "male" | "female" }>;
+  templates: NarrationTemplate[]; endings: NarrationEnding[]; voices: Array<{ id: string; name: string; gender?: "male" | "female" }>;
   defaultTemplateId: string | null; defaultVoiceId: string | null; autoGenerate: boolean;
   /** Что этот сотрудник выбрал в прошлый раз (если голос и шаблон ещё в настройках). */
-  lastChoice?: { voiceId?: string; templateId?: string };
+  lastChoice?: { voiceId?: string; templateId?: string; endingId?: string };
   /** Готовые образцы голосов (кнопка «▶ Прослушать»). */
   samples?: NarrationVoiceSampleRef[];
 };
@@ -414,7 +521,7 @@ export type PropertyNarrationView = {
   facts?: NarrationFacts;
   /** У объекта выбрано «Без озвучки» (12.11.2026). */
   off?: boolean;
-  lastChoice?: { voiceId?: string; templateId?: string };
+  lastChoice?: { voiceId?: string; templateId?: string; endingId?: string };
   configured: boolean; canApprove: boolean; canConfigure?: boolean; canDraft?: boolean; sendsEnabled: boolean;
   /** Агент объекта одобряет готовое аудио (автоозвучка), маркетинг — по-прежнему черновой текст. */
   canApproveAudio?: boolean; autoGenerate?: boolean;

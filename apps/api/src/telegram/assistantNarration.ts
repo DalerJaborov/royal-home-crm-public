@@ -10,7 +10,7 @@
  * что у маршрута approve), новая версия — requestAutoNarration (та же дверь
  * генерации и тот же дневной потолок).
  */
-import { formatPropertyCode, isReadOnlyRole, type PermissionId } from "@royal-home/shared";
+import { formatPropertyCode, isReadOnlyRole, narrationVariants, type NarrationConfig, type PermissionId } from "@royal-home/shared";
 import { loadAgentAccess } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { hasMarketingRole } from "../lib/marketingRole.js";
@@ -32,6 +32,9 @@ import {
 type Lang = "ru" | "tg";
 const EDIT_WINDOW_MS = 15 * 60_000;
 const MAX_CHOICES = 8;
+/** Номер кнопки «🎲 Случайный другой шаблон» в `nar:m:<версия>:<номер>`: настоящие номера всегда меньше. */
+const RANDOM_TEMPLATE = 99;
+const MAX_TEMPLATE_CHOICES = 12;
 
 const copy = {
   ru: {
@@ -40,7 +43,7 @@ const copy = {
     remade: "Ролик уже вышел со старой озвучкой. После одобрения монтажёр заменит в нём только звук.",
     remadeCrm: "Ролик уже вышел со старой озвучкой. После одобрения CRM сама заменит в нём звук и описание.",
     samples: "Образцы голосов: одна и та же фраза. Послушайте и выберите ниже.",
-    b: { approve: "✅ Одобрить", edit: "✏️ Править текст", voice: "🎙 Другой голос", template: "📝 Другой шаблон" },
+    b: { approve: "✅ Одобрить", edit: "✏️ Править текст", voice: "🎙 Другой голос", template: "📝 Другой шаблон", randomTemplate: "🎲 Случайный другой шаблон" },
     approved: (d: NarrationDeliveryStart) => `✅ Одобрено. ${d === "CRM_REMIX" ? "Ролик уже вышел: CRM сама наложит новую озвучку и заменит ролик, монтажёр не нужен." : d === "SOUND_REMAKE" ? "Ролик уже вышел: монтажёр заменит в нём только голос, старые посты снимутся, когда выйдет новый." : d === "ADD_VOICE" ? "Ролик уже смонтирован: монтажёр вклеит в него голос, потом ролик выйдет." : d === "QUEUED" ? "Аудио уходит монтажёру." : d === "WAITING_FOR_MONTAGE" ? "Монтажёр получит аудио, когда объект попадёт в монтаж." : d === "PREVIEW" ? "Отправка монтажёру пока выключена в настройках." : d === "DISABLED" ? "Для объекта выбрано «Без озвучки», монтажёру ничего не уходит." : "Монтажёр уже получил эту версию."}`,
     backfill: "Ролик уже в монтаже. Озвучка собрана по шаблону и голосу по умолчанию; после вашего одобрения mp3 уйдёт монтажёру.",
     remind: (code: string) => `🎙 Озвучка для ${code} ждёт вашего одобрения уже три часа. Монтажёр без неё не вклеит голос.`,
@@ -61,7 +64,7 @@ const copy = {
     remade: "Видео аллакай бо овози кӯҳна баромадааст. Баъди тасдиқ монтажёр танҳо овозашро иваз мекунад.",
     remadeCrm: "Видео аллакай бо овози кӯҳна баромадааст. Баъди тасдиқ CRM худаш овоз ва тавсифро иваз мекунад.",
     samples: "Намунаи овозҳо: ҳамон як ҷумла. Гӯш кунед ва дар поён интихоб кунед.",
-    b: { approve: "✅ Тасдиқ", edit: "✏️ Ислоҳи матн", voice: "🎙 Овози дигар", template: "📝 Қолаби дигар" },
+    b: { approve: "✅ Тасдиқ", edit: "✏️ Ислоҳи матн", voice: "🎙 Овози дигар", template: "📝 Қолаби дигар", randomTemplate: "🎲 Қолаби тасодуфии дигар" },
     approved: (d: NarrationDeliveryStart) => `✅ Тасдиқ шуд. ${d === "CRM_REMIX" ? "Видео аллакай баромадааст: CRM худаш овози навро мегузорад ва видеоро иваз мекунад, монтажёр лозим нест." : d === "SOUND_REMAKE" ? "Видео аллакай баромадааст: монтажёр танҳо овозашро иваз мекунад, постҳои кӯҳна вақти баромадани видеои нав гирифта мешаванд." : d === "ADD_VOICE" ? "Видео аллакай монтаж шудааст: монтажёр овозро ба он мегузорад, баъд видео мебарояд." : d === "QUEUED" ? "Овоз ба монтажёр меравад." : d === "WAITING_FOR_MONTAGE" ? "Вақте ки объект ба монтаж мерасад, овоз ба монтажёр меравад." : d === "PREVIEW" ? "Фиристодан ба монтажёр ҳоло дар танзимот хомӯш аст." : d === "DISABLED" ? "Барои ин объект «Бе овоз» интихоб шудааст, ба монтажёр чизе намеравад." : "Монтажёр ин версияро аллакай гирифтааст."}`,
     backfill: "Видео аллакай дар монтаж аст. Овоз аз рӯи қолаб ва овози асосӣ тайёр шуд; баъди тасдиқи шумо mp3 ба монтажёр меравад.",
     remind: (code: string) => `🎙 Овози видео барои ${code} се соат боз тасдиқи шуморо интизор аст. Бе он монтажёр овозро гузошта наметавонад.`,
@@ -246,6 +249,16 @@ async function clickerFor(chatId: string, propertyId: string): Promise<Clicker |
   return { agentId: agent.id, isManager: hasMarketingRole(access), role: access.role };
 }
 
+/**
+ * Шаблоны кнопки «Другой шаблон» (16.11.2026): язык версии и тип объекта, затем другой язык. Один и тот же список
+ * строит и показ кнопок (`t`), и разбор нажатия (`m`): номер кнопки указывает в него.
+ */
+export function narrationTemplateChoices(config: Pick<NarrationConfig, "templates">, versionLang: string | null | undefined, propertyType: string | null | undefined) {
+  const templates = config.templates ?? [];
+  const lang = versionLang === "ru" ? "ru" : "tg";
+  return [...narrationVariants(templates, lang, propertyType), ...narrationVariants(templates, lang === "tg" ? "ru" : "tg", propertyType)].slice(0, MAX_TEMPLATE_CHOICES);
+}
+
 const CALLBACK = /^nar:(a|e|v|t|p|m):([\da-f-]{36})(?::(\d{1,2}))?$/u;
 
 /** `nar:a|e|v|t:<версия>` и выбор `nar:p|m:<версия>:<номер>`. true — это наша кнопка. */
@@ -285,9 +298,11 @@ export async function handleNarrationCallback(query: TelegramCallbackQuery): Pro
     const { config } = await loadNarrationConfiguration();
     if (action === "v" || action === "t") {
       const last = await narrationLastChoiceFor(clicker.agentId, config);
+      const choices = action === "t" ? narrationTemplateChoices(config, version.language, (await prisma.property.findUnique({ where: { id: version.propertyId }, select: { type: true } }))?.type) : [];
       const buttons: TelegramInlineButton[][] = action === "v"
         ? config.voices.slice(0, MAX_CHOICES).map((v, i) => [{ text: `${v.gender ? `${v.name} · ${c[v.gender]}` : v.name}${v.id === last.voiceId ? ` · ${c.lastPicked}` : ""}`, callback_data: `nar:p:${version.id}:${i}` }])
-        : (config.templates ?? []).slice(0, MAX_CHOICES).map((t, i) => [{ text: `${t.name} · ${t.lang === "tg" ? "тоҷикӣ" : "рус."}${t.id === last.templateId ? ` · ${c.lastPicked}` : ""}`, callback_data: `nar:m:${version.id}:${i}` }]);
+        : [[{ text: c.b.randomTemplate, callback_data: `nar:m:${version.id}:${RANDOM_TEMPLATE}` }],
+          ...choices.map((t, i) => [{ text: `${t.name} · ${t.lang === "tg" ? "тоҷикӣ" : "рус."}${t.id === last.templateId ? ` · ${c.lastPicked}` : ""}`, callback_data: `nar:m:${version.id}:${i}` }])];
       await answer();
       // «Другой голос»: сначала образцы — одна и та же фраза каждым голосом (готовые, без затрат).
       if (action === "v") await sendVoiceSamples(chatId, config, version.language === "ru" ? "ru" : "tg", c.samples);
@@ -296,9 +311,12 @@ export async function handleNarrationCallback(query: TelegramCallbackQuery): Pro
     }
     const index = Number(match[3]);
     const voiceId = action === "p" ? config.voices[index]?.id : undefined;
-    const templateId = action === "m" ? config.templates?.[index]?.id : undefined;
-    if (!voiceId && !templateId) { await answer(c.stale); return true; }
-    const outcome = await requestAutoNarration({ propertyId: version.propertyId, actorId: clicker.agentId, source: "AGENT", voiceId, templateId, expectedRevision: version.revision, debounceMs: 0, config });
+    // «Случайный другой шаблон»: новый шаблон и новая концовка, не равные прошлым (ядро chooseNarration).
+    const reroll = action === "m" && index === RANDOM_TEMPLATE;
+    const templateId = action === "m" && !reroll
+      ? narrationTemplateChoices(config, version.language, (await prisma.property.findUnique({ where: { id: version.propertyId }, select: { type: true } }))?.type)[index]?.id : undefined;
+    if (!voiceId && !templateId && !reroll) { await answer(c.stale); return true; }
+    const outcome = await requestAutoNarration({ propertyId: version.propertyId, actorId: clicker.agentId, source: "AGENT", voiceId, templateId, reroll, expectedRevision: version.revision, debounceMs: 0, config });
     await answer(outcome.status === "QUEUED" ? c.queued : outcome.status === "BUSY" ? c.busy : outcome.status === "OFF" ? c.off : outcome.status === "DISABLED" ? c.disabled : c.stale);
     if (outcome.status === "QUEUED") await sendMessage(chatId, c.queued);
   } catch (err) {

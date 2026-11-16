@@ -1,6 +1,6 @@
-import { useId } from "react";
+import { useEffect, useId, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { narrationRotatedTemplateId, pickNarrationTemplate, pickNarrationVoice, type NarrationFacts, type NarrationOptionsView, type NarrationWizardChoice } from "@royal-home/shared";
+import { chooseNarration, narrationFitsType, pickNarrationVoice, type NarrationFacts, type NarrationOptionsView, type NarrationWizardChoice } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { NarrationComposer } from "../NarrationComposer";
 
@@ -12,15 +12,15 @@ import { NarrationComposer } from "../NarrationComposer";
  * Один адаптивный блок для ПК и телефона.
  *
  * С 14.11.2026 — общий NarrationComposer (тот же, что в карточке): сначала голос, потом текст по
- * шаблону; не выбрал шаблон — следующий вариант после прошлого (narrationRotatedTemplateId, сервер
- * ставит тот же).
+ * шаблону. С 16.11.2026 шаблон и концовка предвыбираются СЛУЧАЙНО (подходят типу объекта, не равны прошлому
+ * выбору сотрудника; одно ядро chooseNarration) и уходят в запрос кодами: то, что агент видит, сервер и соберёт.
  */
 /** Что уходит в запрос создания: короткий или пустой текст не шлём — сервер соберёт по шаблону. */
 export function narrationChoiceForCreate(value: NarrationWizardChoice): NarrationWizardChoice | undefined {
   // «Без озвучки» (12.11.2026): ничего не готовится и не тратится, остальной выбор не нужен.
   if (value.none) return { none: true };
   const script = value.script?.trim();
-  const out: NarrationWizardChoice = { ...(value.templateId ? { templateId: value.templateId } : {}), ...(value.voiceId ? { voiceId: value.voiceId } : {}), ...(script && script.length >= 10 ? { script } : {}) };
+  const out: NarrationWizardChoice = { ...(value.templateId ? { templateId: value.templateId } : {}), ...(value.endingId ? { endingId: value.endingId } : {}), ...(value.voiceId ? { voiceId: value.voiceId } : {}), ...(script && script.length >= 10 ? { script } : {}) };
   return Object.keys(out).length ? out : undefined;
 }
 
@@ -31,11 +31,22 @@ export function NarrationChoice({ facts, value, onChange }: {
 }) {
   const ids = useId();
   const { data } = useQuery({ queryKey: ["narration-options"], queryFn: () => api<NarrationOptionsView>("/properties/narration-options"), staleTime: 5 * 60_000, retry: false });
-  const templates = data?.templates ?? [];
-  // Голос — последний выбор сотрудника; шаблон — следующий вариант после прошлого (сервер ставит тот же).
+  const templates = useMemo(() => data?.templates ?? [], [data]);
+  const endings = useMemo(() => data?.endings ?? [], [data]);
+  // Голос — последний выбор сотрудника; шаблон и концовка — случайные, зафиксированные один раз на тип объекта.
   const last = data?.lastChoice ?? {};
-  const defaultTemplateId = narrationRotatedTemplateId(templates, last.templateId)
-    ?? pickNarrationTemplate({ templates, defaultTemplateId: data?.defaultTemplateId ?? undefined })?.id ?? null;
+  const type = facts.type;
+  const picked = useMemo(() => data ? chooseNarration({ templates, endings, defaultTemplateId: data.defaultTemplateId ?? undefined }, type, { avoid: data.lastChoice ?? null }) : null,
+    [data, templates, endings, type]);
+  const defaultTemplateId = picked?.templateId ?? null;
+  const defaultEndingId = picked?.endingId ?? null;
+  // Предвыбор уходит в выбор агента сразу: иначе сервер выбрал бы другой случайный, чем виден на экране.
+  // Сменился тип объекта (агент вернулся на шаг назад), а прежний шаблон ему не подходит — берём новый.
+  useEffect(() => {
+    if (!picked?.templateId || value.none || value.script) return;
+    const current = templates.find((t) => t.id === value.templateId);
+    if (!current || !narrationFitsType(current, type)) onChange({ ...value, templateId: picked.templateId, endingId: picked.endingId ?? "" });
+  }, [picked, templates, type, value, onChange]);
   const defaultVoiceId = data ? pickNarrationVoice({ voices: data.voices, defaultVoiceId: last.voiceId ?? data.defaultVoiceId ?? undefined }) : null;
 
   return (
@@ -53,8 +64,8 @@ export function NarrationChoice({ facts, value, onChange }: {
       {value.none ? (
         <p className="text-sm text-[var(--muted)]">Озвучка не готовится и не тратит деньги, монтажёр получит пометку «без озвучки». Включить можно потом в карточке объекта.</p>
       ) : <>
-        <NarrationComposer name={`${ids}-voice`} templates={templates} voices={data?.voices ?? []} samples={data?.samples} facts={facts}
-          value={value} onChange={(next) => onChange({ ...next })} defaultTemplateId={defaultTemplateId} defaultVoiceId={defaultVoiceId} lastPickedVoiceId={last.voiceId ?? null} />
+        <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data?.voices ?? []} samples={data?.samples} facts={facts}
+          value={value} onChange={(next) => onChange({ ...next })} defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} lastPickedVoiceId={last.voiceId ?? null} />
         <p className="rounded-lg bg-blue/10 p-3 text-sm">
           {data?.autoGenerate
             ? "После сохранения объекта озвучка придёт вам на прослушивание в CRM и в Шабнам. Поменяется цена — озвучка обновится сама и снова придёт на одобрение."

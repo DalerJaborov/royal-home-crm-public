@@ -43,7 +43,7 @@ narrationRouter.get("/narration-settings", async (req, res) => {
 /** Мастер объекта (CRM) и карточка: шаблоны и голоса без ключа и модели. Любой сотрудник. */
 narrationRouter.get("/narration-options", async (_req, res) => {
   const { config } = await configuration();
-  const view: NarrationOptionsView = { templates: config.templates ?? [], voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
+  const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
     defaultTemplateId: config.defaultTemplateId ?? null, defaultVoiceId: config.defaultVoiceId ?? null, autoGenerate: narrationAutoEnabled(config),
     lastChoice: await narrationLastChoiceFor(_req.agent?.id, config),
     samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })) };
@@ -84,9 +84,14 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
   const modelProblem = narrationModelError(parsed.data);
   if (modelProblem) return res.status(400).json({ error: modelProblem });
+  // Сторож шаблонов и концовок (16.11.2026): цифры, «Direct», «брон», скобки, тире — одна проверка на оба списка.
   for (const template of parsed.data.templates ?? []) {
-    const problem = narrationTemplateError(template.text) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS));
+    const problem = narrationTemplateError(template.text, template.lang) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS));
     if (problem) return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
+  }
+  for (const ending of parsed.data.endings ?? []) {
+    const problem = narrationTemplateError(ending.text, ending.lang) ?? narrationScriptError(renderNarrationTemplate(ending, SAMPLE_FACTS));
+    if (problem) return res.status(400).json({ error: `Концовка «${ending.text.slice(0, 40)}…»: ${problem}` });
   }
   // Словарь произношения (12.11.2026): правка правил — синхронизация с ElevenLabs, только для
   // поддержанных моделей (lib/narrationPronunciation.ts); иначе правила просто хранятся.
@@ -140,7 +145,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
   res.json({ versions: versions.map((v) => ({ id: v.id, revision: v.revision, script: v.script, voiceId: v.voiceId, status: v.status,
     approvedAt: v.approvedAt, stale: !narrationFactsCurrent(v, p), hasAudio: v.status === "READY" && !!v.storageKey, errorCode: v.errorCode, createdAt: v.createdAt,
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
-    source: v.source, templateId: v.templateId, language: v.language, generateAfter: v.generateAfter })),
+    source: v.source, templateId: v.templateId, endingId: v.endingId, language: v.language, generateAfter: v.generateAfter })),
     suggestedScript: suggestedNarration(facts), facts, config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
     deliveries: deliveries.map(d => ({ id: d.id, status: d.status, mode: d.mode, versionId: d.versionId, createdAt: d.createdAt, lastError: d.lastError, planHash: d.plan ? narrationHash(d.plan) : null })),
     ownerReportsEnabled: mediaExecutionMode("OWNER_REPORT") === "LIVE",
@@ -170,7 +175,7 @@ narrationRouter.post("/:id/narration", async (req, res) => {
   if (parsed.data.generate) {
     // Правка агента при автоозвучке: новая версия сразу в очередь генерации (та же дверь, тот же потолок).
     if (!narrationAutoEnabled(config)) return res.status(409).json({ error: "Автоозвучка выключена в настройках. Сохраните текст без генерации." });
-    const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", script: parsed.data.script, templateId: parsed.data.templateId,
+    const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", script: parsed.data.script, templateId: parsed.data.templateId, endingId: parsed.data.endingId,
       voiceId: parsed.data.voiceId, expectedRevision: parsed.data.expectedRevision, requestKey: parsed.data.requestKey, debounceMs: 0 });
     if (outcome.status === "INVALID") return res.status(400).json({ error: outcome.error });
     if (outcome.status === "DISABLED") return res.status(409).json({ error: "Для объекта выбрано «Без озвучки». Сначала включите озвучку." });

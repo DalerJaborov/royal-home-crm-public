@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { narrationRotatedTemplateId, pickNarrationTemplate, pickNarrationVoice, type PropertyNarrationView } from "@royal-home/shared";
+import { chooseNarration, pickNarrationVoice, type PropertyNarrationView } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { NarrationComposer, resolveNarrationDraft, type NarrationDraft } from "./NarrationComposer";
 import { PropertyNarrationService } from "./PropertyNarrationService";
@@ -50,6 +50,10 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   const [audio, setAudio] = useState<{ versionId: string; url: string } | null>(null);
   const requestKey = useRef(crypto.randomUUID());
   const latest = data?.versions[0];
+  // Нет версии — шаблон и концовка случайные (подходят типу, не равны прошлому выбору сотрудника), зафиксированные
+  // один раз; есть версия — её шаблон и концовка (одно ядро chooseNarration, 16.11.2026).
+  const factsType = data?.facts?.type;
+  const freshPick = useMemo(() => data ? chooseNarration(data.config, factsType, { avoid: data.lastChoice ?? null }) : null, [data, factsType]);
   useEffect(() => () => { if (audio) URL.revokeObjectURL(audio.url); }, [audio]);
   useEffect(() => { setDraft({}); setEditing(false); setAudio(null); setMessage(""); requestKey.current = crypto.randomUUID(); }, [propertyId]);
 
@@ -70,6 +74,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   if (error || !data) return <section className="card p-4" role="status">Озвучка недоступна: {error instanceof Error ? error.message : "не удалось загрузить"}</section>;
 
   const templates = data.config.templates ?? [];
+  const endings = data.config.endings ?? [];
   const facts = data.facts;
   const canEdit = data.canDraft !== false;
   const pending = narrationIsPending(latest);
@@ -84,17 +89,18 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   const waitsForApproval = !!ready && !latest?.approvedAt && !latest?.stale && latest?.source !== "MANUAL";
   const showComposer = canEdit && !data.off && !!facts && (editing || !latest || failed || (latest.status === "DRAFT" && !latest.generateAfter));
   const last = data.lastChoice ?? {};
-  // Есть версия — её шаблон и текст; нет — следующий вариант после прошлого выбора, как в мастере.
-  const defaultTemplateId = latest?.templateId ?? narrationRotatedTemplateId(templates, last.templateId) ?? pickNarrationTemplate(data.config)?.id ?? null;
+  // Есть версия — её шаблон, концовка и текст; нет — случайные, как в мастере.
+  const defaultTemplateId = latest?.templateId ?? freshPick?.templateId ?? null;
+  const defaultEndingId = latest ? latest.endingId ?? null : freshPick?.endingId ?? null;
   const defaultVoiceId = pickNarrationVoice(data.config, latest?.voiceId ?? last.voiceId);
-  const resolved = facts ? resolveNarrationDraft({ templates, facts, value: draft, defaultTemplateId, defaultVoiceId, defaultScript: currentScript }) : null;
+  const resolved = facts ? resolveNarrationDraft({ templates, endings, facts, value: draft, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript: currentScript }) : null;
   const textOk = (resolved?.text.trim().length ?? 0) >= 10;
 
   const submit = (generate: boolean) => void run(async () => {
     if (!resolved) return;
     await api(`/properties/${propertyId}/narration`, { method: "POST", body: {
       expectedRevision: latest?.revision ?? 0, requestKey: requestKey.current, script: resolved.text,
-      ...(resolved.templateId ? { templateId: resolved.templateId } : {}), ...(resolved.voiceId ? { voiceId: resolved.voiceId } : {}), ...(generate ? { generate: true } : {}),
+      ...(resolved.templateId ? { templateId: resolved.templateId } : {}), ...(resolved.endingId ? { endingId: resolved.endingId } : {}), ...(resolved.voiceId ? { voiceId: resolved.voiceId } : {}), ...(generate ? { generate: true } : {}),
     } });
     requestKey.current = crypto.randomUUID(); setDraft({}); setEditing(false);
     setMessage(generate ? "Готовим озвучку. Обычно минута-две, придёт сюда и в Шабнам." : "Текст сохранён. Аудио по нему подготовит маркетинг.");
@@ -160,8 +166,8 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
         </p>}
 
         {showComposer && facts && <>
-          <NarrationComposer name={`${ids}-voice`} templates={templates} voices={data.config.voices} samples={data.samples} facts={facts} value={draft} onChange={setDraft}
-            defaultTemplateId={defaultTemplateId} defaultVoiceId={defaultVoiceId} defaultScript={currentScript} lastPickedVoiceId={last.voiceId ?? null} disabled={busy} />
+          <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data.config.voices} samples={data.samples} facts={facts} value={draft} onChange={setDraft}
+            defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} defaultScript={currentScript} lastPickedVoiceId={last.voiceId ?? null} disabled={busy} />
           <div className="flex flex-wrap items-center gap-2">
             {data.autoGenerate
               ? <button type="button" className="pill bg-blue! text-on-accent!" disabled={busy || !resolved?.voiceId || !textOk} onClick={() => submit(true)}>Озвучить</button>
