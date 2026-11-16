@@ -54,6 +54,35 @@ describe("глубокая проверка здоровья", () => {
     expect(report.workerLastBeatSec).toBeLessThanOrEqual(5);
   });
 
+  it("тик процесса API не делает worker «живым»: свежая только строка API, остальные старше 10 минут", async () => {
+    const { API_PROCESS_TICKS } = await import("../src/lib/apiProcessTicks.js");
+    const apiTick = "live-voice-spend-ceiling";
+    expect(Object.keys(API_PROCESS_TICKS)).toContain(apiTick);
+    const old = new Date(Date.now() - WORKER_STALE_MS - 5 * 60_000);
+    const before = await prisma.cronHeartbeat.findMany();
+    try {
+      // Свой набор строк: все старше предела, и одна свежая строка тика API.
+      await prisma.cronHeartbeat.updateMany({ data: { lastRunAt: old, lastSkippedAt: old } });
+      await prisma.cronHeartbeat.upsert({
+        where: { name: apiTick },
+        update: { lastRunAt: new Date() },
+        create: { name: apiTick, expr: "* * * * *", lastRunAt: new Date() },
+      });
+      expect(await deepHealth()).toMatchObject({ ok: false, db: true, worker: false });
+      // Свежий тик worker возвращает жизнь.
+      await prisma.cronHeartbeat.update({ where: { name }, data: { lastRunAt: new Date() } });
+      expect(await deepHealth()).toMatchObject({ ok: true, worker: true });
+    } finally {
+      for (const row of before) {
+        await prisma.cronHeartbeat.updateMany({
+          where: { name: row.name },
+          data: { lastRunAt: row.lastRunAt, lastSkippedAt: row.lastSkippedAt },
+        });
+      }
+      if (!before.some((r) => r.name === apiTick)) await prisma.cronHeartbeat.deleteMany({ where: { name: apiTick } });
+    }
+  });
+
   it("адрес отвечает без входа: 200 и что здорово", async () => {
     await prisma.cronHeartbeat.update({ where: { name }, data: { lastRunAt: new Date() } });
     const res = await request(app).get("/api/v1/health/deep");

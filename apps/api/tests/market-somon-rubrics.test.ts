@@ -36,8 +36,10 @@ describe("тип объекта и сделки — только из рубри
   it("рубрики недвижимости дают тип и сделку без угадывания по словам", () => {
     expect(detectCategory(ad(1, 2833))).toEqual({ dealType: "SALE", propertyType: "APARTMENT" });
     expect(detectCategory(ad(1, 218))).toEqual({ dealType: "SALE", propertyType: "HOUSE" });
-    expect(detectCategory(ad(1, 2845))).toEqual({ dealType: "RENT", propertyType: "APARTMENT" });
-    expect(detectCategory(ad(1, 220))).toEqual({ dealType: "RENT", propertyType: "COMMERCIAL" });
+    // Аренды в каталоге нет (14.11.2026): рубрики аренды не из списка — не пишутся.
+    expect(detectCategory(ad(1, 2845))).toBeNull();
+    expect(detectCategory(ad(1, 220))).toBeNull();
+    expect(toListing(ad(1, 2845))).toBeNull();
     expect(detectCategory(ad(1, 219))).toEqual({ dealType: "SALE", propertyType: "LAND" });
   });
 

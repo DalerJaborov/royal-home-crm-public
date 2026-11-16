@@ -47,6 +47,7 @@ import { findAgentByTelegramChatId, findAgentByTelegramUserId } from "../lib/tel
 import { claimCallback } from "../lib/telegramModeration.js";
 import { handlePaymentReminderCallback } from "../lib/paymentReminders.js";
 import { handleNoticePreferenceText, handleStaffNoticeCallback } from "./staffNotice.js";
+import { handleTrashRestoreCallback } from "./trashRestoreNotice.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
@@ -166,10 +167,14 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "create_task",
   "reschedule_task",
   "add_client_note",
+  // Удаление клиента (15.11.2026): карточка клиента и подтверждение — только в личке.
+  "delete_client",
   // Сотрудники и права — только личка (владелец 10.11.2026): в группе ни читать, ни менять.
   ...STAFF_TOOL_NAMES,
   // Личная настройка уведомлений (14.11.2026): только в личке; в группе — вторая стена к allowed().
   "set_notification_pref",
+  // Рынок под запрос клиента (14.11.2026): бюджет и пожелания клиента только в личке; цена объекта против рынка в группе допустима.
+  "market_for_client",
   // Деньги в общей группе не показываются и не меняются (10.11.2026): все инструменты расходов.
   // Список буквами (не импортом): сверку с реестром держит тест assistant-expense-batch.
   "list_expenses", "get_expense_summary", "get_expense_forecast", "get_expense_pivot", "list_recurring_expenses",
@@ -1697,6 +1702,8 @@ const FAIL_STATUS_NOTE: Record<string, string> = {
 export async function handleAssistantCallback(query: TelegramCallbackQuery): Promise<boolean> {
   // «🔕 Не присылать такое» / «🔔 Включить обратно» — под любым сообщением помощницы по её почину.
   if (await handleStaffNoticeCallback(query)) return true;
+  // «♻️ Восстановить» под сообщением руководству об удалении своего объекта/клиента через Шабнам.
+  if (await handleTrashRestoreCallback(query)) return true;
   // «✅ Оплатил» / «⏰ Напомнить завтра» под напоминанием об оплате подписки.
   if (await handlePaymentReminderCallback(query)) return true;
   if (query.data?.startsWith("ef:")) return handleTelegramExpenseReceiptCallback(query);

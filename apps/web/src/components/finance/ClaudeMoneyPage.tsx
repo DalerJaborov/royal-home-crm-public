@@ -3,6 +3,7 @@ import { Archive, ChevronLeft, ChevronRight, Download, MoreHorizontal, Plus, Sli
 import { Link } from "react-router-dom";
 import { useIsReadOnly } from "../../lib/permissions";
 import { useMobileUx } from "../../hooks/useMobileUx";
+import { ReportPdfActions } from "../ReportPdfActions";
 import { Rh2Inline } from "../rh2/Rh2Scope";
 import type { FinanceWorkspace } from "../../lib/financeWorkspace";
 import type { ClaudeExpense } from "../../lib/claudeFinanceApi";
@@ -29,11 +30,13 @@ function moveMonth(month: string, direction: number) {
 }
 
 /** The approved Claude money workspace, using live CRM controllers. */
-export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceChange, canManage, archiveAllowed, overview, payouts, onExport, exporting, exportError }: {
+export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceChange, canManage, archiveAllowed, overview, payouts, onExport, exporting, exportError, pdfMonths = 6 }: {
   month: string; onMonthChange: (month: string) => void;
   workspace: FinanceWorkspace; onWorkspaceChange: (workspace: FinanceWorkspace) => void;
   canManage: boolean; archiveAllowed: boolean; overview: ReactNode; payouts: ReactNode;
   onExport: () => void; exporting: boolean; exportError: string | null;
+  /** Сколько месяцев истории в PDF — тот же диапазон, что у графиков обзора. */
+  pdfMonths?: number;
 }) {
   const readOnly = useIsReadOnly();
   const mobile = useMobileUx();
@@ -101,6 +104,7 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
         <div className="cef-tool-actions">
           <button type="button" className="cef-btn cef-soft" onClick={() => setCategoriesOpen(true)}><SlidersHorizontal size={18} /><span>Категории и лимиты</span></button>
           <button type="button" className="cef-icon-btn" aria-label="Скачать общую финансовую выгрузку" disabled={exporting} onClick={onExport}><Download /><span className="cef-mobile-action-label">Скачать CSV</span></button>
+          <ReportPdfActions kind="finance" params={{ month, months: pdfMonths }} layout="contents" buttonClassName="cef-btn cef-soft" />
           {archiveAllowed && <Link className="cef-icon-btn" aria-label="Архив расходов" to="/archive"><Archive /><span className="cef-mobile-action-label">Архив расходов</span></Link>}
         </div>
       </details>

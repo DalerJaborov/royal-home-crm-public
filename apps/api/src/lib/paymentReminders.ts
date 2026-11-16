@@ -1,6 +1,7 @@
 import type { ExpenseUpcomingItem } from "@royal-home/shared";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
+import { isOpenAiEnabled } from "../ai/openaiClient.js";
 import { loadAgentAccess } from "../auth/middleware.js";
 import { sendPushToAgent } from "../push.js";
 import { createNotification } from "./notifications.js";
@@ -67,9 +68,10 @@ export const BILLING_SERVICES: { key: string; label: string; re: RegExp }[] = [
  * Признак сбоя ОПЛАТЫ, а не простого лимита скорости: голый 429 сюда не входит,
  * только с денежными словами. Тексты сверены с ai/openaiClient.ts
  * (OUT_OF_MONEY_TEXT, insufficient_quota, billing_hard_limit_reached),
- * ai/geminiClient.ts («prepayment credits depleted») и ai/liveVoiceClient.ts.
+ * ai/geminiClient.ts («prepayment credits depleted») и ai/liveVoiceClient.ts. 14.11.2026: «кредиты ElevenLabs
+ * закончились» (озвучка, narrationAutoFlow.ts) и `quota_exceeded` раньше напоминание не будили.
  */
-const BILLING_RE = /\b402\b|payment[\s_]required|billing|insufficient|prepayment|credits?\s+(?:are\s+)?depleted|no\s+credits|exceeded\s+your\s+current\s+quota|недостаточно\s+средств|закончились\s+деньги|пополните\s+баланс|credit\s+balance\s+is\s+too\s+low/i;
+export const BILLING_RE = /\b402\b|payment[\s_]required|billing|insufficient|prepayment|credits?\s+(?:are\s+)?depleted|no\s+credits|exceeded\s+your\s+current\s+quota|недостаточно\s+средств|закончились\s+деньги|пополните\s+баланс|credit\s+balance\s+is\s+too\s+low|quota_exceeded|кредит\S*\s+\S*\s*закончил|закончил\S*\s+(?:минуты|кредиты)/i;
 
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00.000Z`);
@@ -134,9 +136,13 @@ export async function billingFailures(now: Date = new Date()): Promise<{ service
   // Текст ошибки наружу НЕ уходит: в нём бывают ключи (?key=, token=) и чужие
   // данные. В сообщении — только название сервиса и код ответа.
   const found = new Map<string, { service: (typeof BILLING_SERVICES)[number]; code: string | null }>();
+  // OpenAI выключен рубильником (14.11.2026) — его «кончились деньги» не напоминаем:
+  // владелец отказался от сервиса, старые ошибки за сутки не должны будить Мушовир.
+  const openaiOff = !(await isOpenAiEnabled());
   for (const row of rows) {
     if (!BILLING_RE.test(row.message)) continue;
     const service = BILLING_SERVICES.find((s) => s.re.test(row.message));
+    if (openaiOff && service?.key === "openai") continue;
     const code = /\b(402|429|403)\b/.exec(row.message)?.[1] ?? null;
     if (service && !found.has(service.key)) found.set(service.key, { service, code });
   }

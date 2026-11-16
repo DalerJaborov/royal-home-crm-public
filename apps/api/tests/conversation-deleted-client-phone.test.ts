@@ -3,7 +3,6 @@ import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { processMessengerTurn as actualProcessMessengerTurn } from "../src/messengers/conversation.js";
-import { waitFor } from "./helpers/waitFor.js";
 
 /**
  * КАРТОЧКА УДАЛЕНА, КЛИЕНТ СНОВА ПИШЕТ НОМЕР — ЗАЯВКА ОБЯЗАНА ВОСКРЕСНУТЬ
@@ -126,7 +125,13 @@ describe("Карточка удалена, клиент пишет номер с
 });
 
 describe("Стадия «done» без карточки осталась от старой отвязки", () => {
-  it("захват хода не удался — реплика с номером всё равно в переписке, а в журнале строка", async () => {
+  /**
+   * 24.09.2026 такой диалог считался «захват не удался, карточку заводит человек»: реплику
+   * сохраняли, писали строку в журнал и молчали. 14.11.2026 владелец: клиент дал номер —
+   * карточка обязана быть. «done» при пустом clientId гонкой не бывает (победитель ставит
+   * их одной записью), значит захват свободен, и приём заводит карточку штатно.
+   */
+  it("номер принимается: карточка заводится, реплика с номером в переписке", async () => {
     // Диалог, отвязанный ещё старым кодом: clientId пуст, стадия «done» не сброшена.
     const subscriber = `${SUBSCRIBER}-stale`;
     await prisma.botConversation.update({
@@ -143,27 +148,16 @@ describe("Стадия «done» без карточки осталась от с
     });
     callAi.mockResolvedValue({ reply: "Ташаккур!" });
     const marker = `Салом, ${PHONE}`;
-    // Стадию не трогает никто, кроме приёма: захват отдаст 0 строк.
     const result = await processMessengerTurn({ channel: "INSTAGRAM", subscriberId: subscriber, text: marker });
-    expect(result.shouldReply).toBe(false);
+    expect(result.accepted).toBe(true);
 
     const conv = await prisma.botConversation.findFirst({
       where: { channel: "INSTAGRAM", subscriberId: subscriber },
-      select: { id: true, messages: true },
+      select: { id: true, messages: true, clientId: true },
     });
+    // Без починки: clientId пуст навсегда — захват отдавал 0 строк и ход выходил молча.
+    expect(conv?.clientId).toBeTruthy();
     const messages = (Array.isArray(conv?.messages) ? conv!.messages : []) as { role: string; content: string }[];
-    // Без починки: реплика клиента не сохранена (запись в acceptLead идёт после захвата).
     expect(messages.some((m) => m.role === "user" && m.content.includes(PHONE))).toBe(true);
-
-    // Запись в журнал идёт «в отрыве» (void) — читаем через waitFor.
-    const logged = await waitFor(
-      () =>
-        prisma.errorLog.findFirst({
-          where: { source: "ai", message: { contains: `диалог ${conv!.id}` } },
-          select: { id: true },
-        }),
-      { label: "строка журнала о несостоявшемся захвате" }
-    );
-    expect(logged).not.toBeNull();
   });
 });
