@@ -70,7 +70,9 @@ crm.royalhome.tj {
 	timeouts {
 		read_body   10s
 		read_header 5s
-		write       30s
+		# write 15m (16.11.2026): Instagram/Facebook забирают ролики до ~250 МБ по ссылке
+		# /uploads/…; при 30 с/200 с медленное скачивание рвалось на середине.
+		write       15m
 		idle        2m
 	}
 
@@ -112,7 +114,9 @@ royalhome.tj {
 	timeouts {
 		read_body   10s
 		read_header 5s
-		write       30s
+		# write 15m (16.11.2026): Instagram/Facebook забирают ролики до ~250 МБ по ссылке
+		# /uploads/…; при 30 с/200 с медленное скачивание рвалось на середине.
+		write       15m
 		idle        2m
 	}
 	header {
