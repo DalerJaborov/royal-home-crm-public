@@ -151,8 +151,10 @@ export async function upsertAiExpenses(months: string[]): Promise<number> {
         _sum: { costUsd: true },
       }),
       // Настоящие счета и подписки поставщиков ИИ за месяц: ручные и из шаблонов, не в корзине.
+      // У самой строки оценки ai:<месяц> поставщика нет — она сюда не попадает. Фильтр по autoKey
+      // здесь нельзя: NOT по пустому autoKey в SQL даёт «неизвестно» и прячет ручные счета.
       prisma.expense.findMany({
-        where: { month: from, deletedAt: null, vendor: { in: [...AI_ESTIMATE_VENDORS] }, NOT: { autoKey: { startsWith: "ai:" } } },
+        where: { month: from, deletedAt: null, vendor: { in: [...AI_ESTIMATE_VENDORS] } },
         select: { vendor: true },
         distinct: ["vendor"],
       }),

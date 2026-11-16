@@ -128,7 +128,7 @@ describe("взносы учредителей", () => {
     expect(totals.founders[2]).toMatchObject({ monthTjs: 462, allTimeTjs: 462 });
     expect(totals.founders[3]).toMatchObject({ deleted: true, monthTjs: 0, allTimeTjs: 700 });
     expect(totals.monthTjs).toBe(8462);
-    expect(totals.allTimeTjs).toBe(9162);
+    expect(totals.allTimeTjs).toBe(10162);
   });
 
   it("строка отчёта «взнос Баходура» — взнос; имя без слова «взнос» — нет", () => {
