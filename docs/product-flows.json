@@ -114012,7 +114012,7 @@
         },
         {
          "k": "do",
-         "t": "const problem = telegramDeliveryProblem(info, now, previousPending);",
+         "t": "const problem = telegramDeliveryProblem(info, now, previousPending, telegramUpdatesMode());",
          "a": [
           "зовёт telegramDeliveryProblem()"
          ],

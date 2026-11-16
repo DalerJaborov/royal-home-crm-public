@@ -25414,7 +25414,7 @@
     - если сорвалось
       - return { skipped: "read_failed", alarmed: false };
         · дословно из кода
-    - const problem = telegramDeliveryProblem(info, now, previousPending);
+    - const problem = telegramDeliveryProblem(info, now, previousPending, telegramUpdatesMode());
       · зовёт telegramDeliveryProblem()
     - если !problem
       - return { skipped: null, alarmed: false };
