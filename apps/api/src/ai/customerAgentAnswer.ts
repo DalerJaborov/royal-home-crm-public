@@ -3,7 +3,7 @@ import { clientOwnWords } from "./untrustedContent.js";
 import { detectClientLanguage } from "./clientLanguage.js";
 import { findBannedWords } from "./bannedWordsGuard.js";
 import { normalizeSayText, SAY_LEXICON, foldSayText, foldSayPattern, sayTokens, sayComparable, sayEchoes } from "./customerAgentSay.js";
-import { informalAddress, foreignLanguageWord, SERVICE_CLAIM_SOURCE, outsideHumanVocabulary, approvedAsk, APPROVED_ASKS, HUMAN_VOCABULARY,
+import { informalAddress, foreignLanguageWord, SERVICE_CLAIM_SOURCE, humanPhraseKinds, customerRequestInText, approvedAsk, APPROVED_ASKS, HUMAN_PHRASES,
   type CustomerAgentAskKind } from "./customerAgentHumanText.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 
@@ -37,7 +37,7 @@ export interface CustomerAgentAnswerParts { lead?: string; ask?: string; close?:
 export const CUSTOMER_AGENT_ANSWER_EXAMPLES = {
   ru: [{ lead: "Спасибо, что написали!", ask: "Подскажите, в каком районе вам удобнее?" },
     { lead: "Понимаю вас.", ask: "На какую сумму вы рассчитываете?" },
-    { lead: "Хорошо, вот что могу сказать." }],
+    { lead: "Вот что могу сказать." }],
   tg: [{ lead: "Раҳмат, ки навиштед!", ask: "Бемалол бигӯед, чӣ қадар маблағ дар назар доред?" },
     { lead: "Фаҳмидам.", ask: "Шумо хона харидан мехоҳед ё фурӯхтан?" }],
 } as const satisfies Record<"ru" | "tg", readonly CustomerAgentAnswerParts[]>;
@@ -47,23 +47,23 @@ export const CUSTOMER_AGENT_ANSWER_EXAMPLES = {
  * messages only), never in the pinned system prompt: a changed prompt hash cannot ride the routine «Обновить версию бота» path
  * (lib/customerAgentOwnerPolicy.ts, lib/customerAgentAutoRefresh.ts PINNED_FIELDS). This text is hashed with the renderer files.
  */
-const vocabularyLine = (language: "ru" | "tg") => {
-  const v = HUMAN_VOCABULARY[language];
-  return [...new Set([...v.greeting, ...v.neutral, ...v.warm])].join(", ");
-};
+const phrasesLine = (language: "ru" | "tg", role: "lead" | "close") => HUMAN_PHRASES[language][role].map(([text]) => text).join(" | ");
 const asksLine = (language: "ru" | "tg") => (Object.entries(APPROVED_ASKS[language]) as [string, readonly string[]][])
   .map(([kind, list]) => `${kind}: ${list.join(" | ")}`).join("\n");
 export const CUSTOMER_AGENT_ANSWER_GUIDANCE = `Исключение из «не добавляй произвольный текст»: в reply, clarify и propose можно добавить поле answer — человеческие слова вокруг фактов, на языке replyLanguage:
 answer = {"lead": "...", "ask": "...", "close": "..."}; каждое поле необязательно.
-- lead: одно-два коротких предложения в начале (приветствие, «понимаю», благодарность, извинение, мягкое вступление), без вопроса;
+- lead: одна-две ДОСЛОВНЫЕ фразы из списка ниже (приветствие, «понимаю», благодарность, извинение, мягкое вступление);
 - ask: тот же вопрос, что ты выбрал в поле question, ДОСЛОВНО одной из утверждённых формулировок ниже (другой — нельзя; нет подходящей — без ask);
-- close: короткая тёплая фраза в конце, только если вопроса нет.
-lead и close пишутся ТОЛЬКО словами из словаря ниже (в любом порядке, с запятыми и точкой). Любое другое слово — и уйдёт шаблон.
+- close: одна ДОСЛОВНАЯ фраза из списка ниже, только если вопроса нет.
+Своих фраз нет: любая другая фраза, другое слово или порядок — и уйдёт шаблон. Приветствие — только если сервер сам здоровается в этом ходе.
+Если клиент о чём-то просит (скидка, показ, «можно…?», «мумкин…?»), не начинай с «Хорошо», «Хуб», «Майлаш»: это прозвучит как «да».
 Рядом с отказом, проданным или недоступным объектом, ответом о городе работы — только нейтральное вступление («Понимаю вас.», «Фаҳмидам.»), без радости и без close.
 Все факты (цены, объекты, наличие, комиссия, город и район работы, аренда, документы, сроки, контакты, обещания) сервер вставит сам, дословно.
 Только «вы» / «шумо»; никогда: «я уже писал выше», «повторяю», «дар боло навиштам», «лутфан», «мутахассис», «амвол», «я бот», ИИ, CRM, refs; без тире и списков; не здоровайся повторно.
-Словарь (русский): ${vocabularyLine("ru")}
-Словарь (таджикский): ${vocabularyLine("tg")}
+Фразы lead (русский): ${phrasesLine("ru", "lead")}
+Фразы close (русский): ${phrasesLine("ru", "close")}
+Фразы lead (таджикский): ${phrasesLine("tg", "lead")}
+Фразы close (таджикский): ${phrasesLine("tg", "close")}
 Утверждённые вопросы (русский):
 ${asksLine("ru")}
 Утверждённые вопросы (таджикский):
@@ -160,7 +160,7 @@ export function customerAgentAskKindOf(line: string): CustomerAgentAskKind | nul
  * Why one human part may not reach a customer, or null. Fact-bearing tokens first (the reason the redesign exists), then tone.
  * `language` undefined: only the fact checks (used to admit a sent line into the dialogue memory, whatever its language).
  */
-function humanPartIssue(raw: string, role: Role, opts: { kind?: CustomerAgentAskKind; language?: "ru" | "tg"; own?: string; neutralOnly?: boolean }): Reason | null {
+function humanPartIssue(raw: string, role: Role, opts: { kind?: CustomerAgentAskKind; language?: "ru" | "tg"; own?: string; neutralOnly?: boolean; noAgree?: boolean }): Reason | null {
   if (/[№#]/u.test(raw)) return "number";
   const nfkc = raw.normalize("NFKC").replace(INVISIBLE, "");
   if (NEWLINE.test(nfkc)) return "length";
@@ -178,12 +178,14 @@ function humanPartIssue(raw: string, role: Role, opts: { kind?: CustomerAgentAsk
     return null;
   }
   if (/[?]/u.test(text) || SAY_LEXICON.ASKING.test(folded)) return "question";
-  // ALLOWLIST decides: every word from the vetted vocabulary (any language for the memory check, the reply language otherwise; neutral
-  // words only next to a refusal). The lexicons below only NAME the reason of a refusal for the counters («модель сама писала факт»).
-  const outside = opts.language ? outsideHumanVocabulary(text, opts.language, opts.neutralOnly)
-    : outsideHumanVocabulary(text, "ru") && outsideHumanVocabulary(text, "tg");
+  // ALLOWLIST decides: whole vetted phrases (any language and role for the memory check). Next to a refusal: neutral only; after a
+  // customer's request: no «Хорошо/Хуб/Майлаш». The lexicons below only NAME the reason of a refusal for the counters.
+  const kinds = opts.language ? humanPhraseKinds(text, opts.language, role)
+    : (["ru", "tg"] as const).flatMap(language => (["lead", "close"] as const).map(r => humanPhraseKinds(text, language, r))).find(Boolean) ?? null;
+  const outside = !kinds || !!opts.neutralOnly && kinds.some(kind => kind === "warm" || kind === "agree") || !!opts.noAgree && kinds.includes("agree");
+  if (!outside) return opts.own && sayEchoes(text, opts.own) ? "echo" : null;
   const reason = lexiconReason(text, folded);
-  if (outside && reason) return reason;
+  if (reason) return reason;
   if (SAY_LEXICON.META.test(folded)) return "meta";
   if (REPEAT_RUDE.test(folded) || RECEIPT_TALK.test(folded) || WOODEN_TG.test(folded) || findBannedWords(text).length || DASH.test(text)) return "wooden";
   if (SAY_LEXICON.CLICHE.test(folded)) return "cliche";
@@ -259,8 +261,8 @@ export function validateCustomerAgentAnswer(input: CustomerAgentAnswerInput): Cu
   for (const [role, value] of [["lead", parts.lead], ["ask", parts.ask], ["close", parts.close]] as const) {
     if (value === undefined) continue;
     if (role === "ask" && !template.question) return bad("question");
-    if (role === "close" && template.negative) return bad("vocabulary");
-    const issue = humanPartIssue(value, role, { kind: role === "ask" ? kind : undefined, language: input.language, own, neutralOnly: template.negative });
+    const issue = humanPartIssue(value, role, { kind: role === "ask" ? kind : undefined, language: input.language, own, neutralOnly: template.negative,
+      noAgree: customerRequestInText(own) });
     if (issue) return bad(issue);
   }
   const lead = parts.lead && normalizeSayText(parts.lead), ask = parts.ask && normalizeSayText(parts.ask), close = parts.close && normalizeSayText(parts.close);
@@ -271,8 +273,10 @@ export function validateCustomerAgentAnswer(input: CustomerAgentAnswerInput): Cu
   if (input.language === "ru" ? verdict === "tg" || verdict === "mixed" : verdict === "ru" || verdict === "mixed") return bad("language");
 
   // Greetings: the lead may greet only where the template greets (then it replaces that line); ask and close never greet.
+  // A vetted greeting phrase is the only greeting the model can write («Саломат бошед!» is a farewell close, never a greeting).
   const templateGreets = template.social.some(isGreeting);
-  if (lead && isGreeting(lead) && !templateGreets || ask && isGreeting(ask) || close && isGreeting(close)) return bad("double_greet");
+  const leadGreets = !!lead && !!humanPhraseKinds(lead, input.language, "lead")?.includes("greeting");
+  if (leadGreets && !templateGreets) return bad("double_greet");
 
   // Never the same words twice in a conversation.
   const prior = (input.priorAssistantTurns ?? []).flatMap(turn => turn.split("\n").map(line => sayComparable(line)).filter(Boolean));
@@ -288,7 +292,7 @@ export function validateCustomerAgentAnswer(input: CustomerAgentAnswerInput): Cu
   // Compose: template facts verbatim, the human words around them.
   const lastFact = template.facts.at(-1) ?? "";
   if (close && (template.question || /[?]/u.test(lastFact))) return bad("question");
-  const lines = [...(lead ? [...(isGreeting(lead) ? [] : template.social.filter(isGreeting)), lead] : template.social), ...template.facts,
+  const lines = [...(lead ? [...(leadGreets ? [] : template.social.filter(isGreeting)), lead] : template.social), ...template.facts,
     ...(template.question ? [ask ?? template.question.line] : []), ...(close ? [close] : [])];
   const text = lines.join("\n");
   // Invariant (defence in depth): every template fact line is in the reply, unchanged.

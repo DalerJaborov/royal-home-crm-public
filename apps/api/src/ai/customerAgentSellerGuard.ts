@@ -25,11 +25,13 @@ const COMMISSION_ASK = new RegExp(`${BW}(?:комисс\\p{L}*|процент\\p
 const TERMS_ASK = new RegExp(`${BW}(?:шарт\\p{L}*|шароит\\p{L}*|услови\\p{L}*)${EW}`, "u");
 const NOT_TERMS = new RegExp(`${BW}(?:ипотек\\p{L}*|кредит\\p{L}*|рассроч\\p{L}*|насия\\p{L}*|карз\\p{L}*|кисм\\p{L}*|скидк\\p{L}*|тахфиф\\p{L}*|аренд\\p{L}*|ичора\\p{L}*|кироя\\p{L}*)${EW}`, "u");
 /** A QUESTION, not a description: «все условия есть», «ҳама шароит дорад», «шароиташ хуб» describe the flat (re-review #211, п.7). */
-const ASKING_TERMS = new RegExp(`${BW}(?:какие|какая|какой|каковы|каков|сколько|чи|чанд|кадом|расскажите|подскажите|скажите|бигуед|интересует|узнать|донам|гуна)${EW}`, "u");
+const ASKING_TERMS = new RegExp(`${BW}(?:какие|какая|какой|каковы|каков|сколько|чи|чист|чанд|кадом|расскажите|подскажите|скажите|бигуед|узнать|донам|гуна|хел)${EW}`, "u");
+/** «со всеми условиями», «ҳама шароит»: the flat's amenities, never the agency's terms (third review). */
+const AMENITIES = new RegExp(`${BW}(?:все|всеми|всех|хама|хамаи|бо\\s+хама)\\s+(?:услови\\p{L}*|шароит\\p{L}*|шарт\\p{L}*)`, "u");
 /** The customer ASKS what the agency takes (one detector for the server read and the seller guard). */
 function asksTermsQuestion(text: string): boolean {
   const words = foldCustomerText(text);
-  return (COMMISSION_ASK.test(words) || TERMS_ASK.test(words)) && (/[?؟]/u.test(text) || ASKING_TERMS.test(words)) &&
+  return (COMMISSION_ASK.test(words) || TERMS_ASK.test(words) && !AMENITIES.test(words)) && (/[?؟]/u.test(text) || ASKING_TERMS.test(words)) &&
     !NOT_TERMS.test(words) && !customerRecruitmentRequested(text);
 }
 /** The commission was asked about (the older, wider reading: «комиссия 2% устроит» keeps a commission answer the model chose). */

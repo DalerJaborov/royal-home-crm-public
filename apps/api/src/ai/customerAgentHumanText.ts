@@ -152,47 +152,82 @@ export const SERVICE_CLAIM_SOURCE = `${BW}(?:${[
 export const CUSTOMER_AGENT_ASK_KINDS = ["budget", "location", "rooms", "name", "callback_consent", "role", "topic"] as const;
 export type CustomerAgentAskKind = typeof CUSTOMER_AGENT_ASK_KINDS[number];
 
-// ── ALLOWLIST for the model's human words (review #211, round 2: a blacklist cannot be closed) ───────────────────────────
+// ── ALLOWLIST of WHOLE PHRASES for the model's human words (review #211, round 3) ─────────────────────────────────────────
 /**
- * The ONLY words a model `lead` / `close` may consist of: greeting, acknowledgement, empathy, thanks, apology and a soft lead-in.
- * Tajik from the `tajik-phrasebook` skill (greetings-politeness.md, live-agent-phrases.md: literary spelling, «шумо»), Russian the
- * same meanings. Exact word forms (inflections listed), lower case, «ё» read as «е». No noun of an object, no verb of an action,
- * no yes/no, no number, no place: a fact cannot be built from these words, so a new synonym cannot slip through.
- * `warm` words are not allowed next to a refusal / sold / unavailable line (a neutral lead only there).
+ * The ONLY sentences a model `lead` (1–2 of them) or `close` (one) may be. Whole vetted phrases, not words: a word allowlist still
+ * composed claims («Это ваше.» over «уже продан», «Ин барои шумо.», «Понимаю, могу.», «Это очень хорошо.»; third review). Tajik from
+ * the `tajik-phrasebook` skill (greetings-politeness.md, live-agent-phrases.md: literary spelling, «шумо»), Russian the same meanings.
+ * Only case, punctuation, spaces and invisible characters are normalized; anything else (another word, a hyphen join, a homoglyph)
+ * is not a phrase and the template goes out.
+ *  - `greeting`: only where the template greets (it then replaces that line); no time-of-day greeting (the bot does not know the
+ *    customer's hour well enough: «Добрый вечер» at 9 a.m. is worse than «Здравствуйте»);
+ *  - `agree` («Хорошо», «Хуб», «Майлаш»): reads as «да», so never when the customer ASKS for something (a discount, a viewing
+ *    tomorrow, «можно…?», «мумкин…?») and never next to a refusal;
+ *  - `warm`: never next to a refusal / sold / unavailable / zone line; `neutral`: always;
+ *  - `farewell` (close only, «Саломат бошед!»): also after a refusal (tajik-phrasebook: «Прощание после отказа»).
  */
-export const HUMAN_VOCABULARY = {
+export type HumanPhraseKind = "greeting" | "neutral" | "warm" | "agree" | "farewell";
+export const HUMAN_PHRASES: Record<"ru" | "tg", Record<"lead" | "close", ReadonlyArray<readonly [string, HumanPhraseKind]>>> = {
   ru: {
-    greeting: ["здравствуйте", "добрый", "доброе", "день", "вечер", "утро"],
-    neutral: ["понимаю", "понял", "поняла", "понятно", "ясно", "спасибо", "благодарю", "извините", "простите", "прошу", "прощения",
-      "вы", "вас", "вам", "ваш", "ваша", "ваше", "вашу", "ваши", "вашего", "вашей", "вашему", "вашим", "за", "что", "и", "по", "о",
-      "вопрос", "вопросу", "вопросе", "сообщение", "сообщению", "ответ", "ожидание", "терпение", "задержку", "долгий", "долгое",
-      "написали", "обратились", "ждать", "пришлось", "вот", "могу", "сказать", "информация", "этому", "поводу", "это", "ответить"],
-    warm: ["хорошо", "рады", "рад", "рада", "приятно", "очень", "всего", "доброго", "хорошего", "дня", "вечера"],
+    lead: [
+      ["Здравствуйте!", "greeting"],
+      ["Понимаю вас.", "neutral"], ["Понял вас.", "neutral"], ["Поняла вас.", "neutral"], ["Понял, спасибо.", "neutral"], ["Понял вас, спасибо.", "neutral"],
+      ["Ясно, спасибо.", "neutral"], ["Спасибо!", "neutral"], ["Спасибо, что написали!", "neutral"], ["Спасибо, что вы написали.", "neutral"],
+      ["Спасибо, что обратились к нам.", "neutral"], ["Спасибо за ваше сообщение.", "neutral"], ["Спасибо за интерес.", "neutral"],
+      ["Спасибо, что дождались ответа.", "neutral"], ["Благодарю за терпение.", "neutral"], ["Спасибо за терпение.", "neutral"],
+      ["Извините за задержку.", "neutral"], ["Извините, что пришлось ждать.", "neutral"], ["Извините за ожидание.", "neutral"],
+      ["Понимаю, это важный вопрос.", "neutral"], ["Вот что могу сказать.", "neutral"], ["Вот информация по вашему вопросу.", "neutral"],
+      ["Рады вашему сообщению.", "warm"], ["С удовольствием расскажу.", "warm"], ["Рады, что вы обратились.", "warm"],
+      ["Хорошо.", "agree"], ["Хорошо, понял вас.", "agree"], ["Хорошо, понимаю вас.", "agree"], ["Хорошо, спасибо.", "agree"],
+    ],
+    close: [
+      ["Всего доброго!", "farewell"], ["Всего хорошего!", "farewell"], ["Спасибо!", "farewell"], ["Спасибо за ваш вопрос!", "farewell"],
+      ["Будем рады вашему сообщению.", "warm"], ["Будем рады, если напишете.", "warm"],
+    ],
   },
   tg: {
-    greeting: ["ассалому", "алайкум", "алейкум", "ваалайкум", "ассалом", "салом", "субҳ", "рӯз", "шом", "ба", "хайр", "хуш", "омадед"],
-    neutral: ["фаҳмидам", "раҳмат", "ташаккур", "ташаккури", "зиёд", "бубахшед", "мебахшед", "барои", "ки", "навиштед", "шумо", "шуморо",
-      "ба", "аз", "бо", "дар", "бораи", "саволатон", "саволи", "паёматон", "паёми", "таваҷҷуҳ", "сабр", "таъхир", "интизор", "шудед",
-      "кардед", "ин", "инак", "маълумот", "ҷавоб"],
-    warm: ["хуб", "майлаш", "саломат", "бошед", "барори", "кор", "рӯзи", "хуш"],
+    lead: [
+      ["Ассалому алайкум!", "greeting"], ["Ассалому алейкум!", "greeting"], ["Ваалайкум ассалом!", "greeting"], ["Салом!", "greeting"], ["Хуш омадед!", "greeting"],
+      ["Фаҳмидам.", "neutral"], ["Мефаҳмам.", "neutral"], ["Фаҳмидам, раҳмат.", "neutral"], ["Раҳмат, фаҳмидам.", "neutral"], ["Фаҳмидам, ташаккур.", "neutral"],
+      ["Раҳмат!", "neutral"], ["Ташаккур!", "neutral"], ["Раҳмати калон!", "neutral"], ["Раҳмат, ки навиштед!", "neutral"],
+      ["Ташаккур, ки ба мо муроҷиат кардед.", "neutral"], ["Ташаккур барои саволатон.", "neutral"], ["Ташаккур барои паёматон.", "neutral"],
+      ["Ташаккур барои таваҷҷуҳ.", "neutral"], ["Раҳмат барои сабр.", "neutral"], ["Ташаккур барои сабр.", "neutral"], ["Бубахшед барои таъхир.", "neutral"],
+      ["Бубахшед, ки интизор шудед.", "neutral"], ["Инак маълумот.", "neutral"],
+      ["Хуб.", "agree"], ["Хеле хуб.", "agree"], ["Хуб, фаҳмидам.", "agree"], ["Майлаш.", "agree"],
+    ],
+    close: [
+      ["Саломат бошед!", "farewell"], ["Хайр, саломат бошед!", "farewell"], ["Ташаккур, саломат бошед!", "farewell"], ["Раҳмат!", "farewell"],
+      ["Ташаккур!", "farewell"], ["Бо эҳтиром.", "farewell"], ["Барори кор!", "warm"],
+    ],
   },
-} as const;
-const vocabularyNormal = (word: string) => word.normalize("NFKC").toLowerCase().replace(/ё/gu, "е");
-const VOCAB = Object.fromEntries((["ru", "tg"] as const).map(language => {
-  const v = HUMAN_VOCABULARY[language];
-  return [language, { neutral: new Set([...v.greeting, ...v.neutral].map(vocabularyNormal)), all: new Set([...v.greeting, ...v.neutral, ...v.warm].map(vocabularyNormal)) }];
-})) as Record<"ru" | "tg", { neutral: Set<string>; all: Set<string> }>;
-/** The first word of a lead / close that is not in the vocabulary of its language (or a warm word where only a neutral lead fits). */
-export function outsideHumanVocabulary(text: string, language: "ru" | "tg", neutralOnly = false): string | null {
-  const allowed = VOCAB[language][neutralOnly ? "neutral" : "all"];
-  // A hyphen never glues an unknown part to a known one («Скажи-ка», «Бигӯ-чӣ»): every part is a word of its own.
-  const parts = vocabularyNormal(text).match(/\p{L}+/gu) ?? [];
-  for (const [index, word] of parts.entries()) {
-    if (!allowed.has(word)) return word;
-    // «хайр» alone is «нет» / «ладно»: only inside «… ба хайр».
-    if (word === "хайр" && parts[index - 1] !== "ба") return word;
+};
+/** Case, «ё», punctuation, spaces and invisible characters only; a hyphen or any other letter stays and breaks the match. */
+const phraseKey = (text: string) => text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").toLowerCase().replace(/ё/gu, "е")
+  .replace(/[.,!…«»"':;]/gu, " ").replace(/\s+/gu, " ").trim();
+const PHRASE_INDEX = Object.fromEntries((["ru", "tg"] as const).map(language => [language,
+  Object.fromEntries((["lead", "close"] as const).map(role => [role, new Map(HUMAN_PHRASES[language][role].map(([text, kind]) => [phraseKey(text), kind]))]))])) as
+  Record<"ru" | "tg", Record<"lead" | "close", Map<string, HumanPhraseKind>>>;
+/** The kinds of the 1–2 vetted sentences a lead / close consists of, or null when any sentence is not a vetted phrase. */
+export function humanPhraseKinds(text: string, language: "ru" | "tg", role: "lead" | "close"): HumanPhraseKind[] | null {
+  const sentences = text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").split(/(?<=[.!…])\s+/u).map(part => part.trim()).filter(Boolean);
+  if (!sentences.length || sentences.length > (role === "lead" ? 2 : 1)) return null;
+  const kinds: HumanPhraseKind[] = [];
+  for (const sentence of sentences) {
+    const kind = PHRASE_INDEX[language][role].get(phraseKey(sentence));
+    if (!kind) return null;
+    kinds.push(kind);
   }
-  return null;
+  return kinds;
+}
+/**
+ * The customer ASKS for something an «Хорошо» / «Хуб» would grant (a discount, a viewing, a date, «можно…?», «мумкин…?»): then no
+ * agreement-like phrase may open the reply, whatever the template lines say (third review: «Можно скидку?» → «Хорошо.» + price).
+ */
+const CUSTOMER_REQUEST = new RegExp(`${BW}(?:можно|можете|могли|могу\\s+ли|дайте|сделайте|давайте|разрешите|скидк${TAIL}|уступ${TAIL}|торг${TAIL}|дешевле|завтра|сегодня|послезавтра|` +
+  `посмотреть|показ${TAIL}|просмотр${TAIL}|запиш${TAIL}|встрет${TAIL}|приехать|прийти|бронь|заброниру${TAIL}|мумкин|мешавад|метавонед|тахфиф|арзон${TAIL}|` +
+  `кам\\s+кунед|диҳед|дихед|пагоҳ|пагох|имрӯз|имруз|фардо|дидан|бинам|бубинам|тамошо|омадан|биёям|сабт)${EW}`, "iu");
+export function customerRequestInText(text: string): boolean {
+  return CUSTOMER_REQUEST.test(text.normalize("NFKC").toLowerCase());
 }
 
 /**
@@ -220,7 +255,7 @@ export const APPROVED_ASKS: Record<"ru" | "tg", Record<CustomerAgentAskKind, rea
     topic: ["Шумо дар бораи хона маълумот мехоҳед ё дар бораи кор?"],
   },
 };
-const askKey = (text: string) => vocabularyNormal(text).replace(/[.,!«»"':;]/gu, " ").replace(/\s+/gu, " ").replace(/\s+\?/gu, "?").trim();
+const askKey = (text: string) => text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").toLowerCase().replace(/ё/gu, "е").replace(/[.,!«»"':;]/gu, " ").replace(/\s+/gu, " ").replace(/\s+\?/gu, "?").trim();
 const ASK_INDEX = new Map<string, { kind: CustomerAgentAskKind; language: "ru" | "tg" }>((["ru", "tg"] as const).flatMap(language =>
   (Object.entries(APPROVED_ASKS[language]) as [CustomerAgentAskKind, readonly string[]][]).flatMap(([kind, list]) =>
     list.map(text => [askKey(text), { kind, language }] as const))));

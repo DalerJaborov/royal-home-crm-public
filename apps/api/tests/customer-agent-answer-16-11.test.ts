@@ -92,9 +92,9 @@ describe("review #211 probe: every inverted or invented fact falls back to the t
     expect(reasonOf({ lead: "Рахмат, понял вас.", ask: "Сколько комнат вам нужно?" }, ask("rooms"))).toBe("language");
   });
   it("A7/A7b/B5: Russian «ты» verbs and imperatives are not approved question wordings → template", () => {
-    expect(reasonOf({ lead: "Понял.", ask: "Сколько комнат хочешь?" }, ask("rooms"))).toBe("question");
-    expect(reasonOf({ lead: "Понял.", ask: "Подскажи, сколько комнат нужно?" }, ask("rooms"))).toBe("question");
-    expect(reasonOf({ lead: "Понятно.", ask: "На какую сумму рассчитываешь?" }, ask("budget"))).toBe("question");
+    expect(reasonOf({ lead: "Понял вас.", ask: "Сколько комнат хочешь?" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ lead: "Понял вас.", ask: "Подскажи, сколько комнат нужно?" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ lead: "Понимаю вас.", ask: "На какую сумму рассчитываешь?" }, ask("budget"))).toBe("question");
   });
   it("A8/B6: Tajik «-ӣ» verbs and imperatives are not approved question wordings → template", () => {
     expect(reasonOf({ lead: "Фаҳмидам.", ask: "Бигӯ, чӣ қадар маблағ дорӣ?" }, ask("budget", "tg"))).toBe("question");
@@ -110,7 +110,7 @@ describe("the human part around verbatim facts: warm replies go out", () => {
     expect(tpl.slice(0, -1).join("\n")).toContain(`${knowledge.commission.sellerPercent}%`);
   });
   it("price: lead + verbatim price line; zone and rent keep the server's refusal or area line", () => {
-    expect(rendered({ lead: "Хорошо, вот что могу сказать." }, priceRu)).toBe(`Хорошо, вот что могу сказать.\n${template(priceRu)}`);
+    expect(rendered({ lead: "Вот что могу сказать." }, priceRu)).toBe(`Вот что могу сказать.\n${template(priceRu)}`);
     expect(rendered({ lead: "Спасибо, что написали!" }, zoneRu)).toBe(`Спасибо, что написали!\n${template(zoneRu)}`);
     expect(rendered({ lead: "Понимаю вас." }, rentRu)).toBe(`Понимаю вас.\n${template(rentRu)}`);
   });
@@ -134,14 +134,14 @@ describe("the human part around verbatim facts: warm replies go out", () => {
   it("greeting: the template greeting stays unless the lead greets; a lead may not greet where the template does not", () => {
     const greet: Case = { inputText: "Здравствуйте, ищу квартиру", d: clarify("rooms", "greet") };
     expect(rendered({ lead: "Рады вашему сообщению." }, greet)).toBe("Здравствуйте!\nРады вашему сообщению.\nСколько комнат вам нужно?");
-    expect(rendered({ lead: "Здравствуйте, рады вашему сообщению." }, greet)).toBe("Здравствуйте, рады вашему сообщению.\nСколько комнат вам нужно?");
+    expect(rendered({ lead: "Здравствуйте! Рады вашему сообщению." }, greet)).toBe("Здравствуйте! Рады вашему сообщению.\nСколько комнат вам нужно?");
     expect(reasonOf({ lead: "Здравствуйте!" }, ask("rooms"))).toBe("double_greet");
   });
   it("close only when nothing is asked; an ask only where the server asks", () => {
-    expect(rendered({ close: "Хорошего дня!" }, priceRu)).toBe(`${template(priceRu)}\nХорошего дня!`);
+    expect(rendered({ close: "Будем рады вашему сообщению." }, priceRu)).toBe(`${template(priceRu)}\nБудем рады вашему сообщению.`);
     // Next to a sold object: no close at all (no warmth after «уже продан»).
-    expect(reasonOf({ close: "Хорошего дня!" }, { ...priceRu, evidence: [{ ref: "e0", value: { kind: "facts", facts: facts({ availability: "SOLD" }), kinds: ["price"] } }] })).toBe("vocabulary");
-    expect(reasonOf({ close: "Хорошего дня!" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ close: "Будем рады вашему сообщению." }, { ...priceRu, evidence: [{ ref: "e0", value: { kind: "facts", facts: facts({ availability: "SOLD" }), kinds: ["price"] } }] })).toBe("vocabulary");
+    expect(reasonOf({ close: "Всего доброго!" }, ask("rooms"))).toBe("question");
     expect(reasonOf({ ask: "Сколько комнат вам нужно?" }, priceRu)).toBe("question");
     expect(reasonOf({ ask: "Какой район вам нужен и сколько комнат?" }, ask("rooms"))).toBe("question");
     expect(reasonOf({ ask: "Как вас зовут?" }, ask("rooms"))).toBe("question");
@@ -159,7 +159,7 @@ describe("the human part around verbatim facts: warm replies go out", () => {
     expect(reasonOf({ lead: "Понимаю вас." }, { ...priceRu, d: { ...reply(["e0"]), attachment: "buyer_guide" } })).toBe("template_payload");
   });
   it("is deterministic and the strict decision schema carries the parts (the delivery seal re-renders the same print)", () => {
-    const parts = { lead: "Хорошо, вот что могу сказать." };
+    const parts = { lead: "Вот что могу сказать." };
     expect(verdict(parts, priceRu)).toEqual(verdict(parts, priceRu));
     expect(customerAgentDecisionSchema.parse({ ...reply(["e0"]), answer: parts })).toMatchObject({ answer: parts });
     expect(customerAgentDecisionSchema.safeParse({ ...reply(["e0"]), answer: "строка" }).success).toBe(false);
@@ -244,7 +244,7 @@ describe("daily line: fact attempts are never «good» (review #211, п.7)", () 
 });
 
 describe("core: lifted before the strict parse, shadow by default, its own switch (review #211, п.6)", () => {
-  const LEAD = "Хорошо, вот что могу сказать.";
+  const LEAD = "Вот что могу сказать.";
   const TEMPLATE = "Цена объекта №123: 1 250 000 сомони.";
   const final = (change = {}): CustomerAgentModelTurn => ({ text: JSON.stringify({ kind: "reply", refs: ["e0"], social: "none", question: "none", ...change }), calls: [], modelParts: [] });
   function fixture(overrides: Partial<CustomerCoreFrame> = {}) {
