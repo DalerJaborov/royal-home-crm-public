@@ -22,13 +22,34 @@
 // CRM (ответить из CRM такому человеку Meta всё равно не даст, пока нет
 // расширенного доступа). Отметка «уже сказали» — строка ProcessedMessage
 // канала `meta-inbox-missed` на mid (живёт 3 дня, как остальные отметки).
+//
+// INSTAGRAM (15.11.2026, В4 владельца: сверка нужна не только для Messenger). Тот же
+// путь для каждого аккаунта Instagram из «Каналов»: `GET /me/conversations?platform=
+// instagram` маркером аккаунта (graph.instagram.com, через прокси, если задан).
+// ФАКТ (прод 15.11, чтение): вложенные поля `messages{id,created_time,from,message}`
+// Graph отдаёт; id сообщения в Graph = mid вебхука (Arvan IG 24/24, Royal Home 11/11
+// найдены в ProcessedMessage). Ограничение Meta (docs instagram-api-with-instagram-login/
+// conversations-api): видны только 20 последних сообщений переписки, «Запросы» старше
+// 30 дней не отдаются. Ответ сотрудника в Instagram гасит сигнал так же, как в Messenger.
+//
+// АВТООТВЕТ НЕ ЖИВОЙ ОТВЕТ (Н2, обе площадки). Сообщение Страницы/аккаунта гасит сигнал,
+// только если оно (а) пришло позже реплики клиента больше чем на минуту и (б) не шаблон:
+// один и тот же текст в двух и более разных переписках выборки — это приветствие,
+// «нет на месте» или быстрый ответ автоматизации, а не человек. Сохранённый ответ,
+// которым сотрудник ответил двоим одинаково, тоже сочтётся шаблоном — лишний пуш
+// безопаснее пропущенного клиента.
+//
+// РУБИЛЬНИКИ (правило владельца: у каждой сверки свой): Settings.messengerInboxReconcileEnabled
+// и Settings.instagramInboxReconcileEnabled, оба по умолчанию включены (прод: пушей единицы
+// в день — Arvan Messenger ~4 человека в сутки, Instagram доставляет всё).
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
-import { GRAPH_VERSION } from "../messengers/metaGraph.js";
+import { GRAPH_VERSION, instagramApiUrl, instagramRequest } from "../messengers/metaGraph.js";
 import { sendPushToAgents } from "../push.js";
-import { isMetaEnabled } from "../messengers/meta.js";
+import { isMetaChannelEnabled, isMetaEnabled } from "../messengers/meta.js";
 import { findAgentsWithPermission } from "./recipients.js";
+import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { logSystemError } from "./systemError.js";
 
 /** Пока вебхук мог ещё не дойти, Meta повторяет доставку после сбоя или бот ждёт склейки — не тревожим. */
@@ -54,8 +75,17 @@ const MESSAGES_PER_CONVERSATION = 10;
 const FETCH_TIMEOUT_MS = 15_000;
 const CLAIM_CHANNEL = "meta-inbox-missed";
 
+export type InboxChannel = "FACEBOOK" | "INSTAGRAM";
+
 export interface PageInbox {
+  /** Площадка: Messenger Страницы или Direct аккаунта Instagram. По умолчанию — FACEBOOK. */
+  channel?: InboxChannel;
+  /** Идентификатор Страницы / аккаунта Instagram (для тега пуша и журнала). */
   pageId: string;
+  /** Все id, под которыми пишет сама Страница/аккаунт (у Instagram их два: user_id и id для переписки). */
+  ownIds?: readonly string[];
+  /** Ник аккаунта Instagram: реплика с этим ником — своя, даже если id в ней незнакомый. */
+  ownUsername?: string;
   title: string;
   token: string;
 }
@@ -72,7 +102,7 @@ export interface InboxMessage {
 /** Ответ Graph `/{page}/conversations` с вложенными сообщениями (только нужные поля). */
 interface GraphConversations {
   data?: Array<{
-    messages?: { data?: Array<{ id?: string; created_time?: string; message?: string; from?: { id?: string; name?: string } }> };
+    messages?: { data?: Array<{ id?: string; created_time?: string; message?: string; from?: { id?: string; name?: string; username?: string } }> };
   }>;
   error?: { code?: number; error_subcode?: number; message?: string };
 }
@@ -84,9 +114,31 @@ interface GraphConversations {
  * реплику не трогаем (ревью 192-3). Мгновенный автоответ Страницы ответом не считается (Н2).
  * Чистая функция — проверяется без сети и базы.
  */
-export function incomingFromGraph(pageId: string, body: GraphConversations, now: Date,
+/** Текст сообщения для сравнения шаблонов: без регистра, лишних пробелов и знаков в конце. */
+const templateKey = (text: string | undefined) => (text ?? "").toLowerCase().replace(/\s+/gu, " ").replace(/[\s!.?…]+$/u, "").trim();
+
+/**
+ * Тексты Страницы/аккаунта, которые повторяются в двух и более РАЗНЫХ переписках выборки, —
+ * автоматизация (приветствие, «нет на месте», быстрый ответ), не живой ответ (Н2). Чистая функция.
+ */
+export function automatedTexts(own: ReadonlySet<string>, body: GraphConversations): Set<string> {
+  const seenIn = new Map<string, number>();
+  for (const conversation of body.data ?? []) {
+    const here = new Set<string>();
+    for (const m of conversation.messages?.data ?? []) {
+      const key = templateKey(m.message);
+      if (m.from?.id && own.has(m.from.id) && key) here.add(key);
+    }
+    for (const key of here) seenIn.set(key, (seenIn.get(key) ?? 0) + 1);
+  }
+  return new Set([...seenIn].filter(([, n]) => n >= 2).map(([key]) => key));
+}
+
+export function incomingFromGraph(pageId: string | readonly string[], body: GraphConversations, now: Date,
   window: { graceMs: number; lookbackMs: number; processStartedAt?: number } = { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS }): InboxMessage[] {
   const out: InboxMessage[] = [];
+  const own = new Set(typeof pageId === "string" ? [pageId] : pageId);
+  const automated = automatedTexts(own, body);
   const newest = now.getTime() - window.graceMs;
   const oldest = now.getTime() - window.lookbackMs;
   const startedAt = window.processStartedAt ?? PROCESS_STARTED_AT;
@@ -94,11 +146,12 @@ export function incomingFromGraph(pageId: string, body: GraphConversations, now:
     const pageTimes: number[] = [];
     for (const m of conversation.messages?.data ?? []) {
       const at = m.created_time ? new Date(m.created_time).getTime() : NaN;
-      if (m.from?.id === pageId && !Number.isNaN(at)) pageTimes.push(at);
+      // Шаблон автоматизации — не ответ человека, сигнал он не гасит (Н2).
+      if (m.from?.id && own.has(m.from.id) && !Number.isNaN(at) && !automated.has(templateKey(m.message))) pageTimes.push(at);
     }
     for (const m of conversation.messages?.data ?? []) {
       const fromId = m.from?.id;
-      if (!m.id || !m.created_time || !fromId || fromId === pageId) continue;
+      if (!m.id || !m.created_time || !fromId || own.has(fromId)) continue;
       const createdAt = new Date(m.created_time);
       const at = createdAt.getTime();
       if (Number.isNaN(at) || at > newest || at < oldest) continue;
@@ -106,7 +159,9 @@ export function incomingFromGraph(pageId: string, body: GraphConversations, now:
       if (pageTimes.some((p) => p >= at + AUTO_REPLY_WINDOW_MS)) continue;
       // Пришло до старта процесса — ждём, не дошлёт ли Meta (бот ответит сам).
       if (at < startedAt && now.getTime() < startedAt + AFTER_START_GRACE_MS) continue;
-      out.push({ mid: m.id, createdAt, fromId, fromName: m.from?.name?.trim() || null, text: (m.message ?? "").trim() });
+      // Instagram отдаёт в `from` ник (username), а не имя (ревью 199-4): по @нику человека найдут в Direct.
+      const fromName = m.from?.name?.trim() || (m.from?.username?.trim() ? `@${m.from.username.trim()}` : null);
+      out.push({ mid: m.id, createdAt, fromId, fromName, text: (m.message ?? "").trim() });
     }
   }
   return out;
@@ -130,12 +185,58 @@ export async function listFacebookPageInboxes(): Promise<PageInbox[]> {
   return [...pages.values()];
 }
 
-export type GraphFetch = (url: string) => Promise<{ json(): Promise<unknown> }>;
+/** Все аккаунты Instagram из «Каналов» с ключом (переписка ходит маркером аккаунта, вход через Instagram). */
+export async function listInstagramInboxes(): Promise<PageInbox[]> {
+  const accounts = await prisma.messengerAccount.findMany({
+    where: { channel: "INSTAGRAM", enabled: true },
+    select: { externalId: true, messagingId: true, extraExternalIds: true, username: true, title: true, token: true },
+  });
+  const out: PageInbox[] = [];
+  for (const account of accounts) {
+    const token = decryptSecretSafe(account.token);
+    if (!token) continue;
+    // Без id для переписки свои ответы аккаунта не отличить от реплик клиента — была бы волна ложных
+    // «Ответьте вручную» нашим же текстом (ревью 199-2). Такой аккаунт не сверяем и говорим об этом.
+    if (!account.messagingId) {
+      void logSystemError("meta", `Сверка Direct: у аккаунта Instagram «${account.title}» не определён id для переписки — ` +
+        `его входящие с Meta не сверяются (проверка ника аккаунта в «Каналах» его заполнит).`,
+        { dedupKey: `meta-inbox-ig-no-messaging-id:${account.externalId}`, dedupWindowMs: 6 * 60 * 60_000 });
+      continue;
+    }
+    // Все «свои» id — те же, что считает своими остальной код (customerConversationScope, customerIngressClassification).
+    const ownIds = [...new Set([account.externalId, account.messagingId, ...account.extraExternalIds].filter((id): id is string => !!id))];
+    out.push({ channel: "INSTAGRAM", pageId: account.externalId, ownIds, ownUsername: account.username?.replace(/^@/, "").toLowerCase() || undefined,
+      title: account.title, token });
+  }
+  return out;
+}
 
-const defaultFetch: GraphFetch = (url) => fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+/** Рубильники сверки по площадкам (правило владельца: у каждой сверки свой). */
+export async function inboxReconcileSwitches(): Promise<Record<InboxChannel, boolean>> {
+  const s = await prisma.settings.findUnique({ where: { id: "singleton" },
+    select: { messengerInboxReconcileEnabled: true, instagramInboxReconcileEnabled: true } });
+  return { FACEBOOK: s?.messengerInboxReconcileEnabled ?? true, INSTAGRAM: s?.instagramInboxReconcileEnabled ?? true };
+}
+
+export type GraphFetch = (url: string, headers?: Record<string, string>) => Promise<{ json(): Promise<unknown> }>;
+
+const defaultFetch: GraphFetch = (url, headers) => fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 
 export async function fetchPageInbox(page: PageInbox, fetchImpl: GraphFetch = defaultFetch): Promise<GraphConversations> {
   const fields = `messages.limit(${MESSAGES_PER_CONVERSATION}){id,created_time,message,from}`;
+  if (page.channel === "INSTAGRAM") {
+    // Instagram — graph.instagram.com маркером аккаунта; с нашего сервера — через прокси, если он задан.
+    const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me/conversations?platform=instagram&limit=${CONVERSATIONS_PER_PAGE}` +
+      `&fields=${encodeURIComponent(fields)}`), page.token);
+    const body = (await (await fetchImpl(req.url, req.headers)).json()) as GraphConversations;
+    // Своя реплика по нику — приводим к основному id, дальше правила общие (ревью 199-2).
+    if (page.ownUsername) {
+      for (const conversation of body.data ?? []) for (const m of conversation.messages?.data ?? []) {
+        if (m.from?.username && m.from.username.toLowerCase() === page.ownUsername) m.from.id = page.pageId;
+      }
+    }
+    return body;
+  }
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(page.pageId)}/conversations` +
     `?platform=messenger&limit=${CONVERSATIONS_PER_PAGE}&fields=${encodeURIComponent(fields)}` +
     `&access_token=${encodeURIComponent(page.token)}`;
@@ -144,12 +245,12 @@ export async function fetchPageInbox(page: PageInbox, fetchImpl: GraphFetch = de
 }
 
 /** Какие из mid CRM получила: отметка вебхука или реплика в ленте переписки. */
-export async function knownMessageIds(messages: readonly InboxMessage[]): Promise<Set<string>> {
+export async function knownMessageIds(messages: readonly InboxMessage[], channel: InboxChannel = "FACEBOOK"): Promise<Set<string>> {
   if (!messages.length) return new Set();
   const mids = [...new Set(messages.map((m) => m.mid))];
   const peers = [...new Set(messages.map((m) => m.fromId))];
   const marks = await prisma.processedMessage.findMany({
-    where: { channel: "FACEBOOK", messageId: { in: mids } },
+    where: { channel, messageId: { in: mids } },
     select: { messageId: true },
   });
   const known = new Set(marks.map((m) => m.messageId));
@@ -157,8 +258,25 @@ export async function knownMessageIds(messages: readonly InboxMessage[]): Promis
     SELECT DISTINCT m.elem ->> 'mid' AS "mid"
     FROM "BotConversation" c,
       jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages")='array' THEN c."messages" ELSE '[]'::jsonb END) AS m(elem)
-    WHERE c."channel"='FACEBOOK' AND c."subscriberId" = ANY(${peers}::text[]) AND m.elem ->> 'mid' = ANY(${mids}::text[])`;
+    WHERE c."channel"=${channel} AND c."subscriberId" = ANY(${peers}::text[]) AND m.elem ->> 'mid' = ANY(${mids}::text[])`;
   for (const row of inChats) if (row.mid) known.add(row.mid);
+  // Сообщения нового ядра (ревью 199-3): mid попадает в чат, только когда ядро разберёт ход, а тикет пишется ДО ответа
+  // Meta. Есть тикет — сообщение в CRM, его судьбу ведёт сторож молчания ядра, сверка «не дошло» не нужна.
+  const unknown = messages.filter((m) => !known.has(m.mid));
+  if (unknown.length) {
+    const scopes = await prisma.customerEndpointScope.findMany({ where: { channel }, select: { id: true, messengerAccountId: true } });
+    const byKey = new Map<string, string>();
+    for (const m of unknown) for (const scope of scopes) {
+      const scopeKey = scope.messengerAccountId
+        ? customerPropertyScopeKey(channel, m.fromId, scope.messengerAccountId)
+        : customerPropertyScopeKey(channel, m.fromId, null, scope.id);
+      byKey.set(customerPropertyEventKey(scopeKey, "message", m.mid), m.mid);
+    }
+    if (byKey.size) {
+      const tickets = await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: [...byKey.keys()] } }, select: { eventKey: true } });
+      for (const t of tickets) known.add(byKey.get(t.eventKey)!);
+    }
+  }
   return known;
 }
 
@@ -180,6 +298,74 @@ export async function isHandedToStaff(mids: readonly string[]): Promise<boolean>
   return marks === unique.length;
 }
 
+let graphFetchOverride: GraphFetch | null = null;
+/** Только для тестов маршрута: подменить чтение Graph (null — вернуть настоящее). */
+export function setInboxGraphFetchForTests(fetchImpl: GraphFetch | null): void {
+  graphFetchOverride = fetchImpl;
+}
+const LATE_CHECK_TIMEOUT_MS = 4_000;
+/** Meta повторяет доставку до 36 часов (docs Graph API Webhooks) — глубже смотреть незачем. */
+const LATE_LOOKBACK_MS = 48 * 60 * 60_000;
+
+export interface LateMessage { channel: string; accountExternalId?: string; senderId: string; messageId?: string; text?: string; name?: string }
+
+/**
+ * ПОЗДНЯЯ ДОСТАВКА ПОСЛЕ «ОТВЕТЬТЕ ВРУЧНУЮ» (ревью 199-1). Meta дослала сообщение, о котором сверка уже сказала
+ * человеку. Человек ответил (живой ответ Страницы/аккаунта позже реплики, не шаблон) — true: бот молчит, второго
+ * ответа нет. Не ответил, Graph не ответил за 4 с или переписку не нашли — false: сообщение идёт обычным путём
+ * (текст в CRM, бот отвечает), чтобы ночью клиент не ждал до утра.
+ */
+export async function staffAnsweredLate(messages: readonly LateMessage[], now: Date = new Date()): Promise<boolean> {
+  const first = messages[0];
+  if (!first || (first.channel !== "FACEBOOK" && first.channel !== "INSTAGRAM")) return false;
+  try {
+    const inboxes = first.channel === "FACEBOOK" ? await listFacebookPageInboxes() : await listInstagramInboxes();
+    const inbox = inboxes.find((i) => i.pageId === first.accountExternalId || i.ownIds?.includes(first.accountExternalId ?? ""));
+    if (!inbox) return false;
+    const fetchImpl = graphFetchOverride ?? defaultFetch;
+    const body = await Promise.race([fetchPageInbox(inbox, fetchImpl),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), LATE_CHECK_TIMEOUT_MS))]);
+    if (!body || body.error) return false;
+    const mids = new Set(messages.map((m) => m.messageId).filter((id): id is string => !!id));
+    const seen = new Set<string>();
+    for (const conversation of body.data ?? []) for (const m of conversation.messages?.data ?? []) if (m.id && mids.has(m.id)) seen.add(m.id);
+    if (!seen.size) return false;
+    const stillWaiting = new Set(incomingFromGraph(inbox.ownIds?.length ? inbox.ownIds : inbox.pageId, body, now,
+      { graceMs: 0, lookbackMs: LATE_LOOKBACK_MS, processStartedAt: 0 }).map((m) => m.mid));
+    // Каждое из найденных сообщений уже получило живой ответ человека.
+    return [...seen].every((mid) => !stillWaiting.has(mid));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Сообщение всё-таки дошло — тот же тег, что у «Ответьте вручную»: запись в колокольчике заменяется,
+ * и человек видит текст и что бот отвечает сам. Не CRITICAL: срочность снята. Никогда не бросает.
+ */
+export async function notifyLateDelivery(messages: readonly LateMessage[]): Promise<void> {
+  const first = messages[0];
+  if (!first) return;
+  try {
+    const recipients = await findAgentsWithPermission("messages.view");
+    if (!recipients.length) return;
+    const inboxes = first.channel === "FACEBOOK" ? await listFacebookPageInboxes() : await listInstagramInboxes();
+    const inbox = inboxes.find((i) => i.pageId === first.accountExternalId || i.ownIds?.includes(first.accountExternalId ?? ""));
+    const place = first.channel === "INSTAGRAM" ? "Instagram" : "Facebook";
+    const text = messages.map((m) => (m.text ?? "").trim()).filter(Boolean).join(" / ").slice(0, 160);
+    await sendPushToAgents(recipients, {
+      kind: "message",
+      title: `Дошло до CRM: ${first.name?.trim() || "клиент"} (${place}${inbox ? ` «${inbox.title}»` : ""})`,
+      body: `«${text || "вложение без текста"}». Сообщение, по которому просили ответить вручную, всё-таки дошло — текст в CRM, ` +
+        `бот отвечает сам. Если вы уже ответили — проверьте переписку, чтобы не ответить дважды.`,
+      url: "/messages",
+      tag: `meta-inbox-missed-${inbox?.pageId ?? first.accountExternalId ?? "page"}-${first.senderId}`,
+    });
+  } catch (err) {
+    void logSystemError("meta", `Пуш «дошло до CRM» после сверки не ушёл: ${withoutToken(err)}`, { dedupKey: "meta-inbox-late-push-failed" });
+  }
+}
+
 /** Атомарно: true — этот mid ещё никому не показывали (двое не пройдут). */
 async function claimMissed(mid: string): Promise<boolean> {
   const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
@@ -193,7 +379,7 @@ export interface MetaInboxReconcileResult {
   people: number;
   failedPages: number;
   /** Почему тик ничего не сверял: канал Meta выключен в Настройках. */
-  skipped: "meta_disabled" | null;
+  skipped: "meta_disabled" | "switched_off" | null;
 }
 
 /** Тик крона. Никогда не бросает: сбой одной Страницы — строка в журнале, остальные сверяются. */
@@ -204,7 +390,13 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
   try {
     // Канал Meta выключен в Настройках — вебхук отвечает 503 намеренно, звать людей не о чем (ревью 192-9).
     if (!(await isMetaEnabled())) return { ...result, skipped: "meta_disabled" };
-    pages = await listFacebookPageInboxes();
+    const switches = await inboxReconcileSwitches();
+    if (!switches.FACEBOOK && !switches.INSTAGRAM) return { ...result, skipped: "switched_off" };
+    pages = [
+      ...(switches.FACEBOOK ? await listFacebookPageInboxes() : []),
+      // Канал Instagram выключен в Настройках — вебхук его не ждёт, звать людей не о чем (как 192-9).
+      ...(switches.INSTAGRAM && (await isMetaChannelEnabled("INSTAGRAM")) ? await listInstagramInboxes() : []),
+    ];
   } catch (err) {
     void logSystemError("meta", `Сверка переписок Страниц не запустилась: ${withoutToken(err)}`,
       { dedupKey: "meta-inbox-reconcile-failed" });
@@ -223,8 +415,10 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
           { dedupKey: `meta-inbox-read-failed:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000 });
         continue;
       }
-      const incoming = incomingFromGraph(page.pageId, body, now, { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS, processStartedAt: options.processStartedAt });
-      const known = await knownMessageIds(incoming);
+      const channel: InboxChannel = page.channel ?? "FACEBOOK";
+      const incoming = incomingFromGraph(page.ownIds?.length ? page.ownIds : page.pageId, body, now,
+        { graceMs: GRACE_MS, lookbackMs: LOOKBACK_MS, processStartedAt: options.processStartedAt });
+      const known = await knownMessageIds(incoming, channel);
       const missed = incoming.filter((m) => !known.has(m.mid));
       if (!missed.length) continue;
       // Один пуш на человека за тик, даже если он написал пять сообщений подряд.
@@ -252,9 +446,11 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
           await sendPushToAgents(recipients, {
             kind: "message",
             level: "CRITICAL",
-            title: `Ответьте вручную: ${name} (Facebook «${page.title}»)`,
+            title: `Ответьте вручную: ${name} (${channel === "INSTAGRAM" ? "Instagram" : "Facebook"} «${page.title}»)`,
             body: `${excerpt}${fresh.length > 1 ? ` и ещё ${fresh.length - 1}` : ""}. Сообщение не дошло до CRM, бот его не видел. ` +
-              `Ответьте в Meta Business Suite (business.facebook.com) → «Входящие» Страницы.`,
+              (channel === "INSTAGRAM"
+                ? `Ответьте в Instagram (Direct аккаунта «${page.title}») или в Meta Business Suite → «Входящие».`
+                : `Ответьте в Meta Business Suite (business.facebook.com) → «Входящие» Страницы.`),
             // Ссылка внутри CRM: колокольчик открывает только свои адреса. Где отвечать — сказано в тексте.
             url: "/messages",
             tag: `meta-inbox-missed-${page.pageId}-${fromId}`,
@@ -270,7 +466,7 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
       }
       if (!told) continue;
       void logSystemError("meta",
-        `Страница «${page.title}»: ${told} чел. написали в Messenger, а до CRM сообщения не дошли — бот их не видел, ` +
+        `${channel === "INSTAGRAM" ? "Instagram" : "Страница"} «${page.title}»: ${told} чел. написали в ${channel === "INSTAGRAM" ? "Direct" : "Messenger"}, а до CRM сообщения не дошли — бот их не видел, ` +
           `сотрудникам ушёл пуш «Ответьте вручную». Частая причина — у приложения нет расширенного доступа к Messenger ` +
           `(Meta доставляет только людей с ролью в приложении): нужна проверка приложения (App Review).`,
         { dedupKey: `meta-inbox-missed:${page.pageId}`, dedupWindowMs: 6 * 60 * 60_000 });
