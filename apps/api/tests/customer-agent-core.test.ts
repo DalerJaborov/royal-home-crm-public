@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CUSTOMER_AGENT_ANSWER_GUIDANCE } from "../src/ai/customerAgentAnswer.js";
 import { customerAgentDecisionSchema, customerAgentToolCallSchema } from "@royal-home/shared";
 import { runCustomerAgentTurn, type CustomerAgentModelTurn, type CustomerCoreFrame, type CustomerCorePorts } from "../src/ai/customerAgentCore.js";
 import { createProviderOperation } from "../src/ai/providerContract.js";
@@ -487,7 +488,9 @@ describe("CustomerAgentCore draft bounded negative controls", () => {
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result.status).toBe("ready");
     const contents = f.modelTurn.mock.calls[0][0].contents;
-    expect(JSON.stringify(contents).match(/Сколько комнат вам нужно/gu)).toHaveLength(1);
+    // The answer guidance lists the approved question wordings (one of them is this one): the context itself carries it once.
+    const guidance = JSON.stringify(JSON.stringify(CUSTOMER_AGENT_ANSWER_GUIDANCE).slice(1, -1)).slice(1, -1); // inside a JSON part, inside JSON
+    expect(JSON.stringify(contents).replaceAll(guidance, "").match(/Сколько комнат вам нужно/gu)).toHaveLength(1);
     expect(contents.at(-1)).toEqual({ role: "user", parts: [{ text: "Две" }] });
     expect(f.frame.inputText).toBe("Две"); expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });

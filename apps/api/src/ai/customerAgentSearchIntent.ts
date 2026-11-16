@@ -1,6 +1,7 @@
 import { customerAgentPropertySearchCallSchema, type CustomerAgentPropertySearchArgs } from "@royal-home/shared";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerAgentQuestionCatalog } from "./customerAgentRenderer.js";
+import { customerAgentAskKindOf, customerAgentHumanLineSafe } from "./customerAgentAnswer.js";
 
 /**
  * The customer's explicit request to PICK properties ("ищу двушку в Сино", "есть ли двушки", "хочу купить квартиру до 600000
@@ -138,12 +139,20 @@ export function customerSearchContinuation(text: string, turns: ReadonlyArray<{ 
   if (last?.role !== "assistant") return null;
   const lines = last.text.split("\n").map(line => line.trim());
   const asked = (["ru", "tg"] as const).some(language => customerAgentQuestionCatalog(language).some(({ question, text: sentence }) =>
-    (question === "location" || question === "rooms" || question === "budget") && lines.includes(sentence)));
+    (question === "location" || question === "rooms" || question === "budget") && lines.includes(sentence))) || modelAskedCondition(lines);
   const own = norm(text);
   if (!asked || !own.trim() || own.length > 120 || !hasCondition(readIntent(own))) return null;
   const combined = norm([...turns.filter(turn => turn.role === "user").slice(-2).map(turn => turn.text), text].join(". "));
   if (SELLER_OR_JOB.test(combined) || RENT_ONLY.test(combined)) return null;
   return readIntent(combined);
+}
+
+/** The bot's last line is the model's own wording of the location / rooms / budget question (one-brain step 1, review #211): one topic, no fact. */
+function modelAskedCondition(lines: readonly string[]): boolean {
+  const last = lines.filter(Boolean).at(-1);
+  if (!last || !/[?]$/u.test(last)) return false;
+  const kind = customerAgentAskKindOf(last);
+  return (kind === "location" || kind === "rooms" || kind === "budget") && customerAgentHumanLineSafe(last);
 }
 
 /**

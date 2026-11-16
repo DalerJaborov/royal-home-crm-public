@@ -13,7 +13,7 @@ import { accountBrandName } from "../messengers/accounts.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { openPinnedCustomerAgentRuntime } from "./customerAgentRuntime.js";
 import { readCustomerAgentPublicData } from "./customerAgentPublicReads.js";
-import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
+import { customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { readCustomerAgentBrand } from "./customerAgentBrandRead.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { withBotTurnTrace, traceCustomerCoreResult, traceCustomerCoreDisposition, type TraceConfig } from "./botTurnTrace.js";
@@ -157,7 +157,9 @@ export async function runChannelCoreTurn(turn: ChannelCoreTurn, options: { mode:
         const result = await runCustomerAgentTurn({ surface, language, inputText, knownPhoneSource, requestedFacts: [], revision, startedAt,
           operation: runtime.operation, tools: customerAgentToolDefinitions([...CHANNEL_CORE_TOOLS]),
           ...(context.success ? { verifiedContext: context.data } : {}), ...(brand ? { brand } : {}),
-          sayMode: options.mode === "shadow" ? "shadow" : customerAgentSayMode() }, {
+          sayMode: options.mode === "shadow" ? "shadow" : customerAgentSayMode(),
+          // Same answer switch as Meta DMs (#211): in shadow the model's own words are only counted.
+          answerMode: options.mode === "shadow" ? (customerAgentAnswerMode() === "off" ? "off" : "shadow") : customerAgentAnswerMode() }, {
           assertCurrent: async () => true,
           modelTurn: input => runtime.modelTurn(input),
           executeAllowedTool: call => channelCoreTool(call, { knowledgeSourceHash: revision.knowledgeSourceHash, linkPreference, brandName }),
