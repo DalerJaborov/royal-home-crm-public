@@ -19,6 +19,7 @@ import {
 import { hasLiveCall } from "./callTracker.js";
 import { loadIncomingSettings } from "./incomingSettings.js";
 import { findPhoneOwners } from "../clientPhones.js";
+import { agentMayCallArchived, ARCHIVE_REVIEW_CALLBACK_RING_SECONDS } from "../archiveReviewCall.js";
 import { whisperFileForCall } from "./whisperSync.js";
 import {
   ROUTE_DIALPLAN_FILE,
@@ -529,6 +530,13 @@ export interface RouteRequest {
   recordId?: string;
   /** Снял ли оператор трубку ПРЯМО СЕЙЧАС. Спрашивается дважды: до и после станции. */
   isAnswered: () => boolean;
+  /**
+   * Клиент из Корзины перезванивает тому, кто недавно звонил ему для «разбора удалённого» (владелец
+   * 16.11.2026). Одна попытка без ожидания и без парковки: звонивший недоступен — звонок идёт оператору
+   * как раньше. Карточка не оживает. Решение о праве и о живом владельце номера принято до этого
+   * (incomingCalls.setupIncomingCall).
+   */
+  archiveReviewerId?: string;
 }
 
 /**
@@ -540,8 +548,9 @@ export async function routeIncomingToAssignedAgent(request: RouteRequest): Promi
     if (!rememberAttempt(request.channelId)) return { routed: false, reason: "already_answered" };
     let outcome = await attemptRoute(request);
     // Причина «может пройти сама» и звонок ещё жив — не сдаёмся сразу: клиент
-    // ждёт своего агента, а не первого, кто ответит (владелец 04.09.2026).
-    if (!outcome.routed && RETRYABLE_REASONS.has(outcome.reason) && !request.isAnswered()) {
+    // ждёт своего агента, а не первого, кто ответит (владелец 04.09.2026). Перезвон из Корзины не
+    // ждёт: занятому звонившему клиента не держим на музыке, он уходит к оператору.
+    if (!outcome.routed && !request.archiveReviewerId && RETRYABLE_REASONS.has(outcome.reason) && !request.isAnswered()) {
       outcome = await waitAndRetry(request, outcome);
     }
     await recordDecision(request.recordId, outcome);
@@ -567,7 +576,9 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
   if (!request.channelName) return { routed: false, reason: "redirect_failed" };
   if (request.isAnswered()) return { routed: false, reason: "already_answered" };
 
-  let { matchCount, client } = await loadRouteClient(request.phone, request.clientId);
+  let { matchCount, client } = request.archiveReviewerId
+    ? await loadArchiveReviewerRoute(request.archiveReviewerId)
+    : await loadRouteClient(request.phone, request.clientId);
 
   /**
    * СНЯТИЕ LOST ВХОДЯЩИМ ЗВОНКОМ (аудит 02.09.2026, баг B3). Клиент в статусе
@@ -680,7 +691,13 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
     viaMobile: decision.viaMobile,
     // Свой клиент: полное routeRingSeconds при любом режиме консультанта
     // (владелец 11.10.2026; с 02.10 при консультанте было не дольше его ожидания).
-    ringSeconds: settings.routeRingSeconds,
+    // Перезвон из Корзины: КОРОТКО (не больше 25 с), а не полные routeRingSeconds, и не «без ограничения»
+    // (0 = бесконечно на станции): клиент не должен висеть на гудках у звонившего, который не берёт.
+    ringSeconds: request.archiveReviewerId
+      ? settings.routeRingSeconds > 0
+        ? Math.min(settings.routeRingSeconds, ARCHIVE_REVIEW_CALLBACK_RING_SECONDS)
+        : ARCHIVE_REVIEW_CALLBACK_RING_SECONDS
+      : settings.routeRingSeconds,
     // Решение владельца 04.09.2026: автоответчик нигде не нужен — не позвонил
     // агент за routeRingSeconds, звонок просто кладётся, без записи и без
     // очереди операторов (та же логика, что убрала дежурного — общий приём
@@ -692,7 +709,10 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
     // 11.10.2026 владелец: «робот НЕ отвечает клиентам агента» — "voicemail" ВСЕГДА,
     // и диалплан в этой ветке консультанта больше не зовёт (ни при каком aimode).
     // "ai" — только у перевода, который сделал сам консультант (liveVoiceTransfer.ts).
-    fallback: "voicemail",
+    // Перезвон из Корзины (17.11.2026): не взял звонивший — звонок ОПЕРАТОРАМ (диалплан уводит в очередь 1000),
+    // а не на автоответчик: у карточки в Корзине некому «перезвонить», и платная расшифровка с тревогой
+    // «карточка в Корзине» (voicemailIngest) клиенту ни к чему.
+    fallback: request.archiveReviewerId ? "queue" : "voicemail",
     isAnswered: request.isAnswered,
     whisperFile,
     logLabel: `входящий ${request.phone} переведён на ответственного`,
@@ -888,6 +908,43 @@ export async function continueStasisChannelToAgent(input: {
     return false;
   }
   return true;
+}
+
+/**
+ * Перезвон клиента из Корзины тому, кто звонил ему для разбора: «карточка» для решения о переводе — сам
+ * звонивший как ответственный. Дальше те же проверки (активен, не заморожен, есть аппарат, не занят);
+ * карточка в базе не меняется.
+ */
+async function loadArchiveReviewerRoute(
+  agentId: string
+): Promise<{ matchCount: number; client: RouteClient | null }> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId },
+    select: {
+      id: true,
+      isActive: true,
+      frozenAt: true,
+      sipExtension: true,
+      phone: true,
+      whisperLanguage: true,
+      role: true,
+      permissions: true,
+    },
+  });
+  // Право проверяется ещё раз прямо сейчас (в начале звонка оно уже сверялось, но между ними прошли секунды,
+  // а в «клиента нет» путь ведёт к оператору, как у незнакомого номера).
+  if (!agent || !agentMayCallArchived(agent)) return { matchCount: 0, client: null };
+  return {
+    matchCount: 1,
+    client: {
+      deletedAt: null,
+      status: "CONTACTED",
+      workStatus: "ACTIVE",
+      acceptedAt: new Date(),
+      lastAgentId: null,
+      assignedAgent: agent,
+    },
+  };
 }
 
 /**
