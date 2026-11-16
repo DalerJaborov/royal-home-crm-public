@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
+import { CLIENT_IN_WORK_WHERE } from "../src/lib/clientInWork.js";
+import { newLeadOnlyWhere } from "../src/services/leads/reassignment.js";
 
 /**
  * Миграция 20261116150000_client_work_status_normalize (владелец 16.11.2026:
@@ -120,11 +122,21 @@ describe("миграция: старые «Потерянные» → обычн
     path.join(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261116160000_client_lost_back_to_work/migration.sql"),
     "utf8"
   );
+  const LIST_SQL = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261116170000_client_lost_back_to_work_list/migration.sql"),
+    "utf8"
+  );
   const lostIds: Record<string, string> = {};
+  const inList = () => Object.values(lostIds).map((id) => `'${id}'`).join(", ");
   const scopedLost = () => {
     const marker = `WHERE "status" = 'LOST'`;
     if (!LOST_SQL.includes(marker)) throw new Error("миграция изменилась — обновите тест");
-    return LOST_SQL.replace(marker, `${marker} AND "id" IN (${Object.values(lostIds).map((id) => `'${id}'`).join(", ")})`);
+    return LOST_SQL.replace(marker, `${marker} AND "id" IN (${inList()})`);
+  };
+  const scopedList = () => {
+    const marker = `WHERE c."deletedAt" IS NULL`;
+    if (!LIST_SQL.includes(marker)) throw new Error("миграция изменилась — обновите тест");
+    return LIST_SQL.replace(marker, `${marker} AND c."id" IN (${inList()})`);
   };
 
   beforeAll(async () => {
@@ -136,14 +148,19 @@ describe("миграция: старые «Потерянные» → обычн
           source: "PHONE_CALL",
           kind: "BUYER",
           assignedAgentId: agentId,
+          // Старые карточки: созданы и назначены давно, как настоящие бывшие LOST.
+          createdAt: new Date(Date.now() - 40 * 24 * 3600_000),
+          assignedAt: new Date(Date.now() - 40 * 24 * 3600_000),
           ...data,
         },
       });
       lostIds[key] = c.id;
     };
-    await mk("lostContacted", 6, { status: "LOST", lostAt: new Date(), firstContactAt: new Date() });
+    await mk("lostContacted", 6, { status: "LOST", lostAt: new Date(), firstContactAt: new Date(), assignmentCompletedAt: new Date() });
     await mk("lostNew", 7, { status: "LOST", lostAt: new Date() });
-    await mk("archived", 8, { status: "ARCHIVED" });
+    // Старые записи: LOST без lostAt, работа агента закрыта отметкой.
+    await mk("lostNoDate", 9, { status: "LOST", lostAt: null, assignmentCompletedAt: new Date(), assignedAgentId: null });
+    await mk("archived", 8, { status: "ARCHIVED", assignmentCompletedAt: new Date() });
   });
 
   afterAll(async () => {
@@ -162,8 +179,32 @@ describe("миграция: старые «Потерянные» → обычн
     expect((await st("archived")).status).toBe("ARCHIVED");
     const events = () =>
       prisma.stageEvent.count({ where: { entityId: { in: Object.values(lostIds) }, field: "status", from: "LOST" } });
-    expect(await events()).toBe(2);
+    expect(await events()).toBe(3);
     await prisma.$executeRawUnsafe(scopedLost());
-    expect(await events()).toBe(2);
+    expect(await events()).toBe(3);
+  });
+
+  it("доводка: бывшие LOST правда в списке «в работе», lostAt заполнен, ARCHIVED не тронут, повтор — без изменений", async () => {
+    await prisma.$executeRawUnsafe(scopedList());
+    const row = (key: string) =>
+      prisma.client.findUniqueOrThrow({ where: { id: lostIds[key] }, select: { assignmentCompletedAt: true, lostAt: true, updatedAt: true } });
+    expect((await row("lostContacted")).assignmentCompletedAt).toBeNull();
+    const noDate = await row("lostNoDate");
+    expect(noDate.assignmentCompletedAt).toBeNull();
+    expect(noDate.lostAt).not.toBeNull();
+    expect((await row("archived")).assignmentCompletedAt).not.toBeNull();
+    // В списке «в работе» по общему правилу.
+    const inWork = await prisma.client.count({
+      where: { AND: [CLIENT_IN_WORK_WHERE, { id: { in: [lostIds.lostContacted, lostIds.lostNew, lostIds.lostNoDate] } }] },
+    });
+    expect(inWork).toBe(3);
+    // Утренняя раздача их не берёт — это не новые заявки.
+    const wave = await prisma.client.count({
+      where: { AND: [newLeadOnlyWhere(), { id: { in: [lostIds.lostContacted, lostIds.lostNew, lostIds.lostNoDate] } }] },
+    });
+    expect(wave).toBe(0);
+    const before = noDate.lostAt!.getTime();
+    expect(await prisma.$executeRawUnsafe(scopedList())).toBe(0);
+    expect((await row("lostNoDate")).lostAt!.getTime()).toBe(before);
   });
 });
