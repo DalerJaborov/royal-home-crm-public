@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 754,
-  "forks": 4079,
+  "forks": 4078,
   "mounts": 84,
   "cron": 138,
   "jobs": 33,
@@ -20803,6 +20803,14 @@
     },
     {
      "k": "do",
+     "t": "const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, \"clients.delete\") });",
+     "a": [
+      "зовёт pendingDeleteHideWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const today = dushanbeDayRange(now);",
      "a": [
       "зовёт dushanbeDayRange()"
@@ -20981,29 +20989,6 @@
       "зовёт scopeToOwnAgent()"
      ],
      "c": []
-    },
-    {
-     "k": "do",
-     "t": "const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, \"clients.delete\") });",
-     "a": [
-      "зовёт pendingDeleteHiddenClientIds()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "idsToHide.length > 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.id = { notIn: idsToHide };",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
     },
     {
      "k": "if",
