@@ -10,7 +10,7 @@ import { propertyOwnerWhere } from "../lib/propertyOwner.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { sumPointsByAgent } from "../lib/pointsTotals.js";
-import { activeLeadCounts, loadLeadLimits, NO_LEADS } from "../lib/leadLimits.js";
+import { agentLoadCounts, NO_LOAD } from "../lib/agentLoad.js";
 import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
 import { findSellerPropertyMissing } from "../lib/sellerPropertyMissingAntifraud.js";
 import { runLimited } from "../lib/concurrency.js";
@@ -216,7 +216,7 @@ teamRouter.get("/", async (req, res) => {
   });
   const agentIds = agents.map((a) => a.id);
 
-  const [interactions, deals, clients, pointsTotals, money, loadCounts, limits] = await Promise.all([
+  const [interactions, deals, clients, pointsTotals, money, loadCounts] = await Promise.all([
     prisma.interaction.findMany({
       // agentId: { in } / subjectAgentId: { in } обязателен: без него выборка
       // тянула взаимодействия ВСЕЙ компании за месяц, включая руководителей и
@@ -261,14 +261,11 @@ teamRouter.get("/", async (req, res) => {
     sumPointsByAgent(agentIds),
     loadMoneyContext(),
     /**
-     * Нагрузка «сейчас» для карточки «Нагрузка» и колонки в таблице (макет
-     * владельца, экран «Команда»): те же счётчик и лимит, по которым раздача
-     * решает, дать ли агенту следующий лид (lib/leadLimits.ts). Считать здесь
-     * иначе нельзя: полоса «у лимита, лиды не идут» обязана совпадать с тем,
-     * что реально останавливает раздачу.
+     * Нагрузка «сейчас» для колонки в таблице (экран «Команда»): покупатели в
+     * работе тем же правилом, что очередь fair (lib/agentLoad.ts). Лимита нет
+     * с 16.11.2026 — число только показывается, раздачу оно не останавливает.
      */
-    activeLeadCounts(agentIds),
-    loadLeadLimits(),
+    agentLoadCounts(agentIds),
   ]);
   if (
     interactions.length >= TEAM_MONTH_ROW_LIMIT ||
@@ -358,8 +355,7 @@ teamRouter.get("/", async (req, res) => {
       points: pointsTotals.get(a.id) ?? 0,
       // Активные покупатели в работе (продавцы слот не занимают) и общий лимит;
       // лимит 0 = раздача без предела, полоса тогда не рисуется.
-      activeLoad: (loadCounts.get(a.id) ?? NO_LEADS).total,
-      leadLimit: limits.activeLimit,
+      activeLoad: (loadCounts.get(a.id) ?? NO_LOAD).total,
       month: {
         leads: b?.leads ?? 0,
         interactions: b?.interactions ?? 0,

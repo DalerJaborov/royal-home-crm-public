@@ -7,7 +7,6 @@ import { prisma } from "../db.js";
 import { isOpenAiEnabled } from "../ai/openaiClient.js";
 import { dushanbeDayRange, dushanbeStartOfMonth, dushanbeStartOfToday, dushanbeWallClock } from "./dushanbeTime.js";
 import { centsToTjs, loadMoneyContext, roundMoney, toCents } from "./money.js";
-import { activeLeadCounts, loadLeadLimits, slotsTaken } from "./leadLimits.js";
 import { isBotEnabledForChannel } from "../messengers/botChannels.js";
 import { loadCredentials } from "../messengers/meta.js";
 import { HAS_INSTAGRAM_LINK_WHERE, NO_INSTAGRAM_LINK_WHERE } from "./instagramLink.js";
@@ -1110,17 +1109,12 @@ export interface McControlGaps {
   /** «Телефоны агентов» в разделе «Звонки» — до 12.09.2026 блок стоял пустым. */
   phones: McAgentPhones;
   overdueTasks: McEmptyable & { count: number; items: { id: string; title: string; agentName: string; overdueDays: number; href: string }[] };
-  atLimit: McEmptyable & { count: number; items: { agentId: string; name: string; taken: number; limit: number }[] };
   silentAfterShowing: McEmptyable & { count: number };
 }
 
 /**
- * Три плитки «Контроля», которые в артефакте стояли пустыми.
- *
- * «На пределе нагрузки» считается ТЕМ ЖЕ механизмом, что решает выдачу лидов
- * (lib/leadLimits.ts: activeLeadCounts + slotsTaken + взвешенные слоты) — своя
- * копия правила разошлась бы с распределением ровно в тот день, когда владелец
- * поменяет лимит.
+ * Плитки «Контроля», которые в артефакте стояли пустыми. «На пределе
+ * нагрузки» убрана 16.11.2026 вместе с самим лимитом активных лидов.
  */
 /**
  * «Телефоны агентов» — кто из сотрудников с внутренним номером сейчас на связи.
@@ -1175,7 +1169,7 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
     nextActionDate: { lt: now },
   } satisfies Prisma.InteractionWhereInput;
 
-  const [overdueCount, overdueRows, agents, limits] = await Promise.all([
+  const [overdueCount, overdueRows] = await Promise.all([
     prisma.interaction.count({ where: overdueWhere }),
     prisma.interaction.findMany({
       where: overdueWhere,
@@ -1189,15 +1183,7 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
         agent: { select: { fullName: true } },
       },
     }),
-    prisma.agent.findMany({ where: { isActive: true, role: { in: [...RATED_ROLES] } }, select: { id: true, fullName: true }, take: 100 }),
-    loadLeadLimits(),
   ]);
-
-  const counts = await activeLeadCounts(agents.map((a) => a.id));
-  const atLimitRows = agents
-    .map((a) => ({ agentId: a.id, name: a.fullName, taken: slotsTaken(counts.get(a.id), limits), limit: limits.activeLimit }))
-    .filter((r) => r.limit > 0 && r.taken >= r.limit)
-    .sort((a, b) => b.taken - a.taken);
 
   const phones = await loadAgentPhones();
 
@@ -1215,18 +1201,6 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
         href: r.client ? `/clients/${r.client.shortId}` : "/clients",
       })),
       reason: overdueCount > 0 ? null : "Просроченных задач нет.",
-    },
-    atLimit: {
-      count: atLimitRows.length,
-      items: atLimitRows.slice(0, LIST_CAP),
-      reason:
-        atLimitRows.length > 0
-          ? null
-          : agents.length === 0
-            ? "Активных агентов нет."
-            : limits.activeLimit <= 0
-              ? "Лимит активных клиентов отключён."
-              : `Ни один агент не достиг лимита в ${limits.activeLimit} активных клиентов.`,
     },
     silentAfterShowing: {
       count: silentAfterShowing,

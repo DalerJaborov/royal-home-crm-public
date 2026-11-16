@@ -42,6 +42,7 @@ import { dushanbeDateTimeString } from "./dushanbeTime.js";
 import { changeClientAgent, ClientOwnerRaceError, throwIfNotClaimed } from "./changeClientAgent.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { lastConductedShowingPropertyId } from "./propertyVoice/showingProperty.js";
+import { trashClient } from "./trashClient.js";
 
 export interface RefuseClientInput {
   clientId: string;
@@ -270,18 +271,17 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
       : needsSecurityReview
       ? `Отказ №${refusalCount} — работа по назначению завершена`
       : escalate
-      ? `Отказ №${refusalCount} — предел передач (${maxTransfers}) исчерпан, карточка помечена «Потерянный» и больше не распределяется автоматически`
+      ? `Отказ №${refusalCount} — предел передач (${maxTransfers}) исчерпан, работа завершена — клиент убран в Корзину`
       : !nextAgentId
         ? `Отказ №${refusalCount} — снят с агента, передан руководству`
         : `Отказ №${refusalCount}`,
   ].filter(Boolean);
 
   // toAgentId: nextAgentId — реальная передача; unassignToQueue — снятие в
-  // очередь руководителя; иначе (СБ/эскалация LOST) агент НЕ меняется — только
-  // escalatedAt/статус. changeClientAgent сам проставит lastAgentId, когда
-  // владелец действительно меняется (nextAgentId/unassignToQueue); для LOST
-  // (аудит владения 11.09.2026, дыра №2 — три пути в LOST по-разному обращались
-  // с агентом) lastAgentId ставим явно ниже, хотя assignedAgentId сохраняется.
+  // очередь руководителя; иначе (СБ/конец работы) агент НЕ меняется — только
+  // escalatedAt. changeClientAgent сам проставит lastAgentId, когда владелец
+  // действительно меняется (nextAgentId/unassignToQueue); при конце работы
+  // lastAgentId ставим явно ниже — его читает возврат клиента из Корзины.
   const toAgentId = nextAgentId ?? (unassignToQueue ? null : client.assignedAgentId);
 
   // Объект отказа читается ДО транзакции: это справочное чтение, ему незачем держать её.
@@ -361,22 +361,15 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
           assignmentRefusedAt: new Date(),
           assignmentRefusedByAgentId: client.assignedAgentId,
           assignmentCompletedAt: needsManagementDecision ? null : new Date(),
-          // «Потерянный» перебивает и «горячего», и «холодного»: это не оценка
-          // клиента, а факт про нас — предел передач исчерпан, автоматика с этой
-          // карточкой закончила. Проверка СБ идёт ПЕРВОЙ по приоритету: пока
-          // человек не решил, карточка на проверке, а не «потерянная»/«холодная».
+          // Предел передач исчерпан — работа закончена: карточка уходит в
+          // Корзину сразу после этой транзакции (владелец 16.11.2026: состояния
+          // «Потерянный» больше нет). Проверка СБ идёт ПЕРВОЙ по приоритету: пока
+          // человек не решил, карточка на проверке, а не в Корзине.
           ...(needsSecurityReview
             ? { securityReview: "PENDING" as const, securityReviewedAt: null, securityReviewedById: null }
             : needsManagementDecision ? {}
             : escalate
-              ? {
-                  status: "LOST" as const,
-                  lostAt: new Date(),
-                  // LOST не занимает слот в портфеле (leadLimits.ts::TERMINAL_STATUSES) —
-                  // agent сохраняется, но lastAgentId всё равно ставим (решение
-                  // владельца 11.09.2026, см. markClientLost).
-                  ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}),
-                }
+              ? { ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}) }
               : isHot
                 ? { hotSince: client.hotSince ?? new Date(), status: "HOT" as const }
                 : { status: "COLD" as const }),
@@ -389,6 +382,27 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
   } catch (err) {
     if (err instanceof ClientOwnerRaceError) return { ok: false, status: 409, error: err.userMessage };
     throw err;
+  }
+
+  /**
+   * КОНЕЦ РАБОТЫ = КОРЗИНА (владелец 16.11.2026: «ничего лишнего»). Раньше
+   * карточка становилась «Потерянной» (status LOST) и через 90 дней уезжала в
+   * Корзину сама. Теперь сразу обычное мягкое удаление — восстановимо руками и
+   * само, когда клиент снова напишет или позвонит (services/leads/intake.ts,
+   * resumeExistingChannelLead). Причина отказа уже лежит в хронологии выше.
+   * Открытая сделка или объект продавца в работе удаление не пускают —
+   * карточка остаётся у агента с эскалацией руководству, и это видно в ленте.
+   */
+  if (escalate && !needsSecurityReview) {
+    const trashed = await trashClient(client.id, input.actorAgentId ?? client.assignedAgentId);
+    if (!trashed.ok) {
+      await logTimeline({
+        clientId: client.id,
+        actor: { kind: "system", source: "refuse", subjectAgentId: client.assignedAgentId },
+        type: "SYSTEM",
+        notes: `Работа завершена, но в Корзину карточка не убрана: ${trashed.error}`,
+      }).catch(() => {});
+    }
   }
 
   // A review or a preserved second role is not a lost client and earns no loss event.

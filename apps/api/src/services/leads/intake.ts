@@ -12,7 +12,6 @@ import { type ClientSource, type ClientKind } from "@royal-home/shared";
 import { sendPushToAgent, sendPushToAgents, closeLeadPushNotification } from "../../push.js";
 import { sendLeadPush } from "../../lib/pushLeadActions.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
-import { activeLeadCounts, loadLeadLimits, slotsTaken } from "../../lib/leadLimits.js";
 import { requestedAgentStillAvailable } from "../../lib/requestedAgent.js";
 import { decideReturningClient, preferredReturningOwnerId } from "../../lib/returningClientRouting.js";
 import { notifyOwnerReturningBuyerSickAgent } from "../../lib/returningBuyerOwnerNotice.js";
@@ -1027,34 +1026,6 @@ async function resumeExistingChannelLeadInner(
     const assigned = await assignKindChangedLead(existing, input);
     if (assigned) effectiveAgentId = assigned;
   }
-  // Возврат в ACTIVE — тот же слот в лимите, что и у нового лида (OCCUPIES_SLOT_WHERE
-  // считает по workStatus), но клиенту, который сам написал, отвечать нужно в любом
-  // случае — блокировать реактивацию из-за лимита нельзя. Вместо этого, если агент
-  // из-за возврата оказался НАД лимитом (найдено код-ревью 13.08.2026 — раньше
-  // проходило тихо), руководителю уходит то же уведомление, что и по лимиту лидов
-  // в целом, чтобы решение о разгрузке портфеля принял человек, а не тишина.
-  // reactivatedImmediately, не reactivating: пока реактивация — только предложение
-  // (offerAgentId), в лимит она не садится вовсе, проверять нечего.
-  if (reactivatedImmediately && effectiveAgentId) {
-    void (async () => {
-      try {
-        const limits = await loadLeadLimits();
-        if (limits.activeLimit <= 0) return;
-        const counts = (await activeLeadCounts([effectiveAgentId!])).get(effectiveAgentId!);
-        if (slotsTaken(counts, limits) <= limits.activeLimit) return;
-        const supervisors = await findAgentsWithPermission("clients.assign");
-        await sendPushToAgents(supervisors, {
-          title: "⚠️ Портфель агента сверх лимита",
-          body: `Вернувшийся клиент №${existing.shortId} довёл портфель агента выше настроенного лимита ${limits.activeLimit} — стоит разгрузить.`,
-          url: `/clients/${existing.shortId}`,
-          tag: `over-limit-reactivation-${existing.id}`,
-        });
-      } catch (err) {
-        console.error("[leads] уведомление о превышении лимита при возврате:", err instanceof Error ? err.message : err);
-      }
-    })();
-  }
-
   // Клиент, который у нас уже есть, обратился заново — принимать его как новый
   // лид не нужно (он и так чей-то), но раньше это проходило совсем молча: ни
   // записи, ни пуша, а закреплённый агент узнавал об этом, только сам открыв

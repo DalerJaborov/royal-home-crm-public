@@ -9,15 +9,8 @@ import {
   INSTAGRAM_COMMENT_STATUSES,
   CURRENCIES,
   INTERACTION_TYPES,
-  WORK_STATUSES,
 } from "./enums.js";
 import { SECURITY_REVIEW_STATES } from "./schemas.js";
-
-/** Цвет светофора неактивных (см. apps/api/src/lib/inactiveTrafficLight.ts —
- *  InactiveLevel там же). Отдельный список, а не переэкспорт: тот модуль
- *  вычисляет цвет и не заводит на него zod-схему, здесь нужна только
- *  валидация query-параметра списка клиентов. */
-const INACTIVE_LEVELS = ["GREEN", "YELLOW", "RED"] as const;
 
 const uuid = z.guid();
 /**
@@ -194,12 +187,6 @@ export const clientQuerySchema = z.object({
   agentId: uuid.optional(),
   /** Источник — фильтр шторки «Фильтры» экрана «Клиенты» (артефакт). */
   source: z.enum(CLIENT_SOURCES).optional(),
-  /** Раздел «Контроль руководителя» → «Светофор неактивных»: клик по числу
-   *  матрицы агент×цвет переходит сюда с этими двумя фильтрами (аудит
-   *  03.09.2026 ночь, п.7 — «весь светофор одним взглядом»). workStatus без
-   *  inactiveLevel — тоже валиден (все неактивные клиента/агента). */
-  workStatus: z.enum(WORK_STATUSES).optional(),
-  inactiveLevel: z.enum(INACTIVE_LEVELS).optional(),
   q: z.string().trim().max(200).optional(),
   /** «name» — прежнее значение до появления сортировки по всем колонкам; оставлено
    *  ради ссылок и кэша PWA со старой версией интерфейса (равно «name_asc»). */

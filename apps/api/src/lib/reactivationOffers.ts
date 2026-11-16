@@ -37,7 +37,6 @@ import { logSystemError } from "./systemError.js";
 import { pickAgentForLead } from "../services/leads/selection.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
-import { loadLeadLimits, activeLeadCounts, slotsTaken } from "./leadLimits.js";
 import { changeClientAgent } from "./changeClientAgent.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { loadOwnershipSnapshot, escalateInsteadOfTransfer } from "../services/leads/ownershipLoad.js";
@@ -302,27 +301,6 @@ export async function acceptReactivationOffer(
   // ПОСЛЕ коммита (аудит 11.09.2026, второй заход по осиротевшим спутникам,
   // п.4 задания): клиент принят — экран агента и надзора обновляются сразу.
   publishClientUpdated({ clientId: client.id, agentIds: [agentId] });
-
-  // Тот же контроль портфеля, что у автоматической реактивации (intake.ts) — агент
-  // мог согласиться на клиента, который вывел его портфель за лимит; решение о
-  // разгрузке принимает руководитель, а не тишина (код-ревью 13.08.2026, тот же приём).
-  void (async () => {
-    try {
-      const limits = await loadLeadLimits();
-      if (limits.activeLimit <= 0) return;
-      const counts = (await activeLeadCounts([agentId])).get(agentId);
-      if (slotsTaken(counts, limits) <= limits.activeLimit) return;
-      const supervisors = await findAgentsWithPermission("clients.assign");
-      await sendPushToAgents(supervisors, {
-        title: "⚠️ Портфель агента сверх лимита",
-        body: `Реактивированный клиент №${client.shortId} довёл портфель агента выше настроенного лимита ${limits.activeLimit} — стоит разгрузить.`,
-        url: `/clients/${client.shortId}`,
-        tag: `over-limit-reactivation-accept-${client.id}`,
-      });
-    } catch (err) {
-      console.error("[leads] уведомление о превышении лимита при реактивации:", err instanceof Error ? err.message : err);
-    }
-  })();
 
   return { ok: true as const, client };
 }

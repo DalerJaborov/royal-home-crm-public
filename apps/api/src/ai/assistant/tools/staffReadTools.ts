@@ -12,7 +12,7 @@ import { prisma } from "../../../db.js";
 import { findStaffByName } from "../../../lib/agentNameLookup.js";
 import { availabilityOf } from "../../../lib/agentAvailability.js";
 import { dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
-import { activeLeadCounts, NO_LEADS } from "../../../lib/leadLimits.js";
+import { agentLoadCounts, NO_LOAD } from "../../../lib/agentLoad.js";
 import { listStaffDirectory, listStaffHandovers } from "../../../lib/staffAdmin.js";
 import { loadStaffLive, ONLINE_WINDOW_MS } from "../../../lib/staffLive.js";
 import type { AssistantActor } from "../actor.js";
@@ -190,7 +190,6 @@ export const getStaffCardTool: AssistantReadToolPlugin = {
             ? { title: safeField(live.now.nextTask.title, 120), at: live.now.nextTask.at ? dushanbeDateTimeString(live.now.nextTask.at) : null }
             : null,
           leadsInWork: live.leads.inWork,
-          leadLimit: live.leads.limit || null,
           unacceptedLeads: live.leads.unaccepted,
           callsThisWeek: { total: live.calls.weekTotal, talked: live.calls.weekTalked, missedIncoming: live.calls.weekMissedIncoming },
         };
@@ -231,7 +230,7 @@ export const staffNowTool: AssistantReadToolPlugin = {
       orderBy: { fullName: "asc" },
       take: 200,
     });
-    const leads = await activeLeadCounts(rows.map((r) => r.id));
+    const leads = await agentLoadCounts(rows.map((r) => r.id));
     const now = Date.now();
     const staff = rows.map((r) => {
       const availability = availabilityOf(r);
@@ -243,7 +242,7 @@ export const staffNowTool: AssistantReadToolPlugin = {
         online: Boolean(r.lastSeenAt && now - r.lastSeenAt.getTime() < ONLINE_WINDOW_MS),
         lastSeen: r.lastSeenAt ? dushanbeDateTimeString(r.lastSeenAt) : null,
         leadsPausedUntil: availability.pausedUntil ? dushanbeDateTimeString(availability.pausedUntil) : null,
-        leadsInWork: (leads.get(r.id) ?? NO_LEADS).total,
+        leadsInWork: (leads.get(r.id) ?? NO_LOAD).total,
       };
     });
     return { online: staff.filter((s) => s.online).length, total: staff.length, staff };

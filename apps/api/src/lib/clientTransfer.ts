@@ -9,7 +9,7 @@ import { sendPushToAgent, closeLeadPushNotification } from "../push.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { hadConductedShowing } from "./conductedShowing.js";
 import { cancelPendingClientDeleteRequestOnTransfer } from "./trashClient.js";
-import { countContactTrace, loadTrafficLightSettings } from "./inactiveTrafficLight.js";
+import { countContactTrace, loadLeadCallMinSeconds } from "./contactTrace.js";
 import { noteAgentHandoffAndAlarmIfAnomalous } from "./agentHandoffAnomalyAlarm.js";
 import { changeClientAgent, ClientOwnerRaceError, throwIfNotClaimed } from "./changeClientAgent.js";
 import { publishClientUpdated } from "./livePublish.js";
@@ -53,8 +53,7 @@ export async function canTransferClient(clientId: string): Promise<TransferGate>
     return { allowed: false, reason: "После отказа новое назначение выполняет администратор или директор" };
   }
   if (await hadConductedShowing(clientId)) return { allowed: true };
-  const settings = await loadTrafficLightSettings();
-  const { attempts } = await countContactTrace(clientId, settings.leadCallMinSeconds);
+  const { attempts } = await countContactTrace(clientId, await loadLeadCallMinSeconds());
   if (attempts >= 1) return { allowed: true };
   return {
     allowed: false,
@@ -146,7 +145,7 @@ async function pickAgentByPropertyMatch(
   // Уже отсортированы по убыванию балла (findMatchingPropertiesForClient) —
   // берём первого попавшегося доступного, а не пересортировываем заново.
   for (const c of candidates) {
-    if (await isAgentAvailableForLead(c.intakeAgentId, true)) {
+    if (await isAgentAvailableForLead(c.intakeAgentId)) {
       return { agentId: c.intakeAgentId, propertyShortId: c.shortId, score: c.score };
     }
   }
@@ -327,22 +326,17 @@ async function transferClientByAgentUnguarded(input: {
   const note =
     `Передан другому агенту: ${reasonLabel}` +
     (input.comment?.trim() ? `. ${input.comment.trim()}` : "") +
-    (escalate ? `. Предел передач (${maxTransfers}) исчерпан — карточка помечена «Потерянный»` : "");
+    (escalate ? `. Предел передач (${maxTransfers}) исчерпан — кому отдать клиента, решает руководитель` : "");
 
   if (escalate) {
-    // lostAt — владелец 30.08.2026: момент перехода в «Потерянный», отдельно
-    // от updatedAt (см. Client.lostAt в schema.prisma) — по нему считается
-    // «через 3 месяца в корзину» (lib/lostInactiveTrashSweep.ts). Агент НЕ
-    // меняется (LOST не занимает слот в портфеле — leadLimits.ts::TERMINAL_STATUSES),
-    // но lastAgentId проставляем явно (аудит владения 11.09.2026, дыра №2:
-    // три пути в LOST раньше по-разному обращались с ним).
+    // Предел передач исчерпан. До 16.11.2026 карточка уходила в «Потерянные»
+    // (status LOST); этого состояния больше нет (владелец: «ничего лишнего»).
+    // Клиент остаётся у того же агента, escalatedAt зовёт руководителя решить,
+    // кому его отдать, — тот же сигнал, что и у «свободных агентов нет».
     await prisma.$transaction(async (tx) => {
       /**
-       * outcome="NEGATIVE" обязателен: по нему раздел «Потерянные клиенты»
-       * собирает цепочку «через кого прошёл и почему»
-       * (routes/clients.ts, GET /lost). Передачи его не ставили, и клиент,
-       * потерянный ровно после трёх передач, попадал в раздел с ПУСТОЙ
-       * цепочкой — без того единственного, ради чего раздел и делался.
+       * outcome="NEGATIVE": передача, исчерпавшая предел, — неудачный исход
+       * работы агента с клиентом, его видно в хронологии карточки.
        */
       await logTimeline({
         clientId: client.id,
@@ -361,22 +355,21 @@ async function transferClientByAgentUnguarded(input: {
         // Инициатор — агент, нажавший «Передать» (П-5/П-8, 17.09.2026): предел
         // передач исчерпан, но решение всё равно человеческое, а не автоматика.
         actorId: input.agentId,
-        source: "lost.transfer",
+        source: "transfer.exhausted",
         skipInteraction: true,
         data: {
           refusalCount,
-          status: "LOST" as const,
-          lostAt: new Date(),
+          escalatedAt: new Date(),
           ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}),
         },
-        // Владелец из снимка — иначе «Потерянный» ложился бы на карточку, которую
+        // Владелец из снимка — иначе эскалация ложилась бы на карточку, которую
         // руководитель только что отдал другому (ночная проверка 24.09.2026).
         guardWhere: { assignedAgentId: input.agentId, assignmentRefusedAt: null, assignmentCompletedAt: null },
         tx,
       });
       throwIfNotClaimed(changed);
     });
-    // Агент не меняется (LOST не занимает слот в портфеле), поэтому
+    // Агент не меняется, поэтому
     // changeClientAgent выше сам спутников не гасит — но пуш «новый лид» и
     // живое обновление экрана всё равно устарели (аудит 11.09.2026, второй
     // заход по осиротевшим спутникам: эта ветка не публиковала live вовсе).
@@ -405,7 +398,7 @@ async function transferClientByAgentUnguarded(input: {
     // тоже закрываются вместо того чтобы висеть на агенте, у которого клиент уже LOST.
     void enqueueDirectorAlert({
       title: `⚠️ ${client.fullName}: предел передач исчерпан`,
-      body: `${reasonLabel}. Карточка помечена «Потерянный» — назначьте агента вручную.`,
+      body: `${reasonLabel}. Назначьте агента вручную.`,
       url: `/clients/${client.shortId}`,
       tag: `transfer-exhausted-${client.id}`,
       recipientPermission: "clients.assign",
@@ -460,12 +453,9 @@ async function transferClientByAgentUnguarded(input: {
     return { ok: true, lost: true };
   }
 
-  // respectLimit=true (найдено код-ревью 13.08.2026): «Передача» не единственный
-  // способ клиенту получить агента, в отличие от раздачи портфеля увольняющегося —
-  // получателя, уже перегруженного сверх лимита, здесь предпочитать не нужно.
   // Конкретного получателя routeTransferTarget уже проверил на доступность сам
   // (isAgentAvailableForLead/pickStrongestAvailableAgent) — вторая проверка не нужна.
-  const nextAgentId = routing.kind === "agent" ? routing.agentId : await pickNextAgentByKpiQueue([input.agentId], true);
+  const nextAgentId = routing.kind === "agent" ? routing.agentId : await pickNextAgentByKpiQueue([input.agentId]);
   const routedNote = routing.kind === "agent" ? `${note} — ${routing.explain}` : note;
   if (!nextAgentId) {
     // Некому передать прямо сейчас — не блокируем агента, эскалируем руководству,

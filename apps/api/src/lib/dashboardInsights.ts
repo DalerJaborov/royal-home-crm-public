@@ -2,7 +2,7 @@ import { prisma } from "../db.js";
 import type { ClientStatus } from "../generated/prisma/client.js";
 import { loadMoneyContext, roundMoney, toTjs } from "./money.js";
 import { dushanbeStartOfMonth, dushanbeWallClock } from "./dushanbeTime.js";
-import { OCCUPIES_SLOT_WHERE } from "./leadLimits.js";
+import { BUYERS_IN_WORK_WHERE } from "./agentLoad.js";
 import {
   computeRoyalScoreBreakdownBatch,
   ROYAL_SCORE_CATEGORIES,
@@ -180,7 +180,7 @@ export async function computeWorkloadBalance(): Promise<WorkloadInsight[]> {
       fullName: true,
       _count: {
         select: {
-          clients: { where: { deletedAt: null, ...OCCUPIES_SLOT_WHERE } },
+          clients: { where: { deletedAt: null, ...BUYERS_IN_WORK_WHERE } },
         },
       },
     },

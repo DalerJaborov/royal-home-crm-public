@@ -24,7 +24,7 @@ import { findImportantOtherInquiries } from "../lib/importantOtherInquiries.js";
 import { loadPipelineDeadlines, stageState } from "../lib/propertyPipeline.js";
 import { MARKETING_PIPELINE_SCAN_CAP } from "./marketing.js";
 import { PROPERTY_PIPELINE_STATUSES, plural, type PultModuleId, RATED_ROLES } from "@royal-home/shared";
-import { OCCUPIES_SLOT_WHERE } from "../lib/leadLimits.js";
+import { BUYERS_IN_WORK_WHERE } from "../lib/agentLoad.js";
 import { dushanbeStartOfToday, dushanbeWallClock } from "../lib/dushanbeTime.js";
 import { buildMarketingFunnel } from "../lib/marketingFunnel.js";
 import { loadMissionControlTicker } from "../lib/missionControlTicker.js";
@@ -180,7 +180,7 @@ async function buildLive(ctx: McContext) {
           prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay }, answered: false } }),
           prisma.client.groupBy({
             by: ["status"],
-            where: { deletedAt: null, ...OCCUPIES_SLOT_WHERE },
+            where: { deletedAt: null, ...BUYERS_IN_WORK_WHERE },
             _count: { _all: true },
           }),
           // items[]: «клиент завис» = клиент в активной воронке, с которым НЕТ работы
@@ -192,13 +192,13 @@ async function buildLive(ctx: McContext) {
           // забытые. Теперь: самые давно молчащие первыми, предел 5, без N+1.
           // Ссылка — на карточку клиента (тот же маршрут, что в канбане, Deals.tsx:120).
           prisma.client.findMany({
-            where: { deletedAt: null, ...OCCUPIES_SLOT_WHERE, lastContactAt: { lt: stuckCutoff } },
+            where: { deletedAt: null, ...BUYERS_IN_WORK_WHERE, lastContactAt: { lt: stuckCutoff } },
             orderBy: { lastContactAt: "asc" },
             take: 5,
             select: { id: true, shortId: true, fullName: true, status: true, lastContactAt: true },
           }),
           prisma.client.count({
-            where: { deletedAt: null, ...OCCUPIES_SLOT_WHERE, lastContactAt: { lt: stuckCutoff } },
+            where: { deletedAt: null, ...BUYERS_IN_WORK_WHERE, lastContactAt: { lt: stuckCutoff } },
           }),
         ]);
       const pulseToday = pulse?.find((p) => p.period === "today") ?? null;
@@ -433,7 +433,7 @@ async function buildZones(ctx: McContext) {
         await Promise.all([
           prisma.client.groupBy({
             by: ["assignedAgentId"],
-            where: { assignedAgentId: { in: ids }, deletedAt: null, ...OCCUPIES_SLOT_WHERE },
+            where: { assignedAgentId: { in: ids }, deletedAt: null, ...BUYERS_IN_WORK_WHERE },
             _count: { _all: true },
           }),
           // ACTIVE_NOT_TERMINAL — без него клиент, ушедший в LOST/INACTIVE/ARCHIVED

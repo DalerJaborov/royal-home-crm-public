@@ -1,7 +1,6 @@
 import { investigationViewerRole } from "../../auth/investigations.js";
 import { Router } from "express";
 import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
-import type { ClientStatus } from "@royal-home/shared";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { can, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
@@ -9,8 +8,6 @@ import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
 import { pendingDeleteHideWhere } from "../../lib/clientSearchWhere.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
-import { activeLeadCounts, loadLeadLimits, slotsTaken } from "../../lib/leadLimits.js";
-import { RATED_ROLES } from "@royal-home/shared";
 
 /**
  * GET /clients/summary — сводка над списком клиентов для экрана «Клиенты»
@@ -40,17 +37,6 @@ export interface ClientsSummary {
   /** Свои принятые карточки (любого вида) — срез «Мои»; null у ролей без своих клиентов. */
   mine: number | null;
   other: number | null;
-  lost: number | null;
-  /**
-   * СЧЁТЧИКИ ДЛЯ ВКЛАДОК «НЕАКТИВНЫЕ» И «ВСЕ МОИ» (18.09.2026, задание В §f
-   * п.1/4, §c разведки 17.09: «у Неактивных счётчика нет»). Своя область —
-   * ownAgentId, как и у buyers/sellers; у руководства (ownAgentId пуст) те же
-   * границы, что у остального ответа: null не возвращаем — эти счётчики не
-   * управленческие, руководителю тоже нужны на своей вкладке «Клиенты».
-   */
-  inactive: number;
-  /** Отложенные, свои (workStatus=DEFERRED) — тот же список, что у /deferred. */
-  deferred: number;
   /**
    * Карточки в Корзине, где текущий или последний держатель — «я» (assignedAgentId
    * ИЛИ lastAgentId) — то, что покажет вкладка «Все мои» под фильтром «в Корзине».
@@ -67,20 +53,6 @@ export interface ClientsSummary {
   /** Активные покупатели и продавцы, у которых последний контакт старше суток. */
   noContactOverDay: number;
   showings: { today: number; tomorrow: number };
-  /** Агенты с запасом по лимиту активных клиентов — кому можно передать; до трёх. */
-  freeAgents: { id: string; fullName: string; slotsLeft: number }[] | null;
-  /**
-   * Лиды по стадиям воронки (экран «Воронка лидов», docs/agent-briefs/
-   * mobile-c99db05f-step4-14-09.md, 14.09.2026) — те же покупатели/продавцы, что
-   * и `buyers`+`sellers` выше (`kind IN (BUYER, SELLER)`, та же граница прав
-   * `scopeToOwnAgent`), но по `ClientStatus`:
-   *   new            — NEW;
-   *   inProgress     — CONTACTED + HOT;
-   *   awaitingDecision — COLD + UNRESPONSIVE;
-   *   closed         — DEAL_CLOSED + LOST.
-   * ARCHIVED сюда не входит — воронка не про архив.
-   */
-  stages: { new: number; inProgress: number; awaitingDecision: number; closed: number };
 }
 
 export const summaryRouter = Router();
@@ -102,7 +74,6 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
   const tomorrow = dushanbeDayRange(new Date(today.end.getTime() + 1));
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const canOther = !ownAgentId && can(req, "otherInquiries.view");
-  const canAssign = !ownAgentId && can(req, "clients.assign");
   const meId = req.agent?.id;
 
   /**
@@ -135,7 +106,6 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     sellers,
     mine,
     other,
-    lost,
     newToday,
     newYesterday,
     awaitingCount,
@@ -143,9 +113,6 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     noContactOverDay,
     showToday,
     showTomorrow,
-    stageGroups,
-    inactive,
-    deferred,
     trashedMine,
   ] = await Promise.all([
       prisma.client.count({ where: { ...base, ...CLIENT_IN_WORK_WHERE, kind: "BUYER" } }),
@@ -162,7 +129,6 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
        */
       meId ? prisma.client.count({ where: { deletedAt: null, assignedAgentId: meId } }) : Promise.resolve(null),
       canOther ? prisma.client.count({ where: { deletedAt: null, kind: "OTHER" } }) : Promise.resolve(null),
-      canAssign ? prisma.client.count({ where: { deletedAt: null, status: "LOST" } }) : Promise.resolve(null),
       prisma.client.count({ where: { ...base, createdAt: { gte: today.start, lte: today.end } } }),
       prisma.client.count({ where: { ...base, createdAt: { gte: yesterday.start, lte: yesterday.end } } }),
       prisma.client.count({ where: awaitingWhere }),
@@ -177,75 +143,16 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
       prisma.client.count({ where: { ...base, ...TERMINAL, workStatus: "ACTIVE", kind: { in: ["BUYER", "SELLER"] }, lastContactAt: { lt: dayAgo } } }),
       prisma.interaction.count({ where: showingWhere(today) }),
       prisma.interaction.count({ where: showingWhere(tomorrow) }),
-      // groupBy/count, без выборки строк — тот же приём, что у остальных
-      // счётчиков этого роута (см. комментарий над роутом).
-      prisma.client.groupBy({
-        by: ["status"],
-        where: { ...base, kind: { in: ["BUYER", "SELLER"] } },
-        _count: { _all: true },
-      }),
-      // «Неактивные»: своя область (ownAgentId), как buyers/sellers — kind не
-      // ограничиваем (в отличие от base по умолчанию), карточка INACTIVE может
-      // быть и продавцом, и покупателем — вкладка показывает оба вида разом.
-      // status не LOST (23.09.2026) — то же условие, что у самого списка
-      // (routes/clients/list.ts, workStatus=INACTIVE): потерянный через светофор
-      // остаётся workStatus=INACTIVE, и счётчик вкладки расходился бы со списком.
-      prisma.client.count({
-        where: ownAgentId
-          ? { deletedAt: null, assignedAgentId: ownAgentId, kind: { not: "OTHER" }, workStatus: "INACTIVE", ...TERMINAL }
-          : { deletedAt: null, kind: { not: "OTHER" }, workStatus: "INACTIVE", ...TERMINAL },
-      }),
-      prisma.client.count({
-        where: ownAgentId
-          ? { deletedAt: null, assignedAgentId: ownAgentId, workStatus: "DEFERRED", ...TERMINAL }
-          : { deletedAt: null, workStatus: "DEFERRED", ...TERMINAL },
-      }),
       meId
         ? prisma.client.count({ where: { deletedAt: { not: null }, OR: [{ assignedAgentId: meId }, { lastAgentId: meId }] } })
         : Promise.resolve(null),
     ]);
-
-  const stageCount = (statuses: ClientStatus[]) =>
-    stageGroups.filter((g) => statuses.includes(g.status)).reduce((sum, g) => sum + g._count._all, 0);
-  const stages: ClientsSummary["stages"] = {
-    new: stageCount(["NEW"]),
-    inProgress: stageCount(["CONTACTED", "HOT"]),
-    awaitingDecision: stageCount(["COLD", "UNRESPONSIVE"]),
-    closed: stageCount(["DEAL_CLOSED", "LOST"]),
-  };
-
-  let freeAgents: ClientsSummary["freeAgents"] = null;
-  if (canAssign) {
-    const [limits, agents] = await Promise.all([
-      loadLeadLimits(),
-      prisma.agent.findMany({
-        where: { role: { in: [...RATED_ROLES] }, isActive: true, frozenAt: null },
-        select: { id: true, fullName: true },
-        orderBy: { fullName: "asc" },
-      }),
-    ]);
-    const loads = await activeLeadCounts(agents.map((a) => a.id));
-    freeAgents = agents
-      // Свободные места — по занятым СЛОТАМ, тем же счётом, каким лимит
-      // проверяется при раздаче: иначе строка «свободны: …» звала бы к агенту,
-      // которому раздача лид всё равно не отдаст (или наоборот молчала бы про
-      // свободного). Округление вниз — «полместа» местом не считается.
-      .map((a) => ({
-        id: a.id,
-        fullName: a.fullName,
-        slotsLeft: Math.floor(limits.activeLimit - slotsTaken(loads.get(a.id), limits)),
-      }))
-      .filter((a) => a.slotsLeft > 0)
-      .sort((a, b) => b.slotsLeft - a.slotsLeft)
-      .slice(0, 3);
-  }
 
   const summary: ClientsSummary = {
     buyers,
     sellers,
     mine,
     other,
-    lost,
     newToday,
     newYesterday,
     awaitingAgent: {
@@ -264,10 +171,6 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     },
     noContactOverDay,
     showings: { today: showToday, tomorrow: showTomorrow },
-    freeAgents,
-    stages,
-    inactive,
-    deferred,
     trashedMine,
   };
   res.json(summary);

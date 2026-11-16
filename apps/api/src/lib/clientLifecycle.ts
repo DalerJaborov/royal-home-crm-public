@@ -12,8 +12,7 @@ import { prisma } from "../db.js";
 import { decideReturningClient, preferredReturningOwnerId } from "./returningClientRouting.js";
 import { logSystemError } from "./systemError.js";
 import { logTimeline } from "./timeline.js";
-import { changeClientAgent, type ChangeClientAgentResult, type Tx } from "./changeClientAgent.js";
-import { closeOwnershipSatellites } from "./ownershipSatellites.js";
+import { changeClientAgent } from "./changeClientAgent.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { sendPushToAgent } from "../push.js";
 import { returnAcceptDueFromNow } from "./workingDue.js";
@@ -244,75 +243,6 @@ export async function reactivateClientFromLost(
   }
 }
 
-export interface MarkClientLostInput {
-  clientId: string;
-  /** Человекочитаемая причина — идёт в Interaction и AuditLog. */
-  reason: string;
-  /** Кто перевёл клиента в Потерянные; null/не передан — автоматика. */
-  actorId?: string | null;
-  /** Короткий тег механизма: lost.promote / lost.refuse / lost.transfer. */
-  source: string;
-  guardWhere?: Record<string, unknown>;
-  tx?: Tx;
-}
-
-/**
- * Единый переход в LOST (аудит владения 11.09.2026, дыра №2: три места —
- * светофор неактивных, отказ с исчерпанным лимитом передач, передача с
- * исчерпанным лимитом — по-разному решали, что делать с `assignedAgentId`).
- *
- * РЕШЕНИЕ ВЛАДЕЛЬЦА (11.09.2026): LOST не занимает слот в портфеле
- * (`lib/leadLimits.ts::TERMINAL_STATUSES`), поэтому агент клиента НЕ теряет —
- * `assignedAgentId` сохраняется как есть. `lastAgentId` при этом всё равно
- * проставляется в того же агента: так формы возврата (реактивация,
- * `lostReturnAcceptMinutes`) читают одно и то же поле независимо от того,
- * менялся ли `assignedAgentId` фактически.
- */
-export async function markClientLost(input: MarkClientLostInput): Promise<ChangeClientAgentResult> {
-  const run = async (tx: Tx) => {
-    const before = await tx.client.findUnique({
-      where: { id: input.clientId },
-      select: { id: true, assignedAgentId: true },
-    });
-    if (!before) return { ok: false as const };
-
-    // skipSatellites: true — агент здесь НЕ меняется (toAgentId === прежний
-    // assignedAgentId), поэтому автоматический вызов closeOwnershipSatellites
-    // внутри changeClientAgent молчит (fromAgentId === toAgentId, гасить
-    // требования/заявку/задачи некому и незачем). Но пуш «новый лид», строка в
-    // колокольчике и живое обновление экрана всё равно устарели — клиент ушёл
-    // в LOST, предложение принять его больше не актуально. Гасим их ниже сами
-    // (см. Пачка 15, п.2 задания: «markClientLost — гасить push и уведомления
-    // «лид», публиковать live»), уже ПОСЛЕ коммита этой транзакции.
-    return changeClientAgent({
-      clientId: input.clientId,
-      toAgentId: before.assignedAgentId,
-      reason: input.reason,
-      actorId: input.actorId ?? null,
-      source: input.source,
-      guardWhere: input.guardWhere,
-      setLastAgentId: false,
-      skipSatellites: true,
-      data: {
-        status: "LOST",
-        lostAt: new Date(),
-        ...(before.assignedAgentId ? { lastAgentId: before.assignedAgentId } : {}),
-      },
-      tx,
-    });
-  };
-
-  const result = input.tx ? await run(input.tx) : await prisma.$transaction(run);
-
-  if (result.ok && result.client?.assignedAgentId) {
-    await closeOwnershipSatellites({
-      clientId: input.clientId,
-      clientShortId: result.client.shortId ?? null,
-      fromAgentId: result.client.assignedAgentId,
-      toAgentId: result.client.assignedAgentId,
-      reason: `[${input.source}] ${input.reason}`,
-    });
-  }
-
-  return result;
-}
+// markClientLost (единый переход в LOST) удалён 16.11.2026: состояния «Потерянный»
+// больше нет (владелец: «ничего лишнего»). Конец работы с клиентом — Корзина
+// (lib/trashClient.ts), её делает человек.
