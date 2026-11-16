@@ -1,7 +1,7 @@
 import type { CustomerAgentSayDropReason } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { guardFired } from "../ai/guardMetrics.js";
-import type { CustomerCoreSay } from "../ai/customerAgentCore.js";
+import type { CustomerCoreSay, CustomerCoreAnswer } from "../ai/customerAgentCore.js";
 import { dushanbeDateString } from "./dushanbeTime.js";
 import { logSystemError } from "./systemError.js";
 
@@ -73,3 +73,12 @@ export function recordCustomerAgentSay(say: CustomerCoreSay | undefined, now: nu
 }
 /** Test hook: the throttle is process state. */
 export function resetCustomerAgentSayThrottle(): void { lastCheckAt = 0; }
+
+/**
+ * Counters of the model's whole reply (one-brain step 1, 16.11.2026): `answer_used`, `answer_dropped_<reason>`, on the same «Обучение бота» screen.
+ * `answer_dropped_shadow` is a VERIFIED reply that the shadow mode did not send: the share the owner reads before saying «да» to live.
+ */
+export function recordCustomerAgentAnswer(answer: CustomerCoreAnswer | undefined): void {
+  if (!answer || answer.status === "absent") return;
+  guardFired(answer.status === "used" ? "answer_used" : `answer_dropped_${answer.reason}`);
+}

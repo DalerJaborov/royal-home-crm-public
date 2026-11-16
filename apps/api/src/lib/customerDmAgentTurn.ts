@@ -4,7 +4,7 @@ import { loadDeferredCustomerInput } from "./customerDeferredInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn, safeCauseCode } from "../ai/customerAgentCore.js";
 import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
-import { recordCustomerAgentSay } from "./customerAgentSayStats.js";
+import { recordCustomerAgentSay, recordCustomerAgentAnswer } from "./customerAgentSayStats.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
 import { customerSearchContinuation, customerSearchIntent, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
@@ -469,7 +469,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       observeLateToolResult: () => {},
     });
     traceCustomerCoreResult(result);
-    if (result.status === "ready") recordCustomerAgentSay(result.say);
+    if (result.status === "ready") { recordCustomerAgentSay(result.say); recordCustomerAgentAnswer(result.answer); }
     // Count a spam turn (a foreign reel / like-exchange words with nothing asked) toward the mute. Never allowed to break the turn.
     if ((result.status === "ready" || result.status === "held" && result.reason === "foreign_share_no_reply") &&
         customerSpamTurn({ inputText: fullInput(), attachmentInput })) {

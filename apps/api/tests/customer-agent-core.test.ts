@@ -869,26 +869,29 @@ describe("grounded free phrase (say): lifted before the strict parse, shadow by 
     await runCustomerAgentTurn(without.frame, without.ports);
     expect(modelText(without)).toContain('"replyLanguage":"ru"');
   });
-  it("sends the say rules to the model in the private-message context only, and not in the pinned system prompt", async () => {
+  it("sends the model-text rules in the private-message context only (since 16.11 the whole-answer rules), never in the pinned system prompt", async () => {
     const dm = fixture({ verifiedContext: { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
     await runCustomerAgentTurn(dm.frame, dm.ports);
-    expect(modelText(dm)).toContain("sayGuidance");
+    expect(modelText(dm)).toContain("answerGuidance");
     const noContext = fixture();
     await runCustomerAgentTurn(noContext.frame, noContext.ports);
-    expect(modelText(noContext)).toContain("sayGuidance");
+    expect(modelText(noContext)).toContain("answerGuidance");
     const publicTurn = fixture({ surface: "public_comment", verifiedContext: { surface: "public_comment", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
     await runCustomerAgentTurn(publicTurn.frame, publicTurn.ports);
+    expect(modelText(publicTurn)).not.toContain("answerGuidance");
     expect(modelText(publicTurn)).not.toContain("sayGuidance");
   });
-  it("does not ask for a say phrase while its reply language is switched off: Tajik gets no sayGuidance, Russian does", async () => {
+  it("one-brain step 1: Russian and Tajik both get the whole-answer rules; the old say rules are no longer sent", async () => {
     const dmContext = { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } as const;
     const tajik = fixture({ language: "tg", verifiedContext: dmContext });
     await runCustomerAgentTurn(tajik.frame, tajik.ports);
     expect(modelText(tajik)).toContain('"replyLanguage":"tg"');
+    expect(modelText(tajik)).toContain("answerGuidance");
     expect(modelText(tajik)).not.toContain("sayGuidance");
     const russian = fixture({ language: "ru", verifiedContext: dmContext });
     await runCustomerAgentTurn(russian.frame, russian.ports);
-    expect(modelText(russian)).toContain("sayGuidance");
+    expect(modelText(russian)).toContain("answerGuidance");
+    expect(modelText(russian)).not.toContain("sayGuidance");
   });
   it("delivery sealing re-renders the identical text from the stored decision (the print matches)", async () => {
     const { renderCustomerAgentDecision } = await import("../src/ai/customerAgentRenderer.js");

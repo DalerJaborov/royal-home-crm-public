@@ -14,6 +14,7 @@ import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines, custom
 import { recruitmentPhoneLine, retiredRecruitmentPhoneLines } from "@royal-home/shared";
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
+import { validateCustomerAgentAnswer, type CustomerAgentAnswerVerdict } from "./customerAgentAnswer.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
@@ -1068,7 +1069,8 @@ function avoidRepeatedReply(text: string, input: RepeatInput): string {
   return text;
 }
 
-export function renderCustomerAgentDecision(input: Parameters<typeof renderDecisionCore>[0]): string | null {
+/** The server's own (template) reply; `plain` = the ordinary path, no special answer and no repeat/ack guard rewrote it. */
+function renderTemplateDecision(input: Parameters<typeof renderDecisionCore>[0]): { text: string | null; plain: boolean } {
   const d = input.decision;
   // A forwarded publication that is not ours, with nothing asked (nothing, a heart, like-exchange words): one short line, no fact.
   // Not in a job dialogue: a candidate's forwarded post is their material (the core now renders with the attachment too, review #206 В4).
@@ -1076,19 +1078,19 @@ export function renderCustomerAgentDecision(input: Parameters<typeof renderDecis
       customerAgentShareNotice(input.attachmentInput, input.language) !== null &&
       customerDmForeignShareNoise(input.inputText ?? "") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
     const line = customerAgentShareNotice(input.attachmentInput, input.language)!;
-    return line.length <= input.maxOutputChars ? line : null;
+    return { text: line.length <= input.maxOutputChars ? line : null, plain: false };
   }
   const said = (line: string) => lineSentBefore(input.verifiedContext, line);
   if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
     const abuse = customerDmAbuseKind(input.inputText ?? "");
     if (abuse) {
       const reply = customerDmAbuseReply(abuse, input.language);
-      return reply.length <= input.maxOutputChars ? reply : null;
+      return { text: reply.length <= input.maxOutputChars ? reply : null, plain: false };
     }
     // Somebody offers US a partnership: management decides, a person is told (15.11.2026, live: a design studio got "Спасибо!").
-    if (customerPartnershipOffer(input.inputText ?? "")) return customerPartnershipReply(input.language, input.knownPhoneSource, followUpMemory(input)).join("\n");
+    if (customerPartnershipOffer(input.inputText ?? "")) return { text: customerPartnershipReply(input.language, input.knownPhoneSource, followUpMemory(input)).join("\n"), plain: false };
     // A bare "thank you" is answered "you are welcome", never "if my question above was unclear" (15.11.2026, live).
-    if (customerThanksOnly(input.inputText ?? "")) return customerThanksReply(input.language, said);
+    if (customerThanksOnly(input.inputText ?? "")) return { text: customerThanksReply(input.language, said), plain: false };
   }
   const text = renderDecisionCore(input);
   // A barter question ("Мошин ҳам қабул мекунед?") is answered by the agent: what else is known stays, the hand-off
@@ -1097,11 +1099,43 @@ export function renderCustomerAgentDecision(input: Parameters<typeof renderDecis
     const questionLines = questionLineSet(), notices = noticeLineSet();
     const kept = text ? splitLines(avoidRepeatedReply(text, input)).filter(line => !questionLines.has(line) && !notices.has(line)) : [];
     const result = [...kept, customerStaffFollowUpLine(input.language, input.knownPhoneSource, followUpMemory(input))].join("\n");
-    return result.length <= input.maxOutputChars ? result : null;
+    return { text: result.length <= input.maxOutputChars ? result : null, plain: false };
   }
-  if (!text) return text;
-  const reply = avoidRepeatedReply(text, input);
-  return acknowledgementOnlyGuard(reply, input);
+  if (!text) return { text, plain: false };
+  const guarded = acknowledgementOnlyGuard(avoidRepeatedReply(text, input), input);
+  return { text: guarded, plain: guarded === text };
+}
+
+type RenderInput = Parameters<typeof renderDecisionCore>[0];
+const answerOf = (d: CustomerAgentDecision) => d.kind === "reply" || d.kind === "clarify" || d.kind === "propose" ? d.answer : undefined;
+const withoutAnswer = (d: CustomerAgentDecision): CustomerAgentDecision => {
+  if (!("answer" in d)) return d;
+  const { answer: _answer, ...rest } = d as CustomerAgentDecision & { answer?: string };
+  return rest as CustomerAgentDecision;
+};
+
+/**
+ * The model's whole reply against the server's template for the SAME decision and evidence (one-brain step 1, customerAgentAnswer.ts).
+ * null when the decision carries no answer. Pure: the core, this renderer and the delivery seal reach the same verdict from the same inputs.
+ * Only the ordinary path is eligible: abuse, partnership, thanks, trade-in, foreign shares and any repeat/ack guard rewrite keep the template.
+ */
+export function customerAgentAnswerVerdict(input: RenderInput, template = renderTemplateDecision({ ...input, decision: withoutAnswer(input.decision) })): CustomerAgentAnswerVerdict | null {
+  const d = input.decision, answer = answerOf(d);
+  if (answer === undefined) return null;
+  if (input.surface !== "dm") return { ok: false, reason: "surface_disabled" };
+  if (!template.plain || !template.text) return { ok: false, reason: "not_eligible" };
+  const refs = new Set(d.kind === "propose" ? [d.ref] : d.kind === "reply" || d.kind === "clarify" ? d.refs : []);
+  return validateCustomerAgentAnswer({ answer, template: template.text, language: input.language, surface: input.surface, inputText: input.inputText,
+    evidence: input.evidence.map(item => item.value), maxOutputChars: input.maxOutputChars,
+    selectedReceipts: input.evidence.filter(item => refs.has(item.ref) && item.value.kind === "receipt").map(item => String((item.value as { outcome?: unknown }).outcome)),
+    priorAssistantTurns: (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text),
+    attachment: d.kind === "reply" && d.attachment !== undefined });
+}
+
+export function renderCustomerAgentDecision(input: RenderInput): string | null {
+  const template = renderTemplateDecision({ ...input, decision: withoutAnswer(input.decision) });
+  const verdict = customerAgentAnswerVerdict(input, template);
+  return verdict?.ok ? verdict.text : template.text;
 }
 
 /**

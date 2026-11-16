@@ -208,3 +208,17 @@ export function validateCustomerAgentSayForDecision(input: {
     priorAssistantTurns: (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text),
     enabledLanguages: input.enabledLanguages });
 }
+
+/**
+ * One lexicon for both model-text channels. The whole-reply verifier (customerAgentAnswer.ts) reads the SAME patterns as `say`,
+ * so a promise, cliché or greeting rule can never differ between the two (owner rule «одна дверь»). Match against `foldSayText`.
+ */
+export const SAY_LEXICON = Object.freeze({ META, CALL_PROMISE, SAVE_PROMISE, ALWAYS_PROMISE, CLICHE, GREETING, KNOWN_PLACES });
+/** Lower-cased Tajik/Russian fold that every SAY_LEXICON pattern expects. */
+export const foldSayText = fold;
+export const sayWordStem = stem;
+export const sayTokens = tokens;
+export const sayComparable = comparable;
+export const sayEchoes = echoes;
+/** Folds the Tajik letters of a regex SOURCE (no lower-casing, so `\p{L}` survives): patterns and text fold the same way. */
+export const foldSayPattern = foldSource;

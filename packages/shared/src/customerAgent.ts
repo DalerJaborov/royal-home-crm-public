@@ -34,18 +34,26 @@ export const customerAgentSayDropReasonSchema = z.enum(["surface_disabled", "lan
   "fact_claim", "place", "meta", "cliche", "language", "echo", "repeat", "double_greet", "shadow"]);
 export type CustomerAgentSayDropReason = z.infer<typeof customerAgentSayDropReasonSchema>;
 export const customerAgentSayStatusSchema = z.enum(["absent", "used", "dropped"]);
+/** The whole customer reply in the model's own words (one-brain step 1, 16.11.2026). Lifted before the strict parse like `say`,
+ * re-attached only after the server verifier (apps/api/src/ai/customerAgentAnswer.ts) accepted it in live mode; otherwise the template goes out. */
+export const customerAgentAnswerTextSchema = z.string().min(2).max(1200);
+const answer = customerAgentAnswerTextSchema.optional();
+/** Why the model's whole reply did not reach the customer. `shadow`: verified, but the mode only counts it. */
+export const customerAgentAnswerDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "not_eligible", "template_payload", "length", "wooden", "rude",
+  "meta", "cliche", "question", "phone_ask", "promise", "claim", "number", "currency", "missing_fact", "place", "language", "repeat", "echo", "double_greet", "shadow"]);
+export type CustomerAgentAnswerDropReason = z.infer<typeof customerAgentAnswerDropReasonSchema>;
 export const customerAgentSayModeSchema = z.enum(["shadow", "live"]);
 export type CustomerAgentSayMode = z.infer<typeof customerAgentSayModeSchema>;
 const reply = z.object({
   kind: z.literal("reply"), refs, social: customerAgentSocialActSchema,
-  question: customerAgentQuestionSchema, say,
+  question: customerAgentQuestionSchema, say, answer,
   /** A suggestion to the server planner; never a URL, asset ID or send receipt. */
   attachment: z.literal("buyer_guide").optional(),
 }).strict();
 export const customerAgentDecisionSchema = z.discriminatedUnion("kind", [
   reply,
-  z.object({ kind: z.literal("clarify"), refs, question: customerAgentQuestionSchema.exclude(["none"]), social: customerAgentSocialActSchema, say }).strict(),
-  z.object({ kind: z.literal("propose"), ref: evidenceRef, social: customerAgentSocialActSchema, say }).strict(),
+  z.object({ kind: z.literal("clarify"), refs, question: customerAgentQuestionSchema.exclude(["none"]), social: customerAgentSocialActSchema, say, answer }).strict(),
+  z.object({ kind: z.literal("propose"), ref: evidenceRef, social: customerAgentSocialActSchema, say, answer }).strict(),
   z.object({ kind: z.literal("skip"), reason: z.enum(["no_reply_needed", "duplicate", "unsupported"]) }).strict(),
   z.object({ kind: z.literal("escalate"), reason: z.enum(["needs_staff", "complaint", "unsupported"]) }).strict(),
   z.object({ kind: z.literal("moderation_proposal"), action: z.enum(["hide", "delete"]), reason: z.enum(["spam", "abuse"]) }).strict(),

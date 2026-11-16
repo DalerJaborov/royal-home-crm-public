@@ -1,4 +1,4 @@
-import type { CustomerAgentSayDropReason } from "@royal-home/shared";
+import type { CustomerAgentSayDropReason, CustomerAgentAnswerDropReason } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { traceGuardHit } from "../lib/botTurnTrace.js";
 import { dushanbeDateString, dushanbeWallClock } from "../lib/dushanbeTime.js";
@@ -125,7 +125,13 @@ export type GuardName =
    * `say_dropped_shadow` — фраза прошла проверку, но режим «тень» её не отправил (считаем, как часто она была бы годной).
    */
   | "say_used"
-  | `say_dropped_${CustomerAgentSayDropReason}`;
+  | `say_dropped_${CustomerAgentSayDropReason}`
+  /*
+   * ВЕСЬ ОТВЕТ СЛОВАМИ МОДЕЛИ (`answer`, 16.11.2026, ai/customerAgentAnswer.ts): сервер сверил текст модели со своим шаблоном и фактами
+   * хода; принят целиком или отброшен целиком (тогда ушёл шаблон). `answer_dropped_shadow` — текст годный, но режим «тень» его не отправил.
+   */
+  | "answer_used"
+  | `answer_dropped_${CustomerAgentAnswerDropReason}`;
 
 /**
  * ПОДПИСИ ДЛЯ ЭКРАНА «ОБУЧЕНИЕ БОТА» — по-русски и в одном месте.
@@ -184,6 +190,29 @@ export const GUARD_LABELS: Record<GuardName, string> = {
   say_dropped_repeat: "Живая фраза отброшена: повтор прежней реплики бота",
   say_dropped_double_greet: "Живая фраза отброшена: второе приветствие",
   say_dropped_shadow: "Живая фраза годная, но режим «тень» её не отправил",
+  answer_used: "Ответ своими словами модели ушёл клиенту",
+  answer_dropped_surface_disabled: "Ответ модели не отправлен: не личные сообщения",
+  answer_dropped_language_disabled: "Ответ модели не отправлен: язык не включён",
+  answer_dropped_not_eligible: "Ответ модели не отправлен: особый случай, ушёл шаблон",
+  answer_dropped_template_payload: "Ответ модели не отправлен: в шаблоне ссылка или файл",
+  answer_dropped_length: "Ответ модели не отправлен: слишком длинный или пустой",
+  answer_dropped_wooden: "Ответ модели не отправлен: «писал выше», квитанция или книжные слова",
+  answer_dropped_rude: "Ответ модели не отправлен: на «ты»",
+  answer_dropped_meta: "Ответ модели не отправлен: служебные слова (бот, ИИ, CRM)",
+  answer_dropped_cliche: "Ответ модели не отправлен: ИИ-штамп",
+  answer_dropped_question: "Ответ модели не отправлен: не тот вопрос или больше одного",
+  answer_dropped_phone_ask: "Ответ модели не отправлен: лишняя просьба номера",
+  answer_dropped_promise: "Ответ модели не отправлен: обещание без подтверждения",
+  answer_dropped_claim: "Ответ модели не отправлен: условие или факт, которого нет в проверенном ответе",
+  answer_dropped_number: "Ответ модели не отправлен: число не из фактов",
+  answer_dropped_currency: "Ответ модели не отправлен: цена в другой валюте",
+  answer_dropped_missing_fact: "Ответ модели не отправлен: потерял цену, телефон, номер объекта или адрес",
+  answer_dropped_place: "Ответ модели не отправлен: место или имя не из фактов",
+  answer_dropped_language: "Ответ модели не отправлен: не тот язык или смесь",
+  answer_dropped_repeat: "Ответ модели не отправлен: повтор прежнего ответа",
+  answer_dropped_echo: "Ответ модели не отправлен: пересказ слов клиента",
+  answer_dropped_double_greet: "Ответ модели не отправлен: второе приветствие",
+  answer_dropped_shadow: "Ответ модели годный, но режим «тень» его не отправил",
 };
 
 export function guardFired(name: GuardName, times = 1): void {

@@ -1,10 +1,10 @@
 import { repairCustomerAgentDecision } from "./customerAgentDecisionRepair.js";
 import { customerAgentApprovedFileStateSchema, customerAgentDecisionSchema, customerAgentRevisionSchema, customerAgentToolCallSchema, customerAgentVerifiedContextSchema, customerAgentPublicationObservationSchema,
-  customerPropertyFactsSchema, customerPropertyFactKindSchema, type CustomerAgentDecision, type CustomerAgentSayDropReason, type CustomerAgentSayMode, type CustomerAgentRevision, type CustomerAgentSurface,
+  customerPropertyFactsSchema, customerPropertyFactKindSchema, type CustomerAgentDecision, type CustomerAgentSayDropReason, type CustomerAgentAnswerDropReason, type CustomerAgentSayMode, type CustomerAgentRevision, type CustomerAgentSurface,
   type CustomerAgentToolCall, type CustomerAgentVerifiedContext, type CustomerPropertyFactKind, type CustomerAgentApprovedFileState } from "@royal-home/shared";
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import type { ProviderOperation } from "./providerContract.js";
-import { renderCustomerAgentDecision, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
+import { renderCustomerAgentDecision, customerAgentAnswerVerdict, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, isCustomerCompanyInformation } from "./customerAgentPublicProtocol.js";
 import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
@@ -16,6 +16,7 @@ import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitme
 import { customerPropertyUrl } from "../lib/customerPropertyUrls.js";
 import { guardSellerDecision } from "./customerAgentSellerGuard.js";
 import { validateCustomerAgentSayForDecision, CUSTOMER_AGENT_SAY_GUIDANCE, SAY_ENABLED_LANGUAGES } from "./customerAgentSay.js";
+import { CUSTOMER_AGENT_ANSWER_GUIDANCE, ANSWER_ENABLED_LANGUAGES } from "./customerAgentAnswer.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 
@@ -69,9 +70,12 @@ export interface CustomerCorePorts {
 }
 /** What became of the model's free phrase. The text is never part of this: only the verdict reaches the trace and the counters. */
 export type CustomerCoreSay = { status: "absent" } | { status: "used" } | { status: "dropped"; reason: CustomerAgentSayDropReason };
+export type CustomerCoreAnswer = { status: "absent" } | { status: "used" } | { status: "dropped"; reason: CustomerAgentAnswerDropReason };
 export type CustomerCoreResult =
   | { status: "ready"; decision: CustomerAgentDecision; question: CustomerAgentRenderedQuestion; text: string; evidence: readonly CustomerAgentEvidence[]; rounds: number; toolCalls: number;
       say?: CustomerCoreSay;
+      /** What became of the model's whole reply (`answer`); never the text itself. */
+      answer?: CustomerCoreAnswer;
       /** Server-built answer instead of the model's: verified public refs after a malformed public final, or the committed receipt(s). */
       fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string }
   | { status: "held"; reason: string; evidence: readonly CustomerAgentEvidence[]; unknownToolCalls: readonly CustomerUnknownToolCall[]; rounds: number; toolCalls: number;
@@ -86,12 +90,16 @@ function clone<T>(value: T): T { return structuredClone(value); }
 /** Per-turn server facts about the surface. The `say` rules ride here (private messages only), not in the pinned system prompt: see CUSTOMER_AGENT_SAY_GUIDANCE.
  *  They are left out while the reply language is switched off for `say` (Tajik in v1): the validator would drop the phrase anyway, so asking for it only spends output tokens. */
 function surfaceBlock(surface: CustomerAgentSurface, replyLanguage: "ru" | "tg") {
-  return { surface, replyLanguage, ...(surface === "dm" && SAY_ENABLED_LANGUAGES.includes(replyLanguage) ? { sayGuidance: CUSTOMER_AGENT_SAY_GUIDANCE } : {}) };
+  // One-brain step 1 (16.11.2026): in private messages the model is asked for the WHOLE reply (`answer`, Russian and Tajik); the old
+  // one-or-two-phrase `say` rules are no longer sent (the validator still judges a `say` the model sends on its own).
+  return { surface, replyLanguage, ...(surface === "dm" && ANSWER_ENABLED_LANGUAGES.includes(replyLanguage) ? { answerGuidance: CUSTOMER_AGENT_ANSWER_GUIDANCE }
+    : surface === "dm" && SAY_ENABLED_LANGUAGES.includes(replyLanguage) ? { sayGuidance: CUSTOMER_AGENT_SAY_GUIDANCE } : {}) };
 }
-function liftSay(raw: unknown): { say: unknown; rest: unknown } {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw) || !("say" in raw)) return { say: undefined, rest: raw };
-  const { say, ...rest } = raw;
-  return { say, rest };
+/** Splits the model's own words (`say`, `answer`) off a raw decision object BEFORE the strict parse: bad words never void a valid decision. */
+function liftSay(raw: unknown): { say: unknown; answer: unknown; rest: unknown } {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw) || !("say" in raw || "answer" in raw)) return { say: undefined, answer: undefined, rest: raw };
+  const { say, answer, ...rest } = raw as Record<string, unknown>;
+  return { say, answer, rest };
 }
 /** Diagnostic code for a swallowed exception: our own snake_case reason codes (`turn_deadline`, `tool_limit`, ...) or the
  * error class name. Free-form provider/DB text and data never pass through. */
@@ -330,12 +338,13 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     if (result.status === "unknown") throw new Error("effect_unknown");
     return projected;
   };
-  const renderDecision = (decision: CustomerAgentDecision) => renderCustomerAgentDecision({ decision, evidence, inputText: frame.inputText,
+  const renderInput = (decision: CustomerAgentDecision) => ({ decision, evidence, inputText: frame.inputText,
     language: frame.language, requestedFacts: frame.requestedFacts, knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars,
     surface: frame.surface, knowledgeSourceHash: revision.knowledgeSourceHash, verifiedContext: context ?? undefined,
     // The same inputs as the delivery seal renders with (review #206 В4): an attachment changes the opening question.
     attachmentInput: frame.attachmentInput, mediaPerception: perception, approvedFileState });
-  const ready = async (d: CustomerAgentDecision, text: string, extra: { fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string; say?: CustomerCoreSay } = {}): Promise<CustomerCoreResult> => {
+  const renderDecision = (decision: CustomerAgentDecision) => renderCustomerAgentDecision(renderInput(decision));
+  const ready = async (d: CustomerAgentDecision, text: string, extra: { fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string; say?: CustomerCoreSay; answer?: CustomerCoreAnswer } = {}): Promise<CustomerCoreResult> => {
     await check();
     // decision is a validated MODEL suggestion, not canonical state. Expose
     // the effective rendered question separately, so a removed phone ask
@@ -532,7 +541,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       let raw: unknown, notJson = false;
       try { raw = JSON.parse(turn.text); } catch { notJson = true; /* Strict parse below also rejects prose/fences. */ }
       // The free phrase leaves the raw JSON BEFORE the strict parse: a bad `say` must never void an otherwise valid decision (or cost a correction round).
-      const { say: modelSay, rest: decisionJson } = liftSay(raw);
+      const { say: modelSay, answer: modelAnswer, rest: decisionJson } = liftSay(raw);
       let parsed = customerAgentDecisionSchema.safeParse(decisionJson);
       let fallbackReason: "invalid_model_decision" | undefined, fallbackCause: string | undefined;
       if (!parsed.success && !notJson && !canCorrect()) {
@@ -618,11 +627,22 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         else if ((frame.sayMode ?? "shadow") !== "live") say = { status: "dropped", reason: "shadow" };
         else { say = { status: "used" }; planned = { ...d, say: verdict.text }; }
       }
+      // The whole reply in the model's own words (one-brain step 1): verified against the template of the SAME decision and evidence,
+      // all or nothing. Shadow (the default) only counts the verdict; live attaches the verified text, which the renderer and the
+      // delivery seal re-verify from the same inputs. A dropped answer never changes the decision or costs a round: the template goes out.
+      let answer: CustomerCoreAnswer = { status: "absent" };
+      if (modelAnswer !== undefined && (planned.kind === "reply" || planned.kind === "clarify" || planned.kind === "propose")) {
+        const candidate = { ...planned, answer: typeof modelAnswer === "string" ? modelAnswer : "" } as CustomerAgentDecision;
+        const verdict = customerAgentAnswerVerdict(renderInput(candidate));
+        if (!verdict || !verdict.ok) answer = { status: "dropped", reason: verdict?.reason ?? "not_eligible" };
+        else if ((frame.sayMode ?? "shadow") !== "live") answer = { status: "dropped", reason: "shadow" };
+        else { answer = { status: "used" }; planned = { ...candidate, answer: verdict.text } as CustomerAgentDecision; }
+      }
       const text = renderDecision(planned);
       if (text === null) return await confirmCommitted("unsupported_decision_evidence");
       // Seller guard repairs win over shape repairs; trace cause codes must not contain ":" (botTurnTrace drops them).
       const cause = sellerRepair ? sellerRepair.cause.replace(/:/g, "_") : fallbackCause;
-      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), ...(cause ? { fallbackCause: cause } : {}), say });
+      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), ...(cause ? { fallbackCause: cause } : {}), say, answer });
     }
     return await confirmCommitted("round_limit");
   } catch (error) {
