@@ -19,7 +19,7 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => {
 });
 
 import { isOwnButtonCardPayload, parseIncoming, templateAttachmentText } from "../src/messengers/meta.js";
-import { extractPhoneOccurrences } from "../src/ai/leadQualifier.js";
+import { extractPhoneOccurrences } from "../src/lib/shared/phoneText.js";
 import { stripRepeatedMediaApology, alreadyApologizedForMedia } from "../src/ai/mediaApology.js";
 import {
   clientSharedPostCodes,

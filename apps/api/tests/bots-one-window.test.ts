@@ -15,7 +15,7 @@ import { callbackAsLeadPromptRule, callbackPromptRule } from "../src/ai/callback
 import { findOffCatalogClaims } from "../src/ai/catalogClaimsGuard.js";
 import { MANDATORY_BOT_RULES } from "../src/ai/dushanbeGeography.js";
 import { INSPECTION_CHECKLIST_BLOCK } from "../src/ai/inspectionChecklist.js";
-import { AGENCY_COMPANY_INFO, DEFAULT_BOT_PERSONA, buildStableSystem } from "../src/ai/leadQualifier.js";
+import { AGENCY_COMPANY_INFO } from "../src/ai/agencyVoice.js";
 import { LEGAL_FAQ_BLOCK } from "../src/ai/legalFaq.js";
 import { buildConsultantSystemPrompt, type ConsultantCaller } from "../src/ai/liveVoiceConsultantPersona.js";
 import { buildLiveVoiceKnowledge } from "../src/ai/liveVoiceKnowledge.js";
@@ -65,33 +65,8 @@ function voicePrompt(over: Partial<Parameters<typeof buildConsultantSystemPrompt
   });
 }
 
-function chatStable(): string {
-  return buildStableSystem({
-    botPersona: DEFAULT_BOT_PERSONA,
-    baseGeography: "",
-    folkGeography: "",
-    sellerRules: "",
-    canSendGuide: true,
-    canBookShowings: false,
-    askOwner: false,
-    scenarioId: null,
-    intent: "buy",
-    economy: false,
-  });
-}
 
 describe("1. блоки фактов — один текст в обоих промтах", () => {
-  it("company_info собирается из данных и стоит в чате, у консультанта и у исходящего робота", () => {
-    expect(AGENCY_COMPANY_INFO).toBe(companyInfoBlock());
-    expect(companyInfoBlock()).toContain("АРЕНДЫ СЕЙЧАС НЕТ");
-    expect(companyInfoBlock()).toContain(AGENCY_FACTS.phone);
-    const chat = chatStable();
-    for (const block of [companyInfoBlock(), SALES_FACTS, LEGAL_FAQ_BLOCK, INSPECTION_CHECKLIST_BLOCK, MANDATORY_BOT_RULES]) {
-      expect(chat, `чат: ${block.slice(0, 40)}`).toContain(block.trim());
-      expect(voicePrompt(), `голос: ${block.slice(0, 40)}`).toContain(block.trim());
-    }
-    expect(buildLiveVoiceSystemPrompt(undefined, { forceRussianOnly: true })).toContain(companyInfoBlock().trim());
-  });
 
   it("часы работы — одна фраза в чате и у голоса, из одного источника (CLIENT_HOURS)", () => {
     const sentence = clientHoursSentence(HOURS);

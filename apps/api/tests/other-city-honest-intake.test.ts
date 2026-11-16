@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { decideLeadKind, isOtherCityReason } from "../src/ai/leadKind.js";
-import { mergeDraft, SCENARIO_SELL, type LeadDraft, type QualifyResult } from "../src/ai/leadQualifier.js";
+import { mergeDraft } from "../src/ai/leadDraftMerge.js";
+import type { LeadDraft } from "../src/ai/leadDraft.js";
+import type { ChannelTurnResult as QualifyResult } from "../src/ai/channelTurnResult.js";
 import { COMMENT_SCENARIO_RULES } from "../src/messengers/comments.js";
 import { otherCityAcceptedReply, otherInquiryAcceptedReply } from "../src/messengers/conversation.js";
 
@@ -130,11 +132,6 @@ describe("вакансия (intent=job) — вне нового общего п�
 });
 
 describe("промты: одна формулировка на обеих поверхностях (переписка и комментарии)", () => {
-  it("SCENARIO_SELL прямо запрещает обещание звонка и содержит честную фразу", () => {
-    expect(SCENARIO_SELL).toMatch(/ЗАПРЕЩЕНО ЛЮБОЕ ОБЕЩАНИЕ ЗВОНКА/);
-    expect(SCENARIO_SELL).toContain("Записали, спасибо. Пока работаем только по Душанбе");
-    expect(SCENARIO_SELL).toContain("Сабт кардем, раҳмат. Ҳоло танҳо дар Душанбе кор мекунем");
-  });
 
   it("COMMENT_SCENARIO_RULES запрещает то же самое и той же фразой", () => {
     expect(COMMENT_SCENARIO_RULES).toMatch(/ЗАПРЕЩЕНО ЛЮБОЕ ОБЕЩАНИЕ/);

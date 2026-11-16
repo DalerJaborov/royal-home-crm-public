@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone } from "../src/ai/leadQualifier.js";
+import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone } from "../src/lib/shared/phoneText.js";
 import { replyWaitMs } from "../src/messengers/conversation.js";
 
 /**

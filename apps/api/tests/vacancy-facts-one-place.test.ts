@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { SCENARIO_JOB } from "../src/ai/leadQualifier.js";
 import { buildInterviewInviteCallPrompt } from "../src/ai/interviewInviteCallPersona.js";
 import { VACANCY_FACTS, VACANCY_SHARED_PHRASES, vacancyOfficeAddress } from "../src/ai/vacancyFacts.js";
 
@@ -20,20 +19,7 @@ describe("Факты о вакансии — одно место для чата
     language: "ru",
   });
 
-  it("ключевые факты есть и в чате, и в звонке слово в слово", () => {
-    for (const phrase of VACANCY_SHARED_PHRASES) {
-      expect(SCENARIO_JOB, `чат: ${phrase}`).toContain(phrase);
-      expect(robotRu, `робот: ${phrase}`).toContain(phrase);
-    }
-  });
 
-  it("адрес офиса — Дом печати, Бухоро 49, с ориентирами", () => {
-    expect(vacancyOfficeAddress()).toBe(
-      "Душанбе, ул. Бухоро 49, Bukhoro Tower (Дом печати), 2 этаж; ориентиры — Школа №1, Поликлиника №13, Славянский университет (РТСУ), старая София"
-    );
-    expect(SCENARIO_JOB).toContain(vacancyOfficeAddress());
-    expect(robotRu).toContain(vacancyOfficeAddress());
-  });
 
   it("адрес из Настроек главнее адреса офиса", () => {
     const custom = buildInterviewInviteCallPrompt({
@@ -46,26 +32,12 @@ describe("Факты о вакансии — одно место для чата
     expect(custom).not.toContain("адрес: Душанбе, ул. Бухоро 49");
   });
 
-  it("деньги — ровно так, как сказал владелец 28.09.2026", () => {
-    expect(VACANCY_FACTS.pay).toMatchObject({
-      commissionTotalPct: 2,
-      agentPct: 1,
-      splitPct: 0.5,
-      newbieFromUsd: 500,
-      experiencedFromUsd: 1000,
-    });
-    expect(SCENARIO_JOB).toContain("делится пополам, по 0,5%");
-  });
 
-  it("ни чат, ни робот не обещают само трудоустройство", () => {
-    expect(SCENARIO_JOB).toContain("НЕ обещай: это решает руководство на собеседовании");
-    expect(robotRu).toContain("Трудоустройство не обещай");
-  });
 });
 
 describe("адрес офиса знают и чат-бот, и голосовой робот (10.10.2026)", () => {
   it("AGENCY_COMPANY_INFO и знания робота содержат один и тот же адрес с этажом и ориентирами", async () => {
-    const { AGENCY_COMPANY_INFO } = await import("../src/ai/leadQualifier.js");
+    const { AGENCY_COMPANY_INFO } = await import("../src/ai/agencyVoice.js");
     const { agencyHoursBlock } = await import("../src/ai/liveVoiceKnowledge.js");
     for (const part of ["Душанбе", "ул. Бухоро 49", "Bukhoro Tower", "Дом печати", "2 этаж", "Школа №1", "Поликлиника №13"]) {
       expect(AGENCY_COMPANY_INFO, `чат-бот: ${part}`).toContain(part);

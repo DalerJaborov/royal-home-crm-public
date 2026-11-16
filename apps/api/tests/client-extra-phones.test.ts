@@ -5,7 +5,7 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { findClientByPhoneDigits } from "../src/lib/whatsappPhone.js";
 import { findPhoneOwners, findPhoneConflicts } from "../src/lib/clientPhones.js";
-import { extractAllPhones } from "../src/ai/leadQualifier.js";
+import { extractAllPhones } from "../src/lib/shared/phoneText.js";
 import { createLeadFromChannel } from "../src/leads.js";
 
 /**

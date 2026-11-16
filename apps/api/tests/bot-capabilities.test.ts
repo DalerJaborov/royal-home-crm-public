@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { SHOWINGS_DISABLED_RULE } from "../src/messengers/botCapabilities.js";
-import { showingPromptBlock } from "../src/ai/leadQualifier.js";
 
 /**
  * Выключенная способность обязана исчезнуть И ИЗ ДЕЙСТВИЙ, И ИЗ ОБЕЩАНИЙ.
@@ -31,9 +30,4 @@ describe("показы выключены", () => {
 });
 
 describe("показы включены", () => {
-  it("блок назначения на месте — правило остаётся обратимым", () => {
-    const block = showingPromptBlock(new Date("2026-08-01T09:00:00.000Z"));
-    expect(block).toContain("action=book");
-    expect(block).not.toContain("ПОКАЗЫ ТЫ НЕ НАЗНАЧАЕШЬ");
-  });
 });

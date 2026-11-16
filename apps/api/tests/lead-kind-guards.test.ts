@@ -270,7 +270,7 @@ describe("decideLeadKind — тип карточки решает код", () =>
     ).toBe("BUYER");
   });
   it("человек уточнил, что сумма в долларах — улика аренды снимается вместе с новым бюджетом", async () => {
-    const { mergeDraft } = await import("../src/ai/leadQualifier.js");
+    const { mergeDraft } = await import("../src/ai/leadDraftMerge.js");
     const rentish = mergeDraft({ stage: "chatting" }, { reply: [], ready: false, lead: { budgetMax: 4500 } } as never, "аз 3000 то 4500");
     expect(rentish.budgetUnrealistic).toBe(4500);
     const clarified = mergeDraft(rentish, { reply: [], ready: false, lead: { budgetMax: 450_000 } } as never, "ба доллар");

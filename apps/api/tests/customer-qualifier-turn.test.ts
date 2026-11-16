@@ -11,7 +11,7 @@ vi.mock("../src/db.js", async importOriginal => {
     customerPropertyIngressTicket: { findUnique: f.pinRead },
     $disconnect: () => original.prisma.$disconnect() } };
 });
-vi.mock("../src/ai/leadQualifier.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/leadQualifier.js")>()), runQualifyTurn: f.model }));
+vi.mock("../src/ai/customerChannelTurn.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/customerChannelTurn.js")>()), runCustomerChannelTurn: f.model }));
 vi.mock("../src/ai/topicLock.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/topicLock.js")>()), EMPTY_TOPIC_STATE: { topic: null, topicLabel: null, openQuestion: null, offTopicTurns: 0 } }));
 vi.mock("../src/lib/aiDailyBudget.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/aiDailyBudget.js")>()), aiDailyBudgetOf: f.budget, spendAiTurns: f.spend }));
 vi.mock("../src/lib/customerQualifierContext.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/customerQualifierContext.js")>()), refreshCustomerQualifierProjection: f.refresh }));

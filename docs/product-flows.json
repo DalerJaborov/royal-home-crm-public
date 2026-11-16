@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 754,
-  "forks": 4060,
+  "forks": 4064,
   "mounts": 84,
   "cron": 137,
   "jobs": 33,
@@ -87254,14 +87254,6 @@
        ],
        "c": [
         {
-         "k": "do",
-         "t": "const [rulesText, conversations, closedGroupKeys] = await Promise.all([ resolveBotPersona(null).then((persona)",
-         "a": [
-          "зовёт resolveBotPersona()"
-         ],
-         "c": []
-        },
-        {
          "k": "loop",
          "t": "для каждого: const conv of conversations",
          "a": [],
@@ -131866,22 +131858,38 @@
     },
     {
      "k": "do",
-     "t": "const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…",
+     "t": "const result = await runCustomerChannelTurn(history, draft, { channel: \"TELEGRAM\", conversationId: conversati…",
      "a": [
-      "зовёт runLegacyQualifyTurn()"
+      "зовёт runCustomerChannelTurn()"
      ],
      "c": [
       {
        "k": "do",
-       "t": "const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);",
+       "t": "const brandName = await accountBrandName(options.accountId ?? null);",
+       "a": [
+        "зовёт accountBrandName()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const key = customerAgentLegacyChannelKey(channel, brandName);",
        "a": [
         "зовёт customerAgentLegacyChannelKey()"
        ],
        "c": []
       },
       {
+       "k": "do",
+       "t": "const mode = key ? customerAgentChannelMode(key) : \"legacy\";",
+       "a": [
+        "зовёт customerAgentChannelMode()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
-       "t": "key && customerAgentChannelMode(key) === \"core\"",
+       "t": "key && mode === \"core\"",
        "a": [],
        "c": [
         {
@@ -131898,16 +131906,69 @@
            "c": []
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "const outcome = await runChannelCoreTurn({ channel, channelKey: key, accountId: options.accountId ?? null, tr…",
+         "a": [
+          "зовёт runChannelCoreTurn()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "outcome.status === \"unavailable\" || outcome.status === \"moderate\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "outcome.status === \"staff\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await alertChannelStaff({ channel, conversationId: options.conversationId ?? null, text: ownTexts.at(-1) ?? \"…",
+           "a": [
+            "зовёт alertChannelStaff()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return channelCoreQualifyResult(outcome, ownTexts);",
+         "a": [
+          "зовёт channelCoreQualifyResult()"
+         ],
+         "c": []
         }
        ]
       },
       {
-       "k": "do",
-       "t": "const result = await runQualifyTurn(history, draft, options);",
-       "a": [
-        "зовёт runQualifyTurn()"
-       ],
-       "c": []
+       "k": "if",
+       "t": "source.repeat === \"regeneration\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
       },
       {
        "k": "if",
@@ -131915,30 +131976,53 @@
        "a": [],
        "c": [
         {
-         "k": "try",
-         "t": "пробует",
+         "k": "if",
+         "t": "key && mode === \"shadow\"",
          "a": [],
          "c": [
           {
-           "k": "do",
-           "t": "scheduleLegacyCoreShadow({ channel: source.channel, accountId: options.accountId ?? null, traceAccount: sourc…",
-           "a": [
-            "зовёт scheduleLegacyCoreShadow()"
-           ],
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "scheduleLegacyCoreShadow({ channel, accountId: options.accountId ?? null, traceAccount: source.traceAccount ?…",
+             "a": [
+              "зовёт scheduleLegacyCoreShadow()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
            "c": []
           }
          ]
         },
         {
-         "k": "catch",
-         "t": "если сорвалось",
-         "a": [],
+         "k": "do",
+         "t": "await alertChannelStaff({ channel, conversationId: options.conversationId ?? null, text: ownTexts.at(-1) ?? \"…",
+         "a": [
+          "зовёт alertChannelStaff()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"ai\", `Автоответ в канале «${key ?? channel}» выключен (старый бот удалён, ядро на канале…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
          "c": []
         }
        ]
       }
      ],
-     "from": "runLegacyQualifyTurn() — apps/api/src/ai/legacyQualifyDoor.ts"
+     "from": "runCustomerChannelTurn() — apps/api/src/ai/customerChannelTurn.ts"
     },
     {
      "k": "if",

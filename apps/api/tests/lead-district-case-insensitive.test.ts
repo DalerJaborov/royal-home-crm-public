@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { acceptLead } from "../src/messengers/conversation.js";
 import { findDistrictIdByName } from "../src/lib/districtLookup.js";
-import type { LeadDraft } from "../src/ai/leadQualifier.js";
+import type { LeadDraft } from "../src/ai/leadDraft.js";
 
 /**
  * РАЙОН ИЗ РАЗГОВОРА НАХОДИТСЯ БЕЗ УЧЁТА РЕГИСТРА И В КАНАЛАХ META

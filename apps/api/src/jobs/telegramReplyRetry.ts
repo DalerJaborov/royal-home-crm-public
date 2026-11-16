@@ -8,7 +8,7 @@ import { sendPushToAgents } from "../push.js";
 import { OPERATOR_REPLY_PAUSE_MS } from "../lib/conversationDelivery.js";
 import type { ChatMessage } from "../ai/client.js";
 import type { LeadDraft } from "../ai/leadDraft.js";
-import { runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
+import { runCustomerChannelTurn } from "../ai/customerChannelTurn.js";
 import { botAbilitiesOf, loadBotCapabilities } from "../messengers/botCapabilities.js";
 import { finishTelegramQualifyTurn } from "../telegram/bot.js";
 import type { JobHandler } from "./registry.js";
@@ -89,15 +89,8 @@ export const telegramReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
     const capabilities = await loadBotCapabilities();
     const abilities = botAbilitiesOf(capabilities);
 
-    const result = await runLegacyQualifyTurn(history, draft, {
-      images: [],
-      abilities,
-      conversationId: conversation.id,
-      // Повтор после отказа модели читает то же досье, что и обычный ход: иначе
-      // память бота работала бы «в основном режиме, но не при повторе».
-      contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
-      phoneKnown,
-    }, { channel: "TELEGRAM", repeat: "retry" }); // a repeat of an already-shadowed turn (the core runs again in `core` mode)
+    const result = await runCustomerChannelTurn(history, draft, { channel: "TELEGRAM", conversationId: conversation.id, phoneKnown },
+      { channel: "TELEGRAM", repeat: "retry" }); // a repeat: the core runs again in `core` mode, no second staff call // a repeat of an already-shadowed turn (the core runs again in `core` mode)
     // Модель всё ещё лежит — исключение отдаёт задание очереди на следующую
     // ступень лесенки (см. aiReplyRetryPolicy.ts).
     if (!result) throw new Error("ИИ всё ещё недоступен");

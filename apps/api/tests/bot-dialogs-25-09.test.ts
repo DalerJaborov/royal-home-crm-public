@@ -9,7 +9,7 @@ import { isPhotoAck, isPhotoOnlyTurn, photoAlreadyAcknowledged, PHOTO_ACK_WINDOW
 import { mentionsRecruiting, stripRecruiting } from "../src/ai/recruitingGuard.js";
 import { clientMeansHousingDeal } from "../src/ai/housingIntent.js";
 import { bareSharesAnsweredInRow, isBareShare, shouldStaySilentOnBareShare } from "../src/ai/bareShareRepeat.js";
-import { lastClientLanguage } from "../src/ai/leadQualifier.js";
+import { lastClientLanguage } from "../src/ai/shortAgentReply.js";
 import { neutralOpenerHint } from "../src/ai/adTemplateOpener.js";
 
 describe("«ок/рахмат» — только реакция", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractTypedPhone, extractVolunteeredPhone } from "../src/ai/leadQualifier.js";
+import { extractTypedPhone, extractVolunteeredPhone } from "../src/lib/shared/phoneText.js";
 
 /**
  * 13.10.2026, Instagram: клиентка прислала номер «908,88,94,27 акаи тохир» —

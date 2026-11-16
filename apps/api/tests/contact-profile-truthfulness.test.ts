@@ -3,7 +3,7 @@ import { prisma } from "../src/db.js";
 import { recordContactFacts, resolveContactProfile } from "../src/lib/contactProfiles.js";
 import { contactProfileForPrompt } from "../src/lib/contactProfileMemory.js";
 import { parseContactFacts, readContactFacts } from "@royal-home/shared";
-import type { LeadDraft } from "../src/ai/leadQualifier.js";
+import type { LeadDraft } from "../src/ai/leadDraft.js";
 
 /**
  * ДОСЬЕ ГОВОРИТ БОТУ ТОЛЬКО ПРАВДУ (разбор 21.09, docs/bot-audit-21-09.md, §5).

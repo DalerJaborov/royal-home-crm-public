@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 const rentGuard = await import("../src/ai/rentGuard.js");
 const { looksLikeRentRequest } = rentGuard;
-const { mergeDraft } = await import("../src/ai/leadQualifier.js");
+const { mergeDraft } = await import("../src/ai/leadDraftMerge.js");
 
 const turn = (intent: "buy" | "sell" | "rent" | "other", ready = true) => ({
   reply: [],

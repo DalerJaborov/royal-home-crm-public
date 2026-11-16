@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENCY_COMPANY_INFO, AGENCY_LANGUAGE_RULES, SCENARIO_SELL } from "../src/ai/leadQualifier.js";
+import { AGENCY_COMPANY_INFO, AGENCY_LANGUAGE_RULES } from "../src/ai/agencyVoice.js";
 import { SALES_FACTS } from "../src/ai/salesPlaybook.js";
 import { MANDATORY_BOT_RULES } from "../src/ai/dushanbeGeography.js";
 import { COMMENT_SCENARIO_RULES, LANGUAGE_RULES as COMMENT_LANGUAGE_RULES } from "../src/messengers/comments.js";
@@ -71,14 +71,7 @@ describe("запрещённые слова совпадают в обоих п�
 });
 
 describe("другой город РТ в переписке (продавец) — отказ без «можем рассмотреть»", () => {
-  it("фраза «баррасӣ кунем»/«можем рассмотреть» убрана из сценария продажи", () => {
-    expect(SCENARIO_SELL).not.toContain("баррасӣ кунем");
-    expect(SCENARIO_SELL).not.toContain("можем рассмотреть");
-  });
 
-  it("вместо этого — вежливый отказ сразу", () => {
-    expect(SCENARIO_SELL).toContain("ОТКАЖИ ВЕЖЛИВО И СРАЗУ");
-  });
 });
 
 describe("обращение к клиенту — только по имени, не по фамилии", () => {

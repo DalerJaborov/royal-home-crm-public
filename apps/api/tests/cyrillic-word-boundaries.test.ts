@@ -7,7 +7,7 @@ import { HIDDEN_ORIGIN_NAME, clientNameFor } from "../src/lib/clientOrigin.js";
 import { clientStatedDirection } from "../src/ai/intentDirectionGuard.js";
 import { detectOutsideCoverage } from "../src/ai/coverageGuard.js";
 import { detectOutOfScopeAsset } from "../src/ai/assetScopeGuard.js";
-import { extractVolunteeredPhone } from "../src/ai/leadQualifier.js";
+import { extractVolunteeredPhone } from "../src/lib/shared/phoneText.js";
 import { detectAgencyPitch } from "../src/ai/agencyPitchGuard.js";
 import { detectServiceOffer } from "../src/ai/serviceOfferGuard.js";
 import { ASKED_FOR_NAME } from "../src/messengers/conversation.js";

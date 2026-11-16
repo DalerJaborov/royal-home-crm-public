@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4060**. Модулей: **84**.
+Путей: **754**. Развилок в самих путях: **2479**; вместе с задачами по расписанию и фоновыми заданиями — **4064**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19704,8 +19704,6 @@
 - пробует
   - const { conversationsChecked, findingsCreated } = await runBotAudit();
     · зовёт runBotAudit()
-    - const [rulesText, conversations, closedGroupKeys] = await Promise.all([ resolveBotPersona(null).then((persona)
-      · зовёт resolveBotPersona()
     - для каждого: const conv of conversations
       - если !transcript
         - continue;
@@ -29239,21 +29237,41 @@
       · дословно из кода
 - const abilities = botAbilitiesOf(capabilities);
   · зовёт botAbilitiesOf()
-- const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…
-  · зовёт runLegacyQualifyTurn()
-  - const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);
+- const result = await runCustomerChannelTurn(history, draft, { channel: "TELEGRAM", conversationId: conversati…
+  · зовёт runCustomerChannelTurn()
+  - const brandName = await accountBrandName(options.accountId ?? null);
+    · зовёт accountBrandName()
+  - const key = customerAgentLegacyChannelKey(channel, brandName);
     · зовёт customerAgentLegacyChannelKey()
-  - если key && customerAgentChannelMode(key) === "core"
+  - const mode = key ? customerAgentChannelMode(key) : "legacy";
+    · зовёт customerAgentChannelMode()
+  - если key && mode === "core"
     - если source.repeat === "regeneration"
       - return null;
         · дословно из кода
-  - const result = await runQualifyTurn(history, draft, options);
-    · зовёт runQualifyTurn()
+    - const outcome = await runChannelCoreTurn({ channel, channelKey: key, accountId: options.accountId ?? null, tr…
+      · зовёт runChannelCoreTurn()
+    - если outcome.status === "unavailable" || outcome.status === "moderate"
+      - return null;
+        · дословно из кода
+    - если outcome.status === "staff"
+      - await alertChannelStaff({ channel, conversationId: options.conversationId ?? null, text: ownTexts.at(-1) ?? "…
+        · зовёт alertChannelStaff()
+    - return channelCoreQualifyResult(outcome, ownTexts);
+      · зовёт channelCoreQualifyResult()
+  - если source.repeat === "regeneration"
+    - return null;
+      · дословно из кода
   - если !source.repeat
-    - пробует
-      - scheduleLegacyCoreShadow({ channel: source.channel, accountId: options.accountId ?? null, traceAccount: sourc…
-        · зовёт scheduleLegacyCoreShadow()
-    - если сорвалось
+    - если key && mode === "shadow"
+      - пробует
+        - scheduleLegacyCoreShadow({ channel, accountId: options.accountId ?? null, traceAccount: source.traceAccount ?…
+          · зовёт scheduleLegacyCoreShadow()
+      - если сорвалось
+    - await alertChannelStaff({ channel, conversationId: options.conversationId ?? null, text: ownTexts.at(-1) ?? "…
+      · зовёт alertChannelStaff()
+    - void logSystemError("ai", `Автоответ в канале «${key ?? channel}» выключен (старый бот удалён, ядро на канале…
+      · запись в журнал ошибок
 - если !result
   - throw new Error("ИИ всё ещё недоступен");
     · ошибка Error — «ИИ всё ещё недоступен»

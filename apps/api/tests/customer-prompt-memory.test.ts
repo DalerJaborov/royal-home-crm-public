@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { selectQualifierPromptMemory, type ScopedCustomerQualifierContext } from "../src/ai/customerPromptMemory.js";
 import type { ContactProfileForPrompt } from "../src/ai/contactProfileBlock.js";
-import type { LeadDraft } from "../src/ai/leadQualifier.js";
+import type { LeadDraft } from "../src/ai/leadDraft.js";
 import type { ChatMessage } from "../src/ai/client.js";
 
 const profile: ContactProfileForPrompt = { category: "VENDOR", previousCategories: [], selfName: "PRIVATE_NAME",

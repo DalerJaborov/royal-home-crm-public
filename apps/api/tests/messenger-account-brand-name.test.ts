@@ -28,7 +28,6 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   logSystemError: logError,
 }));
 
-const { runQualifyTurn } = await import("../src/ai/leadQualifier.js");
 const { brandize, guardBrandLeak, mentionsDefaultBrand } = await import("../src/ai/brandName.js");
 const { finalizeBotReply } = await import("../src/messengers/replyChain.js");
 const { listAccounts, saveAccount, accountBrandName, resetAccountsCache } = await import("../src/messengers/accounts.js");
@@ -46,15 +45,6 @@ const caps = {
 };
 const answer = { reply: ["Здравствуйте!"], ready: false, confident: false };
 
-/** Весь системный промт хода (стабильная + изменяемая часть), как он уходит модели. */
-async function promptFor(accountId: string | null): Promise<string> {
-  callAi.mockReset();
-  callAi.mockResolvedValue(answer);
-  await runQualifyTurn([{ role: "user", content: "Здравствуйте, ищу квартиру" }], {}, { abilities: caps, accountId });
-  expect(callAi).toHaveBeenCalledTimes(1);
-  const arg = callAi.mock.calls[0]![0] as { systemStable: string; system: string };
-  return arg.systemStable + "\n=====\n" + arg.system;
-}
 
 beforeAll(async () => {
   brandedId = await saveAccount({
@@ -122,36 +112,8 @@ describe("чистая подмена имени", () => {
 });
 
 describe("(а) собранный промт хода", () => {
-  it("аккаунт с именем: в промте «Арван», «Royal Home» нет, сайт остаётся", async () => {
-    const prompt = await promptFor(brandedId);
-    expect(prompt).toContain("Арван");
-    expect(prompt).not.toMatch(/Royal[  ]+Home/i);
-    expect(prompt).toContain("royalhome.tj");
-  });
 
-  it("аккаунт без имени и ход без аккаунта: промт побайтово один и тот же, «Royal Home» на месте", async () => {
-    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-08T07:00:00Z") });
-    try {
-      const withoutAccount = await promptFor(null);
-      const plainAccount = await promptFor(plainId);
-      expect(plainAccount).toBe(withoutAccount);
-      expect(withoutAccount).toMatch(/Royal Home/);
-      expect(withoutAccount).not.toContain("Арван");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 
-  it("аккаунт с именем отличается от обычного только именем", async () => {
-    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-08T07:00:00Z") });
-    try {
-      const plain = await promptFor(plainId);
-      const branded = await promptFor(brandedId);
-      expect(branded).toBe(brandize(plain, "Арван"));
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });
 
 describe("(б) страховка на выходе", () => {
