@@ -427,25 +427,25 @@ describe("перевод входящего на ответственного", 
       await prisma.agent.update({ where: { id: agentB }, data: { frozenAt: null } });
     });
 
-    it("уходит звонившему: короткий звонок (25 с даже при 150 в настройках) и запасной путь «очередь операторов», карточка не оживает", async () => {
+    it("уходит звонившему: короткий звонок (15 с даже при 150 в настройках) и запасной путь «очередь операторов», карточка не оживает", async () => {
       await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 150 } });
       const result = await route(`ch-archive-cb-${runId}`, { clientId: null, archiveReviewerId: agentB });
       expect(result).toEqual({ decision: "routed", routedToId: agentB });
       expect(varSent("RH_ROUTE_TARGET")).toBe(ext.second);
-      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("25");
+      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("15");
       expect(varSent("RH_ROUTE_FALLBACK")).toBe("queue");
       const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
       expect(card.deletedAt).not.toBeNull();
       expect(card.assignedAgentId).toBe(agentA);
     });
 
-    it("«без ограничения» (0) в настройках не делает звонок бесконечным: тоже 25 с", async () => {
+    it("«без ограничения» (0) в настройках не делает звонок бесконечным: тоже 15 с", async () => {
       await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 0 } });
       await route(`ch-archive-cb0-${runId}`, { clientId: null, archiveReviewerId: agentB });
-      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("25");
+      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("15");
     });
 
-    it("настройка короче 25 с (10) уважается", async () => {
+    it("настройка короче 15 с (10) уважается", async () => {
       await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 10 } });
       await route(`ch-archive-cb10-${runId}`, { clientId: null, archiveReviewerId: agentB });
       expect(varSent("RH_ROUTE_TIMEOUT")).toBe("10");

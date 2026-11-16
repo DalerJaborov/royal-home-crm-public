@@ -12,7 +12,7 @@ import { logTimeline } from "../timeline.js";
 import {
   agentMayCallArchived,
   ARCHIVE_REVIEW_CALLBACK_NOTE,
-  ARCHIVE_REVIEW_CALLBACK_RING_SECONDS,
+  archiveCallbackRingSeconds,
   ARCHIVE_REVIEW_CALLBACK_WINDOW_HOURS,
   ARCHIVE_REVIEW_NOTE_PREFIX,
 } from "../archiveReviewCall.js";
@@ -270,6 +270,8 @@ interface LiveIncoming {
   archivedClientId?: string;
   /** Когда звонок переведён звонившему (аппарат звонит). Пусто — перевод не удался, звонок у оператора. */
   archiveRoutedAt?: Date;
+  /** Сколько секунд звонка получил звонивший (по настройке на момент перевода): окно «ответил он». */
+  archiveRingSeconds?: number;
   /** Момент соединения с оператором. Пусто — разговора так и не было. */
   bridgedAt?: Date;
   /**
@@ -715,6 +717,8 @@ async function setupIncomingCall(entry: LiveIncoming): Promise<void> {
  */
 async function findArchiveReviewerForCallback(entry: LiveIncoming, matchedDeletedId: string): Promise<void> {
   try {
+    // Вне часов приёма звонок звонившему не переводим: пуш о пропущенном ночью не уходит, и клиент потерялся бы молча (ревью 17.11).
+    if (!incomingHoursOpen(await loadIncomingSettings())) return;
     const deletedOwners = await findPhoneOwners([entry.phone], { includeDeleted: true, limit: 10 });
     const deletedIds = [...new Set([matchedDeletedId, ...deletedOwners.filter((o) => o.deletedAt).map((o) => o.id)])];
     const review = await prisma.interaction.findFirst({
@@ -769,7 +773,10 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
     // звонка оборвал бы живой разговор.
     isAnswered,
   });
-  if (outcome.routed && entry.archiveReviewerId) entry.archiveRoutedAt = new Date();
+  if (outcome.routed && entry.archiveReviewerId) {
+    entry.archiveRoutedAt = new Date();
+    entry.archiveRingSeconds = archiveCallbackRingSeconds((await loadIncomingSettings()).routeRingSeconds);
+  }
   /**
    * ЗВОНИТЬ ВООБЩЕ НЕКОМУ (не "не получилось", а "нет ответственного") — пробуем
    * альтернативный режим, если владелец его включил (Settings.incomingRoutingMode).
@@ -859,6 +866,8 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
  * спросили, и видно, кого спрашивать. Оператор заменяет его в окне разговора.
  */
 async function createCardForUnknownCaller(entry: LiveIncoming): Promise<void> {
+  // Перезвон из Корзины: номер принадлежит удалённой карточке, живой дубль «Входящий …» заводить нельзя (ревью 17.11).
+  if (entry.archiveReviewerId) return;
   // Строки журнала нет — начало звонка не записалось (см. setupIncomingCall). Без
   // неё карточку не к чему привязать, а update по несуществующему channelId упадёт.
   if (!entry.recordId) return;
@@ -1357,6 +1366,9 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
    */
   const transferShort =
     !!entry.bridgedAt && !!entry.transferAgent && !entry.answeredBy && talkSeconds < TRANSFER_ANSWER_MIN_SECONDS;
+  /** Перезвон из Корзины: «ответили» мобильный/автоответчик звонившего (номера станция не назвала, разговор короче порога) — это не разговор. */
+  const archiveShort =
+    !!entry.archiveReviewerId && !!entry.archiveRoutedAt && !!entry.bridgedAt && !entry.answeredBy && talkSeconds < TRANSFER_ANSWER_MIN_SECONDS;
   /** Разговор провёл агент после перевода консультантом, а станция не назвала его
    *  номер: кому его засчитать (см. LiveIncoming.transferAgent). Автор записи и владелец
    *  лида не должны расходиться (п.9): назвала станция другого человека (перехват,
@@ -1386,7 +1398,7 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
   const robotAnswered = robotOnly && !handedBack && !silentUnknown;
   const silentKnown = robotAnswered && sessionReported && !entry.consultantSpoke && !!client?.assignedAgentId;
   const byConsultant = robotAnswered && !silentKnown;
-  const answered = (!!entry.bridgedAt && !transferShort) || byConsultant;
+  const answered = (!!entry.bridgedAt && !transferShort && !archiveShort) || byConsultant;
 
   /**
    * АВТОР ЗАПИСИ — ОПЕРАТОР, ЕСЛИ ЕГО УДАЁТСЯ УЗНАТЬ, и только потом ответственный
@@ -1648,9 +1660,10 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
     !entry.consultantAt &&
     !byConsultant &&
     !transferShort &&
+    !archiveShort &&
     (operator
       ? operator.id === entry.archiveReviewerId
-      : entry.bridgedAt.getTime() - entry.archiveRoutedAt.getTime() <= (ARCHIVE_REVIEW_CALLBACK_RING_SECONDS + 3) * 1000)
+      : entry.bridgedAt.getTime() - entry.archiveRoutedAt.getTime() <= ((entry.archiveRingSeconds ?? 0) + 3) * 1000)
   ) {
     try {
       const callbackRecord = await logTimeline({

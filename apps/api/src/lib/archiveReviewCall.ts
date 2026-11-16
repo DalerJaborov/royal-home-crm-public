@@ -46,7 +46,11 @@ export const ARCHIVE_REVIEW_START_NOTE = "Звонок инициирован и
  */
 export const ARCHIVE_REVIEW_CALLBACK_WINDOW_HOURS = 72;
 /** Сколько секунд звонит аппарат звонившего, прежде чем звонок уйдёт оператору (запасной путь «queue»). */
-export const ARCHIVE_REVIEW_CALLBACK_RING_SECONDS = 25;
+export const ARCHIVE_REVIEW_CALLBACK_RING_SECONDS = 15;
+/** Сколько секунд звонит аппарат звонившему на самом деле: настройка перевода, но не дольше потолка (0 = «без ограничения» тоже потолок). */
+export function archiveCallbackRingSeconds(routeRingSeconds: number): number {
+  return routeRingSeconds > 0 ? Math.min(routeRingSeconds, ARCHIVE_REVIEW_CALLBACK_RING_SECONDS) : ARCHIVE_REVIEW_CALLBACK_RING_SECONDS;
+}
 /** Часть текста записи «клиент перезвонил»: по ней такие записи отличают от исходящих звонков разбора. */
 export const ARCHIVE_REVIEW_CALLBACK_NOTE = "клиент перезвонил";
 

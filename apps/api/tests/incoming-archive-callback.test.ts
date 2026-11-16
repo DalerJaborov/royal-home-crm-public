@@ -219,6 +219,26 @@ describe("перезвон клиента из Корзины: кому и чт�
     expect(await callbackRows()).toHaveLength(0);
   });
 
+  it("«ответил» автоответчик мобильного звонившего (номер не назван, разговор короче порога) — это не разговор: записи нет, звонивший получает пуш", async () => {
+    await prisma.agent.update({ where: { id: reviewerId }, data: { permissions: ARCHIVE_GRANTS } });
+    await reviewCall(reviewerId);
+    routeResult = routedTo(reviewerId);
+    const id = `cb-vm-${runId}`;
+    await ring(id);
+    await vi.waitFor(() => expect(routeCalls).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 100));
+    await handleAriEvent({
+      type: "ChannelEnteredBridge",
+      channel: { id: "op-mob", name: "PJSIP/trunk-00000014", state: "Up", caller: {} },
+      bridge: { id: `b-${id}`, channels: [id, "op-mob"] },
+    });
+    await hangup(id);
+    await vi.waitFor(() => expect(pushTargets()).toEqual([reviewerId]));
+    expect(await callbackRows()).toHaveLength(0);
+    const call = await prisma.incomingCall.findFirstOrThrow({ where: { phone } });
+    expect(call.answered).toBe(false);
+  });
+
   it("звонивший без права «Звонить клиентам из Корзины» — всё по-старому: перевода и пуша нет", async () => {
     await reviewCall(plainAgentId);
     const id = `cb-noperm-${runId}`;

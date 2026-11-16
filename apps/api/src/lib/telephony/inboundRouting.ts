@@ -19,7 +19,7 @@ import {
 import { hasLiveCall } from "./callTracker.js";
 import { loadIncomingSettings } from "./incomingSettings.js";
 import { findPhoneOwners } from "../clientPhones.js";
-import { agentMayCallArchived, ARCHIVE_REVIEW_CALLBACK_RING_SECONDS } from "../archiveReviewCall.js";
+import { agentMayCallArchived, archiveCallbackRingSeconds } from "../archiveReviewCall.js";
 import { whisperFileForCall } from "./whisperSync.js";
 import {
   ROUTE_DIALPLAN_FILE,
@@ -691,13 +691,9 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
     viaMobile: decision.viaMobile,
     // Свой клиент: полное routeRingSeconds при любом режиме консультанта
     // (владелец 11.10.2026; с 02.10 при консультанте было не дольше его ожидания).
-    // Перезвон из Корзины: КОРОТКО (не больше 25 с), а не полные routeRingSeconds, и не «без ограничения»
+    // Перезвон из Корзины: КОРОТКО (не больше 15 с), а не полные routeRingSeconds, и не «без ограничения»
     // (0 = бесконечно на станции): клиент не должен висеть на гудках у звонившего, который не берёт.
-    ringSeconds: request.archiveReviewerId
-      ? settings.routeRingSeconds > 0
-        ? Math.min(settings.routeRingSeconds, ARCHIVE_REVIEW_CALLBACK_RING_SECONDS)
-        : ARCHIVE_REVIEW_CALLBACK_RING_SECONDS
-      : settings.routeRingSeconds,
+    ringSeconds: request.archiveReviewerId ? archiveCallbackRingSeconds(settings.routeRingSeconds) : settings.routeRingSeconds,
     // Решение владельца 04.09.2026: автоответчик нигде не нужен — не позвонил
     // агент за routeRingSeconds, звонок просто кладётся, без записи и без
     // очереди операторов (та же логика, что убрала дежурного — общий приём
