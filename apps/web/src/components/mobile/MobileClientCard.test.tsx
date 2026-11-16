@@ -9,8 +9,8 @@ vi.mock("../rh2/ShellOwnHeader", () => ({ ShellOwnHeader: () => null }));
 vi.mock("../ClientDesiredPlacesMap", () => ({ ClientDesiredPlacesMap: () => null }));
 vi.mock("../ClientInsight", () => ({ ClientInsight: () => null }));
 
-const base = { id: "mobile-state-test", fullName: "Клиент", status: "CONTACTED", workStatus: "ACTIVE",
-  kind: "BUYER", pendingAcceptance: false, inactiveLevel: null, hiddenReason: null } as Client;
+const base = { id: "mobile-state-test", fullName: "Клиент", status: "CONTACTED",
+  kind: "BUYER", pendingAcceptance: false, hiddenReason: null } as Client;
 function render(client: Client) {
   const noop = () => {};
   const props: MobileClientCardProps = {

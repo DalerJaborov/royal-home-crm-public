@@ -317,33 +317,9 @@ export interface Client {
   extraPhoneOrigins?: Array<{ index: number; addedAt: string | null; source?: string }>;
   email: string | null;
   status: ClientStatus;
-  /**
-   * РАБОЧИЙ статус — единственный, которым управляет сам агент (ТЗ п. 3):
-   * ACTIVE — клиент в работе, занимает слот в лимите активных лидов;
-   * INACTIVE — «Неактивный», работа приостановлена, слот освобождён.
-   *
-   * Не путать со `status` (Новый/Горячий/Холодный/Потерянный) — его ставит CRM
-   * сама, агент его не трогает. До 14.08.2026 поле приходило с сервера, но нигде
-   * не отображалось: агент нажимал «Неактивный» и не видел на карточке никакой
-   * разницы, а вернуть клиента в работу не мог вовсе.
-   */
-  workStatus?: "ACTIVE" | "INACTIVE" | "DEFERRED";
-  /** «Отложенные» (задача G, план 03-04.09.2026) — присутствуют только при
-   *  workStatus="DEFERRED", см. Client.deferredAt/deferredReason/deferredUntil
-   *  на сервере (apps/api/prisma/schema.prisma). */
-  deferredAt?: string | null;
-  deferredReason?: string | null;
-  deferredUntil?: string | null;
-  /**
-   * Светофор неактивных (lib/inactiveTrafficLight.ts): цвет ставит СИСТЕМА по
-   * причине перевода и факту реального контакта, не агент. GREEN — пауза по делу
-   * (клиент сам сказал «думаю»/«отложил»), YELLOW — нарушенное обещание
-   * («перезвоню позже» и пропал), RED — живого контакта не было вовсе. null —
-   * клиент ни разу не был в Неактивных (или карточка старше 21.08.2026 и не
-   * переходила в Неактивные после этой даты — значение не восстанавливается
-   * задним числом).
-   */
-  inactiveLevel?: "GREEN" | "YELLOW" | "RED" | null;
+  // workStatus, deferred* и inactiveLevel убраны из типа 16.11.2026: состояний
+  // «Неактивный»/«Отложенный» и светофора больше нет (владелец: «ничего лишнего»).
+  // Сервер ещё отдаёт эти колонки до миграции, экран их не читает.
   /**
    * Сколько раз клиент уже переходил между агентами — общий счётчик передач и
    * отказов, по нему же сервер решает, исчерпан ли предел (ТЗ п. 21,
@@ -553,7 +529,7 @@ export interface Client {
    * тихом переходе — одна функция форматирования на сервере, не дублируем здесь.
    */
   hiddenReason?: {
-    kind: "trashed" | "other" | "inactive" | "deferred" | "lost" | "dealClosed" | "archived" | "escalated" | "securityReview";
+    kind: "trashed" | "other" | "dealClosed" | "escalated" | "securityReview";
     label: string;
     detail?: string;
   } | null;

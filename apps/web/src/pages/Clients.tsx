@@ -29,12 +29,9 @@ import {
   Row,
   Segment,
   Skeleton,
-  Tabs,
-  type TabOption,
 } from "../components/rh2";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { useAgents } from "../hooks/useAgents";
-import { useTransferClient } from "../hooks/useMissionControl";
 import type { ClientSort } from "@royal-home/shared";
 import { CallClientButton } from "../components/CallClientButton";
 import { SwipeRow } from "../components/SwipeRow";
@@ -52,7 +49,6 @@ import { useAuthStore } from "../store/auth";
 import { DuplicatesModal } from "../components/DuplicatesModal";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { isRecentlyReturned } from "../components/ReturnedBadge";
-import { INACTIVE_LEVEL_LABELS, showsInactiveLabel } from "../components/InactiveLevelBadge";
 import { ClientStateBadge } from "../components/ClientStateBadge";
 import { clientPrimaryState } from "../lib/clientPrimaryState";
 import { ClientFormModal } from "../components/ClientFormModal";
@@ -64,7 +60,6 @@ import { clientAction } from "../lib/clientAction";
 import {
   CLIENT_KIND_LABELS,
   CLIENT_SOURCE_LABELS,
-  CLIENT_STATUS_LABELS,
   DEFAULT_CLIENT_SORT,
   clientSortOptionsFor,
   formatClientCode,
@@ -96,8 +91,6 @@ import type { Client } from "../types";
  * `/inactive-clients`, `/clients/all-mine`, `/other-inquiries` рендерят этот же
  * компонент (App.tsx).
  */
-
-type TabId = "work" | "inactive" | "lost";
 
 /** Одна цифра после запятой, без хвоста «,0»: 1,7 млн, но 2 млн. */
 const oneDecimal = (x: number) => (Math.round(x * 10) / 10).toLocaleString("ru-RU");
@@ -173,25 +166,14 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   // Открытие раздела гасит красный счётчик в сайдбаре (у текущего агента).
   useMarkSectionSeen(kind === "BUYER" ? "clients" : isSeller ? "sellers" : "otherInquiries");
   const [searchParams, setSearchParams] = useSearchParams();
-  /**
-   * `/inactive-clients` — настоящий маршрут (владелец 17.09.2026), не срез
-   * query-параметром поверх `/clients`: так подсветка вкладки указывает на верную
-   * вкладку, а адрес годится для закладки. kind у этого маршрута не важен:
-   * покупатели и продавцы идут вместе, пока не задан `?kind=`.
-   */
   const location = useLocation();
-  const isInactiveRoute = location.pathname === "/inactive-clients";
   /**
-   * «НЕ НА ВИДУ» — тоже настоящий маршрут (18.09.2026, задание В §f п.1,
+   * «НЕ НА ВИДУ» — настоящий маршрут (18.09.2026, задание В §f п.1,
    * `/clients/all-mine`): всё, что назначено держателю, включая карточки в корзине
    * и переданные. Сервер сам снимает kind-срез при `scope=allMine`.
    */
   const isAllMineRoute = location.pathname === "/clients/all-mine";
-  /**
-   * ИЗ КАКОГО РАЗДЕЛА ПРИШЛИ (21.09.2026). «Неактивные» — общий маршрут для
-   * продавцов и покупателей; значение из адреса сильнее пропа маршрута, у
-   * `/inactive-clients` проп стоит заглушкой (BUYER), см. App.tsx.
-   */
+  // Раздел из адреса (`?kind=`) сильнее пропа маршрута.
   const kindParam = searchParams.get("kind");
   const { sectionKind, allKinds } = readKindParam(kindParam);
   const section: "SELLER" | "BUYER" = sectionKind ?? (isSeller ? "SELLER" : "BUYER");
@@ -201,8 +183,6 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
    */
   const [filters, setFilters] = useState<ClientFilters>(() => {
     const initial: ClientFilters = {};
-    const status = searchParams.get("status");
-    if (status) initial.status = status;
     const districtId = searchParams.get("districtId");
     if (districtId) initial.districtId = districtId;
     const source = searchParams.get("source");
@@ -217,37 +197,9 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
      * НОМЕР СТРАНИЦЫ ИЗ АДРЕСА НЕ БЕРЁМ (02.10.2026). Список растёт лентой
      * («Показать ещё»), и ссылка с ?page=4 открывала четвёртую страницу плюс
      * первую — со второй по третью строки пропадали молча.
-     *
-     * Пришли из «Контроль руководителя» → «Светофор неактивных» — три фильтра
-     * одним заходом: agentId, workStatus, inactiveLevel.
      */
-    const workStatus = isInactiveRoute ? "INACTIVE" : searchParams.get("workStatus");
-    if (workStatus === "ACTIVE" || workStatus === "INACTIVE") initial.workStatus = workStatus;
-    const inactiveLevel = searchParams.get("inactiveLevel");
-    if (inactiveLevel === "GREEN" || inactiveLevel === "YELLOW" || inactiveLevel === "RED") {
-      initial.inactiveLevel = inactiveLevel;
-    }
     return initial;
   });
-  /**
-   * ПЕРЕХОД МЕЖДУ «В РАБОТЕ» И «НЕАКТИВНЫМИ» БЕЗ ПЕРЕЗАГРУЗКИ (17.09.2026).
-   * `filters` читает адрес один раз, при монтировании; при переходе внутри
-   * приложения React переиспользует смонтированный компонент, и инициализатор
-   * второй раз не срабатывает. Эффект держит `workStatus`/`inactiveLevel` в
-   * синхроне с адресом при каждом его изменении.
-   */
-  useEffect(() => {
-    const workStatus = isInactiveRoute ? "INACTIVE" : searchParams.get("workStatus");
-    const inactiveLevel = searchParams.get("inactiveLevel");
-    setFilters((f) => {
-      const nextWorkStatus = workStatus === "ACTIVE" || workStatus === "INACTIVE" ? workStatus : undefined;
-      const nextInactiveLevel =
-        inactiveLevel === "GREEN" || inactiveLevel === "YELLOW" || inactiveLevel === "RED" ? inactiveLevel : undefined;
-      if (f.workStatus === nextWorkStatus && f.inactiveLevel === nextInactiveLevel) return f;
-      return { ...f, workStatus: nextWorkStatus, inactiveLevel: nextInactiveLevel, page: 1 };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInactiveRoute, searchParams.get("workStatus"), searchParams.get("inactiveLevel")]);
   /**
    * `?new=1` открывает форму сразу — этим адресом пользуются ярлык «Клиент» в меню
    * установленного приложения и «+» → «Новый клиент» (FabMenu). Читаем один раз и
@@ -279,24 +231,18 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
     searchParams,
     setSearchParams,
     {
-      status: filters.status,
       districtId: filters.districtId,
       source: filters.source,
       agentId: filters.agentId,
-      workStatus: filters.workStatus,
-      inactiveLevel: filters.inactiveLevel,
       q: debouncedQuery?.trim() || undefined,
       sort: filters.sort,
       slice: pendingSlice ? "pending" : noResponseYesterday ? "noResponseYesterday" : undefined,
     },
-    // `page` — вычищаем из старых ссылок и закладок (см. начальное состояние выше).
-    ["new", "phone", "page"]
+    // `page` — вычищаем из старых ссылок и закладок (см. начальное состояние выше);
+    // `status`, `workStatus`, `inactiveLevel` — фильтры удалённых статусов (16.11.2026).
+    ["new", "phone", "page", "status", "workStatus", "inactiveLevel"]
   );
-  /**
-   * Смена раздела внутри «Неактивных» (`?kind=` в том же адресе) — компонент тот
-   * же, а лента обязана начаться заново: иначе накопленная страница N приезжала
-   * бы без страниц 2..N-1 нового раздела.
-   */
+  /** Смена раздела (`?kind=` в том же адресе) — лента начинается заново. */
   useEffect(() => {
     setFilters((f) => (f.page && f.page > 1 ? { ...f, page: 1 } : f));
   }, [sectionKind]);
@@ -311,14 +257,8 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
    */
   const searching = !!debouncedQuery?.trim();
   const searchAcrossKinds = searching && (role === "AGENT" || can("otherInquiries.view"));
-  /**
-   * «Светофор неактивных» из «Контроль руководителя» приходит БЕЗ раздела и
-   * показывает оба вида сразу. Когда в «Неактивные» вошли из раздела (`?kind=`),
-   * срез по виду обязан остаться: иначе у продавцов лежали бы покупатели.
-   */
-  const trafficLightDrilldown = !isOther && filters.workStatus === "INACTIVE" && !sectionKind;
   const kindForQuery =
-    searchAcrossKinds || trafficLightDrilldown || isAllMineRoute || allKinds || pendingSlice ? undefined : sectionKind ?? kind;
+    searchAcrossKinds || isAllMineRoute || allKinds || pendingSlice ? undefined : sectionKind ?? kind;
   const clientQuery: ClientFilters = {
     ...filters,
     q: debouncedQuery,
@@ -326,7 +266,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
     // (useClientsSummary.awaitingAgent), и срез по разделу давал список короче числа.
     kind: kindForQuery,
     scope: clientListScope({ allMine: isAllMineRoute, other: isOther, searching,
-      status: filters.status, workStatus: filters.workStatus, pending: pendingSlice, noResponseYesterday }),
+      pending: pendingSlice, noResponseYesterday }),
     ...(pendingSlice ? { pendingAcceptance: true } : {}),
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
     // «Прочие обращения»: свежие сверху (серверный порядок по умолчанию и есть рабочий).
@@ -346,7 +286,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
       ...filters,
       page: undefined,
       q: debouncedQuery,
-      kind: searchAcrossKinds || trafficLightDrilldown || isAllMineRoute || allKinds ? undefined : sectionKind ?? kind,
+      kind: searchAcrossKinds || isAllMineRoute || allKinds ? undefined : sectionKind ?? kind,
       pendingSlice,
       noResponseYesterday,
       isAllMineRoute,
@@ -361,17 +301,15 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   const { data: summary, isFetching: summaryFetching, refetch: refetchSummary } = useClientsSummary(!isOther);
   // Список агентов — только для шторки фильтров руководителя (агент видит своих и так).
   const { data: agents } = useAgents({ enabled: can("clients.viewAll") });
-  const assign = useTransferClient();
   const oldest = summary?.awaitingAgent.oldest ?? null;
-  const freeAgent = summary?.freeAgents?.[0] ?? null;
   const waitLabel = oldest ? formatWait(oldest.waitingMinutes) : "";
   // «Не на виду»: список грузится только когда шторка открыта.
   const hiddenQuery = useClients({ scope: "allMine" }, showHidden);
   // Самолечение пустого списка (hooks/useEmptyListGuard.ts, одна дверь с телефоном):
   // сводку можно сравнивать только с обычной вкладкой «в работе» без условий.
   const guardComparable =
-    clientQuery.scope === "inWork" && !clientQuery.status && !clientQuery.source && !clientQuery.districtId && !clientQuery.agentId &&
-    !clientQuery.q && !clientQuery.workStatus && (filters.page ?? 1) === 1 && !!kindForQuery;
+    clientQuery.scope === "inWork" && !clientQuery.source && !clientQuery.districtId && !clientQuery.agentId &&
+    !clientQuery.q && (filters.page ?? 1) === 1 && !!kindForQuery;
   const listGuard = useEmptyListGuard({
     enabled: !otherBlocked,
     sliceKey: `desktop:${kindForQuery ?? "all"}:${guardComparable ? "plain" : "filtered"}`,
@@ -401,19 +339,13 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
     return <RoleGate title="Клиенты" text="Раздел недоступен этой роли." />;
   }
 
-  const inactiveView = isInactiveRoute || trafficLightDrilldown;
-  const title = trafficLightDrilldown
-    ? filters.inactiveLevel
-      ? `Неактивные · ${INACTIVE_LEVEL_LABELS[filters.inactiveLevel]}`
-      : "Неактивные"
-    : isOther
+  const title = isOther
       ? "Прочие обращения"
       : isAllMineRoute
         ? "Не на виду"
         : "Клиенты";
   const kindWord = section === "SELLER" ? "Продавцы" : "Покупатели";
   const inWorkCount = summary ? (section === "SELLER" ? summary.sellers : summary.buyers) : null;
-  const plainView = !filters.status && !filters.source && !filters.districtId && !filters.agentId && !searching;
   // Подзаголовок описывает то, что НА ЭКРАНЕ: при поиске по всем разделам одного
   // «Покупатели · в работе N» было бы враньём, поэтому там говорится о поиске.
   const sub = searchAcrossKinds
@@ -422,38 +354,23 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
       ? `Не покупатель и не продавец${data ? ` · ${num(data.total)}` : ""}`
       : isAllMineRoute
         ? "Всё, что назначено вам, включая карточки в корзине и переданные"
-        : trafficLightDrilldown
-          ? "Покупатели и продавцы вместе"
-          : isInactiveRoute
-            ? `${kindWord}${data && plainView ? ` · неактивных ${num(data.total)}` : ""}`
-            : `${kindWord}${inWorkCount != null ? ` · в работе ${num(inWorkCount)}` : ""}`;
+        : `${kindWord}${inWorkCount != null ? ` · ${num(inWorkCount)}` : ""}`;
 
   const currentSort = filters.sort ?? DEFAULT_CLIENT_SORT;
   const slice: "all" | "pending" | "yesterday" = pendingSlice ? "pending" : noResponseYesterday ? "yesterday" : "all";
   const activeFilterCount =
-    [filters.status, filters.source, filters.districtId, filters.agentId].filter(Boolean).length + (slice !== "all" ? 1 : 0);
-  const showSwitches = !isOther && !isAllMineRoute && !trafficLightDrilldown;
+    [filters.source, filters.districtId, filters.agentId].filter(Boolean).length + (slice !== "all" ? 1 : 0);
+  const showSwitches = !isOther && !isAllMineRoute;
   const showSearch = !mobile || searchOpen || !!filters.q;
 
   const resetFilters = () => {
-    setFilters((f) => ({ q: f.q, sort: f.sort, workStatus: f.workStatus, inactiveLevel: f.inactiveLevel, page: 1 }));
+    setFilters((f) => ({ q: f.q, sort: f.sort, page: 1 }));
     setPendingSlice(false);
     setNoResponseYesterday(false);
   };
   const patchFilters = (patch: Partial<ClientFilters>) => setFilters((f) => ({ ...f, ...patch, page: 1 }));
 
-  const tabOptions: TabOption<TabId>[] = [
-    { id: "work", label: "В работе", count: !trafficLightDrilldown && inWorkCount != null ? inWorkCount : undefined },
-    { id: "inactive", label: "Неактивные" },
-    // «Потерянные» — управленческий раздел: вкладка по тому же праву, что и сам маршрут.
-    ...(can("clients.assign") ? [{ id: "lost" as const, label: "Потерянные" }] : []),
-  ];
-  const goTab = (id: TabId) => {
-    if (id === "work") navigate(sectionPath(section));
-    else if (id === "inactive") navigate(`/inactive-clients?kind=${section}`);
-    else navigate(`/lost-clients?kind=${section}`);
-  };
-  const goSection = (k: "SELLER" | "BUYER") => navigate(isInactiveRoute ? `/inactive-clients?kind=${k}` : sectionPath(k));
+  const goSection = (k: "SELLER" | "BUYER") => navigate(sectionPath(k));
 
   const segment = showSwitches ? (
     <Segment
@@ -537,15 +454,6 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
 
       {mobile && segment}
 
-      {showSwitches && (
-        <Tabs
-          aria-label="Состояние клиентов раздела"
-          options={tabOptions}
-          value={inactiveView ? "inactive" : "work"}
-          onChange={goTab}
-        />
-      )}
-
       {/* Тихие строки вместо карточек-уведомлений (договор §6.1): ждёт агента, похожие карточки */}
       {!isOther && ((oldest && summary) || (duplicates && duplicates.length > 0)) && (
         <Card tight className={clean ? "clean-client-notices" : undefined}>
@@ -554,23 +462,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
               <span className="dot crit" />
               <span className="txt">
                 {oldest.fullName} ждёт агента {waitLabel}.
-                {summary.freeAgents && summary.freeAgents.length > 0
-                  ? ` Свободны: ${summary.freeAgents.map((a) => a.fullName.split(" ")[0]).join(", ")}.`
-                  : summary.freeAgents
-                    ? " Свободных агентов нет."
-                    : ""}
               </span>
-              {freeAgent && can("clients.assign") && (
-                <Button
-                  variant="soft"
-                  size="sm"
-                  loading={assign.isPending}
-                  data-endpoint={`POST /api/v1/clients/${oldest.id}/assign`}
-                  onClick={() => assign.mutate({ clientId: oldest.id, toAgentId: freeAgent.id })}
-                >
-                  {assign.isPending ? "Передаём" : `Передать: ${freeAgent.fullName.split(" ")[0]}`}
-                </Button>
-              )}
               <Button variant="ghost" size="sm" onClick={() => navigate(`/clients/${oldest.shortId}`)}>
                 Открыть
               </Button>
@@ -643,7 +535,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
                 client={c}
                 mobile={mobile}
                 clean={clean}
-                showKind={searchAcrossKinds || trafficLightDrilldown || allKinds}
+                showKind={searchAcrossKinds || allKinds}
                 showAgent={can("clients.viewAll")}
               />
             ))}
@@ -660,9 +552,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
                   ? "По этому запросу ничего не нашлось."
                   : isOther
                     ? "Прочих обращений пока нет."
-                    : inactiveView
-                      ? "Неактивных клиентов нет."
-                      : section === "SELLER"
+                    : section === "SELLER"
                         ? "Продавцов пока нет."
                         : "Под этот фильтр клиентов нет."
             }
@@ -675,14 +565,12 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
                     : "Попробуйте другое написание или снимите часть условий."
                   : isOther
                     ? "Сюда попадают входящие, которые бот не отнёс ни к покупке, ни к продаже."
-                    : inactiveView
-                      ? "Сюда попадают клиенты, которых вы перевели в «Неактивные»."
-                      : section === "SELLER"
+                    : section === "SELLER"
                         ? "Продавец появится здесь, как только вы заведёте его карточку или бот примет заявку на продажу."
                         : "Попробуйте снять часть условий или очистить поиск."
             }
             action={
-              !isOther && !readOnly && !pendingSlice && !inactiveView ? (
+              !isOther && !readOnly && !pendingSlice ? (
                 <Button variant="ghost" onClick={() => onAddClient(section)}>
                   Завести карточку
                 </Button>
@@ -757,18 +645,6 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
               />
             </>
           )}
-          <div className="sec-t" style={isOther ? { marginTop: 0 } : undefined}>
-            Статус
-          </div>
-          <Filters
-            aria-label="Статус"
-            value={filters.status ?? ""}
-            onChange={(id) => patchFilters({ status: id || undefined })}
-            options={[
-              { id: "", label: "Любой" },
-              ...Object.entries(CLIENT_STATUS_LABELS).map(([value, label]) => ({ id: value, label })),
-            ]}
-          />
           {!isOther && (
             <>
               <div className="sec-t">Источник</div>
@@ -955,7 +831,7 @@ function ClientRow({
 
   const action = clientAction(c, Date.now(), canAcceptRow);
   const primaryState = clientPrimaryState(c);
-  const chip = primaryState.id !== "status" && primaryState.id !== "pending" ? (
+  const chip = primaryState && primaryState.id !== "pending" ? (
     <ClientStateBadge client={c} />
   ) : action && action.id !== "accept" ? (
     <Chip tone={action.tone}>{mobile ? action.short : action.label}</Chip>
@@ -980,7 +856,6 @@ function ClientRow({
           CLIENT_SOURCE_LABELS[c.source],
           showAgent && c.assignedAgent?.fullName ? `Агент ${c.assignedAgent.fullName}` : null,
           isRecentlyReturned(c.returnedAt) ? "вернулся" : null,
-          showsInactiveLabel(c) ? "неактивен" : null,
         ]
   ).filter(Boolean);
 
@@ -1047,14 +922,14 @@ function ClientRow({
     />
   );
 
-  const visibleNextStep = !isTrashed && !c.hiddenReason && !pending && (!c.workStatus || c.workStatus === "ACTIVE") ? c.nextStep : null;
+  const visibleNextStep = !isTrashed && !c.hiddenReason && !pending ? c.nextStep : null;
   const row = clean && !inSheet ? (
     <CleanClientRow
       id={c.id}
       name={name}
       href={isTrashed ? undefined : `/clients/${c.shortId}`}
       avatar={<ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />}
-      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null, showsInactiveLabel(c) ? "неактивен" : null].filter(Boolean).join(" · ")}
+      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · ")}
       request={isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен"}
       source={CLIENT_SOURCE_LABELS[c.source] ?? c.source}
       nextAction={canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null)}

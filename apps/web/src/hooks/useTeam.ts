@@ -30,7 +30,6 @@ export interface TeamMember {
   /** Активные покупатели в работе прямо сейчас — тот же счётчик, что запирает раздачу. */
   activeLoad: number;
   /** Общий предел портфеля из Настроек; 0 = без лимита. */
-  leadLimit: number;
   month: {
     leads: number;
     interactions: number;

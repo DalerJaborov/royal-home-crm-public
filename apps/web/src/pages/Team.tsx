@@ -17,7 +17,6 @@ import { initials, presenceOf } from "../lib/theme2026Person";
 import { avatarTone } from "../lib/avatarTone";
 import { scrollableRegion } from "../lib/a11y";
 import { useSyncFiltersToUrl } from "../hooks/useUrlFilters";
-import { loadState } from "../lib/teamLoad";
 import { TeamTabs } from "../components/SectionTabs";
 import { useCleanShell } from "../hooks/useCleanShell";
 
@@ -82,50 +81,26 @@ export function Team() {
 }
 
 /** Шторка «Фильтры» (макет `#sh-team-filters`): роль и состояние сотрудника. */
-type TeamState = "all" | "online" | "frozen" | "limit";
+type TeamState = "all" | "online" | "frozen";
 
 /** Роли в порядке сегмента макета; показываются только те, что есть в команде. */
 const SHEET_ROLES: Role[] = ["AGENT", "MANAGER", "MARKETING", "EDITOR", "SECURITY"];
-
-/**
- * Нагрузка агента относительно лимита из Настроек (тот же счётчик, что
- * останавливает раздачу, см. lib/leadLimits.ts на сервере). «Близко» = остался
- * один слот: в макете 5 из 6 подсвечено жёлтым, 6 из 6 красным.
- */
-
 
 /** Активные агенты, которым раздача может дать лид (замороженный не получает ничего). */
 function takingAgents(team: TeamMember[]): TeamMember[] {
   return team.filter((m) => m.role === "AGENT" && m.isActive && !m.frozen);
 }
 
-/** Полоса «5 из 6» (макет `.loadbar[.near|.full]`). Без лимита — только число. */
+/**
+ * Нагрузка агента — просто число покупателей в работе. Лимита активных лидов
+ * больше нет (владелец 16.11.2026: «лимитов заявок больше нет и не будет»),
+ * поэтому и полосы «5 из 6» нет: число ничего не останавливает.
+ */
 function LoadBar({ member, compact = false }: { member: TeamMember; compact?: boolean }) {
-  const state = loadState(member);
-  if (state === "nolimit") {
-    return compact ? null : (
-      <span className="loadbar">
-        <span className="n">{member.activeLoad}, без лимита</span>
-      </span>
-    );
-  }
-  const v = Math.min(1, member.activeLoad / member.leadLimit);
+  if (compact) return null;
   return (
-    <span
-      className={`loadbar${state === "near" ? " near" : state === "full" ? " full" : ""}`}
-      style={compact ? { maxWidth: 96, minWidth: 72 } : undefined}
-      // aria-label на span допустим только с ролью (axe aria-prohibited-attr).
-      role="img"
-      aria-label={`Нагрузка ${member.activeLoad} из ${member.leadLimit}`}
-    >
-      <span className="bar">
-        <i style={{ "--v": v } as CSSProperties} />
-      </span>
-      {!compact && (
-        <span className="n">
-          {member.activeLoad} из {member.leadLimit}
-        </span>
-      )}
+    <span className="loadbar">
+      <span className="n">{member.activeLoad}</span>
     </span>
   );
 }
@@ -206,26 +181,16 @@ function TeamDesktop() {
     if (roleFilter) list = list.filter((m) => m.role === roleFilter);
     if (stateFilter === "online") list = list.filter((m) => m.online);
     else if (stateFilter === "frozen") list = list.filter((m) => m.frozen);
-    else if (stateFilter === "limit") list = list.filter((m) => loadState(m) === "full");
     return list;
   }, [team, filter, roleFilter, stateFilter]);
   const online = (team ?? []).filter((m) => m.online).length;
   const frozenMembers = (team ?? []).filter((m) => m.frozen);
   const rolesPresent = SHEET_ROLES.filter((r) => (team ?? []).some((m) => m.role === r));
-  /**
-   * Карточка «Нагрузка» (макет): сколько агентов берут работу, сколько у
-   * последнего слота, сколько упёрлись в лимит. Считаются только активные и
-   * не замороженные агенты: замороженный лиды не получает независимо от
-   * портфеля, он в «Решить сейчас».
-   */
+  /** Карточка «Нагрузка»: сколько агентов берут работу и сколько у них клиентов. */
   const load = useMemo(() => {
     const agents = takingAgents(team ?? []);
-    const limit = agents[0]?.leadLimit ?? 0;
-    const free = agents.filter((m) => loadState(m) === "free").length;
-    const near = agents.filter((m) => loadState(m) === "near").length;
-    const full = agents.filter((m) => loadState(m) === "full").length;
     const total = agents.reduce((n, m) => n + m.activeLoad, 0);
-    return { agents: agents.length, limit, free, near, full, total };
+    return { agents: agents.length, total };
   }, [team]);
 
   if (!isSupervisor) {
@@ -342,42 +307,17 @@ function TeamDesktop() {
 
         <TeamTabs />
 
-        {/* Нагрузка по лимиту лидов (макет `.prog.split`). Без лимита в Настройках
-            полосу строить не из чего: честная строка вместо выдуманной шкалы. */}
+        {/* Нагрузка — одной строкой: лимита нет (16.11.2026), шкалу строить не из чего. */}
         {(team?.length ?? 0) > 0 && (
           <div className="card tight">
             <div className="sec-h">
               <h2>Нагрузка</h2>
-              <span className="note">
-                {load.limit > 0 ? `Лимит ${load.limit} активных клиентов на агента` : "Лимит лидов выключен в настройках"}
-              </span>
             </div>
-            {load.limit > 0 && load.agents > 0 ? (
-              <>
-                <div className="prog split" aria-hidden="true">
-                  {load.free > 0 && <i style={{ "--v": load.free, background: "var(--ok)" } as CSSProperties} />}
-                  {load.near > 0 && <i style={{ "--v": load.near, background: "var(--warn-dot)" } as CSSProperties} />}
-                  {load.full > 0 && <i style={{ "--v": load.full, background: "var(--crit)" } as CSSProperties} />}
-                </div>
-                <div className="prog-legend">
-                  <span>
-                    <b>{load.free}</b>берут работу
-                  </span>
-                  <span>
-                    <b>{load.near}</b>близко к лимиту
-                  </span>
-                  <span>
-                    <b>{load.full}</b>у лимита, лиды не идут
-                  </span>
-                </div>
-              </>
-            ) : (
-              <p className="state">
-                {load.agents === 0
-                  ? "Активных агентов нет, раздавать лиды некому."
-                  : `Раздача идёт без предела: у ${load.agents} ${pluralizeRu(load.agents, ["агента", "агентов", "агентов"])} в работе ${load.total} ${pluralizeRu(load.total, ["клиент", "клиента", "клиентов"])}.`}
-              </p>
-            )}
+            <p className="state">
+              {load.agents === 0
+                ? "Активных агентов нет, раздавать лиды некому."
+                : `У ${load.agents} ${pluralizeRu(load.agents, ["агента", "агентов", "агентов"])} в работе ${load.total} ${pluralizeRu(load.total, ["клиент", "клиента", "клиентов"])}.`}
+            </p>
           </div>
         )}
 
@@ -670,9 +610,7 @@ function TeamDesktop() {
                                   : m.lastSeenAt
                                     ? `, был(а) ${relativeTime(m.lastSeenAt)}`
                                     : ""}
-                            {m.role === "AGENT" && m.leadLimit > 0
-                              ? `, портфель ${m.activeLoad} из ${m.leadLimit}${loadState(m) === "full" ? ", лиды не идут" : ""}`
-                              : ""}
+                            {m.role === "AGENT" ? `, в работе ${m.activeLoad}` : ""}
                           </span>
                           {/* Месячные показатели (макет `.tbl` не знает узкого экрана):
                               те же цифры, что в колонках десктопной таблицы, чипами. */}
@@ -762,7 +700,6 @@ function TeamDesktop() {
                 ["all", "Все"],
                 ["online", "В сети"],
                 ["frozen", "Заморожены"],
-                ["limit", "У лимита"],
               ] as const
             ).map(([key, label]) => (
               <button key={key} type="button" aria-selected={stateFilter === key} onClick={() => setStateFilter(key)}>

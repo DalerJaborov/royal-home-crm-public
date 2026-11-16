@@ -7,13 +7,13 @@ import { usableRouteId } from "../lib/routeId";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { ApiError } from "../lib/apiError";
 import { assignLeadErrorText } from "../lib/assignLeadError";
-import { ArrowLeft, ArrowRightLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, PhoneOff, RefreshCw, RotateCcw, Search, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, PhoneOff, RefreshCw, Search, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
 import { ClientMoreMenu, countMoreItems, type MoreGroup, type MoreItem } from "../components/ClientMoreMenu";
 import { useProperties, useProperty } from "../hooks/useProperties";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { ClientFormModal } from "../components/ClientFormModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { isRequiresRelease, useAcceptLead, useAssignLead, useClient, useClientToCandidate, useDeclineLead, useDeleteClient, useLiveVoiceCall, usePropertyPickerOptions, useRobotCallStop, useSetRobotCallStop, useUpdateClient, type ReleaseCandidate } from "../hooks/useClients";
+import { useAcceptLead, useAssignLead, useClient, useClientToCandidate, useDeclineLead, useDeleteClient, useLiveVoiceCall, usePropertyPickerOptions, useRobotCallStop, useSetRobotCallStop, useUpdateClient } from "../hooks/useClients";
 import { CallPhoneChooser, type CallPhoneOption } from "../components/CallPhoneChooser";
 import { MatchPanel } from "../components/match/MatchPanel";
 import { CloseDealChoiceModal } from "../components/CloseDealChoiceModal";
@@ -41,8 +41,6 @@ import { VoiceNoteButton, type VoiceNote } from "../components/VoiceNoteButton";
 import { useCan, useIsReadOnly, useCanCreateProperty } from "../lib/permissions";
 import { canTransferClientToCandidates } from "../lib/vacanciesView";
 import {
-  useReactivateClient,
-  useReturnDeferredClient,
   useSecurityReview,
   useClientLossEvent,
   useOverrideClientLossEvent,
@@ -186,8 +184,6 @@ function ClientDetailCard() {
   const assignLead = useAssignLead(client?.id ?? "");
   const deleteClient = useDeleteClient(client?.id ?? "");
   const toCandidate = useClientToCandidate(client?.id ?? "");
-  const reactivate = useReactivateClient(client?.id ?? "");
-  const returnDeferred = useReturnDeferredClient(client?.id ?? "");
   const navigate = useNavigate();
   const location = useLocation();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -302,7 +298,6 @@ function ClientDetailCard() {
   const [showReassign, setShowReassign] = useState(false);
   // Портфель полон, а пришёл лид по СВОЕМУ объекту: сервер отвечает не отказом, а
   // вопросом «кого отдать» (решение владельца 11.08.2026). Держим его список здесь.
-  const [releaseCandidates, setReleaseCandidates] = useState<ReleaseCandidate[] | null>(null);
   // Руководитель разбирает непринятые/эскалированные лиды — список агентов нужен только ему.
   const isSupervisor = me?.role === "ADMIN" || me?.role === "DIRECTOR" || me?.role === "MANAGER";
   /**
@@ -359,7 +354,7 @@ function ClientDetailCard() {
   // ручного ответа. Панель переписки должна показывать это состояние, а не
   // «Бот отвечает сам», когда на деле он уже не ответит (05.09.2026).
   const agentActivelyAssigned =
-    !!client?.assignedAgentId && client.status !== "LOST" && client.status !== "ARCHIVED" && client.workStatus !== "INACTIVE";
+    !!client?.assignedAgentId && client.status !== "LOST" && client.status !== "ARCHIVED";
   // OTHER (работа/аренда/прочее) не назначается агенту — нет ни «принятия», ни
   // круговой эскалации; руководство работает с карточкой напрямую.
   const isOther = client?.kind === "OTHER";
@@ -393,12 +388,6 @@ function ClientDetailCard() {
   // следующий месяц. Признак тот же, что на сервере (lib/conductedShowing.ts):
   // не отменён и либо отмечен выполненным, либо записан задним числом (без
   // nextActionDate), либо его время уже прошло.
-  /** Работа с клиентом приостановлена (ТЗ п. 22). Управляет этим агент, в отличие
-   *  от `status` (Новый/Горячий/…), который ставит сама CRM. */
-  const isInactive = client?.workStatus === "INACTIVE";
-  /** «Отложенные» (задача G, 03-04.09.2026) — не «Неактивный»: слот свободен,
-   *  светофора нет, возврат по таймеру или раньше, если клиент напишет сам. */
-  const isDeferred = client?.workStatus === "DEFERRED";
   // Full-table structured send receipts supplied by the API.
   const sentSummary = client?.propertyActivitySummary;
   const lastPropertiesSent = sentSummary?.lastSentAt ? { at: sentSummary.lastSentAt, count: sentSummary.sentCount } : null;
@@ -595,8 +584,6 @@ function ClientDetailCard() {
    */
   const hiddenActionCount = [
     !locked && !isSeller && !isOther, // Выбрать объект
-    !locked && !isOther && isInactive, // Вернуть в работу (и продавцу тоже)
-    !locked && !isOther && isDeferred, // Поднять из «Отложенных»
     !locked, // Записать разговор
     !locked, // Показ / встреча
     !locked, // Изменить
@@ -700,16 +687,7 @@ function ClientDetailCard() {
             className="pill sm"
             type="button"
             disabled={acceptLead.isPending || declineLead.isPending}
-            onClick={() =>
-              acceptLead.mutate(undefined, {
-                onError: (err) => {
-                  // 409 «выберите, кого освободить» — не отказ, а вопрос: портфель
-                  // полон, но лид по своему объекту всё равно можно взять.
-                  const needsRelease = isRequiresRelease(err);
-                  if (needsRelease) setReleaseCandidates(needsRelease.candidates);
-                },
-              })
-            }
+            onClick={() => acceptLead.mutate()}
           >
             {acceptLead.isPending ? "Принятие" : "Принять"}
           </button>
@@ -729,40 +707,6 @@ function ClientDetailCard() {
   // закон о владении клиентом П-4/Р-3) — см. комментарий в
   // routes/clients/lifecycle.ts. `Client.poolCandidateIds` остаётся в схеме,
   // но больше никто его не читает и не пишет.
-  if (releaseCandidates) {
-    solveRows.push(
-      <div className="solve" key="release">
-        <span className="t">
-          <b>Получить этот лид как 7-го клиента?</b>{" "}
-          {client.matchScore != null
-            ? `Совпадение с вашим объектом ${client.matchScore} из 100 (${matchScoreBand(client.matchScore)}). Портфель уже полон, поэтому выберите, кого из текущих обычных клиентов передать другому агенту.`
-            : "Этот лид по вашему объекту, и его можно взять сверх лимита. Выберите, кого из текущих обычных клиентов передать другому агенту."}{" "}
-          Своих объектов среди них нет, их эта замена не касается никогда. Отданный уйдёт по очереди KPI
-          вместе с незакрытыми задачами.
-          <span className="wrap" style={{ marginTop: 8 }}>
-            {releaseCandidates.map((rc) => (
-              <button
-                key={rc.id}
-                className="pill ghost sm"
-                type="button"
-                disabled={acceptLead.isPending}
-                onClick={() =>
-                  acceptLead.mutate({ releaseClientId: rc.id }, { onSuccess: () => setReleaseCandidates(null) })
-                }
-              >
-                {formatClientName(rc)} {formatClientCode(rc.shortId, rc.kind)}, {relativeTime(rc.assignedAt)}
-              </button>
-            ))}
-          </span>
-        </span>
-        <span className="acts">
-          <button className="pill ghost sm" type="button" onClick={() => setReleaseCandidates(null)}>
-            Не принимать пока
-          </button>
-        </span>
-      </div>
-    );
-  }
   {
     /* Разбор непринятого лида руководителем: назначить агенту вручную или забрать себе. */
   }
@@ -964,28 +908,6 @@ function ClientDetailCard() {
       tone: "primary",
       hint: "Договорились с клиентом об объекте",
       onSelect: () => setShowNewDeal(true),
-    });
-  }
-  if (!locked && !isOther && isInactive) {
-    mainItems.push({
-      key: "reactivate",
-      label: "Вернуть в работу",
-      icon: RotateCcw,
-      hint: "Клиент снова на связи, слот в лимите вернётся",
-      disabled: reactivate.isPending,
-      onSelect: () => reactivate.mutate(),
-    });
-  }
-  // «Отложенные» (задача G, 03-04.09.2026) — не Неактивные: слота в лимите не
-  // занимают, светофора нет. Выход виден сразу, как у «Вернуть в работу».
-  if (!locked && !isOther && isDeferred) {
-    mainItems.push({
-      key: "return-deferred",
-      label: "Поднять из «Отложенных»",
-      icon: RotateCcw,
-      hint: "Раньше срока таймера",
-      disabled: returnDeferred.isPending,
-      onSelect: () => returnDeferred.mutate(),
     });
   }
   if (!locked) {
@@ -1201,7 +1123,7 @@ function ClientDetailCard() {
    */
   const commonMiddle = (
     <>
-      {!releaseCandidates && <MutationError mutation={acceptLead} fallback="Не удалось принять лид" />}
+      <MutationError mutation={acceptLead} fallback="Не удалось принять лид" />
       <MutationError mutation={declineLead} fallback="Не удалось отклонить лид" />
       <MutationError mutation={updateClient} fallback="Не удалось сохранить изменение" />
       {deleteError && (

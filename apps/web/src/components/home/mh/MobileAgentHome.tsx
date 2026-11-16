@@ -14,7 +14,6 @@ import {
   useDenyDuplicateReview,
   useDuplicateReviews,
   useReactivationOffers,
-  isRequiresRelease,
   type DuplicateReviewItem,
   type ReactivationOffer,
 } from "../../../hooks/useClients";
@@ -562,11 +561,7 @@ function PendingRow({
         disabled={acceptLead.isPending}
         onClick={(e) => {
           e.stopPropagation();
-          acceptLead.mutate(undefined, {
-            onError: (err) => {
-              if (isRequiresRelease(err)) navigate(`/clients/${c.shortId}`);
-            },
-          });
+          acceptLead.mutate();
         }}
       >
         {acceptLead.isPending ? "Принятие…" : "Принять"}

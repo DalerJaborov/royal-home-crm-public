@@ -127,8 +127,6 @@ export function AgentHome() {
 
   const focusLoading = isLoading || pendingLoading || offersLoading || duplicatesLoading;
   const nextShowing = showings.find((s) => Date.parse(s.nextActionDate!) > Date.now());
-  const limit = data?.activeLeadLoad;
-  const atLimit = !!limit && limit.limit > 0 && limit.count >= limit.limit;
 
   return (
     <Rh2Screen title={title} actions={shellActions}>
@@ -175,22 +173,6 @@ export function AgentHome() {
               </p>
             )}
           </div>
-
-          {atLimit && limit && (
-            <Card tight className="rh-home-o1">
-              <p className="quiet warn">
-                <span className="dot warn" />
-                <span className="txt">
-                  Новые лиды не назначаются: у вас {limit.count} из {limit.limit}{" "}
-                  {pluralizeRu(limit.count, ["активный лид", "активных лида", "активных лидов"])}, это лимит. Доведите
-                  текущих до показа или отказа, и очередь откроется сама.{" "}
-                  <Link className="lk" to="/clients">
-                    К списку клиентов
-                  </Link>
-                </span>
-              </p>
-            </Card>
-          )}
 
           <div className="rh-home-o4">
             <AgentQueue queue={todo.queue} loading={clientsLoading && todo.queue.length === 0} />

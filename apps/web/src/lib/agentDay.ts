@@ -53,7 +53,7 @@ export function daysSince(iso: string, now: number): number {
 export function buildPortfolio(clients: Client[], now: number): Client[] {
   const rank: Record<Urgency, number> = { overdue: 0, stalled: 1, ok: 2 };
   return clients
-    .filter((c) => !c.pendingAcceptance && !CLOSED.has(c.status) && c.workStatus !== "INACTIVE")
+    .filter((c) => !c.pendingAcceptance && !CLOSED.has(c.status))
     .sort((a, b) => {
       const byUrgency = rank[urgencyOf(a, now)] - rank[urgencyOf(b, now)];
       if (byUrgency !== 0) return byUrgency;

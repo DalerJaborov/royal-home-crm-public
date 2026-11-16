@@ -7,7 +7,6 @@ import {
   BarChart3,
   Calendar,
   Clapperboard,
-  Clock,
   Compass,
   Filter,
   Gauge,
@@ -24,7 +23,6 @@ import {
   MessageCircle,
   MessageSquare,
   PhoneCall,
-  Radar,
   Settings,
   Share2,
   TrendingUp,
@@ -32,7 +30,6 @@ import {
   DatabaseBackup,
   Plug,
   TimerReset,
-  UserX,
   Users,
   UsersRound,
   Wallet,
@@ -237,21 +234,8 @@ function buildNavigation(inputs: NavInputs): Navigation {
   /** Группа 2 — Клиенты и сделки (переименована из «Люди», §1 spec-pult-v8). */
   const peopleItems = compact<NavItem>([
     isSalesRole && { to: "/clients", icon: Users, label: "Клиенты", badge: counters?.clients ?? 0, group: "people" },
-    // «Воронка лидов» (макет c99db05f, renderFunnel, 14.09.2026) — НЕ путать с
-    // «/funnel» ниже (лид-магниты маркетинга, группа «ads», другая сущность).
-    isSalesRole && { to: "/lead-funnel", icon: Radar, label: "Воронка лидов", group: "people" },
-    // «Отложенные» (задача G, план 03-04.09.2026) — отдельный пункт меню, НЕ
-    // только вкладка внутри ClientsTabs: та скрыта для role="AGENT" целиком (см.
-    // components/ClientsTabs.tsx), а этот раздел агенту нужен не меньше, чем
-    // руководству («агенту — свои отложенные, руководителю — все», решение
-    // владельца) — сервер (GET /clients/deferred) сам скоупит по своему агенту.
-    isSalesRole && { to: "/deferred-clients", icon: Clock, label: "Отложенные", group: "people" },
-    // «Потерянные» (раздел 3, п.4 плана переноса 14.09.2026) — страница уже
-    // существовала (GET /clients?status=lost, решение владельца 11.08.2026),
-    // но ни один пункт меню на неё не ссылался.
-    // Право то же, что у сервера (GET /clients/lost — `clients.assign`) и у
-    // вкладки в ClientsSectionLane: агенту пункт обещал экран, которого у него нет.
-    isSalesRole && can("clients.assign") && { to: "/lost-clients", icon: UserX, label: "Потерянные", group: "people" },
+    // «Воронка лидов», «Отложенные», «Потерянные» убраны 16.11.2026 (владелец:
+    // «удалить все папки и статусы, ничего лишнего») — список клиентов один.
     isSalesRole && { to: "/deals", icon: ArrowLeftRight, label: "Сделки", badge: counters?.deals ?? 0, group: "people" },
   ]);
 
@@ -519,7 +503,7 @@ function compact<T>(items: (T | false | undefined | null)[]): T[] {
  * меню не меняет: это только признак облика, поэтому он живёт отдельным списком
  * рядом, а не флагом у пункта (часть путей реестру не принадлежит).
  */
-const RH2_ROUTE_ROOTS = ["/clients", "/sellers", "/lost-clients", "/other-inquiries"] as const;
+const RH2_ROUTE_ROOTS = ["/clients", "/sellers", "/other-inquiries"] as const;
 
 export function isRh2Route(pathname: string): boolean {
   return RH2_ROUTE_ROOTS.some((root) => pathname === root || pathname.startsWith(`${root}/`));

@@ -22,8 +22,6 @@ export interface DashboardSummary {
     potentialCommission: number;
   };
   funnel: { key: string; label: string; count: number; commission?: number }[];
-  /** Только у агента: сколько лидов у него в работе и лимит, после которого новые не назначаются. */
-  activeLeadLoad?: { count: number; limit: number };
   tasksToday: Interaction[];
   /** Принятые карточки этого агента, по которым срок первого звонка ещё не
    *  закрыт (задание 17.09.2026) — сортировано по dueAt, самая срочная первой.

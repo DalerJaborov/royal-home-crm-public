@@ -44,10 +44,6 @@ export interface ClientFilters {
   agentId?: string;
   /** Источник — фильтр шторки «Фильтры» экрана «Клиенты» (артефакт). */
   source?: string;
-  /** Раздел «Контроль руководителя» → «Светофор неактивных» (Oversight.tsx):
-   *  клик по числу матрицы агент×цвет ведёт сюда с этими двумя фильтрами. */
-  workStatus?: "ACTIVE" | "INACTIVE";
-  inactiveLevel?: "GREEN" | "YELLOW" | "RED";
   q?: string;
   /** Порядок выдачи — только значения из общего словаря (CLIENT_SORTS): незнакомую
    *  строку сервер отвергнет как неверный запрос, и опечатка обязана ловиться
@@ -102,7 +98,6 @@ export interface ClientsSummary {
   sellers: number;
   mine: number | null;
   other: number | null;
-  lost: number | null;
   newToday: number;
   newYesterday: number;
   awaitingAgent: {
@@ -111,13 +106,6 @@ export interface ClientsSummary {
   };
   noContactOverDay: number;
   showings: { today: number; tomorrow: number };
-  freeAgents: { id: string; fullName: string; slotsLeft: number }[] | null;
-  /** Лиды по стадиям воронки (экран «Воронка лидов», pages/LeadFunnel.tsx) — см.
-   *  тот же комментарий у типа на сервере (routes/clients/summary.ts). */
-  stages: { new: number; inProgress: number; awaitingDecision: number; closed: number };
-  /** Счётчики вкладок «Неактивные»/«Все мои» (18.09.2026, задание В §f п.1/4). */
-  inactive: number;
-  deferred: number;
   trashedMine: number | null;
 }
 
@@ -309,39 +297,11 @@ export function usePermanentDeleteClient() {
   });
 }
 
-/** Кандидат на освобождение места — обычный (0.5%) активный лид агента. */
-export interface ReleaseCandidate {
-  id: string;
-  shortId: number;
-  fullName: string;
-  kind: ClientKind;
-  status: string;
-  assignedAt: string;
-}
-
-/** Ответ сервера, когда портфель полон и нужно выбрать, кого отдать. */
-export interface RequiresReleaseBody {
-  requiresRelease: true;
-  error: string;
-  candidates: ReleaseCandidate[];
-}
-
-/** Портфель полон, пришёл лид по своему объекту — сервер спрашивает, кого
- *  освободить (решение владельца 11.08.2026). Это НЕ ошибка, а вопрос. */
-export function isRequiresRelease(err: unknown): RequiresReleaseBody | null {
-  const data = err instanceof ApiError ? (err.data as RequiresReleaseBody | undefined) : undefined;
-  return data?.requiresRelease ? data : null;
-}
-
 export function useAcceptLead(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars?: { releaseClientId?: string }) =>
-      api<Client>(`/clients/${id}/accept`, {
-        method: "POST",
-        queueOffline: true,
-        body: vars?.releaseClientId ? { releaseClientId: vars.releaseClientId } : {},
-      }),
+    mutationFn: () =>
+      api<Client>(`/clients/${id}/accept`, { method: "POST", queueOffline: true, body: {} }),
     // Офлайн: карточку разблокируем сразу (агент может вести заметки), а сам приём
     // уйдёт из очереди при появлении сети. Телефон подтянется настоящим после синка.
     onMutate: async () => {
@@ -351,9 +311,8 @@ export function useAcceptLead(id: string) {
         epoch: currentSessionEpoch(),
       };
     },
-    // Откат нужен и при 409 «выберите, кого освободить»: приём не состоялся, и
-    // карточка обязана вернуться в состояние «ждёт принятия», иначе агент видит
-    // разблокированного клиента, которого на самом деле ещё не принял.
+    // Откат при любой ошибке приёма: карточка обязана вернуться в состояние
+    // «ждёт принятия», иначе агент видит не принятого клиента разблокированным.
     onError: (err, _vars, ctx) => rollbackUnlessQueued(qc, err, ctx),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clients"] });
@@ -693,174 +652,6 @@ export function useTransferClient(clientId: string) {
     // (кому передан клиент или что передач больше нет) и свою плашку на отказе.
     meta: { silent: true },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["client"] });
-      qc.invalidateQueries({ queryKey: ["clients"] });
-    },
-  });
-}
-
-/**
- * «Вернуть в работу» — обратный переход к «Неактивному» (ТЗ п. 27). Без него
- * статус был дверью в одну сторону: клиент возвращался в работу только тогда,
- * когда сам писал в канал.
- */
-export function useReactivateClient(clientId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api<{ ok: boolean }>(`/clients/${clientId}/activate`, { method: "POST" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["client"] });
-      qc.invalidateQueries({ queryKey: ["clients"] });
-    },
-  });
-}
-
-/** Один шаг цепочки отказов — кто вёл клиента и что записал при закрытии. */
-export interface LostClientChainHop {
-  agentName: string;
-  notes: string;
-  at: string;
-}
-
-/** Раздел «Потерянные клиенты» (решение владельца 11.08.2026, свой раздел рядом
- *  с «Горячими»): предел передач исчерпан, несколько агентов подряд не смогли
- *  закрыть клиента. Видит только руководство (право clients.assign). */
-export interface LostClient {
-  id: string;
-  shortId: number;
-  fullName: string;
-  kind: "BUYER" | "SELLER" | "OTHER";
-  phone: string;
-  refusalCount: number;
-  lastReason: string | null;
-  lostAt: string | null;
-  chain: LostClientChainHop[];
-}
-
-/** Страница разделов «Потерянные» и «Отложенные» (routes/clients/list.ts). */
-export const CLIENT_SECTION_PAGE_SIZE = 50;
-
-/**
- * `kind` — срез «Потерянные» внутри раздела (21.09.2026): «Продавцы» и
- * «Покупатели» стали двумя единственными разделами верхнего уровня, а
- * «потерян» — состоянием внутри каждого. Отбор ОБЯЗАН быть серверным: список
- * отдаётся страницами, и фильтр по полученной странице соврал бы ровно тогда,
- * когда потерянных много (routes/clients/list.ts, GET /lost).
- */
-export function useLostClients(enabled = true, kind?: "SELLER" | "BUYER" | null, page = 1) {
-  return useQuery({
-    // total — сколько потерянных всего: список отдаётся страницами.
-    queryKey: ["clients-lost", kind ?? "all", page],
-    placeholderData: keepWhilePagingAt<Paginated<LostClient>>(["clients-lost", kind ?? "all", page], 2),
-    queryFn: () =>
-      api<Paginated<LostClient>>(
-        `/clients/lost?page=${page}&pageSize=${CLIENT_SECTION_PAGE_SIZE}${kind ? `&kind=${kind}` : ""}`
-      ),
-    staleTime: 60_000,
-    // Сервер требует clients.assign (routes/clients/list.ts, GET /lost) — у
-    // агента этого права нет. Раньше запрос уходил безусловно с прямой ссылки
-    // на /lost-clients (пункт меню и так скрыт — ClientsTabs.tsx), сервер отвечал
-    // 403, и экран рендерился пустым/битым (приёмка 08.09, Q4 B-2).
-    enabled,
-  });
-}
-
-/**
- * ЛЕНТА СТРАНИЦ ДЛЯ «ПОТЕРЯННЫХ» И «ОТЛОЖЕННЫХ» (02.10.2026). Раньше сервер
- * молча отдавал двести, а экран писал «Показаны последние 200 из N» — увидеть
- * остальных было нечем. Теперь «Показать ещё» дочитывает страницы. Общий хук
- * на десктоп и телефон: лента и сброс при смене среза живут в одном месте, и
- * две версии экрана не могут разойтись.
- *
- * `isLoading` — только пока на экране пусто: дочитывание следующей страницы не
- * должно прятать уже показанный список за «Загружаем…».
- */
-function useResettingPage(resetKey: string): [number, (page: number) => void] {
-  const [paging, setPaging] = useState({ key: resetKey, page: 1 });
-  // Сменился срез — страница сама становится первой, без сброса в обработчике.
-  const page = paging.key === resetKey ? paging.page : 1;
-  return [page, (next: number) => setPaging({ key: resetKey, page: next })];
-}
-
-function useSectionFeed<T extends { id: string }>(
-  resetKey: string,
-  page: number,
-  setPage: (page: number) => void,
-  query: { data?: Paginated<T>; isLoading: boolean; error: Error | null; refetch: () => unknown },
-  head: { data?: Paginated<T> }
-) {
-  const accumulated = useAccumulatedPages(query.data?.items, page, resetKey, head.data?.items);
-  // Ушедшие из раздела строки («Поднять») прячем сразу: страница, где строка
-  // лежала, может не перечитаться — подписаны только текущая и первая.
-  const [gone, setGone] = useState<ReadonlySet<string>>(() => new Set());
-  const items = gone.size > 0 ? accumulated.filter((i) => !gone.has(i.id)) : accumulated;
-  return {
-    items,
-    forget: (id: string) => setGone((prev) => new Set(prev).add(id)),
-    total: query.data?.total ?? head.data?.total,
-    page,
-    pageSize: CLIENT_SECTION_PAGE_SIZE,
-    setPage,
-    isLoading: query.isLoading && items.length === 0,
-    error: query.error,
-    refetch: query.refetch,
-  };
-}
-
-export function useLostClientsFeed(enabled: boolean, kind: "SELLER" | "BUYER" | null) {
-  const key = kind ?? "all";
-  const [page, setPage] = useResettingPage(key);
-  const query = useLostClients(enabled, kind, page);
-  // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
-  const head = useLostClients(enabled && page > 1, kind, 1);
-  return useSectionFeed(key, page, setPage, query, head);
-}
-
-/**
- * Раздел «Отложенные» (задача G, план 03-04.09.2026, решение владельца):
- * EXPENSIVE/FINANCE_ISSUE/WRONG_OBJECT — обычный исход рынка, не отказ, карточка
- * остаётся у того же агента и ждёт таймера возврата. В отличие от «Потерянных»
- * видит НЕ только руководство — агенту показываются его собственные (сервер
- * скоупит по scopeToOwnAgent, см. GET /clients/deferred).
- */
-export interface DeferredClient {
-  id: string;
-  shortId: number;
-  fullName: string;
-  kind: "BUYER" | "SELLER" | "OTHER";
-  phone: string;
-  deferredAt: string | null;
-  deferredReason: string | null;
-  deferredUntil: string | null;
-  agentName: string | null;
-}
-
-export function useDeferredClients(page = 1, enabled = true) {
-  return useQuery({
-    queryKey: ["clients-deferred", page],
-    placeholderData: keepWhilePagingAt<Paginated<DeferredClient>>(["clients-deferred", page], 1),
-    queryFn: () =>
-      api<Paginated<DeferredClient>>(`/clients/deferred?page=${page}&pageSize=${CLIENT_SECTION_PAGE_SIZE}`),
-    staleTime: 60_000,
-    enabled,
-  });
-}
-
-/** Лента «Отложенных» страницами — см. useSectionFeed выше. */
-export function useDeferredClientsFeed() {
-  const [page, setPage] = useResettingPage("deferred");
-  const query = useDeferredClients(page);
-  const head = useDeferredClients(1, page > 1);
-  return useSectionFeed("deferred", page, setPage, query, head);
-}
-
-/** «Поднять раньше срока» (задача G5) — свой агент или руководитель. */
-export function useReturnDeferredClient(clientId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api<{ ok: boolean }>(`/clients/${clientId}/deferred/return`, { method: "POST" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["clients-deferred"] });
       qc.invalidateQueries({ queryKey: ["client"] });
       qc.invalidateQueries({ queryKey: ["clients"] });
     },
