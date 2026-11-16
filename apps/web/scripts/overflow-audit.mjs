@@ -489,7 +489,6 @@ const routes = [
   ["/clients", "clients"],
   ["/clients/c-1", "client-detail"],
   ["/sellers", "sellers"],
-  ["/lost-clients", "lost-clients"],
   ["/other-inquiries", "other-inquiries"],
   ["/deals", "deals"],
   ["/calendar", "calendar"],
