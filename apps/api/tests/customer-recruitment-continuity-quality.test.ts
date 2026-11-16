@@ -137,7 +137,7 @@ describe("customer recruitment continuity through the real core and renderer", (
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     expect(result.text).toContain(video.titleRu);
-    expect(result.text).toContain("Ноза"); // 16.11.2026: the number itself once per chat
+    expect(result.text).not.toContain("777 070 100"); // 16.11.2026: Noza's number was given earlier in this chat
     expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
   });
 
