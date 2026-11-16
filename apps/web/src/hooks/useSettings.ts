@@ -203,6 +203,8 @@ export interface Settings {
   botCanConfirmShowings: boolean;
   botCanFollowUp: boolean;
   botCanAnswerComments: boolean;
+  /** Комментарий, на который бот не ответил из-за сбоя, — сводкой тем, кто читает переписки (15.11.2026). */
+  commentFailureWatchEnabled: boolean;
   /** «Соедините с оператором»: очередь звонков и push агентам. */
   botCanRequestCallback: boolean;
   /** Дежурный оператор обратных звонков; null — авто-соединения нет. */
@@ -240,7 +242,16 @@ export interface Settings {
   botWhatsappEnabled: boolean;
   botInstagramEnabled: boolean;
   botFacebookEnabled: boolean;
+  /** Сверка с Meta: сообщение в Messenger / Instagram не дошло до CRM — «Ответьте вручную» (15.11.2026). */
+  messengerInboxReconcileEnabled: boolean;
+  instagramInboxReconcileEnabled: boolean;
   botTelegramEnabled: boolean;
+  /** Telegram: реплика клиента без ответа 30 минут — пуш ответственному (15.11.2026). */
+  telegramSilenceWatchEnabled: boolean;
+  /** Telegram: доставка сообщений в CRM сломалась (getWebhookInfo) — тревога руководству (15.11.2026). */
+  telegramDeliveryWatchEnabled: boolean;
+  /** WhatsApp: входящих нет дольше обычного в рабочие часы — тревога руководству (15.11.2026). */
+  whatsappWebhookWatchEnabled: boolean;
   botWebsiteChatEnabled: boolean;
   /** Задан ли маркер бота Telegram в окружении сервера. Без него канала нет. */
   telegramConfigured: boolean;
@@ -482,6 +493,8 @@ export interface Settings {
    *  если клиент сам прислал голосовое в этом же ходе. По умолчанию false (владелец:
    *  «создай, но выключи, сам протестирую»). Тумблер в BOT_ABILITIES (BotTab.tsx). */
   botCanSendVoiceReplies: boolean;
+  /** Склеивать два быстрых сообщения клиента с карточкой в один ответ (окно 6 с). По умолчанию true (владелец 15.11.2026). */
+  botMergeQuickRepeats: boolean;
   /** Режим «только заявки» (13.11.2026): бот берёт заявку и передаёт агенту. По умолчанию false. */
   botLeadOnlyMode: boolean;
   /** В режиме «только заявки»: WhatsApp-номер клиента — номер для звонка (по умолчанию true). */

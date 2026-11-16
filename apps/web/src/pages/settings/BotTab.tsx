@@ -685,6 +685,15 @@ const BOT_ABILITIES = [
     offHint: "Бот всегда отвечает только текстом, даже если клиент прислал голосовое.",
   },
   {
+    field: "botMergeQuickRepeats",
+    title: "Отвечать один раз на два сообщения подряд",
+    // 15.11.2026: клиентка с карточкой дважды за 3,5 с написала одно и то же и получила два разных ответа.
+    // Включено по умолчанию (владелец 15.11.2026: «Да, 6 секунд можно»); выключенное — прежнее «сразу» (19.08).
+    onHint:
+      "Клиент, который уже оставил номер, прислал два сообщения за несколько секунд — бот ждёт 6 секунд и отвечает один раз на оба.",
+    offHint: "Бот отвечает клиенту с номером сразу на каждое сообщение. Два сообщения подряд могут получить два ответа.",
+  },
+  {
     field: "botCautiousMode",
     title: "Режим запуска: отвечать строго по запросу",
     // Включается на время рекламной волны: в первые дни лучше недопродать, чем
@@ -2045,6 +2054,9 @@ function BotCommentsSection() {
   const { data } = useInstagramComments({ pageSize: 1 }, { enabled: canSee });
   const hidden = data?.counts.HIDDEN ?? 0;
   const waiting = data?.counts.ESCALATED ?? 0;
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const failureWatchOn = settings?.commentFailureWatchEnabled ?? true;
 
   return (
     <SettingsSection icon={MessageCircle} title="Комментарии под постами Instagram">
@@ -2063,6 +2075,17 @@ function BotCommentsSection() {
           пишет под постами, задаётся выше, в карточке «Промт ответов на комментарии».
         </span>
       </div>
+
+      <SwitchRow
+        title="Бот не смог ответить — сказать человеку"
+        on={failureWatchOn}
+        onToggle={() => updateSettings.mutate({ commentFailureWatchEnabled: !failureWatchOn })}
+        hint={
+          failureWatchOn
+            ? "Если ИИ был недоступен, у бота сорвался ответ или комментарий висит без ответа дольше 30 минут — тем, кто читает переписки, уходит одна сводка: «ответьте вручную»."
+            : "Не сообщаем: комментарий, на который бот не смог ответить из-за сбоя, останется без ответа, пока его не увидят в ленте."
+        }
+      />
 
       {canSee && (
         <div className="quiet">

@@ -14,7 +14,7 @@
 | Из них видно в меню | 36 |
 | Модулей сервера | 84 |
 | Адресов сервера всего | 748 |
-| Задач по расписанию | 132 |
+| Задач по расписанию | 136 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
 
@@ -267,6 +267,7 @@
 | `customer-inbox-jobs` | `*/5 * * * * *` | **без подписи** |
 | `customer-intake-jobs` | `*/5 * * * * *` | **без подписи** |
 | `customer-outbox-jobs` | `*/5 * * * * *` | **без подписи** |
+| `customer-unrecorded-summary` | `*/2 * * * *` | **без подписи** |
 | `daily-kpi` | `5 0 * * *` | Пересчитывает показатели всех агентов за вчера |
 | `daily-stories` | `*/15 * * * *` | **без подписи** |
 | `deal-stale-pipeline` | `20 0 * * *` | Застой сделки дольше нормы — пуш руководству и задача агенту |
@@ -308,6 +309,7 @@
 | `meeting-reminders` | `*/5 * * * *` | Напоминания о встречах и показах, сигналы о непроведённых показах и просроченных задачах |
 | `meta-ads-stale-watch` | `10 * * * *` | **без подписи** |
 | `meta-ads-sync` | `*/15 * * * *` | Тянет из рекламного кабинета объявления и расходы |
+| `meta-inbox-reconcile` | `3-59/10 * * * *` | **без подписи** |
 | `monthly-problem-report` | `10 9 1 * *` | Разбор проблемных мест за прошедший месяц |
 | `monthly-report` | `0 9 1 * *` | Месячный отчёт руководству |
 | `morning-report` | `0 8 * * *` | Утренний дайджест директорам |
@@ -349,6 +351,7 @@
 | `stuck-pending-messages` | `*/5 * * * *` | Достаёт сообщения клиентов, застрявшие из-за перезапуска сервера |
 | `supervisor-overdue-digest` | `0 * * * *` | Сводка руководству о просроченных показах, встречах и задачах |
 | `telegram-bot-api-volume-cleanup` | `59 3 * * *` | **без подписи** |
+| `telegram-delivery-watch` | `4-59/10 * * * *` | **без подписи** |
 | `telegram-group-comments` | `* * * * *` | Отвечает и эскалирует комментарии в группе Telegram-канала |
 | `telephony-station-traffic` | `17 * * * *` | **без подписи** |
 | `token-and-finance-daily` | `20 1 * * *` | Продление ключей Instagram и рекламы, проверка доступов, расходы на ИИ, зарплаты |
@@ -363,6 +366,7 @@
 | `weekly-problem-report` | `10 9 * * 1` | Недельный разбор проблемных мест агентства |
 | `weekly-reactivation-campaign` | `0 10 * * 1` | Ставит рассылку старым клиентам для возврата |
 | `weekly-security-review-digest` | `20 9 * * 1` | Недельная сводка безопасности: отказы, похожие на сделку на стороне |
+| `whatsapp-webhook-watch` | `8-59/20 * * * *` | **без подписи** |
 | `whisper-sync` | `*/5 * * * *` | Заранее озвучивает подсказку о звонящем и кладёт её на станцию |
 | `working-hours-daily-alerts` | `35 9 * * *` | Утром показывает директору перерасход бюджета и сигналы по рекламе |
 | `youtube-comments` | `*/2 * * * *` | Опрашивает YouTube на новые комментарии (вебхука у него нет) |
@@ -403,7 +407,7 @@
 |---|---|---|
 | Instagram Graph через прокси | 2 | 1 |
 | Telegram | 5 | 8 |
-| WhatsApp, Instagram Direct, Messenger (Meta) | 9 | 13 |
+| WhatsApp, Instagram Direct, Messenger (Meta) | 9 | 14 |
 | Бюджет Google Cloud | 1 | 1 |
 | Голосовой ИИ на звонках (Gemini Live) | 9 | 5 |
 | ИИ Google Gemini | 18 | 11 |
@@ -420,6 +424,6 @@
 Появилось в коде, но не описано в `docs/product-map-labels.json`. Пустые списки —
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
-- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-log-retention`, `assistant-telegram-context-cleanup`, `backup-freshness`, `balance-watch`, `client-silence-sweep`, `clip-owner-autopublish`, `clip-review-resend`, `clip-review-stale-alarm`, `comment-needs-human-sweep`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `finance-pdf-monthly`, `instagram-identity-guard`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-buyer-alerts`, `market-median-history`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-somon-incremental`, `market-weekly-crawl`, `meta-ads-stale-watch`, `narration-auto-flow`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `payment-reminders`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `staff-notice-cleanup`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
+- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-log-retention`, `assistant-telegram-context-cleanup`, `backup-freshness`, `balance-watch`, `client-silence-sweep`, `clip-owner-autopublish`, `clip-review-resend`, `clip-review-stale-alarm`, `comment-needs-human-sweep`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `customer-unrecorded-summary`, `daily-stories`, `disk-cleanup`, `finance-pdf-monthly`, `instagram-identity-guard`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-buyer-alerts`, `market-median-history`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-somon-incremental`, `market-weekly-crawl`, `meta-ads-stale-watch`, `meta-inbox-reconcile`, `narration-auto-flow`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `payment-reminders`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `staff-notice-cleanup`, `telegram-bot-api-volume-cleanup`, `telegram-delivery-watch`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`, `whatsapp-webhook-watch`
 - Модулей сервера: `/api/v1/property-offers`, `/api/v1/live-voice`, `/api/v1/report-pdf`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
 

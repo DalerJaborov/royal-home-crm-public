@@ -77,19 +77,25 @@ vi.mock("../src/messengers/meta.js", async (importOriginal) => ({
     return json(404, { error_message: `нет подмены для ${url}` });
   }),
 }));
-vi.mock("../src/auth/middleware.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/auth/middleware.js")>()),
-  requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
-    // 16.11.2026: подключать/отключать каналы — только с finance.manage (requireChannelAdmin читает permissions).
-    // Заголовок x-no-finance снимает право: проверка «без finance.manage — 403».
-    (req as unknown as { agent: { id: string; role: string; permissions: Set<string> } }).agent = {
-      id: "a1",
-      role: String(req.headers["x-role"] ?? "ADMIN"),
-      permissions: new Set(req.headers["x-no-finance"] ? [] : ["finance.manage"]),
-    };
-    next();
-  },
-}));
+vi.mock("../src/auth/middleware.js", async (importOriginal) => {
+  // Доступ к маркетингу — по праву marketing.access (#188): права агента — из пресета его роли.
+  // 16.11.2026: подключать/отключать каналы — только с finance.manage (requireChannelAdmin читает permissions);
+  // заголовок x-no-finance снимает это право для проверки «без finance.manage — 403».
+  const { resolvePermissions } = await import("@royal-home/shared");
+  return {
+    ...(await importOriginal<typeof import("../src/auth/middleware.js")>()),
+    requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+      const role = String(req.headers["x-role"] ?? "ADMIN");
+      const permissions = new Set<string>(resolvePermissions(role as never, null));
+      if (req.headers["x-no-finance"]) permissions.delete("finance.manage");
+      else permissions.add("finance.manage");
+      (req as unknown as { agent: { id: string; role: string; permissions: ReadonlySet<string> } }).agent = {
+        id: "a1", role, permissions,
+      };
+      next();
+    },
+  };
+});
 
 const { prisma } = await import("../src/db.js");
 const { encryptSecret, decryptSecretSafe } = await import("../src/crypto.js");

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **754**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4085**. Модулей: **84**.
+Путей: **754**. Развилок в самих путях: **2477**; вместе с задачами по расписанию и фоновыми заданиями — **4103**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -66,9 +66,6 @@
 - если next.enabled && !next.dryRun && !next.adSetId
   - return res.status(400).json({ error: "Для боевого режима укажите номер группы объявлений постоянной кампании …
     · ответ 400 — «Для боевого режима укажите номер группы объявлений постоянной…»
-- если touchesLive && !req.agent?.permissions.has("finance.manage")
-  - return res.status(403).json({ error: "Боевой режим автопродвижения включает только директор" });
-    · ответ 403 — «Боевой режим автопродвижения включает только директор»
 - await prisma.settings.update({ where: { id: "singleton" }, data: { ...(patch.enabled !== undefined && { reels…
   · меняет в базе: settings
 - logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { reelsAutoBoost: patch });
@@ -236,7 +233,7 @@
 
 ### POST /api/v1/ads/connect
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite, requireChannelAdmin
+`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
 
 - пробует
   - const url = await buildConnectUrl(req.agent!.id);
@@ -266,7 +263,7 @@
 
 ### POST /api/v1/ads/disconnect
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite, requireChannelAdmin
+`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
 
 - await prisma.settings.updateMany({ where: { id: "singleton" }, data: { metaAdsToken: null, metaAdsTokenRefres…
   · меняет в базе: settings
@@ -1504,7 +1501,7 @@
   - если !property
     - return res.status(404).json({ error: "Объект не найден" });
       · ответ 404 — «Объект не найден»
-  - если !isResponsible && !can(req, "properties.viewOwners") && !can(req, "properties.editForeign") && !can(req, "pro…
+  - если !isResponsible && !can(req, "properties.viewOwners") && !can(req, "properties.editForeign")
     - return res.status(403).json({ error: "Недостаточно прав" });
       · ответ 403 — «Недостаточно прав»
 - const privateLessonIds = await privateLessonAuditIds(investigationViewerRole(req));
@@ -4766,6 +4763,8 @@
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
+- const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
+  · зовёт pendingDeleteHideWhere()
 - const today = dushanbeDayRange(now);
   · зовёт dushanbeDayRange()
 - const yesterday = dushanbeDayRange(new Date(today.start.getTime() - 1));
@@ -4812,11 +4811,6 @@
     · ответ 403 — «Недостаточно прав»
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, "clients.delete") });
-  · зовёт pendingDeleteHiddenClientIds()
-- если idsToHide.length > 0
-  - where.id = { notIn: idsToHide };
-    · дословно из кода
 - если allMine
   - where.OR = [{ assignedAgentId: ownAgentId }, { lastAgentId: ownAgentId }];
     · дословно из кода
@@ -5758,11 +5752,6 @@
   - если !can(req, "deals.complete")
     - return fail(403, { error: "Аннулировать сделку может только руководитель" });
       · дословно из кода
-  - const annulTarget = await prisma.deal.findUnique({ where: { id: dealId }, select: { agentId: true } });
-    · читает в базе: deal
-  - если annulTarget && isOwnDealWithoutFinance(req, annulTarget)
-    - return fail(403, { error: "Свою сделку аннулирует директор" });
-      · дословно из кода
   - const parsed = dealAnnulSchema.safeParse(body);
     · проверяет данные схемой dealAnnulSchema
   - если !parsed.success
@@ -5855,7 +5844,7 @@
 - если !deal
   - return res.status(404).json({ error: "Сделка не найдена" });
     · ответ 404 — «Сделка не найдена»
-- если (deal.stage === "PENDING_APPROVAL" || deal.stage === "COMPLETED") && (!can(req, "deals.complete") || (deal.ag…
+- если (deal.stage === "PENDING_APPROVAL" || deal.stage === "COMPLETED") && !can(req, "deals.complete")
   - return res.status(409).json({ error: deal.stage === "COMPLETED" ? "Сделка закрыта — удалить её документ может…
     · ответ 409
 - const doc = await getDealDocument(parsedParams.data.docId);
@@ -5940,8 +5929,8 @@
 
 - const outcome = await markDealPayoutFor(req, req.params.id, req.body);
   · зовёт markDealPayoutFor()
-  - если !can(req, "finance.manage")
-    - return fail(403, { error: "Отметить выплату может только директор" });
+  - если !can(req, "finance.manage") && !can(req, "deals.setCommission")
+    - return fail(403, { error: "Недостаточно прав" });
       · дословно из кода
   - const parsed = dealPayoutSchema.safeParse(body);
     · проверяет данные схемой dealPayoutSchema
@@ -6021,9 +6010,6 @@
   - если data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && !canCompleteDeal(req)
     - return fail(403, { error: "Закрыть сделку может только руководитель" });
       · дословно из кода
-  - если data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && isOwnDealWithoutFinance(req, existing)
-    - return fail(403, { error: "Свою сделку закрывает директор: вы продавец, второй человек должен подтвердить" });
-      · дословно из кода
   - const commissionExceedsPrice = finalSoldPrice !== null && finalSoldPrice !== undefined && finalRealtorAmount …
     · зовёт sumCents()
   - const isDirectComplete = data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && existing.stage !== "…
@@ -6090,12 +6076,6 @@
           · зовёт logAudit()
   - если commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…
     - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
-      · дословно из кода
-  - если existing.stage === "COMPLETED" && !can(req, "finance.manage") && (data.commissionAmount !== undefined || data…
-    - return fail(403, { error: "Деньги закрытой сделки меняет только директор" });
-      · дословно из кода
-  - если isRepricingClosed && !can(req, "finance.manage")
-    - return fail(403, { error: "Комиссию закрытой сделки меняет только директор" });
       · дословно из кода
   - если isRepricingClosed && data.commissionAmount === undefined && data.commissionPercent !== undefined
     - const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…
@@ -10894,7 +10874,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Генерация доступна маркетингу и руководству" });
     · ответ 403 — «Генерация доступна маркетингу и руководству»
 - const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…
@@ -10944,7 +10924,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Передачу готовит маркетинг или руководство" });
     · ответ 403 — «Передачу готовит маркетинг или руководство»
 - const parsed = narrationHandoffSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionI…
@@ -11020,7 +11000,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
     · ответ 403 — «Нет доступа»
 - const deliveryId = idSchema.safeParse(req.params.deliveryId);
@@ -11145,7 +11125,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
     · ответ 403 — «Нет доступа»
 - если !parsed.success
@@ -11162,7 +11142,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
     · ответ 403 — «Нет доступа»
 - если !z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success
@@ -11177,7 +11157,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
     · ответ 403 — «Нет доступа»
 - если !z.object({}).strict().safeParse(req.body).success
@@ -11202,11 +11182,11 @@
   - для каждого: const row of unresolved
     - if (!versions.some(v => v.id === row.id)) versions.push(row);
       · дословно из кода
-- const deliveries = manager(req.agent?.role) ? await prisma.propertyNarrationDelivery.findMany({ where: { prop…
+- const deliveries = manager(req.agent) ? await prisma.propertyNarrationDelivery.findMany({ where: { propertyId…
   · читает в базе: propertyNarrationDelivery
-- const subscription = manager(req.agent?.role) ? await prisma.ownerReportSubscription.findUnique({ where: { pr…
+- const subscription = manager(req.agent) ? await prisma.ownerReportSubscription.findUnique({ where: { property…
   · читает в базе: ownerReportSubscription
-- const reports = manager(req.agent?.role) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p…
+- const reports = manager(req.agent) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p.id },…
   · читает в базе: ownerReportDelivery
 - const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…
   · читает в базе: smsMessage
@@ -11269,7 +11249,7 @@
   - если (latest?.revision ?? 0) !== parsed.data.expectedRevision
     - return null;
       · дословно из кода
-  - если latest?.approvedAt && !manager(req.agent?.role)
+  - если latest?.approvedAt && !manager(req.agent)
     - return null;
       · дословно из кода
   - return tx.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: parsed.data.expectedRevision …
@@ -13039,9 +13019,6 @@
     · ответ 400
 - const changedFields = changedPropertyFields( Object.fromEntries(Object.entries(parsed.data).filter(([k])
   · зовёт changedPropertyFields()
-- если (req.agent!.role === "MARKETING" || req.agent!.role === "EDITOR") && !ownsProperty(req.agent!.id, existing) &…
-  - return res.status(403).json({ error: "Цену и контакт собственника меняет агент объекта или руководитель" });
-    · ответ 403 — «Цену и контакт собственника меняет агент объекта или руководитель»
 - если existing.status === "SOLD" && changedFields.some((f) => f === "soldPrice" || f === "currency" || f === "price…
   - return res.status(403).json({ error: "Цену и валюту проданного объекта исправляет руководитель" });
     · ответ 403 — «Цену и валюту проданного объекта исправляет руководитель»
@@ -13912,7 +13889,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- если !manager(req.agent?.role)
+- если !manager(req.agent)
   - return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
     · ответ 403 — «Настройки доступны маркетингу и руководству»
 - res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false, quotaExceeded: !!await narrationQuotaExceede…
@@ -18483,6 +18460,12 @@
 - если !(await isMetaEnabled())
   - return res.status(503).json({ error: "Канал Meta выключен в Настройках CRM" });
     · ответ 503 — «Канал Meta выключен в Настройках CRM»
+- если incoming.length > 0 && incoming.every((m) => (m.channel === "FACEBOOK" || m.channel === "INSTAGRAM") && !m.is…
+  - если await staffAnsweredLate(incoming)
+    - console.log(`[вебхук] ${incoming[0]!.channel}: повтор ${incoming.length} сообщ., сотрудник уже ответил по све…
+      · пишет строку в журнал сервера
+    - return res.json({ ok: true });
+      · ответ 200
 - const durableIngress = await persistVerifiedCustomerIngressBatch(req);
   · зовёт persistVerifiedCustomerIngressBatch()
 - если durableIngress.status === "denied" || durableIngress.status === "unavailable"
@@ -18507,6 +18490,9 @@
   - если (durableIngress.status === "persisted" || durableIngress.status === "bypass") && durableIngress.held?.length
     - await notifyHeldCustomerMessages(durableIngress.held);
       · зовёт notifyHeldCustomerMessages()
+  - если lateHanded
+    - await notifyLateDelivery(lateHanded);
+      · зовёт notifyLateDelivery()
   - для каждого: const message of incoming
     - если message.isEcho
       - continue;
@@ -20302,43 +20288,6 @@
     - если !(await isWithinWorkingHours(now))
       - return { checked: 0, alerted: 0, skippedOffHours: true };
         · дословно из кода
-    - const rows = await prisma.$queryRaw< Array<{ id: string; messages: unknown; leadDraft: unknown; silenceAlertF…
-      · обращается к базе своим SQL
-    - для каждого: const row of rows
-      - const episode = waitingEpisodeOf(row.messages);
-        · зовёт waitingEpisodeOf()
-      - если !episode || episode.since.getTime() > threshold
-        - continue;
-          · переходит к следующему
-      - если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()
-        - continue;
-          · переходит к следующему
-      - если customerSpamMuteActive(customerSpamMuteFrom(spam), now)
-        - continue;
-          · переходит к следующему
-    - если due.length === 0
-      - return { checked: rows.length, alerted: 0, skippedOffHours: false };
-        · дословно из кода
-    - const tickets = keys.length ? await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: …
-      · читает в базе: customerPropertyIngressTicket
-    - const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d)
-      · зовёт fetchLastCallContactByClient()
-    - для каждого: const d of due
-      - пробует
-        - если allIntentional
-          - continue;
-            · переходит к следующему
-        - если called && called.getTime() > d.episode.since.getTime()
-          - continue;
-            · переходит к следующему
-        - const outcome = await alertClientWaiting({ conversationId: d.id, trigger: "silence", now });
-          · зовёт alertClientWaiting()
-        - если outcome !== "skipped"
-          - alerted++;
-            · дословно из кода
-      - если сорвалось
-        - reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
-          · зовёт reportCronRowError()
   - если alerted > 0
     - console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
       · пишет строку в журнал сервера
@@ -20442,6 +20391,10 @@
 - пробует
   - const { alerted } = await runCommentNeedsHumanSweep();
     · зовёт runCommentNeedsHumanSweep()
+    - const technicalOn = await isCommentFailureWatchEnabled();
+      · зовёт isCommentFailureWatchEnabled()
+    - const queueRuns = technicalOn && (await loadBotCapabilities()).comments;
+      · зовёт loadBotCapabilities()
     - const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string …
       · обращается к базе своим SQL
     - если !rows.length
@@ -20450,7 +20403,12 @@
     - const claim = (commentId: string)
       · обращается к базе своим SQL
     - для каждого: const row of rows
-      - если !commentNeedsHuman(row.status, row.note)
+      - const need = commentNeed(row.status, row.note);
+        · зовёт commentNeed()
+      - если need === "technical" && !technicalOn
+        - continue;
+          · переходит к следующему
+      - если need === "no"
         - continue;
           · переходит к следующему
     - если !due.length
@@ -20585,6 +20543,60 @@
   - в любом случае
     - customerBusy[lane] = false;
       · дословно из кода
+
+### customer-unrecorded-summary — */2 * * * *
+
+- пробует
+  - const { people } = await runUnrecordedCustomerSummary();
+    · зовёт runUnrecordedCustomerSummary()
+    - const recipients = await findAgentsWithPermission("messages.view");
+      · зовёт findAgentsWithPermission()
+    - если !recipients.length
+      - const waiting = await prisma.processedMessage.count({ where: { channel: UNRECORDED_PENDING } });
+        · считает в базе: processedMessage
+      - если waiting
+        - void logSystemError("meta", `Сообщения клиентов (${waiting}) не попали в чат CRM, а сказать некому: нет никог…
+          · запись в журнал ошибок
+    - const taken = await prisma.$queryRaw<Array<{ messageId: string; createdAt: Date }>>`DELETE FROM "ProcessedMes…
+      · обращается к базе своим SQL
+    - если !taken.length
+      - return { people: 0, sent: false };
+        · дословно из кода
+    - для каждого: const row of taken
+      - пробует
+      - если сорвалось
+        - void logSystemError("meta", "Запись сводки «Ответьте вручную» не расшифровалась и пропущена.", { dedupKey: "c…
+          · запись в журнал ошибок
+    - если !people.length
+      - return { people: 0, sent: false };
+        · дословно из кода
+    - для каждого: const p of people
+      - если !p.accountExternalId || titles.has(`${p.channel}:${p.accountExternalId}`)
+        - continue;
+          · переходит к следующему
+      - const row = await prisma.messengerAccount.findFirst({ where: { channel: p.channel, externalId: p.accountExter…
+        · читает в базе: messengerAccount
+      - если row?.title
+        - titles.set(`${p.channel}:${p.accountExternalId}`, row.title);
+          · дословно из кода
+    - пробует
+      - await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL", title: people.length === 1 ? `Ответь…
+        · push-уведомление
+    - если сорвалось
+      - await prisma.processedMessage.createMany({ data: taken.map(r
+        · создаёт в базе: processedMessage
+      - void logSystemError("meta", `Сводка «Ответьте вручную» по сообщениям вне чата CRM не отправлена, повторим: ${…
+        · запись в журнал ошибок
+  - если people > 0
+    - console.log(`[cron] Вне чата CRM: сводка «Ответьте вручную» по ${people} чел.`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сводки «сообщения вне чата CRM»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### daily-kpi — 5 0 * * *
 
@@ -23132,6 +23144,85 @@
   - isAdsSyncRunning = false;
     · дословно из кода
 
+### meta-inbox-reconcile — 3-59/10 * * * *
+
+- пробует
+  - const { people, missed } = await runMetaInboxReconcile();
+    · зовёт runMetaInboxReconcile()
+    - пробует
+      - если !(await isMetaEnabled())
+        - return { ...result, skipped: "meta_disabled" };
+          · дословно из кода
+      - const switches = await inboxReconcileSwitches();
+        · зовёт inboxReconcileSwitches()
+      - если !switches.FACEBOOK && !switches.INSTAGRAM
+        - return { ...result, skipped: "switched_off" };
+          · дословно из кода
+      - pages = [ ...(switches.FACEBOOK ? await listFacebookPageInboxes() : []), ...(switches.INSTAGRAM && (await isM…
+        · зовёт listFacebookPageInboxes()
+    - если сорвалось
+      - void logSystemError("meta", `Сверка переписок Страниц не запустилась: ${withoutToken(err)}`, { dedupKey: "met…
+        · запись в журнал ошибок
+    - для каждого: const page of pages
+      - пробует
+        - const body = await fetchPageInbox(page, fetchImpl);
+          · зовёт fetchPageInbox()
+        - если body.error
+          - void logSystemError("meta", `Сверка переписок: Meta не отдала переписки Страницы «${page.title}» ` + `(код ${…
+            · запись в журнал ошибок
+          - continue;
+            · переходит к следующему
+        - const incoming = incomingFromGraph(page.ownIds?.length ? page.ownIds : page.pageId, body, now, { graceMs: GRA…
+          · зовёт incomingFromGraph()
+        - const known = await knownMessageIds(incoming, channel);
+          · зовёт knownMessageIds()
+        - если !missed.length
+          - continue;
+            · переходит к следующему
+        - для каждого: const m of missed
+          - byPerson.set(m.fromId, [...(byPerson.get(m.fromId) ?? []), m]);
+            · дословно из кода
+        - recipients ??= await findAgentsWithPermission("messages.view");
+          · зовёт findAgentsWithPermission()
+        - если !recipients.length
+          - void logSystemError("meta", `Страница «${page.title}»: ${byPerson.size} чел. не дошли до CRM, но в CRM нет ни…
+            · запись в журнал ошибок
+          - continue;
+            · переходит к следующему
+        - для каждого: const [fromId, list] of byPerson
+          - для каждого: const m of list
+            - if (await claimMissed(m.mid)) fresh.push(m);
+              · дословно из кода
+          - если !fresh.length
+            - continue;
+              · переходит к следующему
+          - пробует
+            - await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL", title: `Ответьте вручную: ${name} ($…
+              · push-уведомление
+          - если сорвалось
+            - await prisma.processedMessage.deleteMany({ where: { channel: CLAIM_CHANNEL, messageId: { in: fresh.map((m)
+              · удаляет в базе: processedMessage
+            - void logSystemError("meta", `Пуш «Ответьте вручную» по Странице «${page.title}» не ушёл, повторим: ${withoutT…
+              · запись в журнал ошибок
+        - если !told
+          - continue;
+            · переходит к следующему
+        - void logSystemError("meta", `${channel === "INSTAGRAM" ? "Instagram" : "Страница"} «${page.title}»: ${told} ч…
+          · запись в журнал ошибок
+      - если сорвалось
+        - void logSystemError("meta", `Сверка переписок Страницы «${page.title}» оборвалась: ${withoutToken(err)}`, { d…
+          · запись в журнал ошибок
+  - если people > 0
+    - console.log(`[cron] Сверка Страниц: не дошло до CRM ${missed} сообщ. от ${people} чел. — сотрудникам пуш`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сверки переписок Страниц", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### monthly-problem-report — 10 9 1 * *
 
 - пробует
@@ -25230,6 +25321,41 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### telegram-delivery-watch — 4-59/10 * * * *
+
+- пробует
+  - const { alarmed } = await runTelegramDeliveryWatch();
+    · зовёт runTelegramDeliveryWatch()
+    - const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { telegramDeliveryWatchEnabl…
+      · читает в базе: settings
+    - если !(s?.telegramDeliveryWatchEnabled ?? true)
+      - return { skipped: "off", alarmed: false };
+        · дословно из кода
+    - если !isTelegramEnabled()
+      - return { skipped: "not_configured", alarmed: false };
+        · дословно из кода
+    - пробует
+    - если сорвалось
+      - return { skipped: "read_failed", alarmed: false };
+        · дословно из кода
+    - const problem = telegramDeliveryProblem(info, now, previousPending);
+      · зовёт telegramDeliveryProblem()
+    - если !problem
+      - return { skipped: null, alarmed: false };
+        · дословно из кода
+    - void logSystemError("telegram", `Telegram → CRM: ${problem.text}. Клиенты могут писать боту, а CRM их не види…
+      · запись в журнал ошибок
+  - если alarmed
+    - console.log("[cron] Telegram не доставляет сообщения в CRM — тревога руководству");
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «Telegram не доставляет»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### telegram-group-comments — * * * * *
 
 - если isTelegramCommentsRunning
@@ -26069,6 +26195,54 @@
     · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка недельной сводки СБ", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### whatsapp-webhook-watch — 8-59/20 * * * *
+
+- пробует
+  - const { alarmed, silenceMs } = await runWhatsappWebhookWatch();
+    · зовёт runWhatsappWebhookWatch()
+    - const s = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { whatsappWebhookWatchEnable…
+      · читает в базе: settings
+    - если !(s?.whatsappWebhookWatchEnabled ?? true)
+      - return { ...result, skipped: "off" };
+        · дословно из кода
+    - если !(await isMetaChannelEnabled("WHATSAPP"))
+      - return { ...result, skipped: "channel_off" };
+        · дословно из кода
+    - const creds = await loadCredentials();
+      · зовёт loadCredentials()
+    - const token = creds.waPhoneId ? (await resolveIncomingAccount("WHATSAPP", creds.waPhoneId)).token || creds.wa…
+      · зовёт resolveIncomingAccount()
+    - если !creds.waPhoneId || !token
+      - return { ...result, skipped: "not_configured" };
+        · дословно из кода
+    - если !isWithinDushanbeWindow(window.start, window.end, now)
+      - return { ...result, skipped: "off_hours" };
+        · дословно из кода
+    - если times.length < WA_MIN_HISTORY_MESSAGES
+      - return { ...result, skipped: "little_history" };
+        · дословно из кода
+    - result.thresholdMs = silenceThresholdMs(longestWorkGapMs(times, window));
+      · зовёт silenceThresholdMs()
+    - result.silenceMs = workSilenceMs(last, now, window);
+      · зовёт workSilenceMs()
+    - если result.silenceMs < result.thresholdMs
+      - return result;
+        · дословно из кода
+    - const cause = await diagnoseWhatsappNumber({ phoneId: creds.waPhoneId, token, businessAccountId: s?.metaWaBus…
+      · зовёт diagnoseWhatsappNumber()
+    - void logSystemError("meta", `WhatsApp молчит: в рабочие часы нет ни одного входящего уже ${hours(result.silen…
+      · запись в журнал ошибок
+  - если alarmed
+    - console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководств…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «вебхук WhatsApp замолчал»", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -27409,6 +27583,16 @@
       - const [row] = await prisma.$queryRaw<Array<{ conversationId: string | null; channel: string | null; peer: str…
         · обращается к базе своим SQL
       - если !row || row.answered
+        - return;
+          · дальше не идёт, ничего не меняя
+      - если row.chatDeleted
+        - void logSystemError("meta", `Бот не ответил клиенту (причина «${reason}»): чат этого человека удалён сотрудни…
+          · запись в журнал ошибок
+        - return;
+          · дальше не идёт, ничего не меняя
+      - если !row.conversationId
+        - await notifyUnansweredCustomerTurn({ reason, channel: input?.channel ?? "", peer: input?.peer ?? "", conversa…
+          · зовёт notifyUnansweredCustomerTurn()
         - return;
           · дальше не идёт, ничего не меняя
       - await notifyUnansweredCustomerTurn({ reason, channel: row.channel ?? "", peer: row.peer ?? "", conversationId…
@@ -28803,6 +28987,8 @@
   - если !extract
     - return "ai-unavailable";
       · дословно из кода
+  - const pickedDistrict = typeof extract.districtName === "string" && districtPickAllowed(extract.districtName.t…
+    · зовёт districtPickAllowed()
   - если next.address && next.address !== base.address
     - пробует
       - const place = await resolveGeoText(next.address);

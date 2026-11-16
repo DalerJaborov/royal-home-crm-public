@@ -167,6 +167,19 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
           }
         />
 
+        {/* Вебхук WhatsApp замолчал (15.11.2026, lib/whatsappWebhookWatch.ts): входящие WhatsApp
+            приходят только вебхуком, сверить их не с чем — следим за потоком целиком. */}
+        <SwitchRow
+          title="Следить, что WhatsApp не замолчал"
+          on={settings?.whatsappWebhookWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ whatsappWebhookWatchEnabled: !(settings?.whatsappWebhookWatchEnabled ?? true) })}
+          hint={
+            settings?.whatsappWebhookWatchEnabled ?? true
+              ? "Если в рабочие часы входящих в WhatsApp нет дольше обычного, руководство получает тревогу с причиной: номер отключён, подписка слетела или вебхук не доходит."
+              : "Не следим: если Meta перестанет присылать сообщения WhatsApp, это заметят только по жалобам клиентов."
+          }
+        />
+
         {/* Ключи Meta — здесь же, рядом с рубильником. Раньше их надо было вписывать
             в файл на сервере по SSH: для владельца это непроходимый шаг, а ключи
             Claude и Gemini давно вводятся прямо в CRM — теперь и эти так же. */}
@@ -297,6 +310,28 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
           onSave={(list) => updateSettings.mutate({ facebookShareGroups: list })}
         />
 
+        {/* Сверка с Meta (15.11.2026, lib/metaInboxReconcile.ts): то, что видно у Meta, но не дошло до CRM. */}
+        <SwitchRow
+          title="Messenger: сверять, всё ли дошло"
+          on={settings?.messengerInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ messengerInboxReconcileEnabled: !(settings?.messengerInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.messengerInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет переписки Страниц с Meta: если человек написал, а до CRM сообщение не дошло, всем, кто читает переписки, приходит «Ответьте вручную»."
+              : "Не сверяем: сообщение в Messenger, которое Meta не прислала в CRM, никто не увидит, пока не откроет Business Suite."
+          }
+        />
+        <SwitchRow
+          title="Instagram: сверять, всё ли дошло"
+          on={settings?.instagramInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ instagramInboxReconcileEnabled: !(settings?.instagramInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.instagramInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет Direct аккаунтов Instagram с Meta: не дошедшее до CRM — «Ответьте вручную» тем, кто читает переписки."
+              : "Не сверяем: сообщение в Direct, которое Meta не прислала в CRM, никто не увидит, пока не откроет Instagram."
+          }
+        />
+
         <div className="quiet">
           <span className="dot" />
           <span className="txt">
@@ -310,10 +345,30 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
         <div className="quiet">
           <span className="dot" />
           <span className="txt">
-            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника
+            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника канала
             здесь нет. Бот отвечает только клиентам, которые написали ему сами.
           </span>
         </div>
+        <SwitchRow
+          title="Клиент без ответа — сказать человеку"
+          on={settings?.telegramSilenceWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramSilenceWatchEnabled: !(settings?.telegramSilenceWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramSilenceWatchEnabled ?? true
+              ? "Клиент написал в Telegram, а за 30 минут ему не ответили ни бот, ни сотрудник — агенту клиента (или руководству) уходит пуш. В рабочие часы."
+              : "Не следим: молчание в Telegram никто не заметит, пока не откроет переписку."
+          }
+        />
+        <SwitchRow
+          title="Следить, что Telegram доставляет сообщения"
+          on={settings?.telegramDeliveryWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramDeliveryWatchEnabled: !(settings?.telegramDeliveryWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramDeliveryWatchEnabled ?? true
+              ? "Раз в 10 минут CRM спрашивает у Telegram, доходят ли сообщения бота: если нет — руководство получает тревогу с причиной."
+              : "Не следим: если Telegram перестанет доставлять сообщения в CRM, это заметят только по жалобам клиентов."
+          }
+        />
       </SettingsSection>
 
       </>}

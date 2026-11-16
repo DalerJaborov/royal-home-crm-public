@@ -1,3 +1,4 @@
+import { districtPickAllowed } from "../lib/serviceArea.js";
 import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import { readCustomerDmSubjectExecution } from "../lib/customerAgentEnrollment.js";
 import { prisma } from "../db.js";
@@ -30,7 +31,7 @@ import {
 } from "./conversationStore.js";
 export { ensureConversationId, markLastReplyUndelivered, markMessageDeliveryStatus, stampOutgoingMid };
 import { appendConversationMessages } from "./appendMessages.js";
-import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, takeStuckBuffers } from "./debounceBuffer.js";
+import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, quickRepeatMergeEnabled, takeStuckBuffers } from "./debounceBuffer.js";
 import { claimUnreadablePhoneAsk } from "./phoneRetryClaim.js";
 import { CLIENT_KIND_LABELS, CLIENT_SOURCES, formatClientCode, type ClientSource } from "@royal-home/shared";
 import { clientSelfStatedName, normalizeClientName } from "../ai/replyGuards.js";
@@ -856,7 +857,9 @@ export async function acceptLead(
   // Без учёта регистра, общим правилом на все каналы (ночная проверка
   // 24.09.2026): раньше здесь стояло точное сравнение, и «сино» из разговора
   // не находило «Сино» в справочнике — район молча не попадал в карточку.
-  const districtId = await findDistrictIdByName(draft.districtName);
+  // «Рудаки (район)» от модели — только если клиент сам говорил о районе Рудаки, а не о проспекте (lib/serviceArea.ts).
+  const districtSourceWords = [...history.filter((m) => m.role === "user").map((m) => (typeof m.content === "string" ? m.content : "")), options?.clientText ?? ""].join("\n");
+  const districtId = districtPickAllowed(draft.districtName, districtSourceWords) ? await findDistrictIdByName(draft.districtName) : undefined;
 
   // Продажа объекта ЗА ПРЕДЕЛАМИ Таджикистана (Россия и т.п.) — не принимаем вообще:
   // заявку не заводим и телефон не сохраняем, даже если клиент сам его прислал.
@@ -3252,7 +3255,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
        * докстринг debounceAndMerge), которую раньше делал свой `replyClaimed`
        * прямо в блоке «заявка уже принята» — но полные 25 секунд обычного
        * окна здесь ни к чему: клиент, который уже оставил номер, ждёт ответа
-       * так же быстро, как ждал бы «агент свяжется» раньше. `delayMs: 0` —
+       * так же быстро, как ждал бы «агент свяжется» раньше. 6 с по умолчанию (Settings.botMergeQuickRepeats, владелец 15.11 «Да, 6 секунд можно»; выключен — 0 с) —
        * не ждём НАРОЧНО, `maxWaitMs` небольшой — просто потолок на случай,
        * если несколько вебхуков всё же пришли не совсем одновременно.
        */
@@ -3268,6 +3271,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         accepted: !!conversation.clientId,
         hasMedia: images.length > 0 || saved.length > 0,
         greetingFast,
+        mergeQuickRepeats: !!conversation.clientId && (await quickRepeatMergeEnabled()),
       })
     );
     if (batch === null) return { reply: "", ready: true, accepted: !!conversation.clientId, shouldReply: false };

@@ -96,11 +96,11 @@ describe("второй PATCH: настройки из передачи 24.10, б
     expect(kw.length).toBeLessThanOrEqual(50);
   });
 
-  it("очередь реплик: eager, turn_timeout 5, turn_v3 + speculative_turn; заполнители выкл; чужих полей нет", () => {
+  it("очередь реплик: normal (16.11.2026, было eager), turn_timeout 5, turn_v3 + speculative_turn; заполнители выкл; чужих полей нет", () => {
     expect(cc.turn).toEqual({
       turn_model: "turn_v3",
       speculative_turn: true,
-      turn_eagerness: "eager",
+      turn_eagerness: "normal",
       turn_timeout: 5,
       soft_timeout_config: { timeout_seconds: -1 },
       interruption_ignore_terms: expect.any(Array),

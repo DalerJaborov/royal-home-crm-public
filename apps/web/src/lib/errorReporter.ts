@@ -41,6 +41,16 @@ export function reportUploadIssue(info: UploadIssueInfo): void {
   report(formatUploadIssueMessage(info));
 }
 
+/**
+ * Самолечение пустых списков (lib/emptyListGuard.ts): тихая запись в ErrorLog
+ * с меткой «[empty-list-guard]». Тот же `report` (дедуп 5 минут, предел сессии);
+ * частоту на устройство ограничивает сам guard. Источник в журнале — «web»,
+ * отличать по метке в начале сообщения.
+ */
+export function reportEmptyListGuard(message: string): void {
+  report(message);
+}
+
 export function initErrorReporter() {
   window.addEventListener("error", (e) => {
     report(e.message || "Неизвестная ошибка", e.error instanceof Error ? e.error.stack : undefined);

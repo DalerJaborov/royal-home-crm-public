@@ -93,8 +93,20 @@ export { hasMarketingRole };
  *  что кабинет маркетинга — общий helper, а не вторая копия проверки роли. */
 export function requireMarketingRole<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.agent) return res.status(401).json({ error: "Требуется авторизация" });
-  if (!hasMarketingRole(req.agent.role)) {
+  if (!hasMarketingRole(req.agent)) {
     return res.status(403).json({ error: "Недостаточно прав" });
+  }
+  next();
+}
+
+/** Подключение и отключение каналов компании (TikTok, Threads, Search Console, Яндекс, пароль
+ *  приложения): только роли маркетинга и руководства. Право marketing.access (его получает и РОП)
+ *  этого не открывает — подключённый не тем человеком канал уводит ролики компании на чужую страницу
+ *  (ревью 14.11.2026). */
+export function requireChannelAdmin<P>(req: Request<P>, res: Response, next: NextFunction) {
+  if (!req.agent) return res.status(401).json({ error: "Требуется авторизация" });
+  if (req.agent.role !== "MARKETING" && req.agent.role !== "DIRECTOR" && req.agent.role !== "ADMIN") {
+    return res.status(403).json({ error: "Каналы подключает маркетинг или руководство" });
   }
   next();
 }
@@ -102,12 +114,7 @@ export function requireMarketingRole<P>(req: Request<P>, res: Response, next: Ne
 /** /editors-load — своя очередь монтажа, её видят маркетинг, монтажёр, директор и админ. */
 function requireEditorsLoadRole<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.agent) return res.status(401).json({ error: "Требуется авторизация" });
-  if (
-    req.agent.role !== "MARKETING" &&
-    req.agent.role !== "EDITOR" &&
-    req.agent.role !== "DIRECTOR" &&
-    req.agent.role !== "ADMIN"
-  ) {
+  if (req.agent.role !== "EDITOR" && !hasMarketingRole(req.agent)) {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   next();

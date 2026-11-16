@@ -1735,6 +1735,11 @@
       "label": null
     },
     {
+      "id": "customer-unrecorded-summary",
+      "expr": "*/2 * * * *",
+      "label": null
+    },
+    {
       "id": "daily-kpi",
       "expr": "5 0 * * *",
       "label": "Пересчитывает показатели всех агентов за вчера"
@@ -1938,6 +1943,11 @@
       "id": "meta-ads-sync",
       "expr": "*/15 * * * *",
       "label": "Тянет из рекламного кабинета объявления и расходы"
+    },
+    {
+      "id": "meta-inbox-reconcile",
+      "expr": "3-59/10 * * * *",
+      "label": null
     },
     {
       "id": "monthly-problem-report",
@@ -2145,6 +2155,11 @@
       "label": null
     },
     {
+      "id": "telegram-delivery-watch",
+      "expr": "4-59/10 * * * *",
+      "label": null
+    },
+    {
       "id": "telegram-group-comments",
       "expr": "* * * * *",
       "label": "Отвечает и эскалирует комментарии в группе Telegram-канала"
@@ -2213,6 +2228,11 @@
       "id": "weekly-security-review-digest",
       "expr": "20 9 * * 1",
       "label": "Недельная сводка безопасности: отказы, похожие на сделку на стороне"
+    },
+    {
+      "id": "whatsapp-webhook-watch",
+      "expr": "8-59/20 * * * *",
+      "label": null
     },
     {
       "id": "whisper-sync",
@@ -2338,7 +2358,7 @@
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
       "keys": 9,
-      "files": 13
+      "files": 14
     },
     {
       "name": "Бюджет Google Cloud",

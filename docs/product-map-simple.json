@@ -14,12 +14,12 @@
  "totals": {
   "screens": 53,
   "paths": 754,
-  "cron": 138,
+  "cron": 142,
   "jobs": 33,
-  "conditions": 4069,
-  "untranslatedUnique": 467,
-  "untranslatedTotal": 598,
-  "partialUnique": 1106,
+  "conditions": 4087,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 594,
+  "partialUnique": 1115,
   "translatedShare": 85
  },
  "untranslated": [
@@ -34,6 +34,8 @@
   "!(await setPausedUntil(req.params.id, pausedUntil))",
   "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
   "!(await shouldAlert(tag, DISAPPROVED_WINDOW_MS, now))",
+  "!(s?.telegramDeliveryWatchEnabled ?? true)",
+  "!(s?.whatsappWebhookWatchEnabled ?? true)",
   "!/^[a-f0-9]{64}$/.test(eventKey)",
   "!/^[a-z0-9-]{8,64}$/.test(req.params.campaign)",
   "!OVERRIDABLE_KINDS.includes(event.kind as (typeof OVERRIDABLE_KINDS)[number])",
@@ -63,7 +65,6 @@
   "!clientPropertyEligible(c, facts, money, policy)",
   "!commandFailed(res, err)",
   "!commandFailed(res, error)",
-  "!commentNeedsHuman(row.status, row.note)",
   "!confirmedClientIntents(client).buys",
   "!contact.success || !contact.data.name || !contact.data.phone || !intent || intent.status !== \"committed\" || …",
   "!contentType.startsWith(\"video/\")",
@@ -81,7 +82,6 @@
   "!doc || doc.dealId !== deal.id",
   "!e.counterparty?.trim()",
   "!episode || episode.executionMode !== \"LIVE\" || episode.ropAgentId !== req.agent!.id",
-  "!episode || episode.since.getTime() > threshold",
   "!existing && await tx.recruitmentPosition.count() >= 24",
   "!expenseListQuerySchema.safeParse(req.query).success",
   "!filePath || !(await localVideoExists(video.storageKey))",
@@ -93,12 +93,11 @@
   "!idSchema.safeParse(req.params.receiptId).success",
   "!identity.username?.trim()",
   "!isLastPart && body.length !== session.partSize",
-  "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
   "!isTelegram && \"accountId\" in conv && conv.accountId",
   "!key || !narrationProviderReady(config, key)",
   "!known && !fbAccount && settings?.metaPageId !== params.data.pageId",
   "!legacy && property.clipVideoPendingInput !== payload.inputFilename",
-  "!manager(req.agent?.role)",
+  "!manager(req.agent)",
   "!message.referralOnly && admission.status === \"admitted\" && admission.fresh && pendingReferral && message.acc…",
   "!messages.some((m) => m.role === \"user\")",
   "!narrationAutoEnabled(config)",
@@ -157,14 +156,12 @@
   "(await prisma.deal.count({ where: { propertyId: existing.id } })) > 0",
   "(await syncAgentMobileFallback(agent.id, creds)) === \"station_unreachable\"",
   "(current && !current.closedAt) || current?.id === sessionId || (current?.revision ?? 0) !== revision",
-  "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && (!can(req, \"deals.complete\") || (deal.ag…",
   "(err as { code?: string }).code !== \"P2002\"",
   "(err as { code?: string }).code === \"P2002\"",
   "(existing?.revision ?? 0) !== parsed.data.expectedRevision",
   "(expenseDay(p.data.to!).getTime() - expenseDay(p.data.from!).getTime()) / 86400000 > 366",
   "(latest?.revision ?? 0) !== parsed.data.expectedRevision",
   "(property.publishedChannels ?? []).includes(\"TIKTOK\")",
-  "(req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…",
   "(settings?.leadDistributionStrategy ?? \"fair\") === \"manual\"",
   "Boolean(params.propertyId) === Boolean(params.freeVideoId)",
   "Date.now() - last < REFRESH_EVERY_MS",
@@ -218,6 +215,7 @@
   "await removeStationObject(creds, \"bridge\", bridge.id)",
   "await removeStationObject(creds, \"channel\", channel.id)",
   "await sourceClosed(new Date())",
+  "await staffAnsweredLate(incoming)",
   "await staleLeadCircleOpen()",
   "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, status: { in: [\"QUEUED\", \"SENDING\", \"UN…",
   "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, versionId: row.versionId, editorId: row…",
@@ -260,7 +258,6 @@
   "current[field.count] !== dispute.aiCount",
   "customerPropertyContextEnabled() && message.fromAd && message.accountExternalId && await verifyMetaCustomerRe…",
   "customerPropertyTurnTerminal(history)",
-  "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
   "customerTurnSilenceIsIntended(reason)",
   "d.media.some((m) => m.status === \"UPLOADING\" && m.updatedAt >= activeSince)",
   "data.assignedAgentId !== undefined && data.assignedAgentId !== existing.assignedAgentId",
@@ -317,7 +314,6 @@
   "event.kind === parsed.data.override",
   "existing.client?.deletedAt && data.stage && data.stage !== existing.stage",
   "existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
-  "existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…",
   "existing.status === \"EDITING\" && data.status !== undefined && data.status !== \"EDITING\" && isPipelineStatus(d…",
   "existing.status === \"RESERVED\" && changedFields.some((f) => f === \"price\" || f === \"currency\") && !can(req, \"…",
   "existing.status === \"SOLD\" && changedFields.some((f) => f === \"soldPrice\" || f === \"currency\" || f === \"price…",
@@ -340,6 +336,7 @@
   "id === otherId",
   "ids.length !== existing.size || ids.some((id) => !existing.has(id))",
   "inNightFullCrawlWindow()",
+  "incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…",
   "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
@@ -349,7 +346,7 @@
   "lastAlertDay === today",
   "lastRequestedAt !== undefined && Date.now() - lastRequestedAt < RETRANSCRIBE_LIMIT_MS",
   "latest && narrationFactsCurrent(latest, p) && latest.status !== \"FAILED\"",
-  "latest?.approvedAt && !manager(req.agent?.role)",
+  "latest?.approvedAt && !manager(req.agent)",
   "leftMs > 5 * 60_000 || leftMs < 0",
   "legacyUrl?.startsWith(\"/uploads/\")",
   "link.expiresAt && link.expiresAt.getTime() < Date.now()",
@@ -442,7 +439,6 @@
   "row.doneAt || row.supersededAt || !intent || intent.status !== \"committed\" || intent.generation !== row.gener…",
   "row.groupChatId && row.groupChatId !== settings.discussionGroupId",
   "row.id === t.id",
-  "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
   "row.status !== status",
   "row.type in byType",
   "row?.factsInputHash === inputHash",
@@ -1018,6 +1014,11 @@
      "i": 537,
      "direct": false,
      "conf": "через общую часть"
+    },
+    {
+     "i": 569,
+     "direct": false,
+     "conf": "через часть экрана"
     },
     {
      "i": 579,
@@ -8160,6 +8161,11 @@
      "i": 287,
      "direct": false,
      "conf": "через общую часть"
+    },
+    {
+     "i": 569,
+     "direct": false,
+     "conf": "через общую часть"
     }
    ]
   },
@@ -9988,8 +9994,7 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite",
-    "requireChannelAdmin"
+    "requireAdsWrite"
    ],
    "screens": [
     "/",
@@ -10093,8 +10098,7 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite",
-    "requireChannelAdmin"
+    "requireAdsWrite"
    ],
    "screens": [
     "/",
@@ -13344,7 +13348,7 @@
        ]
       },
       {
-       "t": "если !isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
+       "t": "если нет: is responsible и нет: право «properties.viewOwners» и нет: право «properties.editForeign»",
        "k": "if",
        "a": [],
        "c": [
@@ -13354,8 +13358,7 @@
          "a": [],
          "c": []
         }
-       ],
-       "raw": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…"
+       ]
       }
      ]
     },
@@ -22800,12 +22803,6 @@
      ]
     },
     {
-     "t": "если в hide количество больше 0",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
      "t": "если есть все мои",
      "k": "if",
      "a": [],
@@ -25319,12 +25316,6 @@
        "c": []
       },
       {
-       "t": "если есть annul получатель и это свой сделка without finance",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
        "t": "если данные заполнены неправильно",
        "k": "if",
        "a": [],
@@ -25575,7 +25566,7 @@
      ]
     },
     {
-     "t": "если (deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && (!can(req, \"deals.complete\") || (deal.ag…",
+     "t": "если (этап (сделка) — «PENDING_APPROVAL» или этап (сделка) — «COMPLETED») и нет: право «deals.complete»",
      "k": "if",
      "a": [],
      "c": [
@@ -25585,8 +25576,7 @@
        "a": [],
        "c": []
       }
-     ],
-     "raw": "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && (!can(req, \"deals.complete\") || (deal.ag…"
+     ]
     },
     {
      "t": "если !doc || doc.dealId !== deal.id",
@@ -25825,7 +25815,7 @@
      "a": [],
      "c": [
       {
-       "t": "если нет: право «finance.manage»",
+       "t": "если нет: право «finance.manage» и нет: право «deals.setCommission»",
        "k": "if",
        "a": [],
        "c": []
@@ -25990,12 +25980,6 @@
        "c": []
       },
       {
-       "t": "если этап — «COMPLETED» и этап (такая запись) не «COMPLETED» и это свой сделка without finance",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
        "t": "если есть is direct завершить и нет: есть full closing данные",
        "k": "if",
        "a": [],
@@ -26124,19 +26108,6 @@
        "a": [],
        "c": [],
        "raw": "commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…"
-      },
-      {
-       "t": "если existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…",
-       "k": "if",
-       "a": [],
-       "c": [],
-       "raw": "existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…"
-      },
-      {
-       "t": "если есть is repricing закрыт и нет: право «finance.manage»",
-       "k": "if",
-       "a": [],
-       "c": []
       },
       {
        "t": "если есть is repricing закрыт и комиссия сумма не задан и комиссия percent задан",
@@ -40220,7 +40191,7 @@
    "screens": [],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -40231,7 +40202,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если данные заполнены неправильно или нет: success",
@@ -40412,7 +40383,7 @@
    "screens": [],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -40423,7 +40394,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если данные заполнены неправильно или нет: success",
@@ -40632,7 +40603,7 @@
    "screens": [],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -40643,7 +40614,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если данные заполнены неправильно или нет: success",
@@ -40972,7 +40943,7 @@
    "screens": [],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -40983,7 +40954,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если данные заполнены неправильно",
@@ -41025,7 +40996,7 @@
    "screens": [],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -41036,7 +41007,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если !z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success",
@@ -41079,7 +41050,7 @@
    "screens": [],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -41090,7 +41061,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "если !z.object({}).strict().safeParse(req.body).success",
@@ -41315,11 +41286,11 @@
        "raw": "(latest?.revision ?? 0) !== parsed.data.expectedRevision"
       },
       {
-       "t": "если latest?.approvedAt && !manager(req.agent?.role)",
+       "t": "если latest?.approvedAt && !manager(req.agent)",
        "k": "if",
        "a": [],
        "c": [],
-       "raw": "latest?.approvedAt && !manager(req.agent?.role)"
+       "raw": "latest?.approvedAt && !manager(req.agent)"
       },
       {
        "t": "заводит: объект narration version",
@@ -46422,20 +46393,6 @@
      ]
     },
     {
-     "t": "если (req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Цену и контакт собственника меняет агент объекта или руководитель»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "(req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…"
-    },
-    {
      "t": "если existing.status === \"SOLD\" && changedFields.some((f) => f === \"soldPrice\" || f === \"currency\" || f === \"price…",
      "k": "if",
      "a": [],
@@ -48901,7 +48858,7 @@
    ],
    "tree": [
     {
-     "t": "если !manager(req.agent?.role)",
+     "t": "если !manager(req.agent)",
      "k": "if",
      "a": [],
      "c": [
@@ -48912,7 +48869,7 @@
        "c": []
       }
      ],
-     "raw": "!manager(req.agent?.role)"
+     "raw": "!manager(req.agent)"
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -51203,6 +51160,8 @@
     "есть право: reports.view"
    ],
    "screens": [
+    "/",
+    "/pult",
     "/reports"
    ],
    "tree": [
@@ -62577,6 +62536,28 @@
      "c": []
     },
     {
+     "t": "если incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "если await staffAnsweredLate(incoming)",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "всё хорошо, отвечает данными",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "await staffAnsweredLate(incoming)"
+      }
+     ],
+     "raw": "incoming.length > 0 && incoming.every((m) => (m.channel === \"FACEBOOK\" || m.channel === \"INSTAGRAM\") && !m.is…"
+    },
+    {
      "t": "если статус — «denied» или статус — «unavailable»",
      "k": "if",
      "a": [],
@@ -62604,6 +62585,12 @@
      "c": [
       {
        "t": "если (статус — «persisted» или статус — «bypass») и есть held количество",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть late handed",
        "k": "if",
        "a": [],
        "c": []
@@ -64070,19 +64057,6 @@
      "c": [
       {
        "t": "отказ: данные неверные: «Для боевого режима укажите номер группы объявлений постоянной…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть touches вживую и permissions не содержит «finance.manage»",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав: «Боевой режим автопродвижения включает только директор»",
        "k": "do",
        "a": [],
        "c": []
@@ -66211,64 +66185,6 @@
          "k": "if",
          "a": [],
          "c": []
-        },
-        {
-         "t": "и так по каждому",
-         "k": "loop",
-         "a": [],
-         "c": [
-          {
-           "t": "если !episode || episode.since.getTime() > threshold",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "!episode || episode.since.getTime() > threshold",
-           "more": true
-          },
-          {
-           "t": "если row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()",
-           "more": true
-          },
-          {
-           "t": "если customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "customerSpamMuteActive(customerSpamMuteFrom(spam), now)",
-           "more": true
-          }
-         ]
-        },
-        {
-         "t": "если due количество — «0»",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "и так по каждому",
-         "k": "loop",
-         "a": [],
-         "c": [
-          {
-           "t": "пробует сделать",
-           "k": "try",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если не получилось",
-           "k": "catch",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
         }
        ]
       },
@@ -66522,11 +66438,17 @@
          "a": [],
          "c": [
           {
-           "t": "если !commentNeedsHuman(row.status, row.note)",
+           "t": "если need — «technical» и нет: technical on",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "!commentNeedsHuman(row.status, row.note)",
+           "more": true
+          },
+          {
+           "t": "если need — «no»",
+           "k": "if",
+           "a": [],
+           "c": [],
            "more": true
           }
          ]
@@ -66854,6 +66776,152 @@
            "c": []
           }
          ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "customer-unrecorded-summary",
+   "when": "*/2 * * * *",
+   "label": "customer-unrecorded-summary",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: recipients количество",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть ожидают",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если нет: taken количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если нет: people количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: account external или titles содержит «${p.channel}:${p.accountExternalId}»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть title",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "push-уведомление",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "заводит: processed сообщение",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если people больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
         }
        ]
       }
@@ -71584,6 +71652,108 @@
    ]
   },
   {
+   "id": "meta-inbox-reconcile",
+   "when": "3-59/10 * * * *",
+   "label": "meta-inbox-reconcile",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если выключено: Meta",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: facebook и нет: Instagram",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если people больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "monthly-problem-report",
    "when": "10 9 1 * *",
    "label": "Разбор проблемных мест за прошедший месяц",
@@ -75458,6 +75628,90 @@
    ]
   },
   {
+   "id": "telegram-delivery-watch",
+   "when": "4-59/10 * * * *",
+   "label": "telegram-delivery-watch",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(s?.telegramDeliveryWatchEnabled ?? true)",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(s?.telegramDeliveryWatchEnabled ?? true)"
+        },
+        {
+         "t": "если выключено: Telegram",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: проблема",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть alarmed",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "telegram-group-comments",
    "when": "* * * * *",
    "label": "Отвечает и эскалирует комментарии в группе Telegram-канала",
@@ -77343,6 +77597,96 @@
       {
        "t": "push-уведомление",
        "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "whatsapp-webhook-watch",
+   "when": "8-59/20 * * * *",
+   "label": "whatsapp-webhook-watch",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(s?.whatsappWebhookWatchEnabled ?? true)",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(s?.whatsappWebhookWatchEnabled ?? true)"
+        },
+        {
+         "t": "если выключено: Meta канал",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: wa телефон или нет: ключ доступа",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если это не внутри dushanbe окно",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если times количество меньше wa минимум history messages",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если silence ms меньше threshold ms",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть alarmed",
+       "k": "if",
        "a": [],
        "c": []
       }
@@ -79884,6 +80228,20 @@
          "c": [
           {
            "t": "если нет: строка или есть answered",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть чат удалён",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: переписка",
            "k": "if",
            "a": [],
            "c": [],

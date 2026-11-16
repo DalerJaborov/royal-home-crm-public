@@ -2,7 +2,7 @@ import { requireChannelAdmin } from "../lib/marketingRole.js";
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";
-import { requireMarketingRole } from "./marketing.js";
+import { requireMarketingRole, requireChannelAdmin } from "./marketing.js";
 import { encryptSecret, decryptSecretSafe } from "../crypto.js";
 import { publicAppUrl } from "../lib/crmPublicUrl.js";
 import { logAudit } from "../lib/audit.js";
