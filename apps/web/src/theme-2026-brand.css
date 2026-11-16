@@ -553,3 +553,56 @@ html[data-theme="royal-home-2026-night"] {
   font-weight: 400 !important;
   padding-inline: 0;
 }
+
+/*
+ * СТРОКА КЛИЕНТА НА ТЕЛЕФОНЕ: ИМЯ ВАЖНЕЕ ВСЕГО ОСТАЛЬНОГО (17.11.2026, кадры 375 px
+ * у директора и РОП: от имени оставалось 2-3 буквы — «Си…», «Умед С…», — потому что
+ * чип действия («первый звонок»), время и трубка стояли в одну линию с ним).
+ * Строка клиента (Row с data-client-row, pages/Clients.tsx) раскладывается сеткой:
+ * аватар | имя и описание | трубка; чип или время — второй строкой под именем;
+ * кнопки «Принять/Отклонить» — третьей, на всю ширину. Имя переносится на вторую
+ * строку, а не режется. У агента на телефоне свой список (MobileClientsList).
+ */
+@media (max-width: 819px) {
+  .rh2 .scr .row.rh-row[data-client-row] {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    align-items: start;
+    column-gap: 12px;
+    row-gap: 6px;
+  }
+  .rh2 .scr .row.rh-row[data-client-row] > .av {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+  .rh2 .scr .row.rh-row[data-client-row] > .t {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+  /* Ссылка-заголовок внутри <b> — по тегу, без её класса: её растяжку и зону
+     нажатия здесь не трогаем (сторож tapTargetsCss.test.ts), только перенос. */
+  .rh2 .scr .row.rh-row[data-client-row] > .t b,
+  .rh2 .scr .row.rh-row[data-client-row] > .t b > :is(a, button) {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .rh2 .scr .row.rh-row[data-client-row] > :is(.chip, .meta) {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .rh2 .scr .row.rh-row[data-client-row] > .act {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .rh2 .scr .row.rh-row.rh-row-wrap[data-client-row] > .act {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+}
