@@ -270,6 +270,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
         supersededAt: null, cancelRequestedAt: null, ticket: { is: where },
       }, include: { ticket: { select: ticketSelect }, attempts: { where: { outcome: "ACCEPTED", providerMid: { not: null }, finishedAt: { not: null } },
         orderBy: { attemptNo: "desc" }, take: 1 } }, orderBy: [{ acceptedAt: "desc" }, { ordinal: "desc" }], take: 6 });
+      const replyAfter = new Map<string, string>();
       const candidates: CustomerAgentMemoryCandidate[] = await readCustomerPublicOutreachMemory(principal);
       candidates.push(...await readCustomerRecruitmentRecoveryMemory(principal));
       for (const row of history) {
@@ -308,7 +309,13 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
           }
           const allowed = safePublicLines(evidence, revision);
           const text = payload.text.split("\n").map(line => line.trim()).filter(line => allowed.has(line)).join("\n");
-          if (text) candidates.push({ role: "assistant", text, observedAt: part.acceptedAt.getTime(), stableKey: `out:${part.id}` });
+          if (text) {
+            candidates.push({ role: "assistant", text, observedAt: part.acceptedAt.getTime(), stableKey: `out:${part.id}` });
+            // The bot's reply to each ticket (parts arrive newest first, so an earlier part goes in front): the intake reads a bare
+            // «3» / «70 000» / «Сино» as an answer only to the question the bot had just asked.
+            const key = part.ticket.order.toString();
+            replyAfter.set(key, [text, replyAfter.get(key)].filter(Boolean).join("\n"));
+          }
         } catch { /* Corrupt or non-public historical part is omitted, never a grant. */ }
       }
       const sentLineDigests = await readSentLineDigests(principal, ticket.receivedAt);
@@ -339,10 +346,11 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
         ...(recruitmentAnswerTo ? { recruitmentAnswerTo } : {}),
         ...(sentLineDigests.length ? { sentLineDigests } : {}),
         turns: projectCustomerAgentMemory(candidates, revision.limits.maxInputChars),
-        intake: customerAgentIntake([...history].reverse().flatMap(row => {
+        intake: customerAgentIntake([...history].reverse().flatMap((row, index, chronological) => {
           const text = historicalText(row, current, true, priorRevisions, intakeContinuity);
-          return text ? [{ role: "user" as const, text: minimizeCustomerAgentMemoryText(text) }] : [];
-        }), minimizeCustomerAgentMemoryText(currentInput.inputText)),
+          const previous = chronological[index - 1], asked = previous ? replyAfter.get(previous.order.toString()) : undefined;
+          return text ? [{ role: "user" as const, text: minimizeCustomerAgentMemoryText(text), ...(asked ? { askedBefore: asked } : {}) }] : [];
+        }), minimizeCustomerAgentMemoryText(currentInput.inputText), "unknown", history[0] ? replyAfter.get(history[0].order.toString()) : undefined),
         publicState: customerPublicStateSchema.parse(after.snapshot.state.publicState) }) };
     } catch { return { status: "held", reason: "storage_unavailable" }; }
   };

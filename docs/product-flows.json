@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 757,
-  "forks": 4105,
-  "mounts": 85,
-  "cron": 143,
+  "endpoints": 754,
+  "forks": 4109,
+  "mounts": 84,
+  "cron": 142,
   "jobs": 33,
   "hidden": 0
  },
@@ -860,7 +860,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite"
+    "requireAdsWrite",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -990,7 +991,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite"
+    "requireAdsWrite",
+    "requireChannelAdmin"
    ],
    "handlerRef": null,
    "tree": [
@@ -6585,7 +6587,7 @@
       },
       {
        "k": "if",
-       "t": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\")",
+       "t": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
        "a": [],
        "c": [
         {
@@ -25041,6 +25043,29 @@
       },
       {
        "k": "do",
+       "t": "const annulTarget = await prisma.deal.findUnique({ where: { id: dealId }, select: { agentId: true } });",
+       "a": [
+        "читает в базе: deal"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "annulTarget && isOwnDealWithoutFinance(req, annulTarget)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Свою сделку аннулирует директор\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
        "t": "const parsed = dealAnnulSchema.safeParse(body);",
        "a": [
         "проверяет данные схемой dealAnnulSchema"
@@ -25465,7 +25490,7 @@
     },
     {
      "k": "if",
-     "t": "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && !can(req, \"deals.complete\")",
+     "t": "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && (!can(req, \"deals.complete\") || (deal.ag…",
      "a": [],
      "c": [
       {
@@ -25832,12 +25857,12 @@
      "c": [
       {
        "k": "if",
-       "t": "!can(req, \"finance.manage\") && !can(req, \"deals.setCommission\")",
+       "t": "!can(req, \"finance.manage\")",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return fail(403, { error: \"Недостаточно прав\" });",
+         "t": "return fail(403, { error: \"Отметить выплату может только директор\" });",
          "a": [
           "дословно из кода"
          ],
@@ -26209,6 +26234,21 @@
        ]
       },
       {
+       "k": "if",
+       "t": "data.stage === \"COMPLETED\" && existing.stage !== \"COMPLETED\" && isOwnDealWithoutFinance(req, existing)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Свою сделку закрывает директор: вы продавец, второй человек должен подтвердить\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "const commissionExceedsPrice = finalSoldPrice !== null && finalSoldPrice !== undefined && finalRealtorAmount …",
        "a": [
@@ -26538,6 +26578,36 @@
         {
          "k": "do",
          "t": "return fail(400, { error: \"Комиссия (риелтор + компания) не может превышать фактическую цену продажи\", });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Деньги закрытой сделки меняет только директор\" });",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "isRepricingClosed && !can(req, \"finance.manage\")",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, { error: \"Комиссию закрытой сделки меняет только директор\" });",
          "a": [
           "дословно из кода"
          ],
@@ -54685,7 +54755,8 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен"
+    "вход выполнен",
+    "есть право: properties.editForeign"
    ],
    "handlerRef": null,
    "tree": [
@@ -54815,14 +54886,6 @@
        "t": "const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: actor.…",
        "a": [
         "зовёт transferPropertyWithSeller()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "void recordRopTransfer({ kind: \"PROPERTY\", targetId: property.id, fromAgentId: result.fromAgentId, toAgentId,…",
-       "a": [
-        "зовёт recordRopTransfer()"
        ],
        "c": []
       },
@@ -57655,6 +57718,21 @@
       "зовёт changedPropertyFields()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "(req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Цену и контакт собственника меняет агент объекта или руководитель\" });",
+       "a": [
+        "ответ 403 — «Цену и контакт собственника меняет агент объекта или руководитель»"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -78467,93 +78545,6 @@
    ]
   },
   {
-   "method": "POST",
-   "path": "/:id/respond",
-   "mount": "/api/v1/transfer-requests",
-   "full": "/api/v1/transfer-requests/:id/respond",
-   "file": "apps/api/src/routes/transferRequests.ts",
-   "router": "transferRequestsRouter",
-   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const outcome = await reviewRopTransfer(who(req), req.params.id, req.body);",
-     "a": [
-      "зовёт reviewRopTransfer()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(outcome.status).json(outcome.body);",
-     "a": [
-      "ответ (код зависит от условия)"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/outgoing",
-   "mount": "/api/v1/transfer-requests",
-   "full": "/api/v1/transfer-requests/outgoing",
-   "file": "apps/api/src/routes/transferRequests.ts",
-   "router": "transferRequestsRouter",
-   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: transfers.request"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "res.json({ items: await listOutgoingTransferRequests(who(req)) });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/pending",
-   "mount": "/api/v1/transfer-requests",
-   "full": "/api/v1/transfer-requests/pending",
-   "file": "apps/api/src/routes/transferRequests.ts",
-   "router": "transferRequestsRouter",
-   "top": "apps/api/src/routes/transferRequests.ts::transferRequestsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "res.json({ items: await listPendingTransferReviews(who(req)) });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
    "method": "GET",
    "path": "/config",
    "mount": "/api/v1/ui-shell",
@@ -85470,6 +85461,21 @@
        "t": "return res.status(400).json({ error: \"Для боевого режима укажите номер группы объявлений постоянной кампании …",
        "a": [
         "ответ 400 — «Для боевого режима укажите номер группы объявлений постоянной…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "touchesLive && !req.agent?.permissions.has(\"finance.manage\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Боевой режим автопродвижения включает только директор\" });",
+       "a": [
+        "ответ 403 — «Боевой режим автопродвижения включает только директор»"
        ],
        "c": []
       }
@@ -115668,116 +115674,6 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка сводки на завтра\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
-   "id": "transfer-request-tick",
-   "when": "*/5 * * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { stuck } = await runTransferRequestTick();",
-       "a": [
-        "зовёт runTransferRequestTick()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: \"DECLINED\", resultNote: EXECU…",
-         "a": [
-          "читает в базе: ownershipTransferRequest"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const row of stuck",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: \"DECLINED\", res…",
-           "a": [
-            "меняет в базе: ownershipTransferRequest"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "claim.count",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "publishTransferChanged([row.requestedById], row.id);",
-             "a": [
-              "зовёт publishTransferChanged()"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "runTransferRequestTick() — apps/api/src/lib/ownershipTransferRequest.ts"
-      },
-      {
-       "k": "if",
-       "t": "stuck > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Передачи РОП: не завершён возврат у ${stuck}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка тика запросов передачи\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],

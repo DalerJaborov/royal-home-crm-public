@@ -210,6 +210,9 @@ export const PERMISSIONS = [
     id: "properties.viewOwners",
     label: "Контакты собственников",
     group: "properties",
+    // Номера видит только директор (владелец 16.11.2026: «никто не видит номера
+    // кроме директора самого»). Свой объект сотрудник по-прежнему видит целиком.
+    directorOnly: true,
     hint: "Телефон и имя собственника в любой карточке объекта, не только своей. Сам каталог виден всем без этого права.",
   },
   {
@@ -264,6 +267,9 @@ export const PERMISSIONS = [
     id: "clients.viewPhone",
     label: "Видеть телефоны клиентов",
     group: "clients",
+    // Только директор (владелец 16.11.2026): у всех остальных номер закрыт маской,
+    // связь — кнопкой «Позвонить» через АТС.
+    directorOnly: true,
     hint: "Без права сотрудник видит только последние цифры и звонит кнопкой — номер набирает АТС. Выдавайте тем, кому номер нужен в руках.",
   },
   {
@@ -503,7 +509,6 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
     "dashboard.analytics",
     // Руководитель сохраняет прежний полный объём (плюс правка) — оба
     // преемника viewAll, слой 3 08.09.2026.
-    "properties.viewOwners",
     "properties.editForeign",
     "clients.viewAll",
     "deals.viewAll",
@@ -573,9 +578,7 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
   MARKETING: [
     // Маркетинг правит чужие карточки по работе конвейера — оба преемника
     // viewAll, слой 3 08.09.2026.
-    "properties.viewOwners",
     "properties.editForeign",
-    "properties.export",
     "properties.aiListing",
     // Возвращено 04.09.2026 вместе с удалением автомонтажа. Право снимали
     // 23.08.2026 временно — «на время автоматизации монтажа/публикации
@@ -587,8 +590,6 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
     // это же самое право у AGENT). Маркетинг разбирает записи для роликов/отзывов
     // и должен слышать разговор целиком, не только текст — одна из трёх ролей,
     // за которыми это осталось (см. calls.hearRecording выше и DIRECTOR/SECURITY).
-    "calls.transcripts",
-    "calls.hearRecording",
     /**
      * ЭКРАН МАРКЕТОЛОГА (мозговой штурм 20-21.08.2026, «Логика 2.0»: «дашборды:
      * руководителю — этапы/светофор/red flags, директору — только цифры;
@@ -640,7 +641,6 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
   SECURITY: [
     "clients.viewAll",
     "deals.viewAll",
-    "properties.viewOwners",
     "reports.view",
     // Ночная проверка 24.09.2026 (находка №146/П4), решение владельца — ДА:
     // без этого права список сотрудников для фильтра по агенту на экранах
@@ -693,7 +693,6 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
     "properties.requestChange",
     "clients.viewOrigin",
     "clients.viewAll",
-    "clients.viewPhone",
     "deals.viewAll",
     "clients.assign",
     "clients.merge",
@@ -706,8 +705,7 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
     "messages.view",
     "calls.transcripts",
     "calls.hearRecording",
-    "properties.viewOwners",
-    "properties.editForeign",
+    "archive.view", // корзина удалённых — для разбора, кто что удалил (владелец 16.11.2026)
     "properties.moderate",
     // Владелец 14.11.2026: РОП (Ноза) получает отчёты по потерям, главную-пульс и
     // маркетинг. insights.view РОПу НЕ даём: оно открывает и запись («разобрано» по делам,

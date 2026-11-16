@@ -26,7 +26,7 @@ vi.mock("../src/lib/recipients.js", async importOriginal => ({ ...(await importO
 const runId = randomUUID(); const accountIds: string[] = []; const nativeIds: string[] = []; const installedScopeIds = new Set<string>();
 const staffIds: string[] = [];
 const deletedNativeInquiryIds: string[] = [];
-async function staff(role: "ADMIN" | "AGENT" = "ADMIN"): Promise<Request> {
+async function staff(role: "ADMIN" | "AGENT" | "DIRECTOR" = "ADMIN"): Promise<Request> {
   const row = await prisma.agent.create({ data: { fullName: "Synthetic P08 staff", phone: `synthetic-p08-${randomUUID()}`,
     role, passwordHash: "synthetic-not-a-login-hash", isActive: true } });
   staffIds.push(row.id);
@@ -515,11 +515,13 @@ describe("P08 real HUMAN task / staff lifecycle", () => {
     const created = await executeCustomerAction(await authority(value, "handover"), command);
     expect(created.status).toBe("created"); if (created.status !== "created") throw new Error("Handover not committed");
     await quarantineOwnJob(created.receipt.actionId);
-    const actor = await staff(), options = { staffAgentId: actor.agent!.id, conversationId: value.ticket.conversationId, includeLegacy: false };
+    // 16.11.2026 номера только директору: полный текст видит DIRECTOR; ADMIN (даже с выданным viewPhone) — маску.
+    const actor = await staff("DIRECTOR"), options = { staffAgentId: actor.agent!.id, conversationId: value.ticket.conversationId, includeLegacy: false };
     const visible = await loadPendingCallbackRequests(true, 1, options);
     expect(visible).toHaveLength(1); expect(visible[0]).toMatchObject({ id: created.receipt.resourceId, topic });
-    await prisma.agent.update({ where: { id: actor.agent!.id }, data: { permissions: { revoked: ["clients.viewPhone"] } } });
-    const masked = await loadPendingCallbackRequests(true, 1, options);
+    const adminActor = await staff("ADMIN");
+    await prisma.agent.update({ where: { id: adminActor.agent!.id }, data: { permissions: { granted: ["clients.viewPhone"] } } });
+    const masked = await loadPendingCallbackRequests(true, 1, { ...options, staffAgentId: adminActor.agent!.id });
     expect(masked).toHaveLength(1); expect(masked[0].topic).toContain("Прошу оператора");
     expect(masked[0].topic).not.toContain("992910044995"); expect(masked[0].topic).not.toContain("synthetic_contact");
     expect(masked[0].topic).toContain("•"); expect(masked[0].closureReason).toBeNull();

@@ -92,6 +92,7 @@ export * from "./customerMutation.js";
 export * from "./customerStaffViews.js";
 export * from "./customerAgent.js";
 export * from "./customerAgentPublicReads.js";
+export * from "./customerSearchBudget.js";
 export * from "./customerAgentDeliveryEvidence.js";
 export * from "./customerPublicComments.js";
 export * from "./customerHandoverAck.js";

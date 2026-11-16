@@ -38,13 +38,18 @@ vi.mock("../src/messengers/meta.js", async (importOriginal) => ({
 }));
 vi.mock("../src/auth/middleware.js", async (importOriginal) => {
   // Доступ к маркетингу — по праву marketing.access (#188): права агента — из пресета его роли.
+  // 16.11.2026: подключать/отключать каналы — только с finance.manage (requireChannelAdmin читает permissions);
+  // заголовок x-no-finance снимает это право для проверки «без finance.manage — 403».
   const { resolvePermissions } = await import("@royal-home/shared");
   return {
     ...(await importOriginal<typeof import("../src/auth/middleware.js")>()),
     requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
       const role = String(req.headers["x-role"] ?? "ADMIN");
+      const permissions = new Set<string>(resolvePermissions(role as never, null));
+      if (req.headers["x-no-finance"]) permissions.delete("finance.manage");
+      else permissions.add("finance.manage");
       (req as unknown as { agent: { id: string; role: string; permissions: ReadonlySet<string> } }).agent = {
-        id: "a1", role, permissions: resolvePermissions(role as never, null),
+        id: "a1", role, permissions,
       };
       next();
     },
@@ -216,6 +221,11 @@ describe("GET /search-console/overview", () => {
     google.tokenOk = true;
     const good = await request(app).get("/api/v1/search-console/overview");
     expect(good.body.error).toBeNull();
+  });
+
+  it("16.11.2026: подключение и отключение канала без finance.manage — 403", async () => {
+    expect((await request(app).get("/api/v1/search-console/oauth/start").set("x-no-finance", "1")).status).toBe(403);
+    expect((await request(app).post("/api/v1/search-console/disconnect").set("x-no-finance", "1")).status).toBe(403);
   });
 
   it("неверный период — 400; не маркетинг — 403", async () => {
