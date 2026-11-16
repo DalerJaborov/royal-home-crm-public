@@ -16,10 +16,10 @@
   "paths": 754,
   "cron": 137,
   "jobs": 33,
-  "conditions": 4070,
-  "untranslatedUnique": 464,
-  "untranslatedTotal": 595,
-  "partialUnique": 1106,
+  "conditions": 4052,
+  "untranslatedUnique": 463,
+  "untranslatedTotal": 593,
+  "partialUnique": 1099,
   "translatedShare": 85
  },
  "untranslated": [
@@ -476,7 +476,6 @@
   "typeof payload?.inputFilename === \"string\"",
   "typeof payload?.outputFilename === \"string\"",
   "typeof phone !== \"string\" || typeof password !== \"string\"",
-  "typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)",
   "typeof rest.sharePostTelegram === \"boolean\"",
   "typeof rest.sipExtension === \"string\"",
   "typeof update?.update_id !== \"number\"",
@@ -83499,95 +83498,21 @@
      "a": [],
      "c": [
       {
-       "t": "если raw ответ не задан",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если нет: success",
+       "t": "если есть shadow",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "запись в журнал ошибок",
-         "k": "do",
+         "t": "пробует сделать",
+         "k": "try",
          "a": [],
          "c": []
-        }
-       ]
-      },
-      {
-       "t": "если есть ответ количество",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если invented количество больше 0",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
         },
         {
-         "t": "если currency mismatch количество больше 0",
-         "k": "if",
+         "t": "если не получилось",
+         "k": "catch",
          "a": [],
-         "c": [
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "если invented количество больше 0",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "если intent не «sell» и intent не «job»",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "если what количество больше 0",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "t": "если есть ответ и есть продавец facts и есть включено",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)",
-         "k": "if",
-         "a": [],
-         "c": [],
-         "raw": "typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)"
+         "c": []
         }
        ]
       }
@@ -83795,95 +83720,21 @@
      "a": [],
      "c": [
       {
-       "t": "если raw ответ не задан",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если нет: success",
+       "t": "если есть shadow",
        "k": "if",
        "a": [],
        "c": [
         {
-         "t": "запись в журнал ошибок",
-         "k": "do",
+         "t": "пробует сделать",
+         "k": "try",
          "a": [],
          "c": []
-        }
-       ]
-      },
-      {
-       "t": "если есть ответ количество",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если invented количество больше 0",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
         },
         {
-         "t": "если currency mismatch количество больше 0",
-         "k": "if",
+         "t": "если не получилось",
+         "k": "catch",
          "a": [],
-         "c": [
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "если invented количество больше 0",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "если intent не «sell» и intent не «job»",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "если what количество больше 0",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "t": "если есть ответ и есть продавец facts и есть включено",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)",
-         "k": "if",
-         "a": [],
-         "c": [],
-         "raw": "typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)"
+         "c": []
         }
        ]
       }

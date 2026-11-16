@@ -5,7 +5,7 @@ import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import type { ChatMessage } from "../ai/client.js";
 import type { LeadDraft } from "../ai/leadDraft.js";
-import { runQualifyTurn } from "../ai/leadQualifier.js";
+import { runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { botAbilitiesOf, loadBotCapabilities } from "../messengers/botCapabilities.js";
 import { finishTelegramDirectQualifyTurn, isTelegramDirectMessagesEnabled } from "../messengers/telegramDirectMessages.js";
 import { isOperatorPauseActive } from "../lib/conversationState.js";
@@ -67,7 +67,7 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
     const capabilities = await loadBotCapabilities();
     const abilities = botAbilitiesOf(capabilities);
 
-    const result = await runQualifyTurn(history, draft, {
+    const result = await runLegacyQualifyTurn(history, draft, {
       images: [],
       abilities,
       conversationId: conversation.id,
@@ -75,7 +75,7 @@ export const telegramDirectReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       // память бота работала бы «в основном режиме, но не при повторе».
       contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
       phoneKnown,
-    });
+    }, null); // retry of an already-shadowed turn
     if (!result) throw new Error("ИИ всё ещё недоступен");
 
     try {

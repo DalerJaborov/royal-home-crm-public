@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 754,
-  "forks": 4086,
+  "forks": 4068,
   "mounts": 84,
   "cron": 137,
   "jobs": 33,
@@ -90064,7 +90064,7 @@
            "c": [
             {
              "k": "if",
-             "t": "row.pausedUntil && row.pausedUntil.getTime() > now.getTime()",
+             "t": "row.pausedUntil && row.pausedUntil.getTime() > now.getTime() && personTookChat(row.messages) && now.getTime()…",
              "a": [],
              "c": [
               {
@@ -90203,8 +90203,16 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const repeatOn = repeat.length > 0 && (await loadBotPauseWatchSettings()).enabled;",
+         "a": [
+          "зовёт loadBotPauseWatchSettings()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
-         "t": "для каждого: const d of repeat",
+         "t": "для каждого: const d of repeatOn ? repeat : []",
          "a": [],
          "c": [
           {
@@ -131635,347 +131643,49 @@
     },
     {
      "k": "do",
-     "t": "const result = await runQualifyTurn(history, draft, { images: [], abilities, conversationId: conversation.id,…",
+     "t": "const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…",
      "a": [
-      "зовёт runQualifyTurn()"
+      "зовёт runLegacyQualifyTurn()"
      ],
      "c": [
       {
        "k": "do",
-       "t": "const memory = selectQualifierPromptMemory(history, draft, options);",
+       "t": "const result = await runQualifyTurn(history, draft, options);",
        "a": [
-        "зовёт selectQualifierPromptMemory()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const effectiveWhoIsThis = resolveEffectiveWhoIsThis(draft, memory.contactProfile, options.abilities.promptEc…",
-       "a": [
-        "зовёт resolveEffectiveWhoIsThis()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const { abilities, showcase } = abilitiesForIntent( options.abilities, options.showcase ?? NO_SHOWCASE, draft…",
-       "a": [
-        "зовёт abilitiesForIntent()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const sellerFacts: SellerFacts | null = draft.intent === \"sell\" ? { ...collectSellerFacts(history), ...(draft…",
-       "a": [
-        "зовёт collectSellerFacts()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;",
-       "a": [
-        "зовёт readCustomerOpenVacancies()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…",
-       "a": [
-        "зовёт selectedRecruitmentPosition()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === \"job\" && abilities.vacancies && optio…",
-       "a": [
-        "читает в базе: jobApplication"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const jobIntakeBlock = draft.intent === \"job\" && abilities.vacancies && recruitmentRole?.key === \"real-estate…",
-       "a": [
-        "зовёт jobApplicationIntakeBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const selfName = clientSelfStatedName(history);",
-       "a": [
-        "зовёт clientSelfStatedName()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const [botPersona, baseGeography, sellerRules, folkGeography] = await Promise.all([ resolveBotPersona(options…",
-       "a": [
-        "зовёт resolveBotPersona()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const systemStable = buildStableSystem({ botPersona, baseGeography, sellerRules, folkGeography, canSendGuide:…",
-       "a": [
-        "зовёт buildStableSystem()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…",
-       "a": [
-        "зовёт nowBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable: brandize(systemStable, …",
-       "a": [
-        "зовёт brandize()"
+        "зовёт runQualifyTurn()"
        ],
        "c": []
       },
       {
        "k": "if",
-       "t": "rawResult == null",
+       "t": "shadow",
        "a": [],
        "c": [
         {
-         "k": "do",
-         "t": "return null;",
-         "a": [
-          "дословно из кода"
-         ],
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "scheduleLegacyCoreShadow({ channel: shadow.channel, accountId: options.accountId ?? null, traceAccount: shado…",
+           "a": [
+            "зовёт scheduleLegacyCoreShadow()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
          "c": []
         }
        ]
-      },
-      {
-       "k": "do",
-       "t": "traceModelValidation(rawResult, parsedResult.success ? [] : parsedResult.error.issues);",
-       "a": [
-        "зовёт traceModelValidation()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!parsedResult.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void logSystemError(\"ai\", `submit_reply: invalid result (${issues})`);",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "result?.reply?.length",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? \"\\n\" + J…",
-         "a": [
-          "зовёт guardPrices()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "guarded.invented.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", guarded.keptDespiteViolation ? `Бот назвал цену, которой нет в данных (${guarded.i…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "guarded.currencyMismatch.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", `[щит цены, наблюдение] В ответе бота сумма (${guarded.currencyMismatch.join(\", \")…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = guarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : guarded.…",
-         "a": [
-          "зовёт priceGuardFallbackReply()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"price\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const discountGuarded = guardDiscounts(result.reply);",
-         "a": [
-          "зовёт guardDiscounts()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "discountGuarded.invented.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", discountGuarded.keptDespiteViolation ? `Бот назвал размер скидки (${discountGuarde…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = discountGuarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : …",
-         "a": [
-          "зовёт priceGuardFallbackReply()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"discount\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "draft.intent !== \"sell\" && draft.intent !== \"job\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const claims = findOffCatalogClaims({ text: result.reply.join(\"\\n\"), allowedText: propsBlock + \"\\n\" + history…",
-           "a": [
-            "зовёт findOffCatalogClaims()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "what.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void logSystemError( \"ai\", `Бот назвал вне подборки: ${what.join(\"; \")} — этого нет ни в подборке объектов, н…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…",
-         "a": [
-          "зовёт applyAvailabilityGuard()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"availability\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "result.reply = stripRepeatedMediaApology(result.reply, history);",
-         "a": [
-          "зовёт stripRepeatedMediaApology()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"media_apology\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "result && sellerFacts && topicSettings.enabled",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "(result as { openQuestion?: string }).openQuestion = \"\";",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return result ? { ...result, showPropertyNumber: parsePhotoOffer(result.showPropertyNumber), askOwner: abilit…",
-       "a": [
-        "зовёт parsePhotoOffer()"
-       ],
-       "c": []
       }
      ],
-     "from": "runQualifyTurn() — apps/api/src/ai/leadQualifier.ts"
+     "from": "runLegacyQualifyTurn() — apps/api/src/ai/legacyQualifyDoor.ts"
     },
     {
      "k": "if",
@@ -132436,347 +132146,49 @@
     },
     {
      "k": "do",
-     "t": "const result = await runQualifyTurn(history, draft, { images: [], abilities, conversationId: conversation.id,…",
+     "t": "const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…",
      "a": [
-      "зовёт runQualifyTurn()"
+      "зовёт runLegacyQualifyTurn()"
      ],
      "c": [
       {
        "k": "do",
-       "t": "const memory = selectQualifierPromptMemory(history, draft, options);",
+       "t": "const result = await runQualifyTurn(history, draft, options);",
        "a": [
-        "зовёт selectQualifierPromptMemory()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const effectiveWhoIsThis = resolveEffectiveWhoIsThis(draft, memory.contactProfile, options.abilities.promptEc…",
-       "a": [
-        "зовёт resolveEffectiveWhoIsThis()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const { abilities, showcase } = abilitiesForIntent( options.abilities, options.showcase ?? NO_SHOWCASE, draft…",
-       "a": [
-        "зовёт abilitiesForIntent()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const sellerFacts: SellerFacts | null = draft.intent === \"sell\" ? { ...collectSellerFacts(history), ...(draft…",
-       "a": [
-        "зовёт collectSellerFacts()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;",
-       "a": [
-        "зовёт readCustomerOpenVacancies()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…",
-       "a": [
-        "зовёт selectedRecruitmentPosition()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === \"job\" && abilities.vacancies && optio…",
-       "a": [
-        "читает в базе: jobApplication"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const jobIntakeBlock = draft.intent === \"job\" && abilities.vacancies && recruitmentRole?.key === \"real-estate…",
-       "a": [
-        "зовёт jobApplicationIntakeBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const selfName = clientSelfStatedName(history);",
-       "a": [
-        "зовёт clientSelfStatedName()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const [botPersona, baseGeography, sellerRules, folkGeography] = await Promise.all([ resolveBotPersona(options…",
-       "a": [
-        "зовёт resolveBotPersona()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const systemStable = buildStableSystem({ botPersona, baseGeography, sellerRules, folkGeography, canSendGuide:…",
-       "a": [
-        "зовёт buildStableSystem()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…",
-       "a": [
-        "зовёт nowBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable: brandize(systemStable, …",
-       "a": [
-        "зовёт brandize()"
+        "зовёт runQualifyTurn()"
        ],
        "c": []
       },
       {
        "k": "if",
-       "t": "rawResult == null",
+       "t": "shadow",
        "a": [],
        "c": [
         {
-         "k": "do",
-         "t": "return null;",
-         "a": [
-          "дословно из кода"
-         ],
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "scheduleLegacyCoreShadow({ channel: shadow.channel, accountId: options.accountId ?? null, traceAccount: shado…",
+           "a": [
+            "зовёт scheduleLegacyCoreShadow()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
          "c": []
         }
        ]
-      },
-      {
-       "k": "do",
-       "t": "traceModelValidation(rawResult, parsedResult.success ? [] : parsedResult.error.issues);",
-       "a": [
-        "зовёт traceModelValidation()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!parsedResult.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void logSystemError(\"ai\", `submit_reply: invalid result (${issues})`);",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "result?.reply?.length",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? \"\\n\" + J…",
-         "a": [
-          "зовёт guardPrices()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "guarded.invented.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", guarded.keptDespiteViolation ? `Бот назвал цену, которой нет в данных (${guarded.i…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "guarded.currencyMismatch.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", `[щит цены, наблюдение] В ответе бота сумма (${guarded.currencyMismatch.join(\", \")…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = guarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : guarded.…",
-         "a": [
-          "зовёт priceGuardFallbackReply()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"price\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const discountGuarded = guardDiscounts(result.reply);",
-         "a": [
-          "зовёт guardDiscounts()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "discountGuarded.invented.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", discountGuarded.keptDespiteViolation ? `Бот назвал размер скидки (${discountGuarde…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = discountGuarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : …",
-         "a": [
-          "зовёт priceGuardFallbackReply()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"discount\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "draft.intent !== \"sell\" && draft.intent !== \"job\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const claims = findOffCatalogClaims({ text: result.reply.join(\"\\n\"), allowedText: propsBlock + \"\\n\" + history…",
-           "a": [
-            "зовёт findOffCatalogClaims()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "what.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void logSystemError( \"ai\", `Бот назвал вне подборки: ${what.join(\"; \")} — этого нет ни в подборке объектов, н…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…",
-         "a": [
-          "зовёт applyAvailabilityGuard()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"availability\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "result.reply = stripRepeatedMediaApology(result.reply, history);",
-         "a": [
-          "зовёт stripRepeatedMediaApology()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"media_apology\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "result && sellerFacts && topicSettings.enabled",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "(result as { openQuestion?: string }).openQuestion = \"\";",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return result ? { ...result, showPropertyNumber: parsePhotoOffer(result.showPropertyNumber), askOwner: abilit…",
-       "a": [
-        "зовёт parsePhotoOffer()"
-       ],
-       "c": []
       }
      ],
-     "from": "runQualifyTurn() — apps/api/src/ai/leadQualifier.ts"
+     "from": "runLegacyQualifyTurn() — apps/api/src/ai/legacyQualifyDoor.ts"
     },
     {
      "k": "if",

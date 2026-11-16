@@ -1,7 +1,7 @@
 import type { ChatMessage } from "../ai/client.js";
 import { traceFilterDelta, traceReplyOrigin } from "../lib/botTurnTrace.js";
 import { detectClientLanguage, type ClientLanguage } from "../ai/clientLanguage.js";
-import { ensurePhoneAskKept, normalizeReplyBubbles } from "../ai/leadQualifier.js";
+import { ensurePhoneAskKept, normalizeReplyBubbles } from "../ai/legacyQualifyDoor.js";
 import { extractVolunteeredPhone } from "../lib/shared/phoneText.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
