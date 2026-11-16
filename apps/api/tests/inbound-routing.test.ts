@@ -290,7 +290,6 @@ describe("решение о переводе — чистая функция", (
     ["нет ответственного", { ...base, client: candidateClient({ assignedAgent: null }) }, "no_agent"],
     ["лид не принят агентом", { ...base, client: candidateClient({ acceptedAt: null }) }, "lead_not_accepted"],
     ["сделка закрыта", { ...base, client: candidateClient({ status: "DEAL_CLOSED" }) }, "client_closed"],
-    ["клиент потерян", { ...base, client: candidateClient({ status: "LOST" }) }, "client_closed"],
     [
       "ответственный отключён",
       { ...base, client: candidateClient({ assignedAgent: { id: agentA, isActive: false, sipExtension: ext.first, phone: null } }) },

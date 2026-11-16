@@ -694,8 +694,8 @@ describe("GET /oversight/*", () => {
     const res = await request(app).get("/api/v1/oversight/summary").set("Authorization", `Bearer ${managerToken}`);
     expect(res.status).toBe(200);
     expect(typeof res.body.overdueTasks).toBe("number");
-    expect(typeof res.body.agentsAtLimit).toBe("number");
-    expect(res.body.leadLimit).toBe(2);
+    // Лимита и «Неактивных» нет с 16.11.2026 — и плиток про них тоже.
+    for (const gone of ["agentsAtLimit", "leadLimit", "recentInactive"]) expect(res.body).not.toHaveProperty(gone);
     for (const field of ["refusedHighScore", "sellerPropertyMissingWarn", "sellerPropertyMissingCritical", "sellerPropertyMissingWarnDays",
       "sellerPropertyMissingCriticalDays", "agentLossSeries", "agentLossSeriesThreshold", "agentLossSeriesWindowDays"]) {
       expect(res.body).not.toHaveProperty(field);
@@ -707,13 +707,9 @@ describe("GET /oversight/*", () => {
     expect(res.status).toBe(403);
   });
 
-  it("/agents-at-limit находит агента, упёршегося в лимит", async () => {
-    const res = await request(app).get("/api/v1/oversight/agents-at-limit").set("Authorization", `Bearer ${managerToken}`);
-    expect(res.status).toBe(200);
-    expect(res.body.limit).toBe(2);
-    const row = res.body.items.find((a: { id: string }) => a.id === limitAgentId);
-    expect(row).toBeTruthy();
-    expect(row.total).toBeGreaterThanOrEqual(2);
+  it.each(["agents-at-limit", "inactive-clients", "traffic-light-summary"])("/%s удалён вместе с лимитом и светофором — 404", async (route) => {
+    const res = await request(app).get(`/api/v1/oversight/${route}`).set("Authorization", `Bearer ${managerToken}`);
+    expect(res.status).toBe(404);
   });
 
   it("/overdue-tasks возвращает просроченную задачу и не возвращает будущую/выполненную", async () => {
@@ -736,15 +732,6 @@ describe("GET /oversight/*", () => {
     expect(ids).toContain(clientIds[3]); // staleHot (индекс: 0,1 — лимит, 2 — overdueClient, 3 — staleHot)
     expect(ids).not.toContain(clientIds[4]); // freshHot
     expect(ids).not.toContain(clientIds[5]); // staleCold
-  });
-
-  it("/inactive-clients находит событие перевода в Неактивные", async () => {
-    const res = await request(app)
-      .get("/api/v1/oversight/inactive-clients?pageSize=50")
-      .set("Authorization", `Bearer ${managerToken}`);
-    expect(res.status).toBe(200);
-    const ids = res.body.items.map((i: { id: string }) => i.id);
-    expect(ids).toContain(interactionIds[3]);
   });
 
   it("/lead-transfers находит событие передачи агенту", async () => {
@@ -813,35 +800,6 @@ describe("GET /oversight/*", () => {
     const row = res.body.items.find((a: { agentId: string }) => a.agentId === lossSeriesAgentId);
     expect(row).toBeTruthy();
     expect(row.count).toBe(3);
-  });
-
-  it("/traffic-light-summary группирует неактивных клиентов по агенту и цвету, не считает вернувшихся в работу и осиротевших", async () => {
-    const res = await request(app).get("/api/v1/oversight/traffic-light-summary").set("Authorization", `Bearer ${managerToken}`);
-    expect(res.status).toBe(200);
-
-    const row = res.body.agents.find((a: { agentId: string }) => a.agentId === trafficLightAgentId);
-    expect(row).toBeTruthy();
-    // Ровно 2/1/1 — не 3 RED (если бы вернувшийся в ACTIVE клиент посчитался
-    // по старому inactiveLevel) и не пусто (если бы agentId=null не отфильтровался).
-    expect(row.red).toBe(2);
-    expect(row.yellow).toBe(1);
-    expect(row.green).toBe(1);
-    expect(row.total).toBe(4);
-
-    // Осиротевшая карточка (assignedAgentId=null, LOST) не привязана ни к
-    // одному агенту в выдаче — ищем строку без агента, её быть не должно.
-    expect(res.body.agents.every((a: { agentId: string | null }) => a.agentId)).toBe(true);
-
-    // Итоги — не строгое равенство (другие тестовые файлы могут добавлять свои
-    // цветные карточки параллельно), но обязаны включать хотя бы наш агент.
-    expect(res.body.totals.red).toBeGreaterThanOrEqual(2);
-    expect(res.body.totals.yellow).toBeGreaterThanOrEqual(1);
-    expect(res.body.totals.green).toBeGreaterThanOrEqual(1);
-  });
-
-  it("/traffic-light-summary без права dashboard.analytics — 403", async () => {
-    const res = await request(app).get("/api/v1/oversight/traffic-light-summary").set("Authorization", `Bearer ${plainAgentToken}`);
-    expect(res.status).toBe(403);
   });
 
   it("/summary включает endlessNegotiations и agentLossSeries", async () => {
