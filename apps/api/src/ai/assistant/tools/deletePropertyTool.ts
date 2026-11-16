@@ -44,7 +44,9 @@ async function load(actor: AssistantActionActor, ref: string) {
   if (!property || property.deletedAt) throw new AssistantActionError(404, "ENTITY_NOT_FOUND", "Объект не найден");
   // Удаляет ведущий или приёмщик (не просто создатель карточки, передавший объект коллеге) либо руководство.
   const mine = property.assignedAgentId === actor.agentId || property.intakeAgentId === actor.agentId;
-  if (!mine && !actor.can("properties.delete") && !actor.can("properties.editForeign")) {
+  // Чужой объект — только с правом «удалять» (как в REST, crud.ts). editForeign — это правка,
+  // не удаление: через чат им снимали чужие объекты с сайта (аудит прав Д1, 16.11.2026).
+  if (!mine && !actor.can("properties.delete")) {
     throw new AssistantActionError(403, "FORBIDDEN", "Нет доступа к этому объекту");
   }
   return property;
