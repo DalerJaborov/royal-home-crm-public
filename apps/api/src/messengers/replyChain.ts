@@ -230,6 +230,15 @@ export interface BotReplyFilterResult {
 export type EmptyReplyCause = "guards" | "repeat";
 
 /**
+ * The brain DECIDED to send nothing (one brain, step 3: intended silence such as «спасибо», or a person was called).
+ * Not a failed model: no «sorry for the delay» fallback, no regeneration, no neutral line. One shape for every channel.
+ */
+export function intendedSilenceReply(): FinalBotReply {
+  return { bubbles: [], finalBubbles: [], modelSaidNothing: true, guardsAteReply: false, silencedBy: null,
+    phoneAsksSoFar: 0, stopAskingPhone: false, recovery: "none" };
+}
+
+/**
  * Порядок — ровно тот, что был в messengers/conversation.ts::finishQualifyTurn
  * (обоснование каждого шага — в комментариях там и в модулях стражей):
  *  1. нормализация (повторное приветствие, чужие телефоны, дословный повтор);

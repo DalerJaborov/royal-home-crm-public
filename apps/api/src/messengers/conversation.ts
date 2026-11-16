@@ -34,7 +34,7 @@ import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, quickRepeat
 import { claimUnreadablePhoneAsk } from "./phoneRetryClaim.js";
 import { CLIENT_KIND_LABELS, CLIENT_SOURCES, formatClientCode, type ClientSource } from "@royal-home/shared";
 import { clientSelfStatedName, normalizeClientName } from "../ai/replyGuards.js";
-import { FALLBACK_VOICE, finalizeBotReply, inClientLanguage, lastClientWords, phoneSaidInDialog, recentBotText } from "./replyChain.js";
+import { FALLBACK_VOICE, finalizeBotReply, inClientLanguage, intendedSilenceReply, lastClientWords, phoneSaidInDialog, recentBotText } from "./replyChain.js";
 import { repeatBlockedTexts } from "../lib/outboundShield.js";
 import { reconcileCustomerShowcaseReply } from "../lib/customerShowcaseReceipt.js";
 import {
@@ -3961,7 +3961,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * первого ответа. Щит исходящих спрашиваем заранее — его блок на транспорте
      * оставлял в CRM реплику, которой клиент не видел.
      */
-    const filtered = await finalizeBotReply(
+    const filtered = result.silent ? intendedSilenceReply() : await finalizeBotReply(
       {
         reply: result.reply,
         conversationId: conversation.id,

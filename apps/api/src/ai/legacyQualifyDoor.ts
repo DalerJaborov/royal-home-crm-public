@@ -80,6 +80,7 @@ export function channelCoreQualifyResult(outcome: Extract<ChannelCoreOutcome, { 
     ready: outcome.status === "reply" && outcome.askedPhone,
     ...(role === "buyer" ? { intent: "buy" as const } : role === "seller" ? { intent: "sell" as const } : {}),
     lead: lead && Object.keys(lead).length ? lead : null,
+    ...(outcome.status === "silent" ? { silent: "intended" as const } : outcome.status === "staff" ? { silent: "staff" as const } : {}),
   };
 }
 

@@ -88,8 +88,8 @@ describe("adapter pure parts", () => {
       ["Ищу 2 комнатную квартиру до 600000 сомони"]);
     expect(result).toEqual({ reply: ["Какой район?"], ready: false, intent: "buy", lead: { budgetMax: 600000, rooms: 2, type: "APARTMENT" } });
     expect(channelCoreQualifyResult({ status: "staff", reason: "escalate", intake: { role: "seller", locationDifferentCountry: true } }, ["x"]))
-      .toEqual({ reply: [], ready: false, intent: "sell", lead: { locationDifferentCountry: true } });
-    expect(channelCoreQualifyResult({ status: "silent", reason: "duplicate" }, ["x"])).toEqual({ reply: [], ready: false, lead: null });
+      .toEqual({ reply: [], ready: false, intent: "sell", lead: { locationDifferentCountry: true }, silent: "staff" });
+    expect(channelCoreQualifyResult({ status: "silent", reason: "duplicate" }, ["x"])).toEqual({ reply: [], ready: false, lead: null, silent: "intended" });
   });
   it("YouTube: a reply that sends to private messages is not posted (no DMs there); moderation only hides", () => {
     expect(youtubeCoreDecision({ status: "reply", text: "Цена 500 000 сомони.", askedPhone: false, intake })).toEqual({ action: "reply", reply: "Цена 500 000 сомони." });
@@ -121,7 +121,7 @@ describe("the legacy door routes a `core` channel to the adapter", () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "website");
     f.channelCore.mockResolvedValue({ status: "staff", reason: "escalate", intake });
     const result = await runLegacyQualifyTurn([user("Позовите человека")] as never, { stage: "chatting" }, { conversationId: "c-2", channel: "WEBSITE" } as never, { channel: "WEBSITE" });
-    expect(result?.reply).toEqual([]);
+    expect(result).toMatchObject({ reply: [], silent: "staff" });
     expect(f.alert).toHaveBeenCalledWith({ channel: "WEBSITE", conversationId: "c-2", text: "Позовите человека", why: "escalate" });
   });
   it("`core` + core unavailable: null, so the channel's AI-retry job plays the turn again", async () => {
