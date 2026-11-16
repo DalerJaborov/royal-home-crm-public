@@ -1,12 +1,13 @@
 import { useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Clapperboard, Plus } from "lucide-react";
+import { Clapperboard, ImagePlus, Plus } from "lucide-react";
 import {
   SOCIAL_VIDEO_STATUS_LABELS,
   destinationKeyOf,
   formatDurationRu,
   type SocialVideoChannelInfo,
   type SocialVideoItem,
+  type SocialPostMediaKind,
 } from "@royal-home/shared";
 import "../social-videos.css";
 import { useCan } from "../lib/permissions";
@@ -32,7 +33,7 @@ import { SOCIAL_VIDEO_STATUS_CHIP, mediaSrc } from "./socialVideos/helpers";
  * ответил бы 403).
  */
 
-type View = { kind: "list" } | { kind: "composer"; editId: string | null } | { kind: "detail"; id: string };
+type View = { kind: "list" } | { kind: "composer"; editId: string | null; initialKind?: SocialPostMediaKind } | { kind: "detail"; id: string };
 
 const PAGE_SIZE = 30;
 
@@ -146,7 +147,7 @@ export function SocialVideos() {
         <div className="scr">
           <div className="pg-h">
             <div>
-              <h1>Ролики в соцсети</h1>
+              <h1>Публикации в соцсети</h1>
             </div>
           </div>
           <div className="card tight">
@@ -165,6 +166,7 @@ export function SocialVideos() {
     return (
       <Composer
         editId={view.editId}
+        initialKind={view.initialKind}
         onClose={toList}
         onPublished={(id) => setView({ kind: "detail", id })}
         onOpenVideo={(id) => setView({ kind: "detail", id })}
@@ -197,16 +199,20 @@ export function SocialVideos() {
       <div className="scr">
         <div className="pg-h">
           <div>
-            <h1>Ролики в соцсети</h1>
+            <h1>Публикации в соцсети</h1>
             <p className="sub">
-              Промо-ролик без объекта: загрузите, опишите своими словами — ИИ напишет подписи, а вы выберете сети и
-              время. Здесь же видно, как идёт публикация и где случилась ошибка.
+              Ролик или фото с текстом, без привязки к объекту. Загрузите, напишите текст или попросите ИИ, выберите
+              сети и время. Здесь же видно, как идёт публикация и где случилась ошибка.
             </p>
           </div>
           <div className="acts">
+            <button className="pill" type="button" onClick={() => setView({ kind: "composer", editId: null, initialKind: "PHOTO" })}>
+              <ImagePlus className="i" aria-hidden />
+              Фото с текстом
+            </button>
             <button className="pill" type="button" onClick={() => setView({ kind: "composer", editId: null })}>
               <Plus className="i" aria-hidden />
-              Новый ролик
+              Ролик
             </button>
           </div>
         </div>
@@ -239,12 +245,12 @@ export function SocialVideos() {
                 <Clapperboard className="i" aria-hidden />
               </span>
               <p>
-                Роликов пока нет. Загрузите первый — он уйдёт в Instagram, Facebook, YouTube, TikTok, Telegram и
-                Threads, куда вы укажете.
+                Публикаций пока нет. Ролик уходит в Instagram, Facebook, YouTube, TikTok, Telegram и Threads, фото с
+                текстом в Instagram, Facebook и Telegram.
               </p>
               <button className="pill" type="button" onClick={() => setView({ kind: "composer", editId: null })}>
                 <Plus className="i" aria-hidden />
-                Загрузить первый ролик
+                Загрузить ролик
               </button>
             </div>
           ) : list.items.length === 0 ? (

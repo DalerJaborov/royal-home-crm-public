@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **759**. Развилок в самих путях: **2491**; вместе с задачами по расписанию и фоновыми заданиями — **4120**. Модулей: **85**.
+Путей: **760**. Развилок в самих путях: **2494**; вместе с задачами по расписанию и фоновыми заданиями — **4123**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -17344,6 +17344,36 @@
 
 - res.json({ channels: await loadChannelInfos() });
   · ответ 200
+
+### POST /api/v1/social-videos/photos
+
+`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, socialPhotoPostUpload.array("photos", SOCIAL_PHOTO_POST_MAX_IMAGES)
+
+- пробует
+  - если files.length === 0
+    - res.status(400).json({ error: "Приложите хотя бы одно фото (поле photos)" });
+      · ответ 400 — «Приложите хотя бы одно фото (поле photos)»
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const fields = socialVideoCreateFieldsSchema.safeParse(req.body);
+    · проверяет данные схемой socialVideoCreateFieldsSchema
+  - если !fields.success
+    - res.status(400).json({ error: fields.error.issues[0]?.message ?? "Неверные поля формы" });
+      · ответ 400
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const item = await createSocialPhotoPostFromUpload({ files: files.map((f)
+    · зовёт createSocialPhotoPostFromUpload()
+  - logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { kind: "PHOTO", photos: files.length, size…
+    · зовёт logAudit()
+  - res.status(201).json(item);
+    · ответ 201
+- если сорвалось
+  - если err instanceof SocialVideoError
+    - res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+    - return;
+      · дальше не идёт, ничего не меняя
 
 ### GET /api/v1/social-videos/trends
 
