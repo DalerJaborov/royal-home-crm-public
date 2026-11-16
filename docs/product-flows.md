@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **756**. Развилок в самих путях: **2490**; вместе с задачами по расписанию и фоновыми заданиями — **4116**. Модулей: **84**.
+Путей: **760**. Развилок в самих путях: **2495**; вместе с задачами по расписанию и фоновыми заданиями — **4128**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4155,6 +4155,9 @@
 
 `apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
+- если !can(req, "clients.assign")
+  - return res.status(403).json({ error: "Передавать клиентов может только руководитель" });
+    · ответ 403 — «Передавать клиентов может только руководитель»
 - const parsed = clientTransferSchema.safeParse(req.body);
   · проверяет данные схемой clientTransferSchema
 - если !parsed.success
@@ -12430,7 +12433,7 @@
 
 ### POST /api/v1/properties/:id/transfer
 
-`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.editForeign
+`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);
   · зовёт transferPropertyByManager()
@@ -12460,6 +12463,8 @@
       · дословно из кода
   - const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: actor.…
     · зовёт transferPropertyWithSeller()
+  - void recordRopTransfer({ kind: "PROPERTY", targetId: property.id, fromAgentId: result.fromAgentId, toAgentId,…
+    · зовёт recordRopTransfer()
   - logAgentAudit(actor.id, "PROPERTY_TRANSFER", "Property", property.id, { fromAgentId: result.fromAgentId, toAg…
     · зовёт logAgentAudit()
 - res.status(outcome.status).json(outcome.body);
@@ -17340,6 +17345,36 @@
 - res.json({ channels: await loadChannelInfos() });
   · ответ 200
 
+### POST /api/v1/social-videos/photos
+
+`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, socialPhotoPostUpload.array("photos", SOCIAL_PHOTO_POST_MAX_IMAGES)
+
+- пробует
+  - если files.length === 0
+    - res.status(400).json({ error: "Приложите хотя бы одно фото (поле photos)" });
+      · ответ 400 — «Приложите хотя бы одно фото (поле photos)»
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const fields = socialVideoCreateFieldsSchema.safeParse(req.body);
+    · проверяет данные схемой socialVideoCreateFieldsSchema
+  - если !fields.success
+    - res.status(400).json({ error: fields.error.issues[0]?.message ?? "Неверные поля формы" });
+      · ответ 400
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const item = await createSocialPhotoPostFromUpload({ files: files.map((f)
+    · зовёт createSocialPhotoPostFromUpload()
+  - logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { kind: "PHOTO", photos: files.length, size…
+    · зовёт logAudit()
+  - res.status(201).json(item);
+    · ответ 201
+- если сорвалось
+  - если err instanceof SocialVideoError
+    - res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+    - return;
+      · дальше не идёт, ничего не меняя
+
 ### GET /api/v1/social-videos/trends
 
 `apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
@@ -17809,6 +17844,31 @@
   - return res.status(422).json({ error: "Речь не распознана — похоже, запись пустая" });
     · ответ 422 — «Речь не распознана — похоже, запись пустая»
 - res.json({ text: text.trim() });
+  · ответ 200
+
+## /api/v1/transfer-requests
+
+### POST /api/v1/transfer-requests/:id/respond
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const outcome = await reviewRopTransfer(who(req), req.params.id, req.body);
+  · зовёт reviewRopTransfer()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### GET /api/v1/transfer-requests/outgoing
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
+
+- res.json({ items: await listOutgoingTransferRequests(who(req)) });
+  · ответ 200
+
+### GET /api/v1/transfer-requests/pending
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- res.json({ items: await listPendingTransferReviews(who(req)) });
   · ответ 200
 
 ## /api/v1/ui-shell
@@ -18823,6 +18883,9 @@
                 · дословно из кода
             - await stampOutgoingMid( msg.channel, msg.senderId, await sendReplyText(result.reply), customerTransport );
               · зовёт stampOutgoingMid()
+            - если providerAcceptedReply && result.agentSignal
+              - void requestAgentAttention(result.agentSignal.clientId, result.agentSignal.reason);
+                · зовёт requestAgentAttention()
             - если result.reply2
               - await showMetaReadAndTyping(msg.channel, msg.senderId, undefined, true, account.token, customerTransport);
                 · дословно из кода
@@ -25812,6 +25875,40 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### transfer-request-tick — */5 * * * *
+
+- пробует
+  - const { stuck, reminded } = await runTransferRequestTick();
+    · зовёт runTransferRequestTick()
+    - const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: "DECLINED", resultNote: EXECU…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of stuck
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "DECLINED", res…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count
+        - publishTransferChanged([row.requestedById], row.id);
+          · зовёт publishTransferChanged()
+    - const due = await prisma.ownershipTransferRequest.findMany({ where: { status: "PENDING", remindCount: { lt: T…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of due
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "PENDING", remi…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count === 0
+        - continue;
+          · переходит к следующему
+      - await notifyReviewers(row);
+        · зовёт notifyReviewers()
+  - если stuck + reminded > 0
+    - console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка тика запросов передачи", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### video-handoff-redelivery — */5 * * * *
 
 - пробует
@@ -28182,8 +28279,8 @@
           · дословно из кода
       - если client?.assignedAgentId
         - если !client.agentAttentionRequestedAt
-          - await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…
-            · меняет в базе: client
+          - await markAgentAttention(client.id);
+            · зовёт markAgentAttention()
         - await logTimeline({ clientId: client.id, actor: { kind: "client", source: "lead-only-handover", subjectAgentI…
           · зовёт logTimeline()
       - если input.propertyId
@@ -29504,8 +29601,16 @@
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "discount");
       · зовёт traceFilterDelta()
     - если draft.intent !== "sell" && draft.intent !== "job"
-      - const claims = findOffCatalogClaims({ text: result.reply.join("\n"), allowedText: propsBlock + "\n" + history…
-        · зовёт findOffCatalogClaims()
+      - const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…
+        · зовёт applyObjectFactGuards()
+      - если facts.streets.length > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
+          · зовёт traceFilterDelta()
+      - если facts.renovationRemoved > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
+          · зовёт traceFilterDelta()
+        - void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…
+          · запись в журнал ошибок
       - если what.length > 0
         - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
           · запись в журнал ошибок
@@ -29679,8 +29784,16 @@
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "discount");
       · зовёт traceFilterDelta()
     - если draft.intent !== "sell" && draft.intent !== "job"
-      - const claims = findOffCatalogClaims({ text: result.reply.join("\n"), allowedText: propsBlock + "\n" + history…
-        · зовёт findOffCatalogClaims()
+      - const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…
+        · зовёт applyObjectFactGuards()
+      - если facts.streets.length > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
+          · зовёт traceFilterDelta()
+      - если facts.renovationRemoved > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
+          · зовёт traceFilterDelta()
+        - void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…
+          · запись в журнал ошибок
       - если what.length > 0
         - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
           · запись в журнал ошибок

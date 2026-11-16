@@ -39,7 +39,8 @@ it("a genuine settings-secret signed caption stops the older media reply before 
   const before = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: caption } });
   expect(before.inputRecordedAt).toBeNull();
   const reply = await f.deliver(caption);
-  expect(reply.text).toContain("кухня"); expect(f.physical).toEqual([reply.text]);
+  // #206 (audit 16.11.2026): the customer's photo gets a short thank-you, not an inventory of what is seen.
+  expect(reply.text).toContain("Спасибо, фото получил."); expect(f.physical).toEqual([reply.text]);
   expect(JSON.stringify(f.bodies.at(-1))).not.toContain("SYNTHETIC_PRIVATE_OCR_SENTINEL");
   const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: caption } });
   expect(await prisma.customerAction.count({ where: { inquiry: { conversationId: ticket.conversationId! } } })).toBe(0);
@@ -50,10 +51,11 @@ it("does not reuse an already answered image as current media in public-envelope
   f.script([[{ functionCall: { name: "perceive_customer_media", id: "image", args: {
     language: "unknown", transcript: "", subject: "home_interior", visible: ["kitchen"], readableText: "", speech: "none" } } }],
   [decision({ kind: "reply", refs: [], social: "acknowledge", question: "none" })]]);
-  expect((await f.deliver(first)).text).toContain("кухня");
+  expect((await f.deliver(first)).text).toContain("Спасибо, фото получил.");
   const next = await f.capture(owner, "Спасибо");
   f.script([[decision({ kind: "reply", refs: [], social: "thank", question: "none" })]]);
-  expect((await f.deliver(next)).text).not.toContain("кухня");
+  const again = (await f.deliver(next)).text;
+  expect(again).not.toContain("кухня"); expect(again).not.toContain("фото получил");
 });
 it("does not reach past an intervening message for visual content", async () => {
   const owner = await f.owner(), url = f.mediaFixture("image/png", Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4AAAAABJRU5ErkJggg==", "base64"));
@@ -65,7 +67,8 @@ it("does not reach past an intervening message for visual content", async () => 
   expect(await consumeCustomerInboxTicket(first)).toEqual({ status: "held", reason: "newer_input_pending" });
   expect(await consumeCustomerInboxTicket(middle)).toEqual({ status: "held", reason: "newer_input_pending" });
   f.script([[decision({ kind: "reply", refs: [], social: "thank", question: "none" })]]);
-  expect((await f.deliver(last)).text).not.toContain("кухня");
+  const text = (await f.deliver(last)).text;
+  expect(text).not.toContain("кухня"); expect(text).not.toContain("фото получил");
 });
 it("a newer signed message in another installed account does not supersede this customer's last input", async () => {
   const original = await f.capture(await f.owner(), "Сколько стоит?");

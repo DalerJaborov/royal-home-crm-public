@@ -72,7 +72,7 @@ it("a genuine SMM video goes through the bounded Gemini media path, private stor
     f.script([[perception({ subject: "not_visible", visible: [] })], [call("save_job_application", {}, "save-portfolio")], [reply(["e1"], "job_tools")]]);
     const event = await f.capture(owner, "Вакансия видеограф: вот моя работа", [{ type: "video", payload: { url } }]);
     const result = await f.deliver(event);
-    expect(result.text).toContain("Сведения добавлены к отклику");
+    expect(result.text).toContain("Спасибо, записал");
     expect(result.text).toContain(recruitmentPhoneLine("ru"));
     expect(result.text).not.toMatch(/передан|принят на работу|возраст|992/iu);
     const application = await prisma.jobApplication.findFirstOrThrow({ where: { customerPositionKey: key } });
@@ -99,7 +99,7 @@ it("a shared reel with a non-Graph legacy ID reads actual own-feed bytes and del
   f.script([[perception()], [reply([], "role")]]);
   const event = await f.capture(owner, "", [{ type: "ig_reel", payload: { url: permalink, reel_video_id: "12345678" } }]);
   const result = await f.deliver(event);
-  expect(result.text).toContain("кухня"); expect(result.text).toContain("балкон");
+  expect(result.text).toContain("Спасибо, фото получил."); // 16.11.2026: no inventory list
   expect(result.text).not.toMatch(/Что хотите узнать по этой публикации|недоступно|текстом|сотрудник|992/iu);
   const stored = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });
   expect(stored.mediaObservationCiphertext).toBeTruthy();
@@ -112,7 +112,7 @@ it("carousel children reach the qualified Gemini byte path under the same origin
   ] } }]);
   f.script([[perception()], [reply([], "role")]]);
   const result = await f.deliver(await f.capture(owner, "", [{ type: "ig_post", payload: { url: permalink, ig_post_media_id: "17890002" } }]));
-  expect(result.text).toContain("кухня");
+  expect(result.text).toContain("Спасибо, фото получил.");
   const body = f.bodies.at(-2) as { contents: Array<{ parts: Array<{ inline_data?: unknown }> }> };
   expect(body.contents[0].parts.filter(part => part.inline_data)).toHaveLength(2);
 });
@@ -122,7 +122,7 @@ it("a permalink declared as video is resolved as a publication instead of downlo
   f.publicationFixture(owner, [{ id: "17890004", permalink, media_type: "IMAGE", media_url: url }]);
   f.script([[perception()], [reply([], "role")]]);
   const result = await f.deliver(await f.capture(owner, "", [{ type: "video", payload: { url: permalink } }]));
-  expect(result.text).toContain("кухня");
+  expect(result.text).toContain("Спасибо, фото получил.");
 });
 it("a shared reel from the feed sends actual MP4 bytes, never its thumbnail, to Gemini", async () => {
   const owner = await f.owner();
@@ -158,7 +158,7 @@ it("a captionless photo reaches Gemini as bytes and gets a visual, normal delive
   f.script([[perception()], [reply([], "role")]]);
   const event = await f.capture(owner, "", [{ type: "image", payload: { url } }]);
   const result = await f.deliver(event);
-  expect(result.text).toContain("кухня"); expect(result.text).toContain("балкон");
+  expect(result.text).toContain("Спасибо, фото получил."); // 16.11.2026: no inventory list
   expect(result.text).not.toMatch(/недоступно|напишите.*текст|992|передал|сотрудник/iu);
   expect(f.counts()).toEqual({ generated: before.generated + 2, counted: before.counted + 2 });
   const row = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });
@@ -279,7 +279,7 @@ it("uses database time for an immutable observation even when the application cl
   });
   f.script([[perception()], [reply([], "role")]]);
   const result = await f.deliver(event);
-  expect(exercised).toBe(true); expect(result.text).toContain("кухня");
+  expect(exercised).toBe(true); expect(result.text).toContain("Спасибо, фото получил.");
   const [row] = await prisma.$queryRaw<Array<{ validTime: boolean }>>`SELECT
     "mediaObservedAt">="receivedAt" AND "mediaObservedAt"<=clock_timestamp() AS "validTime"
     FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${event}`;
