@@ -13,6 +13,7 @@ import { resolveClientPhoneSelection } from "../../lib/clientPhoneSelection.js";
 import { prisma } from "../../db.js";
 import { foreignWriteDenied } from "./shared.js";
 import { can, canAccessAssignedAgent, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
+import { ARCHIVE_REVIEW_START_NOTE, canCallArchivedClient } from "../../lib/archiveReviewCall.js";
 import { acceptLead } from "../../lib/leadAccept.js";
 import {
   agentSender,
@@ -182,6 +183,8 @@ export async function originateCallToClient(
      *  и что его в принципе можно набрать (isDialableTajikNumber) — сюда
      *  приходит уже проверенным. */
     phoneOverride?: string;
+    /** Разбор удалённого клиента из Корзины (lib/archiveReviewCall.ts): не работа агента. */
+    archiveReview?: boolean;
   }
 ): Promise<
   | { ok: true; channelId: string | undefined; dialing: { to: string; mode: "mobile" | "extension" } }
@@ -286,7 +289,10 @@ export async function originateCallToClient(
       clientId: client.id,
       actor: { kind: "agent", agentId },
       type: "CALL",
-      notes: options?.continuesInteractionId
+      archiveReview: options?.archiveReview === true,
+      notes: options?.archiveReview
+        ? ARCHIVE_REVIEW_START_NOTE
+        : options?.continuesInteractionId
         ? "Звонок продолжен через мобильный — плохая связь в браузере"
         : options?.phoneOverride
           ? `Звонок инициирован из CRM на дополнительный номер (${options.phoneOverride})`
@@ -312,6 +318,7 @@ export async function originateCallToClient(
         // а не с полем карточки — при звонке на переопределённый номер это разные
         // строки, и сравнение с client.phone не опознало бы ответ клиента вовсе.
         clientPhone: dialedPhone,
+        archiveReview: options?.archiveReview === true,
       });
     }
 
@@ -366,11 +373,15 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
   // клиенту» (аудит 24.09.2026, №121): «видеть все» (служба безопасности) не
   // даёт звонить чужому клиенту, а звонок из Корзины бессмысленен — карточку
   // сначала восстанавливают.
-  {
+  // КЛИЕНТ В КОРЗИНЕ: руководство с правом «Звонить клиентам из Корзины» звонит для РАЗБОРА (16.11.2026,
+  // lib/archiveReviewCall.ts) — без восстановления карточки и без права писать в чужую карточку.
+  // Остальным по-прежнему «сначала восстановите».
+  const archiveReview = Boolean(client.deletedAt) && canCallArchivedClient({ can: (p) => can(req, p) });
+  if (!archiveReview) {
     const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));
     if (denied) return res.status(403).json({ error: denied });
   }
-  if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
+  if (client.deletedAt && !archiveReview) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
   const selection = resolveClientPhoneSelection(client, parsed.data);
   if (selection.conflict) return res.status(409).json({ error: "Список номеров изменился или маска неоднозначна. Обновите карточку и выберите номер снова." });
 
@@ -411,7 +422,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
    * которая подождёт до конца разговора.
    */
   const ownAgentIdForAccept = scopeToOwnAgent(req);
-  if (ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgentId === ownAgentIdForAccept) {
+  if (!archiveReview && ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgentId === ownAgentIdForAccept) {
     await acceptLead({ clientId: client.id, agentId: ownAgentIdForAccept }).catch((err) =>
       console.error("[leadAccept] автопринятие по звонку:", err)
     );
@@ -452,7 +463,19 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
     if (requestedTail !== phoneTail(client.phone)) phoneOverride = requestedPhone;
   }
 
-  const result = await originateCallToClient(req.agent!.id, client, { phoneOverride });
+  const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });
+  if (archiveReview) {
+    // След в журнале действий: кто и кому из Корзины звонил (номер маской, хозяин карточки не меняется).
+    logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, {
+      shortId: client.shortId,
+      fullName: client.fullName,
+      phone: maskClientPhone(phoneOverride ?? client.phone),
+      ownerAgentId: client.assignedAgentId,
+      ok: result.ok,
+      channelId: result.ok ? (result.channelId ?? null) : null,
+      error: result.ok ? null : result.error.slice(0, 300),
+    });
+  }
   if (!result.ok) {
     /**
      * СТАНЦИЯ ОТКАЗАЛА — ЭТО ПОПЫТКА АГЕНТА, А НЕ ЕГО ВИНА (владелец 29.09.2026:
@@ -463,7 +486,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
      * (services/leads/firstCall.ts, collectFirstCallFacts): таймер на экране
      * гаснет, штрафа и передачи лида нет. Только своему клиенту — byAgentId.
      */
-    if (result.status === 502) await markAgentAttempt(client.id, new Date(), req.agent!.id);
+    if (result.status === 502 && !archiveReview) await markAgentAttempt(client.id, new Date(), req.agent!.id);
     return res.status(result.status).json({ error: result.error });
   }
 
