@@ -37,7 +37,7 @@ const STRONG_SUBURB_PATTERNS: RegExp[] = [
   /(^| )(шахринав|файзобод|кофарнихон)/u,
   // «9 км», «9-й км», «12 километр» — но не «1 2 км от», не «12 км до аэропорта» и не «до центра 5 км»: это расстояние
   // до чего-то, а не место (после нормализации запятая — пробел).
-  /(^| )(?<!до \p{L}+ )\d{1,2} ?(й|ой|ом)? ?(км|километр\p{L}*)(?! от)(?! до)( |$)/u,
+  /(^| )(?<!до(?: \p{L}+){1,3} )\d{1,2} ?(й|ой|ом)? ?(км|километр\p{L}*)(?! от)(?! до)(?! ч( |$))( |$)/u,
 ];
 /**
  * СЛАБЫЕ ПРИЗНАКИ — общие слова («за городом», «пригород»). Решают, только когда района в
@@ -75,11 +75,23 @@ export function isSuburbanProperty(p: SuburbCheckFields): boolean {
   if (p.district?.name === RUDAKI_DISTRICT_NAME) return true;
   const texts = [p.title, p.address, p.landmark, p.description];
   if (p.district?.name && CITY_DISTRICT_NAMES.has(p.district.name)) {
-    // Городской район: загород только по названному месту (сильный признак) или по словам района Рудаки.
-    return texts.some((t) => !!t && (mentionsRudakiDistrict(t) || STRONG_SUBURB_PATTERNS.some((re) => re.test(geoMatchKey(t)))));
+    // Городской район: загород только по названному месту или по словам района Рудаки. Заголовок, адрес и ориентир —
+    // место объекта («Дом, 9 км», «Вахдат, кишлак»): там решает любой сильный признак. ОПИСАНИЕ — рассказ об округе
+    // (ревью ab0b597c, Ф-3а): «остановка в 2 км», «вид на дачи», «до Вахдата 20 минут», «ЖК Вахдат» у квартиры в Сино —
+    // не загород; в описании решает только место С ПРЕДЛОГОМ места («дом в (городе) Вахдат», «дар Ваҳдат»).
+    const place = [p.title, p.address, p.landmark];
+    if (place.some((t) => !!t && (mentionsRudakiDistrict(t) || STRONG_SUBURB_PATTERNS.some((re) => re.test(geoMatchKey(t)))))) return true;
+    return !!p.description && (mentionsRudakiDistrict(p.description) || DESCRIPTION_SUBURB_PLACE.test(geoMatchKey(p.description)));
   }
   return texts.some((t) => textMentionsSuburb(t));
 }
+
+/**
+ * Место за городом в ОПИСАНИИ карточки с городским районом — только с предлогом места: «в Вахдате», «в городе Вахдат»,
+ * «дар Ваҳдат», «г. Гиссар», «ш. Турсунзода». «До Вахдата», «ЖК Вахдат», «вид на дачи», «N км» — нет.
+ */
+const DESCRIPTION_SUBURB_PLACE =
+  /(^| )(в|во|дар|г|город\p{L}*|ш|шахри|н|нохияи|район\p{L}*|кишлак\p{L}*|деха\p{L}*)( городе| районе| нохияи)? (вахдат|варзоб|гиссар|хисор|турсунзод|шахринав|файзобод|кофарнихон|чорбог)\p{L}*/u;
 
 /** Четыре района города из справочника — всё, кроме района Рудаки. */
 const CITY_DISTRICT_NAMES: ReadonlySet<string> = new Set(BOT_DISTRICT_NAMES.filter((name) => name !== RUDAKI_DISTRICT_NAME));
