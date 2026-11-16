@@ -315,7 +315,7 @@ export function buyerQuestionAsked(assistantText: string | undefined): BuyerNeed
   if (!last) return undefined;
   if (/бюджет|буҷет|буджет|какую\s+сумм|на\s+какую\s+сумм|маблағ|сумм\p{L}*\s+(?:для|примерно|рассчит)|ҳисоб\s+мекунед|чӣ\s+қадар/iu.test(last)) return "budget";
   if (/сколько\s+комнат|чанд\s+ҳуҷра|ҳуҷра\s+лозим/iu.test(last)) return "rooms";
-  if (/какой\s+район|в\s+каком\s+районе|кадом\s+ноҳия|ноҳия\s+мувофиқ/iu.test(last)) return "location";
+  if (/какой\s+район|в\s+каком\s+районе|кадом\s+ноҳия|ноҳия\s+мувофиқ|тарафи\s+шаҳр|кадом\s+тараф/iu.test(last)) return "location";
   return undefined;
 }
 

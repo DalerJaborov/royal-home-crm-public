@@ -920,7 +920,9 @@ describe("actual durable DM common core", () => {
     expect(result.status).toBe("planned");
     if (result.status !== "planned") throw Error("Expected a private greeting");
     const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
-    expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text", text: "Здравствуйте!" });
+    // A bare greeting gets the greeting and one open question (#206: no dead-end «Здравствуйте!»), never the agency phone.
+    expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text",
+      text: "Здравствуйте!\nПодскажите, что вас интересует: купить, продать недвижимость или работа у нас?" });
   });
   it("shadow (the default) validates and counts the model's phrase but the customer still gets the template; live sends exactly the validated phrase through delivery sealing", async () => {
     const say = "Давайте разберёмся вместе.";
@@ -1010,7 +1012,7 @@ describe("actual durable DM common core", () => {
       expect(result.partIds).toHaveLength(1);
       const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
       expect(part).toMatchObject({ sourceKind: "HANDOVER_ACK", status: "READY", agentRevisionId: revisionId });
-      expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text", text: "Заявка на связь с сотрудником сохранена." });
+      expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text", text: "Спасибо, передал ваше сообщение сотруднику." });
       const task = await prisma.callbackRequest.findFirstOrThrow({ where: { conversationId: part.originalNativeId } });
       expect(task).toMatchObject({ requestKind: "HUMAN", lifecycleStatus: "QUEUED", lifecycleRevision: 1n });
       expect(await prisma.backgroundJob.count({ where: { dedupeKey: `customer-callback-notify:${task.customerActionId}` } })).toBe(1);
@@ -1145,7 +1147,7 @@ describe("never silence (16.11.2026)", () => {
   });
   it("a reply the shield WOULD cut (said twice already) becomes the hand-off line, and the person is signalled", async () => {
     const f = await fixture("Хона даркор");
-    const reply = "Салом!\nШумо чӣ қадар буҷет дар назар доред?"; // what this Tajik input renders to
+    const reply = "Ассалому алайкум!\nЧӣ қадар маблағ дар назар доред?"; // what this Tajik input renders to (live wording #206)
     // Seed the shield exactly as two earlier sends of this text did (same key as the transport: channel, peer, account).
     for (let i = 0; i < 2; i++) {
       expect(await admitOutbound({ channel: "INSTAGRAM", subscriberId: f.peer, text: reply, transport: f.accountId, answersInbound: true }))

@@ -20,7 +20,7 @@ function render(language: "ru" | "tg", value = observation(), question: "none" |
 }
 const phoneLine = (language: "ru" | "tg") => language === "ru"
   ? "Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста."
-  : "Маълумоти пурраро дар бораи кор мутахассиси мо Ноза бо телефон медиҳад: 777 070 100. Лутфан занг занед.";
+  : "Дар бораи кор ҳамаи тафсилотро Ноза мегӯяд. Ба ӯ занг занед: 777 070 100.";
 
 describe("current recruitment facts", () => {
   it("keeps owner-approved onsite SMM conditions separate from the agent commission and uses the canonical office", () => {

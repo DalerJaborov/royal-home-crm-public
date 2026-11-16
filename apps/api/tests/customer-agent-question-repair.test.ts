@@ -15,7 +15,7 @@ it("explains the exact canonical budget question rather than restarting a questi
     .toBe("Я уточнял сумму для покупки. Какой у вас бюджет?");
 });
 it("recognizes an actual canonical TG rooms question and stays within one question", () => {
-  const text = render([{ role: "assistant", text: "Ба шумо чанд ҳуҷра лозим аст?" }], "tg");
+  const text = render([{ role: "assistant", text: "Чанд ҳуҷра?" }], "tg");
   expect(text).toBe("Ман шумораи ҳуҷраҳоро мепурсидам. Чанд ҳуҷра лозим аст?"); expect(text?.match(/\?/g)).toHaveLength(1);
 });
 it("does not copy names/private prose, infer a monetary value or authorize old commands", () => {

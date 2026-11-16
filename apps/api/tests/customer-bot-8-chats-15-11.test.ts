@@ -43,8 +43,8 @@ function render(inputText: string, opts: { decision?: Partial<Decision>; evidenc
 }
 const FORBIDDEN = /выше|дар\s+боло|такрор|повтор|уже\s+пис|уже\s+напис|номафҳум/iu;
 const COMMISSION_TG = "Ҳаққи хизмат барои фурӯшанда 2%, барои харидор 0% аст.";
-const SERVICE_TG = "Барои хариду фурӯши амвол дар Душанбе кӯмак мекунем. Дар шаҳрҳои дигар кор намекунем.";
-const SELLER_Q_TG = "Барои фурӯш шумораи ҳуҷраҳо, масоҳат, ноҳия ё нишонӣ, ошёна, ҳолати таъмир, нарх бо асъор-ро нависед. Ҳамаашро дар як паём фиристода метавонед.";
+const SERVICE_TG = "Барои хариду фурӯши хона дар Душанбе ва ноҳияи Рӯдакӣ кӯмак мекунем. Дар шаҳрҳои дигар кор намекунем.";
+const SELLER_Q_TG = "Хонаатон чанд ҳуҷра, чанд квадрат, дар куҷо, кадом ошёна, бо таъмир ё каробка ва нархаш чанд? Ҳамаи маълумотро дар як паём нависед.";
 const ASK_TG = "Инро аниқ агенти мо мегӯяд. Рақами телефонатонро нависед, то агенти мо занг занад.";
 const ASKS_PHONE = /рақами\s+телефон|номер\s+телефона/iu;
 
@@ -63,7 +63,7 @@ describe("class б: never «I already wrote above» or «I repeat», and never s
       turns: [user("Мехоҳам хонаамро фурӯшам"), bot(`Салом!\n${SELLER_Q_TG}`)] }], /^Фаҳмидам\.$/u],
     ["a Dushanbe seller after the service area: the seller question (live case 4)", ["Хона дар Душанбе аст", {
       evidence: [{ ref: "e0", value: policy("service_scope") }], decision: { refs: ["e0"] }, turns: [user("Мехоҳам хонаамро фурӯшам"), bot(SERVICE_TG)] }],
-      new RegExp(`^${SELLER_Q_TG}$`, "u")],
+      new RegExp(`^${SELLER_Q_TG.replace(/[?.]/gu, ch => "\\" + ch)}$`, "u")],
   ];
   it.each(battery)("%s", (_name, args, expected) => {
     const text = render(...args);
@@ -91,7 +91,7 @@ describe("thanks get a short polite answer", () => {
     expect(customerThanksOnly(text)).toBe(false);
   });
   it("answers «Марҳамат! Саломат бошед!», another wording next time, and calls nobody (live case 4)", () => {
-    const first = render("Рахмат", { decision: { kind: "clarify", question: "topic" }, turns: [user("Мо дар шахри Кайрокум"), bot("Мутаассифона, мо танҳо дар Душанбе кор мекунем.")] });
+    const first = render("Рахмат", { decision: { kind: "clarify", question: "topic" }, turns: [user("Мо дар шахри Кайрокум"), bot("Мутаассифона, мо танҳо дар Душанбе ва ноҳияи Рӯдакӣ кор мекунем.")] });
     expect(first).toBe("Марҳамат! Саломат бошед!");
     expect(render("Рахмат", { turns: [user("Рахмат"), bot(first!), user("хуб")] })).toBe("Марҳамат!");
     expect(render("Спасибо", { language: "ru", decision: { social: "thank", question: "location" }, turns: [bot("Какой район вам подходит?")] }))
@@ -186,7 +186,7 @@ describe("the service area: «only Dushanbe» only for an object outside (live c
   const scope: CustomerAgentEvidence[] = [{ ref: "e0", value: policy("service_scope") }];
   it("a Dushanbe seller hears the area once, never «other cities»", () => {
     const first = render("Мехоҳам хонаамро фурӯшам", { evidence: scope, decision: { refs: ["e0"], question: "seller_details" } })!;
-    expect(first).toContain("Барои хариду фурӯши амвол дар Душанбе ва ноҳияи Рӯдакӣ кӯмак мекунем.");
+    expect(first).toContain("Барои хариду фурӯши хона дар Душанбе ва ноҳияи Рӯдакӣ кӯмак мекунем.");
     expect(first).not.toContain("шаҳрҳои дигар");
   });
   it("a seller whose flat is in Qayroqqum gets a short apology and no questionnaire", () => {
@@ -216,7 +216,7 @@ describe("the service area: «only Dushanbe» only for an object outside (live c
     const text = render("Хонаам дар маркази н Рудаки, 2 ҳуҷра", { evidence: scope, decision: { refs: ["e0"], question: "seller_details" },
       turns: [user("Хона дорем фурухтан даркор")] })!;
     expect(text).not.toMatch(/Мутаассифона|шаҳрҳои дигар/u);
-    expect(text).toContain("Барои фурӯш");
+    expect(text).toContain("Хонаатон");
   });
 });
 
