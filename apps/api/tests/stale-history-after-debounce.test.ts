@@ -99,20 +99,23 @@ describe("Два хода подряд: второй начинается, по�
     // Ход B снимает снимок истории сейчас: реплика A там уже есть, ответа на A ещё нет.
     const turnB = processMessengerTurn({ ...fixture.turnInput(SUBSCRIBER), text: TEXT_B });
     await new Promise((r) => setTimeout(r, 300));
-    // Открываем ворота: ответ на A ложится в историю, пока B ждёт своё окно.
+    // Открываем ворота. Клиент уже написал B, пока бот думал над A: ответ на A устарел и
+    // не уходит — отвечает ход B (#207, messengers/turnSupersede.ts; ревью 207 С5 принято).
     releaseA();
     const resultA = await turnA;
-    expect(resultA.reply).toContain(MARK_A);
+    expect(resultA.reply).not.toContain(MARK_A);
+    expect(resultA.shouldReply).toBe(false);
 
     const resultB = await turnB;
     expect(resultB.shouldReply).not.toBe(false);
     expect(qualifyPrompts.length).toBe(2);
 
     const promptB = qualifyPrompts[1];
-    // Без починки: промт B собран из снимка с входа, ответа бота на A в нём нет —
-    // модель отвечает на A заново.
-    expect(promptB.some((m) => m.role === "assistant" && m.content.includes(MARK_A))).toBe(true);
-    // Порядок сохранён: сначала A и ответ на A, последней — реплика B.
+    // Ход B видит реплику A (она сохранена до модели) — значит, отвечает и на неё.
+    expect(promptB.some((m) => m.role === "user" && m.content.includes(TEXT_A))).toBe(true);
+    // Устаревший ответ на A в историю не попал.
+    expect(promptB.some((m) => m.role === "assistant" && m.content.includes(MARK_A))).toBe(false);
+    // Порядок сохранён: последней — реплика B.
     const last = promptB[promptB.length - 1];
     expect(last.role).toBe("user");
     expect(last.content).toContain(TEXT_B);
