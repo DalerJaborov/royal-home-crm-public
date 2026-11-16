@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 755,
-  "forks": 4113,
+  "endpoints": 756,
+  "forks": 4116,
   "mounts": 84,
   "cron": 142,
   "jobs": 33,
@@ -20940,6 +20940,111 @@
     {
      "k": "do",
      "t": "res.json(summary);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/trash/:id/review/timeline",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/trash/:id/review/timeline",
+   "file": "apps/api/src/routes/clients/trashReview.ts",
+   "router": "trashReviewRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: archive.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = timelineQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой timelineQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "(before && !beforeId) || (!before && beforeId)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Курсор задаётся парой before и beforeId\" });",
+       "a": [
+        "ответ 400 — «Курсор задаётся парой before и beforeId»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Клиент не найден в Корзине\" });",
+       "a": [
+        "ответ 404 — «Клиент не найден в Корзине»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const baseWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ?…",
+     "a": [
+      "зовёт visibleInteractionWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: \"desc\" …",
+     "a": [
+      "читает в базе: interaction",
+      "считает в базе: interaction"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });",
      "a": [
       "ответ 200"
      ],
