@@ -882,15 +882,21 @@ describe("actual durable DM common core", () => {
   });
   it("refuses an oversized counted request without a generation, refund or new operation on retry", async () => {
     const f = await fixture(); f.setCountInvalid();
-    expect(await runCustomerDmAgentTurn(f.eventKey)).toMatchObject({ status: "held" });
+    // 16.11.2026 (never silence): the refused model turn no longer leaves the customer in silence — one fixed hand-off line,
+    // no model call for it; money/operation invariants below are unchanged.
+    const first = await runCustomerDmAgentTurn(f.eventKey);
+    expect(first).toMatchObject({ status: "planned" });
     const row = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } });
     expect(row.providerOperationId).toBeTruthy();
     const op = await prisma.aiProviderOperation.findUniqueOrThrow({ where: { id: row.providerOperationId! } });
     expect(op.status).toBe("HELD"); expect(op.reservedUsd.toNumber()).toBeGreaterThan(0);
-    expect(await runCustomerDmAgentTurn(f.eventKey)).toMatchObject({ status: "held" });
+    expect(await runCustomerDmAgentTurn(f.eventKey)).toEqual({ status: "unchanged", reason: "already_planned" });
     expect((await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } })).providerOperationId).toBe(row.providerOperationId);
     expect(f.io.filter(value => value === "count")).toHaveLength(1); expect(f.io).not.toContain("generate");
-    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: f.eventKey } })).toBe(0);
+    const parts = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: f.eventKey } });
+    expect(parts).toHaveLength(1);
+    expect(decodeCustomerOutboxPayload(parts[0])).toEqual({ kind: "text",
+      text: "Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил." });
   });
   it("keeps the accepted model usage but holds OUT when an employee pauses the original native during generation", async () => {
     const f = await fixture(); f.setOnGenerate(async () => {

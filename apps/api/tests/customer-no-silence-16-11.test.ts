@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CUSTOMER_NO_SAFETY_LINE_REASONS, CUSTOMER_SAFETY_LINE_REASONS, customerCoreRetryWorthwhile, customerHeldForChangedContext,
+import { CUSTOMER_NO_SAFETY_LINE_REASONS, CUSTOMER_SAFETY_LINE_REASONS, customerHeldForChangedContext,
   customerSafetyLine, customerSafetyLineAllowed, customerSafetyMemory } from "../src/lib/customerNoSilence.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE } from "../src/lib/customerIntendedSilence.js";
 import { customerReplyCallsStaff } from "../src/ai/customerAgentStaffFollowUp.js";
@@ -58,16 +58,7 @@ describe("страховочная фраза — проверенные стр�
   });
 });
 
-describe("повтор хода и «клиент дописал»", () => {
-  const held = (reason: string, extra: object = {}) => ({ status: "held", reason, unknownToolCalls: [], evidence: [], ...extra });
-  it("сбой поставщика — один повтор; клиент дописал, запись могла пройти, квитанция, мало времени — нет", () => {
-    expect(customerCoreRetryWorthwhile(held("turn_unavailable", { cause: "ProviderOperationError" }), 60_000)).toBe(true);
-    expect(customerCoreRetryWorthwhile(held("turn_unavailable", { cause: "original_context_changed" }), 60_000)).toBe(false);
-    expect(customerCoreRetryWorthwhile(held("turn_unavailable", { unknownToolCalls: [{}] }), 60_000)).toBe(false);
-    expect(customerCoreRetryWorthwhile(held("turn_unavailable", { evidence: [{ value: { kind: "receipt" } }] }), 60_000)).toBe(false);
-    expect(customerCoreRetryWorthwhile(held("turn_unavailable"), 5_000)).toBe(false);
-    expect(customerCoreRetryWorthwhile(held("round_limit"), 60_000)).toBe(false);
-  });
+describe("клиент дописал во время хода", () => {
   it("переписка сменилась под ходом — слова уходят в более новый ход", () => {
     expect(customerHeldForChangedContext("turn_unavailable", "original_context_changed")).toBe(true);
     expect(customerHeldForChangedContext("original_context_changed")).toBe(true);

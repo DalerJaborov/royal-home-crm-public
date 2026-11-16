@@ -63,7 +63,7 @@ import { leadOnlyAppliesTo, leadOnlyFilterReply } from "../ai/leadOnlyMode.js";
 import { z } from "zod";
 import { customerDeliveryTransportSchema } from "./customerDeliveryContracts.js";
 import { coreReplyRepeatBlocked } from "./outboundShield.js";
-import { customerCoreRetryWorthwhile, customerHeldForChangedContext, customerSafetyCandidateLines, customerSafetyLine,
+import { customerHeldForChangedContext, customerSafetyCandidateLines, customerSafetyLine,
   customerSafetyLineAllowed, customerSafetyMemory } from "./customerNoSilence.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
@@ -415,11 +415,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found";
     const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput,
       unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
-    const coreOperation = runtime.operation;
-    const runCore = () => runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
+    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState, ...(followUp ? { followUp } : {}), ...(preReadCall ? { preReads: [preReadCall] } : {}),
-      startedAt: claim.pin.receivedAt, operation: coreOperation,
+      startedAt: claim.pin.receivedAt, operation: runtime.operation,
       // В режиме «только заявки» подборки нет вовсе: инструмент не предлагается модели (первый слой запрета).
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS.filter(name => !leadOnly.enabled || name !== "search_public_properties"),
         ...mutations.availableToolNames]),
@@ -462,14 +461,6 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       // neither re-enter the model nor enqueue a second customer response.
       observeLateToolResult: () => {},
     });
-    let result = await runCore();
-    // A provider failure with nothing written: ONE more try inside the same claim and the same provider operation (its
-    // attempt/money/deadline bounds still apply). The chat changing under the turn is not retried (16.11.2026).
-    if (customerCoreRetryWorthwhile(result, Math.min(linkWait.deadlineAt, claim.deadlineAt) - Date.now()) &&
-        mutations.committedReceipts.length === 0 && await current(linkWait)) {
-      witnesses.length = 0; accumulated = [];
-      result = await runCore();
-    }
     traceCustomerCoreResult(result);
     if (result.status === "ready") recordCustomerAgentSay(result.say);
     // Count a spam turn (a foreign reel / like-exchange words with nothing asked) toward the mute. Never allowed to break the turn.

@@ -54,18 +54,11 @@ export function customerSafetyLineAllowed(reason: string): boolean {
   return CUSTOMER_SAFETY_LINE_REASONS.includes(reason) && !CUSTOMER_TURN_INTENDED_SILENCE.includes(reason);
 }
 
-/**
- * ONE retry of the core turn inside the same claim and the same provider operation (its own attempt/money/deadline
- * bounds stay in force). Only a provider failure qualifies: the chat did not change (that cause is answered by the
- * newer input), nothing was written, no receipt exists, and there is time left. ФАКТ (BotTurnTrace 7 дней до 16.11):
- * 29 из 32 turn_unavailable — это original_context_changed (клиент дописал), их повтор не лечит.
- */
-export function customerCoreRetryWorthwhile(result: { status: string; reason?: string; cause?: string;
-  unknownToolCalls?: readonly unknown[]; evidence?: readonly { value: { kind: string } }[] }, remainingMs: number): boolean {
-  return result.status === "held" && result.reason === "turn_unavailable" && result.cause !== "original_context_changed" &&
-    !(result.unknownToolCalls?.length) && !result.evidence?.some(e => e.value.kind === "receipt") && remainingMs >= 20_000;
-}
-
+/* NO model retry here (16.11.2026, decided on facts): ФАКТ BotTurnTrace 7 days to 16.11 — 29 of 32 `turn_unavailable` are
+ * `original_context_changed` (the customer wrote again: the newer input answers, see customerHeldForChangedContext), the
+ * other 3 are ProviderOperationError, whose reasons are all deterministic stops of the SAME operation (attempt_budget,
+ * budget_denied, unsupported, deadline, cancelled; ai/providerContract.ts) — a retry inside it fails the same way, and a
+ * new operation for the same ticket is refused by design (customerAgentRevision.ts existingPin: operation_closed). */
 /** Held because the chat changed while the turn ran: a NEWER customer input carries these words instead. */
 export function customerHeldForChangedContext(reason: string, cause?: string): boolean {
   return reason === "original_context_changed" || reason === "operation_stopped" ||
