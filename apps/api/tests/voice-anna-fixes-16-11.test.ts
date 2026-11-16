@@ -363,7 +363,6 @@ describe("Рудаки — зона работы (решение владель�
       fs.readFileSync(file, "utf8").split("\n").forEach((line, i) => {
         const code = line.trim();
         if (code.startsWith("*") || code.startsWith("//") || code.startsWith("/*")) return; // комментарии — история, не текст клиенту
-        if (code.includes("// retired-wording:")) return; // старые фразы — только чтобы узнать их в памяти старых чатов, клиенту не уходят
         if (ZONE.test(line)) offenders.push(`${path.relative(src, file)}:${i + 1}`);
       });
     }
