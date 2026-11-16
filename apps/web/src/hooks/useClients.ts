@@ -63,6 +63,8 @@ export interface ClientFilters {
    *  же правилом, и клиентский отбор страницы расходился бы с ним на длинных
    *  списках. */
   noFirstContactYesterday?: boolean;
+  /** «Без контакта» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts). */
+  noContact?: boolean;
   /** Вкладка «Все мои клиенты» (18.09.2026, задание В §f п.1) — снимает Корзину/
    *  kind/status-срезы у своего агента, см. серверный комментарий (routes/clients/list.ts). */
   scope?: "allMine" | "inWork";
@@ -71,7 +73,7 @@ export interface ClientFilters {
 function toQuery(filters: ClientFilters) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => {
-    if (k === "pendingAcceptance" || k === "noFirstContactYesterday") {
+    if (k === "pendingAcceptance" || k === "noFirstContactYesterday" || k === "noContact") {
       if (v) params.set(k, "1");
       return;
     }

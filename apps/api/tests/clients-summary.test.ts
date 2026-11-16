@@ -26,9 +26,9 @@ let agentId = "";
 let pendingWaitingMinutes = 0;
 
 // 16.11.2026 (владелец: «удалить все папки и статусы»): список один. Старые
-// INACTIVE/LOST/ARCHIVED-строки — обычные клиенты списка; прячутся только закрытая
-// сделка и назначение с завершённой работой.
-it("один список: старые неактивные/потерянные/архивные видны, закрытые сделка и назначение — нет", async () => {
+// INACTIVE/LOST-строки — обычные клиенты списка; прячутся закрытая сделка, архив
+// («архив — та же корзина») и назначение с завершённой работой.
+it("один список: старые неактивные/потерянные видны, архив, закрытые сделка и назначение — нет", async () => {
   const token = await login(agentPhone);
   const get = (path: string) => request(app).get(path).set("Authorization", `Bearer ${token}`);
   const before = await get("/api/v1/clients/summary");
@@ -51,10 +51,10 @@ it("один список: старые неактивные/потерянны�
       created.push(c.id);
     }
     const after = await get("/api/v1/clients/summary");
-    expect(after.body.buyers).toBe(before.body.buyers + 4);
+    expect(after.body.buyers).toBe(before.body.buyers + 3);
     const work = await get(`/api/v1/clients?scope=inWork&kind=BUYER&q=${marker}`);
     expect(work.status).toBe(200);
-    expect(work.body.items.map((c: { id: string }) => c.id).sort()).toEqual([created[0], created[1], created[2], created[3]].sort());
+    expect(work.body.items.map((c: { id: string }) => c.id).sort()).toEqual([created[0], created[1], created[2]].sort());
     const search = await get(`/api/v1/clients?q=${marker}`);
     expect(search.status).toBe(200);
     expect(search.body.items).toHaveLength(fixtures.length);

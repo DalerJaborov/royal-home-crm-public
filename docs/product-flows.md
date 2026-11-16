@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2454**; вместе с задачами по расписанию и фоновыми заданиями — **4039**. Модулей: **84**.
+Путей: **747**. Развилок в самих путях: **2455**; вместе с задачами по расписанию и фоновыми заданиями — **4040**. Модулей: **84**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -825,12 +825,10 @@
     · ответ 404 — «Сотрудник не найден»
 - const propertyWhere = { deletedAt: null, ...propertyOwnerWhere(id) };
   · зовёт propertyOwnerWhere()
-- const hotScoreThreshold = await loadHotScoreThreshold();
-  · зовёт loadHotScoreThreshold()
 - const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…
   · зовёт overdueTasksWhere()
-- const stalledClientsAgentWhere = { ...stalledClientsWhere(now, hotScoreThreshold), assignedAgentId: id };
-  · зовёт stalledClientsWhere()
+- const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };
+  · зовёт noContactWhere()
 - const [ propertiesTotal, propertiesAvailable, propertiesCreated, lastProperties, clientsTotal, lastClients, d…
   · считает в базе: property
   · читает в базе: property
@@ -4706,6 +4704,9 @@
   · зовёт buildClientTextSearchAnd()
 - если textSearchAnd
   - where.AND = textSearchAnd;
+    · дословно из кода
+- если noContact
+  - where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Dat…
     · дословно из кода
 - если scope === "inWork"
   - Object.assign(where, CLIENT_IN_WORK_WHERE);
@@ -9922,10 +9923,10 @@
 
 - const name = (n: string)
   · зовёт clientNamePhoneSafe()
-- const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, acked…
+- const [noContact, silent, refused, seller, endless, ackedNoContact, ackedSilent, ackedRefused, ackedSeller, a…
   · читает в базе: client
-- для каждого: const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)
-  - flags.push({ sliceKey: "stalled-clients", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без ко…
+- для каждого: const c of noContact.filter((x) => !ackedNoContact.has(x.id)).slice(0, FLAGS_PER_SLICE)
+  - flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: без контакта больш…
     · дословно из кода
 - для каждого: const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)
   - flags.push({ sliceKey: "silent-after-showing", subjectId: c.id, title: `${name(c.fullName)}: тишина после пок…
@@ -9950,6 +9951,18 @@
   · читает в базе: interaction
   · считает в базе: interaction
 - res.json({ items: rows.map((r)
+  · ответ 200
+
+### GET /api/v1/oversight/no-contact-clients
+
+`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+
+- const where = noContactWhere(new Date());
+  · зовёт noContactWhere()
+- const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ lastClientMessageAt: { …
+  · читает в базе: client
+  · считает в базе: client
+- res.json({ items: await markAcked("no-contact-clients", rows.map(({ interactions, ...c })
   · ответ 200
 
 ### GET /api/v1/oversight/overdue-tasks
@@ -10045,18 +10058,6 @@
 - const { days, items } = await findSilentAfterShowing(new Date());
   · зовёт findSilentAfterShowing()
 - res.json({ items: await markAcked("silent-after-showing", items.slice(start, start + pageSize).map((c)
-  · ответ 200
-
-### GET /api/v1/oversight/stalled-clients
-
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
-
-- const where = stalledClientsWhere(now, await loadHotScoreThreshold());
-  · зовёт stalledClientsWhere()
-- const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ aiScore: "desc" }, { id…
-  · читает в базе: client
-  · считает в базе: client
-- res.json({ items: await markAcked("stalled-clients", rows.map((c)
   · ответ 200
 
 ### GET /api/v1/oversight/summary

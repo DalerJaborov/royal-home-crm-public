@@ -78,7 +78,7 @@ function totalProblems(data: AgentOverview | undefined): number {
   return (
     data.violations.flaggedShowingCalls +
     p.overdueTasks.total +
-    p.stalledClients.total +
+    p.noContactClients.total +
     p.silentAfterShowing.total +
     p.refusedHighScore.total +
     p.endlessNegotiations.total +
@@ -559,17 +559,17 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                         ))}
                       </>
                     )}
-                    {data.problems.stalledClients.total > 0 && (
+                    {data.problems.noContactClients.total > 0 && (
                       <>
                         <p className="state" style={{ margin: "8px 0 0" }}>
-                          <b>Горячие клиенты без контакта</b> · {data.problems.stalledClients.total}
+                          <b>Без контакта больше суток</b> · {data.problems.noContactClients.total}
                         </p>
-                        {data.problems.stalledClients.items.map((c) => (
+                        {data.problems.noContactClients.items.map((c) => (
                           <Link key={c.id} className="row" to={`/clients/${c.shortId}`} state={backState(id, data.agent.fullName)}>
                             <div className="t">
                               <b>{c.fullName}</b>
                               <span>
-                                скоринг {c.aiScore ?? "—"} · {c.lastContactAt ? `молчит с ${relativeTime(c.lastContactAt)}` : "контакта не было"}
+                                {c.lastClientMessageAt ? `писал(а) ${relativeTime(c.lastClientMessageAt)}` : `карточка ${relativeTime(c.createdAt)}`}
                               </span>
                             </div>
                           </Link>
@@ -1252,19 +1252,19 @@ function TeamMemberDetailMobile(props: SharedProps) {
                         <ChevronRight className="i" aria-hidden="true" />
                       </div>
                     ))}
-                    {data.problems.stalledClients.total > 0 && (
+                    {data.problems.noContactClients.total > 0 && (
                       <div className="quiet">
                         <div className="ln">
-                          <b>Горячие клиенты без контакта · {data.problems.stalledClients.total}</b>
+                          <b>Без контакта больше суток · {data.problems.noContactClients.total}</b>
                         </div>
                       </div>
                     )}
-                    {data.problems.stalledClients.items.map((c) => (
+                    {data.problems.noContactClients.items.map((c) => (
                       <div key={c.id} className="row" role="button" tabIndex={0} onClick={() => navigate(`/clients/${c.shortId}`, { state: backState(id, data.agent.fullName) })}>
                         <span className="t">
                           <span className="n">{c.fullName}</span>
                           <span className="s">
-                            скоринг {c.aiScore ?? "—"} · {c.lastContactAt ? `молчит с ${relativeTime(c.lastContactAt)}` : "контакта не было"}
+                            {c.lastClientMessageAt ? `писал(а) ${relativeTime(c.lastClientMessageAt)}` : `карточка ${relativeTime(c.createdAt)}`}
                           </span>
                         </span>
                         <ChevronRight className="i" aria-hidden="true" />

@@ -16,10 +16,10 @@
   "paths": 747,
   "cron": 136,
   "jobs": 33,
-  "conditions": 4023,
+  "conditions": 4024,
   "untranslatedUnique": 463,
   "untranslatedTotal": 592,
-  "partialUnique": 1102,
+  "partialUnique": 1103,
   "translatedShare": 85
  },
  "untranslated": [
@@ -21854,6 +21854,12 @@
      "c": []
     },
     {
+     "t": "если есть no contact",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
+    {
      "t": "если scope — «inWork»",
      "k": "if",
      "a": [],
@@ -36869,6 +36875,35 @@
   },
   {
    "i": 393,
+   "title": "Показать: no contact клиенты",
+   "where": "apps/api/src/routes/oversight.ts",
+   "method": "GET",
+   "full": "/api/v1/oversight/no-contact-clients",
+   "mount": "/api/v1/oversight",
+   "module": "Контроль руководителя",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: dashboard.analytics"
+   ],
+   "screens": [
+    "/activity",
+    "/oversight",
+    "/security"
+   ],
+   "tree": [
+    {
+     "t": "всё хорошо, отвечает данными",
+     "k": "do",
+     "a": [],
+     "c": []
+    }
+   ]
+  },
+  {
+   "i": 394,
    "title": "Показать: просроченные задачи",
    "where": "apps/api/src/routes/oversight.ts",
    "method": "GET",
@@ -36897,7 +36932,7 @@
    ]
   },
   {
-   "i": 394,
+   "i": 395,
    "title": "Показать: отказавшиеся high баллы",
    "where": "apps/api/src/routes/oversight.ts",
    "method": "GET",
@@ -36927,7 +36962,7 @@
    ]
   },
   {
-   "i": 395,
+   "i": 396,
    "title": "Показать: продавец объект отсутствует",
    "where": "apps/api/src/routes/oversight.ts",
    "method": "GET",
@@ -36957,7 +36992,7 @@
    ]
   },
   {
-   "i": 396,
+   "i": 397,
    "title": "Показать: запись разговора",
    "where": "apps/api/src/routes/oversight.ts",
    "method": "GET",
@@ -37021,7 +37056,7 @@
    ]
   },
   {
-   "i": 397,
+   "i": 398,
    "title": "Показать: показ опрос звонки",
    "where": "apps/api/src/routes/oversight.ts",
    "method": "GET",
@@ -37078,7 +37113,7 @@
    ]
   },
   {
-   "i": 398,
+   "i": 399,
    "title": "Показать: показ опрос звонки",
    "where": "apps/api/src/routes/oversight.ts",
    "method": "GET",
@@ -37108,40 +37143,11 @@
    ]
   },
   {
-   "i": 399,
+   "i": 400,
    "title": "Показать: молчащие после показ",
    "where": "apps/api/src/routes/oversight.ts",
    "method": "GET",
    "full": "/api/v1/oversight/silent-after-showing",
-   "mount": "/api/v1/oversight",
-   "module": "Контроль руководителя",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: dashboard.analytics"
-   ],
-   "screens": [
-    "/activity",
-    "/oversight",
-    "/security"
-   ],
-   "tree": [
-    {
-     "t": "всё хорошо, отвечает данными",
-     "k": "do",
-     "a": [],
-     "c": []
-    }
-   ]
-  },
-  {
-   "i": 400,
-   "title": "Показать: заглохшие клиенты",
-   "where": "apps/api/src/routes/oversight.ts",
-   "method": "GET",
-   "full": "/api/v1/oversight/stalled-clients",
    "mount": "/api/v1/oversight",
    "module": "Контроль руководителя",
    "guards": [

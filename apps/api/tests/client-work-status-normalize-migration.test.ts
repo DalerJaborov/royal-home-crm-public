@@ -109,3 +109,61 @@ describe("миграция: «Неактивные» и «Отложенные»
     expect((await migrationEvents()).length).toBe(before);
   });
 });
+
+/**
+ * Миграция 20261116160000_client_lost_back_to_work (владелец 16.11.2026, вечер):
+ * старые LOST — обратно в обычный список (с контактом — CONTACTED, без — NEW),
+ * ARCHIVED не трогаем, журнал пишется, повтор ничего не делает.
+ */
+describe("миграция: старые «Потерянные» → обычная работа", () => {
+  const LOST_SQL = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261116160000_client_lost_back_to_work/migration.sql"),
+    "utf8"
+  );
+  const lostIds: Record<string, string> = {};
+  const scopedLost = () => {
+    const marker = `WHERE "status" = 'LOST'`;
+    if (!LOST_SQL.includes(marker)) throw new Error("миграция изменилась — обновите тест");
+    return LOST_SQL.replace(marker, `${marker} AND "id" IN (${Object.values(lostIds).map((id) => `'${id}'`).join(", ")})`);
+  };
+
+  beforeAll(async () => {
+    const mk = async (key: string, n: number, data: Record<string, unknown>) => {
+      const c = await prisma.client.create({
+        data: {
+          fullName: `Миграция LOST ${key} ${runId}`,
+          phone: `+99295${n}${String(runId).slice(-6)}9`,
+          source: "PHONE_CALL",
+          kind: "BUYER",
+          assignedAgentId: agentId,
+          ...data,
+        },
+      });
+      lostIds[key] = c.id;
+    };
+    await mk("lostContacted", 6, { status: "LOST", lostAt: new Date(), firstContactAt: new Date() });
+    await mk("lostNew", 7, { status: "LOST", lostAt: new Date() });
+    await mk("archived", 8, { status: "ARCHIVED" });
+  });
+
+  afterAll(async () => {
+    await prisma.stageEvent.deleteMany({ where: { entityId: { in: Object.values(lostIds) } } });
+    await prisma.client.deleteMany({ where: { id: { in: Object.values(lostIds) } } });
+  });
+
+  const st = (key: string) =>
+    prisma.client.findUniqueOrThrow({ where: { id: lostIds[key] }, select: { status: true, lostAt: true } });
+
+  it("LOST → CONTACTED/NEW, ARCHIVED не тронут, история и журнал на месте, повтор — без изменений", async () => {
+    await prisma.$executeRawUnsafe(scopedLost());
+    expect((await st("lostContacted")).status).toBe("CONTACTED");
+    expect((await st("lostNew")).status).toBe("NEW");
+    expect((await st("lostNew")).lostAt).not.toBeNull();
+    expect((await st("archived")).status).toBe("ARCHIVED");
+    const events = () =>
+      prisma.stageEvent.count({ where: { entityId: { in: Object.values(lostIds) }, field: "status", from: "LOST" } });
+    expect(await events()).toBe(2);
+    await prisma.$executeRawUnsafe(scopedLost());
+    expect(await events()).toBe(2);
+  });
+});

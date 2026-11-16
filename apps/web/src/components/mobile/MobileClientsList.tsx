@@ -488,7 +488,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
               title="Список: давно не общались"
             >
               <div className={summary.noContactOverDay > 0 ? "v crit" : "v"}>{num(summary.noContactOverDay)}</div>
-              <div className={summary.noContactOverDay > 0 ? "l crit" : "l"}>без контакта · больше суток без разговора</div>
+              <div className={summary.noContactOverDay > 0 ? "l crit" : "l"}>без контакта больше суток</div>
             </button>
             <Link className="tile" to="/calendar?type=SHOWING&date=today" title="Календарь показов">
               <div className="v">{num(summary.showings.today)}</div>

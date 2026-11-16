@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 747,
-  "forks": 4039,
+  "forks": 4040,
   "mounts": 84,
   "cron": 136,
   "jobs": 33,
@@ -3362,14 +3362,6 @@
     },
     {
      "k": "do",
-     "t": "const hotScoreThreshold = await loadHotScoreThreshold();",
-     "a": [
-      "зовёт loadHotScoreThreshold()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
      "t": "const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…",
      "a": [
       "зовёт overdueTasksWhere()"
@@ -3378,9 +3370,9 @@
     },
     {
      "k": "do",
-     "t": "const stalledClientsAgentWhere = { ...stalledClientsWhere(now, hotScoreThreshold), assignedAgentId: id };",
+     "t": "const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };",
      "a": [
-      "зовёт stalledClientsWhere()"
+      "зовёт noContactWhere()"
      ],
      "c": []
     },
@@ -20544,6 +20536,21 @@
       {
        "k": "do",
        "t": "where.AND = textSearchAnd;",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "noContact",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Dat…",
        "a": [
         "дословно из кода"
        ],
@@ -44052,7 +44059,7 @@
     },
     {
      "k": "do",
-     "t": "const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, acked…",
+     "t": "const [noContact, silent, refused, seller, endless, ackedNoContact, ackedSilent, ackedRefused, ackedSeller, a…",
      "a": [
       "читает в базе: client"
      ],
@@ -44060,12 +44067,12 @@
     },
     {
      "k": "loop",
-     "t": "для каждого: const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "t": "для каждого: const c of noContact.filter((x) => !ackedNoContact.has(x.id)).slice(0, FLAGS_PER_SLICE)",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "flags.push({ sliceKey: \"stalled-clients\", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без ко…",
+       "t": "flags.push({ sliceKey: \"no-contact-clients\", subjectId: c.id, title: `${name(c.fullName)}: без контакта больш…",
        "a": [
         "дословно из кода"
        ],
@@ -44172,6 +44179,50 @@
     {
      "k": "do",
      "t": "res.json({ items: rows.map((r)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/no-contact-clients",
+   "mount": "/api/v1/oversight",
+   "full": "/api/v1/oversight/no-contact-clients",
+   "file": "apps/api/src/routes/oversight.ts",
+   "router": "oversightRouter",
+   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: dashboard.analytics"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const where = noContactWhere(new Date());",
+     "a": [
+      "зовёт noContactWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ lastClientMessageAt: { …",
+     "a": [
+      "читает в базе: client",
+      "считает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: await markAcked(\"no-contact-clients\", rows.map(({ interactions, ...c })",
      "a": [
       "ответ 200"
      ],
@@ -44551,50 +44602,6 @@
     {
      "k": "do",
      "t": "res.json({ items: await markAcked(\"silent-after-showing\", items.slice(start, start + pageSize).map((c)",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/stalled-clients",
-   "mount": "/api/v1/oversight",
-   "full": "/api/v1/oversight/stalled-clients",
-   "file": "apps/api/src/routes/oversight.ts",
-   "router": "oversightRouter",
-   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: dashboard.analytics"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const where = stalledClientsWhere(now, await loadHotScoreThreshold());",
-     "a": [
-      "зовёт stalledClientsWhere()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ aiScore: \"desc\" }, { id…",
-     "a": [
-      "читает в базе: client",
-      "считает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ items: await markAcked(\"stalled-clients\", rows.map((c)",
      "a": [
       "ответ 200"
      ],

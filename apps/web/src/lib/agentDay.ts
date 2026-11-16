@@ -21,8 +21,6 @@ import { dushanbeDate, dushanbeDayKey, dushanbeTime, dushanbeTodayKey } from "./
 /** Закрытые состояния в портфеле не показываются — по ним делать нечего. */
 export const CLOSED = new Set(["LOST", "DEAL_CLOSED", "ARCHIVED"]);
 export const DAY_MS = 24 * 60 * 60 * 1000;
-/** С какого дня молчания клиент считается «остывает» (владелец: три дня). */
-export const NO_CONTACT_DAYS = 3;
 /** Короче часа окно между встречами не считается окном. */
 const MIN_GAP_MS = 60 * 60 * 1000;
 
@@ -61,12 +59,8 @@ export function buildPortfolio(clients: Client[], now: number): Client[] {
     });
 }
 
-/** Кто молчит дольше порога — дольше всех первым. */
-export function buildNoContact(portfolio: Client[], now: number): Client[] {
-  return portfolio
-    .filter((c) => daysSince(c.lastContactAt, now) >= NO_CONTACT_DAYS)
-    .sort((a, b) => Date.parse(a.lastContactAt) - Date.parse(b.lastContactAt));
-}
+// «Кто молчит» больше не считается на экране по lastContactAt: правило одно на всю
+// CRM (packages/shared/src/clientNoContact.ts), список даёт сервер — `/clients?noContact=1`.
 
 /** Показы дня — из задач дня; отменённые и завершённые не считаются. */
 export function buildShowings(tasks: Interaction[]): Interaction[] {

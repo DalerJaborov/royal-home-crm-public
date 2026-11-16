@@ -183,6 +183,9 @@ export const clientQuerySchema = z.object({
    * расхождение здесь дороже лишнего параметра. Не boolean-коэрция, как у `hot`.
    */
   noFirstContactYesterday: z.enum(["1"]).optional(),
+  /** «Без контакта» — одно правило на всю CRM (clientNoContact.ts): клиенты в работе
+   *  без разговора по телефону и без сообщения клиента дольше порога. */
+  noContact: z.enum(["1"]).optional(),
   districtId: uuid.optional(),
   agentId: uuid.optional(),
   /** Источник — фильтр шторки «Фильтры» экрана «Клиенты» (артефакт). */

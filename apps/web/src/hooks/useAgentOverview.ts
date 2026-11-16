@@ -108,9 +108,10 @@ export interface AgentOverview {
         client: { id: string; shortId: number; fullName: string };
       }[];
     };
-    stalledClients: {
+    /** «Без контакта» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts). */
+    noContactClients: {
       total: number;
-      items: { id: string; shortId: number; fullName: string; status: ClientStatus; aiScore: number | null; lastContactAt: string | null }[];
+      items: { id: string; shortId: number; fullName: string; createdAt: string; lastClientMessageAt: string | null }[];
     };
     silentAfterShowing: {
       total: number;

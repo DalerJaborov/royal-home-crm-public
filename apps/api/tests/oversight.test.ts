@@ -147,7 +147,7 @@ beforeAll(async () => {
   });
   interactionIds.push(completedInteraction.id);
 
-  // Высокий скоринг, давно без контакта — должен попасть в /stalled-clients.
+  // Высокий скоринг, давно без контакта (фикстура прежнего среза «горячий без прогресса»).
   const staleHot = await prisma.client.create({
     data: {
       fullName: `Горячий без прогресса ${runId}`,
@@ -635,15 +635,15 @@ describe("GET /oversight/*", () => {
     expect(ids).not.toContain(interactionIds[2]); // выполненная
   });
 
-  it("/stalled-clients находит высокий скоринг без прогресса, отсеивает свежий контакт и низкий балл", async () => {
-    const res = await request(app)
-      .get("/api/v1/oversight/stalled-clients?pageSize=50")
-      .set("Authorization", `Bearer ${managerToken}`);
+  it("«горячий без прогресса» заменён одним счётчиком «Без контакта» (16.11.2026)", async () => {
+    const gone = await request(app).get("/api/v1/oversight/stalled-clients").set("Authorization", `Bearer ${managerToken}`);
+    expect(gone.status).toBe(404);
+    const res = await request(app).get("/api/v1/oversight/no-contact-clients?pageSize=50").set("Authorization", `Bearer ${managerToken}`);
     expect(res.status).toBe(200);
-    const ids = res.body.items.map((i: { id: string }) => i.id);
-    expect(ids).toContain(clientIds[3]); // staleHot (индекс: 0,1 — лимит, 2 — overdueClient, 3 — staleHot)
-    expect(ids).not.toContain(clientIds[4]); // freshHot
-    expect(ids).not.toContain(clientIds[5]); // staleCold
+    expect(Array.isArray(res.body.items)).toBe(true);
+    const summary = await request(app).get("/api/v1/oversight/summary").set("Authorization", `Bearer ${managerToken}`);
+    expect(typeof summary.body.noContactClients).toBe("number");
+    expect(summary.body).not.toHaveProperty("staleHotClients");
   });
 
   it("/lead-transfers находит событие передачи агенту", async () => {

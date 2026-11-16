@@ -29,6 +29,7 @@ import { budgetSortKey, computeHiddenReason, presentClient } from "./shared.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
 import { dushanbeStartOfToday } from "../../lib/dushanbeTime.js";
 import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
+import { noContactWhere } from "../../lib/noContact.js";
 
 export const listRouter = Router();
 
@@ -99,6 +100,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
     hot,
     pendingAcceptance,
     noFirstContactYesterday,
+    noContact,
     scope,
   } = parsed.data;
   // «Прочие обращения» — отдельный раздел меню и отдельное право. Раньше вкладка
@@ -248,6 +250,9 @@ listRouter.get("/", requireAuth, async (req, res) => {
     canSearchByOrigin: can(req, "clients.viewOrigin"),
   });
   if (textSearchAnd) where.AND = textSearchAnd;
+  // «Без контакта» — то же правило, что у счётчика сводки и «Контроля» (lib/noContact.ts). После
+  // текстового поиска: тот заменяет where.AND целиком.
+  if (noContact) where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Date())];
   // Keep the scope outside the text-search AND, which fuzzy search replaces.
   if (scope === "inWork") Object.assign(where, CLIENT_IN_WORK_WHERE);
 

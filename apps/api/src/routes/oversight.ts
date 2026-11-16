@@ -9,6 +9,7 @@ import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { TASK_WHERE } from "../lib/tasks.js";
 import { BUYERS_IN_WORK_WHERE } from "../lib/agentLoad.js";
+import { noContactWhere, TALKED_CALL_WHERE } from "../lib/noContact.js";
 import { findSilentAfterShowing } from "../lib/silentAfterShowing.js";
 export { findSilentAfterShowing } from "../lib/silentAfterShowing.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../lib/clientPhone.js";
@@ -42,11 +43,6 @@ function parsePage(req: { query: Record<string, unknown> }): { page: number; pag
   return { page, pageSize };
 }
 
-// «Без прогресса» у клиента с высоким скорингом — контакта не было дольше этого
-// срока. Короче, чем общий порог «забытых клиентов» (10 дней, computeForgottenClients
-// в routes/ai.ts): чем ближе клиент к сделке, тем дороже каждый день молчания.
-const STALE_CONTACT_DAYS = 3;
-const STALE_CONTACT_MS = STALE_CONTACT_DAYS * 24 * 60 * 60 * 1000;
 // Окно «недавних» событий для плиток сводки (переводы в Неактивные, передачи).
 // Экспортировано: карточка сотрудника (routes/team.ts) использует то же окно
 // для findRefusedHighScore по одному агенту — второго числа не заводим.
@@ -101,14 +97,9 @@ export function overdueTasksWhere(now: Date): Prisma.InteractionWhereInput {
   return { ...TASK_WHERE, completedAt: null, nextActionDate: { lt: now } };
 }
 
-export function stalledClientsWhere(now: Date, hotScoreThreshold: number): Prisma.ClientWhereInput {
-  return {
-    ...BUYERS_IN_WORK_WHERE,
-    deletedAt: null,
-    aiScore: { gte: hotScoreThreshold },
-    lastContactAt: { lt: new Date(now.getTime() - STALE_CONTACT_MS) },
-  };
-}
+// «Горячий клиент без контакта» (скоринг + lastContactAt) удалён 16.11.2026: владелец
+// оставил ОДИН счётчик «Без контакта» с одним правилом — lib/noContact.ts
+// (правило и порог — packages/shared/src/clientNoContact.ts).
 
 // «Переведён в Неактивные» пишется одной строкой из lib/clientWorkStatus.ts
 // (deactivateClient) — структурной колонки с причиной нет (ТЗ п. 22 хранит её
@@ -395,7 +386,7 @@ async function buildOversightSummary() {
 
   const [
     overdueTasks,
-    staleHotClients,
+    noContactClients,
     recentTransfers,
     silentAfterShowing,
     refusedHighScore,
@@ -405,7 +396,7 @@ async function buildOversightSummary() {
   ] = await runLimited(
     [
       () => prisma.interaction.count({ where: overdueTasksWhere(now) }),
-      () => loadHotScoreThreshold().then((t) => prisma.client.count({ where: stalledClientsWhere(now, t) })),
+      () => prisma.client.count({ where: noContactWhere(now) }),
       () => prisma.interaction.count({ where: { ...transferEventsWhere(), createdAt: { gte: recentSince } } }),
       () => findSilentAfterShowing(now),
       () => findRefusedHighScore(recentSince),
@@ -418,7 +409,7 @@ async function buildOversightSummary() {
 
   return {
     overdueTasks,
-    staleHotClients,
+    noContactClients,
     recentTransfers,
     silentAfterShowing: silentAfterShowing.items.length,
     silentAfterShowingDays: silentAfterShowing.days,
@@ -497,42 +488,45 @@ oversightRouter.get("/overdue-tasks", async (req, res) => {
   res.json({ items: rows.map((r) => maskInteractionRow(r, canSeePhone)), total, page, pageSize });
 });
 
-/** GET /oversight/stalled-clients — клиенты с высоким ИИ-скорингом (см.
- *  ai/scoring.ts, автозапуск — lib/clientAutopilot.ts), которые всё ещё в
- *  активном портфеле агента, но без контакта дольше STALE_CONTACT_DAYS. */
-oversightRouter.get("/stalled-clients", async (req, res) => {
+/**
+ * GET /oversight/no-contact-clients — клиенты в работе без настоящего контакта
+ * дольше порога (правило — packages/shared/src/clientNoContact.ts, выборка —
+ * lib/noContact.ts). Сначала те, кто молчит дольше: новая карточка без единого
+ * контакта считается от создания.
+ */
+oversightRouter.get("/no-contact-clients", async (req, res) => {
   const { page, pageSize } = parsePage(req);
-  const now = new Date();
-  const where = stalledClientsWhere(now, await loadHotScoreThreshold());
-
+  const where = noContactWhere(new Date());
   const [rows, total] = await Promise.all([
     prisma.client.findMany({
       where,
-      orderBy: [{ aiScore: "desc" }, { id: "desc" }],
+      orderBy: [{ lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }, { id: "asc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
       select: {
         id: true,
         shortId: true,
+        kind: true,
         fullName: true,
-        status: true,
-        aiScore: true,
-        aiScoreReason: true,
-        lastContactAt: true,
+        createdAt: true,
+        lastClientMessageAt: true,
         assignedAgent: agentRefSelect,
+        interactions: {
+          where: TALKED_CALL_WHERE,
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { createdAt: true },
+        },
       },
     }),
     prisma.client.count({ where }),
   ]);
-
   const canSeePhone = req.agent!.can("clients.viewPhone");
   res.json({
-    // Тот же обход presentClient, что и в /refused-high-score выше: сводка причины
-    // от ИИ несёт номер, продиктованный клиентом, а право на номер отдельное.
-    items: await markAcked("stalled-clients", rows.map((c) => ({
+    items: await markAcked("no-contact-clients", rows.map(({ interactions, ...c }) => ({
       ...c,
       fullName: clientNamePhoneSafe(c.fullName, canSeePhone),
-      aiScoreReason: phoneSafeText(c.aiScoreReason, canSeePhone),
+      lastTalkedCallAt: interactions[0]?.createdAt ?? null,
     })), (c) => c.id),
     total,
     page,
@@ -923,20 +917,18 @@ oversightRouter.get("/flags", requireDirectorOrAdmin, async (req, res) => {
   const link = (key: OversightFlagSlice) => `/oversight#slice-${key}`;
   const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
-  const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, ackedEndless] = await Promise.all([
-    loadHotScoreThreshold().then((threshold) =>
-      prisma.client.findMany({
-        where: stalledClientsWhere(now, threshold),
-        orderBy: [{ aiScore: "desc" }, { id: "desc" }],
-        take: 500,
-        select: { id: true, fullName: true, lastContactAt: true, assignedAgent: agentRefSelect },
-      }),
-    ),
+  const [noContact, silent, refused, seller, endless, ackedNoContact, ackedSilent, ackedRefused, ackedSeller, ackedEndless] = await Promise.all([
+    prisma.client.findMany({
+      where: noContactWhere(now),
+      orderBy: [{ lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
+      take: 200,
+      select: { id: true, fullName: true, createdAt: true, lastClientMessageAt: true, assignedAgent: agentRefSelect },
+    }),
     findSilentAfterShowing(now),
     findRefusedHighScore(new Date(Date.now() - RECENT_EVENTS_MS)),
     findSellerPropertyMissing(now),
     findEndlessNegotiations(now),
-    loadAckedSubjects("stalled-clients"),
+    loadAckedSubjects("no-contact-clients"),
     loadAckedSubjects("silent-after-showing"),
     loadAckedSubjects("refused-high-score"),
     loadAckedSubjects("seller-property-missing"),
@@ -944,8 +936,8 @@ oversightRouter.get("/flags", requireDirectorOrAdmin, async (req, res) => {
   ]);
 
   const flags: OversightFlag[] = [];
-  for (const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
-    flags.push({ sliceKey: "stalled-clients", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без контакта`, who: c.assignedAgent?.fullName ?? null, at: iso(c.lastContactAt), href: link("stalled-clients") });
+  for (const c of noContact.filter((x) => !ackedNoContact.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
+    flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: без контакта больше суток`, who: c.assignedAgent?.fullName ?? null, at: iso(c.lastClientMessageAt ?? c.createdAt), href: link("no-contact-clients") });
   }
   for (const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
     flags.push({ sliceKey: "silent-after-showing", subjectId: c.id, title: `${name(c.fullName)}: тишина после показа`, who: c.assignedAgent?.fullName ?? null, at: iso(c.lastContactAt), href: link("silent-after-showing") });

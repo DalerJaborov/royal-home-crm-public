@@ -8,7 +8,8 @@ import { SAFETY_REFETCH_MS } from "../lib/refetchIntervals";
 
 export interface OversightSummary {
   overdueTasks: number;
-  staleHotClients: number;
+  /** «Без контакта» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts). */
+  noContactClients: number;
   recentTransfers: number;
   /** Красные флаги (антифрод, мозговой штурм владельца 20-21.08.2026). */
   silentAfterShowing: number;
@@ -42,14 +43,14 @@ export interface OverdueTaskRow {
   agent: AgentRef;
 }
 
-export interface StalledClientRow {
+export interface NoContactClientRow {
   id: string;
   shortId: number;
+  kind: string;
   fullName: string;
-  status: ClientStatus;
-  aiScore: number | null;
-  aiScoreReason: string | null;
-  lastContactAt: string;
+  createdAt: string;
+  lastClientMessageAt: string | null;
+  lastTalkedCallAt: string | null;
   assignedAgent: AgentRef | null;
 }
 
@@ -88,11 +89,11 @@ export function useOverdueTasks(page: number, enabled = true) {
   });
 }
 
-export function useStalledClients(page: number, enabled = true) {
+export function useNoContactClients(page: number, enabled = true) {
   return useQuery({
     refetchInterval: SAFETY_REFETCH_MS,
-    queryKey: ["oversight", "stalled-clients", page],
-    queryFn: () => api<Paginated<StalledClientRow>>(`/oversight/stalled-clients?page=${page}`),
+    queryKey: ["oversight", "no-contact-clients", page],
+    queryFn: () => api<Paginated<NoContactClientRow>>(`/oversight/no-contact-clients?page=${page}`),
     enabled,
   });
 }

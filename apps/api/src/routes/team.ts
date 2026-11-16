@@ -11,7 +11,7 @@ import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { sumPointsByAgent } from "../lib/pointsTotals.js";
 import { agentLoadCounts, NO_LOAD } from "../lib/agentLoad.js";
-import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
+import { noContactWhere } from "../lib/noContact.js";
 import { findSellerPropertyMissing } from "../lib/sellerPropertyMissingAntifraud.js";
 import { runLimited } from "../lib/concurrency.js";
 import { INCLUDE_FORMER_STAFF_PARAM, RATED_ROLES, wantsFormerStaff } from "@royal-home/shared";
@@ -26,7 +26,6 @@ import {
   overdueTasksWhere,
   RECENT_EVENTS_DAYS,
   RECENT_EVENTS_MS,
-  stalledClientsWhere,
 } from "./oversight.js";
 
 export const teamRouter = Router();
@@ -51,7 +50,6 @@ const STAGE_STATUSES: ClientStatus[] = [
   "HOT",
   "COLD",
   "UNRESPONSIVE",
-  "LOST",
   "DEAL_CLOSED",
   "ARCHIVED",
 ];
@@ -441,12 +439,12 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
   // не заводим — тот же приём, что уже применён к findSilentAfterShowing и
   // соседям для mission-control.
   const now = new Date();
-  const hotScoreThreshold = await loadHotScoreThreshold();
   // subjectAgentId ?? agentId (П-10, 17.09.2026): просроченная задача, заведённая
   // ботом/системой от лица держателя карточки (agentId: null), остаётся ЕГО
   // хвостом — тот же приём, что computeDiscipline в kpi.ts.
   const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRole(req)), OR: [{ agentId: id }, { subjectAgentId: id }] };
-  const stalledClientsAgentWhere = { ...stalledClientsWhere(now, hotScoreThreshold), assignedAgentId: id };
+  // «Без контакта» — одно правило на всю CRM (lib/noContact.ts), здесь — по этому агенту.
+  const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };
 
   const [
     propertiesTotal,
@@ -463,7 +461,7 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
     waitingClients,
     overdueTasksItems,
     overdueTasksTotal,
-    stalledClientsItems,
+    noContactItems,
     silentAfterShowing,
     refusedHighScore,
     endlessNegotiations,
@@ -580,12 +578,13 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
         },
       }),
       () => prisma.interaction.count({ where: overdueTasksAgentWhere }),
-      // Горячие клиенты без прогресса (высокий ИИ-скоринг, давно без контакта).
+      // Клиенты без контакта (одно правило на всю CRM, lib/noContact.ts) — сначала
+      // те, кто молчит дольше.
       () => prisma.client.findMany({
-        where: stalledClientsAgentWhere,
-        orderBy: { aiScore: "desc" },
+        where: noContactAgentWhere,
+        orderBy: [{ lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
         take: 5,
-        select: { id: true, shortId: true, fullName: true, status: true, aiScore: true, lastContactAt: true },
+        select: { id: true, shortId: true, fullName: true, createdAt: true, lastClientMessageAt: true },
       }),
       // Остальные красные флаги — общекомандные хелперы, отфильтрованные на этого
       // агента после загрузки (капы take(500) внутри них те же, что у «Контроля
@@ -719,7 +718,7 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
         total: overdueTasksTotal,
         items: overdueTasksItems.map((t) => ({ ...t, notes: maskText(t.notes), nextAction: maskText(t.nextAction), client: maskName(t.client) })),
       },
-      stalledClients: { total: stalledClientsItems.length, items: stalledClientsItems.map(maskName) },
+      noContactClients: { total: noContactItems.length, items: noContactItems.map(maskName) },
       silentAfterShowing: { total: silentAfterShowingForAgent.length, days: silentAfterShowing.days, items: silentAfterShowingForAgent.slice(0, 5).map(maskName) },
       refusedHighScore: {
         total: refusedHighScoreForAgent.length,

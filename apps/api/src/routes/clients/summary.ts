@@ -5,6 +5,7 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { can, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
 import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
+import { noContactWhere } from "../../lib/noContact.js";
 import { pendingDeleteHideWhere } from "../../lib/clientSearchWhere.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
@@ -50,7 +51,9 @@ export interface ClientsSummary {
     count: number;
     oldest: { id: string; shortId: number; fullName: string; kind: string; waitingMinutes: number } | null;
   };
-  /** Активные покупатели и продавцы, у которых последний контакт старше суток. */
+  /** «Без контакта» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts):
+   *  клиенты в работе, у которых больше суток не было разговора по телефону и
+   *  сообщения от самого клиента; новая карточка — от создания. */
   noContactOverDay: number;
   showings: { today: number; tomorrow: number };
 }
@@ -72,7 +75,6 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
   const today = dushanbeDayRange(now);
   const yesterday = dushanbeDayRange(new Date(today.start.getTime() - 1));
   const tomorrow = dushanbeDayRange(new Date(today.end.getTime() + 1));
-  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const canOther = !ownAgentId && can(req, "otherInquiries.view");
   const meId = req.agent?.id;
 
@@ -140,7 +142,8 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
         orderBy: { assignedAt: "asc" },
         select: { id: true, shortId: true, fullName: true, kind: true, assignedAt: true },
       }),
-      prisma.client.count({ where: { ...base, ...TERMINAL, workStatus: "ACTIVE", kind: { in: ["BUYER", "SELLER"] }, lastContactAt: { lt: dayAgo } } }),
+      // «Без контакта» — одно правило на всю CRM (lib/noContact.ts, packages/shared/src/clientNoContact.ts).
+      prisma.client.count({ where: { AND: [base, noContactWhere(now)] } }),
       prisma.interaction.count({ where: showingWhere(today) }),
       prisma.interaction.count({ where: showingWhere(tomorrow) }),
       meId

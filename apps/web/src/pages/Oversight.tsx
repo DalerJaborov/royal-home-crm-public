@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { REFUSAL_REASON_LABELS } from "@royal-home/shared";
+import { NO_CONTACT_AFTER_DAYS, REFUSAL_REASON_LABELS, lastRealContactTime } from "@royal-home/shared";
 import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { pluralizeRu, relativeTime } from "../lib/format";
 import { StatTile } from "../components/ui/StatTile";
@@ -9,7 +9,7 @@ import { useCounters } from "../hooks/useCounters";
 import {
   useOversightSummary,
   useOverdueTasks,
-  useStalledClients,
+  useNoContactClients,
   useLeadTransfers,
   useSilentAfterShowing,
   useRefusedHighScore,
@@ -271,39 +271,48 @@ function OverdueTasks() {
   );
 }
 
-/* ────────────────────── 3. Высокий скоринг без прогресса ───────────────────── */
+/* ──────────────────────────────── 3. Без контакта ─────────────────────────────── */
 
-function StalledClients() {
+/**
+ * «Без контакта» — ОДНО правило на всю CRM (владелец 16.11.2026,
+ * packages/shared/src/clientNoContact.ts): больше суток ни разговора по телефону,
+ * ни сообщения от самого клиента; новая карточка — от создания. Заметки и задачи
+ * агента контактом не считаются.
+ */
+function NoContactClients() {
   const [page, setPage] = useState(1);
-  const { data, pagerData, items, isLoading, isError, refetch } = useSliceFeed(page, useStalledClients(page), useStalledClients(1));
+  const { data, pagerData, items, isLoading, isError, refetch } = useSliceFeed(page, useNoContactClients(page), useNoContactClients(1));
 
   return (
     <Slice
-      id="slice-stalled-clients"
-      title="Высокий скоринг без прогресса"
+      id="slice-no-contact-clients"
+      title="Без контакта"
       note={data ? `${data.total} ${pluralizeRu(data.total, ["клиент", "клиента", "клиентов"])}` : undefined}
-      hint="Клиенты с высокой оценкой ИИ (вероятная сделка), с которыми не связывались больше трёх дней."
+      hint={`Больше ${NO_CONTACT_AFTER_DAYS === 1 ? "суток" : `${NO_CONTACT_AFTER_DAYS} дней`} ни разговора по телефону, ни сообщения от самого клиента. Заметки и задачи агента контактом не считаются.`}
     >
       <SliceState
         isLoading={isLoading}
         isError={isError}
         isEmpty={!!data && items.length === 0}
-        errorText="Не удалось загрузить зависших горячих клиентов. Не считайте, что их нет."
-        emptyText="Таких клиентов нет, все горячие лиды под контролем."
+        errorText="Не удалось загрузить клиентов без контакта. Не считайте, что их нет."
+        emptyText="Все клиенты в работе на связи."
         onRetry={() => refetch()}
       />
-      {items.map((c) => (
-        <div className="quiet" key={c.id}>
-          <span className="txt">
-            <ClientLink shortId={c.shortId} fullName={c.fullName} />. Последний контакт{" "}
-            {relativeTime(c.lastContactAt)}. Агент <AgentOrUnassigned agent={c.assignedAgent} />.
-          </span>
-          <span className="chip warn">{c.aiScore}</span>
-          <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
-            Открыть
-          </Link>
-        </div>
-      ))}
+      {items.map((c) => {
+        const last = lastRealContactTime(c);
+        return (
+          <div className="quiet" key={c.id}>
+            <span className="txt">
+              <ClientLink shortId={c.shortId} fullName={c.fullName} />.{" "}
+              {last ? `Последний контакт ${relativeTime(last.toISOString())}` : `Контакта не было, карточка ${relativeTime(c.createdAt)}`}. Агент{" "}
+              <AgentOrUnassigned agent={c.assignedAgent} />.
+            </span>
+            <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
+              Открыть
+            </Link>
+          </div>
+        );
+      })}
       {pagerData && (
         <SlicePager
           page={page}
@@ -1003,11 +1012,12 @@ export function Oversight() {
             title="Список просроченных задач ниже на этом экране"
           />
           <StatTile
-            label="Горячих без прогресса"
-            value={summary?.staleHotClients ?? "—"}
-            line="нет контакта больше 3 дней"
-            onClick={() => scrollToSlice("slice-stalled-clients")}
-            title="Высокий скоринг без прогресса — список ниже на этом экране"
+            label="Без контакта"
+            value={summary?.noContactClients ?? "—"}
+            line="больше суток ни разговора, ни сообщения клиента"
+            critical={!!summary?.noContactClients}
+            onClick={() => scrollToSlice("slice-no-contact-clients")}
+            title="Клиенты без контакта — список ниже на этом экране"
           />
           <StatTile
             label="Тишина после показа"
@@ -1074,7 +1084,7 @@ export function Oversight() {
         )}
 
         <OverdueTasks />
-        <StalledClients />
+        <NoContactClients />
         <SilentAfterShowing />
         {investigations && <SellerPropertyMissing />}
         <EndlessNegotiations />
