@@ -31,6 +31,13 @@ describe("описание городской квартиры не делает
     "ул. Дачная 7, третий этаж",
     "Дачная 5, кирпичный дом",
     "кучаи Дачная, хонаи нав",
+    // Р-4: улицы и хребет — город.
+    "Гиссарская улица 3",
+    "улица Гиссарская, новый дом",
+    "кучаи Ҳисор 4",
+    "Гиссарский хребет виден из окна",
+    "Варзобская улица 12",
+    "Вахдатская улица 7",
   ])("%s — город (район Сино)", (description) => {
     const p = { title: "2-комн квартира", description, district: { name: "Сино" } };
     expect(isSuburbanProperty(p)).toBe(false);
@@ -60,6 +67,11 @@ describe("пригород или дача в описании без окруж
     "Хавли дар Вахдат наздики бозор",
     "Чорбог рядом", // после Р-2 — загород (допустимо, сказано координатору)
     "дачный посёлок у реки",
+    // Р-4: район и долина — место.
+    "Дом в Гиссарском районе, 6 соток",
+    "Гиссарская долина, свой двор",
+    "Варзобский район, дом у реки",
+    "Вахдатский район, ҳавлӣ",
   ])("%s — вне зоны (район Шохмансур)", (description) => {
     expect(propertyOutsideServiceArea({ title: "Дом", description, district: { name: "Шохмансур" } })).toBe(true);
   });
@@ -75,6 +87,17 @@ describe("место объекта за городом по-прежнему в
   it("«дом в Вахдате» с районом Шохмансур (тест «30 запросов» №13) — вне зоны", () => {
     expect(propertyOutsideServiceArea({ title: "Дом", description: "Продаётся дом в городе Вахдат", district: { name: "Шохмансур" } })).toBe(true);
     expect(propertyOutsideServiceArea({ title: "Ҳавлӣ", description: "Ҳавлӣ дар Ваҳдат", district: { name: "Шохмансур" } })).toBe(true);
+  });
+
+  it("адрес: улица Гиссарская и Варзобская — город, Гиссарская долина и Варзобский район — загород (Р-4)", () => {
+    expect(propertyOutsideServiceArea({ address: "Гиссарская улица 3", district: { name: "Сино" } })).toBe(false);
+    expect(propertyOutsideServiceArea({ address: "улица Гиссарская 5", district: { name: "Сино" } })).toBe(false);
+    expect(propertyOutsideServiceArea({ address: "Варзобская улица 12", district: { name: "Сино" } })).toBe(false);
+    expect(propertyOutsideServiceArea({ landmark: "вид на Гиссарский хребет", district: { name: "Сино" } })).toBe(false);
+    expect(propertyOutsideServiceArea({ address: "Гиссарская долина, кишлак", district: { name: "Сино" } })).toBe(true);
+    expect(propertyOutsideServiceArea({ address: "Варзобский район", district: { name: "Сино" } })).toBe(true);
+    expect(textMentionsSuburb("дом в Гиссарском районе")).toBe(true);
+    expect(textMentionsSuburb("квартира на Гиссарской улице")).toBe(false);
   });
 
   it("адрес «ул. Дачная 5» — город; «дачный посёлок» в адресе — загород (Р-3)", () => {
