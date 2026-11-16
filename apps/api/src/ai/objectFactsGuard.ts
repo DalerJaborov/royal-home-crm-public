@@ -34,10 +34,16 @@ const RENOVATED_IN_CATALOG = /состояние:[^\n(—]*?(?:с ремонто
 
 /** Утверждение «с ремонтом» по-русски и по-таджикски. «Бе ремонт», «без ремонта» сюда не входят. */
 const RENOVATION_CLAIM =
-  /(?<![\p{L}])(?:со?\s+(?:евро)?ремонтом|евроремонт\p{L}*|отремонтирован\p{L}*|бо\s+(?:евро)?ремонт(?:и\s+нав)?|ремонти\s+нав|ремонташ\s+(?:нав|тайёр|тайер|хуб))(?![\p{L}])/iu;
+  /(?<![\p{L}])(?:со?\s+(?:евро)?ремонтом|евроремонт\p{L}*|отремонтирован\p{L}*|бо\s+(?:евро)?(?:ремонт|таъмир|тамир)(?:и\s+нав)?|(?:ремонти|таъмири|тамири)\s+нав|ремонташ\s+(?:нав|тайёр|тайер|хуб)|ремонт\s+(?:дорад|ҳаст|хаст))(?![\p{L}])/iu;
 
-/** Фраза говорит о существующем объекте, а не о желании клиента («Ба Шумо хона бо ремонт лозим аст?»). */
-const OBJECT_EXISTS = /(?<![\p{L}])(?:ҳаст|хаст|дорем|дорад|есть|имеется|продаётся|продается|фурӯхта\s+мешавад)(?![\p{L}])/iu;
+/**
+ * Фраза говорит о существующем объекте: «ҳаст/дорем/аст/есть», площадь или цена рядом
+ * («Квартира с ремонтом, 870 000 сомони»). Желание клиента и вопрос — не утверждение
+ * («Ба Шумо хона бо ремонт лозим аст», «бо ремонт бошад ё каробка?»).
+ */
+const OBJECT_EXISTS = /(?<![\p{L}])(?:ҳаст|хаст|дорем|дорад|аст|есть|имеется|продаётся|продается|фурӯхта\s+мешавад)(?![\p{L}])/iu;
+const CLIENT_WISH = /(?<![\p{L}])(?:лозим|мехоҳ\p{L}*|мехох\p{L}*|мекоб\p{L}*|даркор|бошад|бошанд|нужн\p{L}*|хотите|ищете|ищем)(?![\p{L}])/iu;
+const PRICE_IN_TEXT = /\d[\d\s\u00a0]{2,}\s*(?:сомон|с\.|\$|долл)/iu;
 
 const AREA_IN_TEXT = /(?<![\d.,])(\d{2,4}(?:[.,]\d{1,2})?)\s*(?:м²|м2|кв\.?\s*м|квм|квадрат\p{L}*|метр\p{L}*)/giu;
 
@@ -69,13 +75,17 @@ function claimAllowed(sentence: string, lines: CatalogLine[]): boolean {
 
 export function guardRenovationClaims(bubbles: string[], propsBlock: string): { bubbles: string[]; removed: number } {
   const lines = catalogLines(propsBlock);
+  // Подборки нет (разговор про присланный пост, рекламу) — сверять не с чем; молчание сторожа
+  // лучше, чем вырезать правду из подписи нашей публикации (ревью #207, С3).
+  if (lines.length === 0) return { bubbles, removed: 0 };
   let removed = 0;
   const out = bubbles
     .map((b) =>
       keepSentences(b, (sentence) => {
         if (/\?\s*$/.test(sentence)) return true;
         if (!RENOVATION_CLAIM.test(sentence)) return true;
-        if (!OBJECT_EXISTS.test(sentence) && areasOf(sentence).length === 0) return true;
+        if (CLIENT_WISH.test(sentence)) return true;
+        if (!OBJECT_EXISTS.test(sentence) && areasOf(sentence).length === 0 && !PRICE_IN_TEXT.test(sentence)) return true;
         if (claimAllowed(sentence, lines)) return true;
         removed += 1;
         return false;

@@ -660,7 +660,11 @@ const LEADING_GREETING =
  * разговора. Срезалось только приветствие в самом начале реплики; то же приветствие после
  * точки уходило клиенту. Тот же шаблон, только на границе предложения.
  */
-const MID_GREETING = new RegExp(`([.!?…]\\s+)${LEADING_GREETING.source.slice(1)}`, "giu");
+// «Раҳмат! Салом ба оилаатон.» — привет семье, а не приветствие разговора (ревью #207, М2).
+const MID_GREETING = new RegExp(
+  `([.!?…]\\s+)${LEADING_GREETING.source.slice(1).replace("|салом(?!ат)|", "|салом(?!ат)(?!\\s+ба(?![\\p{L}]))|")}`,
+  "giu"
+);
 
 export function stripRepeatGreeting(text: string): string {
   const out = text

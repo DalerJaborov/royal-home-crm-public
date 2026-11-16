@@ -39,7 +39,17 @@ function cardPriceSentence(card: CommentPriceCard, language: "ru" | "tg"): strin
   return language === "ru" ? `Цена этого объекта — ${amount} сомони.` : `Нархи ин хона ${amount} сомонӣ аст.`;
 }
 
+/** «Продан, подберём похожий»: в личке — где она есть; у YouTube личных сообщений нет. */
+function soldSentence(language: "ru" | "tg", channel?: string): string {
+  const dm = channel !== "YOUTUBE";
+  return language === "ru"
+    ? `Этот объект уже продан. Похожий подберём${dm ? " — напишите нам в личные сообщения" : ""}.`
+    : `Ин хона аллакай фурӯхта шуд. Монандашро пешниҳод мекунем${dm ? " — ба паёми шахсӣ нависед" : ""}.`;
+}
+
 export function guardCommentPrice(input: {
+  /** Канал комментария: у YouTube нет личных сообщений. */
+  channel?: string;
   text: string;
   card: CommentPriceCard | null;
   commentText: string;
@@ -54,9 +64,14 @@ export function guardCommentPrice(input: {
   });
   if (guarded.invented.length === 0) return { text, invented: [] };
   const rest = guarded.keptDespiteViolation ? "" : guarded.bubbles.join("\n").trim();
-  if (!input.card?.available || !Number.isFinite(input.card.price) || input.card.price <= 0) {
+  const language = detectClientLanguage(input.commentText) === "ru" ? "ru" : "tg";
+  if (input.card && !input.card.available) {
+    // Продан — цену не называем; без ответа человек не остаётся (ревью #207, С4).
+    const sold = soldSentence(language, input.channel);
+    return { text: /фурӯхта|фурухта|продан/iu.test(rest) ? rest : [sold, rest].filter(Boolean).join(" "), invented: guarded.invented };
+  }
+  if (!input.card || !Number.isFinite(input.card.price) || input.card.price <= 0) {
     return { text: rest, invented: guarded.invented };
   }
-  const language = detectClientLanguage(input.commentText) === "ru" ? "ru" : "tg";
   return { text: [cardPriceSentence(input.card, language), rest].filter(Boolean).join(" "), invented: guarded.invented };
 }

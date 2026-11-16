@@ -107,27 +107,41 @@ export function looksLikeRentBudget(budget: number | undefined, clientText: stri
 }
 
 /**
- * «ТО 900–950» — ЭТО ТЫСЯЧИ СОМОНИ НА ПОКУПКУ, А НЕ АРЕНДА (16.11.2026, аудит facts.md Ф8).
+ * МАЛЕНЬКАЯ СУММА БЕЗ «В МЕСЯЦ» — СПРОСИТЬ, А НЕ ОТКАЗАТЬ (16.11.2026, аудит facts.md Ф8;
+ * ревью #207 В1).
  *
  * Живой случай Instagram Arvan 14.11: «Хона даркор… Маладёжный, Профсоюз ё Караболо… То 900и
  * 950» → бот спросил «Ин ба доллар аст ё ҳазор сомонӣ?» → «Сомони» → «аренды у нас нет».
  * Сумма 950 попала в вилку месячной платы (looksLikeRentBudget), разговор стал арендой, и
- * покупатель с бюджетом ~950 000 ушёл. Так в Душанбе и говорят о цене квартиры: «900», «то
- * 950» — тысячи сомони; квартира внаём за 900 сомони в месяц — редкость, а вот покупка за
- * 900 тысяч — обычный клиент.
+ * покупатель с бюджетом ~950 000 ушёл.
  *
- * Правило узкое: сумма от 100 до 2000 БЕЗ слов о месяце и аренде — тысячи. От 2000 остаётся
- * решение владельца от 03.09.2026 («3000–4500» — месячная плата, отказ). Слово «в месяц»,
- * «моҳона», «иҷора» рядом — аренда, как и прежде.
+ * Два узких правила, решение владельца от 03.09.2026 («3000–4500» — аренда) не трогаем:
+ *  - `looksLikeThousandsShorthand`: сумма 100–1999 И клиент сам сказал «сомони» (в этом ходе —
+ *    обычно ответ на «доллар ё ҳазор сомонӣ?») → тысячи сомони, покупка. Без слова «сомони»
+ *    НЕ умножаем: «то 150» часто значит 150 тысяч долларов, и тихая подмена спрятала бы вопрос
+ *    о валюте;
+ *  - `smallBudgetNeedsClarifying`: сумма 100–1999 без «в месяц/моҳона/иҷора» и без валюты —
+ *    неизвестно, покупка это или аренда. Отказ «аренды нет» по такой сумме не ставится; бот
+ *    уточняет «барои харид ё иҷора, ба доллар ё ҳазор сомонӣ?» (промт квалификатора).
  */
 export const THOUSANDS_SHORTHAND_MIN = 100;
 export const THOUSANDS_SHORTHAND_MAX = 2_000;
 const MONTH_WORDS = /(?<![\p{L}])(?:моҳ|мох)(?:она|и|е|й)?(?![\p{L}])|месяц|в\s+мес(?![\p{L}])|помесячн|ежемесячн|за\s+сутки|посуточн/iu;
+const SOMONI_WORD = /сомон|сомӣ|somoni|(?<![\p{L}])(?:tjs|смн)(?![\p{L}])/iu;
+const DOLLAR_WORD = /\$|долл|доллар|usd|dollar/iu;
+
+function smallSum(budget: number | undefined): budget is number {
+  return typeof budget === "number" && Number.isFinite(budget) && budget >= THOUSANDS_SHORTHAND_MIN && budget < THOUSANDS_SHORTHAND_MAX;
+}
 
 export function looksLikeThousandsShorthand(budget: number | undefined, clientText: string): boolean {
-  if (typeof budget !== "number" || !Number.isFinite(budget)) return false;
-  if (budget < THOUSANDS_SHORTHAND_MIN || budget >= THOUSANDS_SHORTHAND_MAX) return false;
-  return !MONTH_WORDS.test(clientText) && !looksLikeRentRequest(clientText);
+  if (!smallSum(budget)) return false;
+  return SOMONI_WORD.test(clientText) && !MONTH_WORDS.test(clientText) && !looksLikeRentRequest(clientText);
+}
+
+export function smallBudgetNeedsClarifying(budget: number | undefined, clientText: string): boolean {
+  if (!smallSum(budget)) return false;
+  return !MONTH_WORDS.test(clientText) && !SOMONI_WORD.test(clientText) && !DOLLAR_WORD.test(clientText) && !looksLikeRentRequest(clientText);
 }
 
 /**

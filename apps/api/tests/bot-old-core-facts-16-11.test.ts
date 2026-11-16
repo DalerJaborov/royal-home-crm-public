@@ -54,14 +54,25 @@ describe("валюта: пересчитанная сумма с валютой 
     expect(out.text).not.toContain("135 520");
   });
 
-  it("проданный объект — цену не называем вовсе", () => {
+  it("проданный объект — цену не называем, коротко «продан, подберём похожий» (ревью С4)", () => {
     const out = guardCommentPrice({
-      text: "Ин хона 135 520 сомонӣ буд.",
+      text: "Ин хона 135 520 сомонӣ аст.",
       card: { line: card, price: 1_250_000, currency: "TJS", available: false },
       commentText: "Нархаш чанд?",
       usdToTjs: RATE,
     });
     expect(out.text).not.toMatch(/\d{3} \d{3}/);
+    expect(out.text).toMatch(/фурӯхта шуд/);
+    expect(out.text).toMatch(/паёми шахсӣ/);
+    const yt = guardCommentPrice({
+      text: "Ин хона 135 520 сомонӣ аст.",
+      card: { line: card, price: 1_250_000, currency: "TJS", available: false },
+      commentText: "Нархаш чанд?",
+      usdToTjs: RATE,
+      channel: "YOUTUBE",
+    });
+    expect(yt.text).toMatch(/фурӯхта шуд/);
+    expect(yt.text).not.toMatch(/паёми шахсӣ/);
   });
 
   it("ссылка карточки в источниках — цифры адреса не считаются ценой", () => {
@@ -136,15 +147,28 @@ describe("состояние объекта: «с ремонтом» тольк�
   });
 });
 
-describe("бюджет «то 900–950» — тысячи сомони на покупку, не аренда (Instagram Arvan 14.11)", () => {
+describe("бюджет «то 900–950»: не отказ «аренды нет», а вопрос; «сомони» — тысячи (Instagram Arvan 14.11, ревью В1)", () => {
   const turn = (lead: Record<string, unknown>) => ({ reply: [], ready: false, intent: "buy" as const, lead });
 
-  it("900–950 без слов о месяце → 900 000–950 000, разговор остаётся покупкой", () => {
+  it("«То 900и 950» без валюты и без «в месяц» — не аренда, сумма ждёт уточнения", () => {
     const d = mergeDraft({ intent: "buy" } as never, turn({ budgetMin: 900, budgetMax: 950 }) as never, "То 900и 950");
+    expect(d.intent).not.toBe("rent");
+    expect(d.budgetMax).toBeUndefined();
+    expect(d.budgetUnrealistic).toBe(950);
+  });
+
+  it("следующим ходом «Сомони» (ответ на «доллар ё ҳазор сомонӣ?») → до 950 000, покупка", () => {
+    const first = mergeDraft({ intent: "buy" } as never, turn({ budgetMin: 900, budgetMax: 950 }) as never, "То 900и 950");
+    const d = mergeDraft(first, { reply: [], ready: false, intent: "buy" } as never, "Сомони");
     expect(d.intent).toBe("buy");
     expect(d.budgetMax).toBe(950_000);
-    expect(d.budgetMin).toBe(900_000);
     expect(d.budgetUnrealistic).toBeUndefined();
+  });
+
+  it("«то 150» без валюты молча в 150 000 сомони НЕ превращается (это часто 150 тыс. $)", () => {
+    const d = mergeDraft({ intent: "buy" } as never, turn({ budgetMax: 150 }) as never, "то 150");
+    expect(d.budgetMax).toBeUndefined();
+    expect(d.budgetUnrealistic).toBe(150);
   });
 
   it("«в месяц» / «моҳона» рядом — по-прежнему аренда", () => {
@@ -227,5 +251,83 @@ describe("«агент позвонит» — только с номером, б
       fallbackLanguageWords: ["Пеши. Ватан"],
     });
     expect(result.bubbles.join(" ")).not.toMatch(/рақам/i);
+  });
+});
+
+describe("ревью #207: обещание звонка — кому можно просить номер (В2)", () => {
+  const base = {
+    conversationId: "test",
+    channelLabel: "INSTAGRAM",
+    openUrl: "/messages",
+    botSpokeBefore: true,
+    botSaidBefore: ["Ассалому алейкум! Чӣ хизмат карда метавонем?"],
+    clientSaidTrusted: "Салом",
+    clientTurnText: "Хона иҷора даркор",
+    previousBotText: "Ассалому алейкум! Чӣ хизмат карда метавонем?",
+    language: "tg" as const,
+    jobConversation: false,
+    phoneAsksSent: 0,
+    phoneKnown: false,
+    fallbackLanguageWords: ["Хона иҷора даркор"],
+  };
+
+  it("арендатору — обещание вырезано, номер НЕ просим", () => {
+    const r = filterBotReply({
+      ...base,
+      reply: ["Мутаассифона, мо иҷора надорем. Агар хариду фурӯш лозим шавад, агенти мо тамос мегирад."],
+      draft: { intent: "rent", stage: "chatting" },
+    });
+    const text = r.bubbles.join(" ");
+    expect(text).toMatch(/иҷора надорем/);
+    expect(text).not.toMatch(/тамос мегирад|рақам/i);
+  });
+
+  it("продавцу вне зоны — номер не просим", () => {
+    const r = filterBotReply({
+      ...base,
+      clientTurnText: "Хонаам дар Бохтар",
+      reply: ["Ҳоло танҳо дар Душанбе ва ноҳияи Рӯдакӣ кор мекунем. Агент занг мезанад."],
+      draft: { intent: "sell", stage: "chatting", locationOutsideDushanbe: true },
+    });
+    expect(r.bubbles.join(" ")).not.toMatch(/рақам|занг мезанад/i);
+  });
+
+  it("телефон и адрес офиса для клиента — не обещание, не вырезаются", () => {
+    const office = guardCallbackPromises({
+      bubbles: ["Позвоните нам: 900 00 00 00, офис на Бухоро 2.", "Шумо метавонед ба офис занг задан, суроға: Бухоро 2."],
+      phoneKnown: false,
+      mayAskPhone: true,
+      language: "tg",
+    });
+    expect(office.changed).toBe(0);
+    expect(office.bubbles).toHaveLength(2);
+  });
+});
+
+describe("ревью #207: место и ремонт без ложных срабатываний (С2, С3)", () => {
+  const props = "\n- №50 2-комн. квартира, Шохмансур, ориентир: Цирк, 900 000 с., 60 м², состояние: вторичка, требует ремонта";
+  const check = (text: string) =>
+    findOffCatalogClaims({ text, allowedText: props, catalogText: props, clientText: "Адрес?", tajikPlaces: true, placeSources: props });
+
+  it("«наздики Сирк» при «Цирк» в карточке — перевод, не выдумка", () => {
+    expect(check("Ин хона наздики Сирк ҷойгир аст").streets).toEqual([]);
+  });
+
+  it("вежливое «Шумо» с заглавной — не место", () => {
+    expect(check("Агенти мо наздики Шумо хонаро нишон медиҳад").streets).toEqual([]);
+  });
+
+  it("частые формы ремонта ловятся: «бо ремонти нав аст», «с ремонтом, 870 000», «бо таъмири нав ҳаст»", () => {
+    for (const text of ["Ин хона бо ремонти нав аст.", "Квартира с ремонтом, 870 000 сомони.", "Бо таъмири нав ҳаст."]) {
+      expect(guardRenovationClaims([text], props).removed, text).toBe(1);
+    }
+  });
+
+  it("подборки нет (разговор про присланный пост) — ремонт не вырезаем: сверять не с чем", () => {
+    expect(guardRenovationClaims(["Ин хона бо ремонт ҳаст."], "").removed).toBe(0);
+  });
+
+  it("«Салом ба оилаатон» после точки — не приветствие разговора", () => {
+    expect(normalizeReplyBubbles(["Раҳмат! Салом ба оилаатон."], true)[0]).toMatch(/Салом ба оилаатон/);
   });
 });

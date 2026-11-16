@@ -28,24 +28,41 @@ const TEXTS: Record<AgentAttentionReason, { title: (name: string) => string; bod
   },
 };
 
+/**
+ * Поставить метку «агенту надо связаться» — единственное место записи (сторож:
+ * tests/bot-old-core-facts-16-11.test.ts, «одна дверь метки»). Условная запись: из двух
+ * одновременных ходов метку ставит один. true — метка поставлена сейчас.
+ */
+export async function markAgentAttention(clientId: string): Promise<boolean> {
+  const marked = await prisma.client.updateMany({
+    where: { id: clientId, agentAttentionRequestedAt: null },
+    data: { agentAttentionRequestedAt: new Date() },
+  });
+  return marked.count > 0;
+}
+
+/**
+ * Свежая заявка: агент только что получил пуш «новая заявка» (раздача) и сам позвонит.
+ * Обещание звонка в ответе бота в первый час после приёма — то же самое событие, второй
+ * CRITICAL-пуш по нему — шум (ревью #207, С1-б).
+ */
+export const FRESH_LEAD_QUIET_MS = 60 * 60 * 1000;
+
 /** Не бросает: ход диалога важнее уведомления. "duplicate" — метка уже стоит. */
 export async function requestAgentAttention(
   clientId: string,
-  reason: AgentAttentionReason
-): Promise<"sent" | "duplicate" | "no_agent" | "failed"> {
+  reason: AgentAttentionReason,
+  now: Date = new Date()
+): Promise<"sent" | "duplicate" | "no_agent" | "fresh_lead" | "failed"> {
   try {
     const card = await prisma.client.findUnique({
       where: { id: clientId },
-      select: { shortId: true, fullName: true, assignedAgentId: true, agentAttentionRequestedAt: true },
+      select: { shortId: true, fullName: true, assignedAgentId: true, agentAttentionRequestedAt: true, createdAt: true },
     });
     if (!card?.assignedAgentId) return "no_agent";
     if (card.agentAttentionRequestedAt) return "duplicate";
-    // Условная запись — гонка двух ходов не даёт двух пушей.
-    const marked = await prisma.client.updateMany({
-      where: { id: clientId, agentAttentionRequestedAt: null },
-      data: { agentAttentionRequestedAt: new Date() },
-    });
-    if (marked.count === 0) return "duplicate";
+    if (reason === "call_promised" && now.getTime() - card.createdAt.getTime() < FRESH_LEAD_QUIET_MS) return "fresh_lead";
+    if (!(await markAgentAttention(clientId))) return "duplicate";
     const text = TEXTS[reason];
     await sendPushToAgent(card.assignedAgentId, {
       kind: "message",

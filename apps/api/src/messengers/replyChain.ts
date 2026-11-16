@@ -9,10 +9,11 @@ import { stripRecruiting } from "../ai/recruitingGuard.js";
 import { guardDirectionQuestion, guardOwnerAsThirdParty } from "../ai/intentDirectionGuard.js";
 import { enforceOneQuestionPerBubble } from "../ai/oneQuestionGuard.js";
 import { guardCallbackPromises } from "../ai/callbackPromiseGuard.js";
-import { dropRepeatedQuestions, ensureOpenQuestionKept, mentionsPhoneRequest } from "../ai/replyGuards.js";
+import { dropRepeatedQuestions, ensureOpenQuestionKept } from "../ai/replyGuards.js";
 import {
   MAX_PHONE_ASKS,
   dropKnownPhoneAsks,
+  countPhoneAsksIn,
   dropPhoneAsks,
   dropNearRepeats,
   dropRepeatedBubbles,
@@ -184,7 +185,7 @@ export interface BotReplyFilterInput {
   /** Язык хода; «unknown» вызывающий уже заменил языком разговора. */
   language: ClientLanguage;
   /** Слитый черновик этого хода. */
-  draft: Pick<LeadDraft, "intent" | "stage">;
+  draft: Pick<LeadDraft, "intent" | "stage" | "locationOutsideDushanbe" | "locationDifferentCountry">;
   /** Разговор о работе (кандидат, реклама вакансии) — про найм говорить можно. */
   jobConversation: boolean;
   /** Хранимый счётчик просьб номера (phoneAsksSent у диалога). */
@@ -309,12 +310,23 @@ function filterBotReplyImpl(input: BotReplyFilterInput): BotReplyFilterResult {
    * подряд (Instagram Arvan 13.11) — просьба номера сразу после такой же просьбы не уходит:
    * человек её видел и ответил другим, повторять — автоответчик.
    */
-  const askedPhoneLastTime = mentionsPhoneRequest(input.botSaidBefore[input.botSaidBefore.length - 1] ?? "");
+  // Настоящая просьба номера (countPhoneAsksIn), а не любое слово «телефон» в прошлом ответе.
+  const askedPhoneLastTime = countPhoneAsksIn([input.botSaidBefore[input.botSaidBefore.length - 1] ?? ""]) > 0;
   const clientGavePhone = !!extractVolunteeredPhone(input.clientTurnText);
+  /**
+   * Номер вместо обещания просим ТОЛЬКО у покупателя/продавца в зоне (ревью #207, В2):
+   * арендатору, кандидату и продавцу вне Душанбе и Рудаки номер не просим и ничего не
+   * обещаем (решения владельца 21.08 и 17.09) — их обещание просто вырезается.
+   */
+  const phoneAskFitsTalk =
+    (input.draft.intent === "buy" || input.draft.intent === "sell") &&
+    !input.draft.locationOutsideDushanbe &&
+    !input.draft.locationDifferentCountry &&
+    !input.jobConversation;
   const promiseCut = guardCallbackPromises({
     bubbles: bubbles,
     phoneKnown,
-    mayAskPhone: !stopAskingPhone && !askedPhoneLastTime,
+    mayAskPhone: !stopAskingPhone && !askedPhoneLastTime && phoneAskFitsTalk,
     language: input.language,
   });
   if (promiseCut.changed > 0) guardFired("callback_promise", promiseCut.changed);

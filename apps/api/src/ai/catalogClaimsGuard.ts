@@ -45,14 +45,50 @@ function normalizeForMatch(s: string): string {
     .replace(/қ/g, "к")
     .replace(/ғ/g, "г")
     .replace(/ӯ/g, "у")
-    .replace(/ӣ/g, "и");
+    .replace(/ӣ/g, "и")
+    // «Цирк» по-таджикски пишут «Сирк»: ц в таджикской записи русских слов — с.
+    .replace(/ц/g, "с");
 }
+
+/**
+ * Ориентир в карточке записан по-русски, а бот говорит по-таджикски (ревью #207, С2):
+ * «Военный городок» → «Шаҳраки ҳарбӣ». Пары — свёрнутые (normalizeForMatch); если в
+ * источниках есть одна сторона, законна и другая.
+ */
+const LANDMARK_TRANSLATIONS: [string, string][] = [
+  ["военный городок", "шахраки харби"],
+  ["военный городок", "шахраки низоми"],
+  ["аэропорт", "фурудгох"],
+  ["рынок", "бозор"],
+  ["посольств", "сафорат"],
+  ["ботаническ", "ботаники"],
+  ["больнис", "беморхона"],
+  ["школ", "мактаб"],
+  ["мечет", "масчид"],
+  ["университет", "донишгох"],
+  ["стадион", "варзишгох"],
+  ["кольцев", "гардиш"],
+  ["светофор", "чарогак"],
+];
+
+function withTranslations(normalizedSources: string): string {
+  const extra: string[] = [];
+  for (const [ru, tg] of LANDMARK_TRANSLATIONS) {
+    if (normalizedSources.includes(ru)) extra.push(tg);
+    if (normalizedSources.includes(tg)) extra.push(ru);
+  }
+  return extra.length ? `${normalizedSources}\n${extra.join("\n")}` : normalizedSources;
+}
+
+/** Местоимения с заглавной («наздики Шумо») — не место. */
+const NOT_PLACE_WORDS = new Set(["шумо", "мо", "ман", "вай", "онхо", "ин", "он", "мы", "вы", "вас", "нас"]);
 
 /** Названия улиц/ориентиров из реплики (только с заглавной буквы — иначе «около дома»). */
 export function extractStreetMentions(text: string, options: { tajikPlaces?: boolean } = {}): string[] {
   const out: string[] = [];
   const add = (word: string | undefined) => {
     if (!word) return;
+    if (NOT_PLACE_WORDS.has(normalizeForMatch(word))) return;
     const first = word[0];
     if (first === first.toLowerCase()) return;
     if (!out.includes(word)) out.push(word);
@@ -256,10 +292,12 @@ export function findOffCatalogClaims(input: {
     extractAreaClaims(text).length > 0 ||
     extractFloorClaims(text).length > 0;
   // Адрес офиса (Бухоро, Школа №1…) — законный источник: робот вправе назвать его, о чём бы ни шла речь.
-  const streetSources = normalizeForMatch(
-    input.placeSources === undefined
-      ? `${catalog}\n${client}\n${vacancyOfficeAddress()}`
-      : `${input.placeSources}\n${client}\n${vacancyOfficeAddress()}\n${ZONE_PLACE_NAMES}`
+  const streetSources = withTranslations(
+    normalizeForMatch(
+      input.placeSources === undefined
+        ? `${catalog}\n${client}\n${vacancyOfficeAddress()}`
+        : `${input.placeSources}\n${client}\n${vacancyOfficeAddress()}\n${ZONE_PLACE_NAMES}`
+    )
   );
   const streets = aboutProperty
     ? extractStreetMentions(input.text, { tajikPlaces: input.tajikPlaces }).filter((name) => {

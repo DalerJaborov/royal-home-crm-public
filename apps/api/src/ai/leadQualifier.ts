@@ -4,8 +4,8 @@ import { loadMoneyContext } from "../lib/money.js";
 import { botOfferLink, findMatchingProperties, matchFitNote, type PropertyMatchQuery } from "../lib/propertyMatch.js";
 import { buyerQueryForTurn } from "../lib/searchPlace.js";
 import { callbackPromise, chatHoursBlock, loadClientHours } from "./agencyFacts.js";
-import { findOffCatalogClaims, stripOffCatalogStreets } from "./catalogClaimsGuard.js";
-import { catalogConditionNote, guardRenovationClaims, placeAskAgentReply } from "./objectFactsGuard.js";
+import { catalogConditionNote } from "./objectFactsGuard.js";
+import { applyObjectFactGuards } from "./objectFactsChat.js";
 import { callAiText, type ChatMessage, type ImageInput } from "./client.js";
 import { traceFilterDelta, traceModelValidation } from "../lib/botTurnTrace.js";
 import { learnedRulesBlock } from "../lib/botLessons.js";
@@ -19,6 +19,7 @@ import {
   looksLikeRentBudget,
   looksLikeRentRequest,
   looksLikeThousandsShorthand,
+  smallBudgetNeedsClarifying,
   THOUSANDS_SHORTHAND_MAX,
 } from "./rentGuard.js";
 import { applyAvailabilityGuard } from "./availabilityGuard.js";
@@ -487,11 +488,12 @@ export function mergeDraft(draft: LeadDraft, result: QualifyResult, clientText?:
   const locationOutsideDushanbe = result.lead?.locationOutsideDushanbe ?? draft.locationOutsideDushanbe;
   const locationDifferentCountry = result.lead?.locationDifferentCountry ?? draft.locationDifferentCountry;
   /**
-   * «То 900и 950» без слов о месяце — тысячи сомони, покупка (16.11.2026, ai/rentGuard.ts::
-   * looksLikeThousandsShorthand). Пересчитываем ДО проверки «нереальная сумма»: иначе 950
-   * становилось уликой аренды, и покупатель получал «аренды у нас нет».
+   * «Сомони» в ответ на «доллар ё ҳазор сомонӣ?» после «то 900–950» — тысячи сомони, покупка
+   * (16.11.2026, ai/rentGuard.ts::looksLikeThousandsShorthand). Сумма прошлого хода лежит в
+   * budgetUnrealistic: в поля бюджета она не годилась, а уточнение пришло отдельным ходом.
    */
-  const modelMax = result.lead?.budgetMax ?? draft.budgetMax;
+  const somoniThisTurn = looksLikeThousandsShorthand(draft.budgetUnrealistic, text);
+  const modelMax = result.lead?.budgetMax ?? draft.budgetMax ?? (somoniThisTurn ? draft.budgetUnrealistic : undefined);
   const thousands = looksLikeThousandsShorthand(modelMax, text);
   const modelMin = result.lead?.budgetMin ?? draft.budgetMin;
   const rawMin =
@@ -518,7 +520,8 @@ export function mergeDraft(draft: LeadDraft, result: QualifyResult, clientText?:
    * «2 хуҷрага бо нархи аз 3000 то 4500» — это месячная плата, и разговор про
    * аренду с первой минуты. Отсечка та же, что по слову, поэтому и метка та же.
    */
-  const rentByBudget = unrealistic && looksLikeRentBudget(rawMax, text);
+  // «То 900–950» без «в месяц» и без валюты — не отказ, а вопрос (ревью #207 В1).
+  const rentByBudget = unrealistic && looksLikeRentBudget(rawMax, text) && !smallBudgetNeedsClarifying(rawMax, text);
   /**
    * Настоящий бюджет снимает липкую метку наравне со словами о покупке: человек
    * сказал «3000–4500», бот переспросил про валюту, человек ответил «доллар» —
@@ -878,7 +881,7 @@ const CORE_RULES_TAIL = `
 
 ПОПРОСИЛ ПОКАЗАТЬ — ПОКАЗЫВАЙ, А НЕ ДОПРАШИВАЙ (разбор живого диалога 16.08.2026). «Шумо худатон хонаро биёред, партоед», «скиньте что есть», «мо бинем» — это прямая просьба показать варианты, и она главнее любой анкеты. Ответь ею: назови 1-2 подходящих объекта из блока выше, а недостающее уточни ПОСЛЕ, по реакции человека.
 ОДИН И ТОТ ЖЕ ВОПРОС ДВАЖДЫ — УЖЕ ПЕРЕБОР, ЧЕТЫРЕЖДЫ — НЕИСПРАВНЫЙ АВТОМАТ. Живой случай: клиент четыре раза подряд получил «То чанд ҳазор доллар дар назар доред?», причём между ними он успел сказать, что согласен и на трёхкомнатную подешевле, и попросил просто показать дома. Не ответил на вопрос дважды — вопрос снимается, разговор ведёшь по тому, что человеку нужно. Бюджет не обязателен для подбора: район и число комнат уже дают варианты.
-СУММА, КОТОРАЯ ВЫГЛЯДИТ СТРАННО, — ЭТО ОПИСКА, А НЕ ОТКАЗ. «3000 сомонӣ», «5000 сомон то 3000» и подобное почти всегда значит другое: человек имел в виду доллары, тысячи или назвал ежемесячный платёж. ЗАПРЕЩЕНО отвечать на такое «за эти деньги у нас ничего нет» и тем более уводить разговор в аренду: живой человек с номером телефона уходит после такой фразы навсегда. Переспроси спокойно и коротко: «Ин ба доллар аст ё ҳазор сомонӣ?» — и продолжай. Ответ «сомонӣ» на этот вопрос значит ТЫСЯЧИ сомони: «то 900–950» → до 950 000 сомонӣ, это ПОКУПКА, и об аренде здесь речи нет. Аренда по сумме — только если человек сам сказал «в месяц», «моҳона», «иҷора».
+СУММА, КОТОРАЯ ВЫГЛЯДИТ СТРАННО, — ЭТО ОПИСКА, А НЕ ОТКАЗ. «3000 сомонӣ», «5000 сомон то 3000» и подобное почти всегда значит другое: человек имел в виду доллары, тысячи или назвал ежемесячный платёж. ЗАПРЕЩЕНО отвечать на такое «за эти деньги у нас ничего нет» и тем более уводить разговор в аренду: живой человек с номером телефона уходит после такой фразы навсегда. Переспроси спокойно и коротко: «Ин ба доллар аст ё ҳазор сомонӣ?» — и продолжай. Сумма до 2000 без «в месяц/моҳона» и без валюты («то 900–950») — непонятно, покупка это или аренда: отказ «аренды нет» ЗАПРЕЩЁН, уточни одним вопросом: «Барои харид ё иҷора? Ба доллар ё ҳазор сомонӣ?» / «Это на покупку или аренду? В долларах или тысячах сомони?». Ответ «сомонӣ» — тысячи сомони на покупку.
 
 НЕ ПРИПИСЫВАЙ КЛИЕНТУ ТО, ЧЕГО ОН НЕ ГОВОРИЛ (разбор переписки 14.08.2026). Пока человек сам не назвал сумму, у него НЕТ известного тебе бюджета. Запрещено: "подходит под ваш бюджет", "как раз в вашу сумму", "ин ба буҷети шумо мувофиқ аст" — и запрещено брать цену показанной квартиры за его бюджет ("подбираем в районе 130 тысяч долларов" после того, как ты сам же назвал цену объекта). То же самое про район, комнаты и состояние: не говори "как вы и хотели", если он этого не просил. Живой случай: бот трижды подряд назвал клиенту чужую сумму как его собственную, тот трижды переспросил "а с чего вы взяли?", и разговор ушёл в выяснение отношений вместо квартиры.
 Правильно так: назови факты объекта ("3-хонага дар Исмоили Сомонӣ, 1 460 000 сомонӣ") и, если нужно, мягко спроси про сумму. Хвалить вариант как подходящий можно только по тому, что клиент сказал СВОИМИ словами и что видно в переписке выше.
@@ -941,7 +944,7 @@ export const SCENARIO_INTAKE = `
   - ПОКУПАТЕЛЬ: спрашивает про квартиру, цену, район, прислал публикацию или ссылку, "хона мекобам", "что есть до 300 тысяч". intent=buy.
   - ПРОДАВЕЦ: предлагает свой объект, называет площадь, этаж и свою цену, "мехоҳам фурӯшам", "у меня 3-комнатная". intent=sell.
   - СОБСТВЕННИК О СЕБЕ: "ман соҳибхона", "ман соҳиби хона", "я собственник", "хозяин это я" (с телефона часто пишут "сохиб" через "х"). Это ПРОДАВЕЦ, а не покупатель, даже без слова "фурӯш": intent=sell. Под постом с объектом это обычно хозяин ЭТОГО объекта. НЕ отвечай ему как покупателю: не пиши "торг с собственником", "после показа", "агент покажет квартиру". Просит поменять цену или объявление — скажи, что передашь агенту, который ведёт его объект, и заполни askOwner его просьбой одной фразой.
-  - АРЕНДА: "иҷора", "снять", "сдать", "на месяц", месячная плата вместо цены покупки (сумма вроде «900–950» без слов «в месяц/моҳона» — это тысячи сомони на покупку, НЕ аренда). Арендой мы НЕ занимаемся ни в каком виде. Откажи СРАЗУ, одной фразой, в этом же ходе: "Мутаассифона, мо фақат бо хариду фурӯш машғулем, иҷора надорем." intent=rent, ready=true, номер не проси и ничего не обещай на будущее.
+  - АРЕНДА: "иҷора", "снять", "сдать", "на месяц", месячная плата вместо цены покупки (сумма вроде «900–950» без слов «в месяц/моҳона» — не аренда сама по себе: сначала уточни «барои харид ё иҷора, ба доллар ё ҳазор сомонӣ?»). Арендой мы НЕ занимаемся ни в каком виде. Откажи СРАЗУ, одной фразой, в этом же ходе: "Мутаассифона, мо фақат бо хариду фурӯш машғулем, иҷора надорем." intent=rent, ready=true, номер не проси и ничего не обещай на будущее.
   - КАНДИДАТ НА РАБОТУ: спрашивает про вакансию, работу агентом, резюме, "кор ҳаст?". intent=job. Подтверди, что мы набираем агентов по продажам, и спроси ОДНО: есть ли готовое резюме или анкета. Никого не отсеивай сам, про зарплату и условия ничего не обещай.
   - ПРЕДЛАГАЮТ НАМ УСЛУГИ ИЛИ РЕКЛАМУ: ремонт, мебель, натяжные потолки, продвижение, накрутка подписчиков, "сотрудничество", "коммерческое предложение". Это НЕ клиент, и продавать ему квартиру бессмысленно. Поблагодари, скажи, что передашь руководству, и возьми контакт ОДИН раз: "Раҳмат, ба роҳбарият мерасонам. Рақами тамосатонро нависед." Ничего не обещай и не договаривайся об условиях. intent=other.
   - ЗАСТРОЙЩИК ИЛИ АГЕНТСТВО про сотрудничество: спроси, что за проект или дом, и возьми контакт для руководства. Условия, проценты и совместную работу НЕ обсуждай — это не твоё решение. intent=other.
@@ -2168,65 +2171,45 @@ export async function runQualifyTurn(
      * замерить. Цены здесь не повторяем — их уже снял guardPrices выше. Продавцу и
      * кандидату подборки нет: он называет свой объект, сверять не с чем.
      */
+    /**
+     * МЕСТО И СОСТОЯНИЕ ОБЪЕКТА — ТОЛЬКО ИЗ КАРТОЧКИ (16.11.2026, аудит facts.md Ф2/Ф3; правила —
+     * ai/objectFactsChat.ts). Продавцу и кандидату подборки нет — сверять не с чем.
+     */
     if (draft.intent !== "sell" && draft.intent !== "job") {
-      const claims = findOffCatalogClaims({
-        text: result.reply.join("\n"),
-        allowedText: propsBlock + "\n" + history.map((m) => m.content).join("\n"),
-        catalogText: `${propsBlock}\n${geoBlock}\n${folkGeography}`,
-        clientText: history
-          .filter((m) => m.role === "user")
-          .map((m) => m.content)
-          .join("\n"),
+      const facts = applyObjectFactGuards({
+        reply: result.reply,
+        propsBlock,
+        geoBlock,
+        folkGeography,
+        history,
         usdToTjs: money.usdToTjs,
-        /**
-         * МЕСТО ОБЪЕКТА — ТОЛЬКО ИЗ КАРТОЧКИ (16.11.2026, аудит facts.md Ф2: один дом получил
-         * три адреса — «Зарафшон, наздики бозорча», «маҳаллаи Лучоби поён», и лишь третьим
-         * верное «Навбаҳор-2»). Улица/ориентир сверяется с подборкой (там адрес и ориентир
-         * карточек), картой мест из слов клиента и прошлыми репликами бота, а не со
-         * справочником народных названий: место там настоящее, но объект не там.
-         */
-        tajikPlaces: true,
-        placeSources: `${propsBlock}\n${geoBlock}\n${history.filter((m) => m.role === "assistant").map((m) => m.content).join("\n")}`,
+        language: lastClientLanguage(history),
       });
-      /**
-       * Улицу больше не только пишем в журнал — фразу с ней вырезаем (было «только журнал»
-       * с 10.10.2026; за 7 дней до 16.11 — три живые выдумки и ноль записей). Площадь и
-       * этаж пока прежние, журналом: вырезать их без потери смысла щит не умеет.
-       */
-      if (claims.streets.length > 0) {
-        const kept = stripOffCatalogStreets(result.reply, claims.streets);
-        result.reply = kept.length > 0 ? kept : [placeAskAgentReply(lastClientLanguage(history))];
-        traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "place");
-        traceBefore = result.reply.join("\n");
+      if (facts.streets.length > 0) {
+        traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
+        traceBefore = facts.afterPlace.join("\n");
       }
+      if (facts.renovationRemoved > 0) {
+        traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
+        traceBefore = facts.reply.join("\n");
+        void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза вырезана.", {
+          dedupKey: "chat-renovation-claim",
+          dedupScope: options.conversationId ?? undefined,
+        });
+      }
+      result.reply = facts.reply;
       const what = [
-        claims.streets.length > 0 ? `улицы/ориентиры ${claims.streets.join(", ")} (фраза вырезана)` : "",
-        claims.areas.length > 0 ? `площадь ${claims.areas.join(", ")} м²` : "",
-        claims.floors.length > 0 ? `этаж ${claims.floors.join(", ")}` : "",
+        facts.streets.length > 0 ? `улицы/ориентиры ${facts.streets.join(", ")} (фраза вырезана)` : "",
+        facts.areas.length > 0 ? `площадь ${facts.areas.join(", ")} м²` : "",
+        facts.floors.length > 0 ? `этаж ${facts.floors.join(", ")}` : "",
       ].filter(Boolean);
       if (what.length > 0) {
         void logSystemError(
           "ai",
           `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, ни в словах клиента. ` +
-            (claims.streets.length > 0 && claims.areas.length + claims.floors.length === 0
-              ? "Место вырезано из ответа."
-              : "Площадь и этаж ушли как есть — проверьте диалог глазами."),
+            (facts.areas.length + facts.floors.length === 0 ? "Место вырезано из ответа." : "Площадь и этаж ушли как есть — проверьте диалог глазами."),
           { dedupKey: "chat-off-catalog-claim", dedupScope: options.conversationId ?? undefined }
         );
-      }
-    }
-    // «С ремонтом» — только про объект, у которого ремонт в карточке (16.11.2026, Ф3).
-    if (draft.intent !== "sell" && draft.intent !== "job") {
-      const renovation = guardRenovationClaims(result.reply, propsBlock);
-      if (renovation.removed > 0) {
-        result.reply = renovation.bubbles.length > 0 ? renovation.bubbles : [placeAskAgentReply(lastClientLanguage(history))];
-        void logSystemError(
-          "ai",
-          "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза вырезана.",
-          { dedupKey: "chat-renovation-claim", dedupScope: options.conversationId ?? undefined }
-        );
-        traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "renovation");
-        traceBefore = result.reply.join("\n");
       }
     }
 

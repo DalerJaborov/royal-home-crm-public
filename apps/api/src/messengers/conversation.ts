@@ -78,6 +78,7 @@ import { countNoContactComplaints, looksLikeNoContactComplaint, looksLikeWantsHu
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { requestAgentAttention } from "../lib/agentAttention.js";
+import { newerClientMessagePending } from "./turnSupersede.js";
 import { detectAgencyPitch } from "../ai/agencyPitchGuard.js";
 import { guardFired } from "../ai/guardMetrics.js";
 import { createLeadFromChannel } from "../leads.js";
@@ -3671,7 +3672,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   const finishQualifyTurn = async (
     result: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>
-  ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer }> => {
+  ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer; agentSignal?: MessengerTurnResult["agentSignal"] }> => {
     // Если уже ждали телефон — оставляем этот этап (модель могла сбросить ready).
     // `merged` — слова самого клиента: по ним код отсекает аренду, не полагаясь
     // на то, что модель прочла запрет в промте (см. ai/rentGuard.ts).
@@ -4014,30 +4015,12 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       .findUnique({ where: { id: conversation.id }, select: { pausedUntil: true, pendingSince: true, pendingMessages: true } })
       .catch(() => null);
     const pauseNow = lateRow?.pausedUntil ?? null;
-    /**
-     * ПОКА БОТ ДУМАЛ, КЛИЕНТ НАПИСАЛ ЕЩЁ (16.11.2026, аудит tone.md п.15 / facts.md Ф4).
-     * Живые случаи старого бота: «Алфемо» → бот думает → «60 квадрата» → два ответа, первый
-     * уже устарел («Буҷетатон то чанд?»), а следом тот же вопрос ещё раз; «Ака ватсап дорен»
-     * получило два разных ответа за 4 секунды. Окно склейки (5 с) закрылось раньше, чем
-     * модель ответила, и следующее сообщение начало свой ход параллельно.
-     * Если в буфере уже ждёт НОВОЕ содержательное сообщение клиента — этот ответ не уходит:
-     * победитель того окна ответит за всё сразу, по истории, где лежат обе реплики.
-     * «Ок», «👍» в буфере не в счёт — их ход может промолчать (silentTurnReason), и тогда
-     * вопрос остался бы без ответа. Повтор хода (skipSaveIncoming) не трогаем.
-     */
-    const newerPending =
-      !input.skipSaveIncoming &&
-      !!lateRow?.pendingSince &&
-      Array.isArray(lateRow.pendingMessages) &&
-      (lateRow.pendingMessages as unknown[]).some(
-        (t) => typeof t === "string" && t.trim().length > 0 && !isAckOnlyMessage(t)
-      );
+    // Пока бот думал, клиент написал ещё — отвечает следующий ход (messengers/turnSupersede.ts).
+    const newerPending = newerClientMessagePending(lateRow, !!input.skipSaveIncoming);
     if (newerPending) {
       guardFired("superseded_by_newer_message");
       return { reply: "", ready: mergedDraft.stage === "awaiting_phone", shouldReply: false };
     }
-    // Обещан звонок клиенту с номером — агенту сигнал той же дверью, что «позовите человека».
-    if (filtered.promisedCall && conversation.clientId) void requestAgentAttention(conversation.clientId, "call_promised");
     if (
       pauseNow &&
       pauseNow.getTime() > Date.now() &&
@@ -4196,6 +4179,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       ready: mergedDraft.stage === "awaiting_phone",
       ...(outgoing ? {} : { shouldReply: false }),
       ...(replyVoiceWav ? { replyVoiceWav } : {}),
+      // Обещан звонок клиенту с номером — сигнал агенту шлёт отправитель ПОСЛЕ доставки
+      // (routes/webhooks.ts → lib/agentAttention.ts), а не здесь: ответ ещё может не уйти.
+      ...(outgoing && filtered.promisedCall && conversation.clientId
+        ? { agentSignal: { clientId: conversation.clientId, reason: "call_promised" as const } }
+        : {}),
     };
   };
 

@@ -1376,7 +1376,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
         }
       : null;
     const money = await loadMoneyContext().catch(() => null);
-    const out = guardCommentPrice({ text: t, card, commentText: row.text, usdToTjs: money?.usdToTjs });
+    const out = guardCommentPrice({ text: t, card, commentText: row.text, usdToTjs: money?.usdToTjs, channel: row.channel });
     if (out.invented.length > 0) {
       void logSystemError(
         "ai",
