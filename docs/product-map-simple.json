@@ -16,10 +16,10 @@
   "paths": 754,
   "cron": 142,
   "jobs": 33,
-  "conditions": 4087,
-  "untranslatedUnique": 463,
-  "untranslatedTotal": 594,
-  "partialUnique": 1115,
+  "conditions": 4093,
+  "untranslatedUnique": 467,
+  "untranslatedTotal": 598,
+  "partialUnique": 1118,
   "translatedShare": 85
  },
  "untranslated": [
@@ -93,6 +93,7 @@
   "!idSchema.safeParse(req.params.receiptId).success",
   "!identity.username?.trim()",
   "!isLastPart && body.length !== session.partSize",
+  "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
   "!isTelegram && \"accountId\" in conv && conv.accountId",
   "!key || !narrationProviderReady(config, key)",
   "!known && !fbAccount && settings?.metaPageId !== params.data.pageId",
@@ -156,12 +157,14 @@
   "(await prisma.deal.count({ where: { propertyId: existing.id } })) > 0",
   "(await syncAgentMobileFallback(agent.id, creds)) === \"station_unreachable\"",
   "(current && !current.closedAt) || current?.id === sessionId || (current?.revision ?? 0) !== revision",
+  "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && (!can(req, \"deals.complete\") || (deal.ag…",
   "(err as { code?: string }).code !== \"P2002\"",
   "(err as { code?: string }).code === \"P2002\"",
   "(existing?.revision ?? 0) !== parsed.data.expectedRevision",
   "(expenseDay(p.data.to!).getTime() - expenseDay(p.data.from!).getTime()) / 86400000 > 366",
   "(latest?.revision ?? 0) !== parsed.data.expectedRevision",
   "(property.publishedChannels ?? []).includes(\"TIKTOK\")",
+  "(req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…",
   "(settings?.leadDistributionStrategy ?? \"fair\") === \"manual\"",
   "Boolean(params.propertyId) === Boolean(params.freeVideoId)",
   "Date.now() - last < REFRESH_EVERY_MS",
@@ -314,6 +317,7 @@
   "event.kind === parsed.data.override",
   "existing.client?.deletedAt && data.stage && data.stage !== existing.stage",
   "existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
+  "existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…",
   "existing.status === \"EDITING\" && data.status !== undefined && data.status !== \"EDITING\" && isPipelineStatus(d…",
   "existing.status === \"RESERVED\" && changedFields.some((f) => f === \"price\" || f === \"currency\") && !can(req, \"…",
   "existing.status === \"SOLD\" && changedFields.some((f) => f === \"soldPrice\" || f === \"currency\" || f === \"price…",
@@ -9994,7 +9998,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite"
+    "requireAdsWrite",
+    "requireChannelAdmin"
    ],
    "screens": [
     "/",
@@ -10098,7 +10103,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "requireAdsWrite"
+    "requireAdsWrite",
+    "requireChannelAdmin"
    ],
    "screens": [
     "/",
@@ -13348,7 +13354,7 @@
        ]
       },
       {
-       "t": "если нет: is responsible и нет: право «properties.viewOwners» и нет: право «properties.editForeign»",
+       "t": "если !isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…",
        "k": "if",
        "a": [],
        "c": [
@@ -13358,7 +13364,8 @@
          "a": [],
          "c": []
         }
-       ]
+       ],
+       "raw": "!isResponsible && !can(req, \"properties.viewOwners\") && !can(req, \"properties.editForeign\") && !can(req, \"pro…"
       }
      ]
     },
@@ -25316,6 +25323,12 @@
        "c": []
       },
       {
+       "t": "если есть annul получатель и это свой сделка without finance",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
        "t": "если данные заполнены неправильно",
        "k": "if",
        "a": [],
@@ -25566,7 +25579,7 @@
      ]
     },
     {
-     "t": "если (этап (сделка) — «PENDING_APPROVAL» или этап (сделка) — «COMPLETED») и нет: право «deals.complete»",
+     "t": "если (deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && (!can(req, \"deals.complete\") || (deal.ag…",
      "k": "if",
      "a": [],
      "c": [
@@ -25576,7 +25589,8 @@
        "a": [],
        "c": []
       }
-     ]
+     ],
+     "raw": "(deal.stage === \"PENDING_APPROVAL\" || deal.stage === \"COMPLETED\") && (!can(req, \"deals.complete\") || (deal.ag…"
     },
     {
      "t": "если !doc || doc.dealId !== deal.id",
@@ -25815,7 +25829,7 @@
      "a": [],
      "c": [
       {
-       "t": "если нет: право «finance.manage» и нет: право «deals.setCommission»",
+       "t": "если нет: право «finance.manage»",
        "k": "if",
        "a": [],
        "c": []
@@ -25980,6 +25994,12 @@
        "c": []
       },
       {
+       "t": "если этап — «COMPLETED» и этап (такая запись) не «COMPLETED» и это свой сделка without finance",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
        "t": "если есть is direct завершить и нет: есть full closing данные",
        "k": "if",
        "a": [],
@@ -26108,6 +26128,19 @@
        "a": [],
        "c": [],
        "raw": "commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…"
+      },
+      {
+       "t": "если existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "existing.stage === \"COMPLETED\" && !can(req, \"finance.manage\") && (data.commissionAmount !== undefined || data…"
+      },
+      {
+       "t": "если есть is repricing закрыт и нет: право «finance.manage»",
+       "k": "if",
+       "a": [],
+       "c": []
       },
       {
        "t": "если есть is repricing закрыт и комиссия сумма не задан и комиссия percent задан",
@@ -46393,6 +46426,20 @@
      ]
     },
     {
+     "t": "если (req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не хватает прав: «Цену и контакт собственника меняет агент объекта или руководитель»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "(req.agent!.role === \"MARKETING\" || req.agent!.role === \"EDITOR\") && !ownsProperty(req.agent!.id, existing) &…"
+    },
+    {
      "t": "если existing.status === \"SOLD\" && changedFields.some((f) => f === \"soldPrice\" || f === \"currency\" || f === \"price…",
      "k": "if",
      "a": [],
@@ -64057,6 +64104,19 @@
      "c": [
       {
        "t": "отказ: данные неверные: «Для боевого режима укажите номер группы объявлений постоянной…»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если есть touches вживую и permissions не содержит «finance.manage»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не хватает прав: «Боевой режим автопродвижения включает только директор»",
        "k": "do",
        "a": [],
        "c": []
