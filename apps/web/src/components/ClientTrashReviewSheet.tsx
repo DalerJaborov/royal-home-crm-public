@@ -1,9 +1,7 @@
-import { useState } from "react";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { CallClientButton } from "./CallClientButton";
 import { InteractionTimeline } from "./InteractionTimeline";
-import { useClientTrashReview, type ClientTrashReview } from "../hooks/useClients";
-import { api } from "../lib/api";
+import { useClientTrashReview } from "../hooks/useClients";
 import { exactDateTime } from "../lib/format";
 import { useCan } from "../lib/permissions";
 
@@ -28,28 +26,6 @@ export function ClientTrashReviewSheet({
   const can = useCan();
   const { data, isLoading, isError, refetch } = useClientTrashReview(clientId);
   const canCall = can("clients.callArchived") && (data?.canCall ?? true);
-  // Записи старше первых двухсот: догружаются курсором по кнопке (карточка из Корзины закрыта, обычная лента не работает).
-  const [older, setOlder] = useState<{ items: ClientTrashReview["interactions"]; hasMore: boolean | null }>({ items: [], hasMore: null });
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const [olderError, setOlderError] = useState(false);
-  const shown = data ? [...data.interactions, ...older.items.filter((o) => !data.interactions.some((i) => i.id === o.id))] : [];
-  const hasMore = older.hasMore ?? data?.hasMore ?? false;
-  async function loadOlder() {
-    const last = shown[shown.length - 1];
-    if (!last) return;
-    setLoadingOlder(true);
-    setOlderError(false);
-    try {
-      const page = await api<ClientTrashReview>(
-        `/clients/trash/${clientId}/review?before=${encodeURIComponent(last.createdAt)}&beforeId=${encodeURIComponent(last.id)}`
-      );
-      setOlder((prev) => ({ items: [...prev.items, ...page.interactions], hasMore: page.hasMore ?? false }));
-    } catch {
-      setOlderError(true);
-    } finally {
-      setLoadingOlder(false);
-    }
-  }
 
   return (
     <Rh2Sheet
@@ -142,17 +118,16 @@ export function ClientTrashReviewSheet({
 
           <section className="card flat" style={{ padding: "12px 14px" }}>
             <h3 className="sec-t">Заметки и звонки</h3>
-            {shown.length === 0 ? (
+            {data.interactions.length === 0 ? (
               <p className="quiet">Записей нет.</p>
             ) : (
-              <InteractionTimeline interactions={shown} total={data.interactionsTotal} />
+              <InteractionTimeline interactions={data.interactions} total={data.interactionsTotal} />
             )}
-            {hasMore && (
-              <button className="pill ghost sm" type="button" disabled={loadingOlder} onClick={() => void loadOlder()} style={{ marginTop: 8 }}>
-                {loadingOlder ? "Загружаем…" : "Показать более ранние"}
-              </button>
+            {data.interactionsTotal > data.interactions.length && (
+              <p className="quiet">
+                Показаны последние {data.interactions.length} из {data.interactionsTotal} записей.
+              </p>
             )}
-            {olderError && <p className="quiet">Не удалось загрузить. Попробуйте ещё раз.</p>}
           </section>
         </div>
       )}

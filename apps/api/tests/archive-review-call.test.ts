@@ -217,21 +217,6 @@ describe("GET /clients/trash/:id/review", () => {
     }
   });
 
-  it("«Показать более ранние»: курсор отдаёт только записи старше указанной", async () => {
-    const all = await request(app).get(`/api/v1/clients/trash/${ids.client}/review`).set("Authorization", `Bearer ${tokens.rop}`);
-    expect(all.body.interactions.length).toBeGreaterThan(0);
-    expect(all.body.hasMore).toBe(false);
-    const old = await request(app)
-      .get(`/api/v1/clients/trash/${ids.client}/review?before=2000-01-01T00:00:00.000Z&beforeId=ffffffff`)
-      .set("Authorization", `Bearer ${tokens.rop}`);
-    expect(old.status).toBe(200);
-    expect(old.body.interactions).toEqual([]);
-    const future = await request(app)
-      .get(`/api/v1/clients/trash/${ids.client}/review?before=2100-01-01T00:00:00.000Z&beforeId=ffffffff`)
-      .set("Authorization", `Bearer ${tokens.rop}`);
-    expect(future.body.interactions.length).toBe(all.body.interactions.length);
-  });
-
   it("агент без права «Архив» — 403; живая карточка — 404", async () => {
     const agent = await request(app).get(`/api/v1/clients/trash/${ids.client}/review`).set("Authorization", `Bearer ${tokens.owner}`);
     expect(agent.status).toBe(403);
