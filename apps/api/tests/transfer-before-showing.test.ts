@@ -67,7 +67,7 @@ beforeAll(async () => {
   districtId = (await prisma.district.create({ data: { name: `Тест-рубеж2-${runId}` } })).id;
   agentId = (
     await prisma.agent.create({
-      data: { fullName: "Агент рубежа 2", phone: `+992961${runId}`, role: "AGENT", passwordHash },
+      data: { fullName: "Агент рубежа 2", phone: `+992961${runId}`, role: "MANAGER", passwordHash },
     })
   ).id;
   ownerAgentId = (

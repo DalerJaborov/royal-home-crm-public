@@ -205,6 +205,8 @@ export interface Settings {
   botCanAnswerComments: boolean;
   /** Комментарий, на который бот не ответил из-за сбоя, — сводкой тем, кто читает переписки (15.11.2026). */
   commentFailureWatchEnabled: boolean;
+  /** Передача РОП: уведомлять директора с кнопками «Подтвердить» / «Отклонить» (16.11.2026). */
+  ropTransferAlertEnabled: boolean;
   /** «Соедините с оператором»: очередь звонков и push агентам. */
   botCanRequestCallback: boolean;
   /** Дежурный оператор обратных звонков; null — авто-соединения нет. */
