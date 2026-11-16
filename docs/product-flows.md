@@ -25774,10 +25774,8 @@
       - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "DECLINED", res…
         · меняет в базе: ownershipTransferRequest
       - если claim.count
-        - n += 1;
-          · дословно из кода
         - publishTransferChanged([row.requestedById], row.id);
-          · дословно из кода
+          · зовёт publishTransferChanged()
   - если stuck > 0
     - console.log(`[cron] Передачи РОП: не завершён возврат у ${stuck}`);
       · пишет строку в журнал сервера

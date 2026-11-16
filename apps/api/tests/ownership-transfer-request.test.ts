@@ -227,9 +227,24 @@ describe("РОП передаёт объект сразу, директору у
     await transferProperty("rop", p.id, targetId);
     const first = (await waitRow({ propertyId: p.id, status: "PENDING" }))!;
     await transferProperty("rop", p.id, otherId, "Передумали");
-    await vi.waitFor(async () => expect(await prisma.ownershipTransferRequest.count({ where: { propertyId: p.id, status: "PENDING" } })).toBe(1));
-    expect((await reviewRow({ id: first.id }))?.status).toBe("CANCELLED");
+    await vi.waitFor(async () => expect((await reviewRow({ id: first.id }))?.status).toBe("CANCELLED"));
+    expect(await prisma.ownershipTransferRequest.count({ where: { propertyId: p.id, status: "PENDING" } })).toBe(1);
     expect((await decide("director", first.id, "confirm")).status).toBe(409);
+  });
+
+  it("цепочка A→B→C: «Отклонить» возвращает исходному хозяину A, а не B", async () => {
+    const p = await mkProperty(ownerId);
+    await transferProperty("rop", p.id, targetId);
+    await waitRow({ propertyId: p.id, status: "PENDING" });
+    await transferProperty("rop", p.id, otherId, "Дальше");
+    await vi.waitFor(async () => {
+      const live = await prisma.ownershipTransferRequest.findFirst({ where: { propertyId: p.id, status: "PENDING" } });
+      expect(live?.toAgentId).toBe(otherId);
+    });
+    const live = (await prisma.ownershipTransferRequest.findFirst({ where: { propertyId: p.id, status: "PENDING" } }))!;
+    expect(live.fromAgentId).toBe(ownerId);
+    expect((await decide("director", live.id, "decline")).status).toBe(200);
+    expect(await ownerOf(p.id)).toBe(ownerId);
   });
 
   it("отклонение, зависшее на возврате, тик добивает в FAILED", async () => {

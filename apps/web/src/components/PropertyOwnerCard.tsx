@@ -48,7 +48,7 @@ export function PropertyOwnerCard({
   // clients.assign нет — кнопка открывала пустой список агентов (GET /agents им
   // закрыт) и была мёртвой.
   // РОП (transfers.request, 16.11.2026) передаёт с подтверждением хозяина и без правки чужих карточек.
-  const canTransfer = (canManage && can("clients.assign")) || can("transfers.request");
+  const canTransfer = (canManage && can("clients.assign")) || (can("transfers.request") && can("clients.assign"));
 
   const isPendingForMe = !!property.handoverPendingSince && !!myId && property.intakeAgent?.id === myId;
   const isPendingForOther = !!property.handoverPendingSince && !isPendingForMe;

@@ -115740,17 +115740,9 @@
            "c": [
             {
              "k": "do",
-             "t": "n += 1;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
              "t": "publishTransferChanged([row.requestedById], row.id);",
              "a": [
-              "дословно из кода"
+              "зовёт publishTransferChanged()"
              ],
              "c": []
             }

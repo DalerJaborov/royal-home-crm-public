@@ -4,7 +4,7 @@ import { prisma } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { assignableAgentError } from "./propertyAssignableAgent.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
-import { recordRopTransfer } from "./ownershipTransferRequest.js";
+import { recordRopTransfer } from "./ownershipTransferRecord.js";
 import { transferPropertyWithSeller } from "./propertyTransferWithSeller.js";
 
 /**

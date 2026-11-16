@@ -8,7 +8,7 @@ import { reactivationResetData } from "./clientLifecycle.js";
 import { SUPERVISOR_ASSIGN_REASON } from "./leadReason.js";
 import { publishClientUpdated, publishLeadAccepted } from "./livePublish.js";
 import { checkManualAssignTarget } from "./manualAssignTarget.js";
-import { recordRopTransfer } from "./ownershipTransferRequest.js";
+import { recordRopTransfer } from "./ownershipTransferRecord.js";
 import { findAgentsWithPermission } from "./recipients.js";
 
 /**
