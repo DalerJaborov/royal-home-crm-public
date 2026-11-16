@@ -957,10 +957,12 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   // владелец 16.11.2026). Право «правка чужих карточек» им нужно для фото, видео и
   // описания; цену, валюту и контакт собственника чужого объекта они меняют только
   // заявкой через агента или руководство.
+  // Контакт собственника сюда не входит: скрытый от них контакт форма шлёт как null, и сервер
+  // отбрасывает его ниже (stripOwnerContact), так что маркетолог не может его изменить.
   if (
     (req.agent!.role === "MARKETING" || req.agent!.role === "EDITOR") &&
     !ownsProperty(req.agent!.id, existing) &&
-    changedFields.some((f) => f === "price" || f === "currency" || f === "soldPrice" || f === "ownerContact")
+    changedFields.some((f) => f === "price" || f === "currency" || f === "soldPrice")
   ) {
     return res.status(403).json({ error: "Цену и контакт собственника меняет агент объекта или руководитель" });
   }

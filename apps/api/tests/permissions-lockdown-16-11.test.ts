@@ -194,3 +194,18 @@ describe("РОП видит историю чужого объекта (разб
     expect(res.status).toBe(200);
   });
 });
+
+describe("маркетинг правит материалы чужого объекта через форму", () => {
+  it("PATCH этажа с пустым скрытым контактом — 200, контакт не тронут", async () => {
+    const property = await prisma.property.create({
+      data: { title: `Форма замок ${runId}`, type: "APARTMENT", areaSqm: 50, price: 100000, currency: "TJS", districtId,
+        address: "Тестовая, форма", condition: "GOOD", status: "AVAILABLE", assignedAgentId: directorId,
+        ownerContact: "+992900000099 Собственник" },
+    });
+    propertyIds.push(property.id);
+    const res = await request(app).patch(`/api/v1/properties/${property.id}`).set("Authorization", `Bearer ${marketingToken}`)
+      .send({ floor: 3, ownerContact: null });
+    expect(res.status).toBeLessThan(300);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).ownerContact).toBe("+992900000099 Собственник");
+  });
+});
