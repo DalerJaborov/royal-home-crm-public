@@ -22,17 +22,26 @@ async function run(inputText: string, language: "ru" | "tg", topic: "rental" | "
     modelParts: [{ functionCall: { name: "get_company_policy", args: { topic }, id: "p1" } }] });
   modelTurn.mockResolvedValueOnce(final(topic ? { refs: ["e0"], ...change } : change));
   const ports: CustomerCorePorts = { modelTurn,
-    executeAllowedTool: async () => ({ status: "observed", observation: { kind: "company_policy", topic: topic!, knowledge, sourceHash } }),
+    executeAllowedTool: async call => ({ status: "observed", observation: { kind: "company_policy",
+      topic: call.name === "get_company_policy" ? call.args.topic : topic!, knowledge, sourceHash } }),
     assertCurrent: async () => true, requestStop: reason => controller.abort(reason), observeLateToolResult: () => {} };
   return runCustomerAgentTurn(frame, ports);
 }
 
 describe("seller is not answered with an unasked rental refusal or commission (30.10.2026 live probes)", () => {
+  it("«сколько получу на руки» from a seller IS the terms question (Facebook 16.11): the server reads the commission, the rental answer is replaced", async () => {
+    const result = await run("продам квартиру в новостройке, сколько получу на руки", "ru", "rental", { question: "none" });
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.decision).toMatchObject({ kind: "reply", question: "seller_details" });
+    expect(result.fallbackCause).toMatch(/^repair_seller_(?:terms_unanswered|commission_no_intake)$/u);
+    expect(result.text).toMatch(/Комиссия для продавца/u);
+    expect(result.text).not.toMatch(/арендой не занимаемся/u);
+  });
   it.each([
     ["у меня дом на продажу, фото скину", "ru", "rental"],
     ["у меня два объекта на продажу", "ru", "rental"],
     ["продам двушку 65 м 5 этаж 450000", "ru", "commission"],
-    ["продам квартиру в новостройке, сколько получу на руки", "ru", "rental"],
     ["хонаи фуруши дорам", "tg", "rental"],
   ] as const)("%s -> seller_details, tagged for the trace", async (text, language, topic) => {
     const result = await run(text, language, topic, { question: "none" });

@@ -14,7 +14,7 @@ import { customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn, recruitmentMissingForTurn } from "./customerAgentRecruitmentProtocol.js";
 import { customerPropertyUrl } from "../lib/customerPropertyUrls.js";
-import { guardSellerDecision } from "./customerAgentSellerGuard.js";
+import { guardSellerDecision, customerSellerAskedTerms } from "./customerAgentSellerGuard.js";
 import { validateCustomerAgentSayForDecision, CUSTOMER_AGENT_SAY_GUIDANCE, SAY_ENABLED_LANGUAGES } from "./customerAgentSay.js";
 import { CUSTOMER_AGENT_ANSWER_GUIDANCE, ANSWER_ENABLED_LANGUAGES, parseCustomerAgentAnswerParts } from "./customerAgentAnswer.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
@@ -429,6 +429,11 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     }
     if (customerCompanyInformationRequested(frame.inputText) && frame.tools.some(tool => tool.name === "get_company_information")) {
       await execute({ name: "get_company_information", args: {} }, undefined, true);
+    }
+    // A seller asks for the terms («Чи шарту шароит доред?», Facebook 16.11.2026): the commission is read by the server, not left to the model.
+    if (frame.surface === "dm" && customerSellerAskedTerms({ inputText: frame.inputText, verifiedContext: context ?? undefined }) &&
+        frame.tools.some(tool => tool.name === "get_company_policy")) {
+      await execute({ name: "get_company_policy", args: { topic: "commission" } }, undefined, true);
     }
     if ((customerRecruitmentRequested([frame.inputText, perception?.transcript, perception?.readableText].filter(Boolean).join("\n")) || context?.publicState.topic === "job") && frame.tools.some(tool => tool.name === "get_open_vacancies")) {
       await execute({ name: "get_open_vacancies", args: {} }, undefined, true);
