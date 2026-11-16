@@ -129,6 +129,9 @@ export async function createPropertyChangeRequest(input: {
   assistantUndo?: AssistantPriceUndoLink & { now: Date; undoUntil: Date };
   /** Куда записать в журнал источник: REST ничего не добавляет. */
   auditSource?: Record<string, unknown>;
+  /** «Своё — сразу»: вызывающий тут же принимает заявку (applyOwnChangeRequestNow) — директору о ней
+   *  сообщать нечего, пуш «Заявка» в очередь не ставится. */
+  applyDirectly?: boolean;
 }): Promise<CreateChangeRequestResult> {
   const { actor, body, assistantUndo } = input;
 
@@ -279,7 +282,7 @@ export async function createPropertyChangeRequest(input: {
 
   // Кому решать — тем и сообщаем, по праву, а не по роли. Часы алармов (07.09.2026): заявка уже
   // в очереди, откладывается только пуш о ней.
-  void enqueueDirectorAlert({
+  if (!input.applyDirectly) void enqueueDirectorAlert({
     title: `📝 ${PROPERTY_CHANGE_KIND_LABELS[body.kind]}: объект №${property.shortId}`,
     body: `${created.author.fullName}: ${summary}`,
     url: `/properties/${property.shortId}?changeRequest=${created.id}`,

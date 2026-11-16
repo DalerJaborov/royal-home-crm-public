@@ -84,6 +84,10 @@ export interface Settings {
   matchIncludeDeferred: boolean;
   /** Хозяину объекта приходит пуш, когда его объект предложили чужому клиенту. */
   matchNotifyPropertyOwner: boolean;
+  /** Пуш агенту, когда на Somon/Paydo появилось объявление под его покупателя (по умолчанию выключено). */
+  marketBuyerAlertsEnabled: boolean;
+  /** Подбор с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
+  marketOwnersOnly: boolean;
   /** Срок жизни пожелания покупателя от последнего касания, дней; 0 — без срока. */
   matchRequirementTtlDays: number;
   /** Допуск по бюджету клиента, % сверх названной суммы. */
@@ -549,6 +553,8 @@ export interface Settings {
    *  выключателем. Выключенный отчёт не собирается вовсе. */
   problemReportWeeklyEnabled: boolean;
   problemReportMonthlyEnabled: boolean;
+  /** Финансовый PDF за прошлый месяц директорам в Telegram (выключен по умолчанию). */
+  financePdfMonthlyEnabled?: boolean;
   /** Рабочие часы распределения лидов, "HH:MM" по Душанбе. Бот отвечает 24/7 —
    * это влияет только на то, когда новый лид уходит агенту. */
   workHoursStart: string;
@@ -1056,6 +1062,8 @@ export interface OpenAiCoverSettings {
   keyConfigured: boolean;
   keyMasked: string | null;
   keySource: "settings" | "env" | null;
+  /** Рубильник OpenAI целиком (14.11.2026): false — ни одного вызова OpenAI, обложки только шаблоном. */
+  openaiEnabled: boolean;
   enabled: boolean;
   /** Кто рисует: TEMPLATE — наш шаблон, OPENAI — ChatGPT (28.09.2026). */
   provider: CoverProvider;
@@ -1103,7 +1111,7 @@ export function useUpdateOpenAiCovers() {
   const qc = useQueryClient();
   return useMutation({
     // Качество, кандидаты, режим текста, фото и модель — константы на сервере с 01.11.2026.
-    mutationFn: (input: Partial<{ apiKey: string; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
+    mutationFn: (input: Partial<{ apiKey: string; openaiEnabled: boolean; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
       api<{ ok: true }>("/settings/cover-templates/openai", { method: "PUT", body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: OPENAI_COVERS_KEY }),
   });

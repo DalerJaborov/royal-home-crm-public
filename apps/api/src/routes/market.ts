@@ -3,23 +3,15 @@ import { can, requireAuth } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { cardWhereFromParam } from "../lib/cardIdParam.js";
 import { emptyDynamics, findDynamics } from "../lib/market/dynamics.js";
-import { emptyResult, findSimilar, verdictFor, type Repair } from "../lib/market/similarComps.js";
-import { loadMoneyContext, toTjs } from "../lib/money.js";
+import { evaluatePropertyAgainstMarket, PROPERTY_MARKET_SELECT } from "../lib/market/propertyMarket.js";
+import { loadMoneyContext } from "../lib/money.js";
+import { findOverpricedPropertiesCached } from "../lib/market/overpriced.js";
 import { findSegments } from "../lib/market/segments.js";
-import { marketSegmentsQuerySchema } from "@royal-home/shared";
+import { marketHistoryQuerySchema, marketSegmentsQuerySchema, type MarketHistoryResponse } from "@royal-home/shared";
+import { MIN_SAMPLE } from "../lib/market/comps.js";
+import { ANY_ROOMS, readMedianHistory } from "../lib/market/medianHistory.js";
 
 export const marketRouter = Router();
-
-/**
- * Состояние объекта → ремонт для подбора. NEW_BUILDING здесь НЕТ: «новостройка» в РТ —
- * признак дома (владелец 02.11.2026), а не ремонт; ремонт в этом случае неизвестен (null),
- * и подбор не режет по нему.
- */
-const CONDITION_TO_REPAIR: Record<string, Repair> = {
-  NEEDS_REPAIR: "SHELL",
-  GOOD: "PARTIAL",
-  EXCELLENT: "RENOVATED",
-};
 
 /**
  * GET /api/v1/market/property/:id — блок «Рынок» в карточке объекта: стоит ли цена
@@ -30,45 +22,11 @@ const CONDITION_TO_REPAIR: Record<string, Repair> = {
 marketRouter.get("/property/:id", requireAuth, async (req, res) => {
   const where = cardWhereFromParam(String(req.params.id));
   if (!where) return res.status(404).json({ error: "Объект не найден" });
-  const p = await prisma.property.findUnique({
-    where,
-    select: {
-      id: true, type: true, rooms: true, areaSqm: true, floor: true, totalFloors: true, price: true, currency: true,
-      condition: true, marketType: true, deletedAt: true, district: { select: { name: true } },
-    },
-  });
+  const p = await prisma.property.findUnique({ where, select: PROPERTY_MARKET_SELECT });
   if (!p || (p.deletedAt && !can(req, "archive.view"))) return res.status(404).json({ error: "Объект не найден" });
 
-  const money = await loadMoneyContext();
-  const askingPriceTjs = p.price != null ? Math.round(toTjs(p.price, p.currency, money)) : null;
-  const subjectBase = {
-    districtName: p.district?.name ?? null,
-    rooms: p.rooms,
-    areaSqm: Number(p.areaSqm),
-    floor: p.floor,
-    totalFloors: p.totalFloors,
-    repair: CONDITION_TO_REPAIR[p.condition] ?? null,
-    // «Новостройка» в РТ — признак дома (владелец 02.11.2026). Тип рынка не задан, а состояние
-    // «новостройка» — значит новостройка; иначе не задано — не фильтруем.
-    isNewBuilding: p.marketType != null ? p.marketType !== "SECONDARY" : p.condition === "NEW_BUILDING" ? true : null,
-    askingPriceTjs,
-  };
-
-  if ((p.type !== "APARTMENT" && p.type !== "HOUSE") || !(subjectBase.areaSqm > 0)) {
-    return res.json({
-      subject: { ...subjectBase, propertyType: p.type },
-      ...emptyResult("для этого типа объекта рыночная оценка не считается"),
-      status: "unsupported",
-      comparison: null,
-    });
-  }
-
-  const result = await findSimilar({ ...subjectBase, propertyType: p.type }, { propertyId: p.id });
-  res.json({
-    subject: { ...subjectBase, propertyType: p.type },
-    ...result,
-    comparison: result.status === "ok" ? verdictFor(askingPriceTjs, result.estimatedPriceTjs) : null,
-  });
+  // Сборка предмета сравнения и вердикт — одно место (lib/market/propertyMarket.ts), его же зовёт помощница.
+  res.json(await evaluatePropertyAgainstMarket(p, await loadMoneyContext()));
 });
 
 /**
@@ -103,4 +61,77 @@ marketRouter.get("/segments", requireAuth, async (req, res) => {
   const parsed = marketSegmentsQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
   res.json(await findSegments(parsed.data));
+});
+
+/**
+ * GET /api/v1/market/history — ряд медиан цены по дням для района (или города) и комнат; копится ночной
+ * записью (lib/market/medianHistory.ts), прошлое до 14.11.2026 восстановить нельзя. Район «*» (по
+ * умолчанию) — весь город. Данные публичные (чужие объявления), доступ — любой вошедший сотрудник.
+ * Предел: `days` (окно) и `limit` (точек), оба ограничены схемой.
+ */
+marketRouter.get("/history", requireAuth, async (req, res) => {
+  const parsed = marketHistoryQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+  const q = parsed.data;
+  const points = await readMedianHistory({
+    city: q.city,
+    districtName: q.districtName,
+    rooms: q.rooms ?? ANY_ROOMS,
+    building: q.building === "new" ? "NEW" : q.building === "secondary" ? "SECONDARY" : "ANY",
+    audience: q.audience === "owners" ? "OWNERS" : "ALL",
+    days: q.days,
+    limit: q.limit,
+  });
+  const body: MarketHistoryResponse = {
+    minSample: MIN_SAMPLE,
+    city: q.city,
+    districtName: q.districtName,
+    rooms: q.rooms ?? null,
+    building: q.building ?? null,
+    audience: q.audience,
+    points,
+  };
+  res.json(body);
+});
+
+/**
+ * GET /api/v1/market/property/:id/history — ряд медиан цены за м² по району и числу комнат объекта
+ * (весь рынок, любой тип дома): ряд «по району» для блока «Динамика рынка» в карточке объекта.
+ * Объект без района/комнат или не квартира — пустой ряд.
+ */
+marketRouter.get("/property/:id/history", requireAuth, async (req, res) => {
+  const where = cardWhereFromParam(String(req.params.id));
+  if (!where) return res.status(404).json({ error: "Объект не найден" });
+  const p = await prisma.property.findUnique({
+    where,
+    select: { type: true, rooms: true, deletedAt: true, district: { select: { name: true } } },
+  });
+  if (!p || (p.deletedAt && !can(req, "archive.view"))) return res.status(404).json({ error: "Объект не найден" });
+  const districtName = p.district?.name ?? null;
+  const rooms = p.rooms && p.rooms > 0 ? p.rooms : null;
+  const points =
+    p.type === "APARTMENT" && districtName && rooms
+      ? await readMedianHistory({ city: "Душанбе", districtName, rooms, building: "ANY", audience: "ALL", days: 90, limit: 120 })
+      : [];
+  const body: MarketHistoryResponse = {
+    minSample: MIN_SAMPLE,
+    city: "Душанбе",
+    districtName: districtName ?? "",
+    rooms,
+    building: null,
+    audience: "all",
+    points,
+  };
+  res.json(body);
+});
+
+/**
+ * GET /api/v1/market/overpriced — наши объекты в продаже, которые просят дороже рынка (14.11.2026).
+ * Права те же, что у блока «Рынок» и таблицы сегментов: любой вошедший сотрудник (в ответе только то, что
+ * и так видно в карточках объектов, и цены чужих объявлений в сводке; телефонов нет). Сравнение одним
+ * проходом по сегментам, предел выборки в lib/market/overpriced.ts, ответ кэшируется на 10 минут (один на всех).
+ * Ориентировочно: точный разбор в карточке.
+ */
+marketRouter.get("/overpriced", requireAuth, async (_req, res) => {
+  res.json(await findOverpricedPropertiesCached());
 });

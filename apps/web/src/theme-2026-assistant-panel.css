@@ -1,0 +1,72 @@
+/* ПАНЕЛЬ ИИ-АССИСТЕНТА (AssistantPanel.tsx) — вёрстка окна на компьютере и шторки на
+   телефоне. 15.11.2026, владелец: «микрофон не работает вроде и всё криво стоит».
+
+   ПОЧЕМУ ОТДЕЛЬНЫЙ ФАЙЛ. Основа (`.cw`, `.aib-sugg`, `.mic`) лежит в генерируемом
+   theme-2026-proto.css и в theme-2026-mobile-density.css: прототипный CSS
+   пересобирается скриптом целиком, дописка туда пропала бы при синхронизации.
+   Файл подключён ПОСЛЕ них (index.css). Размеры шрифта — не мельче 13 px.
+
+   Что было «криво»:
+   1. Окно 380x≤600 px с телом max-height 460 — при приветствии и шести подсказках
+      оно прокручивалось, а прокрутка вниз прятала приветствие под шапкой.
+   2. Подсказки: иконка на отдельной строке НАД текстом (svg.i — блочная) и узкие
+      «таблетки» вразнобой по ширине.
+   3. Поле ввода сжималось до обрезанного placeholder.
+   4. На телефоне подвал шторки не поднимался над экранной клавиатурой, а в
+      вырезе iPhone кнопка отправки упиралась в индикатор «домой».            */
+
+/* ---------- компьютер: окно справа снизу ---------- */
+.rh2 .scr .cw.assistant-cw{
+  width:min(420px,calc(100vw - 32px));
+  height:min(640px,calc(100vh - 32px));
+  max-height:calc(100dvh - 32px);
+  display:flex;flex-direction:column;
+}
+.rh2 .scr .cw.assistant-cw .cw-h{flex:none}
+.rh2 .scr .cw.assistant-cw .cw-b{flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;overscroll-behavior:contain}
+.rh2 .scr .cw.assistant-cw .cw-f{flex:none;align-items:center;padding-bottom:max(var(--s3),env(safe-area-inset-bottom))}
+.rh2 .scr .cw.assistant-cw .cw-f .inp{flex:1;min-width:0;min-height:44px}
+.rh2 .scr .cw.assistant-cw .cw-f .call{flex:none}
+
+/* Состояние голоса (запись, ошибка микрофона) — полоса над полем ввода, всегда на виду. */
+.rh2 .scr .cw.assistant-cw .cw-s{flex:none;padding:var(--s2) var(--s4);border-top:1px solid var(--line-soft);background:var(--soft)}
+.rh2 .scr .cw.assistant-cw .cw-s .state,.rh2 .scr .cw.assistant-cw .cw-s .quiet{margin:0;padding:var(--s1,4px) 0}
+
+/* Подсказки: иконка слева от текста, во всю ширину, текст переносится. */
+.rh2 .scr .cw.assistant-cw .aib-sugg{flex-direction:column;flex-wrap:nowrap;gap:8px}
+.rh2 .scr .cw.assistant-cw .aib-sugg button{
+  display:flex;align-items:center;gap:10px;width:100%;height:auto;min-height:44px;
+  padding:10px 14px;border-radius:var(--r-md);text-align:left;line-height:1.35;font-size:var(--fs-14);
+}
+.rh2 .scr .cw.assistant-cw .aib-sugg button svg.i{flex:none;width:18px;height:18px;color:var(--muted)}
+
+/* Запись идёт: кнопка микрофона подсвечена, чтобы было видно «пишу». */
+.rh2 .scr .call.rec{background:var(--crit-bg);color:var(--crit);border-color:var(--crit)}
+.rh2 .scr .quiet .lk{margin-left:auto;min-height:44px;padding:0 4px}
+
+/* ---------- телефон: шторка снизу ---------- */
+@media (max-width:819px){
+  /* Над экранной клавиатурой: переменную ставит useKeyboardInset. */
+  .rh2 .scr .sheet.assistant-sheet{
+    bottom:var(--rh-kb-inset,0px);
+    max-height:calc(100dvh - var(--rh-kb-inset,0px) - 12px);
+  }
+  .rh2 .scr .sheet.assistant-sheet .sheet-b{min-height:0;overscroll-behavior:contain}
+  .rh2 .scr .sheet.assistant-sheet .sheet-f{
+    flex-wrap:nowrap;justify-content:stretch;
+    padding-bottom:max(var(--s4),calc(env(safe-area-inset-bottom) + var(--s2)));
+  }
+  .rh2 .scr .sheet.assistant-sheet .sheet-f .inp{min-height:44px;font-size:16px} /* 16px — iOS не приближает страницу при фокусе */
+  .rh2 .scr .sheet.assistant-sheet .mic{padding-top:0}
+  /* Бледно-лавандовый круг сливался с белой шторкой в светлой теме — обводка. */
+  .rh2 .scr .sheet.assistant-sheet .mic .orb{box-shadow:inset 0 0 0 1px var(--line-strong)}
+  .rh2 .scr .sheet.assistant-sheet .mic.on .orb{background:var(--crit-bg);color:var(--crit);box-shadow:inset 0 0 0 1px var(--crit)}
+}
+
+/* Сообщение об ошибке: текст переносится, кнопка «Понятно»/«Повторить» не уезжает за край. */
+.rh2 .scr .state.err{align-items:flex-start}
+.rh2 .scr .state.err .dot{margin-top:7px;flex:none}
+.rh2 .scr .state.err .txt{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.rh2 .scr .state.err .lk{flex:none;min-height:44px;padding:0 4px;margin:-10px 0}
+.rh2 .scr .state .lk,.rh2 .scr .quiet .lk{display:inline-flex;align-items:center;background:none;border:0;cursor:pointer;
+  font:inherit;font-size:var(--fs-14);font-weight:600;color:var(--ink);text-decoration:underline;text-underline-offset:3px;white-space:nowrap}

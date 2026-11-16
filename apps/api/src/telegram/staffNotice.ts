@@ -161,7 +161,9 @@ const KIND_WORDS: { kind: PushKind; re: RegExp }[] = [
   { kind: "payment", re: /оплат|подписк|платеж|платёж|пардохт|обуна/iu },
   { kind: "security", re: /безопасност|бехатар|неверн\p{L}*\s+код|код\p{L}*\s+вход|изменени\p{L}*\s+прав/iu },
   { kind: "publication", re: /публикац|(?:^|\s)пост(?:ы|ов)?(?![\p{L}])|нашр/iu },
+  // «заявки на удаление» — про заявки, а не про Корзину: вид lead идёт раньше trash.
   { kind: "lead", re: /заявк|(?:^|\s)лид(?:ы|ов)?(?![\p{L}])|дархост/iu },
+  { kind: "trash", re: /корзин|удалени\p{L}*/iu },
   { kind: "message", re: /переписк|паём\p{L}*\s+мизоҷ/iu },
   { kind: "showing", re: /показ|встреч|намоиш/iu },
   { kind: "task", re: /задач|просрочк|сводк|вазифа/iu },
@@ -169,6 +171,7 @@ const KIND_WORDS: { kind: PushKind; re: RegExp }[] = [
   { kind: "oversight", re: /контрол|разбор|потерянн/iu },
   { kind: "look", re: /подбор|подходящ|мувофиқ/iu },
   { kind: "hot", re: /загорел|просмотр/iu },
+  { kind: "market_buyer", re: /под\s+(?:вашего\s+)?покупател/iu },
   { kind: "market", re: /площадк|somon|сомон|paydo|пайдо/iu },
 ];
 
@@ -179,7 +182,7 @@ export function kindFromWords(text: string): PushKind | null {
 }
 
 /** Слово, которое называет вид (одно слово, без контекста). */
-const KIND_TOKEN = /^(?:оплат|подписк|платеж|платёж|пардохт|обуна|публикац|пост|нашр|заявк|лид|дархост|переписк|паём|мизоҷ|показ|встреч|намоиш|задач|просрочк|сводк|вазифа|royal|score|балл|скор|рейтинг|контрол|разбор|потерянн|подбор|подходящ|мувофиқ|загорел|просмотр|площадк|somon|сомон|paydo|пайдо|безопасност|бехатар|неверн|код|вход|изменени|прав)\p{L}*$/iu;
+const KIND_TOKEN = /^(?:корзин|удалени|оплат|подписк|платеж|платёж|пардохт|обуна|публикац|пост|нашр|заявк|лид|дархост|переписк|паём|мизоҷ|показ|встреч|намоиш|задач|просрочк|сводк|вазифа|royal|score|балл|скор|рейтинг|контрол|разбор|потерянн|подбор|подходящ|мувофиқ|загорел|просмотр|площадк|somon|сомон|paydo|пайдо|безопасност|бехатар|неверн|код|вход|изменени|прав)\p{L}*$/iu;
 /** Слово, которое показывает на уведомления, а не на дело. */
 const FILLER_TOKEN = /^(?:мне|меня|больше|такое|такие|такого|это|эти|этого|подобное|подобные|об|о|про|по|насчёт|насчет|их|все|всё|уведомлени\p{L}*|сообщени\p{L}*|напоминани\p{L}*|ба|ман|маро|инро|инҳоро|ин|инҳо|дигар|огоҳ\p{L}*|паёмҳо|паёмҳоро)$/iu;
 /** Слова из подписей видов («Объект на площадках»), допустимые рядом с названием вида. */
@@ -432,7 +435,7 @@ export async function handleNoticePreferenceText(msg: TelegramIncomingMessage, a
   return true;
 }
 
-async function clickerOf(query: TelegramCallbackQuery): Promise<{ id: string } | null> {
+export async function clickerOf(query: TelegramCallbackQuery): Promise<{ id: string } | null> {
   if (!query.from?.id) return null;
   const byUser = await findAgentByTelegramUserId(String(query.from.id));
   if (byUser) return byUser;
