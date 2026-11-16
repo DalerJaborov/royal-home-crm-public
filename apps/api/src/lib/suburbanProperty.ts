@@ -31,7 +31,8 @@ const STRONG_SUBURB_PATTERNS: RegExp[] = [
   /(?<![\p{L}\d])варзоб(?!ская|ской улиц| ?гэс)/u,
   /(?<![\p{L}\d])(гиссар(?!ская)|хисор)/u,
   /(^| )чорбог/u,
-  /(^| )дачн/u,
+  // «ул. Дачная», «Дачная 5», «кучаи Дачная» — улица города (ревью #208, Р-3); «дачный посёлок» — загород.
+  /(^| )(?<!(?:ул|улиц\p{L}*|кучаи|куча|пр|проспект\p{L}*) )дачн(?!ая( улиц| ул( |$)| \d))/u,
   /(^| )(дача|дачу|дачи|дачке|дачка)( |$)/u,
   /(^| )(город|г|шахри) турсунзода/u,
   /(^| )(шахринав|файзобод|кофарнихон)/u,
@@ -97,7 +98,7 @@ export function isSuburbanProperty(p: SuburbCheckFields): boolean {
 const DESCRIPTION_SUBURB_WORD = /(?<![\p{L}\d])(вахдат|варзоб|гиссар|хисор|турсунзод|шахринав|файзобод|кофарнихон|чорбог|дач)\p{L}*/gu;
 const DESCRIPTION_AROUND_BEFORE =
   /(?:^| )(?:до|жк|ул|улиц\p{L}*|проспект\p{L}*|просп|пр|пр т|кучаи|куча|кохи|хиебони|вид на|рядом с|рядом со|возле|около|напротив|бывш\p{L}*|переезжа\p{L}*(?: в| во)?|переед\p{L}*(?: в| во)?|кучида(?: ба)?|ба) $/u;
-const DESCRIPTION_AROUND_AFTER = /^ (?:\d{1,3} (?:мин\p{L}*|дакик\p{L}*)|улиц\p{L}*|ул |рядом|недалеко|близко|наздик)/u;
+const DESCRIPTION_AROUND_AFTER = /^ (?:\d{1,3} (?:мин\p{L}*|дакик\p{L}*)|улиц\p{L}*|ул( |$))/u;
 const DESCRIPTION_TRACK_KM = /(^| )на \d{1,2} ?(й|ой|ом|м) ?(км|километр\p{L}*)( |$)/u;
 
 function descriptionNamesSuburb(key: string): boolean {
@@ -107,12 +108,15 @@ function descriptionNamesSuburb(key: string): boolean {
     const before = key.slice(Math.max(0, at - 30), at);
     const after = key.slice(at + m[0].length, at + m[0].length + 20);
     // «Варзобская улица», «Гиссарская» — улицы города (как в сильных признаках).
-    if (/^(варзобск(ая|ой) улиц|гиссарск)/u.test(key.slice(at))) continue;
+    if (/^(варзобск(ая|ой) улиц|гиссарск)/u.test(key.slice(at)) || DACHNAYA_STREET_AT.test(key.slice(at))) continue;
     if (DESCRIPTION_AROUND_BEFORE.test(before) || DESCRIPTION_AROUND_AFTER.test(after)) continue;
     return true;
   }
   return false;
 }
+
+/** Улица Дачная с текущего места ключа: «дачная улица», «дачная ул», «дачная 5». */
+const DACHNAYA_STREET_AT = /^дачн(ая|ой)( улиц| ул( |$)| \d)/u;
 
 /** Четыре района города из справочника — всё, кроме района Рудаки. */
 const CITY_DISTRICT_NAMES: ReadonlySet<string> = new Set(BOT_DISTRICT_NAMES.filter((name) => name !== RUDAKI_DISTRICT_NAME));
