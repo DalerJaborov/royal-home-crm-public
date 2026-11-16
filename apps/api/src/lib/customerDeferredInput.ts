@@ -9,7 +9,6 @@ import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
 import { customerMemoryFenceMatches, minimizeCustomerAgentMemoryText } from "./customerAgentVerifiedContext.js";
 import { NEWER_INPUT_PENDING, NEWER_INPUT_RESUMED } from "./customerNewerInboxInput.js";
-import { customerPropertyEvidenceFromMedia, mergeCustomerPropertyEvidence } from "./customerPropertyEvidence.js";
 import type { CustomerPropertyEvidence } from "@royal-home/shared";
 import type { CustomerAgentMediaPerception } from "../ai/customerAgentMediaPerception.js";
 
@@ -91,57 +90,46 @@ function deferredObservation(input: DeferredInput): CustomerAgentMediaPerception
     observedAt: row.mediaObservedAt.getTime() });
 }
 
-/** Text of the deferred inputs (readDeferredCustomerInputs), in chronological
- * order. F12 (23.10.2026): a deferred question used to vanish —
- * public_envelope has no memory at all, and even a protected turn only saw it as
- * history, not as part of what the customer is asking NOW. Read-only; neither
- * renews the old input's age nor grants anything. Historical content is minimized
- * exactly like remembered turns; media content crosses only as a kind marker
- * (plus the stored transcript when BOTH inputs are protected_namespace). */
-export async function loadDeferredCustomerInput(principal: CustomerPrincipal): Promise<string> {
+/** One set-aside input of the current burst, as the bot turn needs it. `ownText` is the customer's own typed words
+ * (never a service marker or a media transcript); `observation` is what the bot perceived in its media, if stored. */
+export interface CustomerBurstInput {
+  eventKey: string; order: bigint; ownText: string; mediaCount: number; captions: readonly string[];
+  evidence: readonly CustomerPropertyEvidence[]; observation: CustomerAgentMediaPerception | null;
+}
+export interface CustomerBurst { inputs: readonly CustomerBurstInput[]; carried: string }
+
+/** The set-aside inputs of this burst (readDeferredCustomerInputs), read ONCE per turn: the carried words for the model
+ * and the media/caption material for the object reference come from the same verified inputs.
+ * F12 (23.10.2026): a deferred question used to vanish — public_envelope has no memory at all, and even a protected
+ * turn only saw it as history, not as part of what the customer is asking NOW. Read-only; neither renews the old
+ * input's age nor grants anything. Carried content is minimized exactly like remembered turns; media content crosses
+ * only as a kind marker (plus the stored transcript when BOTH inputs are protected_namespace). */
+export async function loadCustomerBurst(principal: CustomerPrincipal): Promise<CustomerBurst> {
   try {
-    const pieces: string[] = [];
+    const pieces: string[] = [], inputs: CustomerBurstInput[] = [];
     for (const input of await readDeferredCustomerInputs(principal)) {
       try {
+        let observation: CustomerAgentMediaPerception | null = null;
+        try { observation = deferredObservation(input); } catch { /* An unreadable observation is simply not carried. */ }
         const kinds = customerDmAttachmentInput(input.payload)?.kinds ?? [];
         const transcript = input.prior.assurance === "protected_namespace" && input.current.assurance === "protected_namespace"
-          ? deferredObservation(input)?.transcript ?? "" : "";
+          ? observation?.transcript ?? "" : "";
         const text = minimizeCustomerAgentMemoryText([input.prior.inputText.trim(), transcript.trim(),
           kinds.length ? `[вложение: ${kinds.join(", ")}]` : ""].filter(Boolean).join("\n"));
         if (text) pieces.push(text);
+        inputs.push({ eventKey: input.row.eventKey, order: input.row.order, ownText: input.prior.inputText,
+          mediaCount: input.payload.media.length, captions: input.payload.observations.classifier?.mediaCaptions ?? [],
+          evidence: input.payload.propertyEvidence, observation });
       } catch { /* A corrupt or unverifiable earlier input is simply not carried. */ }
     }
-    return composeCarriedInput(pieces);
+    return { inputs, carried: composeCarriedInput(pieces) };
   } catch {
-    return "";
+    return { inputs: [], carried: "" };
   }
 }
-
-/** The object the customer's set-aside media pointed at (16.11.2026, Instagram chat
- * 16.11 21:29): two pictures of our post, then «do you have its video?» seconds
- * later. The pictures were perceived and stored, but their turns were set aside for
- * the newer words BEFORE the media focus ran, so «Объект №178» never reached the
- * answer and the bot asked «which object?». Only a public object selector crosses
- * (customerPropertyEvidenceFromMedia, the same door as the same-turn media focus) —
- * no OCR text, transcript or contact — so no assurance level is required; the
- * resolver checks the number against the CRM like a typed one. */
-export async function loadDeferredCustomerMediaEvidence(principal: CustomerPrincipal): Promise<{ evidence: CustomerPropertyEvidence[]; latestOrder: string | null }> {
-  try {
-    const evidence: CustomerPropertyEvidence[][] = [];
-    let latestOrder: bigint | null = null;
-    for (const input of await readDeferredCustomerInputs(principal)) {
-      try {
-        const media = deferredObservation(input);
-        const selectors = media ? customerPropertyEvidenceFromMedia(media).filter(item => item.kind === "public_selector") : [];
-        if (!selectors.length) continue;
-        evidence.push(selectors);
-        if (latestOrder === null || input.row.order > latestOrder) latestOrder = input.row.order;
-      } catch { /* An unreadable observation is simply not carried. */ }
-    }
-    return { evidence: mergeCustomerPropertyEvidence(evidence), latestOrder: latestOrder?.toString() ?? null };
-  } catch {
-    return { evidence: [], latestOrder: null };
-  }
+/** Text of the deferred inputs only (see loadCustomerBurst). */
+export async function loadDeferredCustomerInput(principal: CustomerPrincipal): Promise<string> {
+  return (await loadCustomerBurst(principal)).carried;
 }
 
 /** The NEWER input that put an older one aside has itself ended without an

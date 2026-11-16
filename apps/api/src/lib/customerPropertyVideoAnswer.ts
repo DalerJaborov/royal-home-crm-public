@@ -1,40 +1,65 @@
 /**
- * «А ВИДЕО ЭТОЙ КВАРТИРЫ ЕСТЬ?» — ОТВЕТ СЕРВЕРА, А НЕ МОДЕЛИ (16.11.2026).
+ * «А ВИДЕО ЭТОЙ КВАРТИРЫ ЕСТЬ?» — ОТВЕТ ИЗ CRM, А НЕ ИЗ МОДЕЛИ (16–17.11.2026).
  *
- * Живой случай Instagram 16.11, 21:29–21:30: клиент переслал наш пост объекта №178 и спросил
- * «Хами хонара видеоша дорен» («видео этой квартиры у вас есть?»). Видео у объекта в CRM есть
- * (опубликованный рилс), но у ядра бота нет ни инструмента, ни факта «видео»: ответить могла только
- * модель, и правдиво — никак. Поэтому решает код, по данным CRM:
- *  - у объекта есть опубликованное видео (рилс Instagram) — даём ссылку на него;
- *  - видео нет — честно говорим, что видео пришлёт агент, и ход зовёт ответственного через одну
- *    дверь «бот пообещал агента» (signalStaffFollowUp → alertClientWaiting): обещание правдиво,
- *    только если человек об этом узнаёт.
- * Срабатывает только на короткую просьбу о видео про объект, который уже определён (фокус), и только
- * когда в той же фразе нет другого вопроса (цена, адрес…) — смешанный вопрос остаётся модели.
+ * Живой случай Instagram 16.11, 21:29–21:30: клиент переслал наш пост объекта №178 и спросил «Хами хонара
+ * видеоша дорен». У ядра бота нет ни инструмента, ни факта «видео», поэтому правдиво ответить могла только CRM:
+ *  - есть опубликованный рилс объекта — ссылка на него;
+ *  - нет рилса, но в карточке готов ролик (clipVideoUrl, READY) — ссылка на ролик;
+ *  - видео нет — «видео пришлёт наш агент», и ход зовёт ответственного через одну дверь «бот пообещал агента».
+ * Ревью #225 (17.11): решает ТОЛЬКО то, что клиент написал сам (служебные пометки «[вложение: video]» и чужие
+ * транскрипты не считаются); «видео не нужно / видел» — не просьба; вместе с вопросом о цене, адресе и т. п. —
+ * ответ на оба вопроса (факты из CRM той же дверью, что у ядра); любой другой вопрос рядом — ответ модели.
+ * Объект — только определённый в этой же пачке сообщений (customerBurstFocusFresh), старый фокус не годится.
  */
 import { prisma } from "../db.js";
 import { botMayOffer, BOT_OFFER_SELECT } from "./propertyMatch.js";
 import { safeCustomerPropertyLink } from "./customerPropertyUrls.js";
+import { publicUploadUrl } from "./crmPublicUrl.js";
+import { classifyCustomerPropertyFactIntent } from "./customerPropertyFactIntent.js";
+import { readCustomerPropertyFacts, renderCustomerPropertyFacts } from "./customerPropertyFacts.js";
+import type { CustomerPropertyFactKind } from "@royal-home/shared";
 
-const W = (alternatives: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, "iu");
-/** «видео», «видеоша», «видеоро», «видеош», «video», «ролик». */
-const VIDEO_WORD = W("видео\\p{L}*|video\\p{L}*|ролик\\p{L}*|видос\\p{L}*");
-/** The customer ASKS for it (ru/tg), not offers his own: «есть / пришлите / покажите», «доред / дорен / ҳаст / равон кунед». */
-const REQUEST_CUE = W("есть|имеется|пришлите|пришли|скиньте|скинь|киньте|отправьте|отправь|покажите|покажи|дайте|можно|хочу|нужн\\p{L}*|" +
+const W = (alternatives: string, flags = "iu") => new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, flags);
+/** «видео», «видеоша», «видеоро», «video», «ролик», «видос». */
+const VIDEO_SOURCE = "видео\\p{L}*|video\\p{L}*|ролик\\p{L}*|видос\\p{L}*";
+/** The customer ASKS for it (ru/tg, also in Latin letters), not offers his own. */
+const REQUEST_SOURCE = "есть|имеется|пришлите|пришли|скиньте|скинь|киньте|отправьте|отправь|покажите|покажи|дайте|можно|хочу|нужн[оаы]|" +
   "доред|дорен|дорӣ|дори|дорин|ҳаст|хаст|ҳастай|хастай|бор|равон\\s+кунед|равон\\s+кунен|фиристед|фиристен|партоед|партоен|мумкин|лозим|даркор|" +
-  // The same in Latin letters, as customers often type Tajik and Russian.
-  "dored|doren|dorin|hast|bor|est|mozhno|mojno|ravon\\s+kuned|firisted|skinte|otpravte|pokazhite");
-/** Own material («сниму / пришлю видео», «видео мефиристам») is a seller's offer, never a request for ours. */
+  "dored|doren|dorin|hast|bor|est|mozhno|mojno|ravon\\s+kuned|firisted|skinte|otpravte|pokazhite";
+/** «Видео не нужно», «видео видел / смотрел», «лозим нест»: not a request — never answer with a link. */
+const NOT_WANTED = W("не\\s+нуж\\p{L}*|не\\s+надо|не\\s+хочу|без\\s+видео|видел\\p{L}*|смотрел\\p{L}*|посмотрел\\p{L}*|" +
+  "лозим\\s+нест|даркор\\s+нест|нелозим|нахостам|намехоҳам|намехохам|дидам|дидем|тамошо\\s+кардам|didam|kerak\\s+emas");
+/** Own material («сниму / пришлю видео», «видео мефиристам»): a seller's offer, never a request for ours. */
 const OWN_MATERIAL = W("сниму|сняла?|пришлю|скину|отправлю|запишу|мефиристам|равон\\s+мекунам|гирифтам|мегирам|партоям");
-/** Another question in the same words stays with the model: price, address, area, floor, rooms, viewing, discount. */
-const OTHER_QUESTION = W("цен\\p{L}*|стоимост\\p{L}*|стоит|нарх\\p{L}*|адрес\\p{L}*|где|куҷо\\p{L}*|кучо\\p{L}*|площад\\p{L}*|масоҳат\\p{L}*|" +
-  "этаж\\p{L}*|ошён\\p{L}*|комнат\\p{L}*|ҳуҷра\\p{L}*|хучра\\p{L}*|скидк\\p{L}*|торг\\p{L}*|показ\\p{L}*|посмотреть|дидан|ипотек\\p{L}*|рассрочк\\p{L}*|фото\\p{L}*|сурат\\p{L}*|акс\\p{L}*");
+/** Neutral framing that may stand next to the request («хами хонара», «у вас», «этой квартиры», «№178»). */
+const FRAMING_SOURCE = "а|и|у|вас|вам|мне|нам|ли|же|ещё|еще|тоже|пожалуйста|лутфан|этой|этого|этот|эту|это|той|того|квартир\\p{L}*|" +
+  "дом\\p{L}{0,2}|объект\\p{L}*|хами|хамин|ҳамин|ҳами|ин|хона|хонара|хонаша|хонаи|хонаро|ҳам|хам|шумо|бошад|боша|ба|аз|дар|ва|ку|кани";
+/** Greetings and thanks of the same burst («Салом Алейкум», then the pictures, then the question) ask nothing. */
+const GREETING_SOURCE = "салом\\p{L}*|ассалом\\p{L}*|асалом\\p{L}*|алейкум|алайкум|здравствуйте|здравствуй|привет|добрый|доброе|день|вечер|утро|" +
+  "спасибо|рахмат|раҳмат|ташаккур|salom|assalomu|alaykum|rahmat";
 
-export function customerPropertyVideoRequested(text: string): boolean {
-  const t = text.trim();
-  if (!t || t.length > 160 || /https?:\/\//iu.test(t) || /\d{5,}/u.test(t.replace(/[\s()+-]/gu, ""))) return false;
-  return VIDEO_WORD.test(t) && REQUEST_CUE.test(t) && !OWN_MATERIAL.test(t) && !OTHER_QUESTION.test(t);
+const strip = (text: string, source: string) => text.replace(W(source, "giu"), " ");
+const ownMaterialOrRefusal = (text: string) => NOT_WANTED.test(text) || OWN_MATERIAL.test(text);
+
+/**
+ * What to answer for the customer's OWN words of this burst (typed text of the current and set-aside messages only):
+ *  - `{ facts: [] }` — a plain video request;
+ *  - `{ facts: [...] }` — a video request together with a fact question the CRM answers (price, address, …);
+ *  - `null` — not a video request, a refusal, own material, or another question: the model answers.
+ */
+export function customerPropertyVideoPlan(ownWords: string): { facts: CustomerPropertyFactKind[] } | null {
+  // Callers pass own words only; a service marker («[вложение: video]») is stripped anyway — it is never a request.
+  const text = ownWords.replace(/\[вложение:[^\]\n]*\]/giu, " ").trim();
+  if (!text || text.length > 300 || /https?:\/\//iu.test(text) || /\d{5,}/u.test(text.replace(/[\s()+-]/gu, ""))) return null;
+  if (!W(VIDEO_SOURCE).test(text) || !W(REQUEST_SOURCE).test(text) || ownMaterialOrRefusal(text)) return null;
+  const withoutVideo = strip(strip(strip(text, GREETING_SOURCE), VIDEO_SOURCE), REQUEST_SOURCE).replace(/[№#]\s*\d{1,9}/gu, " ");
+  const leftover = strip(withoutVideo, FRAMING_SOURCE).replace(/[^\p{L}]+/gu, "");
+  if (!leftover) return { facts: [] };
+  const facts = classifyCustomerPropertyFactIntent(withoutVideo, { hasPropertyContext: true });
+  return facts?.length ? { facts } : null;
 }
+/** Kept for callers that only need yes/no. */
+export function customerPropertyVideoRequested(ownWords: string): boolean { return customerPropertyVideoPlan(ownWords) !== null; }
 
 /** A published Instagram reel/IGTV of THIS object, as the CRM stores it (Property.instagramUrl). A photo post is not a video. */
 export function customerPropertyVideoLink(instagramUrl: string | null | undefined): string | null {
@@ -46,7 +71,7 @@ export function customerPropertyVideoLink(instagramUrl: string | null | undefine
 }
 
 export type CustomerPropertyVideoAnswer = { text: string; agentPromised: boolean };
-/** Tajik: «Бале … ҳаст» as the agents write it in this chat; «Ин ҳавола: {ссылка}» — tajik-phrasebook, live-agent-phrases.md. */
+/** Tajik: «Бале … ҳаст» as the agents write it; «Ин ҳавола: {ссылка}» — tajik-phrasebook, live-agent-phrases.md. */
 export function renderCustomerPropertyVideoAnswer(shortId: number, link: string | null, language: "ru" | "tg"): CustomerPropertyVideoAnswer {
   if (link) {
     return { agentPromised: false, text: language === "tg"
@@ -58,10 +83,18 @@ export function renderCustomerPropertyVideoAnswer(shortId: number, link: string 
     : `Видео объекта №${shortId} пришлёт вам наш агент.` };
 }
 
-/** CRM read for the object in focus. null when the object may not be offered (sold, hidden, deleted): the model answers then. */
-export async function readCustomerPropertyVideoAnswer(propertyId: string, language: "ru" | "tg"): Promise<CustomerPropertyVideoAnswer | null> {
+/** CRM read for the object in focus. null when the object may not be offered (sold, hidden, deleted) or the asked
+ * facts cannot be rendered: the model answers then. */
+export async function readCustomerPropertyVideoAnswer(propertyId: string, language: "ru" | "tg", channel: string,
+  facts: readonly CustomerPropertyFactKind[] = []): Promise<CustomerPropertyVideoAnswer | null> {
   const row = await prisma.property.findUnique({ where: { id: propertyId },
-    select: { ...BOT_OFFER_SELECT, shortId: true, instagramUrl: true } });
+    select: { ...BOT_OFFER_SELECT, shortId: true, clipVideoUrl: true, clipVideoStatus: true } });
   if (!row || row.status === "SOLD" || !botMayOffer(row)) return null;
-  return renderCustomerPropertyVideoAnswer(row.shortId, customerPropertyVideoLink(row.instagramUrl), language);
+  const clip = row.clipVideoStatus === "READY" && row.clipVideoUrl ? publicUploadUrl(row.clipVideoUrl) : null;
+  const video = renderCustomerPropertyVideoAnswer(row.shortId, customerPropertyVideoLink(row.instagramUrl) ?? clip, language);
+  if (!facts.length) return video;
+  const known = await readCustomerPropertyFacts(propertyId, channel);
+  if (!known || known.availability === "SOLD") return null;
+  const rendered = renderCustomerPropertyFacts(known, facts, language).trim();
+  return rendered ? { agentPromised: video.agentPromised, text: `${video.text}\n${rendered}` } : null;
 }

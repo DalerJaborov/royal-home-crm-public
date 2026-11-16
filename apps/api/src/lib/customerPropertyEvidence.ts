@@ -1,7 +1,7 @@
 import { customerPropertyEvidenceSchema, type CustomerPropertyEvidence } from "@royal-home/shared";
 import type { MetaIncoming } from "../messengers/meta.js";
 import { customerPropertyShareLink, customerPropertyUrl } from "./customerPropertyUrls.js";
-import { captionPropertyNumber, propertyNumberSelectors, schemelessPropertyUrls } from "./customerPropertyReferenceText.js";
+import { propertyNumberSelectors, schemelessPropertyUrls } from "./customerPropertyReferenceText.js";
 
 export function mergeCustomerPropertyEvidence(groups: readonly (readonly CustomerPropertyEvidence[])[]): CustomerPropertyEvidence[] {
   const unique = [...new Map(groups.flat().map((item) => [JSON.stringify(item), item])).values()];
@@ -49,38 +49,24 @@ export function customerPropertyEvidenceFromMeta(message: MetaIncoming): Custome
   } else if (message.adPostId) {
     evidence.push({ kind: "media", origin: "referral", reference: message.adPostId });
   }
-  // WA mediaId is a downloadable file ID, never a published-property ID. Same item (with the caption
-  // number, see the attachment loop) as the loop pushes, so the merge keeps one; the position is unchanged.
-  const firstCaption = captionPropertyNumber(message.attachmentTitle);
-  if (message.attachmentMediaId) evidence.push({ kind: "media", origin: "shared_media", reference: message.attachmentMediaId,
-    ...(firstCaption ? { secondaryReference: `short:${firstCaption}` } : {}) });
+  // WA mediaId is a downloadable file ID, never a published-property ID.
+  if (message.attachmentMediaId) evidence.push({ kind: "media", origin: "shared_media", reference: message.attachmentMediaId });
   if (message.replyToMessageId) evidence.push({ kind: "reply", origin: "reply_to", reference: message.replyToMessageId });
   // Our own story is identified by its Instagram media id (PropertyStoryPost.mediaId). Its CDN url is
   // transport data and would only poison the resolution as an untrusted origin, so it is kept only
   // when Meta sent no id.
   if (message.replyToStoryId) evidence.push({ kind: "media", origin: "story", reference: message.replyToStoryId });
   else if (message.replyToStoryUrl) evidence.push(urlEvidence(message.replyToStoryUrl, "story"));
-  const attachments = [{ type: message.attachmentType, url: message.attachmentUrl, attachmentMediaId: message.attachmentMediaId,
-    attachmentTitle: message.attachmentTitle }, ...message.extraAttachments ?? []];
+  const attachments = [{ type: message.attachmentType, url: message.attachmentUrl, attachmentMediaId: message.attachmentMediaId },
+    ...message.extraAttachments ?? []];
   for (const attachment of attachments) {
-    // SHARED POST CAPTION (16.11.2026, Instagram chat of 16.11 21:29): Meta sends the caption of a shared
-    // publication as `payload.title`, and our captions end with «Объект №N». It names the object of THIS
-    // attachment, so it travels with the attachment's own references as `secondaryReference`: when the
-    // publication is not in our registry (an agent's own account, a repost, a post published by hand) the
-    // resolver falls back to the number, and a number that contradicts a registry match is a conflict.
-    const caption = captionPropertyNumber(attachment.attachmentTitle);
-    const captionRef = caption ? { secondaryReference: `short:${caption}` } : {};
-    if (attachment.attachmentMediaId) evidence.push({ kind: "media", origin: "shared_media", reference: attachment.attachmentMediaId, ...captionRef });
-    const parsed = attachment.url ? customerPropertyUrl(attachment.url) : null;
-    if (attachment.url && parsed && "url" in parsed) {
-      const item = urlEvidence(attachment.url, "shared_media");
-      evidence.push(item.kind === "url" ? { ...item, ...captionRef } : item);
-    } else if (caption && !attachment.attachmentMediaId) {
-      // Only a CDN file (or nothing) besides the caption: the number is this share's single reference.
-      evidence.push({ kind: "public_selector", origin: "shared_media", reference: `short:${caption}` });
-    } else if (attachment.url && attachment.type === "share" && !attachment.attachmentMediaId) {
-      // Meta's CDN is transport data. A registry media ID is the evidence for
-      // that share; a CDN URL neither overrides it nor clears a known focus.
+    if (attachment.attachmentMediaId) evidence.push({ kind: "media", origin: "shared_media", reference: attachment.attachmentMediaId });
+    if (!attachment.url) continue;
+    const parsed = customerPropertyUrl(attachment.url);
+    if ("url" in parsed) evidence.push(urlEvidence(attachment.url, "shared_media"));
+    // Meta's CDN is transport data. A registry media ID is the evidence for
+    // that share; a CDN URL neither overrides it nor clears a known focus.
+    else if (attachment.type === "share" && !attachment.attachmentMediaId) {
       evidence.push(urlEvidence(attachment.url, "shared_media"));
     }
   }
@@ -90,20 +76,6 @@ export function customerPropertyEvidenceFromMeta(message: MetaIncoming): Custome
     reference: /^\d+$/.test(payload[1]) ? `short:${payload[1]}` : `uuid:${payload[1]}` });
   return mergeCustomerPropertyEvidence([evidence.map((item) => customerPropertyEvidenceSchema.safeParse(item).success ? item :
     { kind: "untrusted_reference" as const, origin: "message" as const, reference: "invalid_reference" })]);
-}
-
-/**
- * The ONE place where perceived customer media becomes property evidence (same-turn media focus and the
- * media of an earlier, set-aside input). Spoken words and a listing card read like typed text. Any other
- * picture — a screenshot of our post, a video frame with its caption — counts only with the explicit
- * «Объект №N» of our captions: a lone «№12» on a photo is a house number as often as an object.
- */
-export function customerPropertyEvidenceFromMedia(media: { subject: string; transcript: string; readableText: string }): CustomerPropertyEvidence[] {
-  const caption = media.subject === "listing_card" ? null : captionPropertyNumber(media.readableText);
-  return mergeCustomerPropertyEvidence([
-    customerPropertyEvidenceFromText([media.transcript, media.subject === "listing_card" ? media.readableText : ""].join("\n")),
-    caption ? [{ kind: "public_selector" as const, origin: "message" as const, reference: `short:${caption}` }] : [],
-  ]);
 }
 
 export function customerPropertyEvidenceFromWebsite(input: { text: string; pageUrl?: string | null }): CustomerPropertyEvidence[] {

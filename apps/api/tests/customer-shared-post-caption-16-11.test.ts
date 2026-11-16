@@ -1,24 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CustomerPropertyAdmission } from "@royal-home/shared";
 import { parseIncoming } from "../src/messengers/meta.js";
-import { customerPropertyEvidenceFromMedia, customerPropertyEvidenceFromMeta } from "../src/lib/customerPropertyEvidence.js";
+import { customerPropertyEvidenceFromMeta } from "../src/lib/customerPropertyEvidence.js";
 import { resolveCustomerPropertyEvidence, type CustomerPropertyRegistry } from "../src/lib/customerPropertyResolver.js";
 import { captionPropertyNumber } from "../src/lib/customerPropertyReferenceText.js";
-import { customerForeignShareCandidate } from "../src/lib/customerSharedPublication.js";
-import { customerPropertyVideoLink, customerPropertyVideoRequested, renderCustomerPropertyVideoAnswer } from "../src/lib/customerPropertyVideoAnswer.js";
+import { customerCaptionFields, customerCaptionReference, customerCaptionReferenceMatchesCard, customerTextHasOwnMark,
+  foldBrandName, type CustomerOwnBrandMarks } from "../src/lib/customerCaptionReference.js";
+import { customerBurstFocusFresh, type CustomerBurstReference } from "../src/lib/customerAgentMediaFocus.js";
+import { customerPropertyVideoLink, customerPropertyVideoPlan, renderCustomerPropertyVideoAnswer } from "../src/lib/customerPropertyVideoAnswer.js";
 import { customerReplyCallsStaff } from "../src/ai/customerAgentStaffFollowUp.js";
+import { resolveCustomerDmLanguage } from "../src/ai/customerDmLanguage.js";
 
 /**
  * Instagram, 16.11.2026 21:29 (Dushanbe): the customer shared our post of object №178 as two attachments and asked
  * «Хами хонара видеоша дорен». The CRM stored both as «[вложение без текста]» with evidence [], and the bot asked
- * «which object?». Ids, phones and URLs below are fictional; the caption is the shape of our reels template.
+ * «which object?». Review #225 (17.11) scenarios: H1 service marker, H2 old focus, H3 foreign caption, M1 OCR misread,
+ * M2 mixed questions and refusals, M3 bare Tajik phrase. Ids, phones and URLs below are fictional.
  */
-const CAPTION = [
+const MARKS: CustomerOwnBrandMarks = { names: ["royalhome", "arvan"].map(name => foldBrandName(name)!), phoneTails: ["446501414", "000000001"] };
+const OUR_CAPTION = [
   "🏠 Инвестиция в ликвидную недвижимость требует стратегического подхода к выбору локации.",
   "", "✅Район: Исмоили Сомони", "✅Адрес: Воданасос", "✅Количество комнат: 2", "✅Площадь: 105м²", "✅Этаж: 10",
   "✅Цена: 601 250 с. ($65 000)", "", "📲 Звоните или пишите в директ:",
-  "+992 00 000-00-01 Агент Тестовая", "+992 00 000-00-02 Royal Home", "", "Объект №178",
+  "+992 00 000-00-01 Агент Тестовая", "+992 44 650-14-14 Royal Home", "", "Объект №178",
 ].join("\n");
+const FOREIGN_CAPTION = "agentstvo_dom.tj\n✅Район: Сино\n✅Цена: 500 000 с.\n📲 +992 90 123-45-67\nОбъект №45";
 const CDN = (n: number) => `https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1000000000000000${n}&signature=fictional-signature-${n}`;
 const property = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const scope: Pick<CustomerPropertyAdmission, "conversationId" | "scopeKey" | "accountId" | "channel"> = {
@@ -29,7 +35,6 @@ function registry(overrides: Partial<CustomerPropertyRegistry> = {}): CustomerPr
     selector: vi.fn(async (reference: string) => { const n = Number(reference.replace(/^short:/, "")); return n > 0 ? [property(n)] : []; }),
     ...overrides };
 }
-/** One Instagram webhook delivery with one messaging event per attachment, exactly as the two events of 16.11 arrived. */
 function webhook(attachments: Array<{ type: string; payload: Record<string, unknown> }>) {
   return { object: "instagram", entry: [{ id: "17800000000000001", time: 1_763_310_584_000, messaging: attachments.map((attachment, index) => ({
     sender: { id: "1780000000000000099" }, recipient: { id: "17800000000000001" }, timestamp: 1_763_310_584_000 + index,
@@ -37,10 +42,9 @@ function webhook(attachments: Array<{ type: string; payload: Record<string, unkn
 }
 
 describe("16.11: the exact payload — two image attachments without caption or publication id", () => {
-  const parsed = parseIncoming(webhook([{ type: "image", payload: { url: CDN(1) } }, { type: "image", payload: { url: CDN(2) } }]),
-    undefined, false, { captureCustomerReferences: true });
-
-  it("arrive as two separate image inputs with no text and no property evidence (why the CRM showed «[вложение без текста]»)", () => {
+  it("arrive as two separate image inputs with no text and no property evidence", () => {
+    const parsed = parseIncoming(webhook([{ type: "image", payload: { url: CDN(1) } }, { type: "image", payload: { url: CDN(2) } }]),
+      undefined, false, { captureCustomerReferences: true });
     expect(parsed).toHaveLength(2);
     for (const message of parsed) {
       expect(message).toMatchObject({ channel: "INSTAGRAM", text: "", attachmentType: "image" });
@@ -50,109 +54,125 @@ describe("16.11: the exact payload — two image attachments without caption or 
     }
   });
 
-  it("the object is recovered from what was read on the picture: «Объект №178» of our caption", async () => {
-    const screenshot = { subject: "other", transcript: "", readableText: `royalhome.tj\n${CAPTION}` };
-    const evidence = customerPropertyEvidenceFromMedia(screenshot);
-    expect(evidence).toEqual([{ kind: "public_selector", origin: "message", reference: "short:178" }]);
-    expect(await resolveCustomerPropertyEvidence(evidence, scope, registry())).toMatchObject({ status: "resolved", propertyId: property(178) });
-  });
-
-  it("a house or flat number on a photo is not an object number", () => {
-    expect(customerPropertyEvidenceFromMedia({ subject: "building_exterior", transcript: "", readableText: "Дом №12, подъезд 3" })).toEqual([]);
-    expect(customerPropertyEvidenceFromMedia({ subject: "home_interior", transcript: "", readableText: "кв. №45" })).toEqual([]);
-  });
-
-  it("a listing card and spoken words keep their earlier, wider reading", () => {
-    expect(customerPropertyEvidenceFromMedia({ subject: "listing_card", transcript: "", readableText: "№ 77 Сино" }))
-      .toEqual([{ kind: "public_selector", origin: "message", reference: "short:77" }]);
-    expect(customerPropertyEvidenceFromMedia({ subject: "not_visible", transcript: "мне про объект 64", readableText: "" }))
-      .toEqual([{ kind: "public_selector", origin: "message", reference: "short:64" }]);
-  });
-});
-
-describe("16.11: the same post as a real Instagram share with its caption (payload.title)", () => {
-  const share = (type: string, payload: Record<string, unknown>) =>
-    parseIncoming(webhook([{ type, payload }]), undefined, false, { captureCustomerReferences: true })[0];
-
-  it("a post of an agent's own account (id not in our registry) resolves by the caption", async () => {
-    const message = share("ig_post", { url: CDN(3), title: CAPTION, ig_post_media_id: "18000000000000003" });
+  it("a Meta caption is transport data: the webhook evidence is exactly as before (no number from the caption)", () => {
+    const [message] = parseIncoming(webhook([{ type: "ig_post", payload: { url: CDN(3), title: OUR_CAPTION, ig_post_media_id: "18000000000000003" } }]),
+      undefined, false, { captureCustomerReferences: true });
     expect(message.attachmentTitle).toContain("Объект №178");
-    const evidence = customerPropertyEvidenceFromMeta(message);
-    expect(evidence).toEqual([{ kind: "media", origin: "shared_media", reference: "18000000000000003", secondaryReference: "short:178" }]);
-    const reads = registry();
-    expect(await resolveCustomerPropertyEvidence(evidence, scope, reads)).toMatchObject({ status: "resolved", propertyId: property(178) });
-    expect(reads.media).toHaveBeenCalledWith("18000000000000003");
+    expect(customerPropertyEvidenceFromMeta(message)).toEqual([{ kind: "media", origin: "shared_media", reference: "18000000000000003" }]);
   });
+});
 
-  it("our own registered post still resolves by its id, and the caption agrees", async () => {
-    const evidence = customerPropertyEvidenceFromMeta(share("ig_reel", { url: CDN(4), title: CAPTION, reel_video_id: "18000000000000004" }));
-    const reads = registry({ media: vi.fn(async (id) => id === "18000000000000004" ? [property(178)] : []) });
-    expect(await resolveCustomerPropertyEvidence(evidence, scope, reads)).toMatchObject({ status: "resolved", propertyId: property(178) });
+describe("H3: a caption/screenshot number counts only next to OUR mark", () => {
+  it("our caption: the company line or an agent phone from the CRM, any spacing", () => {
+    expect(customerCaptionReference(OUR_CAPTION, MARKS)).toEqual({ shortId: 178, fields: { rooms: 2, areaSqm: 105, district: "Исмоили Сомони" } });
+    expect(customerTextHasOwnMark("Звоните: +992 (44) 650 14 14", MARKS)).toBe(true);
+    expect(customerTextHasOwnMark("агент 000-000-001", { names: [], phoneTails: ["000000001"] })).toBe(true);
+    expect(customerTextHasOwnMark("ROYAL HOME — агентство", MARKS)).toBe(true);
+    expect(customerTextHasOwnMark("Арван / Arvan Estate", MARKS)).toBe(true);
   });
+  it("a foreign agency's post «Объект №45» is not our №45", () => {
+    expect(customerCaptionReference(FOREIGN_CAPTION, MARKS)).toBeNull();
+    expect(customerCaptionReference("Объект №45", MARKS)).toBeNull();
+  });
+  it("our mark but no single explicit number: nothing", () => {
+    expect(customerCaptionReference("Royal Home\nОбъект №12 и объект №13", MARKS)).toBeNull();
+    expect(customerCaptionReference("Royal Home, дом №12", MARKS)).toBeNull();
+    expect(customerCaptionReference("Royal Home · Видео", MARKS)).toBeNull();
+  });
+  it("a printed listing card may use the bare «№ 77», still only with our mark", () => {
+    expect(customerCaptionReference("Royal Home\n№ 77 Сино", MARKS, { listingCard: true })).toMatchObject({ shortId: 77 });
+    expect(customerCaptionReference("№ 77 Сино", MARKS, { listingCard: true })).toBeNull();
+  });
+});
 
+describe("M1: the fields a caption prints must match the CRM card", () => {
+  const card = { rooms: 2, areaSqm: "105", districtName: "Исмоили Сомони" };
+  it("matching card", () => expect(customerCaptionReferenceMatchesCard(customerCaptionFields(OUR_CAPTION), card)).toBe(true));
+  it("a misread number lands on another flat: rooms, area or district disagree → no", () => {
+    expect(customerCaptionReferenceMatchesCard({ rooms: 3 }, card)).toBe(false);
+    expect(customerCaptionReferenceMatchesCard({ areaSqm: 64 }, card)).toBe(false);
+    expect(customerCaptionReferenceMatchesCard({ district: "Сино" }, card)).toBe(false);
+    expect(customerCaptionReferenceMatchesCard({ areaSqm: 105.5, district: "р-н Исмоили Сомони" }, card)).toBe(true);
+  });
+  it("a field the caption or the card lacks is not a conflict", () => {
+    expect(customerCaptionReferenceMatchesCard({}, card)).toBe(true);
+    expect(customerCaptionReferenceMatchesCard({ rooms: 2 }, { rooms: null, areaSqm: null, districtName: null })).toBe(true);
+  });
+});
+
+describe("caption number and the shared-post fallback in the resolver", () => {
+  it.each([[OUR_CAPTION, "178"], ["Объекти №178", "178"], ["объект #42 — 3 комнаты", "42"], ["Объект №12 и объект №13", null],
+    ["Дом №12", null], ["№178", null], ["+992 00 000-00-01, цена 601 250", null], [undefined, null]])("%s → %s",
+    (text, expected) => expect(captionPropertyNumber(text)).toBe(expected));
+
+  it("a publication missing from our registry (agent's own account) resolves by its verified caption number", async () => {
+    const evidence = [{ kind: "media" as const, origin: "shared_media" as const, reference: "18000000000000003", secondaryReference: "short:178" }];
+    expect(await resolveCustomerPropertyEvidence(evidence, scope, registry())).toMatchObject({ status: "resolved", propertyId: property(178) });
+  });
   it("a caption that contradicts the registry is a conflict, never a silent pick", async () => {
-    const evidence = customerPropertyEvidenceFromMeta(share("ig_post", { url: CDN(5), title: CAPTION, ig_post_media_id: "18000000000000005" }));
-    const reads = registry({ media: vi.fn(async () => [property(50)]) });
-    expect(await resolveCustomerPropertyEvidence(evidence, scope, reads)).toMatchObject({ status: "ambiguous", propertyId: null });
+    const evidence = [{ kind: "media" as const, origin: "shared_media" as const, reference: "18000000000000005", secondaryReference: "short:178" }];
+    expect(await resolveCustomerPropertyEvidence(evidence, scope, registry({ media: vi.fn(async () => [property(50)]) })))
+      .toMatchObject({ status: "ambiguous", propertyId: null });
   });
-
-  it("a public permalink of a foreign account + our caption resolves through the caption of that same share", async () => {
-    const evidence = customerPropertyEvidenceFromMeta(share("share", { url: "https://www.instagram.com/reel/FICTIONAL1/", title: CAPTION }));
-    expect(evidence).toEqual([{ kind: "url", origin: "shared_media", reference: "https://www.instagram.com/p/FICTIONAL1/", secondaryReference: "short:178" }]);
-    expect(await resolveCustomerPropertyEvidence(evidence, scope, registry())).toMatchObject({ status: "resolved", propertyId: property(178) });
-  });
-
-  it("CDN file + caption only: the caption is the single reference (no untrusted CDN url)", async () => {
-    const evidence = customerPropertyEvidenceFromMeta(share("share", { url: CDN(6), title: CAPTION }));
-    expect(evidence).toEqual([{ kind: "public_selector", origin: "shared_media", reference: "short:178" }]);
-    expect(await resolveCustomerPropertyEvidence(evidence, scope, registry())).toMatchObject({ status: "resolved", propertyId: property(178) });
-    // Still a share-only input: if the CRM has no object №178 the foreign-share rule applies as before.
-    expect(customerForeignShareCandidate({ kinds: ["share"], propertyEvidence: evidence })).toBe(true);
-  });
-
-  it("without a caption number nothing changes: CDN-only share stays an untrusted reference, an id stays alone", () => {
-    expect(customerPropertyEvidenceFromMeta(share("share", { url: CDN(7), title: "Красивый вид на горы" })))
-      .toEqual([{ kind: "untrusted_reference", origin: "shared_media", reference: "untrusted_origin" }]);
-    expect(customerPropertyEvidenceFromMeta(share("ig_post", { url: CDN(8), ig_post_media_id: "18000000000000008" })))
-      .toEqual([{ kind: "media", origin: "shared_media", reference: "18000000000000008" }]);
+  it("two pictures with different numbers stay ambiguous", async () => {
+    const evidence = [178, 45].map(n => ({ kind: "public_selector" as const, origin: "message" as const, reference: `short:${n}` }));
+    expect(await resolveCustomerPropertyEvidence(evidence, scope, registry())).toMatchObject({ status: "ambiguous", propertyId: null });
   });
 });
 
-describe("caption object number", () => {
+describe("H2: the video answer uses only an object THIS burst pointed at", () => {
+  const ref = (order: number, extra: Partial<CustomerBurstReference> = {}): CustomerBurstReference =>
+    ({ eventKey: `e${order}`, order: BigInt(order), media: false, ownEvidence: false, selectors: [], fromCaption: false, evidence: [], ...extra });
+  it("16.11: a video screenshot, then our caption screenshot, then the words → fresh", () => {
+    const burst = [ref(1, { media: true }), ref(2, { media: true, selectors: [178] }), ref(3)];
+    expect(customerBurstFocusFresh({ status: "resolved", eventKey: "e3" }, burst)).toBe(true);
+  });
+  it("an older focus (a week ago) never answers: not set by this burst", () => {
+    expect(customerBurstFocusFresh({ status: "resolved", eventKey: "old" }, [ref(1, { media: true }), ref(2)])).toBe(false);
+  });
+  it("a picture that pointed at nothing AFTER the reference may be another object → not fresh", () => {
+    const burst = [ref(1, { media: true, selectors: [178] }), ref(2, { media: true }), ref(3)];
+    expect(customerBurstFocusFresh({ status: "resolved", eventKey: "e3" }, burst)).toBe(false);
+  });
+  it("a shared post with its own registered id in the burst is a reference", () => {
+    const burst = [ref(1, { media: true, ownEvidence: true }), ref(2)];
+    expect(customerBurstFocusFresh({ status: "resolved", eventKey: "e1" }, burst)).toBe(true);
+    expect(customerBurstFocusFresh({ status: "ambiguous", eventKey: "e1" }, burst)).toBe(false);
+  });
+});
+
+describe("H1/M2: the video request is decided from the customer's own words", () => {
+  it.each(["Хами хонара видеоша дорен", "Салом Алейкум\nХами хонара видеоша дорен", "Видео есть?", "Видеоша равон кунед", "А видео можно?", "video dored?", "Видео объекта №178 есть?"])(
+    "plain request: %s", text => expect(customerPropertyVideoPlan(text)).toEqual({ facts: [] }));
+  it("video + a fact question the CRM answers → both", () => {
+    expect(customerPropertyVideoPlan("Видео есть? И сколько стоит?")).toEqual({ facts: ["price"] });
+    expect(customerPropertyVideoPlan("Видео есть и где находится?")).toEqual({ facts: ["address"] });
+    expect(customerPropertyVideoPlan("Салом Алейкум\nВидео есть? И сколько стоит?")).toEqual({ facts: ["price"] });
+  });
   it.each([
-    [CAPTION, "178"],
-    ["Объекти №178", "178"],
-    ["объект #42 — 3 комнаты", "42"],
-    ["Объект №12 и объект №13", null],
-    ["Дом №12", null],
-    ["№178", null],
-    ["+992 00 000-00-01, цена 601 250", null],
-    [undefined, null],
-  ])("%s → %s", (text, expected) => expect(captionPropertyNumber(text)).toBe(expected));
+    "[вложение: video]\nТакой вариант есть?", // H1: a service marker is never the customer's request
+    "Такой вариант есть?", "Видео не нужно", "Видео видел, есть ещё варианты?", "Видео смотрел, хочу такую же", "Видео лозим нест",
+    "А ролик есть по Сино?", "Видео есть, сколько?", "Видео пришлю завтра", "Видео мефиристам", "Салом", "Видео тут https://x.y/z",
+  ])("not a plain video request (model answers): %s", text => expect(customerPropertyVideoPlan(text)).toBeNull());
 });
 
-describe("16.11: «Хами хонара видеоша дорен» — the video answer comes from the CRM", () => {
-  it.each(["Хами хонара видеоша дорен", "Видео есть?", "Видеоша равон кунед", "А видео можно?", "video dored?"])("request: %s", text =>
-    expect(customerPropertyVideoRequested(text)).toBe(true));
-  it.each(["Видео пришлю завтра", "Видео мефиристам", "Видео и цена?", "Салом", "Фото и видео есть?", "Видео тут https://x.y/z"])(
-    "not a plain video request: %s", text => expect(customerPropertyVideoRequested(text)).toBe(false));
+describe("M3: the bare Tajik phrase is Tajik", () => {
+  it("«Хами хонара видеоша дорен» without any history", () => expect(resolveCustomerDmLanguage("Хами хонара видеоша дорен")).toBe("tg"));
+  it("a Russian question stays Russian", () => expect(resolveCustomerDmLanguage("А видео этой квартиры есть?")).toBe("ru"));
+});
 
+describe("video link and answer", () => {
   it("the published reel of the object is its video; a photo post is not", () => {
     expect(customerPropertyVideoLink("https://www.instagram.com/reel/FICTIONAL2/")).toBe("https://www.instagram.com/p/FICTIONAL2/");
     expect(customerPropertyVideoLink("https://www.instagram.com/p/FICTIONAL3/")).toBeNull();
     expect(customerPropertyVideoLink(null)).toBeNull();
   });
-
   it("with a video: the link, no promise of an agent", () => {
-    const answer = renderCustomerPropertyVideoAnswer(178, "https://www.instagram.com/p/FICTIONAL2/", "tg");
-    expect(answer).toEqual({ agentPromised: false, text: "Бале, видеои объекти №178 ҳаст. Ин ҳавола: https://www.instagram.com/p/FICTIONAL2/" });
-    expect(renderCustomerPropertyVideoAnswer(178, "https://www.instagram.com/p/FICTIONAL2/", "ru").text).toContain("Вот ссылка");
+    expect(renderCustomerPropertyVideoAnswer(178, "https://www.instagram.com/p/FICTIONAL2/", "tg"))
+      .toEqual({ agentPromised: false, text: "Бале, видеои объекти №178 ҳаст. Ин ҳавола: https://www.instagram.com/p/FICTIONAL2/" });
   });
-
-  it("without a video: honest «the agent will send it», flagged so the turn signals the agent", () => {
-    expect(renderCustomerPropertyVideoAnswer(178, null, "tg")).toEqual({ agentPromised: true, text: "Видеои объекти №178-ро агенти мо ба шумо мефиристад." });
+  it("without a video: «the agent will send it», flagged so the turn signals the agent itself", () => {
     expect(renderCustomerPropertyVideoAnswer(178, null, "ru")).toEqual({ agentPromised: true, text: "Видео объекта №178 пришлёт вам наш агент." });
-    // Not one of the model-era staff lines: the deterministic path signals the agent itself (agentPromised).
     expect(customerReplyCallsStaff(renderCustomerPropertyVideoAnswer(178, null, "ru").text)).toBe(false);
   });
 });

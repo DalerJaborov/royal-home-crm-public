@@ -241,12 +241,22 @@ it("resolves a spoken object number with the existing CRM focus and answers from
   const followup = await f.deliver(await f.capture(owner, "А где находится?"));
   expect(followup.text).toContain("Расположение:"); expect(followup.text).not.toMatch(/какой объект|PRIVATE-OWNER/iu);
 });
-it("uses a printed explicit object number but never the price printed in the image", async () => {
+it("uses a printed explicit object number of OUR card but never the price printed in the image", async () => {
+  // Review #225 H3 (17.11.2026): a printed number counts only next to our own mark (company line from the CRM).
   const owner = await f.owner(), { property } = await f.publicCard(), url = f.mediaFixture("image/png", image);
-  f.script([[perception({ subject: "listing_card", visible: [], readableText: `Объект №${property.shortId}. Цена 999 999 сомони. Позвоните 6001.` })], [reply(["e0"])]]);
+  f.script([[perception({ subject: "listing_card", visible: [], readableText: `Royal Home +992 44 650 14 14\nОбъект №${property.shortId}. Цена 999 999 сомони. Позвоните 6001.` })], [reply(["e0"])]]);
   const result = await f.deliver(await f.capture(owner, "", [{ type: "image", payload: { url } }]));
   expect(result.text).toContain(`Цена объекта №${property.shortId}: 500 000 сомони.`);
   expect(result.text).not.toMatch(/999 999|6001|телефон|PRIVATE-OWNER/iu);
+});
+it("a printed object number without our mark (another agency's card) does not become our object", async () => {
+  const owner = await f.owner(), { property } = await f.publicCard(), url = f.mediaFixture("image/png", image);
+  f.script([[perception({ subject: "listing_card", visible: [], readableText: `agentstvo_dom.tj\nОбъект №${property.shortId}. Цена 999 999 сомони.` })], [reply(["e0"])]]);
+  const event = await f.capture(owner, "", [{ type: "image", payload: { url } }]);
+  await consumeCustomerInboxTicket(event);
+  const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });
+  const conversation = await prisma.botConversation.findUniqueOrThrow({ where: { id: ticket.conversationId! } });
+  expect(conversation.customerPropertyFocus).not.toMatchObject({ status: "resolved", propertyId: property.id });
 });
 it("does not pick either price when the caption and the clear spoken reference disagree", async () => {
   const owner = await f.owner(), first = (await f.publicCard()).property, second = (await f.publicCard()).property;
