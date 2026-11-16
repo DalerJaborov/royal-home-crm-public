@@ -14,9 +14,9 @@ import { customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn, recruitmentMissingForTurn } from "./customerAgentRecruitmentProtocol.js";
 import { customerPropertyUrl } from "../lib/customerPropertyUrls.js";
-import { guardSellerDecision } from "./customerAgentSellerGuard.js";
+import { guardSellerDecision, customerSellerAskedTerms } from "./customerAgentSellerGuard.js";
 import { validateCustomerAgentSayForDecision, CUSTOMER_AGENT_SAY_GUIDANCE, SAY_ENABLED_LANGUAGES } from "./customerAgentSay.js";
-import { CUSTOMER_AGENT_ANSWER_GUIDANCE, ANSWER_ENABLED_LANGUAGES } from "./customerAgentAnswer.js";
+import { CUSTOMER_AGENT_ANSWER_GUIDANCE, ANSWER_ENABLED_LANGUAGES, parseCustomerAgentAnswerParts } from "./customerAgentAnswer.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 
@@ -46,6 +46,8 @@ export interface CustomerCoreFrame {
   readonly publicationCardCount?: number;
   /** Grounded free-phrase channel. `shadow` (the default) validates and counts the model's `say` but never lets it reach the customer; `live` must be set explicitly. */
   readonly sayMode?: CustomerAgentSayMode;
+  /** The model's words around the facts (`answer`); its own switch (review #211, п.6). `shadow` (the default) verifies and counts, `live` sends, `off` does not ask. */
+  readonly answerMode?: CustomerAgentAnswerMode;
   /** Server reads run before the first model round (DM, never a job inquiry); e.g. "cheaper than the object in focus". */
   readonly preReads?: readonly CustomerAgentToolCall[];
   /** A bare "yes" after the bot's own clarifying question: the server re-asks, the model is not consulted. */
@@ -71,6 +73,7 @@ export interface CustomerCorePorts {
 /** What became of the model's free phrase. The text is never part of this: only the verdict reaches the trace and the counters. */
 export type CustomerCoreSay = { status: "absent" } | { status: "used" } | { status: "dropped"; reason: CustomerAgentSayDropReason };
 export type CustomerCoreAnswer = { status: "absent" } | { status: "used" } | { status: "dropped"; reason: CustomerAgentAnswerDropReason };
+export type CustomerAgentAnswerMode = "off" | "shadow" | "live";
 export type CustomerCoreResult =
   | { status: "ready"; decision: CustomerAgentDecision; question: CustomerAgentRenderedQuestion; text: string; evidence: readonly CustomerAgentEvidence[]; rounds: number; toolCalls: number;
       say?: CustomerCoreSay;
@@ -89,10 +92,10 @@ function clone<T>(value: T): T { return structuredClone(value); }
 /** Splits the optional `say` off a raw model decision object. Anything that is not a plain object is returned untouched for the strict parse to judge. */
 /** Per-turn server facts about the surface. The `say` rules ride here (private messages only), not in the pinned system prompt: see CUSTOMER_AGENT_SAY_GUIDANCE.
  *  They are left out while the reply language is switched off for `say` (Tajik in v1): the validator would drop the phrase anyway, so asking for it only spends output tokens. */
-function surfaceBlock(surface: CustomerAgentSurface, replyLanguage: "ru" | "tg") {
-  // One-brain step 1 (16.11.2026): in private messages the model is asked for the WHOLE reply (`answer`, Russian and Tajik); the old
-  // one-or-two-phrase `say` rules are no longer sent (the validator still judges a `say` the model sends on its own).
-  return { surface, replyLanguage, ...(surface === "dm" && ANSWER_ENABLED_LANGUAGES.includes(replyLanguage) ? { answerGuidance: CUSTOMER_AGENT_ANSWER_GUIDANCE }
+function surfaceBlock(surface: CustomerAgentSurface, replyLanguage: "ru" | "tg", answerMode: CustomerAgentAnswerMode = "shadow") {
+  // One-brain step 1 (16.11.2026): in private messages the model is asked for its human words around the facts (`answer`, Russian and
+  // Tajik) instead of the old one-or-two-phrase `say`. CUSTOMER_AGENT_ANSWER_MODE=off brings the `say` rules back (review #211, п.6).
+  return { surface, replyLanguage, ...(surface === "dm" && answerMode !== "off" && ANSWER_ENABLED_LANGUAGES.includes(replyLanguage) ? { answerGuidance: CUSTOMER_AGENT_ANSWER_GUIDANCE }
     : surface === "dm" && SAY_ENABLED_LANGUAGES.includes(replyLanguage) ? { sayGuidance: CUSTOMER_AGENT_SAY_GUIDANCE } : {}) };
 }
 /** Splits the model's own words (`say`, `answer`) off a raw decision object BEFORE the strict parse: bad words never void a valid decision. */
@@ -211,7 +214,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     ...(frame.publicationCardCount === undefined ? [] : [{ text: JSON.stringify({ serverPublication: {
       catalogCardCount: frame.publicationCardCount, readTool: "get_property_facts", source: "current_post" } }) }]),
     // Without a verified context the surface block does not exist, so the reply language (for the `say` phrase) rides in the current message.
-    ...(context ? [] : [{ text: JSON.stringify({ serverSurface: surfaceBlock(frame.surface, frame.language) }) }])];
+    ...(context ? [] : [{ text: JSON.stringify({ serverSurface: surfaceBlock(frame.surface, frame.language, frame.answerMode) }) }])];
   // These counters project existing caps; they do not create or extend budgets.
   let rounds = 0, toolCalls = 0, budgetCalls = 0, corrected = false, suppressionDecisionSeen = false;
   const serverTurnBudget = () => {
@@ -221,7 +224,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
   const contents: CustomerAgentContent[] = context ? [
     { role: "user", parts: [{ text: JSON.stringify({ serverPublicState: context.publicState,
       // The system prompt (and its hash) is one constant for every surface; the per-surface decision set travels here.
-      serverSurface: { ...surfaceBlock(frame.surface, frame.language), allowedDecisionKinds: decisionKindsFor(frame.surface) },
+      serverSurface: { ...surfaceBlock(frame.surface, frame.language, frame.answerMode), allowedDecisionKinds: decisionKindsFor(frame.surface) },
       serverTurnBudget: serverTurnBudget(),
       ...(frame.surface === "dm" && original.approvedFileState !== undefined ? { serverApprovedFileState: approvedFileState } : {}),
       ...(context.intake ? { conversationIntakeProgress: context.intake,
@@ -427,6 +430,11 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     if (customerCompanyInformationRequested(frame.inputText) && frame.tools.some(tool => tool.name === "get_company_information")) {
       await execute({ name: "get_company_information", args: {} }, undefined, true);
     }
+    // A seller asks for the terms («Чи шарту шароит доред?», Facebook 16.11.2026): the commission is read by the server, not left to the model.
+    if (frame.surface === "dm" && customerSellerAskedTerms({ inputText: frame.inputText, verifiedContext: context ?? undefined }) &&
+        frame.tools.some(tool => tool.name === "get_company_policy")) {
+      await execute({ name: "get_company_policy", args: { topic: "commission" } }, undefined, true);
+    }
     if ((customerRecruitmentRequested([frame.inputText, perception?.transcript, perception?.readableText].filter(Boolean).join("\n")) || context?.publicState.topic === "job") && frame.tools.some(tool => tool.name === "get_open_vacancies")) {
       await execute({ name: "get_open_vacancies", args: {} }, undefined, true);
     }
@@ -627,16 +635,22 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         else if ((frame.sayMode ?? "shadow") !== "live") say = { status: "dropped", reason: "shadow" };
         else { say = { status: "used" }; planned = { ...d, say: verdict.text }; }
       }
-      // The whole reply in the model's own words (one-brain step 1): verified against the template of the SAME decision and evidence,
-      // all or nothing. Shadow (the default) only counts the verdict; live attaches the verified text, which the renderer and the
-      // delivery seal re-verify from the same inputs. A dropped answer never changes the decision or costs a round: the template goes out.
+      // The model's human words around the facts (one-brain step 1, review #211): composed with the template of the SAME decision and
+      // evidence, all or nothing. Shadow (the default) only counts the verdict; live attaches the verified parts, and the renderer and the
+      // delivery seal compose the identical text from the same inputs. A dropped answer never changes the decision or costs a round.
       let answer: CustomerCoreAnswer = { status: "absent" };
-      if (modelAnswer !== undefined && (planned.kind === "reply" || planned.kind === "clarify" || planned.kind === "propose")) {
-        const candidate = { ...planned, answer: typeof modelAnswer === "string" ? modelAnswer : "" } as CustomerAgentDecision;
-        const verdict = customerAgentAnswerVerdict(renderInput(candidate));
+      const answerMode = frame.answerMode ?? "shadow";
+      if (answerMode !== "off" && modelAnswer !== undefined && (planned.kind === "reply" || planned.kind === "clarify" || planned.kind === "propose")) {
+        // customerAgentAnswerVerdict never throws (a verifier bug is the `error` verdict); this try is the second belt for the turn.
+        let verdict: ReturnType<typeof customerAgentAnswerVerdict>, candidate: CustomerAgentDecision | null = null;
+        try {
+          const parts = parseCustomerAgentAnswerParts(modelAnswer);
+          candidate = parts ? { ...planned, answer: parts } as CustomerAgentDecision : null;
+          verdict = candidate ? customerAgentAnswerVerdict(renderInput(candidate)) : { ok: false, reason: "length" };
+        } catch { verdict = { ok: false, reason: "error" }; }
         if (!verdict || !verdict.ok) answer = { status: "dropped", reason: verdict?.reason ?? "not_eligible" };
-        else if ((frame.sayMode ?? "shadow") !== "live") answer = { status: "dropped", reason: "shadow" };
-        else { answer = { status: "used" }; planned = { ...candidate, answer: verdict.text } as CustomerAgentDecision; }
+        else if (answerMode !== "live") answer = { status: "dropped", reason: "shadow" };
+        else { answer = { status: "used" }; planned = candidate!; }
       }
       const text = renderDecision(planned);
       if (text === null) return await confirmCommitted("unsupported_decision_evidence");

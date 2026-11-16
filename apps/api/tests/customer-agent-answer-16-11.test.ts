@@ -1,147 +1,251 @@
 import { describe, expect, it, vi } from "vitest";
 import { customerAgentDecisionSchema, type CustomerAgentDecision } from "@royal-home/shared";
-import { renderCustomerAgentDecision, customerAgentAnswerVerdict } from "../src/ai/customerAgentRenderer.js";
-import { validateCustomerAgentAnswer, CUSTOMER_AGENT_ANSWER_EXAMPLES, CUSTOMER_AGENT_ANSWER_GUIDANCE, ANSWER_ENABLED_LANGUAGES,
-  type CustomerAgentAnswerInput } from "../src/ai/customerAgentAnswer.js";
+import { renderCustomerAgentDecision, customerAgentAnswerVerdict, customerAgentSentQuestion, customerSealedQuestionLast,
+  customerAgentCallbackQuestionText } from "../src/ai/customerAgentRenderer.js";
+import { CUSTOMER_AGENT_ANSWER_EXAMPLES, CUSTOMER_AGENT_ANSWER_GUIDANCE, ANSWER_ENABLED_LANGUAGES, customerAgentHumanLineSafe, customerAgentMemoryText,
+  customerAgentAskKindOf, parseCustomerAgentAnswerParts } from "../src/ai/customerAgentAnswer.js";
 import { runCustomerAgentTurn, type CustomerAgentModelTurn, type CustomerCoreFrame, type CustomerCorePorts } from "../src/ai/customerAgentCore.js";
 import { createProviderOperation } from "../src/ai/providerContract.js";
 import { CUSTOMER_AGENT_SYSTEM } from "../src/ai/customerAgentPrompt.js";
 import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
+import { readCustomerAgentCompanyKnowledge } from "../src/lib/customerAgentPublicReads.js";
+import { customerAgentCompanyKnowledgeHash } from "../src/ai/customerAgentPublicProtocol.js";
+import { customerAgentAnswerMode } from "../src/lib/customerAgentFeaturePolicy.js";
+import { summarizeCustomerAgentAnswerDay } from "../src/lib/customerAgentSayStats.js";
+import { customerSearchContinuation } from "../src/ai/customerAgentSearchIntent.js";
 import { createHash } from "node:crypto";
 
 /**
- * One brain, step 1 (16.11.2026): the model writes the whole reply, the server verifies it against its own template and the
- * tool evidence of the turn; all or nothing. The «bad» cases are the live replies of the audit 16.11.2026
- * (reports/bot-audit-16-11/tone.md, facts.md, language.md): each must fall back to the template, never reach the customer.
+ * One brain, step 1 after review #211 (16.11.2026): the model writes ONLY the human part (lead, ask, close); every fact line comes
+ * verbatim from the template. The review's probe (D:/PublicWorktrees-20261021/review-211/apps/api/tmp-review/probe.ts) showed the word-level
+ * check passing inverted facts with `ok:true`; every probe example is a test below and must now fall back to the template.
  */
 const hash = "a".repeat(64);
-const facts = { propertyId: "00000000-0000-4000-8000-000000000001", shortId: 123, price: "123456.78", currency: "TJS" as const,
-  availability: "AVAILABLE" as const, publicAddress: "Synthetic district, Душанбе", addressPolicy: "district_city_only" as const,
-  builder: null, publicLink: null, updatedAt: "2026-10-15T00:00:00.000Z", signature: hash };
-const priceEvidence = [{ ref: "e0", value: { kind: "facts", facts, kinds: ["price"] } }] as never;
-const base = { requestedFacts: ["price"] as never, knownPhoneSource: "none" as const, maxOutputChars: 2000, surface: "dm" as const };
+const knowledge = readCustomerAgentCompanyKnowledge(), knowledgeSourceHash = customerAgentCompanyKnowledgeHash(knowledge);
+const facts = (o: Record<string, unknown> = {}) => ({ propertyId: "00000000-0000-4000-8000-000000000001", shortId: 123, price: "1250000", currency: "TJS" as const,
+  availability: "AVAILABLE" as const, publicAddress: "Сино, Душанбе", addressPolicy: "district_city_only" as const, builder: null, publicLink: null,
+  updatedAt: "2026-10-15T00:00:00.000Z", signature: hash, ...o });
+const price = [{ ref: "e0", value: { kind: "facts", facts: facts(), kinds: ["price"] } }];
+const sold = [{ ref: "e0", value: { kind: "facts", facts: facts({ availability: "SOLD" }), kinds: ["price"] } }];
+const two = [...price, { ref: "e1", value: { kind: "facts", facts: facts({ propertyId: "00000000-0000-4000-8000-000000000002", shortId: 124, price: "900000" }), kinds: ["price"] } }];
+const pol = (topic: string) => [{ ref: "e0", value: { kind: "company_policy", topic, knowledge, sourceHash: knowledgeSourceHash } }];
+const reply = (refs: string[], question = "none", social = "none") => ({ kind: "reply", refs, social, question });
+const clarify = (question: string, social = "none") => ({ kind: "clarify", refs: [], social, question });
 type Lang = "ru" | "tg";
-const decision = (d: Record<string, unknown>) => ({ kind: "reply", refs: [], social: "none", question: "none", ...d }) as CustomerAgentDecision;
-/** The verdict exactly as the renderer reaches it: the template of the same decision and evidence is the reference. */
-function verdict(answer: string, opts: { language?: Lang; inputText?: string; d?: Record<string, unknown>; evidence?: unknown; prior?: string[] } = {}) {
-  const language = opts.language ?? "ru";
-  return customerAgentAnswerVerdict({ ...base, language, inputText: opts.inputText ?? (language === "ru" ? "Цена объекта 123?" : "Нархи объекти 123 чанд?"),
-    decision: { ...decision(opts.d ?? { refs: ["e0"] }), answer } as CustomerAgentDecision, evidence: (opts.evidence ?? priceEvidence) as never,
-    ...(opts.prior ? { verifiedContext: { surface: "dm", revisionId: hash, publicState: { topic: "unknown" } as never,
-      turns: opts.prior.map(text => ({ role: "assistant" as const, text })) } as never } : {}) });
-}
-const reasonOf = (...args: Parameters<typeof verdict>) => { const v = verdict(...args); return v?.ok ? "ok" : v?.reason; };
-const clarify = (question: string, social = "acknowledge") => ({ kind: "clarify", refs: [], social, question });
+interface Case { language?: Lang; inputText: string; d: Record<string, unknown>; evidence?: unknown[]; requestedFacts?: string[]; prior?: string[] }
 
-describe("whole reply in the model's words: warm, verified replies go out", () => {
-  it("Russian price answer keeps the verified price, currency and object number", () => {
-    expect(verdict("Понимаю, вам важна цена. Объект №123 стоит 123 456.78 сомони.")).toEqual({ ok: true,
-      text: "Понимаю, вам важна цена. Объект №123 стоит 123 456.78 сомони." });
-  });
-  it("Tajik is on: a warm Tajik answer with the greeting the template also gives", () => {
-    expect(reasonOf("Ваалайкум ассалом! Нархи объекти №123 ҳоло 123 456.78 сомонӣ аст.",
-      { language: "tg", inputText: "Ассалому алейкум, нархи объекти 123 чанд?", d: { refs: ["e0"], social: "greet" } })).toBe("ok");
-  });
-  it("asks the same question the server chose, in own words", () => {
-    expect(reasonOf("Понял, ищете квартиру в Сино. Сколько комнат вам нужно?", { inputText: "Ищу квартиру в Сино", d: clarify("rooms"), evidence: [] })).toBe("ok");
-    expect(reasonOf("Фаҳмидам, шумо дар Сино хона мехаред. Бемалол бигӯед, чӣ қадар маблағ дар назар доред?",
-      { language: "tg", inputText: "Хона мехарам дар Сино", d: clarify("budget"), evidence: [] })).toBe("ok");
-  });
-  it("every example shown to the model passes the verifier (guidance never teaches a dropped reply)", () => {
-    expect(reasonOf(CUSTOMER_AGENT_ANSWER_EXAMPLES.ru[0], { inputText: "Ищу квартиру для семьи", d: clarify("location"), evidence: [] })).toBe("ok");
-    expect(reasonOf(CUSTOMER_AGENT_ANSWER_EXAMPLES.ru[1], { inputText: "Хочу купить квартиру", d: clarify("budget"), evidence: [] })).toBe("ok");
-    expect(reasonOf(CUSTOMER_AGENT_ANSWER_EXAMPLES.tg[0], { language: "tg", inputText: "Ассалому алейкум, хона мехарам", d: clarify("location", "greet"), evidence: [] })).toBe("ok");
-    expect(reasonOf(CUSTOMER_AGENT_ANSWER_EXAMPLES.tg[1], { language: "tg", inputText: "Хона мехарам", d: clarify("budget"), evidence: [] })).toBe("ok");
-  });
-  it("both languages are enabled and the guidance names the owner's banned words", () => {
-    expect([...ANSWER_ENABLED_LANGUAGES].sort()).toEqual(["ru", "tg"]);
-    for (const word of ["писал выше", "дар боло навиштам", "лутфан", "мутахассис", "шумо"]) expect(CUSTOMER_AGENT_ANSWER_GUIDANCE).toContain(word);
-  });
-  it("is deterministic and the renderer returns the verified text (the delivery seal prints the same)", () => {
-    const answer = "Понимаю, вам важна цена. Объект №123 стоит 123 456.78 сомони.";
-    expect(verdict(answer)).toEqual(verdict(answer));
-    const d = { ...decision({ refs: ["e0"] }), answer } as CustomerAgentDecision;
-    expect(renderCustomerAgentDecision({ ...base, language: "ru", inputText: "Цена объекта 123?", decision: d, evidence: priceEvidence })).toBe(answer);
-    expect(customerAgentDecisionSchema.parse(d)).toMatchObject({ answer });
-  });
-});
+const inputOf = (answer: unknown, c: Case) => ({ knownPhoneSource: "none" as const, maxOutputChars: 2000, surface: "dm" as const, knowledgeSourceHash,
+  language: c.language ?? "ru", inputText: c.inputText, requestedFacts: (c.requestedFacts ?? []) as never, evidence: (c.evidence ?? []) as never,
+  decision: { ...c.d, ...(answer === undefined ? {} : { answer }) } as CustomerAgentDecision,
+  ...(c.prior ? { verifiedContext: { surface: "dm", revisionId: hash, publicState: { topic: "unknown" } as never,
+    turns: c.prior.map(text => ({ role: "assistant" as const, text })) } as never } : {}) });
+const verdict = (answer: unknown, c: Case) => customerAgentAnswerVerdict(inputOf(answer, c));
+const reasonOf = (answer: unknown, c: Case) => { const v = verdict(answer, c); return v?.ok ? "ok" : v?.reason; };
+const template = (c: Case) => renderCustomerAgentDecision(inputOf(undefined, c));
+const rendered = (answer: unknown, c: Case) => renderCustomerAgentDecision(inputOf(answer, c));
 
-describe("real bad replies of the audit 16.11.2026 fall back to the template", () => {
+const commissionRu: Case = { inputText: "Какая у вас комиссия?", d: reply(["e0"], "role"), evidence: pol("commission") };
+const commissionTg: Case = { language: "tg", inputText: "Комиссияи шумо чанд аст?", d: reply(["e0"], "role"), evidence: pol("commission") };
+const zoneRu: Case = { inputText: "Вы работаете в Худжанде?", d: reply(["e0"]), evidence: pol("service_scope") };
+const zoneTg: Case = { language: "tg", inputText: "Дар Хуҷанд кор мекунед?", d: reply(["e0"]), evidence: pol("service_scope") };
+const rentRu: Case = { inputText: "Вы сдаёте квартиры в аренду?", d: reply(["e0"]), evidence: pol("rental") };
+const soldRu: Case = { inputText: "Цена объекта 123?", requestedFacts: ["price"], d: reply(["e0"]), evidence: sold };
+const priceRu: Case = { inputText: "Цена объекта 123?", requestedFacts: ["price"], d: reply(["e0"]), evidence: price };
+const twoRu: Case = { inputText: "Цена объекта 123?", requestedFacts: ["price"], d: reply(["e0", "e1"]), evidence: two };
+const ask = (question: string, language: Lang = "ru", inputText = language === "ru" ? "Ищу квартиру" : "Хона мехарам"): Case =>
+  ({ language, inputText, d: clarify(question) });
+
+describe("review #211 probe: every inverted or invented fact falls back to the template (was ok:true)", () => {
   it.each([
-    ["«писал выше»", "ru", "Я уже писал выше: объект №123 стоит 123 456.78 сомони."],
-    ["«повторю»", "ru", "Повторю ещё раз: объект №123 стоит 123 456.78 сомони."],
-    ["«бори дигар такрор мекунам» (#79)", "tg", "Бори дигар такрор мекунам: нархи объекти №123 123 456.78 сомонӣ аст."],
-    ["«дар боло навишта будам» (#7)", "tg", "Ман инро дар боло навишта будам. Нархи объекти №123 123 456.78 сомонӣ аст."],
-    ["«агар саволи ман дар боло номафҳум буд» (#97)", "tg", "Агар саволи ман дар боло номафҳум буд, бубахшед. Нархи объекти №123 123 456.78 сомонӣ аст."],
-    ["service receipt (Khodzhaeva_S)", "ru", "Заявка на связь с сотрудником сохранена. Объект №123 стоит 123 456.78 сомони."],
-    ["«мутахассиси мо»", "tg", "Мутахассиси мо мегӯяд, ки нархи объекти №123 123 456.78 сомонӣ аст."],
-    ["«лутфан»", "tg", "Лутфан, бидонед: нархи объекти №123 123 456.78 сомонӣ аст."],
-    ["«амвол»", "tg", "Нархи амволи №123 123 456.78 сомонӣ аст."],
-    ["a dash inside the phrase", "ru", "Объект №123 — 123 456.78 сомони."],
-  ] as const)("%s → wooden", (_name, language, answer) => {
-    expect(reasonOf(answer, { language, inputText: language === "ru" ? "Цена объекта 123?" : "Нархи объекти 123 чанд?" })).toBe("wooden");
+    ["A1 commission swapped (ru)", commissionRu, { lead: "Комиссия для продавца 0%, для покупателя 2%.", ask: "Вы хотите купить или продать недвижимость?" }, "number"],
+    ["A2 zone: «да, в Худжанде тоже»", zoneRu, { lead: "Да, в Худжанде мы тоже помогаем с покупкой и продажей недвижимости." }, "claim"],
+    ["A2b zone: «по всей стране»", zoneRu, { lead: "Помогаем с покупкой и продажей недвижимости по всей стране." }, "claim"],
+    ["A3 rent inverted", rentRu, { lead: "Да, арендой тоже занимаемся, сдаём квартиры." }, "claim"],
+    ["A4 sold → free", soldRu, { lead: "Объект №123 свободен." }, "number"],
+    ["A4b sold → on sale", soldRu, { lead: "Объект №123 ещё продаётся, можно посмотреть." }, "number"],
+    ["A4c sold → on sale, no number", soldRu, { lead: "Этот объект ещё продаётся." }, "claim"],
+    ["A9 price of the other card", twoRu, { lead: "Объект №123 стоит 900 000 сомони, а объект №124 стоит 1 250 000 сомони." }, "number"],
+    ["A10 unknown currency", priceRu, { lead: "Для вас отдадим за восемьдесят пять тысяч у.е." }, "number"],
+    ["A11 price k$", priceRu, { lead: "Это около 85k$." }, "number"],
+    ["A12 «бесплатно» invented", ask("rooms"), { lead: "Для вас наши услуги бесплатны.", ask: "Сколько комнат вам нужно?" }, "claim"],
+    ["A13 «обязательно найдём»", ask("rooms"), { lead: "Мы обязательно найдём вам хорошую квартиру.", ask: "Сколько комнат вам нужно?" }, "promise"],
+    ["A14 new building, documents ready", priceRu, { lead: "Объект №123 в новостройке, документы готовы." }, "number"],
+    ["A14b the same without a number", priceRu, { lead: "Это новостройка, документы готовы." }, "claim"],
+    ["B1 years and minutes (were «verified» by updatedAt)", priceRu, { lead: "Дом сдан в 2026 году, до центра 15 минут." }, "number"],
+    ["B1b the same in words", priceRu, { lead: "Дом уже сдан, до центра рукой подать." }, "claim"],
+    ["B2 commission swapped (tg)", commissionTg, { lead: "Ҳаққи хизмат барои фурӯшанда 0%, барои харидор 2% аст.", ask: "Шумо хона мехаред ё мефурӯшед?" }, "number"],
+    ["B3 zone (tg): «ҳа, дар Хуҷанд ҳам»", zoneTg, { lead: "Ҳа, дар Хуҷанд ҳам бо харид ва фурӯши хона ёрӣ мерасонем." }, "claim"],
+  ] as const)("%s → %s", (_name, c, answer, reason) => {
+    expect(reasonOf(answer, c)).toBe(reason);
+    // The customer reads the server's own lines, unchanged.
+    expect(rendered(answer, c)).toBe(template(c));
   });
-  it("«ты» / «ту» → rude", () => {
-    expect(reasonOf("Слушай, объект №123 стоит 123 456.78 сомони, тебе подходит?", { d: { refs: ["e0"], question: "none" } })).toBe("rude");
-    expect(reasonOf("Ту бидон, нархи объекти №123 123 456.78 сомонӣ аст.", { language: "tg" })).toBe("rude");
+  it("the old whole-reply string form is refused as a shape (the model may not write the facts at all)", () => {
+    expect(reasonOf("Комиссия для продавца 0%, для покупателя 2%. Вы хотите купить или продать недвижимость?", commissionRu)).toBe("length");
+    expect(reasonOf("Объект №123 свободен.", soldRu)).toBe("length");
+    expect(parseCustomerAgentAnswerParts({ lead: "Понимаю.", price: "1" })).toBeNull();
+    expect(parseCustomerAgentAnswerParts(["Понимаю."])).toBeNull();
   });
-  it("an invented price (YouTube «135 520 сомонӣ» at 1 250 000 TJS) → number", () => {
-    expect(reasonOf("Объект №123 стоит 135 520 сомони.")).toBe("number");
+  it("A15/B4: Russian words inside a Tajik reply → language; and a Tajik word inside a Russian one", () => {
+    expect(reasonOf({ lead: "Хорошо, фаҳмидам.", ask: "Чӣ қадар маблағ дар назар доред?" }, ask("budget", "tg"))).toBe("language");
+    expect(reasonOf({ lead: "Очень приятно, фаҳмидам." }, { language: "tg", inputText: "Нархи объекти 123 чанд?", requestedFacts: ["price"], d: reply(["e0"]), evidence: price })).toBe("language");
+    expect(reasonOf({ lead: "Рахмат, понял вас.", ask: "Сколько комнат вам нужно?" }, ask("rooms"))).toBe("language");
   });
-  it("the right figure in another currency → currency", () => {
-    expect(reasonOf("Объект №123 стоит 123 456.78 долларов.")).toBe("currency");
+  it("A7/A7b/B5: Russian «ты» verbs and imperatives are not approved question wordings → template", () => {
+    expect(reasonOf({ lead: "Понял вас.", ask: "Сколько комнат хочешь?" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ lead: "Понял вас.", ask: "Подскажи, сколько комнат нужно?" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ lead: "Понимаю вас.", ask: "На какую сумму рассчитываешь?" }, ask("budget"))).toBe("question");
   });
-  it("spelled-out figures are unverifiable → number", () => {
-    expect(reasonOf("Объект №123 стоит сто двадцать три тысячи сомони, точнее 123 456.78 сомони.")).toBe("number");
-  });
-  it("an invented address, «с ремонтом», rent, zone and legal claims → claim (or promise)", () => {
-    expect(reasonOf("Объект №123 на проспекте Рудаки, цена 123 456.78 сомони.")).toBe("claim");
-    expect(reasonOf("Объект №123 с хорошим ремонтом, цена 123 456.78 сомони.")).toBe("claim");
-    expect(reasonOf("Фаҳмидам. Ҳоло бо иҷора кор намекунем. Чӣ қадар маблағ дар назар доред?", { language: "tg", inputText: "Тобеи марказ намешавад", d: clarify("budget"), evidence: [] })).toBe("claim");
-    expect(reasonOf("Понял. В других городах не работаем. Сколько комнат вам нужно?", { inputText: "Ищу квартиру", d: clarify("rooms"), evidence: [] })).toBe("claim");
-    expect(["claim", "promise"]).toContain(reasonOf("Не могу гарантировать юридическую чистоту объекта. Сколько комнат вам нужно?", { inputText: "Ищу квартиру", d: clarify("rooms"), evidence: [] }));
-  });
-  it("a call or time promise without a receipt → promise", () => {
-    expect(reasonOf("Агент свяжется с вами сегодня до конца вечера. Сколько комнат вам нужно?", { inputText: "Ищу квартиру", d: clarify("rooms"), evidence: [] })).toBe("promise");
-    expect(reasonOf("Я проверю и подберу варианты. Сколько комнат вам нужно?", { inputText: "Ищу квартиру", d: clarify("rooms"), evidence: [] })).toBe("promise");
-  });
-  it("losing the verified price → missing_fact (never cut the answer)", () => {
-    expect(reasonOf("Понимаю, вас интересует этот объект.")).toBe("missing_fact");
-  });
-  it("two questions, no question where the server asks one, or another topic → question", () => {
-    expect(reasonOf("Какой район вам нужен? И сколько комнат?", { inputText: "Ищу квартиру", d: clarify("rooms"), evidence: [] })).toBe("question");
-    expect(reasonOf("Понял, ищете квартиру.", { inputText: "Ищу квартиру", d: clarify("rooms"), evidence: [] })).toBe("question");
-    expect(reasonOf("Понял. Как вас зовут?", { inputText: "Ищу квартиру", d: clarify("rooms"), evidence: [] })).toBe("question");
-  });
-  it("asking for the phone when the server does not → phone_ask", () => {
-    expect(reasonOf("Оставьте ваш номер телефона. Сколько комнат вам нужно?", { inputText: "Ищу квартиру", d: clarify("rooms"), evidence: [] })).toBe("phone_ask");
-  });
-  it("Russian to a Tajik customer (14 chats) → language", () => {
-    expect(reasonOf("Объект №123 стоит 123 456.78 сомони.", { language: "tg" })).toBe("language");
-  });
-  it("the same reply as before → repeat; a second greeting → double_greet; «я бот» → meta", () => {
-    const answer = "Понимаю, вам важна цена. Объект №123 стоит 123 456.78 сомони.";
-    expect(reasonOf(answer, { prior: [answer] })).toBe("repeat");
-    expect(reasonOf("Здравствуйте! Объект №123 стоит 123 456.78 сомони.")).toBe("double_greet");
-    expect(reasonOf("Я бот, но знаю: объект №123 стоит 123 456.78 сомони.")).toBe("meta");
-  });
-  it("a template with a link stays the template (the model never sees links)", () => {
-    expect(validateCustomerAgentAnswer({ answer: "Вот этот объект.", template: "Объект №123: https://royalhome.tj/p/123", language: "ru", surface: "dm",
-      evidence: [], maxOutputChars: 2000 } satisfies CustomerAgentAnswerInput)).toEqual({ ok: false, reason: "template_payload" });
-  });
-  it("public comments never carry a model reply", () => {
-    expect(customerAgentAnswerVerdict({ ...base, surface: "public_comment", language: "ru", inputText: "Цена?",
-      decision: { ...decision({ refs: ["e0"] }), answer: "Объект №123 стоит 123 456.78 сомони." } as CustomerAgentDecision, evidence: priceEvidence })).toEqual({ ok: false, reason: "surface_disabled" });
-  });
-  it("a rejected answer renders the template unchanged", () => {
-    const d = { ...decision({ refs: ["e0"] }), answer: "Я уже писал выше." } as CustomerAgentDecision;
-    expect(renderCustomerAgentDecision({ ...base, language: "ru", inputText: "Цена объекта 123?", decision: d, evidence: priceEvidence })).toBe("Цена объекта №123: 123 456.78 сомони.");
+  it("A8/B6: Tajik «-ӣ» verbs and imperatives are not approved question wordings → template", () => {
+    expect(reasonOf({ lead: "Фаҳмидам.", ask: "Бигӯ, чӣ қадар маблағ дорӣ?" }, ask("budget", "tg"))).toBe("question");
+    expect(reasonOf({ lead: "Фаҳмидам.", ask: "Чанд пул дорӣ, бигӯ?" }, ask("budget", "tg"))).toBe("question");
   });
 });
 
-describe("core: the answer is lifted before the strict parse, shadow by default, live behind CUSTOMER_AGENT_SAY_MODE", () => {
-  const GOOD = "Понимаю, вам важна цена. Объект №123 стоит 123 456.78 сомони.";
-  const TEMPLATE = "Цена объекта №123: 123 456.78 сомони.";
+describe("the human part around verbatim facts: warm replies go out", () => {
+  it("commission: the template line stays exactly as the server wrote it, the model words only frame it", () => {
+    const tpl = template(commissionRu)!.split("\n");
+    const v = verdict({ lead: "Понимаю вас.", ask: "Вы хотите купить или продать?" }, commissionRu);
+    expect(v).toEqual({ ok: true, asked: "role", text: ["Понимаю вас.", ...tpl.slice(0, -1), "Вы хотите купить или продать?"].join("\n") });
+    expect(tpl.slice(0, -1).join("\n")).toContain(`${knowledge.commission.sellerPercent}%`);
+  });
+  it("price: lead + verbatim price line; zone and rent keep the server's refusal or area line", () => {
+    expect(rendered({ lead: "Вот что могу сказать." }, priceRu)).toBe(`Вот что могу сказать.\n${template(priceRu)}`);
+    expect(rendered({ lead: "Спасибо, что написали!" }, zoneRu)).toBe(`Спасибо, что написали!\n${template(zoneRu)}`);
+    expect(rendered({ lead: "Понимаю вас." }, rentRu)).toBe(`Понимаю вас.\n${template(rentRu)}`);
+  });
+  it("Tajik: a warm lead and the question in own words", () => {
+    expect(verdict({ lead: "Раҳмат, ки навиштед!", ask: "Бемалол бигӯед, чӣ қадар маблағ дар назар доред?" }, ask("budget", "tg")))
+      .toEqual({ ok: true, asked: "budget", text: "Раҳмат, ки навиштед!\nБемалол бигӯед, чӣ қадар маблағ дар назар доред?" });
+  });
+  it("every example shown to the model passes the verifier (guidance never teaches a dropped part)", () => {
+    const cases: Record<Lang, Case[]> = {
+      ru: [ask("location"), ask("budget"), priceRu],
+      tg: [ask("budget", "tg"), ask("role", "tg")],
+    };
+    for (const language of ["ru", "tg"] as const) CUSTOMER_AGENT_ANSWER_EXAMPLES[language].forEach((example, index) =>
+      expect(reasonOf(example, cases[language][index]), JSON.stringify(example)).toBe("ok"));
+  });
+  it("both languages, the guidance names the owner's banned words and never shows a fact", () => {
+    expect([...ANSWER_ENABLED_LANGUAGES].sort()).toEqual(["ru", "tg"]);
+    for (const word of ["писал выше", "дар боло навиштам", "лутфан", "мутахассис", "шумо", "lead", "ask", "close"]) expect(CUSTOMER_AGENT_ANSWER_GUIDANCE).toContain(word);
+    expect(CUSTOMER_AGENT_ANSWER_GUIDANCE).not.toMatch(/\d{2,}/u);
+  });
+  it("greeting: the template greeting stays unless the lead greets; a lead may not greet where the template does not", () => {
+    const greet: Case = { inputText: "Здравствуйте, ищу квартиру", d: clarify("rooms", "greet") };
+    expect(rendered({ lead: "Рады вашему сообщению." }, greet)).toBe("Здравствуйте!\nРады вашему сообщению.\nСколько комнат вам нужно?");
+    expect(rendered({ lead: "Здравствуйте! Рады вашему сообщению." }, greet)).toBe("Здравствуйте! Рады вашему сообщению.\nСколько комнат вам нужно?");
+    expect(reasonOf({ lead: "Здравствуйте!" }, ask("rooms"))).toBe("double_greet");
+  });
+  it("close only when nothing is asked; an ask only where the server asks", () => {
+    expect(rendered({ close: "Будем рады вашему сообщению." }, priceRu)).toBe(`${template(priceRu)}\nБудем рады вашему сообщению.`);
+    // Next to a sold object: no close at all (no warmth after «уже продан»).
+    expect(reasonOf({ close: "Будем рады вашему сообщению." }, { ...priceRu, evidence: [{ ref: "e0", value: { kind: "facts", facts: facts({ availability: "SOLD" }), kinds: ["price"] } }] })).toBe("vocabulary");
+    expect(reasonOf({ close: "Всего доброго!" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ ask: "Сколько комнат вам нужно?" }, priceRu)).toBe("question");
+    expect(reasonOf({ ask: "Какой район вам нужен и сколько комнат?" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ ask: "Как вас зовут?" }, ask("rooms"))).toBe("question");
+    expect(reasonOf({ lead: "Подскажите, какой район вам удобен." }, ask("rooms"))).toBe("question");
+  });
+  it("contacts, Latin, places and «я бот» never ride the human words", () => {
+    expect(reasonOf({ lead: "Оставьте ваш номер телефона." }, ask("rooms"))).toBe("phone_ask");
+    expect(reasonOf({ lead: "Пишите в WhatsApp." }, ask("rooms"))).toBe("place");
+    expect(reasonOf({ lead: "Понимаю, в Сино хорошо." }, ask("rooms"))).toBe("place");
+    expect(reasonOf({ lead: "Я бот, но понимаю вас." }, ask("rooms"))).toBe("meta");
+    expect(reasonOf({ lead: "Понимаю — это важно." }, ask("rooms"))).toBe("wooden");
+  });
+  it("public comments never carry model words; a file in the reply keeps the template", () => {
+    expect(customerAgentAnswerVerdict({ ...inputOf({ lead: "Понимаю вас." }, priceRu), surface: "public_comment" })).toEqual({ ok: false, reason: "surface_disabled" });
+    expect(reasonOf({ lead: "Понимаю вас." }, { ...priceRu, d: { ...reply(["e0"]), attachment: "buyer_guide" } })).toBe("template_payload");
+  });
+  it("is deterministic and the strict decision schema carries the parts (the delivery seal re-renders the same print)", () => {
+    const parts = { lead: "Вот что могу сказать." };
+    expect(verdict(parts, priceRu)).toEqual(verdict(parts, priceRu));
+    expect(customerAgentDecisionSchema.parse({ ...reply(["e0"]), answer: parts })).toMatchObject({ answer: parts });
+    expect(customerAgentDecisionSchema.safeParse({ ...reply(["e0"]), answer: "строка" }).success).toBe(false);
+  });
+  it("a bug in the verifier is the `error` verdict and the template still goes out (the turn never dies)", () => {
+    const exploding = { get lead(): string { throw new Error("boom"); } };
+    expect(verdict(exploding, priceRu)).toEqual({ ok: false, reason: "error" });
+    expect(rendered(exploding, priceRu)).toBe(template(priceRu));
+  });
+});
+
+describe("the question the bot asked is recorded structurally (review #211, п.4)", () => {
+  const callback = ask("callback_consent");
+  it("A5: the model's wording of the callback question is the callback question for the delivery seal", () => {
+    const parts = { lead: "Хорошо.", ask: "Хотите, чтобы сотрудник вам позвонил?" };
+    const v = verdict(parts, callback);
+    expect(v).toEqual({ ok: true, asked: "callback_consent", text: "Хорошо.\nХотите, чтобы сотрудник вам позвонил?" });
+    const input = inputOf(parts, callback), text = renderCustomerAgentDecision(input)!;
+    expect(text.endsWith(customerAgentCallbackQuestionText("ru"))).toBe(false);
+    expect(customerAgentSentQuestion(input, text)).toBe("callback_consent");
+    // The stored-row check of customerAcceptedCallbackQuestion: the question is the last line.
+    expect(customerSealedQuestionLast(text, customerAgentCallbackQuestionText("ru"))).toBe(true);
+    expect(customerSealedQuestionLast("Хотите, чтобы сотрудник вам позвонил?\nБудем рады.", customerAgentCallbackQuestionText("ru"))).toBe(false);
+  });
+  it("A6: the name question in own words, and the template question as before", () => {
+    const name = ask("name");
+    const input = inputOf({ lead: "Спасибо!", ask: "Подскажите, как к вам обращаться?" }, name);
+    expect(customerAgentSentQuestion(input, renderCustomerAgentDecision(input)!)).toBe("name");
+    expect(reasonOf({ lead: "Отлично, поможем.", ask: "Подскажите, как к вам обращаться?" }, name)).toBe("promise");
+    const plain = inputOf(undefined, callback);
+    expect(customerAgentSentQuestion(plain, renderCustomerAgentDecision(plain)!)).toBe("callback_consent");
+  });
+  it("a consent question must ask, never announce the call", () => {
+    expect(reasonOf({ ask: "Сотрудник вам позвонит, хорошо?" }, callback)).toBe("question");
+    expect(reasonOf({ ask: "Мехоҳед корманд ба шумо занг занад?" }, ask("callback_consent", "tg"))).toBe("ok");
+  });
+  it("a text that does not end with the asked question records nothing", () => {
+    const input = inputOf({ lead: "Хорошо." }, callback);
+    expect(customerAgentSentQuestion(input, "Хорошо.")).toBe("none");
+  });
+});
+
+describe("the model's sent words stay in the dialogue memory (review #211, п.5)", () => {
+  it("fact-free human lines enter memory, fact lines only through the server's allow-list", () => {
+    const sent = "Понимаю вас.\nЦена объекта №123: 1 250 000 сомони.\nВ каком районе вам было бы удобнее?";
+    expect(customerAgentMemoryText(sent, new Set())).toBe("Понимаю вас.\nВ каком районе вам было бы удобнее?");
+    expect(customerAgentMemoryText(sent, new Set(["Цена объекта №123: 1 250 000 сомони."]))).toBe(sent);
+    for (const line of ["Объект свободен.", "Да, работаем в Худжанде.", "Комиссия 0%.", "Позвоним завтра.", "Сколько комнат хочешь и какой бюджет?"]) {
+      expect(customerAgentHumanLineSafe(line), line).toBe(false);
+    }
+    expect(customerAgentAskKindOf("В каком районе вам было бы удобнее?")).toBe("location");
+  });
+  it("two live turns: the second identical lead is a repeat once the first one is remembered", () => {
+    const lead = "Спасибо, что написали.";
+    const first = rendered({ lead, ask: "Сколько комнат вы рассматриваете?" }, ask("rooms"))!;
+    expect(first).toBe(`${lead}\nСколько комнат вы рассматриваете?`);
+    const remembered = customerAgentMemoryText(first, new Set());
+    expect(remembered).toBe(first);
+    // Before review #211 the memory dropped the whole turn (no template line), so the same words passed again.
+    expect(reasonOf({ lead, ask: "На какую сумму вы рассчитываете?" }, { ...ask("budget"), prior: [] })).toBe("ok");
+    expect(reasonOf({ lead, ask: "На какую сумму вы рассчитываете?" }, { ...ask("budget"), prior: [remembered] })).toBe("repeat");
+    expect(reasonOf({ lead: "Здравствуйте!" }, { ...ask("budget"), prior: [remembered] })).toBe("double_greet");
+  });
+  it("an answer to the model's own district question continues the search like the template question", () => {
+    const turns = [{ role: "user" as const, text: "двушка" }, { role: "assistant" as const, text: "Понял.\nВ каком районе вам было бы удобнее?" }];
+    expect(customerSearchContinuation("в Фирдавси", turns)).toMatchObject({ rooms: 2, districtName: "Фирдавси" });
+    expect(customerSearchContinuation("в Фирдавси", [turns[0], { role: "assistant", text: "Понял.\nКак вас зовут?" }])).toBeNull();
+  });
+});
+
+describe("daily line: fact attempts are never «good» (review #211, п.7)", () => {
+  it("counts used + shadow as good, fact attempts apart, intentional reasons outside the share", () => {
+    const day = summarizeCustomerAgentAnswerDay([{ guard: "answer_dropped_shadow", count: 6 }, { guard: "answer_used", count: 2 },
+      { guard: "answer_dropped_claim", count: 3 }, { guard: "answer_dropped_number", count: 1 }, { guard: "answer_dropped_not_eligible", count: 40 },
+      { guard: "answer_dropped_cliche", count: 1 }, { guard: "say_used", count: 9 }]);
+    expect(day).toMatchObject({ total: 13, good: 8, dropped: 5, factAttempts: 4, intentional: 40, alert: true });
+  });
+  it("stays silent on a clean day and alerts on one verifier error", () => {
+    expect(summarizeCustomerAgentAnswerDay([{ guard: "answer_dropped_shadow", count: 9 }, { guard: "answer_dropped_cliche", count: 1 }]).alert).toBe(false);
+    expect(summarizeCustomerAgentAnswerDay([{ guard: "answer_dropped_shadow", count: 99 }, { guard: "answer_dropped_error", count: 1 }]).alert).toBe(true);
+  });
+});
+
+describe("core: lifted before the strict parse, shadow by default, its own switch (review #211, п.6)", () => {
+  const LEAD = "Вот что могу сказать.";
+  const TEMPLATE = "Цена объекта №123: 1 250 000 сомони.";
   const final = (change = {}): CustomerAgentModelTurn => ({ text: JSON.stringify({ kind: "reply", refs: ["e0"], social: "none", question: "none", ...change }), calls: [], modelParts: [] });
   function fixture(overrides: Partial<CustomerCoreFrame> = {}) {
     const controller = new AbortController();
@@ -153,7 +257,7 @@ describe("core: the answer is lifted before the strict parse, shadow by default,
         limits: { maxRounds: 3, maxToolCalls: 4, maxInputChars: 40_000, maxOutputChars: 2000, maxModelOutputTokens: 1024, deadlineMs: 30_000 } },
       startedAt: Date.now(), operation, tools: [{ name: "get_property_facts", description: "Read public facts" }], ...overrides };
     const modelTurn = vi.fn<CustomerCorePorts["modelTurn"]>(async () => final());
-    const executeAllowedTool = vi.fn<CustomerCorePorts["executeAllowedTool"]>(async () => ({ status: "observed", observation: { kind: "facts", facts, kinds: ["price"] } }));
+    const executeAllowedTool = vi.fn<CustomerCorePorts["executeAllowedTool"]>(async () => ({ status: "observed", observation: { kind: "facts", facts: facts(), kinds: ["price"] } }));
     const ports = { modelTurn, executeAllowedTool, assertCurrent: vi.fn(async () => true), requestStop: vi.fn((reason: "deadline" | "cancelled") => controller.abort(reason)),
       observeLateToolResult: vi.fn() } satisfies CustomerCorePorts;
     return { frame, modelTurn, ports };
@@ -165,35 +269,51 @@ describe("core: the answer is lifted before the strict parse, shadow by default,
     if (result.status !== "ready") throw Error(`Expected ready, got ${result.status}`);
     return { f, result };
   };
-  it("shadow (prod default): a verified answer is only counted, the template goes out", async () => {
-    const { result } = await run(GOOD);
+  it("the switch: empty or unknown = shadow, live and off only by the exact word", () => {
+    expect(customerAgentAnswerMode({})).toBe("shadow");
+    expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "LIVE" })).toBe("shadow");
+    expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "live" })).toBe("live");
+    expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "off" })).toBe("off");
+    expect(customerAgentAnswerMode({ CUSTOMER_AGENT_SAY_MODE: "live" })).toBe("shadow");
+  });
+  it("shadow (prod default): verified words are only counted, the template goes out", async () => {
+    const { result } = await run({ lead: LEAD });
     expect(result.text).toBe(TEMPLATE);
     expect(result.answer).toEqual({ status: "dropped", reason: "shadow" });
     expect(result.decision).not.toHaveProperty("answer");
   });
-  it("live: the model's own words go out and the stored decision re-renders to the same print", async () => {
-    const { result, f } = await run(GOOD, { sayMode: "live" });
-    expect(result.text).toBe(GOOD);
+  it("CUSTOMER_AGENT_SAY_MODE=live alone never sends the model's answer", async () => {
+    const { result } = await run({ lead: LEAD }, { sayMode: "live" });
+    expect(result.text).toBe(TEMPLATE);
+    expect(result.answer).toEqual({ status: "dropped", reason: "shadow" });
+  });
+  it("live: the composed text goes out and the stored decision re-renders to the same print", async () => {
+    const { result, f } = await run({ lead: LEAD }, { answerMode: "live" });
+    expect(result.text).toBe(`${LEAD}\n${TEMPLATE}`);
     expect(result.answer).toEqual({ status: "used" });
-    expect(result.decision).toMatchObject({ answer: GOOD });
+    expect(result.decision).toMatchObject({ answer: { lead: LEAD } });
     expect(renderCustomerAgentDecision({ decision: result.decision, evidence: result.evidence, language: "ru", requestedFacts: f.frame.requestedFacts,
-      knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", inputText: f.frame.inputText })).toBe(GOOD);
+      knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", inputText: f.frame.inputText })).toBe(result.text);
   });
-  it("live Tajik works too", async () => {
-    const answer = "Нархи объекти №123 ҳоло 123 456.78 сомонӣ аст.";
-    const { result } = await run(answer, { sayMode: "live", language: "tg", inputText: "Нархи объекти 123 чанд?" });
-    expect(result.answer).toEqual({ status: "used" });
-    expect(result.text).toBe(answer);
-  });
-  it.each([["wooden", "Я уже писал выше: объект №123 стоит 123 456.78 сомони."], ["number", "Объект №123 стоит 135 520 сомони."], ["length", 42]] as const)(
+  it.each([["number", { lead: "Объект №123 стоит 900 000 сомони." }], ["claim", { lead: "Да, он свободен." }], ["length", "Объект №123 стоит 900 000 сомони."], ["length", 42]] as const)(
     "live: a bad answer (%s) costs nothing: template, one round, the reason in the counters", async (reason, answer) => {
-      const { result, f } = await run(answer, { sayMode: "live" });
+      const { result, f } = await run(answer, { answerMode: "live" });
       expect(result.text).toBe(TEMPLATE);
       expect(result.answer).toEqual({ status: "dropped", reason });
       expect(result.decision).not.toHaveProperty("answer");
       expect(f.modelTurn).toHaveBeenCalledTimes(1);
     });
-  it("asks for the whole answer in private messages for Russian AND Tajik, never in comments, never in the pinned prompt", async () => {
+  it("off: no answer guidance (the say rules ride again) and an answer the model sends anyway is ignored", async () => {
+    const text = (f: ReturnType<typeof fixture>) => f.modelTurn.mock.calls[0][0].contents.flatMap(c => c.parts.map(p => (p as { text?: string }).text ?? "")).join("\n");
+    const dmContext = { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } as const;
+    const off = fixture({ answerMode: "off", verifiedContext: dmContext });
+    off.modelTurn.mockResolvedValue(final({ answer: { lead: LEAD } }));
+    const result = await runCustomerAgentTurn(off.frame, off.ports);
+    expect(text(off)).not.toContain("answerGuidance");
+    expect(text(off)).toContain("sayGuidance");
+    expect(result).toMatchObject({ status: "ready", text: TEMPLATE, answer: { status: "absent" } });
+  });
+  it("asks for the human words in private messages for Russian AND Tajik, never in comments, never in the pinned prompt", async () => {
     const text = (f: ReturnType<typeof fixture>) => f.modelTurn.mock.calls[0][0].contents.flatMap(c => c.parts.map(p => (p as { text?: string }).text ?? "")).join("\n");
     const dmContext = { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } as const;
     for (const language of ["ru", "tg"] as const) {
