@@ -49,7 +49,7 @@ describe("CustomerAgentRenderer draft verified-segment obligations", () => {
   it("known-phone suppression preserves the local receipt instead of erasing the answer", () => {
     expect(render([{ ref: "e0", value: { kind: "receipt", outcome: "contact_saved" } }],
       { knownPhoneSource: "scoped_contact", decision: { kind: "reply", refs: ["e0"], social: "none", question: "phone" } }))
-      .toBe("Контактные данные сохранены.");
+      .toBe("Спасибо, записал.");
   });
   it("unknown transport/API phone cannot become the agency number", () => {
     expect(render([{ ref: "e0", value: { kind: "agency_contact", contact: { phone: "+992 77 777 6001", digits: "992777776001", channel: "telephone" } } }])).toBeNull();

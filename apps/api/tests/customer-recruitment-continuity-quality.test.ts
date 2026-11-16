@@ -15,7 +15,7 @@ const video = positions.find(row => row.key === "smm-videographer")!;
 // Phone-only recruitment (owner 10–11.11.2026): the bot names the role and gives the specialist's number.
 const phoneLine = (language: "ru" | "tg") => language === "ru"
   ? "Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста."
-  : "Маълумоти пурраро дар бораи кор мутахассиси мо Ноза бо телефон медиҳад: 777 070 100. Лутфан занг занед.";
+  : "Дар бораи кор ҳамаи тафсилотро Ноза мегӯяд. Ба ӯ занг занед: 777 070 100.";
 
 function makeContext(language: "ru" | "tg", turns: CustomerAgentVerifiedContext["turns"], jobPositionKey?: string): CustomerAgentVerifiedContext {
   return { surface: "dm", revisionId: hash, turns, recruitmentKnown: ["name", "age", "about"],
@@ -65,7 +65,7 @@ describe("customer recruitment continuity through the real core and renderer", (
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     // No questionnaire question follows the candidate's answer: only the phone line is given.
-    expect(result.text).toContain(phoneLine(language));
+    expect(result.text).toContain("Ноза"); // 16.11.2026: the number itself once per chat
     expect(result.text).not.toContain(language === "ru" ? "Какой номер телефона" : "кадом рақами телефон");
     expect(result.text).not.toContain(language === "ru" ? video.detailsRu.split("\n")[0] : video.detailsTg.split("\n")[0]);
     expect(result.evidence.some(item => item.value.kind === "receipt")).toBe(false);
@@ -88,7 +88,7 @@ describe("customer recruitment continuity through the real core and renderer", (
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     expect(result.text).toContain(video.titleRu);
-    expect(result.text).toContain(phoneLine("ru"));
+    expect(result.text).toContain("Ноза"); // 16.11.2026: the number itself once per chat
     expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
   });
 
@@ -98,7 +98,7 @@ describe("customer recruitment continuity through the real core and renderer", (
       makeContext("ru", [{ role: "assistant", text: outdated }], video.key));
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
-    expect(result.text).toContain(phoneLine("ru"));
+    expect(result.text).toContain("Ноза"); // 16.11.2026: the number itself once per chat
     expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
     expect(result.text).not.toContain("Удалённая работа не предусмотрена");
     expect(result.text).not.toContain("высокая зарплата");
@@ -112,7 +112,7 @@ describe("customer recruitment continuity through the real core and renderer", (
     if (result.status !== "ready") return;
     expect(result.text).not.toContain(video.titleRu);
     expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
-    expect(result.text).toContain(phoneLine("ru"));
+    expect(result.text).toContain("Ноза"); // 16.11.2026: the number itself once per chat
   });
 
   it("accepts current Tajik conditions when the vacancy title is identical in both languages", async () => {
@@ -137,7 +137,7 @@ describe("customer recruitment continuity through the real core and renderer", (
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     expect(result.text).toContain(video.titleRu);
-    expect(result.text).toContain(phoneLine("ru"));
+    expect(result.text).not.toContain("777 070 100"); // 16.11.2026: Noza's number was given earlier in this chat
     expect(result.text).not.toContain(video.detailsRu.split("\n")[0]);
   });
 
@@ -147,14 +147,14 @@ describe("customer recruitment continuity through the real core and renderer", (
     const salary = await fixture("Какая зарплата?", "ru", "none", context);
     expect(salary.status).toBe("ready");
     if (salary.status !== "ready") return;
-    expect(salary.text).toContain(phoneLine("ru"));
+    expect(salary.text).toContain("Ноза"); // 16.11.2026: the number itself once per chat
     expect(salary.text).not.toContain("Размер зарплаты");
     expect(salary.text).not.toMatch(/\b\d{4,}\b/u);
 
     const details = await fixture("Расскажите все условия подробнее", "ru", "none", context);
     expect(details.status).toBe("ready");
     if (details.status !== "ready") return;
-    expect(details.text).toContain(phoneLine("ru"));
+    expect(details.text).toContain("Ноза"); // 16.11.2026: the number itself once per chat
     for (const paragraph of video.detailsRu.split("\n")) expect(details.text).not.toContain(paragraph);
   });
 });

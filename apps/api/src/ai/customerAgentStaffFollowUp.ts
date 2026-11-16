@@ -92,6 +92,7 @@ export function customerStaffFollowUpFixedLines(): string[] {
 export function customerPhoneAskLines(): string[] { return [...PHONE_ASK_LINES]; }
 /** The reply told the customer that a person takes over: the turn must actually tell a person (one door). */
 export function customerReplyCallsStaff(text: string): boolean {
+  // A candidate's number / "nobody answers" goes to the vacancy owners with the number (lib/customerRecruitmentAlert.ts), not here.
   return text.split("\n").some(line => STAFF_LINES.has(line.trim()));
 }
 /** Any earlier bot text that asked for the customer's phone (ours or the model-era wording). */
