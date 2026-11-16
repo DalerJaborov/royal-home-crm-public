@@ -7,7 +7,7 @@ import { customerAgentToolDefinitions } from "../ai/customerAgentToolDefinitions
 import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
 import { customerPublicLanguage } from "../ai/customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerIntakeLocation } from "../ai/customerAgentIntake.js";
-import { stripUntrusted } from "../ai/untrustedContent.js";
+import { clientOwnWords, unwrapUntrusted } from "../ai/untrustedContent.js";
 import { extractTypedPhone, extractVolunteeredPhone } from "./shared/phoneText.js";
 import { accountBrandName } from "../messengers/accounts.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
@@ -63,7 +63,7 @@ export type ChannelCoreOutcome =
   /** A verified reply for the customer (template or verified model answer). `askedPhone`: the server asked for the number. */
   | { status: "reply"; text: string; askedPhone: boolean; intake: ChannelCoreIntake }
   /** The core wants a person (escalate, or an action no tool of this channel can do): send nothing, call staff. */
-  | { status: "staff"; reason: "escalate" | "action_needs_staff"; intake: ChannelCoreIntake }
+  | { status: "staff"; reason: "escalate" | "action_needs_staff" | "unreadable_input"; intake: ChannelCoreIntake; language: "ru" | "tg" }
   /** Intended silence (thanks, a reaction, a duplicate). */
   | { status: "silent"; reason: string }
   /** Public comment only: spam/abuse, the channel's own moderation decides. */
@@ -74,9 +74,21 @@ export type ChannelCoreOutcome =
 export const CHANNEL_CORE_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
 const MAX_DEADLINE_MS = 60_000;
 
+/** Markers the channels write instead of a file they did not read («[📷]», «[🎤 не расслышал]», «[📎 …]»): not words. */
+const ATTACHMENT_MARKER = /\[(?:📷|🎤|📎|🎥|🎬|📄|файл|вложение|видео|фото|документ)[^\]]{0,60}\]/giu;
+/**
+ * Pure: what the customer said, as the core reads it. The voice transcript IS the customer's own speech and stays
+ * (review #224 H2: `stripUntrusted` dropped it, a voice-only turn became «nothing to read»); contents of sent documents,
+ * video descriptions and CRM notes are someone else's text and go; attachment markers are not words.
+ */
+export function channelOwnWords(text: string): string {
+  return unwrapUntrusted(clientOwnWords(text)).replace(ATTACHMENT_MARKER, " ").replace(/\s+/g, " ").trim();
+}
+
 /** Pure: the core's view of the channel history — own words only, at most six earlier turns, bounded. */
 export function channelCoreTurns(history: ChannelCoreTurn["history"]): { inputText: string; turns: CustomerAgentVerifiedContext["turns"] } {
-  const own = history.map(item => ({ role: item.role, text: stripUntrusted(item.content).replace(/\s+/g, " ").trim().slice(0, 1500) }));
+  const own = history.map(item => ({ role: item.role, text: (item.role === "user" ? channelOwnWords(item.content)
+    : unwrapUntrusted(item.content).replace(/\s+/g, " ").trim()).slice(0, 1500) }));
   let last = -1;
   for (let i = own.length - 1; i >= 0; i--) if (own[i].role === "user") { last = i; break; }
   if (last < 0) return { inputText: "", turns: [] };
@@ -89,7 +101,7 @@ export function channelCoreTurns(history: ChannelCoreTurn["history"]): { inputTe
 
 /** Pure: the lead facts from the customer's own words (role, place). */
 export function channelCoreIntake(history: ChannelCoreTurn["history"]): ChannelCoreIntake {
-  const ownTexts = history.filter(item => item.role === "user").map(item => stripUntrusted(item.content)).filter(Boolean);
+  const ownTexts = history.filter(item => item.role === "user").map(item => channelOwnWords(item.content)).filter(Boolean);
   const intake = customerAgentIntake(ownTexts.slice(0, -1).map(text => ({ role: "user" as const, text })), ownTexts.at(-1) ?? "");
   const location = customerIntakeLocation(ownTexts, intake.role);
   return { role: intake.role, ...(location.locationOutsideDushanbe ? { locationOutsideDushanbe: true as const } : {}),
@@ -97,16 +109,17 @@ export function channelCoreIntake(history: ChannelCoreTurn["history"]): ChannelC
 }
 
 /** Pure: map a finished core turn to what the channel does. */
-export function channelCoreOutcome(result: CustomerCoreResult, intake: ChannelCoreIntake, surface: ChannelCoreSurface): ChannelCoreOutcome {
+export function channelCoreOutcome(result: CustomerCoreResult, intake: ChannelCoreIntake, surface: ChannelCoreSurface,
+  language: "ru" | "tg" = "ru"): ChannelCoreOutcome {
   if (result.status !== "ready") return { status: "unavailable", reason: result.reason };
   const decision = result.decision;
   if (decision.kind === "skip") return { status: "silent", reason: decision.reason };
-  if (decision.kind === "escalate") return { status: "staff", reason: "escalate", intake };
+  if (decision.kind === "escalate") return { status: "staff", reason: "escalate", intake, language };
   if (decision.kind === "moderation_proposal") return surface === "public_comment" ? { status: "moderate", action: decision.action }
     : { status: "silent", reason: "moderation_in_dm" };
   // A proposal asks the customer to confirm an action (showing, callback, saving): no write tool exists on these channels,
   // so promising it would be a lie. A person follows up instead.
-  if (decision.kind === "propose") return { status: "staff", reason: "action_needs_staff", intake };
+  if (decision.kind === "propose") return { status: "staff", reason: "action_needs_staff", intake, language };
   const text = result.text.trim();
   if (!text) return { status: "silent", reason: "empty_reply" };
   return { status: "reply", text, askedPhone: result.question === "phone", intake };
@@ -123,7 +136,12 @@ export async function runChannelCoreTurn(turn: ChannelCoreTurn, options: { mode:
   try {
     const surface = turn.surface ?? "dm";
     const { inputText, turns } = channelCoreTurns(turn.history);
-    if (!inputText) return { status: "silent", reason: "no_customer_words" };
+    // A turn with nothing readable (photo or file without words, voice without a transcript) is never «intended silence»:
+    // a person looks at it (review #224 H2). A history without any customer turn at all is nothing to answer.
+    if (!inputText) return turn.history.some(item => item.role === "user")
+      ? { status: "staff", reason: "unreadable_input", intake: channelCoreIntake(turn.history),
+        language: resolveCustomerDmLanguage("", turns.filter(item => item.role === "user").map(item => item.text)) }
+      : { status: "silent", reason: "no_customer_turn" };
     const [policy] = await prisma.$queryRaw<Array<{ activeAgentRevisionId: string | null }>>`
       SELECT "activeAgentRevisionId" FROM "CustomerRuntimePolicy" WHERE "id"='singleton'`;
     if (!policy?.activeAgentRevisionId) return { status: "unavailable", reason: "no_active_revision" };
@@ -168,7 +186,7 @@ export async function runChannelCoreTurn(turn: ChannelCoreTurn, options: { mode:
         });
         traceCustomerCoreResult(result);
         options.afterCore?.(result, { historyTurns: context.success ? context.data.turns.length : 0, toolsOffered: CHANNEL_CORE_TOOLS.length });
-        const outcome = channelCoreOutcome(result, intake, surface);
+        const outcome = channelCoreOutcome(result, intake, surface, language);
         if (outcome.status === "unavailable") traceCustomerCoreDisposition("held", outcome.reason);
         else if (outcome.status !== "reply") traceCustomerCoreDisposition("unchanged");
         return outcome;

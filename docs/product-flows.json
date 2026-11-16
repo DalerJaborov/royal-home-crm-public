@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 754,
-  "forks": 4060,
+  "forks": 4076,
   "mounts": 84,
   "cron": 137,
   "jobs": 33,
@@ -122561,26 +122561,11 @@
         },
         {
          "k": "do",
-         "t": "const location = customerIntakeLocation(own, intake.role);",
+         "t": "const location: ReturnType<typeof customerIntakeLocation> = customerIntakeLocationEnabled() ? customerIntakeL…",
          "a": [
-          "зовёт customerIntakeLocation()"
+          "зовёт customerIntakeLocationEnabled()"
          ],
          "c": []
-        },
-        {
-         "k": "if",
-         "t": "location.locationDifferentCountry",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return { status: \"denied\", reason: \"property_in_other_country\" };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
         },
         {
          "k": "loop",
@@ -131485,10 +131470,304 @@
      ]
     },
     {
+     "k": "if",
+     "t": "await isOperatorPauseActive(conversation.pausedUntil, null, conversation.clientId)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!(await isTelegramDirectMessagesEnabled())",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!telegramDirectBotReplyEnabled()",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await alertChannelStaff({ channel: \"TELEGRAM_DIRECT\", conversationId: conversation.id, text: typeof lastUser?…",
+       "a": [
+        "зовёт alertChannelStaff()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!input.conversationId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"skipped\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "input.channel !== \"TELEGRAM\" && input.channel !== \"TELEGRAM_DIRECT\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const outcome = await alertClientWaiting(input.why === \"escalate\" ? { conversationId: input.conversationId, t…",
+             "a": [
+              "зовёт alertClientWaiting()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const chat = direct ? await prisma.telegramDirectConversation.findUnique({ where: { id: input.conversationId …",
+           "a": [
+            "читает в базе: telegramDirectConversation",
+            "читает в базе: telegramConversation"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!chat || chat.client?.deletedAt",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"skipped\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const recipients = owner ? [owner] : await findAgentsWithPermission(\"messages.view\");",
+           "a": [
+            "зовёт findAgentsWithPermission()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!recipients.length",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telegram\", `Клиент в Telegram ждёт ответа, а уведомить некого (чат ${chat.id}).`, { dedu…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const claimed = await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdA…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claimed !== 1",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"already\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const raw = clientOwnWords(input.text ?? \"\").replace(/\\s+/gu, \" \").trim() || \"[голосовое или вложение без тек…",
+           "a": [
+            "зовёт clientOwnWords()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);",
+           "a": [
+            "зовёт scrubMentionedClientPhonesInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await sendPushToAgents(recipients, { kind: \"message\", title: `Ответьте вручную: ${name}`, body: `«${excerpt}»…",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"ai\", `Уведомление «клиент ждёт человека» не отправлено: ${error instanceof Error ? error…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "alertChannelStaff() — apps/api/src/lib/channelStaffAlert.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "await alertChannelStaff({ channel: \"TELEGRAM_DIRECT\", conversationId: conversation.id, text: typeof last?.con…",
+     "t": "const phoneKnown = await clientPhoneKnownOrDeleted(conversation.clientId);",
      "a": [
-      "зовёт alertChannelStaff()"
+      "зовёт clientPhoneKnownOrDeleted()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!clientId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const client = await prisma.client .findUnique({ where: { id: clientId }, select: { phone: true, deletedAt: t…",
+       "a": [
+        "читает в базе: client"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "client === undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!client || client.deletedAt",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return \"deleted\";",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "clientPhoneKnownOrDeleted() — apps/api/src/jobs/telegramRetryGuards.ts"
+    },
+    {
+     "k": "if",
+     "t": "phoneKnown === \"deleted\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!last || last.role !== \"user\" || !last.content",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const capabilities = await loadBotCapabilities();",
+     "a": [
+      "зовёт loadBotCapabilities()"
      ],
      "c": [
       {
@@ -131497,52 +131776,21 @@
        "a": [],
        "c": [
         {
-         "k": "if",
-         "t": "!input.conversationId",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return \"skipped\";",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "input.channel !== \"TELEGRAM\" && input.channel !== \"TELEGRAM_DIRECT\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const outcome = await alertClientWaiting(input.why === \"escalate\" ? { conversationId: input.conversationId, t…",
-           "a": [
-            "зовёт alertClientWaiting()"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
          "k": "do",
-         "t": "const chat = direct ? await prisma.telegramDirectConversation.findUnique({ where: { id: input.conversationId …",
+         "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { botCanSendPhotos: true, bo…",
          "a": [
-          "читает в базе: telegramDirectConversation",
-          "читает в базе: telegramConversation"
+          "читает в базе: settings"
          ],
          "c": []
         },
         {
          "k": "if",
-         "t": "!chat || chat.client?.deletedAt",
+         "t": "!s",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return \"skipped\";",
+           "t": "return ALL_ENABLED;",
            "a": [
             "дословно из кода"
            ],
@@ -131552,71 +131800,9 @@
         },
         {
          "k": "do",
-         "t": "const recipients = owner ? [owner] : await findAgentsWithPermission(\"messages.view\");",
+         "t": "const leadOnly = s.botLeadOnlyMode === true && leadOnlyAppliesTo(channel);",
          "a": [
-          "зовёт findAgentsWithPermission()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!recipients.length",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return \"skipped\";",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const claimed = await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdA…",
-         "a": [
-          "обращается к базе своим SQL"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "claimed !== 1",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return \"skipped\";",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const raw = clientOwnWords(input.text ?? \"\").replace(/\\s+/gu, \" \").trim() || \"[сообщение без текста]\";",
-         "a": [
-          "зовёт clientOwnWords()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);",
-         "a": [
-          "зовёт scrubMentionedClientPhonesInText()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "await sendPushToAgents(recipients, { kind: \"message\", title: `Ответьте вручную: ${name}`, body: `«${excerpt}»…",
-         "a": [
-          "push-уведомление"
+          "зовёт leadOnlyAppliesTo()"
          ],
          "c": []
         }
@@ -131629,16 +131815,266 @@
        "c": [
         {
          "k": "do",
-         "t": "void logSystemError(\"ai\", `Уведомление «клиент ждёт человека» не отправлено: ${error instanceof Error ? error…",
+         "t": "return ALL_ENABLED;",
          "a": [
-          "запись в журнал ошибок"
+          "дословно из кода"
          ],
          "c": []
         }
        ]
       }
      ],
-     "from": "alertChannelStaff() — apps/api/src/lib/channelStaffAlert.ts"
+     "from": "loadBotCapabilities() — apps/api/src/messengers/botCapabilities.ts"
+    },
+    {
+     "k": "do",
+     "t": "const abilities = botAbilitiesOf(capabilities);",
+     "a": [
+      "зовёт botAbilitiesOf()"
+     ],
+     "c": [],
+     "from": "botAbilitiesOf() — apps/api/src/messengers/botCapabilities.ts"
+    },
+    {
+     "k": "do",
+     "t": "const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…",
+     "a": [
+      "зовёт runLegacyQualifyTurn()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!result",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(\"ИИ всё ещё недоступен\");",
+       "a": [
+        "ошибка Error — «ИИ всё ещё недоступен»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await finishTelegramDirectQualifyTurn({ conversation: { id: conversation.id, clientId: conversation.clientId,…",
+       "a": [
+        "зовёт finishTelegramDirectQualifyTurn()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(`повтор не удался: ${describeError(err)}`);",
+       "a": [
+        "ошибка Error — «повтор не удался: ${describeError(err»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const conversation = await prisma.telegramDirectConversation.findUnique({ where: { id: payload.conversationId…",
+       "a": [
+        "читает в базе: telegramDirectConversation"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!conversation",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await logSystemError( \"ai\", `Ход (${payload.conversationId}, личные сообщения Telegram-канала) не дождался ИИ…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      }
+     ]
     }
    ]
   },

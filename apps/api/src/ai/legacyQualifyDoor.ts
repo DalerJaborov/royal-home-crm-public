@@ -22,9 +22,9 @@ import { mentionsPhoneRequest } from "./replyGuards.js";
 import { deriveOwnBuyerPreferences } from "../lib/customerBuyerPreferences.js";
 import { scheduleLegacyCoreShadow, type LegacyShadowAction, type LegacyTurnSummary } from "../lib/customerAgentLegacyShadow.js";
 import { customerAgentChannelMode, customerAgentLegacyChannelKey } from "../lib/customerAgentChannelSwitch.js";
-import { runChannelCoreTurn, type ChannelCoreIntake, type ChannelCoreOutcome } from "../lib/customerChannelCore.js";
+import { channelOwnWords, runChannelCoreTurn, type ChannelCoreIntake, type ChannelCoreOutcome } from "../lib/customerChannelCore.js";
+import { customerAgentHandoverLine } from "./customerAgentRenderer.js";
 import { alertChannelStaff } from "../lib/channelStaffAlert.js";
-import { stripUntrusted } from "./untrustedContent.js";
 
 // Helpers of the old bot that callers still need. Re-exported here so that the old module has exactly one importer;
 // step 3b moves each of them to its own module and this list disappears.
@@ -73,10 +73,12 @@ export function channelCoreQualifyResult(outcome: Extract<ChannelCoreOutcome, { 
     ...(wishes.desiredRooms !== undefined ? { rooms: wishes.desiredRooms } : {}),
     ...(wishes.desiredType ? { type: wishes.desiredType } : {}),
     ...(intake.locationOutsideDushanbe ? { locationOutsideDushanbe: true } : {}),
-    ...(intake.locationDifferentCountry ? { locationDifferentCountry: true } : {}),
+    // «Possibly abroad» is a word-level guess: it never refuses a lead here (review #223 H1); the old field's refusal path
+    // in the channels stays for the model-free cases only.
   } : null;
   return {
     reply: outcome.status === "reply" ? [outcome.text] : [],
+    ...(outcome.status === "reply" ? { verified: true as const } : {}),
     ready: outcome.status === "reply" && outcome.askedPhone,
     ...(role === "buyer" ? { intent: "buy" as const } : role === "seller" ? { intent: "sell" as const } : {}),
     lead: lead && Object.keys(lead).length ? lead : null,
@@ -113,10 +115,15 @@ async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOp
     history: turnHistory, phoneKnown: options.phoneKnown === true }, { mode: "live" });
   // The channel's existing AI-retry job plays the turn again later (and tells staff when it gives up).
   if (outcome.status === "unavailable" || outcome.status === "moderate") return null;
-  const ownTexts = turnHistory.filter(item => item.role === "user").map(item => stripUntrusted(item.content)).filter(Boolean);
+  const ownTexts = turnHistory.filter(item => item.role === "user").map(item => channelOwnWords(item.content)).filter(Boolean);
   if (outcome.status === "staff") {
-    await alertChannelStaff({ channel: source.channel, conversationId: options.conversationId ?? null,
-      text: ownTexts.at(-1) ?? "", why: outcome.reason });
+    const lastUser = [...turnHistory].reverse().find(item => item.role === "user")?.content ?? "";
+    const alerted = await alertChannelStaff({ channel: source.channel, conversationId: options.conversationId ?? null,
+      text: lastUser, why: outcome.reason, eventId: source.eventId ?? null });
+    // The customer hears the core's approved handover line (the Meta receipt wording), but only when a person really is
+    // responsible now — the alert went out for this message or already for this batch (review #223 M2).
+    if (alerted !== "skipped") return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [customerAgentHandoverLine(outcome.language)],
+      silent: undefined, verified: true };
   }
   return channelCoreQualifyResult(outcome, ownTexts);
 }

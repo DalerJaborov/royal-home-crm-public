@@ -303,6 +303,11 @@ const outcomes: Record<CustomerReceiptOutcome, { ru: string; tg: string }> = {
   showing_cancelled: { ru: "Запись на показ отменена.", tg: "Сабти тамошо бекор шуд." },
   owner_question_recorded: { ru: "Вопрос собственнику сохранён.", tg: "Савол ба соҳибмулк сабт шуд." },
 };
+/** The approved «I passed your message to a colleague» line of the core (receipt wording), for channels that hand a turn to
+ *  a person without a write tool of their own (lib/customerChannelCore.ts). The same words as the Meta handover receipt. */
+export function customerAgentHandoverLine(language: "ru" | "tg"): string {
+  return outcomes.handover_requested[language];
+}
 function factSegments(value: Extract<CustomerAgentObservation, { kind: "facts" }>, language: "ru" | "tg", question = "", numbered = true): string[] {
   const f = value.facts, tg = language === "tg", result: string[] = [];
   if (f.availability === "SOLD") return [customerPropertyAvailabilityLine(f, language)];

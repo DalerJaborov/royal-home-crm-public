@@ -382,12 +382,14 @@ export const NEUTRAL_REPLIES = {
   /** «Салом», «Алло», «?» — человек проверяет, на связи ли мы. */
   presence: {
     ru: "Да, я на связи. Напишите, пожалуйста, что вас интересует.",
-    tg: "Бале, ман дар тамосам. Лутфан нависед, ки чӣ шуморо шавқманд мекунад.",
+    // Без «лутфан»: слово из запрещённого списка ядра (#211) и разговорника — звучит книжно.
+    tg: "Бале, ман дар тамосам. Нависед, чӣ шуморо шавқманд мекунад?",
   },
   /** Вопрос, на который ответ съели фильтры. */
   question: {
     ru: "Понял ваш вопрос. Уточните, пожалуйста, чуть подробнее — так отвечу точнее.",
-    tg: "Саволатонро фаҳмидам. Лутфан каме муфассалтар нависед — то дақиқтар ҷавоб диҳам.",
+    // Без «лутфан» и «муфассал» (запрещённый список ядра, #211).
+    tg: "Саволатонро фаҳмидам. Каме дақиқтар нависед, то аниқ ҷавоб диҳам.",
   },
   /** Сообщение-утверждение: ответ на анкету, «после двух часов», подробности. */
   statement: {
@@ -475,6 +477,20 @@ export interface BotReplyRecovery {
 export interface FinalBotReply extends BotReplyFilterResult {
   /** Чем закрыт ход: как есть, вторым ответом модели, заготовкой или (петля) ничем. */
   recovery: "none" | "regenerated" | "neutral" | "silent_loop";
+}
+
+/**
+ * ОТВЕТ ЯДРА НЕ ПРАВЯТ СТАРЫЕ СТОРОЖА (один мозг, ревью #223 M4, 17.11.2026). Текст ядра уже проверен сервером по
+ * принципу «целиком или шаблон»: стражи этого файла (обрезка вопросов, вторая просьба номера, нейтральная заготовка)
+ * его больше не трогают. Остаётся только защита доставки — щит повтора уже отправленного. Щит сработал — не уходит
+ * ничего (ядро само не повторяется; заготовок-подмен нет).
+ */
+export async function verifiedCoreReply(text: string, shieldBlocked?: BotReplyRecovery["shieldBlocked"]): Promise<FinalBotReply> {
+  const bubbles = text.trim() ? [text.trim()] : [];
+  const base: BotReplyFilterResult = { bubbles, finalBubbles: bubbles, modelSaidNothing: bubbles.length === 0, guardsAteReply: false,
+    silencedBy: null, phoneAsksSoFar: 0, stopAskingPhone: false };
+  const shielded = await withoutShieldRepeats(base, shieldBlocked);
+  return { ...shielded, silencedBy: null, recovery: "none" };
 }
 
 /** Пузыри, которые щит не выпустит, снимаем ДО записи в переписку — иначе в CRM реплика, которой клиент не видел. */

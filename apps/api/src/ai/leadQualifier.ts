@@ -244,6 +244,8 @@ export interface QualifyResult {
   /** One brain, step 3: the core channel adapter DECIDED to send nothing (intended silence, or staff were called).
    *  The channel sends nothing — never its «sorry for the delay» fallback. The old bot never sets it. */
   silent?: "intended" | "staff";
+  /** One brain, step 3: the reply is the core's server-verified text — the channels' old reply guards must not edit it. */
+  verified?: true;
   lead: {
     budgetMin?: number;
     budgetMax?: number;

@@ -41,7 +41,7 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "lib/conversationDelivery.ts": { calls: 4, why: "ответ клиенту в его переписке" },
   "lib/photoPosts.ts": { calls: 1, why: "пост в канал компании" },
   "lib/socialPublish.ts": { calls: 1, why: "публикация в канал компании" },
-  "messengers/telegramDirectMessages.ts": { calls: 1, why: "переписка с клиентом (автоответ модели снят 16.11.2026, осталась фраза о принятой заявке)" },
+  "messengers/telegramDirectMessages.ts": { calls: 5, why: "переписка с клиентом" },
   "messengers/telegramGroupComments.ts": { calls: 3, why: "комментарии под постами канала" },
   "routes/expenseWorkspace.ts": { calls: 1, why: "выгрузка CSV по кнопке самого человека" },
   "routes/reportPdf.ts": { calls: 1, why: "PDF-отчёт себе в Telegram по кнопке самого человека (#189)" },

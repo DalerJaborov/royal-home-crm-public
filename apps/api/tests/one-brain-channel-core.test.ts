@@ -74,8 +74,8 @@ describe("adapter pure parts", () => {
   });
   it("outcome: reply / staff / silent / moderation / unavailable", () => {
     expect(channelCoreOutcome(ready({ kind: "reply" }, "Да", "phone"), intake, "dm")).toEqual({ status: "reply", text: "Да", askedPhone: true, intake });
-    expect(channelCoreOutcome(ready({ kind: "escalate", reason: "needs_staff" }), intake, "dm")).toEqual({ status: "staff", reason: "escalate", intake });
-    expect(channelCoreOutcome(ready({ kind: "propose", ref: "e0" }), intake, "dm")).toEqual({ status: "staff", reason: "action_needs_staff", intake });
+    expect(channelCoreOutcome(ready({ kind: "escalate", reason: "needs_staff" }), intake, "dm", "tg")).toEqual({ status: "staff", reason: "escalate", intake, language: "tg" });
+    expect(channelCoreOutcome(ready({ kind: "propose", ref: "e0" }), intake, "dm")).toEqual({ status: "staff", reason: "action_needs_staff", intake, language: "ru" });
     expect(channelCoreOutcome(ready({ kind: "skip", reason: "no_reply_needed" }), intake, "dm")).toEqual({ status: "silent", reason: "no_reply_needed" });
     expect(channelCoreOutcome(ready({ kind: "moderation_proposal", action: "delete", reason: "spam" }), intake, "public_comment"))
       .toEqual({ status: "moderate", action: "delete" });
@@ -86,9 +86,10 @@ describe("adapter pure parts", () => {
   it("old result shape: lead fields from the customer's words, `ready` = the server asked for the number", () => {
     const result = channelCoreQualifyResult({ status: "reply", text: "Какой район?", askedPhone: false, intake: { role: "buyer" } },
       ["Ищу 2 комнатную квартиру до 600000 сомони"]);
-    expect(result).toEqual({ reply: ["Какой район?"], ready: false, intent: "buy", lead: { budgetMax: 600000, rooms: 2, type: "APARTMENT" } });
-    expect(channelCoreQualifyResult({ status: "staff", reason: "escalate", intake: { role: "seller", locationDifferentCountry: true } }, ["x"]))
-      .toEqual({ reply: [], ready: false, intent: "sell", lead: { locationDifferentCountry: true }, silent: "staff" });
+    expect(result).toEqual({ reply: ["Какой район?"], ready: false, intent: "buy", lead: { budgetMax: 600000, rooms: 2, type: "APARTMENT" }, verified: true });
+    // «Possibly abroad» never refuses a lead (review #223 H1): the flag does not reach the channel's lead fields.
+    expect(channelCoreQualifyResult({ status: "staff", reason: "escalate", intake: { role: "seller", locationDifferentCountry: true }, language: "ru" }, ["x"]))
+      .toEqual({ reply: [], ready: false, intent: "sell", lead: null, silent: "staff" });
     expect(channelCoreQualifyResult({ status: "silent", reason: "duplicate" }, ["x"])).toEqual({ reply: [], ready: false, lead: null, silent: "intended" });
   });
   it("YouTube: a reply that sends to private messages is not posted (no DMs there); moderation only hides", () => {
@@ -96,7 +97,7 @@ describe("adapter pure parts", () => {
     expect(youtubeCoreDecision({ status: "reply", text: "Напишите нам в личные сообщения.", askedPhone: false, intake }).action).toBe("escalate");
     expect(youtubeCoreDecision({ status: "reply", text: "Дар паёми шахсӣ нависед.", askedPhone: false, intake }).action).toBe("escalate");
     expect(youtubeCoreDecision({ status: "moderate", action: "delete" })).toMatchObject({ action: "hide" });
-    expect(youtubeCoreDecision({ status: "staff", reason: "escalate", intake })).toMatchObject({ action: "escalate" });
+    expect(youtubeCoreDecision({ status: "staff", reason: "escalate", intake, language: "ru" })).toMatchObject({ action: "escalate" });
     expect(youtubeCoreDecision({ status: "silent", reason: "no_reply_needed" })).toMatchObject({ action: "ignore" });
     expect(youtubeCoreDecision({ status: "unavailable", reason: "x" })).toBeNull();
   });
@@ -114,15 +115,24 @@ describe("the legacy door routes a `core` channel to the adapter", () => {
     f.channelCore.mockResolvedValue({ status: "reply", text: "Какой бюджет?", askedPhone: false, intake });
     const result = await runLegacyQualifyTurn([user("Нужна квартира")] as never, { stage: "chatting" }, options, { channel: "TELEGRAM" });
     expect(f.qualify).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ reply: ["Какой бюджет?"], ready: false, intent: "buy" });
+    expect(result).toMatchObject({ reply: ["Какой бюджет?"], ready: false, intent: "buy", verified: true });
     expect(f.channelCore.mock.calls[0][1]).toEqual({ mode: "live" });
   });
   it("`core` + escalate: nothing to the customer, staff are told", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "website");
-    f.channelCore.mockResolvedValue({ status: "staff", reason: "escalate", intake });
+    f.channelCore.mockResolvedValue({ status: "staff", reason: "escalate", intake, language: "ru" });
     const result = await runLegacyQualifyTurn([user("Позовите человека")] as never, { stage: "chatting" }, { conversationId: "c-2", channel: "WEBSITE" } as never, { channel: "WEBSITE" });
+    // The person was told → the customer hears the core's approved handover line, untouched by the old guards.
+    expect(result).toMatchObject({ reply: ["Спасибо, передал ваше сообщение сотруднику."], verified: true });
+    expect(result?.silent).toBeUndefined();
+    expect(f.alert).toHaveBeenCalledWith({ channel: "WEBSITE", conversationId: "c-2", text: "Позовите человека", why: "escalate", eventId: null });
+  });
+  it("`core` + escalate but nobody could be told: no «передал» promise, silent + the channel's sweep", async () => {
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "website");
+    f.alert.mockResolvedValueOnce("skipped");
+    f.channelCore.mockResolvedValue({ status: "staff", reason: "escalate", intake, language: "ru" });
+    const result = await runLegacyQualifyTurn([user("Позовите человека")] as never, { stage: "chatting" }, { conversationId: "c-3", channel: "WEBSITE" } as never, { channel: "WEBSITE" });
     expect(result).toMatchObject({ reply: [], silent: "staff" });
-    expect(f.alert).toHaveBeenCalledWith({ channel: "WEBSITE", conversationId: "c-2", text: "Позовите человека", why: "escalate" });
   });
   it("`core` + core unavailable: null, so the channel's AI-retry job plays the turn again", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram");

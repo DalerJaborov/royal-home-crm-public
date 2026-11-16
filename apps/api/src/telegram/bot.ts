@@ -45,6 +45,7 @@ import {
   recentBotText,
   silentTurnReason,
   intendedSilenceReply,
+  verifiedCoreReply,
 } from "../messengers/replyChain.js";
 import {
   FALLBACK_ACCEPT_ERROR,
@@ -857,7 +858,9 @@ export async function finishTelegramQualifyTurn(params: {
   // Ответ съели фильтры — не молчим (аудит 10.10.2026, P0-1): повторить ход модели
   // здесь нечем (окончание хода общее с фоновым повтором), поэтому сразу короткая
   // нейтральная реплика; щит исходящих спрашиваем заранее.
-  const filtered = turn.silent ? intendedSilenceReply() : await finalizeBotReply({
+  const filtered = turn.silent ? intendedSilenceReply()
+    : turn.verified ? await verifiedCoreReply(turn.reply.join(" "), (bubbles) => repeatBlockedTexts("TELEGRAM", chatId, bubbles))
+    : await finalizeBotReply({
     reply: turn.reply,
     conversationId: conversation.id,
     channelLabel: "TELEGRAM",

@@ -77,3 +77,9 @@ export function customerAgentLegacyChannelKey(channel: string, brandName: string
   if (channel === "INSTAGRAM" || channel === "FACEBOOK" || channel === "WHATSAPP") return brandName?.trim() ? "arvan" : "meta_dm";
   return null;
 }
+
+/** Auto-reply of the model in Telegram channel direct messages (TelegramDirectConversation). Default on = as before;
+ *  `off` = the model does not answer there, a person is told (one brain, step 3). Step 3b removes the old bot: then off. */
+export function telegramDirectBotReplyEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  return env.TELEGRAM_DIRECT_BOT_REPLY?.trim().toLowerCase() !== "off";
+}

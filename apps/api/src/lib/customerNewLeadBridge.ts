@@ -14,6 +14,7 @@ import { lockCustomerNative } from "./customerNativeLock.js";
 import { recoverAuthenticatedCustomerInput, inspectAuthenticatedCustomerInput, authenticatedInputMatchesFence } from "./customerIngressAuthority.js";
 import { decryptCustomerFinalOrigin } from "./customerOriginPayload.js";
 import { customerAgentIntake, customerIntakeLocation } from "../ai/customerAgentIntake.js";
+import { customerIntakeLocationEnabled } from "./customerAgentFeaturePolicy.js";
 import { deriveOwnBuyerPreferences } from "./customerBuyerPreferences.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { isWithinWorkingHours } from "./workingHours.js";
@@ -95,11 +96,13 @@ export async function createCustomerLeadAfterContactAction(actionId: string): Pr
     if (intake.role === "unknown" && own.some(text => /(?:ваканси|резюме|ҷойи\s+кор|ищу\s+работу)/iu.test(text))) {
       return { status: "denied", reason: "recruitment_intake_separate" };
     }
-    // Old-bot parity (one brain, step 3): a seller's property abroad is politely declined without a lead; a property in
-    // another city of Tajikistan still becomes a lead, but in «Прочие обращения» for management, never an agent's queue.
-    const location = customerIntakeLocation(own, intake.role);
-    if (location.locationDifferentCountry) return { status: "denied", reason: "property_in_other_country" };
-    const zoneNote = location.locationOutsideDushanbe ? `📍 вне зоны (Душанбе и Рудаки): ${location.place ?? "другой город"}` : "";
+    // Where the property is (one brain, step 3; switch CUSTOMER_AGENT_INTAKE_LOCATION, default off = as before).
+    // Never a refusal (review #223 H1): the customer was already told his contact is saved, so a card is ALWAYS created.
+    // Another city of Tajikistan → «Прочие обращения» (the old bot's rule); a seller's property possibly abroad → only a
+    // note for the agent, the kind stays (a word-level guess must not move a real seller out of the agents' queue).
+    const location: ReturnType<typeof customerIntakeLocation> = customerIntakeLocationEnabled() ? customerIntakeLocation(own, intake.role) : {};
+    const zoneNote = location.locationOutsideDushanbe ? `📍 вне зоны (Душанбе и Рудаки): ${location.place ?? "другой город"}`
+      : location.locationDifferentCountry ? `❓ возможно, объект за границей (слова клиента: «${location.place ?? ""}») — уточнить` : "";
     let requirementsNotes = "";
     for (const text of [...own].reverse()) {
       if (zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000) requirementsNotes = text + (requirementsNotes ? "\n" + requirementsNotes : "");

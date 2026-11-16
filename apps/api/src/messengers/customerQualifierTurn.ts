@@ -7,7 +7,7 @@ import { aiDailyBudgetOf, spendAiTurns } from "../lib/aiDailyBudget.js";
 import { refreshCustomerQualifierProjection, type ScopedCustomerQualifierLane } from "../lib/customerQualifierContext.js";
 import { recordScopedCustomerInput, appendScopedCustomerReply } from "../lib/customerQualifierLedger.js";
 import { repeatBlockedTexts } from "../lib/outboundShield.js";
-import { finalizeBotReply, inClientLanguage, intendedSilenceReply } from "./replyChain.js";
+import { finalizeBotReply, inClientLanguage, intendedSilenceReply, verifiedCoreReply } from "./replyChain.js";
 import type { MessengerTurnInput, MessengerTurnResult } from "./turnTypes.js";
 
 const HELD: MessengerTurnResult = { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" };
@@ -65,7 +65,9 @@ async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial:
   if (!result) return { ...HELD, aiUnavailable: true };
   const blockedAction = !!(result.askOwner || result.callbackRequest || result.jobApplication ||
     result.showPropertyNumber || result.sendGuide || result.showing);
-  const filtered = result.silent ? intendedSilenceReply() : await finalizeBotReply({
+  const filtered = result.silent ? intendedSilenceReply()
+    : result.verified ? await verifiedCoreReply(result.reply.join(" "), bubbles => repeatBlockedTexts(input.channel, input.subscriberId, bubbles, undefined, input.customerTransport))
+    : await finalizeBotReply({
     reply: blockedAction ? [inClientLanguage(NO_EFFECT, text)] : result.reply,
     conversationId: lane.ticket.conversationId, channelLabel: input.channel, openUrl: `/messages?open=${lane.ticket.conversationId}`,
     botSpokeBefore: false, botSaidBefore: [], clientSaidTrusted: stripUntrusted(text, ["document", "video"]),

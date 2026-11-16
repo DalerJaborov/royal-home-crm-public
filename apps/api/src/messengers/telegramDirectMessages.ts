@@ -13,6 +13,7 @@ import { contactProfileForPrompt, rememberContactTurn } from "../lib/contactProf
 import { collectSellerFacts } from "../ai/sellerIntake.js";
 import { logSystemError } from "../lib/systemError.js";
 import { alertChannelStaff } from "../lib/channelStaffAlert.js";
+import { telegramDirectBotReplyEnabled } from "../lib/customerAgentChannelSwitch.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { noteRealInbound, repeatBlockedTexts } from "../lib/outboundShield.js";
 import { describeError } from "../lib/describeError.js";
@@ -208,8 +209,254 @@ async function appendDirectConversationMessages(conversationId: string, newMessa
   if (incoming) scheduleSellerFactsRefreshForConversation("telegram-direct", conversationId);
 }
 
-// The model turn of this channel and its persistent retry were retired in one brain, step 3 (16.11.2026): see the note
-// at the end of handleTelegramDirectMessage. Lead capture by a typed phone stays.
+/**
+ * ПАУЗА, ПОСТАВЛЕННАЯ ПОКА БОТ ДУМАЛ (аудит Codex 04.10.2026, находка №11).
+ *
+ * `isPaused` в handleTelegramDirectMessage считается один раз, по строке диалога,
+ * прочитанной в начале хода; ветка fromStaff между тем ставит `pausedUntil`, когда
+ * сотрудник отвечает из самого Telegram. Тот же приём, что в каналах Meta
+ * (messengers/conversation.ts) и личке бота (telegram/bot.ts): пауза
+ * перечитывается из базы и сравнивается с паузой НА НАЧАЛО ХОДА — протухшая
+ * «бессрочная» пауза потерянного клиента, которую ход сознательно обошёл, новой не
+ * считается. Читаем сырое поле, а не isOperatorPauseActive: нужна именно разница с
+ * началом хода.
+ */
+async function staffTookOverSince(conversationId: string, pausedUntilAtStart: Date | null | undefined): Promise<boolean> {
+  const pauseNow = await prisma.telegramDirectConversation
+    .findUnique({ where: { id: conversationId }, select: { pausedUntil: true } })
+    .then((row) => row?.pausedUntil ?? null)
+    .catch(() => null);
+  return !!pauseNow && pauseNow.getTime() > Date.now() && pauseNow.getTime() !== (pausedUntilAtStart?.getTime() ?? null);
+}
+
+/**
+ * Окончание хода ИИ в Direct Messages — вынесено ОБЩЕЙ функцией (13.09.2026,
+ * тот же чертёж Б2, что и у личных чатов telegram/bot.ts), чтобы её же вызывал
+ * и живой ход, и персистентный повтор jobs/telegramDirectReplyRetry.ts.
+ */
+export async function finishTelegramDirectQualifyTurn(params: {
+  /* phoneAsksSent обязателен в типе, а не «если есть»: забытый select дал бы
+   * молчаливый ноль и вернул ровно ту поломку, которую эта правка закрывает. */
+  conversation: {
+    id: string;
+    clientId: string | null;
+    phoneAsksSent: number;
+    /** Досье собеседника — память бота о человеке (lib/contactProfileMemory.ts). */
+    contactProfileId?: string | null;
+  };
+  chatId: string;
+  topicId: number;
+  draft: LeadDraft;
+  history: ChatMessage[];
+  text: string;
+  turn: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>;
+  capabilities?: Awaited<ReturnType<typeof loadBotCapabilities>>;
+  /** Клиент в ЭТОМ ходе прислал голосовое — условие для голосового ответа
+   *  (см. телеграм-личку telegram/bot.ts, тот же приём). Повтор из
+   *  jobs/telegramDirectReplyRetry.ts голосового вложения уже не видит. */
+  incomingWasVoice?: boolean;
+  /** Номер уже в карточке — второй раз не просим (как у лички бота и каналов Meta). */
+  phoneKnown?: boolean;
+  /** `pausedUntil` диалога на НАЧАЛО хода: с ним сравнивается пауза, перечитанная
+   *  перед отправкой (см. staffTookOverSince). Не передан — как «паузы не было». */
+  pausedUntilAtStart?: Date | null;
+}): Promise<void> {
+  const {
+    conversation,
+    chatId,
+    topicId,
+    draft,
+    history,
+    text,
+    turn,
+    capabilities,
+    incomingWasVoice = false,
+    phoneKnown = false,
+    pausedUntilAtStart = null,
+  } = params;
+  const reply = (t: string) => sendMessage(chatId, t, undefined, topicId);
+
+  const mergedDraft = mergeDraft(draft, turn, text);
+  if (draft.stage === "awaiting_phone") mergedDraft.stage = "awaiting_phone";
+
+  /**
+   * ЦЕПОЧКА ФИЛЬТРОВ ОТВЕТА — ТА ЖЕ ФУНКЦИЯ, ЧТО У КАНАЛОВ META И ЛИЧКИ БОТА
+   * (messengers/replyChain.ts::filterBotReply; Dan 03.10.2026, «один мозг»;
+   * аудит audit-1, находки 7 и 9). Удержание темы здесь не действует: состояние
+   * темы хранят только колонки BotConversation.
+   */
+  const botSpokeBefore = history.some((m) => m.role === "assistant");
+  const botSaidBefore = history.filter((m) => m.role === "assistant").map((m) => m.content);
+  const clientSaid = `${history
+    .filter((m) => m.role === "user")
+    .map((m) => m.content)
+    .join(" ")} ${text}`;
+  const turnLanguageRaw = detectClientLanguage(text);
+  const turnLanguage = turnLanguageRaw === "unknown" ? lastClientLanguage(history) : turnLanguageRaw;
+  // Ответ съели фильтры — не молчим (аудит 10.10.2026, P0-1): короткая нейтральная
+  // реплика; ключ щита — собеседник темы (`chatId:topicId`, как в telegram/api.ts).
+  const filtered = await finalizeBotReply({
+    reply: turn.reply,
+    conversationId: conversation.id,
+    channelLabel: "TELEGRAM Direct Messages",
+    openUrl: `/messages?open=${conversation.id}`,
+    botSpokeBefore,
+    botSaidBefore,
+    clientSaidTrusted: stripUntrusted(clientSaid, ["document", "video"]),
+    clientTurnText: text,
+    previousBotText: recentBotText(history),
+    language: turnLanguage,
+    draft: mergedDraft,
+    jobConversation: mergedDraft.intent === "job",
+    phoneAsksSent: conversation.phoneAsksSent ?? 0,
+    phoneKnown,
+    fallbackLanguageWords: [text, lastClientWords(history)],
+  }, { shieldBlocked: (bubbles) => repeatBlockedTexts("TELEGRAM", `${chatId}:${topicId}`, bubbles) });
+  /**
+   * Слова клиента уже в переписке, черновик и досье ниже сохраняются как обычно:
+   * не уходит и не пишется только ответ бота (след в журнале, как в telegram/bot.ts).
+   */
+  const staffTookOver = filtered.bubbles.length > 0 && (await staffTookOverSince(conversation.id, pausedUntilAtStart));
+  if (staffTookOver) {
+    void logSystemError(
+      "ai",
+      `Сотрудник взял диалог ${conversation.id} (TELEGRAM Direct Messages), пока бот готовил ответ, — ответ бота не отправлен.`,
+      { url: `/messages?open=${conversation.id}` }
+    );
+  }
+  const replyBubbles = staffTookOver ? [] : filtered.bubbles;
+
+  if (replyBubbles.length > 0) {
+    await appendDirectConversationMessages(conversation.id, [{ role: "assistant", content: replyBubbles.join("\n"), by: { kind: "bot" } }]);
+  }
+  /* Счётчик просьб номера — по реально ушедшим пузырям (просьбу мог вычеркнуть
+   * dropPhoneAsks) и прибавкой в самой БД, чтобы параллельный ход не затёрся. */
+  const phoneAsksJustSent = countPhoneAsksIn(replyBubbles);
+  await prisma.telegramDirectConversation.update({
+    where: { id: conversation.id },
+    data: {
+      leadDraft: mergedDraft as any,
+      ...(phoneAsksJustSent > 0 ? { phoneAsksSent: { increment: phoneAsksJustSent } } : {}),
+    },
+  });
+  // «Уточню у собственника» — обещание записывается, как в каналах Meta
+  // (messengers/conversation.ts): раньше здесь оно оставалось только словами.
+  if (turn.askOwner && capabilities?.askOwner) {
+    void recordOwnerQuestion({ conversationId: conversation.id, clientId: conversation.clientId, question: turn.askOwner });
+  }
+  // Досье человека — той же функцией, что в остальных каналах.
+  await rememberContactTurn({
+    profileId: conversation.contactProfileId,
+    conversationId: conversation.id,
+    draft: mergedDraft,
+    sellerFacts: mergedDraft.intent === "sell" ? collectSellerFacts(history) : null,
+    selfName: clientSelfStatedName(history),
+  });
+
+  /**
+   * ОТПРАВКА — ПОД ОТМЕТКОЙ «НЕ ДОСТАВЛЕНО» (правка 22.09.2026). Тот же довод,
+   * что в личке telegram/bot.ts и в каналах Meta: реплика лежит в переписке
+   * ДО отправки, `reply` бросает на любой отказ Bot API, а Telegram наш 200 уже
+   * получил. Без отметки сотрудник видит «бот ответил» и сам не пишет.
+   */
+  /*
+   * БЕЗ «Записал: …» И БЕЗ ВТОРОЙ ПРОСЬБЫ НОМЕРА (ревизия бота 02.10.2026). Сводка
+   * анкетой в конце ответа читалась как бланк, а дежурное «напишите номер» уходило
+   * по-русски следом за пузырём, где модель номер уже попросила, и мимо счётчика
+   * просьб. Теперь просьба добавляется, только если её в ответе нет и лимит не
+   * исчерпан, на языке клиента и с учётом в счётчике.
+   */
+  /*
+   * По этапу «ждём номер», а не по `turn.ready` (03.10.2026, аудит audit-1,
+   * находка 5): другой город, заграница и аренда этот этап нарочно не получают
+   * (mergeDraft), и просить у них номер «чтобы агент связался» нельзя. Фраза —
+   * общая phoneReminder на языке разговора (без запрещённого «лутфан»). На пустой
+   * ответ (вычистили проверки) одинокую просьбу номера не шлём.
+   */
+  const addPhoneAsk =
+    replyBubbles.length > 0 &&
+    mergedDraft.stage === "awaiting_phone" &&
+    !conversation.clientId &&
+    !filtered.stopAskingPhone &&
+    countPhoneAsksIn(replyBubbles) === 0 &&
+    // Прошлым сообщением уже просили — второй раз подряд не просим (то же
+    // правило, что у ensurePhoneAskKept).
+    !mentionsPhoneRequest(recentBotText(history));
+  let deliveredAny = false;
+  try {
+    // «Печатает…» и пауза набора перед каждым пузырём — как у каналов Meta
+    // (03.10.2026, аудит audit-1, находка 6; messengers/humanPacing.ts).
+    // Пауза перечитывается ПОСЛЕ набора и перед каждым пузырём: набор занимает
+    // секунды на пузырь, и сотрудник успевает вклиниться между пузырями.
+    let interrupted = false;
+    for (const [i, bubble] of replyBubbles.entries()) {
+      await sendChatAction(chatId, topicId);
+      await sleep(chatTypingPauseMs(bubble, i === 0 ? 3000 : 6000));
+      if (await staffTookOverSince(conversation.id, pausedUntilAtStart)) {
+        interrupted = true;
+        break;
+      }
+      await reply(bubble);
+      deliveredAny = true;
+    }
+    if (interrupted) {
+      void logSystemError(
+        "ai",
+        `Сотрудник взял диалог ${conversation.id} (TELEGRAM Direct Messages) посреди ответа бота, остаток не отправлен.`,
+        { url: `/messages?open=${conversation.id}` }
+      );
+      if (!deliveredAny) await markLastTelegramReplyUndelivered("telegram-direct", conversation.id);
+    } else if (addPhoneAsk) {
+      const ask = phoneReminder(turnLanguage);
+      await sendChatAction(chatId, topicId);
+      await sleep(chatTypingPauseMs(ask, 6000));
+      if (await staffTookOverSince(conversation.id, pausedUntilAtStart)) return;
+      await reply(ask);
+      await appendDirectConversationMessages(conversation.id, [{ role: "assistant", content: ask, by: { kind: "bot" } }]);
+      await prisma.telegramDirectConversation
+        .update({ where: { id: conversation.id }, data: { phoneAsksSent: { increment: 1 } } })
+        .catch((err) => console.error("[telegram-dm] счётчик просьб номера:", describeError(err)));
+    }
+  } catch (err) {
+    if (!deliveredAny && replyBubbles.length > 0) {
+      await markLastTelegramReplyUndelivered("telegram-direct", conversation.id);
+    }
+    void logSystemError(
+      "ai",
+      `Ответ бота не доставлен в Telegram Direct Messages (диалог ${conversation.id}): ${describeError(err)}`
+    );
+    throw err;
+  }
+
+  /**
+   * ГОЛОСОВОЙ ОТВЕТ — тот же принцип, что в личке telegram/bot.ts и каналах
+   * Meta (messengers/conversation.ts, 13.09.2026): только если клиент сам
+   * прислал голосовое в этом ходе, и только когда рубильник включён.
+   *
+   * ПОЧЕМУ НЕ deliverVoiceToConversation: та функция умеет только
+   * BotConversation (каналы Meta) и TelegramConversation (личка бота) — у
+   * Direct Messages канала СВОЯ таблица (TelegramDirectConversation) и свой
+   * составной ключ (chatId+topicId), которых нет в DeliveryTarget. Поэтому
+   * здесь — короткий путь напрямую через те же кирпичи (transcodeToOggOpus,
+   * saveOutgoingVoice, publicUploadUrl, sendVoice), без общей защиты
+   * checkAgentVoiceMessage: та защита — от ЖИВОГО агента, слившего номер
+   * голосом, а не от бота, отвечающего своим же уже проверенным текстом.
+   */
+  if (capabilities?.voiceReplies && incomingWasVoice && replyBubbles.length > 0) {
+    try {
+      const speech = await synthesizeChatVoiceReply(replyBubbles.join("\n"));
+      if (speech) {
+        const wav = pcmToWavBuffer(Buffer.from(speech.audioBase64, "base64"), speech.sampleRateHz);
+        const ogg = await transcodeToOggOpus(wav);
+        const publicPath = ogg ? await saveOutgoingVoice(ogg, "ogg") : null;
+        const absoluteUrl = publicPath ? publicUploadUrl(publicPath) : null;
+        if (absoluteUrl) await sendVoice(chatId, absoluteUrl, topicId);
+      }
+    } catch (err) {
+      console.error("[голосовой ответ] telegram direct:", err instanceof Error ? err.message : err);
+    }
+  }
+}
 
 export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage): Promise<void> {
   const chatId = String(msg.chat.id);
@@ -620,13 +867,55 @@ export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage):
     return;
   }
 
+  // Окончание хода — общей функцией finishTelegramDirectQualifyTurn (объявлена
+  // ниже в модуле), чтобы её же вызывал персистентный повтор
+  // jobs/telegramDirectReplyRetry.ts. См. докстринг там же.
   /**
-   * АВТООТВЕТ МОДЕЛИ В ЛИЧНЫХ СООБЩЕНИЯХ TELEGRAM СНЯТ (один мозг, шаг 3, 16.11.2026).
-   *
-   * ФАКТ (прод, 16.11): TelegramDirectConversation — 0 диалогов за всё время. Переносить на ядро канал без единого
-   * клиента — тратить время и держать второй путь ответа; поэтому старый бот здесь больше не отвечает, а слова клиента
-   * не теряются: они уже в переписке (saveIncoming выше), номер по-прежнему оформляет заявку (ветка выше), а
-   * закреплённый агент или все, кто читает чаты, получают «ответьте вручную» (не чаще раза в 6 часов на чат).
+   * Рубильник автоответа модели в личных сообщениях Telegram-канала (один мозг, шаг 3; по умолчанию — как было).
+   * TELEGRAM_DIRECT_BOT_REPLY=off: модель не отвечает, слова клиента уже в переписке (saveIncoming выше), номер по-прежнему
+   * оформляет заявку (ветка выше), сотруднику — «ответьте вручную». ФАКТ (прод, 16.11): 0 диалогов за всё время.
    */
-  void alertChannelStaff({ channel: "TELEGRAM_DIRECT", conversationId: conversation.id, text, why: "bot_retired" });
+  if (!telegramDirectBotReplyEnabled()) {
+    await alertChannelStaff({ channel: "TELEGRAM_DIRECT", conversationId: conversation.id, text, why: "bot_retired", eventId: msg.message_id != null ? String(msg.message_id) : null });
+    return;
+  }
+  const capabilities = await loadBotCapabilities();
+  const finishTurn = (turn: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>): Promise<void> =>
+    finishTelegramDirectQualifyTurn({
+      conversation,
+      chatId,
+      topicId: topic.topic_id,
+      draft,
+      history,
+      text,
+      turn,
+      capabilities,
+      incomingWasVoice: fetched.audios.length > 0,
+      pausedUntilAtStart: conversation.pausedUntil,
+    });
+
+  const abilities = botAbilitiesOf(capabilities);
+  if (peerBudget) await spendAiTurns(peerBudget.row.id, peerBudget.budget.dayKey, 1, "peer");
+  const result = await runLegacyQualifyTurn(nextHistory, draft, {
+    images,
+    abilities,
+    conversationId: conversation.id,
+    contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
+  }, { channel: "TELEGRAM" });
+
+  if (!result) {
+    // Персистентный повтор (13.09.2026, тот же чертёж Б2, что у личных чатов и
+    // каналов Meta) — см. докстринг jobs/telegramDirectReplyRetry.ts. dedupeKey
+    // на диалог: пока задание ждёт/исполняется, повторные отказы модели по
+    // тому же диалогу новых заданий не плодят.
+    void enqueueBackgroundJob({
+      type: "telegram-dm-reply-retry",
+      payload: { conversationId: conversation.id },
+      dedupeKey: `telegram-dm-reply-retry:${conversation.id}`,
+      maxAttempts: AI_REPLY_RETRY_MAX_ATTEMPTS,
+    });
+    return;
+  }
+
+  await finishTurn(result);
 }
