@@ -103,9 +103,8 @@ describe("Direct Messages канала: разные topic_id — разные �
     expect(rows.find((r) => r.topicId === String(topicA))?.username).toBe("buyer_a");
     expect(rows.find((r) => r.topicId === String(topicB))?.username).toBe("buyer_b");
 
-    // Ответ каждому ушёл с ЕГО topic_id — иначе оба получили бы ответы друг друга.
-    const topicIdsReplied = sendMessage.mock.calls.map((call) => call[3]);
-    expect(topicIdsReplied).toEqual(expect.arrayContaining([topicA, topicB]));
+    // Автоответ модели в этом канале снят (один мозг, шаг 3, 16.11.2026): никому ничего не уходит.
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("заявка заводится БЕЗ telegramChatId — на общий DM-инбокс нельзя писать без topicId", async () => {
@@ -146,44 +145,5 @@ describe("Direct Messages канала после заявки (ревизия 0
   });
 });
 
-describe("Direct Messages канала: ссылка на объект ведёт заявку к его агенту (02.10.2026)", () => {
-  it("клиент прислал ссылку на объект, потом номер — заявка у агента объекта, а не в общей очереди", async () => {
-    const topic = 920000000 + (runId % 1000);
-    const tail = String(runId).slice(-7);
-    const saved = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { workHoursStart: true, workHoursEnd: true } });
-    await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "24:00" } });
-    const district = await prisma.district.create({ data: { name: `Тест-район-tgdm-${runId}` } });
-    const agent = await prisma.agent.create({
-      data: { fullName: `Агент объекта ${runId}`, phone: `+99293${tail}`, role: "AGENT", passwordHash: "x" },
-    });
-    const property = await prisma.property.create({
-      data: {
-        title: `Тест-объект-tgdm-${runId}`, type: "APARTMENT", rooms: 2, areaSqm: 55, price: 45000, currency: "USD",
-        districtId: district.id, address: "Тестовая, 1", condition: "GOOD", intakeAgentId: agent.id,
-      },
-    });
-    let clientId: string | null = null;
-    try {
-      await prisma.propertyExposure.create({
-        data: { channel: "TELEGRAM", recipientId: String(topic), propertyId: property.id, shortId: property.shortId, kind: "CLIENT_SHARED" },
-      });
-      await handleTelegramUpdate(dmUpdate(topic, "buyer_obj", "Здравствуйте, эта квартира ещё есть?"));
-      await handleTelegramUpdate(dmUpdate(topic, "buyer_obj", `+99290${tail}`));
-      const row = await prisma.telegramDirectConversation.findUnique({
-        where: { chatId_topicId: { chatId: String(DM_CHAT_ID), topicId: String(topic) } },
-      });
-      clientId = row?.clientId ?? null;
-      expect(clientId).toBeTruthy();
-      const client = await prisma.client.findUnique({ where: { id: clientId! }, select: { assignedAgentId: true, assignReason: true } });
-      // Причина важнее имени: новый агент без нагрузки мог прийти и из общей очереди.
-      expect(client).toMatchObject({ assignedAgentId: agent.id, assignReason: "own_property_shown" });
-    } finally {
-      if (clientId) await prisma.client.delete({ where: { id: clientId } }).catch(() => {});
-      await prisma.propertyExposure.deleteMany({ where: { propertyId: property.id } });
-      await prisma.property.delete({ where: { id: property.id } });
-      await prisma.agent.delete({ where: { id: agent.id } }).catch(() => {});
-      await prisma.district.delete({ where: { id: district.id } });
-      await prisma.settings.update({ where: { id: "singleton" }, data: saved! });
-    }
-  });
-});
+// «Ссылка на объект ведёт заявку к его агенту» в Direct Messages жила в ходе модели этого канала, снятом 16.11.2026
+// (0 диалогов за всё время): номер по-прежнему заводит заявку, а распределяет её общая очередь.
