@@ -920,7 +920,10 @@ describe("actual durable DM common core", () => {
     expect(result.status).toBe("planned");
     if (result.status !== "planned") throw Error("Expected a private greeting");
     const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
-    expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text", text: "Здравствуйте!" });
+    // A bare greeting gets the greeting and one open question (#206: no dead-end «Здравствуйте!»), never the agency phone.
+    expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text",
+      text: "Здравствуйте!
+Подскажите, что вас интересует: купить, продать недвижимость или работа у нас?" });
   });
   it("shadow (the default) validates and counts the model's phrase but the customer still gets the template; live sends exactly the validated phrase through delivery sealing", async () => {
     const say = "Давайте разберёмся вместе.";
@@ -1145,7 +1148,8 @@ describe("never silence (16.11.2026)", () => {
   });
   it("a reply the shield WOULD cut (said twice already) becomes the hand-off line, and the person is signalled", async () => {
     const f = await fixture("Хона даркор");
-    const reply = "Салом!\nШумо чӣ қадар буҷет дар назар доред?"; // what this Tajik input renders to
+    const reply = "Ассалому алайкум!
+Чӣ қадар маблағ дар назар доред?"; // what this Tajik input renders to (live wording #206)
     // Seed the shield exactly as two earlier sends of this text did (same key as the transport: channel, peer, account).
     for (let i = 0; i < 2; i++) {
       expect(await admitOutbound({ channel: "INSTAGRAM", subscriberId: f.peer, text: reply, transport: f.accountId, answersInbound: true }))
