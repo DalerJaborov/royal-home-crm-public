@@ -4,6 +4,7 @@ import { useAuthStore } from "../store/auth";
 import { useMobileUx } from "./useMobileUx";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import type { UiShellEffective } from "@royal-home/shared";
 import { agentMobilePreviewOverride, cleanShellAllowedOnDevice, localAgentPreviewAllowed, savedAgentMobilePreview, saveAgentMobilePreview } from "./shellDevicePolicy";
 
 const KEY = "rh-shell";
@@ -50,7 +51,7 @@ export function useCleanShellSelection(poll = false) {
   const deviceAllowed = cleanShellAllowedOnDevice(mobile, role, agentPreview);
   const policy = useQuery({
     queryKey: ["ui-shell", agentId],
-    queryFn: () => api<{ enabled: boolean }>("/ui-shell", { timeoutMs: 8_000 }),
+    queryFn: () => api<UiShellEffective>("/ui-shell", { timeoutMs: 8_000 }),
     enabled: !!agentId && deviceAllowed,
     staleTime: 15_000,
     // Only AppLayout owns the rollback poll; page/component observers share
@@ -94,6 +95,11 @@ export function useCleanShellSelection(poll = false) {
   const clean = cleanShellEnabled(requested, mobile, agentId, policy.data?.enabled === true && (!agentPreview || !policy.isError), role, agentPreview);
   return {
     clean,
+    // «Новый вид» follows the last SUCCESSFUL policy answer, like the shell
+    // itself: a failed periodic check must not flicker it off. It is absent
+    // until a first success, and a successful answer without `look` (the
+    // emergency OFF) removes it at once (hooks/useRoyalLook.ts).
+    ...(clean && policy.data?.look ? { look: policy.data.look } : {}),
     // Do not mount working legacy controls only to discard them milliseconds
     // later when the first policy response chooses Clean.
     pending: !!agentId && deviceAllowed && requested && policy.isPending,

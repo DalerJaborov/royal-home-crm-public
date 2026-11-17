@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4067,
+  "forks": 4069,
   "mounts": 87,
   "cron": 141,
   "jobs": 33,
@@ -79165,12 +79165,42 @@
         },
         {
          "k": "if",
-         "t": "config.agentIds.length",
+         "t": "keepStoredLook && storedLook.length",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "const agents = await tx.agent.findMany({ where: { id: { in: config.agentIds }, isActive: true }, select: { id…",
+           "t": "config.royalLookAgentIds = storedLook;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "config.royalLookAgentIds?.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "delete config.royalLookAgentIds;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "selectedIds.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: tr…",
            "a": [
             "читает в базе: agent"
            ],
@@ -79377,7 +79407,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json({ enabled: isUiShellEnabled(await storedConfig(), req.agent!) });",
+     "t": "res.json(body);",
      "a": [
       "ответ 200"
      ],
