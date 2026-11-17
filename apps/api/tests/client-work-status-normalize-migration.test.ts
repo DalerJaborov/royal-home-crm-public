@@ -8,7 +8,7 @@ import { CLIENT_IN_WORK_WHERE } from "../src/lib/clientInWork.js";
 import { newLeadOnlyWhere } from "../src/services/leads/reassignment.js";
 
 /**
- * Миграция 20261116150000_client_work_status_normalize (владелец 16.11.2026:
+ * Миграция 20261117160000_client_work_status_normalize (владелец 16.11.2026:
  * «Неактивных» и «Отложенных» больше нет). Проверяем саму SQL-миграцию на живой
  * базе: она возвращает INACTIVE/DEFERRED в ACTIVE, пишет журнал переходов,
  * не трогает карточку с нерешённым предложением прежнему агенту и при повторном
@@ -21,7 +21,7 @@ import { newLeadOnlyWhere } from "../src/services/leads/reassignment.js";
 const SQL = fs.readFileSync(
   path.join(
     path.dirname(fileURLToPath(import.meta.url)),
-    "../prisma/migrations/20261116150000_client_work_status_normalize/migration.sql"
+    "../prisma/migrations/20261117160000_client_work_status_normalize/migration.sql"
   ),
   "utf8"
 );
@@ -113,17 +113,17 @@ describe("миграция: «Неактивные» и «Отложенные»
 });
 
 /**
- * Миграция 20261116160000_client_lost_back_to_work (владелец 16.11.2026, вечер):
+ * Миграция 20261117170000_client_lost_back_to_work (владелец 16.11.2026, вечер):
  * старые LOST — обратно в обычный список (с контактом — CONTACTED, без — NEW),
  * ARCHIVED не трогаем, журнал пишется, повтор ничего не делает.
  */
 describe("миграция: старые «Потерянные» → обычная работа", () => {
   const LOST_SQL = fs.readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261116160000_client_lost_back_to_work/migration.sql"),
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261117170000_client_lost_back_to_work/migration.sql"),
     "utf8"
   );
   const LIST_SQL = fs.readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261116170000_client_lost_back_to_work_list/migration.sql"),
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261117180000_client_lost_back_to_work_list/migration.sql"),
     "utf8"
   );
   const lostIds: Record<string, string> = {};
