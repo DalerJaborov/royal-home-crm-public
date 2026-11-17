@@ -169,6 +169,10 @@ services:
       # free phrase mode (shadow|live, PR #44; live only after the shadow week).
       CUSTOMER_AGENT_LEGACY_CUTOVER: "${CUSTOMER_AGENT_LEGACY_CUTOVER:-off}"
       CUSTOMER_AGENT_SAY_MODE: "${CUSTOMER_AGENT_SAY_MODE:-}"
+      # One brain, step 2 (16.11.2026): shadow comparison of the old bot with the core,
+      # per channel (meta_dm, arvan, website, youtube, telegram | all). Empty = off.
+      CUSTOMER_AGENT_CHANNEL_SHADOW: "${CUSTOMER_AGENT_CHANNEL_SHADOW:-}"
+      CUSTOMER_AGENT_SHADOW_DAILY_CAP: "${CUSTOMER_AGENT_SHADOW_DAILY_CAP:-}"
       # Сбор объявлений Somon/Paydo по расписанию (lib/market/nightly.ts, cron.ts). Без этой
       # строки значение из .env.production в контейнер не попадало: на 11.11.2026 каталог был
       # пуст, хотя переключатель описан в журнале 02.11. По умолчанию выключен.

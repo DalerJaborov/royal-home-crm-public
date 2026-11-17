@@ -19,7 +19,7 @@ import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { verifyAccessToken } from "../auth/jwt.js";
 import { audioUpload, upload, uploadsDir } from "../upload.js";
 import { encryptSecret, decryptSecretSafe } from "../crypto.js";
-import { DEFAULT_BOT_PERSONA } from "../ai/leadQualifier.js";
+import { DEFAULT_BOT_PERSONA } from "../ai/legacyQualifyDoor.js";
 import { DEFAULT_LIVE_VOICE_PROMPT, buildLiveVoiceSystemPrompt } from "../ai/liveVoicePersona.js";
 import { withSelfGenderReminder, withSelfGenderRule } from "../ai/liveVoiceSelfGender.js";
 import { DEFAULT_COMMENT_PROMPT } from "../messengers/comments.js";

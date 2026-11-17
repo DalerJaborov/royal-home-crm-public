@@ -4,7 +4,8 @@ import { customerMutationReceiptSchema } from "./customerMutation.js";
 
 export const BOT_TURN_TRACE_COVERAGE = "meta_website_customer_bot_v1" as const;
 export const BOT_CUSTOMER_AGENT_TRACE_COVERAGE = "customer_agent_dm_public_v1" as const;
-export const traceChannelSchema = z.enum(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE"]);
+/** TELEGRAM and YOUTUBE carry only the one-brain shadow record (phase "shadow"); their legacy turns are not traced. */
+export const traceChannelSchema = z.enum(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE", "TELEGRAM", "YOUTUBE"]);
 export const traceSourceSchema = z.enum(["webhook", "website", "ai_retry", "manual_retry", "internal", "delivery_status"]);
 export const traceOutcomeSchema = z.enum(["incomplete", "completed", "duplicate", "remembered", "echo", "manual", "bot_off", "batched", "no_reply", "failed", "blocked", "partially_sent"]);
 export const traceStageSchema = z.enum(["ingress", "media_download", "asr", "vision", "resolution", "model", "qualifier_guards", "reply_chain", "recovery", "send", "stamp", "final"]);
@@ -67,7 +68,7 @@ export const traceCustomerCoreStopCodeSchema = z.enum([
 const traceCustomerDecisionKindSchema = decisionKind;
 const traceCustomerSkipReasonSchema = z.enum(["no_reply_needed", "duplicate", "unsupported"]);
 export const traceManagedContextSchema = z.strictObject({
-  surface: customerAgentSurfaceSchema.exclude(["voice"]), phase: z.enum(["planning", "delivery"]),
+  surface: customerAgentSurfaceSchema.exclude(["voice"]), phase: z.enum(["planning", "delivery", "shadow"]),
   revisionId: z.string().regex(/^[a-f0-9]{64}$/).optional(), operationKey: key,
 });
 export const traceCustomerCoreSchema = z.strictObject({
@@ -100,6 +101,22 @@ export const traceManagedDeliverySchema = z.strictObject({
   status: z.enum(["accepted", "available_widget", "unknown", "suppressed", "not_sent", "waiting", "missing"]),
   projectionPending: z.boolean(),
 });
+/** One-brain step 2 (16.11.2026): channels whose customer replies still come from the old bot, each with its own shadow switch. */
+export const customerAgentLegacyChannelSchema = z.enum(["meta_dm", "arvan", "website", "youtube", "telegram"]);
+export type CustomerAgentLegacyChannel = z.infer<typeof customerAgentLegacyChannelSchema>;
+/** What the old bot actually did with the turn. Flags only: no text, no lead values. */
+const traceLegacyActionSchema = z.enum(["none", "callback", "ask_owner", "showing", "job_application", "guide", "property"]);
+/** Shadow comparison of one old-bot turn with the core run on the same words (nothing of the core is sent or written).
+ *  The core verdict itself is `customerCore` of the same record. Metadata only, never text. */
+export const traceLegacyShadowSchema = z.strictObject({
+  channelKey: customerAgentLegacyChannelSchema,
+  legacy: z.strictObject({ replied: z.boolean(), bubbles: count.max(8), askedPhone: z.boolean(), action: traceLegacyActionSchema }),
+  core: z.strictObject({ replied: z.boolean(), askedPhone: z.boolean(), question: z.string().regex(/^[a-z_]{1,32}$/).optional() }),
+  agree: z.strictObject({ replied: z.boolean(), askedPhone: z.boolean() }),
+  /** Tools the shadow could serve (public reads only); property-number reads and every write are not offered. */
+  toolsOffered: count.max(16), historyTurns: count.max(6),
+});
+export type TraceLegacyShadow = z.infer<typeof traceLegacyShadowSchema>;
 export type TraceManagedContext = z.infer<typeof traceManagedContextSchema>;
 export type TraceCustomerCore = z.infer<typeof traceCustomerCoreSchema>;
 export type TraceManagedDelivery = z.infer<typeof traceManagedDeliverySchema>;
@@ -110,7 +127,7 @@ export const botTurnTracePayloadSchema = z.strictObject({
   eventKey: key, conversationKey: key, accountKey: key, groupedEventKeys: z.array(key).max(32), groupedTraceIds: z.array(z.string().uuid()).max(32),
   input: z.strictObject({ kind: z.enum(["text", "media", "referral", "echo", "unknown"]), textPresent: z.boolean(), attachmentCount: count.max(1000), mimeKinds: z.array(z.enum(["image", "audio", "video", "document"])).max(4), language: z.enum(["ru", "tg", "unknown"]), echoReason: z.enum(["known_mid", "history_mid", "in_flight", "template", "manual", "unknown"]).nullable() }),
   managed: traceManagedContextSchema.optional(), customerCore: traceCustomerCoreSchema.optional(),
-  managedDelivery: traceManagedDeliverySchema.optional(),
+  managedDelivery: traceManagedDeliverySchema.optional(), legacyShadow: traceLegacyShadowSchema.optional(),
   ingress: botIngressShapeSchema.nullable(), resolutions: z.array(traceResolutionFactSchema).max(12),
   modelAttempts: z.array(traceModelAttemptSchema).max(8), filterDeltas: z.array(traceFilterDeltaSchema).max(16),
   outgoing: z.array(traceOutgoingPartSchema).max(12), timings: z.array(traceTimingSchema).max(12),

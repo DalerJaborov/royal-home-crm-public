@@ -7,7 +7,7 @@ import { logSystemError } from "../lib/systemError.js";
 import { neutralizeFence } from "./untrustedContent.js";
 import { describeError } from "../lib/describeError.js";
 import { sendPushToAgents } from "../push.js";
-import { resolveBotPersona, BOT_CORE_RULES } from "./leadQualifier.js";
+import { resolveBotPersona, BOT_CORE_RULES } from "./legacyQualifyDoor.js";
 import type { ChatMessage } from "./shared.js";
 import { getClosedGroupKeys, groupKey } from "../lib/botAuditGroups.js";
 
