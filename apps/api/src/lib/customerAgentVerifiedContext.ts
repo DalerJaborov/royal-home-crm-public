@@ -315,8 +315,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
             // The bot's reply to each ticket (parts arrive newest first, so an earlier part goes in front): the intake reads a bare
             // «3» / «70 000» / «Сино» as an answer only to the question the bot had just asked.
             const key = part.ticket.order.toString();
-            replyAfter.set(key, [text, replyAfter.get(key)].filter(Boolean).join("
-"));
+            replyAfter.set(key, [text, replyAfter.get(key)].filter(Boolean).join("\n"));
           }
         } catch { /* Corrupt or non-public historical part is omitted, never a grant. */ }
       }
