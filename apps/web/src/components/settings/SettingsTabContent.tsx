@@ -49,7 +49,7 @@ export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSetti
     case "agency/locations": return <><DistrictsSection /><LandmarksSection /></>;
     case "money/commission": return <CommissionSection part="commission" />;
     case "money/currency": return <ExchangeRateSection />;
-    case "leads/intake": return <LeadsTab limitsTask />;
+    case "leads/intake": return <LeadsTab />;
     case "leads/distribution": return <><LeadDistributionSection /><SomonRecipientsSection /></>;
     case "leads/deadlines": return <><CommissionSection part="operations" /><DisciplineSection /></>;
     case "matching/matching": return <MatchingTab />;

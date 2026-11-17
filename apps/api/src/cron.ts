@@ -12,8 +12,6 @@ import { enqueueBackgroundJob } from "./jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "./jobs/aiReplyRetryPolicy.js";
 import { scoreAllActiveClients } from "./ai/scoring.js";
 import { staleLeadCircleOpen, reassignStaleLeads, reassignStaleReturns, assignPendingLeads, penalizeMissedFirstCalls, remindDueFirstCalls, assignHeldLead, remindEscalatedLeads } from "./leads.js";
-import { runInactiveTrafficLightTick } from "./lib/inactiveTrafficLight.js";
-import { runDeferredClientsReturnTick } from "./lib/deferredClients.js";
 import { escalateSellerPropertyMissing } from "./lib/sellerPropertyMissingAntifraud.js";
 import { runSellerNoPropertyAlarmTick } from "./lib/sellerNoPropertyAlarm.js";
 import { runSellerWorkStalledAlarmTick } from "./lib/sellerWorkStalledAlarm.js";
@@ -37,7 +35,6 @@ import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
 import { runBuyerThinkingSlowTrackTick } from "./lib/buyerThinkingSlowTrack.js";
-import { processNoAnswerTailAnchors } from "./lib/noAnswerStreak.js";
 import { calculateDailyKpiForAllAgents } from "./kpi.js";
 import { isWithinWorkingHours } from "./lib/workingHours.js";
 import { refreshUsdToTjsRateFromAlif } from "./lib/exchangeRate.js";
@@ -66,7 +63,6 @@ import {
   sendTomorrowDigest,
 } from "./lib/meetingReminders.js";
 import { remindIncompleteCards } from "./lib/cardReminders.js";
-import { refreshStatusesByTime } from "./lib/clientAutoStatus.js";
 import { refreshPropertyStatusesByTime } from "./lib/propertyAutoStatus.js";
 import { runNightlyGeoMatchSweepTick } from "./lib/geoMatchSweep.js";
 import { runContactLinkSweepTick } from "./lib/contactLinkSweep.js";
@@ -93,8 +89,6 @@ import { followUpLimit, isClosingMessage, isFollowUpDue } from "./lib/botFollowU
 import { distillLessons, EMPTY_LESSON } from "./lib/botLessons.js";
 import { runBotAudit } from "./ai/botAudit.js";
 import { runDealStalePipeline } from "./lib/dealStalePipeline.js";
-import { runSilentClientAutoDeactivate } from "./lib/silentClientAutoDeactivate.js";
-import { runLostInactiveTrashSweep } from "./lib/lostInactiveTrashSweep.js";
 import { analyzeLostConversations, buildWeeklyLostDigest } from "./lib/lostConversations.js";
 import { runReactivationCampaignTick } from "./lib/reactivationCampaign.js";
 import { sendBotMessageWithMid } from "./messengers/sendBotMessage.js";
@@ -1284,25 +1278,8 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" }
   );
 
-  /** Статусы клиентов, которые зависят от ВРЕМЕНИ, а не от события: остывание
-   *  после недели тишины, «не отвечает» после трёх недозвонов, архив после двух
-   *  месяцев молчания. Событийные переходы (поговорили, назначили показ, закрыли
-   *  сделку) пересчитываются сразу в момент события — ждать ночи там незачем.
-   *  04:40 — после ночного разбора звонков и до утренних сводок, чтобы
-   *  руководитель с утра видел уже актуальные статусы. */
-  scheduleTracked(
-    "client-auto-statuses",
-    "40 4 * * *",
-    async () => {
-      try {
-        const { checked, changed } = await refreshStatusesByTime();
-        if (changed) console.log(`[cron] Автостатусы: проверено ${checked}, изменено ${changed}`);
-      } catch (err) {
-        reportCronTickError("Ошибка автостатусов", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
-  );
+  // Ночные автостатусы клиентов («остыл», «не отвечает», «в архиве») удалены
+  // 16.11.2026: владелец убрал статусы-папки, список клиентов один.
 
   /** Сверка статусов ОБЪЕКТОВ со сделками (см. lib/propertyAutoStatus.ts). В
    *  отличие от клиентских статусов, здесь ничего не зависит от времени: это
@@ -2321,41 +2298,12 @@ export function startCronJobs() {
     }
   });
 
-  /**
-   * СВЕТОФОР НЕАКТИВНЫХ (владелец 20-21.08.2026) — каждые 30 минут, сама функция
-   * решает, кому в этот тик действительно пора напоминание (шаг светофора считается
-   * часами, 30 минут — запас точности без лишней нагрузки на базу) и молчит вне
-   * рабочих часов (isWithinWorkingHours внутри runInactiveTrafficLightTick).
-   */
-  scheduleTracked("inactive-traffic-light", "*/30 * * * *", async () => {
-    try {
-      const { pinged, lost } = await runInactiveTrafficLightTick();
-      if (pinged > 0) console.log(`[cron] Светофор неактивных: напоминаний ${pinged}`);
-      if (lost > 0) console.log(`[cron] Светофор неактивных: переведено в Потерянные ${lost}`);
-    } catch (err) {
-      reportCronTickError("Ошибка светофора неактивных", err);
-    }
-  });
+  // Светофор неактивных и возврат «Отложенных» по таймеру удалены 16.11.2026
+  // вместе с самими состояниями (владелец: «ничего лишнего»).
 
   /**
-   * ВОЗВРАТ «ОТЛОЖЕННЫХ» (задача G, план 03-04.09.2026) — та же частота, что у
-   * светофора неактивных: тик дешёвый (индекс [workStatus, deferredUntil]),
-   * почти всегда выборка пустая. Ранний возврат (клиент написал/позвонил сам)
-   * этого тика не ждёт — см. services/leads/intake.ts и
-   * lib/telephony/inboundRouting.ts (returnDeferredClientEarly).
-   */
-  scheduleTracked("deferred-clients-return", "*/30 * * * *", async () => {
-    try {
-      const { returned } = await runDeferredClientsReturnTick();
-      if (returned > 0) console.log(`[cron] Отложенные: возвращено в работу ${returned}`);
-    } catch (err) {
-      reportCronTickError("Ошибка возврата отложенных клиентов", err);
-    }
-  });
-
-  /**
-   * АНТИФРОД «ПРОДАВЕЦ БЕЗ ОБЪЕКТА» (владелец 21.08.2026) — та же частота, что у
-   * светофора неактивных: критичные случаи (Settings.sellerPropertyMissingCriticalDays)
+   * АНТИФРОД «ПРОДАВЕЦ БЕЗ ОБЪЕКТА» (владелец 21.08.2026) — раз в 30 минут:
+   * критичные случаи (Settings.sellerPropertyMissingCriticalDays)
    * уходят в очередь СБ (lib/sellerPropertyMissingAntifraud.ts, дедуп встроен в саму
    * функцию — securityReview меняется только null→PENDING).
    */
@@ -2982,29 +2930,7 @@ export function startCronJobs() {
     { timeoutMs: 5 * 60_000 }
   );
 
-  /**
-   * «ХВОСТ» ДОЗВОНА (01.09.2026, Settings.noAnswerTail*) — та же частота, что у
-   * соседних лёгких тиков выше: маячков в выборке за раз немного (см. take: 200 в
-   * processNoAnswerTailAnchors), гонять чаще незачем — задача агенту всё равно
-   * рассчитана на дни, а не минуты.
-   */
-  scheduleTracked(
-    "no-answer-tail",
-    "*/30 * * * *",
-    async () => {
-      try {
-        const created = await processNoAnswerTailAnchors();
-        if (created > 0) console.log(`[cron] Хвост дозвона: заведено задач ${created}`);
-      } catch (err) {
-        reportCronTickError("Ошибка хвоста дозвона", err);
-      }
-    },
-    undefined,
-    undefined,
-    // Тот же инцидент 11-12.09, что и у buyer-thinking-slow-track — оба тика
-    // делали до 200 последовательных findUnique/count на строку.
-    { timeoutMs: 5 * 60_000 }
-  );
+  // «Хвост» дозвона (no-answer-tail) удалён 16.11.2026 вместе со светофором.
 
   /**
    * ЭСКАЛАЦИЯ ПРОПУЩЕННЫХ РУКОВОДСТВУ УДАЛЕНА (владелец 20.09.2026: «полностью
@@ -3134,51 +3060,10 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" }
   );
 
-  /**
-   * МОЛЧАЛИВЫЙ КЛИЕНТ → АВТОМАТИЧЕСКИ В НЕАКТИВНЫЕ (владелец 30.08.2026) —
-   * 00:25 по Душанбе, следом за застоем сделки. Не срочный сигнал — раз в
-   * сутки достаточно, см. lib/silentClientAutoDeactivate.ts: клиент, чьё
-   * последнее слово в переписке с ботом было НАШИМ (бот или агент) дольше
-   * Settings.silentClientInactiveDays дней, уходит в Неактивные тем же путём,
-   * что и ручной перевод (workStatus, светофор RED/STOPPED_RESPONDING), без
-   * пуша — светофор напомнит по своему обычному расписанию.
-   */
-  scheduleTracked(
-    "silent-client-auto-deactivate",
-    "25 0 * * *",
-    async () => {
-      try {
-        const { deactivated } = await runSilentClientAutoDeactivate();
-        if (deactivated) console.log(`[cron] Молчаливых клиентов переведено в Неактивные: ${deactivated}`);
-      } catch (err) {
-        reportCronTickError("Ошибка автоперевода молчаливых клиентов", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
-  );
-
-  /**
-   * «ПОТЕРЯННЫЕ» И «НЕАКТИВНЫЕ» СТАРШЕ 3 МЕСЯЦЕВ → АВТОМАТИЧЕСКИ В КОРЗИНУ
-   * (владелец 30.08.2026) — 00:30 по Душанбе, следом за автопереводом
-   * молчаливых. Не срочный сигнал — раз в сутки достаточно, см.
-   * lib/lostInactiveTrashSweep.ts: обычное мягкое удаление (trashClient),
-   * восстановимо повторным обращением клиента (см. leads.ts::resumeExistingChannelLead).
-   */
-  scheduleTracked(
-    "lost-inactive-trash-sweep",
-    "30 0 * * *",
-    async () => {
-      try {
-        const { trashed, skipped } = await runLostInactiveTrashSweep();
-        if (trashed || skipped) {
-          console.log(`[cron] Автоуборка Потерянных/Неактивных в Корзину: убрано ${trashed}, пропущено ${skipped}`);
-        }
-      } catch (err) {
-        reportCronTickError("Ошибка автоуборки Потерянных/Неактивных в Корзину", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
-  );
+  // «Молчаливый клиент → в Неактивные» и «Потерянные/Неактивные старше 3 месяцев
+  // → в Корзину» удалены 16.11.2026 (владелец: «пусть сами люди решают»).
+  // Состояний «Неактивный»/«Потерянный» больше нет; в Корзину клиента убирает
+  // только человек.
 
   /** Месячный отчёт руководству — 1-го числа в 09:00 по Душанбе, за прошедший месяц.
    *  Не в полночь: отчёт нужен человеку в начале рабочего дня, а не push в три часа

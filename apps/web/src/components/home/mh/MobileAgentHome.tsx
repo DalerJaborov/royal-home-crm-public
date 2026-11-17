@@ -14,7 +14,6 @@ import {
   useDenyDuplicateReview,
   useDuplicateReviews,
   useReactivationOffers,
-  isRequiresRelease,
   type DuplicateReviewItem,
   type ReactivationOffer,
 } from "../../../hooks/useClients";
@@ -30,12 +29,8 @@ import { dushanbeTime } from "../../../lib/date";
 import { CLIENT_SOURCE_LABELS, clientDisplayName } from "../../../lib/clientFormat";
 import { AVATAR_TONES } from "../../../lib/theme2026Person";
 import {
-  buildNoContact,
-  buildPortfolio,
   buildShowings,
-  daysSince,
   findGap,
-  NO_CONTACT_DAYS,
 } from "../../../lib/agentDay";
 import { MhMoney, MhNoData, MhQuiet, MhScreen, MhSection, mmss, useSecondTick } from "./MhScreen";
 import type { Client, Interaction } from "../../../types";
@@ -85,21 +80,6 @@ export function MobileAgentHome() {
   // Тот же серверный фильтр и тот же ключ кэша, что у PendingLeadsRows на ПК
   // и у IncomingLeadWindow: общий кэш, а не второй список.
   const { data: pendingPage } = useClients({ pageSize: 20, pendingAcceptance: true });
-  /**
-   * СТО ПОЛНЫХ КАРТОЧЕК РАДИ ОДНОЙ СТРОКИ (исправлено 19.09.2026).
-   *
-   * Здесь стояло `useClients({ pageSize: 100 })`, а весь результат нужен ровно
-   * для одной подсказки в секции «Между встречами» — `noContact[0]`, клиент,
-   * который дольше всех без контакта. Сотня карточек клиента — самый тяжёлый
-   * ответ этого API, и он приезжал на КАЖДОЕ открытие главной, на мобильном
-   * интернете, вместе с шестью другими запросами этого же экрана.
-   *
-   * Сервер умеет сортировать по давности последнего контакта сам
-   * (`contact_asc`, CLIENT_SORTS), поэтому нужные карточки — в первых строках.
-   * Берём короткую страницу: 30 вместо 100 с запасом на те, что отсеет
-   * buildPortfolio (непринятые, закрытые, неактивные).
-   */
-  const { data: clientsPage } = useClients({ pageSize: 30, sort: "contact_asc" });
   const { data: settings } = useSettings();
   // Тот же счётчик сделок, что уже показывает значок раздела в меню — запрос
   // общий и закэширован, лишнего похода в сеть плитка не добавляет.
@@ -129,9 +109,9 @@ export function MobileAgentHome() {
   // это: позвонить, осталось 6:02» стояло под крупным «0, на сегодня всё сделано».
   const todayCount = tasks.length + firstCallDue.length;
   const callTick = useSecondTick(firstCallDue.length > 0);
-  const clients = useMemo(() => clientsPage?.items ?? [], [clientsPage]);
-  const portfolio = useMemo(() => buildPortfolio(clients, Date.now()), [clients]);
-  const noContact = useMemo(() => buildNoContact(portfolio, Date.now()), [portfolio]);
+  // «Без контакта» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
+  const { data: noContactPage } = useClients({ pageSize: 1, noContact: true });
+  const noContact = useMemo(() => noContactPage?.items ?? [], [noContactPage]);
   const showings = useMemo(() => buildShowings(tasks), [tasks]);
   const gap = useMemo(() => findGap(showings, Date.now()), [showings]);
 
@@ -350,8 +330,7 @@ export function MobileAgentHome() {
         {noContact[0] ? (
           <div className="card-s">
             <p className="hint">
-              {clientDisplayName(noContact[0].fullName)} {daysSince(noContact[0].lastContactAt, Date.now())}{" "}
-              {pluralizeRu(daysSince(noContact[0].lastContactAt, Date.now()), ["день", "дня", "дней"])} без контакта.
+              {clientDisplayName(noContact[0].fullName)} — без контакта больше суток.
               Короткий звонок сегодня дешевле, чем новый лид завтра.
             </p>
             <div className="chips">
@@ -374,7 +353,7 @@ export function MobileAgentHome() {
           </div>
         ) : (
           <MhNoData tone="ok">
-            Все ваши клиенты на связи: никто не молчит дольше {NO_CONTACT_DAYS} дней.
+            Все ваши клиенты на связи: никто не молчит больше суток.
           </MhNoData>
         )}
       </MhSection>
@@ -562,11 +541,7 @@ function PendingRow({
         disabled={acceptLead.isPending}
         onClick={(e) => {
           e.stopPropagation();
-          acceptLead.mutate(undefined, {
-            onError: (err) => {
-              if (isRequiresRelease(err)) navigate(`/clients/${c.shortId}`);
-            },
-          });
+          acceptLead.mutate();
         }}
       >
         {acceptLead.isPending ? "Принятие…" : "Принять"}
@@ -737,11 +712,6 @@ function FocusCard({ task }: { task: Interaction }) {
           <div className="n">{client?.fullName ?? "Клиент"}</div>
           <div className="s">{task.property?.title ?? task.nextAction ?? "Ждёт ответа"}</div>
         </div>
-        {client?.status === "HOT" && (
-          <span className="chip crit" style={{ marginLeft: "auto" }}>
-            горячий
-          </span>
-        )}
       </div>
       <p className="why">{focusReason(task)}</p>
       <div className="acts">

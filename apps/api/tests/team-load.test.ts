@@ -8,10 +8,10 @@ import { prisma } from "../src/db.js";
  * GET /team — поля нагрузки для карточки «Нагрузка» и колонки в таблице
  * (макет владельца, экран «Команда»).
  *
- * Проверяем, что `activeLoad` считается тем же правилом, что и раздача лидов
- * (lib/leadLimits.ts): активный покупатель занимает слот, продавец и удалённый
- * в корзину покупатель — нет; `leadLimit` совпадает с настройкой; `frozenAt`
- * отдаётся датой для строки «заморожен 3 дня назад».
+ * Проверяем, что `activeLoad` считается тем же правилом, что и очередь fair
+ * (lib/agentLoad.ts): покупатель в работе — нагрузка, продавец и удалённый
+ * в корзину покупатель — нет; лимита нет с 16.11.2026, поэтому `leadLimit` в
+ * ответе нет вовсе; `frozenAt` отдаётся датой для строки «заморожен 3 дня назад».
  */
 
 const runId = Date.now();
@@ -70,17 +70,14 @@ afterAll(async () => {
 });
 
 describe("GET /team — нагрузка", () => {
-  it("activeLoad считает только активных покупателей, leadLimit из настроек, frozenAt датой", async () => {
+  it("activeLoad считает только покупателей в работе, лимита в ответе нет, frozenAt датой", async () => {
     const token = await login(directorPhone);
-    const [res, settings] = await Promise.all([
-      request(app).get("/api/v1/team").set("Authorization", `Bearer ${token}`),
-      prisma.settings.findUnique({ where: { id: "singleton" }, select: { leadActiveLimit: true } }),
-    ]);
+    const res = await request(app).get("/api/v1/team").set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
     const me = res.body.find((m: { id: string }) => m.id === agentId);
     expect(me).toBeDefined();
     expect(me.activeLoad).toBe(2);
-    expect(me.leadLimit).toBe(settings?.leadActiveLimit ?? 6);
+    expect(me).not.toHaveProperty("leadLimit");
     expect(me.frozen).toBe(true);
     expect(typeof me.frozenAt).toBe("string");
     expect(new Date(me.frozenAt).getTime()).toBeLessThan(Date.now() - 2 * 24 * 60 * 60 * 1000);

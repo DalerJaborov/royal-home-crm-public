@@ -149,7 +149,6 @@ import {
 } from "./propertyShowcase.js";
 import { ensureConversationScenario } from "../ai/salesScenarios.js";
 import { runClientAutopilotInBackground } from "../lib/clientAutopilot.js";
-import { checkClientInactiveSignal } from "../lib/clientInactiveTextDetector.js";
 import { botAbilitiesOf, loadBotCapabilities } from "./botCapabilities.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "../jobs/aiReplyRetryPolicy.js";
@@ -2365,27 +2364,6 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   const historyText = text || (saved.length > 0 ? (saved.some((a) => a.kind === "audio") ? "[🎤]" : "[📎]") : "");
 
-  /**
-   * ДЕТЕКТОР НЕАКТИВНОСТИ ПО ПЕРЕПИСКЕ (план 19-plan-03-09-evening.md, раздел B) —
-   * финальная реплика уже принятого клиента на признаки одной из причин паузы или
-   * на конкретную дату связи. Фоново, ответ бота не задерживает.
-   *
-   * ПОЧЕМУ ЗДЕСЬ, А НЕ В ВЕТКЕ «заявка принята» НИЖЕ. Изначально вызов стоял
-   * внутри `if (conversation.clientId)` рядом с автопилотом — то есть на пути,
-   * где бот ещё и ОТВЕЧАЕТ. Клиент на реальной паузе (агент ответил вручную или
-   * созвонился — см. isPaused выше) выходит раньше этого места, а детектор
-   * должен видеть его реплику независимо от того, отвечает ли сейчас бот, —
-   * поэтому вызов на общем пути: сюда доходят и пауза оператора, и выключенный
-   * рубильник канала, и отсечка «не по теме». Место выбрано после разбора
-   * вложений: в text здесь уже вклеена расшифровка голосового, а её терять
-   * нельзя — половина реплик приходит голосом.
-   *
-   * Рядом с ним живёт детектор явного отказа (checkExplicitRefusal, раздел D) —
-   * он поднят на самый верх хода по той же причине; оба висят на одной и той же
-   * финальной реплике клиента и оба фоновые (гонку между ними разбирает сам
-   * lib/clientInactiveTextDetector.ts, перепроверкой карточки после ответа ИИ).
-   */
-  if (conversation.clientId && text) void checkClientInactiveSignal(conversation.clientId, text);
 
   /** Что saveIncoming записал последним — по нему ниже узнаём свою реплику в
    *  свежей истории (см. «история для промта — после окна склейки»). */

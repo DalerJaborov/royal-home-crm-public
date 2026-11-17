@@ -1,5 +1,4 @@
 import { prisma } from "../db.js";
-import { refreshClientStatus } from "./clientAutoStatus.js";
 import { closeStaleNextActions } from "./nextActionAutoClose.js";
 import { hasConflictingShowing, SHOWING_AUTOBOOK_CONFLICT_WINDOW_MS } from "./showingBooking.js";
 import { logSystemError } from "./systemError.js";
@@ -109,11 +108,6 @@ export async function scheduleShowing(input: {
       return showing;
     });
 
-    // Назначенный показ переводит клиента в «Горячий» — тем же механизмом, что и
-    // показ, заведённый руками.
-    void refreshClientStatus(client.id).catch((err) =>
-      console.error("[scheduleShowing] автостатус после показа:", err instanceof Error ? err.message : err)
-    );
     // ЗАКРЫТЬ СТАРЫЕ ПОДСКАЗКИ КЛИЕНТА (18.08.2026, см. lib/nextActionAutoClose.ts):
     // показ назначен — реальный контакт состоялся. Сама новая подсказка «Показ
     // объекта» исключена по id, чтобы не гасить сама себя.

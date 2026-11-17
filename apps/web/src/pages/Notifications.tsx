@@ -22,7 +22,7 @@ import type { AppNotification } from "../types";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { MhQuiet } from "../components/home/mh/MhScreen";
 import { ChevronLeft } from "lucide-react";
-import { useClients, useAcceptLead, isRequiresRelease } from "../hooks/useClients";
+import { useClients, useAcceptLead } from "../hooks/useClients";
 import { MutationError } from "../components/MutationError";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
@@ -116,9 +116,7 @@ function leadShortId(n: AppNotification): number | null {
  * принять только зайдя в карточку, хотя раздел зовётся «Ждёт решения».
  *
  * ЭТАЛОН — apps/web/src/components/home/AgentHome.tsx, PendingLeadRow: тот же
- * хук `useAcceptLead`, та же обработка `isRequiresRelease` (портфель полон —
- * ведём в карточку выбрать, кого освободить, вместо своей логики), та же
- * плашка `MutationError`. Отдельный компонент строки, а не хук внутри map по
+ * хук `useAcceptLead` и та же плашка `MutationError`. Отдельный компонент строки, а не хук внутри map по
  * списку уведомлений — правило хуков этого не прощает.
  */
 /**
@@ -178,11 +176,9 @@ export function OfferAnswerAction({ offer, className, line = false }: { offer: N
 
 function LeadAcceptAction({
   clientId,
-  onRequireRelease,
   className,
 }: {
   clientId: string;
-  onRequireRelease: () => void;
   className: string;
 }) {
   const acceptLead = useAcceptLead(clientId);
@@ -194,11 +190,7 @@ function LeadAcceptAction({
         disabled={acceptLead.isPending}
         onClick={(e) => {
           e.stopPropagation();
-          acceptLead.mutate(undefined, {
-            onError: (err) => {
-              if (isRequiresRelease(err)) onRequireRelease();
-            },
-          });
+          acceptLead.mutate();
         }}
       >
         {acceptLead.isPending ? "Принятие…" : "Принять"}
@@ -415,7 +407,6 @@ export function Notifications() {
                 {acceptClientId && (
                   <LeadAcceptAction
                     clientId={acceptClientId}
-                    onRequireRelease={() => open(n)}
                     className="pill sm"
                   />
                 )}
@@ -469,7 +460,7 @@ export function Notifications() {
                   <span className="chip">{readLabel(n)}</span>
                 )}
                 {acceptClientId && (
-                  <LeadAcceptAction clientId={acceptClientId} onRequireRelease={() => open(n)} className="btn pill sm" />
+                  <LeadAcceptAction clientId={acceptClientId} className="btn pill sm" />
                 )}
                 {/* На телефоне ответ — своей строкой под текстом, иначе кнопки съедают ширину текста. */}
                 {n.offer && <OfferAnswerAction offer={n.offer} className="btn pill sm" line />}

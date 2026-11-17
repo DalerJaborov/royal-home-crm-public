@@ -57,10 +57,10 @@ describe("native Clean finance", () => {
     expect(table).toContain("Download expense CSV");
     expect(table).not.toContain("Edit expense");
   });
-  it("opens expenses with six accessible tabs without mounting inactive workspaces or legacy controllers", () => {
+  it("opens expenses with seven accessible tabs without mounting inactive workspaces or legacy controllers", () => {
     const html = render();
     expect(html).toContain('aria-label="Разделы денег"');
-    expect((html.match(/role="tab"/g) ?? []).length).toBe(6);
+    expect((html.match(/role="tab"/g) ?? []).length).toBe(7);
     expect(html).toMatch(/id="finance-tab-expenses" aria-selected="true"/);
     expect(html).toContain('id="finance-panel-expenses" aria-labelledby="finance-tab-expenses"');
     expect(html).toContain('data-workspace="expenses"');

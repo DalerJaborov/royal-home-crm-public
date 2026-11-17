@@ -1,4 +1,5 @@
 import { prisma } from "../../db.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import { sendPushToAgent } from "../../push.js";
 import { sendLeadPush } from "../../lib/pushLeadActions.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
@@ -741,6 +742,31 @@ export async function reassignStaleReturns(): Promise<{ reminded: number; escala
  * В режиме "manual" ничего не делает — там отсутствие агента осознанное,
  * руководитель назначает сам.
  */
+/** Сколько заявка считается «свежей» для утренней волны. */
+export const MORNING_WAVE_FRESH_HOURS = 48;
+
+/**
+ * «Это настоящая новая заявка», а не старая карточка без агента (16.11.2026).
+ * Бывшие «Потерянные» (миграция 20261116160000) лежат без агента со старыми
+ * `createdAt`/`assignedAt` и с `lostAt` — ни одна ветка их не берёт:
+ *   • заявка создана за последние {@link MORNING_WAVE_FRESH_HOURS} ч;
+ *   • карточку поставили в очередь раздачи за эти же часы (`assignedAt` — так
+ *     делает восстановление из Корзины без агента, lib/restoreClient.ts);
+ *   • с карточкой не работал никто и никогда и она не была потерянной.
+ */
+export function newLeadOnlyWhere(now = new Date()): Prisma.ClientWhereInput {
+  const since = new Date(now.getTime() - MORNING_WAVE_FRESH_HOURS * 3600_000);
+  return {
+    OR: [
+      { createdAt: { gte: since }, lostAt: null },
+      { assignedAt: { gte: since } },
+      // assignedAt в схеме всегда заполнен (default now()), поэтому «никому не
+      // доставалась» = нет ни принятия, ни прежнего агента, ни первого контакта.
+      { acceptedAt: null, firstContactAt: null, lastAgentId: null, lostAt: null, refusalCount: 0 },
+    ],
+  };
+}
+
 export async function assignPendingLeads(): Promise<number> {
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
   if ((settings?.leadDistributionStrategy ?? "fair") === "manual") return 0;
@@ -756,7 +782,15 @@ export async function assignPendingLeads(): Promise<number> {
       escalatedAt: null,
       kind: { not: "OTHER" },
       deletedAt: null,
-      status: { in: ["NEW", "CONTACTED", "HOT", "COLD"] },
+      status: { in: ["NEW", "CONTACTED"] },
+      /**
+       * ТОЛЬКО НАСТОЯЩИЕ НОВЫЕ ЗАЯВКИ (16.11.2026). Бывшие «Потерянные» миграцией
+       * вернулись в NEW/CONTACTED и частью лежат без агента — без этого условия
+       * утренняя волна разослала бы их агентам как «новые лиды с ночи». Новая
+       * заявка — без следа отказа/потери и либо свежая (48 ч), либо ни разу никому
+       * не назначавшаяся.
+       */
+      AND: [newLeadOnlyWhere()],
       // Раздел L (03.09.2026): карточка с открытой проверкой на дубль (см.
       // lib/duplicateReview.ts) намеренно без агента — не «забытая», а придержанная.
       // Без этого фильтра утренняя волна назначала бы её мимо агента, которого
