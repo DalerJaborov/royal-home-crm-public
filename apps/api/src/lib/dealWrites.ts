@@ -393,9 +393,6 @@ export async function createDealFor(
       if (liveDeal) {
         throw new DealConflictError("По этому объекту уже есть незакрытая сделка");
       }
-      // Сделка — пятая ветка «Итога показа» («Договор»): дошли до неё, значит
-      // «Подбор»/«Переговоры» больше не актуальны, сделка несёт свою стадию сама.
-      await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: null } });
       return tx.deal.create({
         // Валюта комиссии = валюта объекта: commissionAmount считается от property.price
         // (см. выше), и без этого снапшота сумма теряла единицы измерения ещё на входе.
@@ -973,7 +970,7 @@ export async function updateDealFor(
         if (otherClosedClientDeals === 0) {
           await tx.client.updateMany({
             where: { id: existing.clientId, status: "DEAL_CLOSED" },
-            data: { status: "HOT" },
+            data: { status: "CONTACTED" },
           });
         }
       }

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
 import { ChevronLeft, ChevronRight, Headphones, Mail, Phone } from "lucide-react";
-import { CLIENT_STATUS_LABELS, daysOffSentenceRu, formatClientCode, type ClientStatus } from "@royal-home/shared";
+import { daysOffSentenceRu, formatClientCode } from "@royal-home/shared";
 import { dealStageText } from "../lib/dealStageText";
 import { useAgentLive, useAgentOverview, type AgentLive, type AgentOverview } from "../hooks/useAgentOverview";
 import {
@@ -78,7 +78,7 @@ function totalProblems(data: AgentOverview | undefined): number {
   return (
     data.violations.flaggedShowingCalls +
     p.overdueTasks.total +
-    p.stalledClients.total +
+    p.noContactClients.total +
     p.silentAfterShowing.total +
     p.refusedHighScore.total +
     p.endlessNegotiations.total +
@@ -559,17 +559,17 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                         ))}
                       </>
                     )}
-                    {data.problems.stalledClients.total > 0 && (
+                    {data.problems.noContactClients.total > 0 && (
                       <>
                         <p className="state" style={{ margin: "8px 0 0" }}>
-                          <b>Горячие клиенты без контакта</b> · {data.problems.stalledClients.total}
+                          <b>Без контакта больше суток</b> · {data.problems.noContactClients.total}
                         </p>
-                        {data.problems.stalledClients.items.map((c) => (
+                        {data.problems.noContactClients.items.map((c) => (
                           <Link key={c.id} className="row" to={`/clients/${c.shortId}`} state={backState(id, data.agent.fullName)}>
                             <div className="t">
                               <b>{c.fullName}</b>
                               <span>
-                                скоринг {c.aiScore ?? "—"} · {c.lastContactAt ? `молчит с ${relativeTime(c.lastContactAt)}` : "контакта не было"}
+                                {c.lastClientMessageAt ? `писал(а) ${relativeTime(c.lastClientMessageAt)}` : `карточка ${relativeTime(c.createdAt)}`}
                               </span>
                             </div>
                           </Link>
@@ -711,7 +711,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                   <Link className="tile" to={`/clients?agentId=${id}`}>
                     <span className="hd">Лидов в работе</span>
                     <b>{liveData.leads.inWork}</b>
-                    <small>{liveData.leads.limit === 0 ? "без предела" : `из ${liveData.leads.limit}`}</small>
+                    {/* «из N» снято 16.11.2026: лимитов заявок больше нет. */}
                   </Link>
                   <Link className="tile" to={`/calls?agentId=${id}`}>
                     <span className="hd">Звонков за неделю</span>
@@ -815,44 +815,20 @@ function TeamMemberDetailDesktop(props: SharedProps) {
               </div>
             </div>
 
-            {/* 7. Лиды по этапам */}
-            <div className="sec">
-              <div className="sec-h">
-                <h2>Лиды по этапам</h2>
-              </div>
-              <div className="card">
-                {live.isError ? (
+            {/* 7. Не принятые заявки. «Лиды по этапам» (разбивка по статусам) сняты
+                16.11.2026 вместе со статусами-папками; число в работе — плитка выше. */}
+            {liveData && liveData.leads.unaccepted > 0 && (
+              <div className="sec">
+                <div className="card">
                   <p className="state err">
                     <span className="dot crit" />
-                    Не удалось загрузить портфель по этапам
+                    <Link className="lnk" to={`/clients?agentId=${id}`}>
+                      Выдано, но не принято: {liveData.leads.unaccepted}
+                    </Link>
                   </p>
-                ) : !liveData ? (
-                  <p className="state">Загружаем…</p>
-                ) : (
-                  <>
-                    {Object.keys(liveData.leads.byStatus).length === 0 ? (
-                      <p className="state">Клиентов в работе нет</p>
-                    ) : (
-                      <div className="wrap">
-                        {Object.entries(liveData.leads.byStatus).map(([status, n]) => (
-                          <Link key={status} className="chip" to={`/clients?agentId=${id}&status=${status}`}>
-                            {(CLIENT_STATUS_LABELS as Record<string, string>)[status] ?? status}: {n}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                    {liveData.leads.unaccepted > 0 && (
-                      <p className="state err" style={{ marginTop: 8 }}>
-                        <span className="dot crit" />
-                        <Link className="lnk" to={`/clients?agentId=${id}`}>
-                          Выдано, но не принято: {liveData.leads.unaccepted}
-                        </Link>
-                      </p>
-                    )}
-                  </>
-                )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* 8. Объекты */}
             <div className="sec">
@@ -899,7 +875,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                         <div className="t">
                           <b>{c.fullName}</b>
                           <span>
-                            {formatClientCode(c.shortId, c.kind)} · {CLIENT_STATUS_LABELS[c.status as ClientStatus]}
+                            {formatClientCode(c.shortId, c.kind)}
                           </span>
                         </div>
                       </Link>
@@ -1252,19 +1228,19 @@ function TeamMemberDetailMobile(props: SharedProps) {
                         <ChevronRight className="i" aria-hidden="true" />
                       </div>
                     ))}
-                    {data.problems.stalledClients.total > 0 && (
+                    {data.problems.noContactClients.total > 0 && (
                       <div className="quiet">
                         <div className="ln">
-                          <b>Горячие клиенты без контакта · {data.problems.stalledClients.total}</b>
+                          <b>Без контакта больше суток · {data.problems.noContactClients.total}</b>
                         </div>
                       </div>
                     )}
-                    {data.problems.stalledClients.items.map((c) => (
+                    {data.problems.noContactClients.items.map((c) => (
                       <div key={c.id} className="row" role="button" tabIndex={0} onClick={() => navigate(`/clients/${c.shortId}`, { state: backState(id, data.agent.fullName) })}>
                         <span className="t">
                           <span className="n">{c.fullName}</span>
                           <span className="s">
-                            скоринг {c.aiScore ?? "—"} · {c.lastContactAt ? `молчит с ${relativeTime(c.lastContactAt)}` : "контакта не было"}
+                            {c.lastClientMessageAt ? `писал(а) ${relativeTime(c.lastClientMessageAt)}` : `карточка ${relativeTime(c.createdAt)}`}
                           </span>
                         </span>
                         <ChevronRight className="i" aria-hidden="true" />
@@ -1395,11 +1371,8 @@ function TeamMemberDetailMobile(props: SharedProps) {
                   <div className="tiles">
                     <Link className="tile" to={`/clients?agentId=${id}`}>
                       <div className="v">{liveData.leads.inWork}</div>
-                      <div className="l">
-                        лидов в работе
-                        <br />
-                        {liveData.leads.limit === 0 ? "без предела" : `из ${liveData.leads.limit}`}
-                      </div>
+                      {/* «из N» снято 16.11.2026: лимитов заявок больше нет. */}
+                      <div className="l">лидов в работе</div>
                     </Link>
                     <Link className="tile" to={`/calls?agentId=${id}`}>
                       <div className="v">{liveData.calls.weekTotal}</div>
@@ -1529,52 +1502,22 @@ function TeamMemberDetailMobile(props: SharedProps) {
                 )}
               </section>
 
-              {/* 7. Лиды по этапам */}
-              <section className="sec">
-                <div className="sec-t">
-                  <h2>Лиды по этапам</h2>
-                </div>
-                <div className="card-s" style={{ padding: 16 }}>
-                  {live.isError ? (
+              {/* 7. Не принятые заявки. «Лиды по этапам» (разбивка по статусам) сняты
+                  16.11.2026 вместе со статусами-папками; число в работе — плитка выше. */}
+              {liveData && liveData.leads.unaccepted > 0 && (
+                <section className="sec">
+                  <div className="card-s" style={{ padding: 16 }}>
                     <div className="quiet">
                       <div className="ln">
                         <i className="c" aria-hidden="true" />
-                        <span>Не удалось загрузить портфель по этапам</span>
+                        <Link className="lnk" to={`/clients?agentId=${id}`}>
+                          Выдано, но не принято: {liveData.leads.unaccepted}
+                        </Link>
                       </div>
                     </div>
-                  ) : !liveData ? (
-                    <div className="quiet">
-                      <div className="ln">Загружаем…</div>
-                    </div>
-                  ) : (
-                    <>
-                      {Object.keys(liveData.leads.byStatus).length === 0 ? (
-                        <div className="quiet">
-                          <div className="ln">Клиентов в работе нет</div>
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                          {Object.entries(liveData.leads.byStatus).map(([status, n]) => (
-                            <Link key={status} className="chip" to={`/clients?agentId=${id}&status=${status}`}>
-                              {(CLIENT_STATUS_LABELS as Record<string, string>)[status] ?? status}: {n}
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                      {liveData.leads.unaccepted > 0 && (
-                        <div className="quiet" style={{ marginTop: 8 }}>
-                          <div className="ln">
-                            <i className="c" aria-hidden="true" />
-                            <Link className="lnk" to={`/clients?agentId=${id}`}>
-                              Выдано, но не принято: {liveData.leads.unaccepted}
-                            </Link>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </section>
+                  </div>
+                </section>
+              )}
 
               {/* 8. Объекты */}
               <section className="sec">
@@ -1624,7 +1567,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                         <span className="t">
                           <span className="n">{c.fullName}</span>
                           <span className="s">
-                            {formatClientCode(c.shortId, c.kind)} · {CLIENT_STATUS_LABELS[c.status as ClientStatus]}
+                            {formatClientCode(c.shortId, c.kind)}
                           </span>
                         </span>
                         <ChevronRight className="i" aria-hidden="true" />

@@ -5,7 +5,7 @@ import { prisma } from "../db.js";
 import { recordInvestigationSignal } from "./investigationCases.js";
 import { conductedShowingBaseWhere } from "./conductedShowing.js";
 import { isWeekdayOff, confirmedClientIntents } from "@royal-home/shared";
-import { loadTrafficLightSettings } from "./inactiveTrafficLight.js";
+import { loadLeadCallMinSeconds } from "./contactTrace.js";
 import { isAlarmDayOff } from "./alarmCalendar.js";
 import { companyDaysOffSnapshot, loadCompanyDaysOff } from "./daysOffCalendar.js";
 import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
@@ -329,9 +329,9 @@ export async function clientSpokeAfterShowing(clientId: string, showingAt: Date)
   });
   if (client?.lastClientMessageAt && client.lastClientMessageAt > showingAt) return true;
 
-  const settings = await loadTrafficLightSettings();
+  const leadCallMinSeconds = await loadLeadCallMinSeconds();
   const talked = await prisma.interaction.findFirst({
-    where: { clientId, type: "CALL", callAttempt: "TALKED", recordingDurationSec: { gte: settings.leadCallMinSeconds }, createdAt: { gt: showingAt } },
+    where: { clientId, type: "CALL", callAttempt: "TALKED", recordingDurationSec: { gte: leadCallMinSeconds }, createdAt: { gt: showingAt } },
     select: { id: true },
   });
   return talked !== null;

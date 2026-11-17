@@ -2,7 +2,7 @@ import { workingDaysBetween } from "./alarmCalendar.js";
 import { loadCompanyDaysOff } from "./daysOffCalendar.js";
 import { prisma } from '../db.js';
 import { evaluateExposurePair, type ExposurePairFacts } from './exposurePairPolicy.js';
-import { loadTrafficLightSettings } from './inactiveTrafficLight.js';
+import { loadLeadCallMinSeconds } from './contactTrace.js';
 import { outagesBetween } from './stationOutage.js';
 
 type Message = { role?: string; at?: string; by?: { kind?: string; agentId?: string; id?: string }; content?: string };
@@ -12,14 +12,14 @@ export async function loadExposurePairEvidence(exposureId: string, now = new Dat
     id: true, clientId: true, propertyId: true, sentAt: true, channel: true,
   } });
   if (!exposure?.clientId || !exposure.propertyId) return null;
-  const [buyer, property, settings] = await Promise.all([
+  const [buyer, property, leadCallMinSeconds] = await Promise.all([
     prisma.client.findUnique({ where: { id: exposure.clientId }, select: {
       id: true, assignedAt: true, assignedAgentId: true, deletedAt: true, lastClientMessageAt: true,
       assignedAgent: { select: { absenceUntil: true, weeklyDaysOff: true, isActive: true } },
     } }),
     prisma.property.findUnique({ where: { id: exposure.propertyId }, select: {
       id: true, shortId: true, sellerClientId: true, deletedAt: true, status: true,
-    } }), loadTrafficLightSettings(),
+    } }), loadLeadCallMinSeconds(),
   ]);
   if (!buyer || buyer.deletedAt || !buyer.assignedAgentId || !property?.sellerClientId) return null;
   const seller = await prisma.client.findUnique({ where: { id: property.sellerClientId }, select: {
@@ -66,7 +66,7 @@ export async function loadExposurePairEvidence(exposureId: string, now = new Dat
   }
   for (const call of calls) {
     if (call.callAttempt === 'TALKED' && call.recordingUrl
-      && (call.recordingDurationSec ?? 0) >= settings.leadCallMinSeconds) {
+      && (call.recordingDurationSec ?? 0) >= leadCallMinSeconds) {
       (call.clientId === buyer.id ? buyerSpeech : sellerSpeech).push(call.createdAt);
       sourceIds.push(`call:${call.id}`);
     }

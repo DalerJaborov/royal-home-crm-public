@@ -1,18 +1,15 @@
 import {
   CALL_OUTCOME_CHOICES,
-  INACTIVE_REASON_LABELS,
   MIN_ANALYZED_TRANSCRIPT_CHARS,
   confirmedClientIntents,
-  type InactiveReason,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { rememberCallShowingCandidate } from "../lib/buyerShowingCandidates.js";
 import { rememberSellerIntakeAppointment } from "../lib/sellerIntakeAppointments.js";
 import { wrapUntrusted } from "./untrustedContent.js";
 import { callAiText } from "./client.js";
-import { dushanbeDateTimeString, dushanbeInputToDate, dushanbeWallClock } from "../lib/dushanbeTime.js";
+import { dushanbeInputToDate, dushanbeWallClock } from "../lib/dushanbeTime.js";
 import { applyAiCallOutcome } from "../lib/aiCallOutcome.js";
-import { deactivateClient, hasNewerContactSince } from "../lib/clientWorkStatus.js";
 import { hasNearbyShowing, scheduleShowing } from "../lib/scheduleShowing.js";
 import { findMatchingPropertiesForClient } from "../routes/matching.js";
 import { sendPushToAgent } from "../push.js";
@@ -49,42 +46,6 @@ const MIN_TRANSCRIPT_CHARS = MIN_ANALYZED_TRANSCRIPT_CHARS;
 const MAX_TRANSCRIPT_CHARS = 6000;
 
 /**
- * ИИ ПЕРЕВОДИТ КЛИЕНТА В НЕАКТИВНЫЕ (владелец 20.08.2026: «ИИ также имеет право
- * перевести в неактивный клиента, продавца, покупателя, если по разговорам это
- * ясно»). Подмножество INACTIVE_REASONS, а не весь список: STOPPED_RESPONDING и
- * OTHER здесь не годятся ПО СМЫСЛУ — это разбор состоявшегося разговора (есть
- * расшифровка), а «перестал отвечать» описывает ровно противоположное — молчание
- * в переписке. Оставшиеся шесть причин — то, что клиент мог сказать словами прямо
- * в этом звонке. deactivateClient (lib/clientWorkStatus.ts) всё равно проверит
- * gate/lead-limit сама — список здесь сужен по смыслу, а не ради обхода проверки.
- */
-const AI_INACTIVE_REASONS: readonly InactiveReason[] = [
-  "THINKING",
-  "NO_MONEY_YET",
-  "POSTPONED",
-  "NOT_READY_YET",
-  "ASKED_LATER",
-  "FAMILY_CIRCUMSTANCES",
-];
-
-/**
- * «НЕ ГОТОВ» ПОСЛЕ ДОГОВОРЁННОСТИ О ПОКАЗЕ — ЭТО ОШИБКА МОДЕЛИ, А НЕ ПАУЗА
- * (живой случай ПК-000475, 24.09.2026). Оператор поговорил с покупательницей:
- * квартира за 35 000 $ у фабрики «Гулдаст», «свяжем с агентом для показа,
- * пришлите WhatsApp». Модель заполнила inactiveReason=NOT_READY_YET, и клиентка,
- * готовая смотреть квартиру, ушла в Неактивные в ту же минуту.
- *
- * Два случая, когда пауза противоречит самому разговору, — и слово модели здесь
- * не принимается:
- *  1. исход — показ, встреча с продавцом или подборка, либо названо время показа:
- *     клиент продолжает, а не приостанавливает;
- *  2. это входящий звонок на приём (строка IncomingCall): говорил оператор
- *     первой линии, агента у лида ещё нет — решать «не готов» будет агент после
- *     своего разговора, а не разбор первого звонка в агентство.
- */
-const CONTINUING_OUTCOMES = new Set(["WAITING_SHOWING", "SELLER_MEETING", "WAITING_OPTIONS"]);
-
-/**
  * СИГНАЛ «УЖЕ ОБРАЩАЛСЯ» — ОДНА ЗАПИСЬ НА КЛИЕНТА, А НЕ НА КАЖДЫЙ РАЗГОВОР
  * (живой случай ПК-000381, 24.09.2026: одна и та же заметка легла в ленту ТРИ
  * РАЗА за четыре дня).
@@ -105,17 +66,6 @@ const PRIOR_CONTACT_NOTE =
   "Клиент упомянул в разговоре, что уже обращался к нам раньше — проверьте, нет ли дубликата " +
   "карточки (кнопка «Объединить с другой карточкой» на карточке клиента).";
 const PRIOR_CONTACT_DEDUP_DAYS = 14;
-
-async function inactiveReasonAllowed(
-  interactionId: string,
-  outcome: unknown,
-  showingAt: Date | null
-): Promise<boolean> {
-  if (typeof outcome === "string" && CONTINUING_OUTCOMES.has(outcome)) return false;
-  if (showingAt) return false;
-  const incoming = await prisma.incomingCall.findFirst({ where: { interactionId }, select: { id: true } });
-  return !incoming;
-}
 
 interface AnalysisExtract {
   score?: number;
@@ -149,10 +99,6 @@ interface AnalysisExtract {
   /** Симметрично выше, но покупатель — сколько объектов он хочет купить
    *  (владелец 06.09.2026: «а если хочет купить несколько»). */
   buyerPropertyCount?: number | null;
-  /** Работу с клиентом стоит приостановить — см. AI_INACTIVE_REASONS. Взаимоисключимо
-   *  с outcome: одно и то же решение, «активный» или «неактивный», форма никогда не
-   *  спрашивает оба сразу (см. summaryCompleteCallResultSchema). */
-  inactiveReason?: string | null;
 }
 
 const analysisSchema = {
@@ -216,23 +162,6 @@ const analysisSchema = {
         "WAITING_CALL — договорились созвониться позже, без подборки и показа; " +
         "NEGATIVE — клиент отказался, не интересно, передумал; " +
         "NO_ANSWER — разговора не было (не туда попали, сразу бросили трубку, тишина).",
-    },
-    /**
-     * КЛИЕНТ САМ СКАЗАЛ ПРИОСТАНОВИТЬ РАБОТУ (владелец 20.08.2026: «ИИ также имеет
-     * право перевести в неактивный клиента, продавца, покупателя, если по
-     * разговорам это ясно»). НЕ то же самое, что NEGATIVE у outcome — там клиент
-     * отказался совсем, здесь он не отказывается, а прямо просит паузу.
-     */
-    inactiveReason: {
-      type: "string",
-      enum: AI_INACTIVE_REASONS as unknown as string[],
-      description:
-        "Заполняй ТОЛЬКО если клиент прямо и недвусмысленно сказал приостановить работу с ним: " +
-        "THINKING — «подумаю»; NO_MONEY_YET — денег пока нет; POSTPONED — отложил покупку/продажу; " +
-        "NOT_READY_YET — сам не готов; ASKED_LATER — просит вернуться к разговору позже, к конкретному сроку; " +
-        "FAMILY_CIRCUMSTANCES — семейные обстоятельства. Обычный разговор, где просто нет мгновенного " +
-        "результата, — НЕ повод: используй outcome (например WAITING_CALL). Сомневаешься — оставь пусто, " +
-        "перевод в Неактивные снимает клиента с активной работы агента.",
     },
     /** Что дальше делать агенту — одной строкой, как задача. */
     nextAction: {
@@ -602,74 +531,6 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
     // прошлое», «не через год») у договорённости о звонке ровно те же, а вторая
     // копия этих трёх условий разъехалась бы с первой при первой же правке.
     const callbackAt = parseShowingAt(extract.callbackAt, interaction.createdAt);
-
-    /**
-     * ИИ ПРИОСТАНАВЛИВАЕТ РАБОТУ С КЛИЕНТОМ (владелец 20.08.2026: «ИИ также имеет
-     * право перевести в неактивный клиента, продавца, покупателя, если по
-     * разговорам это ясно») — ПРОВЕРЯЕМ ДО applyAiCallOutcome и, если сработало,
-     * ВОЗВРАЩАЕМСЯ СРАЗУ: клиент либо остаётся в активной работе с договорённостью
-     * на потом, либо снимается со счётчика — не то и другое разом по одному
-     * разговору (та же взаимоисключимость, что у status ACTIVE/INACTIVE в
-     * summaryCompleteCallResultSchema). Переиспользуем deactivateClient
-     * (lib/clientWorkStatus.ts) — тот же путь, что и у человека из формы «Как
-     * прошёл звонок»: тот же гейт «след работы», тот же светофор, та же запись
-     * в хронологию. initiator="CLIENT" — причину назвал клиент своими словами
-     * прямо в этом разговоре, не агент и не руководитель её выбрал.
-     */
-    const claimedInactive = AI_INACTIVE_REASONS.includes(extract.inactiveReason as never)
-      ? (extract.inactiveReason as InactiveReason)
-      : null;
-    const inactiveReason = claimedInactive
-      ? await inactiveReasonAllowed(interactionId, extract.outcome, showingAt)
-        ? claimedInactive
-        : null
-      : null;
-    if (inactiveReason) {
-      /**
-       * РАЗБОР МОГ УСТАРЕТЬ (ПР-000381, 24.09.2026). Конвейер расшифровки
-       * асинхронный (минуты) — за это время клиент мог уже вернуться в работу
-       * сам, ответить на более поздний звонок или написать в мессенджер.
-       * Деактивировать по устаревшему разбору в этом случае — тихо перечеркнуть
-       * то, что уже произошло. См. hasNewerContactSince (lib/clientWorkStatus.ts).
-       */
-      const stale = await hasNewerContactSince(interaction.clientId, interaction.createdAt);
-      if (stale) {
-        await logTimeline({
-          clientId: interaction.clientId,
-          actor: { kind: "ai", source: "call-analysis", subjectAgentId: interaction.agentId },
-          type: "SYSTEM",
-          notes:
-            `Разбор звонка от ${dushanbeDateTimeString(interaction.createdAt)} предлагал перевести в ` +
-            `Неактивные (${INACTIVE_REASON_LABELS[inactiveReason]}), но с тех пор клиент снова на связи — ` +
-            `оставлен в работе.`,
-        }).catch(() => {});
-      } else {
-        const deactivated = await deactivateClient({
-          clientId: interaction.clientId,
-          evidenceAt: interaction.createdAt,
-          expectedAgentId: interaction.agentId,
-          // П-10: причину назвал ИИ по разбору звонка, а не сотрудник, что вёл
-          // разговор (interaction.agentId, если он вообще есть) — тот остаётся
-          // адресатом задачи через subjectAgentId.
-          actor: { kind: "ai", source: "call-analysis", subjectAgentId: interaction.agentId },
-          reason: inactiveReason,
-          initiator: "CLIENT",
-          actualNeeds: summaryText,
-          comment: "Причина и решение определены ИИ по разбору звонка — проверьте карточку, если что-то не так.",
-        });
-        if (deactivated.ok) {
-          await prisma.pendingSummary.updateMany({
-            where: { kind: "call_result", subjectId: interactionId, doneAt: null },
-            data: { doneAt: new Date() },
-          });
-          return { ok: true };
-        }
-      }
-      // Не деактивировали (разбор устарел — см. выше) либо гейт не пропустил
-      // (карточка не найдена — тот же клиент удалён параллельно, или что-то ещё
-      // редкое): не роняем разбор, просто ведём себя как обычно — заявленная
-      // причина проигнорирована, окно «Как прошёл звонок» остаётся агенту.
-    }
 
     /**
      * АВТОЗАПИСЬ ИСХОДА — БЕЗ ОКНА «КАК ПРОШЁЛ ЗВОНОК» (владелец 17-18.08.2026).
