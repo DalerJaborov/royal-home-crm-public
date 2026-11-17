@@ -8,7 +8,7 @@ import { SAFETY_REFETCH_MS } from "../lib/refetchIntervals";
 
 export interface OversightSummary {
   overdueTasks: number;
-  /** «Без контакта» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts). */
+  /** «Не связывались» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts). */
   noContactClients: number;
   recentTransfers: number;
   /** Красные флаги (антифрод, мозговой штурм владельца 20-21.08.2026). */
@@ -49,8 +49,8 @@ export interface NoContactClientRow {
   kind: string;
   fullName: string;
   createdAt: string;
+  /** Клиент писал сам (боту или в чат) — но сотрудник ему так и не ответил. */
   lastClientMessageAt: string | null;
-  lastTalkedCallAt: string | null;
   assignedAgent: AgentRef | null;
 }
 

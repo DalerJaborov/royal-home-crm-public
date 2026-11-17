@@ -14,7 +14,7 @@ import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
  * GET /clients/summary — сводка над списком клиентов для экрана «Клиенты»
  * артефакта «Единый пульт директора» (шаблон tpl-clients): счётчики срезов
  * (Покупатели · Мои · Продавцы · Потерянные · Прочие), четыре плитки (Новые ·
- * Без агента · Без контакта · Показы), строка-предупреждение «X ждёт агента
+ * Без агента · Не связывались · Показы), строка-предупреждение «X ждёт агента
  * N минут, свободны: …».
  *
  * Один запрос вместо шести списков с pageSize=1: экран открывается часто, а
@@ -51,10 +51,10 @@ export interface ClientsSummary {
     count: number;
     oldest: { id: string; shortId: number; fullName: string; kind: string; waitingMinutes: number } | null;
   };
-  /** «Без контакта» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts):
-   *  клиенты в работе, у которых больше суток не было разговора по телефону и
-   *  сообщения от самого клиента; новая карточка — от создания. */
-  noContactOverDay: number;
+  /** «Не связывались» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts):
+   *  клиенты в работе, с которыми сотрудники ни разу не связывались (ни звонка, даже
+   *  без ответа, ни сообщения сотрудника, ни показа). Срока нет. */
+  neverContacted: number;
   showings: { today: number; tomorrow: number };
 }
 
@@ -112,7 +112,7 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     newYesterday,
     awaitingCount,
     oldest,
-    noContactOverDay,
+    neverContacted,
     showToday,
     showTomorrow,
     trashedMine,
@@ -142,8 +142,8 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
         orderBy: { assignedAt: "asc" },
         select: { id: true, shortId: true, fullName: true, kind: true, assignedAt: true },
       }),
-      // «Без контакта» — одно правило на всю CRM (lib/noContact.ts, packages/shared/src/clientNoContact.ts).
-      prisma.client.count({ where: { AND: [base, noContactWhere(now)] } }),
+      // «Не связывались» — одно правило на всю CRM (lib/noContact.ts, packages/shared/src/clientNoContact.ts).
+      prisma.client.count({ where: { AND: [base, noContactWhere()] } }),
       prisma.interaction.count({ where: showingWhere(today) }),
       prisma.interaction.count({ where: showingWhere(tomorrow) }),
       meId
@@ -172,7 +172,7 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
           }
         : null,
     },
-    noContactOverDay,
+    neverContacted,
     showings: { today: showToday, tomorrow: showTomorrow },
     trashedMine,
   };
