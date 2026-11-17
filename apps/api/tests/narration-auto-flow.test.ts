@@ -1,3 +1,4 @@
+import { narrationDraftText } from "@royal-home/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -380,5 +381,126 @@ describe("ElevenLabs credits are over", () => {
     expect(await narrationQuotaExceededSince()).toBeNull();
     expect(s.log.mock.calls.filter(([, message]) => String(message).includes("кредиты"))).toHaveLength(1);
     expect(notify).toHaveBeenCalledTimes(1); // только «озвучка готова», про кредиты — ничего
+  });
+});
+
+describe("templates by property type, endings and random choice without repeat (16.11.2026)", () => {
+  const TYPED = {
+    templates: [
+      { id: "apt-a", name: "Квартира 1", lang: "tg", text: "{вид} барои фурӯш. Нархаш {цена}.", propertyTypes: ["APARTMENT"] },
+      { id: "apt-b", name: "Квартира 2", lang: "tg", text: "Хонаи нав! {вид}, масоҳаташ {площадь} метр. Нархаш {цена}.", propertyTypes: ["APARTMENT"] },
+      { id: "house-a", name: "Дом 1", lang: "tg", text: "Ҳавлии нав дар фурӯш аст. Нархаш {цена}.", propertyTypes: ["HOUSE"] },
+    ],
+    endings: [
+      { id: "end-1", lang: "tg", text: "Ба мо дар Директ нависед ё занг занед.", propertyTypes: ["APARTMENT", "HOUSE"] },
+      { id: "end-2", lang: "tg", text: "Барои тамошо ба мо занг занед.", propertyTypes: ["APARTMENT", "HOUSE"] },
+      { id: "end-3", lang: "tg", text: "Ҷойро аз наздик бинед.", propertyTypes: ["HOUSE"] },
+    ],
+  };
+  const ending = (id: string) => TYPED.endings.find((e) => e.id === id)!.text;
+  const draftOf = (v: Row) => narrationDraftText(s.config as never, { type: s.property!.type, rooms: s.property!.rooms, areaSqm: s.property!.areaSqm, floor: s.property!.floor,
+    totalFloors: s.property!.totalFloors, district: s.property!.district.name, price: s.property!.price, currency: s.property!.currency }, v.templateId, v.endingId).text;
+  beforeEach(() => { s.config = { ...baseConfig(), ...TYPED }; });
+
+  it("a new apartment gets an apartment template and an apartment ending; the text equals body + ending rebuilt from the saved codes", async () => {
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    const v = s.versions[0];
+    expect(["apt-a", "apt-b"]).toContain(v.templateId);
+    expect(["end-1", "end-2"]).toContain(v.endingId);
+    expect(v.script.endsWith(ending(v.endingId))).toBe(true);
+    expect(v.script).toBe(draftOf(v));
+    expect(v.script).not.toContain("Ҳавлии");
+  });
+
+  it("does not repeat the previous choice of the employee: only the other template and the other ending are left", async () => {
+    for (let i = 0; i < 20; i++) {
+      s.versions = [];
+      await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now, avoid: { templateId: "apt-a", endingId: "end-1" } });
+      expect(s.versions[0]).toMatchObject({ templateId: "apt-b", endingId: "end-2" });
+    }
+  });
+
+  it("the agent's own choice is respected, even a template of another type, together with the chosen ending", async () => {
+    await startNarrationForNewProperty(propertyId, "agent", { templateId: "house-a", endingId: "end-3" });
+    expect(s.versions[0]).toMatchObject({ templateId: "house-a", endingId: "end-3" });
+    expect(s.versions[0].script).toBe(`Ҳавлии нав дар фурӯш аст. Нархаш ҳаштоду панҷ ҳазор доллар. ${ending("end-3")}`);
+  });
+
+  it("«Другой шаблон»: a new random template and a new random ending, never the previous ones", async () => {
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    for (let i = 0; i < 10; i++) {
+      const before = s.versions[s.versions.length - 1];
+      const outcome = await requestAutoNarration({ propertyId, actorId: "agent", source: "AGENT", reroll: true, debounceMs: 0, now, expectedRevision: before.revision });
+      expect(outcome.status).toBe("QUEUED");
+      const after = s.versions[s.versions.length - 1];
+      expect(after.templateId).not.toBe(before.templateId);
+      expect(after.endingId).not.toBe(before.endingId);
+      expect(after.script).toBe(draftOf(after));
+    }
+  });
+
+  it("a price change keeps the template and the ending: same text with the new price, and it approves itself", async () => {
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    await runNarrationAutoFlow({ now });
+    const first = s.versions[0];
+    expect(await approveNarrationVersion({ propertyId, versionId: first.id, expectedRevision: 1, actorId: "agent", isManager: false })).toBe("AUDIO_APPROVED");
+    s.property = { ...s.property, price: "90000" };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now: later(60_000), debounceMs: 0 });
+    const second = s.versions[1];
+    expect(second).toMatchObject({ templateId: first.templateId, endingId: first.endingId });
+    expect(second.script).toBe(first.script.replace("ҳаштоду панҷ ҳазор", "навад ҳазор"));
+    await runNarrationAutoFlow({ now: later(120_000) });
+    expect(s.versions[1]).toMatchObject({ status: "READY", approvedById: "agent" });
+  });
+
+  it("the owner changed the ending text in Settings after the approval: the new version is not approved by itself, a person listens", async () => {
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    await runNarrationAutoFlow({ now });
+    await approveNarrationVersion({ propertyId, versionId: s.versions[0].id, expectedRevision: 1, actorId: "agent", isManager: false });
+    s.config = { ...s.config, endings: TYPED.endings.map((e) => ({ ...e, text: `${e.text} Мо ҳамеша дар хидмати шумо ҳастем.` })) };
+    s.property = { ...s.property, price: "90000" };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now: later(60_000), debounceMs: 0 });
+    await runNarrationAutoFlow({ now: later(120_000) });
+    expect(s.versions[1]).toMatchObject({ status: "READY", approvedAt: null });
+  });
+
+  it("the type of the property changed: the old template no longer fits, a template and an ending of the new type are chosen", async () => {
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    s.property = { ...s.property, type: "HOUSE" };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now: later(60_000), debounceMs: 0 });
+    // Ожидающий черновик правится той же версией (дребезг), поэтому смотрим на неё.
+    expect(s.versions).toHaveLength(1);
+    expect(s.versions[0].templateId).toBe("house-a");
+    expect(["end-1", "end-2", "end-3"]).toContain(s.versions[0].endingId);
+    expect(s.versions[0].script).toBe(draftOf(s.versions[0]));
+  });
+
+  it("review 17.11: the client's finished text never gets a random ending; endingId null means none; absent endingId on a template pick is chosen by the server", async () => {
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now, script: "Квартира барои фурӯш, нархаш хуб аст." });
+    expect(s.versions[0]).toMatchObject({ endingId: null, script: "Квартира барои фурӯш, нархаш хуб аст." });
+    s.versions = [];
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now, templateId: "apt-a", endingId: null });
+    expect(s.versions[0]).toMatchObject({ templateId: "apt-a", endingId: null });
+    expect(s.versions[0].script).toBe(draftOf(s.versions[0]));
+    s.versions = [];
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now, templateId: "apt-a" });
+    expect(["end-1", "end-2"]).toContain(s.versions[0].endingId);
+  });
+
+  it("review 17.11: «Другой шаблон» with a single variant makes no paid copy (UNCHANGED); with two variants it does", async () => {
+    s.config = { ...baseConfig(), templates: [TYPED.templates[0]], endings: [TYPED.endings[0]] };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    const outcome = await requestAutoNarration({ propertyId, actorId: "agent", source: "AGENT", reroll: true, debounceMs: 0, now, expectedRevision: 1 });
+    expect(outcome.status).toBe("UNCHANGED");
+    expect(s.versions).toHaveLength(1);
+    s.config = { ...baseConfig(), ...TYPED };
+    const two = await requestAutoNarration({ propertyId, actorId: "agent", source: "AGENT", reroll: true, debounceMs: 0, now, expectedRevision: 1 });
+    expect(two.status).toBe("QUEUED");
+  });
+
+  it("settings without endings and versions without an ending code work as before 16.11.2026", async () => {
+    s.config = { ...baseConfig() };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    expect(s.versions[0]).toMatchObject({ templateId: "tg-short", endingId: null, script: "Квартира барои фурӯш. Ду ҳуҷра. Масоҳаташ шасту ду метри мураббаъ." });
   });
 });

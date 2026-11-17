@@ -40,6 +40,8 @@ export interface IncomingSettings {
    * трогает живую телефонию, и включать её должен человек, а не выкат.
    */
   routeToAssignedAgent: boolean;
+  /** Рубильник перезвона клиента из Корзины звонившему (17.11.2026). Выключено по умолчанию. */
+  archiveCallbackEnabled: boolean;
   /** Сколько секунд станция звонит агенту своего клиента, прежде чем уйти на
    *  голосовую почту. 0 — без ограничения (владелец 20.08.2026): диалплан на
    *  станции передаёт Dial() пустой таймаут, звонит, пока клиент сам не положит
@@ -85,6 +87,7 @@ const FALLBACK: IncomingSettings = {
   hoursStart: "09:00",
   hoursEnd: "21:00",
   routeToAssignedAgent: false,
+  archiveCallbackEnabled: false,
   routeRingSeconds: 150,
   routingMode: "assigned_then_forward",
   dutyAgentIds: [],
@@ -106,6 +109,7 @@ export async function loadIncomingSettings(): Promise<IncomingSettings> {
       incomingHoursStart: true,
       incomingHoursEnd: true,
       incomingRouteToAssignedAgent: true,
+      incomingArchiveCallbackEnabled: true,
       incomingRouteRingSeconds: true,
       incomingRoutingMode: true,
       incomingDutyAgentIds: true,
@@ -147,6 +151,7 @@ export async function loadIncomingSettings(): Promise<IncomingSettings> {
     hoursStart: settings.incomingHoursStart,
     hoursEnd: settings.incomingHoursEnd,
     routeToAssignedAgent: settings.incomingRouteToAssignedAgent,
+    archiveCallbackEnabled: settings.incomingArchiveCallbackEnabled,
     routeRingSeconds,
     routingMode: settings.incomingRoutingMode || "assigned_then_forward",
     dutyAgentIds: settings.incomingDutyAgentIds,
