@@ -43,3 +43,7 @@
 ## Дополнение (закрыты два пробела)
 - Номер компании (`isPublicAgencyPhone` / `isRetiredPublicAgencyPhone`, lib/publicAgencyContact.ts, общий источник) отсекается в обоих приёмах.
 - Ветка `managed` (lane даёт rolloutMode ACTIVE, может быть включена): номер берётся прямым приёмом без диалога, кроме модерации ядра. Тест comment-phone-managed-lane (2).
+
+## Ревью PR #270
+- Просьба о деньгах: заявки нет (commentLeadBlocked в commentPhoneLead.ts, одна дверь; отсечка «не по теме» номер по-прежнему берёт). Там же спам/мат/агентство/собственник для всех входов, включая managed.
+- Номер сотрудника: отказ без тревоги. Номер удалённой карточки: лог-след без тревоги. YouTube: в ClientSource нет YOUTUBE, остаётся INSTAGRAM (площадка в socialChannel).

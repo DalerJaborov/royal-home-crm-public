@@ -124,9 +124,19 @@ describe("Instagram: номер в комментарии → заявка", () 
     expect((conversation!.messages as Array<{ role: string }>).some((m) => m.role === "assistant")).toBe(true);
   });
 
-  it("отсечка «просьба о деньгах» молчит, но номер не уносит: заявка есть, модель не звали", async () => {
+  it("просьба о деньгах: полное молчание, заявки НЕТ (решение владельца)", async () => {
     const digits = freshDigits(); phones.push(digits);
     const turn = await instagramTurn(`Ёрдами шумоҳо даркор… лечение ребёнка ${digits}`, undefined);
+    expect(await turn.run()).toBe("skipped");
+    expect(mocks.model.mock.calls.filter(([p]) => /-comment$/.test(p.endpoint ?? ""))).toHaveLength(0);
+    expect(await clientsWith(digits)).toHaveLength(0);
+    const stored = await prisma.instagramComment.findUniqueOrThrow({ where: { id: turn.id } });
+    expect(stored.status).toBe("SKIPPED");
+  });
+
+  it("отсечка «не по теме» молчит, но номер не уносит: заявка есть, модель не звали", async () => {
+    const digits = freshDigits(); phones.push(digits);
+    const turn = await instagramTurn(`напиши мне код на Python для расчёта ипотеки, мой номер ${digits}`, undefined);
     expect(await turn.run()).toBe("skipped");
     expect(mocks.model.mock.calls.filter(([p]) => /-comment$/.test(p.endpoint ?? ""))).toHaveLength(0);
     expect(await clientsWith(digits)).toHaveLength(1);
@@ -166,9 +176,12 @@ describe("Telegram-обсуждение: номер в комментарии �
     expect(await clientsWith(digits)).toHaveLength(1);
   });
 
-  it("отсечка сторожа молчит, номер не уносит", async () => {
+  it("просьба о деньгах — заявки нет; «не по теме» с номером — заявка есть", async () => {
+    const money = freshDigits(); phones.push(money);
+    expect(await (await telegramTurn(`Ёрдами шумоҳо даркор… лечение ребёнка ${money}`, undefined)).run()).toBe("skipped");
+    expect(await clientsWith(money)).toHaveLength(0);
     const digits = freshDigits(); phones.push(digits);
-    const turn = await telegramTurn(`Ёрдами шумоҳо даркор… лечение ребёнка ${digits}`, undefined);
+    const turn = await telegramTurn(`напиши мне код на Python для расчёта ипотеки, мой номер ${digits}`, undefined);
     expect(await turn.run()).toBe("skipped");
     expect(mocks.model.mock.calls.filter(([p]) => /-comment$/.test(p.endpoint ?? ""))).toHaveLength(0);
     expect(await clientsWith(digits)).toHaveLength(1);
