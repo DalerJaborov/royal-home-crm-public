@@ -425,6 +425,18 @@ function ownCalls(file) {
       .replace(/\/+$/, "");
     if (path.startsWith("/")) out.push({ path, method: method.toUpperCase() });
   }
+  /* `sendToClient(intent, `/conversations/${id}/reply`, body)` (web/lib/clientSend.ts,
+   * 17.11.2026) — отправка клиенту с ключом повтора, всегда POST; адрес вторым
+   * аргументом. Без этого разбора экраны чата и подборки теряли свои действия. */
+  const sendRe = /\bsendToClient\s*(?:<(?:[^<>]|<[^<>]*>)*>)?\s*\(\s*[A-Za-z_$][\w$.]*\s*,\s*(["'`])((?:\\.|\$\{[^}]*\}|(?!\1)[^\\])*)\1/g;
+  for (const m of src.matchAll(sendRe)) {
+    const path = m[2]
+      .replace(/\$\{[^}]*\}/g, ":x")
+      .replace(/\?.*$/, "")
+      .replace(/([^/]):x$/, "$1")
+      .replace(/\/+$/, "");
+    if (path.startsWith("/")) out.push({ path, method: "POST" });
+  }
   return out;
 }
 
