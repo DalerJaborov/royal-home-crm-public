@@ -186,7 +186,10 @@ describe("get_unworked", () => {
     const overdueHrefs = own.overdueTasks.map((r: any) => r.client.href);
     expect(overdueHrefs).toEqual([`/clients/${cA.shortId}`]);
     const noContactHrefs = own.noContact.map((r: any) => r.client.href);
-    expect(noContactHrefs).toContain(`/clients/${cA.shortId}`);
+    // «Не связывались» (17.11.2026): у cA встреча и показ сотрудника — с ним связывались;
+    // cPending — ни звонка, ни сообщения, ни показа.
+    expect(noContactHrefs).toContain(`/clients/${cPending.shortId}`);
+    expect(noContactHrefs).not.toContain(`/clients/${cA.shortId}`);
     expect(noContactHrefs).not.toContain(`/clients/${cTrash.shortId}`);
     expect(noContactHrefs).not.toContain(`/clients/${cB.shortId}`);
     expect(typeof own.display).toBe("string");

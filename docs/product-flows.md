@@ -845,7 +845,7 @@
   · зовёт propertyOwnerWhere()
 - const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…
   · зовёт overdueTasksWhere()
-- const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };
+- const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(), { assignedAgentId: id }] };
   · зовёт noContactWhere()
 - const [ propertiesTotal, propertiesAvailable, propertiesCreated, lastProperties, clientsTotal, lastClients, d…
   · считает в базе: property
@@ -4637,7 +4637,7 @@
   · зовёт dushanbeDayRange()
 - const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput
   · зовёт visibleInteractionWhere()
-- const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, noContactOverDay, showTo…
+- const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, neverContacted, showToda…
   · считает в базе: client
   · читает в базе: client
   · считает в базе: interaction
@@ -4744,7 +4744,7 @@
   - where.AND = textSearchAnd;
     · дословно из кода
 - если noContact
-  - where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Dat…
+  - where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere()];
     · дословно из кода
 - если scope === "inWork"
   - Object.assign(where, CLIENT_IN_WORK_WHERE);
@@ -10160,7 +10160,7 @@
 - const [noContact, silent, refused, seller, endless, ackedNoContact, ackedSilent, ackedRefused, ackedSeller, a…
   · читает в базе: client
 - для каждого: const c of noContact.filter((x) => !ackedNoContact.has(x.id)).slice(0, FLAGS_PER_SLICE)
-  - flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: без контакта больш…
+  - flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: ${NO_CONTACT_TEXT.…
     · дословно из кода
 - для каждого: const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)
   - flags.push({ sliceKey: "silent-after-showing", subjectId: c.id, title: `${name(c.fullName)}: тишина после пок…
@@ -10191,14 +10191,12 @@
 
 `apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
-- const where = noContactWhere(new Date());
+- const where = noContactWhere();
   · зовёт noContactWhere()
-- const [light, total] = await Promise.all([ prisma.client.findMany({ where, take: NO_CONTACT_ORDER_CAP, select…
+- const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ createdAt: "asc" }, { i…
   · читает в базе: client
   · считает в базе: client
-- const [rows] = await Promise.all([ prisma.client.findMany({ where: { id: { in: pageIds } }, select: { id: tru…
-  · читает в базе: client
-- res.json({ items: await markAcked("no-contact-clients", rows.map(({ interactions, ...c })
+- res.json({ items: await markAcked("no-contact-clients", rows.map((c)
   · ответ 200
 
 ### GET /api/v1/oversight/overdue-tasks

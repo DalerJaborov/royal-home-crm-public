@@ -36,6 +36,8 @@ import {
   formatClientName,
 } from "../../lib/clientFormat";
 import { formatWait } from "../../lib/format";
+import { NoContactTile } from "./NoContactTile";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 import type { Client } from "../../types";
 
 const num = (n: number) => n.toLocaleString("ru-RU");
@@ -89,7 +91,7 @@ const num = (n: number) => n.toLocaleString("ru-RU");
  *    только тем, у кого `clients.assign`;
  *  — тихая строка «Похожих карточек: N» + «Сравнить» (useDuplicates,
  *    только `clients.merge`, только вкладка «Покупатели» — как на ПК);
- *  — четыре плитки сводки (Новые/Без агента/Без контакта/Показы), те же данные
+ *  — четыре плитки сводки (Новые/Без агента/Не связывались/Показы), те же данные
  *    `useClientsSummary`, что и плитки ПК, но в мобильной раскладке `.v`/`.l`
  *    (`.mh .tile` — другая CSS, чем эталонный `StatTile`, см. докблок в
  *    MobileCalls.tsx);
@@ -170,7 +172,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   /** Срез «Ждут принятия» — плитка «Без агента» ниже; тот же честный серверный
    *  фильтр (`pendingAcceptance`), что у ПК (pages/Clients.tsx). */
   const [pendingSlice, setPendingSlice] = useState(() => urlParams.get("slice") === "pending");
-  /** Срез «Без контакта» — плитка с тем же числом; правило одно на всю CRM
+  /** Срез «Не связывались» — плитка с тем же числом; правило одно на всю CRM
    *  (packages/shared/src/clientNoContact.ts), список даёт сервер. */
   const [noContactSlice, setNoContactSlice] = useState(() => urlParams.get("slice") === "noContact");
   /**
@@ -203,7 +205,9 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   const filters: ClientFilters = {
     ...(isAllMineRoute
       ? { scope: "allMine" as const }
-      : { kind: pendingSlice || searchAcrossKinds ? undefined : sectionKind ?? kind }),
+      // Срезы «Ждут принятия» и «Не связывались» — покупатели и продавцы разом: так
+      // считает число на плитке, и срез по вкладке давал список короче числа.
+      : { kind: pendingSlice || noContactSlice || searchAcrossKinds ? undefined : sectionKind ?? kind }),
     page,
     q: debouncedQ?.trim() || undefined,
     ...(slice === "mine" && me && !isAllMineRoute ? { agentId: me.id } : {}),
@@ -443,7 +447,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
       {/* Четыре плитки сводки — те же данные, что StatTile на ПК, но в
           мобильной раскладке `.v`/`.l` (не эталонный `.tile` из StatTile,
           см. докблок MobileCalls.tsx). «Горячие» удалены из CRM владельцем,
-          поэтому четвёртая плитка ПК — «Без контакта», как здесь. */}
+          поэтому третья плитка — «не связывались» (NoContactTile). */}
       {summary && (
         <div className="sec" style={{ marginTop: 14 }}>
           <div className="tiles">
@@ -483,9 +487,8 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
                 ждут принятия · {oldest ? `дольше всех ${oldest.fullName}` : "все приняты"}
               </div>
             </button>
-            <button
-              type="button"
-              className="tile"
+            <NoContactTile
+              count={summary.neverContacted}
               onClick={() => {
                 // Срез по тому же правилу, что и число на плитке (сервер,
                 // `/clients?noContact=1`, lib/noContact.ts), а не сортировка.
@@ -495,11 +498,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
                 setPage(1);
                 focusList();
               }}
-              title="Срез «Без контакта»"
-            >
-              <div className={summary.noContactOverDay > 0 ? "v crit" : "v"}>{num(summary.noContactOverDay)}</div>
-              <div className={summary.noContactOverDay > 0 ? "l crit" : "l"}>без контакта</div>
-            </button>
+            />
             <Link className="tile" to="/calendar?type=SHOWING&date=today" title="Календарь показов">
               <div className="v">{num(summary.showings.today)}</div>
               <div className="l">показов сегодня · {num(summary.showings.tomorrow)} на завтра</div>
@@ -522,7 +521,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
               {pendingSlice
                 ? "Никто не ждёт принятия."
                 : noContactSlice
-                  ? "Все клиенты на связи."
+                  ? NO_CONTACT_TEXT.empty
                   : q
                   ? "Никого не нашли, проверьте написание."
                   : "В этом срезе пока пусто."}

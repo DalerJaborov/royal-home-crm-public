@@ -14,6 +14,7 @@ import {
   PendingLeadActions,
   ReactivationActions,
 } from "./AgentActions";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 
 /**
  * «СНАЧАЛА ЭТО» (контракт 06.10.2026, раздел 4): одна тёмная карточка с одним
@@ -172,9 +173,9 @@ function describe(todo: AgentTodoItem): FocusView {
       const c = todo.client;
       const to = `/clients/${c.shortId}`;
       return {
-        title: `${clientDisplayName(c.fullName)}: без контакта больше суток`,
+        title: `${clientDisplayName(c.fullName)}: ${NO_CONTACT_TEXT.item}`,
         to,
-        line: `${nextStepLine(c)}. Последний контакт ${relativeTime(c.lastContactAt)}`,
+        line: `${nextStepLine(c)}. Карточка ${relativeTime(c.createdAt)}`,
         actions: <CallAndOpen clientId={c.id} phone={c.phone} to={to} />,
       };
     }

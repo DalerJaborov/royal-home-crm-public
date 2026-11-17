@@ -3441,7 +3441,7 @@
     },
     {
      "k": "do",
-     "t": "const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };",
+     "t": "const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(), { assignedAgentId: id }] };",
      "a": [
       "зовёт noContactWhere()"
      ],
@@ -20239,7 +20239,7 @@
     },
     {
      "k": "do",
-     "t": "const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, noContactOverDay, showTo…",
+     "t": "const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, neverContacted, showToda…",
      "a": [
       "считает в базе: client",
       "читает в базе: client",
@@ -20681,7 +20681,7 @@
      "c": [
       {
        "k": "do",
-       "t": "where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Dat…",
+       "t": "where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere()];",
        "a": [
         "дословно из кода"
        ],
@@ -45073,7 +45073,7 @@
      "c": [
       {
        "k": "do",
-       "t": "flags.push({ sliceKey: \"no-contact-clients\", subjectId: c.id, title: `${name(c.fullName)}: без контакта больш…",
+       "t": "flags.push({ sliceKey: \"no-contact-clients\", subjectId: c.id, title: `${name(c.fullName)}: ${NO_CONTACT_TEXT.…",
        "a": [
         "дословно из кода"
        ],
@@ -45206,7 +45206,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const where = noContactWhere(new Date());",
+     "t": "const where = noContactWhere();",
      "a": [
       "зовёт noContactWhere()"
      ],
@@ -45214,7 +45214,7 @@
     },
     {
      "k": "do",
-     "t": "const [light, total] = await Promise.all([ prisma.client.findMany({ where, take: NO_CONTACT_ORDER_CAP, select…",
+     "t": "const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ createdAt: \"asc\" }, { i…",
      "a": [
       "читает в базе: client",
       "считает в базе: client"
@@ -45223,15 +45223,7 @@
     },
     {
      "k": "do",
-     "t": "const [rows] = await Promise.all([ prisma.client.findMany({ where: { id: { in: pageIds } }, select: { id: tru…",
-     "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ items: await markAcked(\"no-contact-clients\", rows.map(({ interactions, ...c })",
+     "t": "res.json({ items: await markAcked(\"no-contact-clients\", rows.map((c)",
      "a": [
       "ответ 200"
      ],

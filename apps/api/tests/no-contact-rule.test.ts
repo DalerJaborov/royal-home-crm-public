@@ -1,64 +1,64 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import bcrypt from "bcrypt";
-import { NO_CONTACT_AFTER_DAYS, isWithoutContact } from "@royal-home/shared";
+import { NO_CONTACT_TEXT, noContactTileTone } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
-import { noContactWhere } from "../src/lib/noContact.js";
+import { INCOMING_CALL_NOTE_PREFIX, noContactWhere } from "../src/lib/noContact.js";
 
 /**
- * «БЕЗ КОНТАКТА» — ОДНО ПРАВИЛО (владелец 16.11.2026). Тест прибивает правило с
- * обеих сторон: чистая функция в packages/shared и выборка сервера (lib/noContact.ts)
- * обязаны отвечать одинаково.
- *   • сообщение клиента в чате (в том числе боту) — контакт;
- *   • заметка/задача агента — НЕ контакт, даже если сдвинула lastContactAt;
- *   • разговор по телефону — контакт; недозвон — нет;
- *   • ПОРОГ ЯВНО: карточка без единого контакта — «без контакта» СРАЗУ, с момента
- *     создания; был контакт — когда с последнего прошло больше NO_CONTACT_AFTER_DAYS;
- *     lastContactAt не спасает.
+ * «НЕ СВЯЗЫВАЛИСЬ» — ОДНО ПРАВИЛО (17.11.2026, жалоба РОП Нозы: «Пятьдесят без
+ * контактов пишет. Хотя я звоню им, этим клиентам, с ними общаюсь»).
+ *
+ * В счётчике — только клиенты, с которыми сотрудник НИ РАЗУ не связывался. Любая
+ * попытка звонка (даже «не ответил»), состоявшийся входящий, сообщение сотрудника,
+ * показ — и клиент из счётчика уходит навсегда, сколько бы дней ни прошло. Ответы бота,
+ * заметки, пропущенный входящий и «агент сам не снял трубку» связью не считаются.
  */
 
 const DAY = 24 * 60 * 60 * 1000;
 const runId = Date.now();
+const tail = String(runId).slice(-7);
 const now = new Date();
-const old = new Date(now.getTime() - (NO_CONTACT_AFTER_DAYS + 2) * DAY);
+const old = new Date(now.getTime() - 90 * DAY);
 const recent = new Date(now.getTime() - 60 * 60 * 1000);
 let agentId = "";
 const ids: Record<string, string> = {};
 
-describe("правило в packages/shared", () => {
-  it("сообщение клиента боту — контакт", () => {
-    expect(isWithoutContact({ createdAt: old, lastClientMessageAt: recent }, now)).toBe(false);
-  });
-  it("разговор по телефону — контакт", () => {
-    expect(isWithoutContact({ createdAt: old, lastTalkedCallAt: recent }, now)).toBe(false);
-  });
-  it("заметки агента в правило не входят вовсе: старая карточка без звонка и сообщения — без контакта", () => {
-    expect(isWithoutContact({ createdAt: old }, now)).toBe(true);
-  });
-  it("без единого контакта — «без контакта» сразу, даже свежая карточка", () => {
-    expect(isWithoutContact({ createdAt: new Date(now.getTime() - 60_000) }, now)).toBe(true);
-    expect(isWithoutContact({ createdAt: old }, now)).toBe(true);
-  });
-  it("порог считается от последнего контакта: внутри порога — на связи, за порогом — без контакта", () => {
-    const justInside = new Date(now.getTime() - NO_CONTACT_AFTER_DAYS * DAY + 60_000);
-    const justOutside = new Date(now.getTime() - NO_CONTACT_AFTER_DAYS * DAY - 60_000);
-    expect(isWithoutContact({ createdAt: old, lastTalkedCallAt: justInside }, now)).toBe(false);
-    expect(isWithoutContact({ createdAt: old, lastTalkedCallAt: justOutside }, now)).toBe(true);
-    expect(isWithoutContact({ createdAt: old, lastClientMessageAt: justOutside }, now)).toBe(true);
+describe("подписи и цвет — packages/shared", () => {
+  it("красный только когда число больше нуля", () => {
+    expect(noContactTileTone(0)).toBe("calm");
+    expect(noContactTileTone(1)).toBe("crit");
+    expect(NO_CONTACT_TEXT.zero).toBe("со всеми связывались");
+    expect(NO_CONTACT_TEXT.tile).toBe("не связывались");
   });
 });
 
-describe("выборка сервера совпадает с правилом", () => {
+describe("сторож: пропущенный входящий узнаётся по началу записи", () => {
+  it("каждое примечание входящего звонка в incomingCalls.ts начинается с INCOMING_CALL_NOTE_PREFIX", () => {
+    const src = readFileSync(fileURLToPath(new URL("../src/lib/telephony/incomingCalls.ts", import.meta.url)), "utf8");
+    const start = src.indexOf("notes: byConsultant");
+    expect(start).toBeGreaterThan(0);
+    const block = src.slice(start, src.indexOf("/**", start));
+    const literals = [...block.matchAll(/[`"](Входящ[^`"]*|[А-ЯЁ][^`"]{10,})[`"]/g)].map((m) => m[1]);
+    expect(literals.length).toBeGreaterThanOrEqual(5);
+    for (const text of literals) expect(text.startsWith(INCOMING_CALL_NOTE_PREFIX)).toBe(true);
+  });
+});
+
+describe("выборка сервера (lib/noContact.ts)", () => {
   beforeAll(async () => {
     agentId = (
       await prisma.agent.create({
-        data: { fullName: `Без контакта ${runId}`, phone: `+992941${String(runId).slice(-7)}`, role: "AGENT", passwordHash: await bcrypt.hash("x", 4) },
+        data: { fullName: `Не связывались ${runId}`, phone: `+992941${tail}`, role: "AGENT", passwordHash: await bcrypt.hash("x", 4) },
       })
     ).id;
-    const mk = async (key: string, n: number, data: Record<string, unknown> = {}) => {
+    let n = 10;
+    const mk = async (key: string, data: Record<string, unknown> = {}) => {
       const c = await prisma.client.create({
         data: {
-          fullName: `Без контакта ${key} ${runId}`,
-          phone: `+99294${n}${String(runId).slice(-7)}`,
+          fullName: `Не связывались ${key} ${runId}`,
+          phone: `+9929${n++}${tail}`,
           source: "PHONE_CALL",
           kind: "BUYER",
           assignedAgentId: agentId,
@@ -70,34 +70,85 @@ describe("выборка сервера совпадает с правилом",
       ids[key] = c.id;
       return c.id;
     };
-    await mk("silent", 2);
-    await mk("botChat", 3, { lastClientMessageAt: recent });
-    const noteId = await mk("onlyNote", 4, { lastContactAt: recent });
-    await prisma.interaction.create({ data: { clientId: noteId, agentId, type: "MESSAGE", notes: "Заметка агента" } });
-    const talkedId = await mk("talked", 5);
-    await prisma.interaction.create({ data: { clientId: talkedId, agentId, type: "CALL", notes: "Разговор", callAttempt: "TALKED", recordingDurationSec: 60 } });
-    const missedId = await mk("noAnswer", 6);
-    await prisma.interaction.create({ data: { clientId: missedId, agentId, type: "CALL", notes: "Не дозвонился", callAttempt: "NO_ANSWER" } });
-    await mk("brandNew", 7, { createdAt: recent, acceptedAt: recent });
+    const call = (clientId: string, data: Record<string, unknown>) =>
+      prisma.interaction.create({ data: { clientId, agentId, type: "CALL", notes: "Звонок через CRM", ...data } });
+
+    await mk("never");
+    await mk("brandNew", { createdAt: recent, acceptedAt: null });
+    await call(await mk("oneNoAnswer"), { callAttempt: "NO_ANSWER" });
+    await call(await mk("cancelled"), { callAttempt: "CANCELLED" });
+    await call(await mk("talked60dAgo"), { callAttempt: "TALKED", recordingDurationSec: 90, createdAt: new Date(now.getTime() - 60 * DAY) });
+    await call(await mk("agentNoPickup"), { callAttempt: "AGENT_NO_PICKUP" });
+    await call(await mk("missedIncoming"), { callAttempt: null, notes: "Входящий звонок клиента: до оператора не дозвонился" });
+    await prisma.interaction.create({
+      data: { clientId: await mk("answeredIncoming"), actorKind: "SYSTEM", agentId: null, type: "CALL", notes: "Входящий звонок клиента: поговорил с оператором, 1:20", callAttempt: "TALKED", recordingDurationSec: 80 },
+    });
+    await call(await mk("manualCall"), { callAttempt: null, outsideCrm: true, notes: "Связался со своего телефона, договорились" });
+    await prisma.interaction.create({ data: { clientId: await mk("onlyNote", { lastContactAt: recent }), agentId, type: "MESSAGE", notes: "Заметка агента" } });
+    await prisma.interaction.create({ data: { clientId: await mk("showing"), agentId, type: "SHOWING", notes: "Показ" } });
+    await prisma.interaction.create({
+      data: { clientId: await mk("botShowing"), actorKind: "BOT", agentId: null, type: "SHOWING", notes: "Бот записал на показ" },
+    });
+
+    const conv = (clientId: string, key: string, messages: unknown[]) =>
+      prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: `nc-${key}-${runId}`, clientId, messages: messages as object[] } });
+    const userMsg = { role: "user", content: "Здравствуйте, есть двушка?", at: recent.toISOString() };
+    await conv(await mk("onlyBotReplied", { lastClientMessageAt: recent }), "bot", [
+      userMsg,
+      { role: "assistant", content: "Здравствуйте! Подберу варианты.", at: recent.toISOString() },
+      { role: "assistant", content: "Есть две квартиры.", by: { kind: "bot" }, at: recent.toISOString() },
+    ]);
+    await conv(await mk("staffMessage", { lastClientMessageAt: recent }), "staff", [
+      userMsg,
+      { role: "assistant", content: "Это Ноза, сейчас перезвоню.", by: { kind: "agent", agentId, agentName: "Агент" }, at: recent.toISOString() },
+    ]);
+    await prisma.telegramConversation.create({
+      data: {
+        chatId: `nc-tg-${runId}`,
+        clientId: await mk("telegramManual"),
+        messages: [{ role: "assistant", content: "Ответила из Telegram", by: { kind: "manual" } }],
+      },
+    });
+    await mk("attemptMark", { lastAgentAttemptAt: old });
   });
 
   afterAll(async () => {
-    await prisma.interaction.deleteMany({ where: { clientId: { in: Object.values(ids) } } });
-    await prisma.client.deleteMany({ where: { id: { in: Object.values(ids) } } });
+    const clientIds = Object.values(ids);
+    await prisma.botConversation.deleteMany({ where: { clientId: { in: clientIds } } });
+    await prisma.telegramConversation.deleteMany({ where: { clientId: { in: clientIds } } });
+    await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
+    await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
     await prisma.agent.deleteMany({ where: { id: agentId } });
   });
 
-  it("в выборке ровно те, кого правило считает «без контакта»", async () => {
-    const rows = await prisma.client.findMany({
-      where: { AND: [noContactWhere(now), { assignedAgentId: agentId }] },
-      select: { id: true },
-    });
+  it("в счётчике ровно те, с кем ни разу не связывались", async () => {
+    const rows = await prisma.client.findMany({ where: { AND: [noContactWhere(), { assignedAgentId: agentId }] }, select: { id: true } });
     const found = new Set(rows.map((r) => r.id));
-    expect(found.has(ids.silent)).toBe(true);
-    expect(found.has(ids.onlyNote)).toBe(true); // заметка и свежий lastContactAt — не контакт
-    expect(found.has(ids.noAnswer)).toBe(true); // недозвон — не контакт
-    expect(found.has(ids.botChat)).toBe(false); // написал боту — контакт
-    expect(found.has(ids.talked)).toBe(false); // поговорили по телефону — контакт
-    expect(found.has(ids.brandNew)).toBe(true); // свежая без единого контакта — сразу
+    const inCounter = (key: string) => found.has(ids[key]);
+
+    // Попадают:
+    expect(inCounter("never")).toBe(true); // ни одной попытки
+    expect(inCounter("brandNew")).toBe(true); // свежая карточка — сразу, без ожидания суток
+    expect(inCounter("onlyBotReplied")).toBe(true); // ответил только бот
+    expect(inCounter("agentNoPickup")).toBe(true); // агент сам не снял трубку — до клиента не дошло
+    expect(inCounter("missedIncoming")).toBe(true); // клиент звонил, а до нас не дозвонился
+    expect(inCounter("onlyNote")).toBe(true); // заметка и свежий lastContactAt — не связь
+    expect(inCounter("botShowing")).toBe(true); // показ записал бот, а не сотрудник
+
+    // Не попадают никогда:
+    expect(inCounter("oneNoAnswer")).toBe(false); // один неотвеченный звонок — уже связывались
+    expect(inCounter("cancelled")).toBe(false); // сбросили, пока у клиента звонило
+    expect(inCounter("talked60dAgo")).toBe(false); // звонок 60 дней назад — срока нет
+    expect(inCounter("answeredIncoming")).toBe(false); // состоявшийся входящий
+    expect(inCounter("manualCall")).toBe(false); // «связался со своего телефона»
+    expect(inCounter("showing")).toBe(false); // показ сотрудника
+    expect(inCounter("staffMessage")).toBe(false); // ручное сообщение сотрудника из CRM
+    expect(inCounter("telegramManual")).toBe(false); // ответ сотрудника прямо в Telegram
+    expect(inCounter("attemptMark")).toBe(false); // отметка «агент пытался» (lastAgentAttemptAt)
+  });
+
+  it("сводка экрана «Клиенты» отдаёт то же число в поле neverContacted", async () => {
+    const count = await prisma.client.count({ where: { AND: [noContactWhere(), { assignedAgentId: agentId }] } });
+    expect(count).toBe(7);
   });
 });
