@@ -34,6 +34,10 @@ const { parseNoticeIntent } = await import("../src/telegram/staffNotice.js");
 const { PUSH_KINDS } = await import("@royal-home/shared");
 const { actorFor, cleanupAssistantActionAgents } = await import("./helpers/assistantActionFixture.js");
 const { waitFor, waitForSettled } = await import("./helpers/waitFor.js");
+const { pluginDeclarations } = await import("../src/ai/assistant.js");
+const { actorFromAccess } = await import("../src/ai/assistant/actor.js");
+const { loadAgentAccess } = await import("../src/auth/middleware.js");
+const { groupHiddenToolsForTests } = await import("../src/telegram/assistantBot.js");
 
 const runId = String(Date.now()).slice(-7);
 const AGENT_PERMS: PermissionId[] = ["properties.requestChange"];
@@ -41,8 +45,8 @@ let n = 0;
 let cb = 1;
 
 let districtId = "";
-const ids: Record<"owner" | "other" | "director" | "admin" | "hos" | "noTelegram" | "bystander", string> = {
-  owner: "", other: "", director: "", admin: "", hos: "", noTelegram: "", bystander: "",
+const ids: Record<"owner" | "other" | "director" | "admin" | "hos" | "noTelegram" | "bystander" | "tempBoss", string> = {
+  owner: "", other: "", director: "", admin: "", hos: "", noTelegram: "", bystander: "", tempBoss: "",
 };
 const chats: Record<string, string> = {};
 const clientIds: string[] = [];
@@ -170,13 +174,15 @@ describe("delete_client: свой клиент — в Корзину", () => {
     expect(audit?.agentId).toBe(ids.owner);
   });
 
-  it("чужого клиента удалить нельзя — ни рядовому агенту, ни руководителю: отказ простыми словами, ничего не тронуто", async () => {
+  it("чужого клиента рядовой агент удалить не может — отказ простыми словами, ничего не тронуто (руководству можно: см. ниже)", async () => {
     const foreign = await seedClient(ids.other);
-    for (const who of [ids.owner, ids.director]) {
-      const error = await refused(who, "delete_client", { clientId: foreign.id });
-      expect(error.status).toBe(403);
-      expect(error.message).toMatch(/только своего клиента/);
-    }
+    const error = await refused(ids.owner, "delete_client", { clientId: foreign.id });
+    expect(error.status).toBe(403);
+    expect(error.message).toMatch(/только своего клиента/);
+    // Слова «у меня есть право» в действии помощника ничего не значат: право читается из базы.
+    const claimed = await createPendingAssistantAction(actorFor(ids.owner, ["clients.delete"]), "delete_client", { clientId: foreign.id }).then(() => null, (e: unknown) => e);
+    expect(claimed).toBeInstanceOf(AssistantActionError);
+    expect((claimed as InstanceType<typeof AssistantActionError>).status).toBe(403);
     expect((await prisma.client.findUniqueOrThrow({ where: { id: foreign.id } })).deletedAt).toBeNull();
     expect(sentTo("director")).toHaveLength(0);
   });
@@ -346,5 +352,108 @@ describe("кнопка «Восстановить»: та же дверь, чт�
     } as never);
     expect(answerCallbackQuery.mock.calls.at(-1)?.[1]).toMatch(/Привяжите аккаунт/);
     expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).deletedAt).not.toBeNull();
+  });
+});
+
+describe("delete_client: чужой клиент — только с правом clients.delete, как DELETE /clients/:id в CRM (17.11.2026)", () => {
+  it("директор и РОП удаляют чужого клиента в Корзину той же карточкой; непринятая заявка тоже", async () => {
+    for (const [key, extra] of [["director", {}], ["hos", { acceptedAt: null }]] as const) {
+      const foreign = await seedClient(ids.other, extra);
+      const actor = actorFor(ids[key], ["clients.delete"]);
+      const pending = await createPendingAssistantAction(actor, "delete_client", { clientId: foreign.id });
+      expect(pending.preview.title).toMatch(/Удалить клиента/);
+      expect(pending.preview.risk).toMatch(/Корзин/);
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: foreign.id } })).deletedAt).toBeNull();
+
+      await confirmAssistantAction(pending.id, actor);
+      await waitForSettled(() => sendHtmlMessage.mock.calls.length);
+      const row = await prisma.client.findUniqueOrThrow({ where: { id: foreign.id } });
+      expect(row.deletedAt, key).not.toBeNull();
+      expect(row.deletedById, key).toBe(ids[key]);
+      const audit = await waitFor(() => prisma.auditLog.findFirst({ where: { entityId: foreign.id, action: "TRASH" } }));
+      expect(audit?.agentId).toBe(ids[key]);
+    }
+  });
+
+  it("клиент со сделкой у руководителя тоже не удаляется — причину называет trashBlocker", async () => {
+    const withDeal = await seedClient(ids.other);
+    const property = await seedProperty(ids.other);
+    await prisma.deal.create({ data: { clientId: withDeal.id, propertyId: property.id, agentId: ids.other, stage: "NEGOTIATION" } as never });
+    const error = await createPendingAssistantAction(actorFor(ids.director, ["clients.delete"]), "delete_client", { clientId: withDeal.id }).then(() => null, (e: unknown) => e);
+    expect(error).toBeInstanceOf(AssistantActionError);
+    expect((error as InstanceType<typeof AssistantActionError>).status).toBe(409);
+  });
+});
+
+describe("restore_client: клиент из Корзины — карточкой, правом clients.delete (17.11.2026)", () => {
+  const trashedClient = (assignedAgentId: string) => seedClient(assignedAgentId, { deletedAt: new Date(), deletedById: ids.owner });
+  const refusedAs = async (agentId: string, perms: PermissionId[], args: Record<string, unknown>) => {
+    const error = await createPendingAssistantAction(actorFor(agentId, perms), "restore_client", args).then(() => null, (e: unknown) => e);
+    expect(error).toBeInstanceOf(AssistantActionError);
+    return error as InstanceType<typeof AssistantActionError>;
+  };
+
+  it("директор и РОП: превью ничего не пишет; «Восстановить» возвращает клиента, запись RESTORE от помощника; повтор — тот же итог", async () => {
+    for (const key of ["director", "hos"] as const) {
+      const client = await trashedClient(ids.owner);
+      const actor = actorFor(ids[key], ["clients.delete"]);
+      const pending = await createPendingAssistantAction(actor, "restore_client", { clientId: client.id });
+      expect(pending.preview.title).toMatch(/Восстановить клиента/);
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).deletedAt).not.toBeNull();
+
+      const done = await confirmAssistantAction(pending.id, actor);
+      expect(done.replay).toBe(false);
+      const row = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
+      expect(row.deletedAt, key).toBeNull();
+      expect(row.deletedById, key).toBeNull();
+      expect(row.assignedAgentId).toBe(ids.owner);
+      expect((await confirmAssistantAction(pending.id, actor)).replay).toBe(true);
+      const audit = await waitFor(() => prisma.auditLog.findFirst({ where: { entityId: client.id, action: "RESTORE" } }));
+      expect(audit?.agentId).toBe(ids[key]);
+    }
+  });
+
+  it("по номеру карточки находит; живой клиент — 409; слова вместо номера — 404", async () => {
+    const client = await trashedClient(ids.owner);
+    const pending = await createPendingAssistantAction(actorFor(ids.director, ["clients.delete"]), "restore_client", { clientId: String(client.shortId) });
+    expect(pending.preview.title).toContain("Восстановить");
+    const live = await seedClient(ids.owner);
+    expect((await refusedAs(ids.director, ["clients.delete"], { clientId: live.id })).status).toBe(409);
+    expect((await refusedAs(ids.director, ["clients.delete"], { clientId: "тот клиент у базара" })).status).toBe(404);
+  });
+
+  it("агент (в том числе хозяин карточки) не восстанавливает: без права — отказ брокера, «право на словах» — отказ из базы", async () => {
+    const mine = await trashedClient(ids.owner);
+    expect((await refusedAs(ids.owner, [], { clientId: mine.id })).status).toBe(403);
+    const claimed = await refusedAs(ids.owner, ["clients.delete"], { clientId: mine.id });
+    expect(claimed.status).toBe(403);
+    expect(claimed.message).toMatch(/руководитель/);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: mine.id } })).deletedAt).not.toBeNull();
+  });
+
+  it("право читается свежо при нажатии: после превью у руководителя забрали роль — карточка не исполняется", async () => {
+    const client = await trashedClient(ids.owner);
+    const temp = await prisma.agent.create({
+      data: { fullName: `Временный руководитель ${runId}`, phone: `+992${Math.floor(Math.random() * 900_000_000) + 100_000_000}`, role: "DIRECTOR", passwordHash: await bcrypt.hash("testpass123", 4) },
+    });
+    ids.tempBoss = temp.id;
+    const actor = actorFor(temp.id, ["clients.delete"]);
+    const pending = await createPendingAssistantAction(actor, "restore_client", { clientId: client.id });
+    await prisma.agent.update({ where: { id: temp.id }, data: { role: "AGENT" } });
+    await expect(confirmAssistantAction(pending.id, actor)).rejects.toBeInstanceOf(AssistantActionError);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).deletedAt).not.toBeNull();
+  });
+
+  it("объявляется только тем, у кого есть право, и только в CRM и личке; в общей группе закрыт", async () => {
+    const declared = async (key: keyof typeof ids, surface: "crm-private" | "telegram-private" | "telegram-group") => {
+      const access = await loadAgentAccess(ids[key]);
+      const actor = actorFromAccess(ids[key], { role: access!.role, permissions: access!.permissions }, surface);
+      return pluginDeclarations(actor, true, surface === "crm-private" ? "crm" : "telegram").map((row) => row.name);
+    };
+    expect(await declared("director", "crm-private")).toContain("restore_client");
+    expect(await declared("hos", "telegram-private")).toContain("restore_client");
+    expect(await declared("director", "telegram-group")).not.toContain("restore_client");
+    expect(await declared("owner", "crm-private")).not.toContain("restore_client");
+    expect(groupHiddenToolsForTests().has("restore_client")).toBe(true);
   });
 });

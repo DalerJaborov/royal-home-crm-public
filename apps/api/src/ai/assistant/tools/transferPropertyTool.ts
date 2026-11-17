@@ -66,7 +66,9 @@ async function readSnapshot(args: Args): Promise<AssistantActionSnapshot> {
 
 export const transferPropertyExecutor: AssistantActionExecutor<Args> = {
   tool: TOOL,
-  requires: ["properties.editForeign", "clients.assign"],
+  // Права НЕ перечислены в `requires`: РОП передаёт по transfers.request + clients.assign, а не по
+  // properties.editForeign (canTransferProperty, 17.11.2026). Решает та же функция, что в CRM, —
+  // в snapshot и в execute (transferActorOf).
   channels: ["crm", "telegram"],
   privateTelegram: true,
   parseArgs: (raw) => argsSchema.parse(raw),
@@ -125,6 +127,20 @@ export const transferPropertyTool: AssistantWriteToolPlugin = {
     required: ["ref", "toAgentId", "reason"],
   },
   allowed: (actor) =>
-    actor.surface !== "telegram-group" && !isReadOnlyRole(actor.role) && actor.canEditForeignProperties && actor.canAssignClients,
+    actor.surface !== "telegram-group" &&
+    !isReadOnlyRole(actor.role) &&
+    canTransferProperty({
+      id: actor.id,
+      role: actor.role,
+      // Без полного набора прав (актор собран руками) — по готовым флагам; transfers.request без набора не угадать.
+      can: (permission) =>
+        actor.permissions
+          ? actor.permissions.has(permission)
+          : permission === "properties.editForeign"
+            ? actor.canEditForeignProperties
+            : permission === "clients.assign"
+              ? actor.canAssignClients
+              : false,
+    }),
   executor: transferPropertyExecutor as never,
 };

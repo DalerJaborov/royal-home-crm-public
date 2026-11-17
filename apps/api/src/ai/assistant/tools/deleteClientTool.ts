@@ -18,8 +18,9 @@ import type { AssistantWriteToolPlugin } from "./types.js";
  *
  * Только мягкое удаление (`lib/trashClient.ts` — тот же путь, что у кнопки и одобрения заявки):
  * карточка уходит в Корзину, сделки и переписка остаются, «Восстановить» возвращает как была.
- * Жёсткого удаления из чата нет и не будет. Только СВОЙ клиент — закреплённый за самим сотрудником
- * и принятый им; чужой (в том числе руководителю) — отказ простыми словами. Клиент со сделкой или
+ * Жёсткого удаления из чата нет и не будет. Права — как у DELETE /clients/:id в CRM (17.11.2026):
+ * СВОЙ клиент — закреплённый за самим сотрудником и принятый им; чужой — только с правом
+ * `clients.delete` (директор, админ, РОП), без него отказ простыми словами. Клиент со сделкой или
  * продавец с объектами в работе не удаляется: причину называет сама `trashBlocker`.
  * О каждом удалении РОП, директор и админ получают одно сообщение с кнопкой «Восстановить»
  * (telegram/trashRestoreNotice.ts, вид `trash`, отключается словами).
@@ -43,7 +44,10 @@ interface Snap {
   [extra: string]: unknown;
 }
 
-/** Свой клиент: за этим сотрудником, им принятый, не в Корзине. Иначе отказ понятными словами. */
+/**
+ * Клиент, которого сотрудник вправе убрать в Корзину: свой (за ним, им принятый) либо любой — при праве
+ * `clients.delete`, как в CRM (routes/clients/card.ts, DELETE /:id). Иначе отказ понятными словами.
+ */
 async function loadOwnClient(actionActor: Parameters<NonNullable<AssistantActionExecutor<Args>["snapshot"]>>[1], ref: string) {
   const { actor } = await loadToolActor(actionActor);
   const where = cardWhereFromParam(ref);
@@ -53,9 +57,12 @@ async function loadOwnClient(actionActor: Parameters<NonNullable<AssistantAction
     select: { id: true, shortId: true, kind: true, fullName: true, assignedAgentId: true, acceptedAt: true, deletedAt: true, assignmentCompletedAt: true },
   });
   if (!client || client.deletedAt !== null) throw new AssistantActionError(404, "NOT_FOUND", "Клиент не найден");
-  if (client.assignedAgentId !== actor.id) throw new AssistantActionError(403, "FORBIDDEN", FOREIGN_MESSAGE);
-  const denied = assertClientWritable(actor, client);
-  if (denied) throw new AssistantActionError(403, "FORBIDDEN", denied);
+  // Право берётся из свежих прав сотрудника (loadToolActor), а не из того, что было на момент превью.
+  if (!(actor.permissions?.has("clients.delete") ?? false)) {
+    if (client.assignedAgentId !== actor.id) throw new AssistantActionError(403, "FORBIDDEN", FOREIGN_MESSAGE);
+    const denied = assertClientWritable(actor, client);
+    if (denied) throw new AssistantActionError(403, "FORBIDDEN", denied);
+  }
   return client;
 }
 
@@ -116,8 +123,9 @@ export const deleteClientPlugin: AssistantWriteToolPlugin = {
   name: "delete_client",
   level: "C",
   description:
-    "Удалить СВОЕГО клиента в Корзину (мягко: карточка не пропадает насовсем, руководство получит сообщение и может вернуть её; насовсем из чата не удаляется). " +
-    "Звать: «удали клиента К-0042», «убери дубль этого клиента». Только клиент, закреплённый за самим сотрудником; чужого удалить нельзя — скажи это простыми словами. " +
+    "Удалить клиента в Корзину (мягко: карточка не пропадает насовсем, руководство получит сообщение и может вернуть её; насовсем из чата не удаляется). " +
+    "Звать: «удали клиента К-0042», «убери дубль этого клиента». Своего клиента удаляет любой сотрудник; чужого — только тот, у кого есть право удалять клиентов (директор, админ, РОП); " +
+    "остальным инструмент сам откажет — передай отказ простыми словами. " +
     "Клиента со сделкой или продавца с объектами в работе удалить нельзя — назови причину. После подготовки коротко предложи подтвердить удаление.",
   parameters: {
     type: "object",

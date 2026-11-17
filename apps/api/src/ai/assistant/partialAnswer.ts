@@ -112,6 +112,7 @@ const WRITE_LABELS: Record<string, Record<ReplyLanguage, string>> = {
   restore_property: { ru: "восстановление объекта из Корзины", tg: "баргардонидани объект аз Корзина" },
   delete_property: { ru: "удаление объекта", tg: "нест кардани объект" },
   delete_client: { ru: "удаление клиента", tg: "нест кардани мизоҷ" },
+  restore_client: { ru: "восстановление клиента из Корзины", tg: "баргардонидани мизоҷ аз Корзина" },
 };
 
 function writeLabel(name: string, lang: ReplyLanguage): string {
