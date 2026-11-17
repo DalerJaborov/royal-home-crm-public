@@ -1,5 +1,6 @@
 import type { CustomerAgentSayMode } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { logSystemError } from "./systemError.js";
 import { leadOnlyAppliesTo } from "../ai/leadOnlyMode.js";
 import type { CustomerAgentAnswerMode } from "../ai/customerAgentCore.js";
 
@@ -61,7 +62,11 @@ function logLiveChannelsOnce(value: string, problem: string): void {
   const key = `${value}|${problem}`;
   if (loggedLiveChannels.has(key)) return;
   loggedLiveChannels.add(key);
-  console.error(`[customer-agent] CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS=${JSON.stringify(value)}: ${problem}`);
+  const message = `[customer-agent] CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS=${JSON.stringify(value)}: ${problem}`;
+  console.error(message);
+  // A settings error the director must see in «Журнал ошибок», not only in the container console. The switch is read on every bot turn,
+  // so the first turn after a restart writes it; a database hiccup here never breaks the turn.
+  void logSystemError("ai", message, { dedupKey: `customer-agent-live-channels:${key}` }).catch(() => {});
 }
 
 /** Existing feature switches restrict implemented customer capabilities; a

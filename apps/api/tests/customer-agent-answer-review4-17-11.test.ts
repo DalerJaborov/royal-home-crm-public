@@ -7,6 +7,7 @@ import { HUMAN_PHRASES, customerAsksOrRequests, humanPhraseAgrees } from "../src
 import { customerAgentAnswerMode, customerAgentAnswerLiveChannels } from "../src/lib/customerAgentFeaturePolicy.js";
 import { traceCustomerCoreSchema } from "@royal-home/shared";
 import { readFileSync } from "node:fs";
+import { prisma } from "../src/db.js";
 
 /**
  * Fourth review of #211 (17.11.2026, HEAD 10349c0b; probe5.ts / probe6.mts of the review session).
@@ -179,6 +180,18 @@ describe("live on one channel first (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS, 17.11.
     const hits = errors.mock.calls.filter(call => String(call[0]).includes("FACEBOOK"));
     expect(hits).toHaveLength(1);
     expect(String(hits[0][0])).toContain("FACEBOOOK");
+    errors.mockRestore();
+  });
+  it("the settings error reaches the director's error journal (logSystemError), once per value", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const value = `INSTAGRAM, instagramm-${Date.now()}`;
+    const env = { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: value };
+    customerAgentAnswerMode(env, "INSTAGRAM");
+    customerAgentAnswerMode(env, "INSTAGRAM");
+    await vi.waitFor(async () => {
+      const rows = await prisma.errorLog.findMany({ where: { message: { contains: JSON.stringify(value) } } });
+      expect(rows).toHaveLength(1);
+    }, { timeout: 15_000, interval: 200 });
     errors.mockRestore();
   });
   it("live and a list: live only on the listed channels, shadow on the others", () => {
