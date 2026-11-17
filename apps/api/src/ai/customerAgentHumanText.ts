@@ -205,29 +205,75 @@ export const HUMAN_PHRASES: Record<"ru" | "tg", Record<"lead" | "close", Readonl
 const phraseKey = (text: string) => text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").toLowerCase().replace(/ё/gu, "е")
   .replace(/[.,!…«»"':;]/gu, " ").replace(/\s+/gu, " ").trim();
 const PHRASE_INDEX = Object.fromEntries((["ru", "tg"] as const).map(language => [language,
-  Object.fromEntries((["lead", "close"] as const).map(role => [role, new Map(HUMAN_PHRASES[language][role].map(([text, kind]) => [phraseKey(text), kind]))]))])) as
-  Record<"ru" | "tg", Record<"lead" | "close", Map<string, HumanPhraseKind>>>;
-/** The kinds of the 1–2 vetted sentences a lead / close consists of, or null when any sentence is not a vetted phrase. */
-export function humanPhraseKinds(text: string, language: "ru" | "tg", role: "lead" | "close"): HumanPhraseKind[] | null {
-  const sentences = text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").split(/(?<=[.!…])\s+/u).map(part => part.trim()).filter(Boolean);
-  if (!sentences.length || sentences.length > (role === "lead" ? 2 : 1)) return null;
-  const kinds: HumanPhraseKind[] = [];
-  for (const sentence of sentences) {
-    const kind = PHRASE_INDEX[language][role].get(phraseKey(sentence));
-    if (!kind) return null;
-    kinds.push(kind);
-  }
-  return kinds;
+  Object.fromEntries((["lead", "close"] as const).map(role => [role, new Map(HUMAN_PHRASES[language][role].map(([text, kind]) => [phraseKey(text), { text, kind }]))]))])) as
+  Record<"ru" | "tg", Record<"lead" | "close", Map<string, { text: string; kind: HumanPhraseKind }>>>;
+/**
+ * The words that read as «да» to whatever the customer said last («Хорошо», «Ладно», «Конечно», «Хуб», «Майлаш», «Бале», «Албатта»).
+ * A vetted phrase carrying one of them is an AGREEMENT whatever its tag says: the class is decided by the words, so a phrase added to
+ * HUMAN_PHRASES later can never slip a «да» past the rule below (review #211, round 4). Matched in the Tajik fold («ҳа» = «ха»).
+ * Not «хайр» («Хайр, саломат бошед!» is a farewell) and not «понял / фаҳмидам» (an acknowledgement, not consent).
+ */
+const AGREEMENT = new RegExp(`${BW}(?:хорошо|ладно|договорились|конечно|разумеется|непременно|да|ок|окей|согласн${TAIL}|согласен|отлично|можно|` +
+  `хуб|майлаш|бале|ха|албатта|рози|мумкин|мешавад|хоп|хатман)${EW}`, "iu");
+export function humanPhraseAgrees(text: string): boolean {
+  return AGREEMENT.test(tgFold(lower(text)));
 }
 /**
- * The customer ASKS for something an «Хорошо» / «Хуб» would grant (a discount, a viewing, a date, «можно…?», «мумкин…?»): then no
- * agreement-like phrase may open the reply, whatever the template lines say (third review: «Можно скидку?» → «Хорошо.» + price).
+ * The 1–2 vetted sentences a lead / close consists of: their kinds and the CANONICAL text (the list's own spelling, case and
+ * punctuation), or null when any sentence is not a vetted phrase. The canonical text is what goes out, never the model's string:
+ * «ХОРОШО.», «Хорошо понял вас», «Хорошо; понял вас.» are matched as a whole phrase and sent as «Хорошо.» / «Хорошо, понял вас.»
+ * (review #211, round 4, п.2: the check compared a key and the reply carried the raw text).
  */
-const CUSTOMER_REQUEST = new RegExp(`${BW}(?:можно|можете|могли|могу\\s+ли|дайте|сделайте|давайте|разрешите|скидк${TAIL}|уступ${TAIL}|торг${TAIL}|дешевле|завтра|сегодня|послезавтра|` +
-  `посмотреть|показ${TAIL}|просмотр${TAIL}|запиш${TAIL}|встрет${TAIL}|приехать|прийти|бронь|заброниру${TAIL}|мумкин|мешавад|метавонед|тахфиф|арзон${TAIL}|` +
-  `кам\\s+кунед|диҳед|дихед|пагоҳ|пагох|имрӯз|имруз|фардо|дидан|бинам|бубинам|тамошо|омадан|биёям|сабт)${EW}`, "iu");
-export function customerRequestInText(text: string): boolean {
-  return CUSTOMER_REQUEST.test(text.normalize("NFKC").toLowerCase());
+export function humanPhraseMatch(text: string, language: "ru" | "tg", role: "lead" | "close"): { kinds: HumanPhraseKind[]; text: string } | null {
+  const sentences = text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").split(/(?<=[.!…])\s+/u).map(part => part.trim()).filter(Boolean);
+  if (!sentences.length || sentences.length > (role === "lead" ? 2 : 1)) return null;
+  const kinds: HumanPhraseKind[] = [], canonical: string[] = [];
+  for (const sentence of sentences) {
+    const found = PHRASE_INDEX[language][role].get(phraseKey(sentence));
+    if (!found) return null;
+    kinds.push(humanPhraseAgrees(found.text) ? "agree" : found.kind);
+    canonical.push(found.text);
+  }
+  return { kinds, text: canonical.join(" ") };
+}
+/** The kinds of the 1–2 vetted sentences a lead / close consists of, or null when any sentence is not a vetted phrase. */
+export function humanPhraseKinds(text: string, language: "ru" | "tg", role: "lead" | "close"): HumanPhraseKind[] | null {
+  return humanPhraseMatch(text, language, role)?.kinds ?? null;
+}
+
+/**
+ * The customer ASKS or REQUESTS something (review #211, round 4: the class, not a list of request words). Then no agreement phrase
+ * may open the reply: «Цену снизите?», «Последняя цена?», «Покажете 123?», «Ипотека есть?», «Насия ҳаст?» → «Хорошо.» + the price
+ * line reads as «да». A message is asking when it has
+ *  - a question mark (any script);
+ *  - a question word or particle: ru «ли», «как», «что», «сколько», «разве»…; tg «оё», «чӣ», «чанд», «кай», «куҷо», «магар», the
+ *    question suffix «-ми» («ҳастми», «мешавадми») and «ҳаст» closing the message («Насия ҳаст»);
+ *  - an imperative or a «вы»-form verb addressed to the agency: ru «покажите», «скиньте», «снизите», «покажете»; tg «диҳед», «кунед»,
+ *    «мекунед», «нишон деҳ», «бидеҳ», «бигӯ»;
+ *  - a request word: «можно», «мумкин», «мешавад», a discount, a viewing, a date, a booking, a mortgage or instalments, documents, the
+ *    final price.
+ * Over-matching only costs the agreement phrase (a neutral lead still goes out); under-matching sends a false «да». Matched in the
+ * Tajik fold, so «хуччат», «дихед», «насия хаст» are the same words as «ҳуҷҷат», «диҳед», «насия ҳаст».
+ */
+const ASK_MARK = /[?？؟¿]/u;
+const QUESTION_WORD = new RegExp(`${BW}(?:ли|разве|неужели|как${TAIL}|каков${TAIL}|сколько|где|куда|откуда|когда|почему|зачем|что|чем|чей|чья|чье|кто|` +
+  // Tajik (folded): «кӣ» folds into «ки», the conjunction «ки» («Раҳмат, ки навиштед»), so «who» is left to the question mark.
+  // The suffix «-ми» follows a consonant («ҳастми», «доредми»); Russian «-ами / -ями / -ьми / всеми» never is a question.
+  `оё|ое|чи|чанд${TAIL}|кай|кучо|чаро|кадом${TAIL}|магар|ми|\\p{L}+[бвгджзйклмнпрстфхцчшщ]ми)${EW}|${BW}хаст\\s*[.!…]*\\s*$`, "iu");
+/** Words that end like a «вы»-verb or an imperative but ask nothing: «в бюджете», «на сайте», «Здравствуйте», «Извините», «Бубахшед»,
+ * and the Tajik past «-ед» («навиштед», «кардед», «гуфтед», «омадед»: «you wrote / did / said / came»). */
+const NOT_VERB = new RegExp(`^(?:бюдж|пак|кабин|компл|секр|предм|интерн|бил|парк|сов|отв|прив|цв|св|ракет|квартет)ете$|^(?:сайте|граните|элите|сосед|обед|след|вред|дед|плед|сафед|умед|здравствуйте|здраствуйте|извините|простите|бубахшед)$|(?:шт|рд|фт|ид|ад|од)ед$`, "iu");
+const VERB_TO_US = new RegExp(`${BW}(?:\\p{L}{2,}(?:ите|йте|ьте|ете|ед)|давай${TAIL}|покажи|скинь|дай|сделай|отложи|оставь|скажи|подскажи|напиши|позвони|` +
+  `бидех|бигу|бифирист)${EW}|${BW}(?:нишон\\s+дех|кам\\s+кун)${EW}`, "giu");
+const REQUEST_WORD = new RegExp(`${BW}(?:можно|могу|могли|мумкин|мешавад${TAIL}|метавон${TAIL}|разрешите|скидк${TAIL}|уступ${TAIL}|торг${TAIL}|дешевле|подешевл${TAIL}|` +
+  `сниз${TAIL}|сбав${TAIL}|последн${TAIL}|окончательн${TAIL}|охирин|завтра|сегодня|послезавтра|посмотреть|смотр${TAIL}|показ${TAIL}|покаж${TAIL}|просмотр${TAIL}|` +
+  `запиш${TAIL}|встрет${TAIL}|приехать|прийти|брон${TAIL}|заброниру${TAIL}|резерв${TAIL}|отлож${TAIL}|ипотек${TAIL}|рассроч${TAIL}|кредит${TAIL}|насия${TAIL}|карз${TAIL}|` +
+  `документ${TAIL}|хуччат${TAIL}|хучат${TAIL}|тахфиф${TAIL}|арзон${TAIL}|кам\\s+(?:мекун|кун)${TAIL}|дихед|пагох|имруз|фардо|дидан|бинам|бубинам|тамошо|омадан|биёям|биеям|сабт${TAIL})${EW}`, "iu");
+export function customerAsksOrRequests(text: string): boolean {
+  const own = tgFold(lower(text));
+  if (!own.trim()) return false;
+  if (ASK_MARK.test(own) || QUESTION_WORD.test(own) || REQUEST_WORD.test(own)) return true;
+  return [...own.matchAll(VERB_TO_US)].some(([word]) => !NOT_VERB.test(word));
 }
 
 /**
@@ -256,10 +302,10 @@ export const APPROVED_ASKS: Record<"ru" | "tg", Record<CustomerAgentAskKind, rea
   },
 };
 const askKey = (text: string) => text.normalize("NFKC").replace(/[\p{Cf}]/gu, "").toLowerCase().replace(/ё/gu, "е").replace(/[.,!«»"':;]/gu, " ").replace(/\s+/gu, " ").replace(/\s+\?/gu, "?").trim();
-const ASK_INDEX = new Map<string, { kind: CustomerAgentAskKind; language: "ru" | "tg" }>((["ru", "tg"] as const).flatMap(language =>
+const ASK_INDEX = new Map<string, { kind: CustomerAgentAskKind; language: "ru" | "tg"; text: string }>((["ru", "tg"] as const).flatMap(language =>
   (Object.entries(APPROVED_ASKS[language]) as [CustomerAgentAskKind, readonly string[]][]).flatMap(([kind, list]) =>
-    list.map(text => [askKey(text), { kind, language }] as const))));
-/** The kind of an approved question wording (any punctuation inside, one «?» at the end), or null. */
-export function approvedAsk(text: string): { kind: CustomerAgentAskKind; language: "ru" | "tg" } | null {
+    list.map(text => [askKey(text), { kind, language, text }] as const))));
+/** The kind and the CANONICAL wording (sent instead of the model's string) of an approved question (one «?» at the end), or null. */
+export function approvedAsk(text: string): { kind: CustomerAgentAskKind; language: "ru" | "tg"; text: string } | null {
   return /[?]\s*$/u.test(text) && (text.match(/[?]/gu)?.length ?? 0) === 1 ? ASK_INDEX.get(askKey(text)) ?? null : null;
 }

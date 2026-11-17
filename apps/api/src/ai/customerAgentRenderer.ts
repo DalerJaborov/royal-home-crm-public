@@ -1205,6 +1205,7 @@ export function customerAgentAnswerVerdict(input: RenderInput): CustomerAgentAns
     return validateCustomerAgentAnswer({ answer, template: answerTemplateOf(plain, template.text), language: input.language, surface: input.surface,
       inputText: input.inputText, maxOutputChars: input.maxOutputChars,
       priorAssistantTurns: (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text),
+      priorCustomerTurns: (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "user").map(turn => turn.text),
       attachment: d.kind === "reply" && d.attachment !== undefined });
   } catch { return { ok: false, reason: "error" }; }
 }

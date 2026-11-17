@@ -215,7 +215,8 @@ describe("the model's sent words stay in the dialogue memory (review #211, п.5)
   it("two live turns: the second identical lead is a repeat once the first one is remembered", () => {
     const lead = "Спасибо, что написали.";
     const first = rendered({ lead, ask: "Сколько комнат вы рассматриваете?" }, ask("rooms"))!;
-    expect(first).toBe(`${lead}\nСколько комнат вы рассматриваете?`);
+    // The vetted spelling goes out, not the model's «.» (fourth review, п.2).
+    expect(first).toBe("Спасибо, что написали!\nСколько комнат вы рассматриваете?");
     const remembered = customerAgentMemoryText(first, new Set());
     expect(remembered).toBe(first);
     // Before review #211 the memory dropped the whole turn (no template line), so the same words passed again.

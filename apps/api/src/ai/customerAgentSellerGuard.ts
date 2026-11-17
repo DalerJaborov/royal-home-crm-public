@@ -26,8 +26,11 @@ const TERMS_ASK = new RegExp(`${BW}(?:шарт\\p{L}*|шароит\\p{L}*|усл
 const NOT_TERMS = new RegExp(`${BW}(?:ипотек\\p{L}*|кредит\\p{L}*|рассроч\\p{L}*|насия\\p{L}*|карз\\p{L}*|кисм\\p{L}*|скидк\\p{L}*|тахфиф\\p{L}*|аренд\\p{L}*|ичора\\p{L}*|кироя\\p{L}*)${EW}`, "u");
 /** A QUESTION, not a description: «все условия есть», «ҳама шароит дорад», «шароиташ хуб» describe the flat (re-review #211, п.7). */
 const ASKING_TERMS = new RegExp(`${BW}(?:какие|какая|какой|каковы|каков|сколько|чи|чист|чанд|кадом|расскажите|подскажите|скажите|бигуед|узнать|донам|гуна|хел)${EW}`, "u");
-/** «со всеми условиями», «ҳама шароит»: the flat's amenities, never the agency's terms (third review). */
-const AMENITIES = new RegExp(`${BW}(?:все|всеми|всех|хама|хамаи|бо\\s+хама)\\s+(?:услови\\p{L}*|шароит\\p{L}*|шарт\\p{L}*)`, "u");
+/**
+ * «со всеми условиями», «ҳама шароит»: the flat's amenities, never the agency's terms (third review). Not after a question word:
+ * «Какие все условия?», «Чи ҳама шартҳо?» ask the agency's terms (fourth review, п.3).
+ */
+const AMENITIES = new RegExp(`(?<!${BW}(?:какие|каковы|какая|какой|чи|кадом|кадоме)\\s+)${BW}(?:все|всеми|всех|хама|хамаи|бо\\s+хама)\\s+(?:услови\\p{L}*|шароит\\p{L}*|шарт\\p{L}*)`, "u");
 /** The customer ASKS what the agency takes (one detector for the server read and the seller guard). */
 function asksTermsQuestion(text: string): boolean {
   const words = foldCustomerText(text);
