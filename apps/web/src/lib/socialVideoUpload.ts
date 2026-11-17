@@ -4,6 +4,9 @@ import { getOrCreateDeviceId } from "./deviceId";
 import { ApiError } from "./apiError";
 import { httpStatusMessage } from "./httpStatusMessage";
 import { refreshAccessToken } from "./api";
+import { PART_ATTEMPTS, STALL_MS, uploadInParts } from "./chunkedUpload";
+import { assertFitsSingleRequest } from "./singleRequestLimit";
+import { compressImage } from "./compressImage";
 
 /**
  * Загрузка свободного ролика в соцсети С ПРОГРЕССОМ (12.10.2026).
@@ -21,7 +24,7 @@ import { refreshAccessToken } from "./api";
  */
 
 /** Столько тишины в канале считаем обрывом — тот же порог, что у очередей загрузки. */
-export const STALL_MS = 60_000;
+export { STALL_MS };
 
 /** Сколько ждать ответ сервера после того, как все байты ушли (перепаковка до 5 минут + запас). */
 export const RESPONSE_WAIT_MS = 10 * 60_000;
@@ -54,6 +57,13 @@ function sendOnce(input: SocialVideoUploadInput, token: string | null): Promise<
     const isPhoto = !input.file && (input.photos?.length ?? 0) > 0;
     if (input.file) form.append("video", input.file, input.file.name);
     for (const p of input.photos ?? []) form.append("photos", p, p.name);
+    // Тяжелее потолка одного запроса тело не дойдёт до сервера — говорим сразу, а не после минут ожидания.
+    try {
+      assertFitsSingleRequest(form);
+    } catch (err) {
+      reject(err);
+      return;
+    }
 
     const xhr = new XMLHttpRequest();
     let settled = false;
@@ -130,8 +140,48 @@ function sendOnce(input: SocialVideoUploadInput, token: string | null): Promise<
   });
 }
 
-/** Создаёт черновик ролика: POST /social-videos (multipart). */
+/**
+ * РОЛИК ЧАСТЯМИ (17.11.2026). Одним запросом файл 87 МБ получал 413 «Файл слишком большой»
+ * ещё до сервера: Cloudflare перед CRM не пропускает тело больше 100 МБ, прокси на сервере —
+ * и меньше. Механика — общий помощник lib/chunkedUpload.ts; здесь только адреса раздела
+ * (сервер: apps/api/src/lib/socialVideoUploadSessions.ts). Фото-пост лёгкий и идёт одним
+ * запросом — с проверкой веса до отправки.
+ */
+export { PART_ATTEMPTS };
+
+const DRAFT_WAIT_MESSAGE =
+  "Сервер слишком долго обрабатывает ролик. Проверьте список роликов — черновик мог создаться, тогда откройте его, а не загружайте файл заново.";
+
+function uploadVideoInParts(input: SocialVideoUploadInput, file: File): Promise<SocialVideoItem> {
+  const base = "/api/v1/social-videos/upload-sessions";
+  const fields: Record<string, string> = {
+    title: input.title,
+    caption: input.caption,
+    channels: JSON.stringify(input.channels),
+  };
+  if (input.brief) fields.brief = input.brief;
+  if (input.destinations) fields.destinations = JSON.stringify(input.destinations);
+  return uploadInParts<SocialVideoItem>({
+    file,
+    startUrl: base,
+    startBody: { filename: file.name, sizeBytes: file.size },
+    partUrl: (sessionId, n) => `${base}/${sessionId}/parts/${n}`,
+    completeUrl: (sessionId) => `${base}/${sessionId}/complete`,
+    completeBody: fields,
+    completeWaitMs: RESPONSE_WAIT_MS,
+    completeWaitMessage: DRAFT_WAIT_MESSAGE,
+    onProgress: input.onProgress,
+    onUploaded: input.onUploaded,
+  });
+}
+
+/** Создаёт черновик: ролик — частями (см. выше), фото-пост — POST /social-videos/photos. */
 export async function uploadSocialVideo(input: SocialVideoUploadInput): Promise<SocialVideoItem> {
+  if (input.file) return uploadVideoInParts(input, input.file);
+  // Фото-пост — одним запросом: десять снимков с камеры по 20 МБ (200 МБ) прокси не пропустит.
+  // Сжимаем до 2560 px (compressImage, обычно 1-3 МБ на снимок; сервер всё равно перекладывает
+  // их в JPEG под сети), а вес всей пачки проверяет sendOnce до отправки.
+  if (input.photos?.length) input = { ...input, photos: await Promise.all(input.photos.map((p) => compressImage(p))) };
   try {
     return await sendOnce(input, useAuthStore.getState().accessToken);
   } catch (err) {

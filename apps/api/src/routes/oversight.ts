@@ -1,5 +1,5 @@
 import { canReadInvestigations } from "../auth/investigations.js";
-import { canViewInvestigations, lastRealContactTime } from "@royal-home/shared";
+import { canViewInvestigations, NO_CONTACT_TEXT } from "@royal-home/shared";
 import { requireInvestigations } from "../auth/investigations.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { Prisma } from "../generated/prisma/client.js";
@@ -7,9 +7,12 @@ import { prisma } from "../db.js";
 import { findPostShowingCallFeedRow, listPostShowingCallFeed } from "../lib/postShowingCallFeed.js";
 import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
-import { TASK_WHERE } from "../lib/tasks.js";
+import { overdueTasksWhere } from "../lib/tasks.js";
+// Условие переехало в lib/tasks.ts (17.11.2026, одна дверь с помощницей Шабнам);
+// вывоз отсюда оставлен для прежних импортов.
+export { overdueTasksWhere } from "../lib/tasks.js";
 import { BUYERS_IN_WORK_WHERE } from "../lib/agentLoad.js";
-import { noContactWhere, TALKED_CALL_WHERE } from "../lib/noContact.js";
+import { noContactWhere } from "../lib/noContact.js";
 import { findSilentAfterShowing } from "../lib/silentAfterShowing.js";
 export { findSilentAfterShowing } from "../lib/silentAfterShowing.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../lib/clientPhone.js";
@@ -92,10 +95,7 @@ function maskInteractionRow<
 // раздел «Проблемы»): те же условия, что красят строки в «Контроле руководителя»,
 // только сузены на agentId этого сотрудника — второй копии логики не заводим (тот
 // же приём, что уже применён к findSilentAfterShowing/findEndlessNegotiations/
-// findAgentLossSeries ниже).
-export function overdueTasksWhere(now: Date): Prisma.InteractionWhereInput {
-  return { ...TASK_WHERE, completedAt: null, nextActionDate: { lt: now } };
-}
+// findAgentLossSeries ниже). Просроченные задачи — overdueTasksWhere из lib/tasks.ts.
 
 // «Горячий клиент без контакта» (скоринг + lastContactAt) удалён 16.11.2026: владелец
 // оставил ОДИН счётчик «Без контакта» с одним правилом — lib/noContact.ts
@@ -387,7 +387,7 @@ async function buildOversightSummary() {
   ] = await runLimited(
     [
       () => prisma.interaction.count({ where: overdueTasksWhere(now) }),
-      () => prisma.client.count({ where: noContactWhere(now) }),
+      () => prisma.client.count({ where: noContactWhere() }),
       () => prisma.interaction.count({ where: { ...transferEventsWhere(), createdAt: { gte: recentSince } } }),
       () => findSilentAfterShowing(now),
       () => findRefusedHighScore(recentSince),
@@ -480,48 +480,19 @@ oversightRouter.get("/overdue-tasks", async (req, res) => {
 });
 
 /**
- * GET /oversight/no-contact-clients — клиенты в работе без настоящего контакта
- * дольше порога (правило — packages/shared/src/clientNoContact.ts, выборка —
- * lib/noContact.ts).
- *
- * ПОРЯДОК — ПО ПОСЛЕДНЕМУ НАСТОЯЩЕМУ КОНТАКТУ (16.11.2026): сначала карточки, с
- * которыми контакта не было ни разу (давние первыми), потом — те, у кого
- * последний разговор или сообщение клиента давнее всего. Последний контакт — это
- * БОЛЬШЕЕ из «писал сам» и «разговор по телефону», а одним ORDER BY по двум
- * источникам Prisma не сортирует. Поэтому порядок считается здесь по лёгкой
- * выборке (только даты, до {@link NO_CONTACT_ORDER_CAP} строк), а полные строки
- * читаются для одной страницы.
+ * GET /oversight/no-contact-clients — клиенты в работе, с которыми ни разу не
+ * связывались (правило — packages/shared/src/clientNoContact.ts, выборка —
+ * lib/noContact.ts). Самые давние карточки первыми.
  */
-const NO_CONTACT_ORDER_CAP = 3000;
 oversightRouter.get("/no-contact-clients", async (req, res) => {
   const { page, pageSize } = parsePage(req);
-  const where = noContactWhere(new Date());
-  const [light, total] = await Promise.all([
+  const where = noContactWhere();
+  const [rows, total] = await Promise.all([
     prisma.client.findMany({
       where,
-      take: NO_CONTACT_ORDER_CAP,
-      select: {
-        id: true,
-        createdAt: true,
-        lastClientMessageAt: true,
-        interactions: { where: TALKED_CALL_WHERE, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
-      },
-    }),
-    prisma.client.count({ where }),
-  ]);
-  const ordered = light
-    .map((c) => ({ id: c.id, created: c.createdAt.getTime(), last: lastRealContactTime({ createdAt: c.createdAt, lastClientMessageAt: c.lastClientMessageAt, lastTalkedCallAt: c.interactions[0]?.createdAt })?.getTime() ?? null }))
-    .sort((a, b) => {
-      if (a.last === null && b.last !== null) return -1;
-      if (a.last !== null && b.last === null) return 1;
-      const diff = (a.last ?? a.created) - (b.last ?? b.created);
-      return diff !== 0 ? diff : a.id.localeCompare(b.id);
-    });
-  const pageIds = ordered.slice((page - 1) * pageSize, page * pageSize).map((c) => c.id);
-  const position = new Map(pageIds.map((id, i) => [id, i]));
-  const [rows] = await Promise.all([
-    prisma.client.findMany({
-      where: { id: { in: pageIds } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
       select: {
         id: true,
         shortId: true,
@@ -530,22 +501,15 @@ oversightRouter.get("/no-contact-clients", async (req, res) => {
         createdAt: true,
         lastClientMessageAt: true,
         assignedAgent: agentRefSelect,
-        interactions: {
-          where: TALKED_CALL_WHERE,
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { createdAt: true },
-        },
       },
     }),
+    prisma.client.count({ where }),
   ]);
-  rows.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
   const canSeePhone = req.agent!.can("clients.viewPhone");
   res.json({
-    items: await markAcked("no-contact-clients", rows.map(({ interactions, ...c }) => ({
+    items: await markAcked("no-contact-clients", rows.map((c) => ({
       ...c,
       fullName: clientNamePhoneSafe(c.fullName, canSeePhone),
-      lastTalkedCallAt: interactions[0]?.createdAt ?? null,
     })), (c) => c.id),
     total,
     page,
@@ -938,8 +902,8 @@ oversightRouter.get("/flags", requireDirectorOrAdmin, async (req, res) => {
 
   const [noContact, silent, refused, seller, endless, ackedNoContact, ackedSilent, ackedRefused, ackedSeller, ackedEndless] = await Promise.all([
     prisma.client.findMany({
-      where: noContactWhere(now),
-      orderBy: [{ lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
+      where: noContactWhere(),
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       take: 200,
       select: { id: true, fullName: true, createdAt: true, lastClientMessageAt: true, assignedAgent: agentRefSelect },
     }),
@@ -956,7 +920,7 @@ oversightRouter.get("/flags", requireDirectorOrAdmin, async (req, res) => {
 
   const flags: OversightFlag[] = [];
   for (const c of noContact.filter((x) => !ackedNoContact.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
-    flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: без контакта больше суток`, who: c.assignedAgent?.fullName ?? null, at: iso(c.lastClientMessageAt ?? c.createdAt), href: link("no-contact-clients") });
+    flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: ${NO_CONTACT_TEXT.item}`, who: c.assignedAgent?.fullName ?? null, at: iso(c.createdAt), href: link("no-contact-clients") });
   }
   for (const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
     flags.push({ sliceKey: "silent-after-showing", subjectId: c.id, title: `${name(c.fullName)}: тишина после показа`, who: c.assignedAgent?.fullName ?? null, at: iso(c.lastContactAt), href: link("silent-after-showing") });

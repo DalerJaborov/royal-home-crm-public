@@ -251,9 +251,9 @@ listRouter.get("/", requireAuth, async (req, res) => {
     canSearchByOrigin: can(req, "clients.viewOrigin"),
   });
   if (textSearchAnd) where.AND = textSearchAnd;
-  // «Без контакта» — то же правило, что у счётчика сводки и «Контроля» (lib/noContact.ts). После
+  // «Не связывались» — то же правило, что у счётчика сводки и «Контроля» (lib/noContact.ts). После
   // текстового поиска: тот заменяет where.AND целиком.
-  if (noContact) where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Date())];
+  if (noContact) where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere()];
   // Keep the scope outside the text-search AND, which fuzzy search replaces.
   if (scope === "inWork") Object.assign(where, CLIENT_IN_WORK_WHERE);
 

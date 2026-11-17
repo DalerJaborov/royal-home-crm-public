@@ -3,8 +3,8 @@ import { visibleCronWhere, visibleSystemErrorWhere } from "../lib/investigationO
 import { Prisma } from "../generated/prisma/client.js";
 import { countVisibleBackgroundJobs } from "../lib/backgroundJobPrivacy.js";
 import { Router, type Request } from "express";
-import { canViewInvestigations, lastRealContactTime, NO_CONTACT_AFTER_DAYS } from "@royal-home/shared";
-import { noContactWhere, TALKED_CALL_WHERE } from "../lib/noContact.js";
+import { canViewInvestigations, NO_CONTACT_TEXT } from "@royal-home/shared";
+import { noContactWhere } from "../lib/noContact.js";
 import { investigationCallChannelIds } from "../lib/investigationCallChannels.js";
 import { listActive as activeRobotCalls } from "../lib/telephony/liveVoiceMonitor.js";
 import { prisma } from "../db.js";
@@ -181,22 +181,16 @@ async function buildLive(ctx: McContext) {
             where: { deletedAt: null, ...BUYERS_IN_WORK_WHERE },
             _count: { _all: true },
           }),
-          // items[]: «Без контакта» — ОДНО правило на всю CRM (16.11.2026,
-          // lib/noContact.ts, packages/shared/src/clientNoContact.ts): ни разговора
-          // по телефону, ни сообщения самого клиента; без единого контакта — сразу.
-          // Раньше здесь был свой счётчик «завис» по lastContactAt (его двигают
-          // заметки) с порогом 3 дня — второе число про то же на соседнем экране.
-          // Самые давно молчащие первыми, предел 5, без N+1.
+          // items[]: «Не связывались» — ОДНО правило на всю CRM (17.11.2026,
+          // lib/noContact.ts, packages/shared/src/clientNoContact.ts): с клиентом ни
+          // разу не связывался ни один сотрудник. Самые давние карточки первыми, предел 5.
           prisma.client.findMany({
-            where: noContactWhere(now),
-            orderBy: [{ lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
+            where: noContactWhere(),
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             take: 5,
-            select: {
-              id: true, shortId: true, fullName: true, status: true, createdAt: true, lastClientMessageAt: true,
-              interactions: { where: TALKED_CALL_WHERE, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
-            },
+            select: { id: true, shortId: true, fullName: true, status: true, createdAt: true },
           }),
-          prisma.client.count({ where: noContactWhere(now) }),
+          prisma.client.count({ where: noContactWhere() }),
         ]);
       const pulseToday = pulse?.find((p) => p.period === "today") ?? null;
       return {
@@ -225,12 +219,10 @@ async function buildLive(ctx: McContext) {
         dealsInPipeline: {
           count: dealsInPipeline.reduce((s, r) => s + r._count._all, 0),
           byStage: dealsInPipeline.map((r) => ({ status: r.status, count: r._count._all })),
-          /** Клиентов «Без контакта» по общему правилу (всего, не только в items). */
+          /** Клиентов «Не связывались» по общему правилу (всего, не только в items). */
           stuckTotal,
-          stuckDays: NO_CONTACT_AFTER_DAYS,
           items: dealsInPipelineItems.map((c) => {
-            const last = lastRealContactTime({ createdAt: c.createdAt, lastClientMessageAt: c.lastClientMessageAt, lastTalkedCallAt: c.interactions[0]?.createdAt });
-            const days = Math.floor((now.getTime() - (last ?? c.createdAt).getTime()) / (24 * 60 * 60 * 1000));
+            const days = Math.floor((now.getTime() - c.createdAt.getTime()) / (24 * 60 * 60 * 1000));
             return {
               id: c.id,
               // Имя карточки — через право на телефон: у заведённых до 20.08.2026
@@ -238,7 +230,7 @@ async function buildLive(ctx: McContext) {
               title: clientNamePhoneSafe(c.fullName, canSeePhone),
               href: `/clients/${c.shortId}`,
               tone: "warn" as const,
-              hint: last ? `Без контакта ${days} ${plural(days, "день", "дня", "дней")}` : "Контакта ещё не было",
+              hint: days > 0 ? `${NO_CONTACT_TEXT.title}, карточке ${days} ${plural(days, "день", "дня", "дней")}` : `${NO_CONTACT_TEXT.title}, карточка сегодняшняя`,
               silentDays: days,
             };
           }),

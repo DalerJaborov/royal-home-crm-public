@@ -76,7 +76,7 @@ it("literal second variant updates canonical focus; follow-up facts stay on the 
 it("the existing links switch is enforced for collection delivery", async () => {
   const owner = await fixture.owner(), { district } = await fixture.publicCard();
   await prisma.settings.update({ where: { id: "singleton" }, data: { botCanSendLinks: false } });
-  expect((await loadCustomerAgentFeaturePolicy()).links).toBe(false);
+  expect((await loadCustomerAgentFeaturePolicy(null)).links).toBe(false);
   const event = await fixture.capture(owner, "Покажи квартиры");
   fixture.script([[call("search_public_properties", { type: "APARTMENT", districtName: district.name }, "without-links")], [reply(["e0"])]]);
   const sent = await fixture.deliver(event); fixture.assertIoClean();

@@ -27,6 +27,7 @@ import { contactProfileView } from "../lib/contactProfileView.js";
 import { withHiddenConversationOrigin } from "../lib/clientOrigin.js";
 import { listAccounts } from "../messengers/accounts.js";
 import { voiceMessageUpload, mediaMessageUpload } from "../upload.js";
+import { assembleChunkedUpload, ChunkedUploadError, chunkedUploadErrorBody } from "../lib/chunkedUploadSessions.js";
 import { publishConversationUpdated } from "../lib/livePublish.js";
 import { anyParams } from "../lib/routeParams.js";
 import { logAudit } from "../lib/audit.js";
@@ -1623,15 +1624,67 @@ conversationsRouter.post("/:id/reply-media", requireAuth, anyParams(mediaMessage
 
   const parsed = replyMediaCaptionSchema.safeParse(req.body);
   if (!parsed.success) {
+    await fs.rm(req.file.path, { force: true });
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
 
-  const rawId = req.params.id;
+  const file = { path: req.file.path, size: req.file.size, mimetype: req.file.mimetype, originalname: req.file.originalname };
+  const outcome = await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
+  res.status(outcome.status).json(outcome.body);
+});
+
+/**
+ * Тот же файл в переписку, но ЧАСТЯМИ (17.11.2026): ролик объекта 100-300 МБ одним запросом
+ * отбивал прокси перед сервером (413 ещё до API). Старт и части — общие сессии
+ * (routes/uploadSessions.ts, назначение `conversation-media`), здесь — сборка и та же доставка
+ * (deliverReplyMedia), что у одиночного маршрута выше. Повтор «Повторить» с тем же
+ * Idempotency-Key отдаёт ответ первого раза (lib/idempotency.ts) — клиенту не уйдёт дубль.
+ * Поэтому id сессии — в теле, а не в адресе: ключ повтора привязан к адресу, а повтор
+ * открывает новую сессию, и с id в адресе он получил бы 422 вместо ответа первого раза.
+ */
+const replyMediaCompleteSchema = replyMediaCaptionSchema.extend({ sessionId: z.string().uuid() });
+
+conversationsRouter.post("/:id/reply-media/upload-sessions/complete", requireAuth, async (req, res) => {
+  const parsed = replyMediaCompleteSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  }
+  let assembled: { tmpPath: string; sizeBytes: number; originalName: string; contentType: string | null };
+  try {
+    assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId: parsed.data.sessionId, agentId: req.agent!.id });
+  } catch (err) {
+    if (err instanceof ChunkedUploadError) return res.status(err.status).json(chunkedUploadErrorBody(err));
+    throw err;
+  }
+  const file = {
+    path: assembled.tmpPath,
+    size: assembled.sizeBytes,
+    mimetype: assembled.contentType || "application/octet-stream",
+    originalname: assembled.originalName,
+  };
+  const outcome = await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
+  res.status(outcome.status).json(outcome.body);
+});
+
+/** Доставка принятого файла в переписку; временный файл убирается в любом исходе. */
+async function deliverReplyMedia(
+  agentId: string,
+  rawId: string,
+  file: { path: string; size: number; mimetype: string; originalname: string },
+  caption: string | undefined
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (!file.mimetype.startsWith("image/") && !file.mimetype.startsWith("video/")) {
+    await fs.rm(file.path, { force: true });
+    return { status: 400, body: { error: "Допустимы только изображения или видео" } };
+  }
   const isTelegram = rawId.startsWith(TG_PREFIX);
   const conversation = isTelegram
     ? await prisma.telegramConversation.findUnique({ where: { id: rawId.slice(TG_PREFIX.length) } }).then((c) => c && fromTelegram({ ...c, client: null }))
     : await prisma.botConversation.findUnique({ where: { id: rawId }, include: { client: clientSelect } });
-  if (!conversation) return res.status(404).json({ error: "Диалог не найден" });
+  if (!conversation) {
+    await fs.rm(file.path, { force: true });
+    return { status: 404, body: { error: "Диалог не найден" } };
+  }
 
   const target = isTelegram
     ? ({ kind: "telegram", id: rawId.slice(TG_PREFIX.length), subscriberId: conversation.subscriberId } as const)
@@ -1659,19 +1712,15 @@ conversationsRouter.post("/:id/reply-media", requireAuth, anyParams(mediaMessage
    */
   let outcome: { status: number; body: Record<string, unknown> };
   try {
-    const delivery = await deliverMediaToConversation(
-      target,
-      { path: req.file.path, size: req.file.size, mimetype: req.file.mimetype, originalname: req.file.originalname },
-      { sender: await agentSender(req.agent!.id), caption: parsed.data.caption }
-    );
+    const delivery = await deliverMediaToConversation(target, file, { sender: await agentSender(agentId), caption });
     outcome = delivery.ok
       ? { status: 200, body: { ok: true, pausedUntil: delivery.pausedUntil } }
       : { status: delivery.status, body: { error: delivery.error, code: delivery.code } };
   } finally {
-    await fs.rm(req.file.path, { force: true });
+    await fs.rm(file.path, { force: true });
   }
-  res.status(outcome.status).json(outcome.body);
-});
+  return outcome;
+}
 
 /** Пауза/возврат бота работают для обеих таблиц — по префиксу id. */
 async function setPausedUntil(rawId: string, pausedUntil: Date | null): Promise<boolean> {

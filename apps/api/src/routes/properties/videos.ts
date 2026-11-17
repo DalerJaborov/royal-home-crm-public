@@ -13,12 +13,12 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import multer from "multer";
 
-import type { PermissionId } from "@royal-home/shared";
+import { PROXY_SINGLE_REQUEST_MAX_BYTES, type PermissionId } from "@royal-home/shared";
 import type { Prisma, PropertyVideo } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { can, requireAuth } from "../../auth/middleware.js";
 import { sendBackDenied, sendPropertyBackToMontajerAs } from "../../lib/propertySendBack.js";
-import { upload, clipVideoUpload, clipVideoDir, videoHandoffUpload, videoTmpDir, moveUploadedFile, propertyCoversDir, UploadRejectedError } from "../../upload.js";
+import { upload, clipVideoUpload, clipVideoDir, videoHandoffUpload, videoTmpDir, moveUploadedFile, propertyCoversDir, UploadRejectedError, guardedUpload } from "../../upload.js";
 import { probeDurationSec, MAX_CLIP_VIDEO_DURATION_SEC } from "../../lib/propertyClipVideo.js";
 import { probeRawVideoFacts } from "../../lib/rawVideoFacts.js";
 import { revertToReviewAfterVideoUpload } from "../../lib/propertyPipeline.js";
@@ -39,6 +39,7 @@ import {
   discardReceivedFinalVideo,
 } from "../../lib/videoHandoff.js";
 import { logSystemError } from "../../lib/systemError.js";
+import { assembleChunkedUpload, ChunkedUploadError, chunkedUploadErrorBody } from "../../lib/chunkedUploadSessions.js";
 import { describeError } from "../../lib/describeError.js";
 import { logAudit } from "../../lib/audit.js";
 import { acceptFinalVideoFromStaff, selfApprovedClipOptsFor } from "../../lib/finalVideoIntake.js";
@@ -315,6 +316,50 @@ videosRouter.post("/:id/clip-video", requireAuth, anyParams(clipVideoUpload.sing
   const file = req.file;
   if (!file) return res.status(400).json({ error: "Файл не получен" });
 
+  const outcome = await acceptClipVideoFile(property, { path: file.path, size: file.size });
+  res.status(outcome.status).json(outcome.body);
+});
+
+/**
+ * Тот же ролик карточки, но ЧАСТЯМИ (17.11.2026): одним запросом ролик тяжелее ~90 МБ
+ * отбивал прокси (413), а обход квартиры с телефона в 1080p за минуту весит больше.
+ * Старт и части — общие сессии (routes/uploadSessions.ts, назначение `clip-video`),
+ * здесь — сборка и тот же приём, что у одиночной загрузки выше (acceptClipVideoFile).
+ * Права и замок проверяются ДО склейки: чужой объект не получит даже временного файла.
+ */
+videosRouter.post("/:id/clip-video/upload-sessions/:sessionId/complete", requireAuth, async (req, res) => {
+  const property = await prisma.property.findUnique({ where: { id: req.params.id } });
+  if (isGone(property)) return replyGone(req, res);
+  if (!canManageProperty(req, property)) {
+    return res.status(403).json({ error: "Недостаточно прав" });
+  }
+  const lock = propertyEditLockBody(req, property);
+  if (lock) return res.status(409).json(lock);
+
+  let assembled: { tmpPath: string; sizeBytes: number };
+  try {
+    assembled = await assembleChunkedUpload({ kind: "clip-video", sessionId: String(req.params.sessionId), agentId: req.agent!.id });
+  } catch (err) {
+    if (err instanceof ChunkedUploadError) return res.status(err.status).json(chunkedUploadErrorBody(err));
+    throw err;
+  }
+  try {
+    const outcome = await acceptClipVideoFile(property, { path: assembled.tmpPath, size: assembled.sizeBytes });
+    res.status(outcome.status).json(outcome.body);
+  } finally {
+    // acceptClipVideoFile переносит файл; это страховка на падение до переноса.
+    await fs.rm(assembled.tmpPath, { force: true }).catch(() => {});
+  }
+});
+
+/**
+ * Принятый файл ролика карточки (одиночный приём или сборка частей) → рабочая папка клипов,
+ * проверка длительности и задание сжатия. Одна функция на оба пути, чтобы правила не разошлись.
+ */
+async function acceptClipVideoFile(
+  property: NonNullable<Awaited<ReturnType<typeof prisma.property.findUnique>>>,
+  file: { path: string; size: number }
+): Promise<{ status: number; body: Record<string, unknown> }> {
   // К9 (11.09.2026): multer теперь на diskStorage (upload.ts) — файл уже лежит
   // во временном каталоге, здесь переносим его в рабочую папку клипов.
   const inputFilename = `incoming-${randomUUID()}`;
@@ -324,13 +369,16 @@ videosRouter.post("/:id/clip-video", requireAuth, anyParams(clipVideoUpload.sing
   const durationSec = await probeDurationSec(inputPath);
   if (durationSec === null) {
     await fs.rm(inputPath, { force: true });
-    return res.status(400).json({ error: "Не удалось определить длительность видео" });
+    return { status: 400, body: { error: "Не удалось определить длительность видео" } };
   }
   if (durationSec > MAX_CLIP_VIDEO_DURATION_SEC) {
     await fs.rm(inputPath, { force: true });
-    return res.status(400).json({
-      error: `Видео длиннее ${MAX_CLIP_VIDEO_DURATION_SEC} секунд (${Math.round(durationSec)}с) — обхода квартиры должно хватать короче`,
-    });
+    return {
+      status: 400,
+      body: {
+        error: `Видео длиннее ${MAX_CLIP_VIDEO_DURATION_SEC} секунд (${Math.round(durationSec)}с) — обхода квартиры должно хватать короче`,
+      },
+    };
   }
 
   // clipVideoPendingInput — «побеждает последний файл» (Б9, lib/diskCleanup.ts
@@ -366,11 +414,11 @@ videosRouter.post("/:id/clip-video", requireAuth, anyParams(clipVideoUpload.sing
       data: { clipVideoStatus: property.clipVideoStatus, clipVideoPendingInput: property.clipVideoPendingInput },
     });
     await fs.rm(inputPath, { force: true });
-    return res.status(503).json({ error: "Не удалось поставить видео в обработку — попробуйте ещё раз" });
+    return { status: 503, body: { error: "Не удалось поставить видео в обработку — попробуйте ещё раз" } };
   }
 
-  res.status(202).json({ clipVideoStatus: "PROCESSING" });
-});
+  return { status: 202, body: { clipVideoStatus: "PROCESSING" } };
+}
 
 /**
  * Приём готового ролика от монтажёра через CRM-панель (01.09.2026,
@@ -676,9 +724,15 @@ videosRouter.get("/:id/instagram-stories/last", requireAuth, async (req, res) =>
  * предел действует там, где ролики и правда идут большими, — в сессиях.
  */
 const MAX_VIDEOS_PER_REQUEST = 5;
-const videoUpload = multer({
+const videoUpload = guardedUpload({
+  name: "videoUpload",
+  // 17.11.2026: 700 МБ × 5 в память → не больше потолка прокси на весь запрос. Веб шлёт
+  // видео объекта только сессиями частями (ниже); вызывающих этот маршрут в репозитории нет,
+  // а снаружи тело больше ~100 МБ сюда и так не доходило — его режет Cloudflare.
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
-  limits: { fileSize: 700 * 1024 * 1024, files: MAX_VIDEOS_PER_REQUEST },
+  // 18 МБ × 5 = 90 МБ: каждое обещание двери укладывается в потолок одного запроса.
+  limits: { fileSize: 18 * 1024 * 1024, files: MAX_VIDEOS_PER_REQUEST },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("video/")) {
       return cb(new UploadRejectedError("Допустимо только видео"));

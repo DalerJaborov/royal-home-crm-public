@@ -3383,7 +3383,7 @@ function RouteToAgentSetting() {
             on={settings?.incomingArchiveCallbackEnabled ?? false}
             hint={
               settings?.incomingArchiveCallbackEnabled
-                ? "Клиент, которому РОП звонила из Корзины, перезвонил в течение 3 суток: станция звонит ей до 15 с, не взяла — звонок идёт оператору."
+                ? "Клиент, которому РОП звонила из Корзины, перезвонил в течение 3 суток: звонок идёт только ей. Занята — клиент ждёт; не взяла — её мобильный, потом автоответчик и пуш ей. Оператору не уходит."
                 : "Такой звонок идёт оператору, как у незнакомого номера."
             }
             onToggle={() => updateSettings.mutate({ incomingArchiveCallbackEnabled: !(settings?.incomingArchiveCallbackEnabled ?? false) })}

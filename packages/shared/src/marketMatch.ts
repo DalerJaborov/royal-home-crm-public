@@ -8,15 +8,62 @@ import { z } from "zod";
  * экран его не дублирует.
  */
 
-/** Сколько объявлений с площадок показываем в подборе покупателя. */
+/** Сколько объявлений с площадок показываем в подборе покупателя за раз («лучшие»; дальше — «Показать ещё»). */
 export const MARKET_BUYER_LISTINGS_MAX = 10;
+/** Глубже этого «Показать ещё» не листает: подбор — не каталог площадки. */
+export const MARKET_BUYER_LISTINGS_MAX_OFFSET = 190;
+
+/**
+ * УЗКИЙ ПОДБОР С ПЛОЩАДОК (владелец 17.11.2026: «лучшие 5–10 вместо сотен»). Пороги — настройки компании
+ * (Настройки → Подбор → «Подбор с площадок»), здесь только значения по умолчанию: одно место и для сервера
+ * (lib/market/buyerMatch.ts, loadMarketBuyerRules), и для экрана настроек.
+ *  · freshDays — объявление, которое сбор не видел дольше, под клиентов не предлагается и в пуш не идёт;
+ *  · budgetTolerancePct — цена в пределах ±N% бюджета (вилка «от–до» — от «от» минус N% до «до» плюс N%);
+ *  · roomsTolerance — 0: комнат ровно столько, сколько просит клиент;
+ *  · alertsPerDay — не больше стольких пушей агенту в сутки по Душанбе.
+ */
+export const MARKET_BUYER_RULE_DEFAULTS = {
+  freshDays: 3,
+  budgetTolerancePct: 10,
+  roomsTolerance: 0,
+  alertsPerDay: 3,
+} as const;
+
+/** Границы порогов: одни и те же у PATCH /settings и у полей на экране. */
+export const MARKET_BUYER_RULE_LIMITS = {
+  freshDays: { min: 1, max: 30 },
+  budgetTolerancePct: { min: 0, max: 50 },
+  roomsTolerance: { min: 0, max: 3 },
+  alertsPerDay: { min: 1, max: 20 },
+} as const;
 
 export const marketBuyerListingsQuerySchema = z
   .object({
     limit: z.coerce.number().int().min(1).max(MARKET_BUYER_LISTINGS_MAX).default(MARKET_BUYER_LISTINGS_MAX),
+    offset: z.coerce.number().int().min(0).max(MARKET_BUYER_LISTINGS_MAX_OFFSET).default(0),
   })
   .strict();
 export type MarketBuyerListingsQuery = z.infer<typeof marketBuyerListingsQuerySchema>;
+
+/**
+ * Кто уже связывался с продавцом объявления (17.11.2026): номер взяли кнопкой «Показать номер» (PHONE) или
+ * «Написать в WhatsApp» (WHATSAPP), либо продавца с Somon уже передали агенту поиском собственников (OWNER_LEAD).
+ * Последняя отметка; номера здесь нет.
+ */
+export interface MarketListingContactInfo {
+  action: "PHONE" | "WHATSAPP" | "OWNER_LEAD";
+  agentName: string;
+  /** Это сделал сам смотрящий агент. */
+  byMe: boolean;
+  at: string;
+}
+
+/** Отметка словами — одно место для экрана (ПК и телефон). */
+export function marketContactText(c: MarketListingContactInfo, dateText: string): string {
+  if (c.action === "OWNER_LEAD") return c.byMe ? `Этот продавец уже у вас (поиск собственников), ${dateText}` : `Продавца уже ведёт ${c.agentName} (поиск собственников), ${dateText}`;
+  if (c.byMe) return `Вы уже ${c.action === "PHONE" ? "брали номер" : "писали в WhatsApp"}, ${dateText}`;
+  return c.action === "PHONE" ? `Номер уже взят: ${c.agentName}, ${dateText}` : `Продавцу уже писали в WhatsApp: ${c.agentName}, ${dateText}`;
+}
 
 export interface MarketBuyerListing {
   /** Домен площадки: "somon.tj", "paydo.tj"… */
@@ -30,8 +77,14 @@ export interface MarketBuyerListing {
   floor: number | null;
   totalFloors: number | null;
   districtName: string | null;
+  /** Площадка район не назвала и мы его не вывели: строка идёт ниже и подписана «район не указан». */
+  districtUnknown: boolean;
   /** Когда объявление опубликовано (если площадка отдаёт) иначе — когда мы его впервые увидели. */
   publishedAt: string;
+  /** Когда сбор последний раз видел объявление на площадке. */
+  lastSeenAt: string;
+  /** Кто уже связывался с продавцом (null — никто): чтобы двое не звонили одному хозяину. */
+  contact: MarketListingContactInfo | null;
 }
 
 /**
@@ -107,6 +160,12 @@ export interface MarketBuyerListingsResponse {
   market: MarketBuyerSummary | null;
   /** Фильтр «только собственники» (null, когда подбор не считался). */
   ownersOnly: MarketOwnersOnlyInfo | null;
+  /** С какой позиции отдан список (для «Показать ещё»). */
+  offset: number;
+  /** Порог свежести, суток: старше — не показываем (Настройки). */
+  freshDays: number;
+  /** В пожеланиях клиента нет района: подбор по всему городу, экран так и пишет. */
+  clientDistrictMissing: boolean;
   listings: MarketBuyerListing[];
 }
 

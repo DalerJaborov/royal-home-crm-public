@@ -4641,6 +4641,13 @@ model BotConversation {
   /// Не связь Prisma, а просто id: объект могут удалить, и падать из-за этого
   /// подсказке модели незачем (читатель проверяет deletedAt сам).
   adPropertyId       String?
+  /// РЕЖИМ «ТОЛЬКО ЗАЯВКИ»: О ЧЁМ БОТ ПОПРОСИЛ НОМЕР (13.11.2026, второе ревью).
+  /// Клиент прислал пост объекта, бот попросил номер, следующим сообщением
+  /// пришёл один номер: без этой памяти тема и объект терялись, и заявка уходила
+  /// в общую очередь вместо агента объекта. Пишут оба маршрута бота одной дверью
+  /// lib/leadOnlyPending.ts: {version, scenario, propertyId, askedAt}. Только JSON
+  /// с id объекта, без слов и номера клиента; срок жизни 7 дней (читатель проверяет).
+  leadOnlyPending    Json?
   /// НАКРУТКА ПОВТОРНОЙ ПЕРЕСЫЛКОЙ НЕРАСПОЗНАННОГО ВИДЕО (30.08.2026, живой лид
   /// «Муродали») — метка ставится один раз, когда бот дошёл до
   /// MAX_UNRESOLVED_SHARE_REPLIES (messengers/conversation.ts), и остаётся
@@ -7291,6 +7298,15 @@ model Settings {
   marketBuyerAlertsEnabledAt        DateTime?
   /// Подбор покупателю с площадок только от собственников: без агентств и продавцов с 3+ объявлениями. По умолчанию ВКЛ.
   marketOwnersOnly                  Boolean   @default(true)
+  /// УЗКИЙ ПОДБОР С ПЛОЩАДОК (17.11.2026, lib/market/buyerMatch.ts loadMarketBuyerRules). Объявление, которое сбор
+  /// не видел дольше стольких суток, под клиентов не предлагается и в пуш не идёт.
+  marketBuyerFreshDays              Int       @default(3)
+  /// Цена объявления в пределах ±N% бюджета клиента (свой допуск, не общий matchBudgetTolerancePct наших объектов).
+  marketBuyerBudgetTolerancePct     Int       @default(10)
+  /// Разница в комнатах с запросом клиента: 0 — ровно столько, сколько он просит.
+  marketBuyerRoomsTolerance         Int       @default(0)
+  /// Не больше стольких пушей «объявление под вашего покупателя» агенту за сутки по Душанбе.
+  marketBuyerAlertsPerDay           Int       @default(3)
   /// ЯВНОЕ КЭШИРОВАНИЕ СИСТЕМНОГО ПРОМТА GEMINI (30.08.2026). Неявный кэш Google
   /// (по умолчанию, без этого тумблера) срабатывает где-то в половине случаев —
   /// задокументированное поведение самого Google, не наша недоработка. Явный кэш
@@ -11405,6 +11421,7 @@ model MarketListing {
   /// Совпадения с нашими объектами: только обратная сторона связи, колонок нет.
   ownMatches     PropertyMarketMatch[]
   buyerAlerts    BuyerMarketAlert[]
+  contacts       MarketListingContact[]
 
   @@unique([source, sourceId])
   @@index([dealType, propertyType, isActive])
@@ -11497,6 +11514,26 @@ model BuyerMarketAlert {
   @@unique([clientId, listingId])
   @@index([clientId, notifiedAt])
   @@index([listingId])
+}
+
+/// КТО УЖЕ СВЯЗЫВАЛСЯ С ПРОДАВЦОМ ЧУЖОГО ОБЪЯВЛЕНИЯ (17.11.2026). Пишет одна дверь — POST /market/listing-contact
+/// (кнопки «Показать номер» и «Написать в WhatsApp»), когда агент получил номер продавца. Блок «С площадок» под
+/// клиентом показывает это всем агентам, чтобы двое не звонили одному хозяину. Номера здесь нет — только кто,
+/// когда, каким действием и для какого клиента.
+model MarketListingContact {
+  id        String        @id @default(uuid())
+  listingId String
+  listing   MarketListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  /// Сотрудник, получивший номер (без внешнего ключа: уволенный не должен стирать историю).
+  agentId   String
+  /// Для какого покупателя (null — номер взяли не из карточки клиента).
+  clientId  String?
+  /// PHONE — «Показать номер», WHATSAPP — «Написать в WhatsApp».
+  action    String
+  createdAt DateTime      @default(now())
+
+  @@index([listingId, createdAt])
+  @@index([agentId, createdAt])
 }
 
 model PropertyMarketMatch {
