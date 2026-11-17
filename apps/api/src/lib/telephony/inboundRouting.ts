@@ -18,7 +18,7 @@ import {
 import { hasLiveCall } from "./callTracker.js";
 import { loadIncomingSettings } from "./incomingSettings.js";
 import { findPhoneOwners } from "../clientPhones.js";
-import { agentMayCallArchived, archiveCallbackRingSeconds } from "../archiveReviewCall.js";
+import { agentMayCallArchived } from "../archiveReviewCall.js";
 import { whisperFileForCall } from "./whisperSync.js";
 import {
   ROUTE_DIALPLAN_FILE,
@@ -525,8 +525,8 @@ export interface RouteRequest {
   isAnswered: () => boolean;
   /**
    * Клиент из Корзины перезванивает тому, кто недавно звонил ему для «разбора удалённого» (владелец
-   * 16.11.2026). Одна попытка без ожидания и без парковки: звонивший недоступен — звонок идёт оператору
-   * как раньше. Карточка не оживает. Решение о праве и о живом владельце номера принято до этого
+   * 16.11.2026). С 17.11.2026 (владелец: «только РОПу, не надо никого переводить на оператора») — как свой
+   * клиент своему агенту: ждём занятого, не взял — мобильный, потом автоответчик и пуш ему. Карточка не оживает. Решение о праве и о живом владельце номера принято до этого
    * (incomingCalls.setupIncomingCall).
    */
   archiveReviewerId?: string;
@@ -541,9 +541,9 @@ export async function routeIncomingToAssignedAgent(request: RouteRequest): Promi
     if (!rememberAttempt(request.channelId)) return { routed: false, reason: "already_answered" };
     let outcome = await attemptRoute(request);
     // Причина «может пройти сама» и звонок ещё жив — не сдаёмся сразу: клиент
-    // ждёт своего агента, а не первого, кто ответит (владелец 04.09.2026). Перезвон из Корзины не
-    // ждёт: занятому звонившему клиента не держим на музыке, он уходит к оператору.
-    if (!outcome.routed && !request.archiveReviewerId && RETRYABLE_REASONS.has(outcome.reason) && !request.isAnswered()) {
+    // ждёт своего агента, а не первого, кто ответит (владелец 04.09.2026). Перезвон из Корзины — так же:
+    // клиент ждёт РОПа, который ему звонил, оператору не уходит (владелец 17.11.2026).
+    if (!outcome.routed && RETRYABLE_REASONS.has(outcome.reason) && !request.isAnswered()) {
       outcome = await waitAndRetry(request, outcome);
     }
     await recordDecision(request.recordId, outcome);
@@ -663,9 +663,8 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
     viaMobile: decision.viaMobile,
     // Свой клиент: полное routeRingSeconds при любом режиме консультанта
     // (владелец 11.10.2026; с 02.10 при консультанте было не дольше его ожидания).
-    // Перезвон из Корзины: КОРОТКО (не больше 15 с), а не полные routeRingSeconds, и не «без ограничения»
-    // (0 = бесконечно на станции): клиент не должен висеть на гудках у звонившего, который не берёт.
-    ringSeconds: request.archiveReviewerId ? archiveCallbackRingSeconds(settings.routeRingSeconds) : settings.routeRingSeconds,
+    // Перезвон из Корзины — то же полное время (владелец 17.11.2026: «только РОПу»).
+    ringSeconds: settings.routeRingSeconds,
     // Решение владельца 04.09.2026: автоответчик нигде не нужен — не позвонил
     // агент за routeRingSeconds, звонок просто кладётся, без записи и без
     // очереди операторов (та же логика, что убрала дежурного — общий приём
@@ -677,10 +676,9 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
     // 11.10.2026 владелец: «робот НЕ отвечает клиентам агента» — "voicemail" ВСЕГДА,
     // и диалплан в этой ветке консультанта больше не зовёт (ни при каком aimode).
     // "ai" — только у перевода, который сделал сам консультант (liveVoiceTransfer.ts).
-    // Перезвон из Корзины (17.11.2026): не взял звонивший — звонок ОПЕРАТОРАМ (диалплан уводит в очередь 1000),
-    // а не на автоответчик: у карточки в Корзине некому «перезвонить», и платная расшифровка с тревогой
-    // «карточка в Корзине» (voicemailIngest) клиенту ни к чему.
-    fallback: request.archiveReviewerId ? "queue" : "voicemail",
+    // Перезвон из Корзины: тоже автоответчик, НЕ очередь операторов (владелец 17.11.2026: «только РОПу,
+    // не надо никого переводить на оператора»); пуш о пропущенном получает звонивший (notifyMissed).
+    fallback: "voicemail",
     isAnswered: request.isAnswered,
     whisperFile,
     logLabel: `входящий ${request.phone} переведён на ответственного`,
@@ -1131,7 +1129,10 @@ export async function holdKnownClientAwayFromOperator(
 ): Promise<boolean> {
   if (OPERATOR_REASONS.has(reason)) return false;
   try {
-    const { client } = await loadRouteClient(request.phone, request.clientId);
+    // Перезвон из Корзины: «свой агент» — РОП, который звонил клиенту для разбора (владелец 17.11.2026).
+    const { client } = request.archiveReviewerId
+      ? await loadArchiveReviewerRoute(request.archiveReviewerId)
+      : await loadRouteClient(request.phone, request.clientId);
     const agent = client && !client.deletedAt ? client.assignedAgent : null;
     if (!agent) return false;
     if (request.isAnswered()) return true;

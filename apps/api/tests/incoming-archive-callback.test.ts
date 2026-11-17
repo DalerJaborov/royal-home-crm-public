@@ -34,6 +34,7 @@ vi.mock("../src/lib/telephony/inboundRouting.js", async (importOriginal) => ({
   holdKnownClientAwayFromOperator: vi.fn(async () => false),
 }));
 
+const routing = await import("../src/lib/telephony/inboundRouting.js");
 const { prisma } = await import("../src/db.js");
 const { handleAriEvent } = await import("../src/lib/telephony/ariEvents.js");
 const { resetIncomingCalls } = await import("../src/lib/telephony/incomingCalls.js");
@@ -163,6 +164,23 @@ describe("перезвон клиента из Корзины: кому и чт�
     expect(await callbackRows()).toHaveLength(0);
   });
 
+  it("звонивший занят — звонок держится для НЕГО (мобильный, автоответчик), оператору не отдаётся (владелец 17.11)", async () => {
+    await prisma.agent.update({ where: { id: reviewerId }, data: { permissions: ARCHIVE_GRANTS } });
+    await reviewCall(reviewerId);
+    const hold = vi.mocked(routing.holdKnownClientAwayFromOperator);
+    hold.mockClear();
+    hold.mockResolvedValueOnce(true);
+    const release = vi.mocked(routing.releaseChannelToOperator);
+    release.mockClear();
+    const id = `cb-held-${runId}`;
+    await ring(id);
+    await vi.waitFor(() => expect(hold).toHaveBeenCalled());
+    expect(hold.mock.calls[0]![0]).toEqual(expect.objectContaining({ archiveReviewerId: reviewerId }));
+    expect(release).not.toHaveBeenCalled();
+    await hangup(id);
+    await settle();
+  });
+
   it("ответил звонивший по своему внутреннему номеру: разговор в хронологии удалённой карточки, запись слышна, «без разбора» нет", async () => {
     await prisma.agent.update({ where: { id: reviewerId }, data: { permissions: ARCHIVE_GRANTS } });
     await reviewCall(reviewerId);
@@ -209,7 +227,7 @@ describe("перезвон клиента из Корзины: кому и чт�
     expect(call.qualifiedAt).toBeNull();
   });
 
-  it("мост поздно (после его короткого звонка, номер не назван) — это уже очередь операторов, записи нет", async () => {
+  it("мост далеко за окном перевода (номер не назван) — не считаем ответом звонившего, записи нет", async () => {
     await prisma.agent.update({ where: { id: reviewerId }, data: { permissions: ARCHIVE_GRANTS } });
     await reviewCall(reviewerId);
     routeResult = routedTo(reviewerId);
@@ -217,7 +235,7 @@ describe("перезвон клиента из Корзины: кому и чт�
     await ring(id);
     await vi.waitFor(() => expect(routeCalls).toHaveLength(1));
     await new Promise((r) => setTimeout(r, 100));
-    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 60_000 });
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 25 * 3600_000 });
     // Мобильный/транк: внутреннего номера в имени канала нет.
     await handleAriEvent({
       type: "ChannelEnteredBridge",
