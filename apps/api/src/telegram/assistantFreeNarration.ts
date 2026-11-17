@@ -165,7 +165,7 @@ async function createAndShow(chatId: string, agentId: string, text: string, lang
   const outcome = await createFreeNarrationRequest({ agentId, source: "TELEGRAM", chatId, text });
   if (outcome.status === "CREATED" || outcome.status === "EXISTS") { await showChoices(chatId, outcome.row, lang); return; }
   await sendMessage(chatId, outcome.status === "NO_ACCESS" ? c.noAccess : outcome.status === "OFF" ? c.off : outcome.status === "NOT_CONFIGURED" ? c.notConfigured
-    : outcome.status === "TOO_SHORT" ? c.tooShort : c.tooLong(outcome.max, outcome.length));
+    : outcome.status === "TOO_SHORT" ? c.tooShort : outcome.status === "TOO_LONG" ? c.tooLong(outcome.max, outcome.length) : c.failed);
 }
 
 /**
