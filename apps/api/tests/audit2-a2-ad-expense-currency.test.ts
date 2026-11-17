@@ -47,7 +47,7 @@ describe("adExpenseSync: сумма и валюта обновляются вм�
     ];
     await upsertAdExpenses(["2031-05"]);
     expect(state.update).toHaveBeenCalledTimes(1);
-    expect(state.update.mock.calls[0]?.[0].data).toEqual({ amount: 120, currency: "TJS" });
+    expect(state.update.mock.calls[0]?.[0].data).toEqual({ amount: "120.00", currency: "TJS" }); // ровно два знака (аудит денег 17.11)
   });
 
   it("то же число, но другая валюта: строка всё равно обновляется", async () => {
@@ -59,7 +59,7 @@ describe("adExpenseSync: сумма и валюта обновляются вм�
     ];
     await upsertAdExpenses(["2031-05"]);
     expect(state.update).toHaveBeenCalledTimes(1);
-    expect(state.update.mock.calls[0]?.[0].data).toEqual({ amount: 120, currency: "TJS" });
+    expect(state.update.mock.calls[0]?.[0].data).toEqual({ amount: "120.00", currency: "TJS" }); // ровно два знака (аудит денег 17.11)
   });
 
   it("сумма и валюта те же: записи нет", async () => {

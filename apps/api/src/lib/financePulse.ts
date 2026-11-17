@@ -1,7 +1,10 @@
 import { prisma } from "../db.js";
 import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
 import { isDealSalaryExpense } from "./companyProfit.js";
-import { fromCents, loadMoneyContext, roundMoney, splitCents, toCents, toTjs } from "./money.js";
+import { adSpendToTjsCents, centsToTjs, fromCents, loadMoneyContext, roundMoney, splitCents, toCents, toTjs } from "./money.js";
+import { AI_ESTIMATE_VENDORS, splitAiEstimate } from "@royal-home/shared";
+import { dushanbeDateString } from "./dushanbeTime.js";
+import { monthKey } from "./expenseQueries.js";
 import { expenseCentsToTjs } from "./money.js";
 
 /**
@@ -101,6 +104,38 @@ const PERIODS: PulsePeriod[] = ["today", "week", "month", "year"];
  * Все четыре периода разом: экран показывает их плашками, и четыре отдельных
  * запроса ради одного экрана — лишние четыре обхода базы.
  */
+/** Автострока месяца: реклама из кабинета или оценка ИИ — у неё нет дня, только месяц. */
+const isMonthlyAutoRow = (e: { autoKey: string | null }) => !!e.autoKey && (e.autoKey.startsWith("ads:") || e.autoKey.startsWith("ai:"));
+
+/**
+ * РЕКЛАМА И ИИ ЗА ДЕНЬ/НЕДЕЛЮ — ИЗ ДНЕВНЫХ ИСТОЧНИКОВ (аудит денег 17.11.2026).
+ *
+ * Строки «Реклама за месяц» и «ИИ за месяц» дня не имеют, а «Пульс» за день и неделю относил их к
+ * дню заведения строки: весь ноябрь рекламы ложился на 10.11, «эта неделя» показывала 0 при факте
+ * 176 с. Теперь за день и неделю реклама — сумма AdSpendDaily по дням (то же, из чего собрана строка
+ * месяца), ИИ — журнал обращений по тому же правилу «счёт поставщика сильнее оценки», что строка ai:.
+ * Месяц и год по-прежнему считаются по строкам месяца — как «Финансы».
+ */
+async function dailyAutoSpendTjs(from: Date, to: Date, money: Awaited<ReturnType<typeof loadMoneyContext>>): Promise<number> {
+  const dayFrom = new Date(`${dushanbeDateString(from)}T00:00:00.000Z`);
+  const dayTo = new Date(`${dushanbeDateString(to)}T00:00:00.000Z`);
+  const months = [...new Set([monthKey(from), monthKey(new Date(to.getTime() - 1))])].map((m) => new Date(`${m}-01T00:00:00.000Z`));
+  const [ads, ai, bills] = await Promise.all([
+    prisma.adSpendDaily.findMany({
+      where: { date: { gte: dayFrom, lt: dayTo }, ad: { excluded: false, platform: "META" } },
+      select: { spend: true, currency: true },
+      take: 50_000,
+    }),
+    prisma.aiLog.groupBy({ by: ["provider", "model"], where: { createdAt: { gte: from, lt: to }, costUsd: { not: null } }, _sum: { costUsd: true } }),
+    prisma.expense.findMany({
+      where: { month: { in: months }, deletedAt: null, status: "PAID", coversAiUsage: true, vendor: { in: [...AI_ESTIMATE_VENDORS] } },
+      select: { vendor: true }, distinct: ["vendor"],
+    }),
+  ]);
+  const split = splitAiEstimate(ai.map((g) => ({ provider: g.provider, model: g.model, costUsd: g._sum.costUsd })), bills.flatMap((b) => (b.vendor ? [b.vendor] : [])));
+  return fromCents(adSpendToTjsCents(ads, money) + centsToTjs(split.countedCents, "USD", money));
+}
+
 export async function buildFinancePulse(): Promise<PulseBucket[]> {
   const money = await loadMoneyContext();
   const earliest = bounds("year").prevFrom;
@@ -124,12 +159,21 @@ export async function buildFinancePulse(): Promise<PulseBucket[]> {
       // 1 января, нужна и январскому окну выборки, и декабрьскому срезу.
       where: { deletedAt: null,status:"PAID", OR: [{ paymentDate:{gte:earliest} },{ createdAt: { gte: earliest } }, { month: { gte: earliest } }] },
       select: { amount: true, currency: true, createdAt: true, month: true, autoKey: true,paymentDate:true,exchangeRate:true },
+      take: 20_000,
     }),
     prisma.deal.findMany({
       where: { stage: "COMPLETED", closedAt: { gte: earliest } },
       select: { commissionCompanyAmount: true, commissionAmount: true, currency: true, closedAt: true },
     }),
   ]);
+
+  // Реклама и ИИ за день и неделю — по дневным источникам (четыре окна, четыре выборки).
+  const daily = new Map<string, number>();
+  for (const period of ["today", "week"] as const) {
+    const b = bounds(period);
+    daily.set(`${period}:cur`, await dailyAutoSpendTjs(b.from, b.to, money));
+    daily.set(`${period}:prev`, await dailyAutoSpendTjs(b.prevFrom, b.prevTo, money));
+  }
 
   return PERIODS.map((period) => {
     const { from, to, prevFrom, prevTo, label } = bounds(period);
@@ -156,8 +200,9 @@ export async function buildFinancePulse(): Promise<PulseBucket[]> {
     // lib/companyProfit.ts — то же правило, что в «Финансах»).
     const sumExpenses = (a: Date, b: Date) =>
       expenses
-        .filter((e) => !isDealSalaryExpense(e) && dateOf(e) >= a && dateOf(e) < b)
+        .filter((e) => !isDealSalaryExpense(e) && (byAccountingMonth || !isMonthlyAutoRow(e)) && dateOf(e) >= a && dateOf(e) < b)
         .reduce((acc, e) => acc + fromCents(expenseCentsToTjs(e, money)), 0);
+    const autoDaily = (which: "cur" | "prev") => (byAccountingMonth ? 0 : daily.get(`${period}:${which}`) ?? 0);
 
     /**
      * ПРИХОД — ЭТО ДОЛЯ КОМПАНИИ, А НЕ ВСЯ КОМИССИЯ.
@@ -182,19 +227,19 @@ export async function buildFinancePulse(): Promise<PulseBucket[]> {
     // Было Math.round до целых сомони: пульс расходился с разделом «Финансы»
     // на копейки, и объяснить разницу было нечем.
     const incomeTjs = roundMoney(sumIncome(from, to));
-    const expenseTjs = roundMoney(sumExpenses(from, to));
+    const expenseTjs = roundMoney(sumExpenses(from, to) + autoDaily("cur"));
     const previousIncomeTjs = roundMoney(sumIncome(prevFrom, prevTo));
-    const previousExpenseTjs = roundMoney(sumExpenses(prevFrom, prevTo));
+    const previousExpenseTjs = roundMoney(sumExpenses(prevFrom, prevTo) + autoDaily("prev"));
 
     return {
       period,
       label,
       incomeTjs,
       expenseTjs,
-      balanceTjs: incomeTjs - expenseTjs,
+      balanceTjs: roundMoney(incomeTjs - expenseTjs),
       previousIncomeTjs,
       previousExpenseTjs,
-      previousBalanceTjs: previousIncomeTjs - previousExpenseTjs,
+      previousBalanceTjs: roundMoney(previousIncomeTjs - previousExpenseTjs),
     };
   });
 }

@@ -1,3 +1,4 @@
+import { buildExpenseSummary } from "./expenseQueries.js";
 import { prisma } from "../db.js";
 import { loadMoneyContext, roundMoney, toTjs, expenseCentsToTjs, fromCents } from "./money.js";
 import { dushanbeStartOfMonth } from "./dushanbeTime.js";
@@ -86,6 +87,37 @@ function expenseMonthKey(periodStart: Date): Date {
 
 /** Метка месяца «2026-07» — по настенному календарю Душанбе, а не по periodStart:
  *  срез ISO-строки от 19:00 30 июня давал «2026-06», то есть чужой месяц. */
+/**
+ * ДЕНЬГИ ОТЧЁТА — ЖИВЫЕ (аудит денег 17.11.2026, D1).
+ *
+ * Отчёт собирается 1-го числа и хранит снимок. Раньше этот снимок денег и показывался как итог
+ * месяца: расходы, внесённые задним числом (11 строк октября заведены 11.11), правки и смена курса
+ * в отчёт не попадали — октябрь в отчёте 8 786,32 с., в «Финансах», PDF и у Шабнам 16 608,32 с.
+ * Теперь комиссия, расходы и прибыль считаются при каждом открытии той же функцией, что «Финансы»
+ * (buildExpenseSummary), а снимок отдаётся справкой `*AtClose` — «было при закрытии месяца».
+ */
+export interface LiveMonthlyMoney { commission: number; expenses: number; profit: number }
+export async function liveMonthlyMoney(month: string): Promise<LiveMonthlyMoney | null> {
+  // Месяц вне диапазона «Финансов» (1900–2199) живых денег не имеет — отчёт показывает снимок.
+  if (!/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(month)) return null;
+  const summary = await buildExpenseSummary({ months: 1, through: month });
+  const live = summary.months.find((m) => m.month === month);
+  return live ? { commission: live.revenue, expenses: live.totalExpenses, profit: live.profit } : null;
+}
+
+export function withLiveMoney(metrics: Record<string, unknown>, live: LiveMonthlyMoney | null): Record<string, unknown> {
+  if (!live) return metrics;
+  const atClose = (key: string) => (typeof metrics[`${key}AtClose`] === "number" ? metrics[`${key}AtClose`] : typeof metrics[key] === "number" ? metrics[key] : null);
+  return {
+    ...metrics,
+    commissionAtClose: atClose("commission"),
+    expensesAtClose: atClose("expenses"),
+    commission: live.commission,
+    expenses: live.expenses,
+    profit: live.profit,
+  };
+}
+
 export function monthKeyLabel(periodStart: Date): string {
   const wall = new Date(periodStart.getTime() + 5 * 60 * 60 * 1000);
   return `${wall.getUTCFullYear()}-${String(wall.getUTCMonth() + 1).padStart(2, "0")}`;

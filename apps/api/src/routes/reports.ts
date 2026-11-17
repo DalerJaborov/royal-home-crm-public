@@ -19,7 +19,7 @@ import {
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { dushanbeEndOfDay, dushanbeDayRange } from "../lib/dushanbeTime.js";
-import { generateMonthlyReport } from "../lib/monthlyReport.js";
+import { generateMonthlyReport, liveMonthlyMoney, monthKeyLabel, withLiveMoney } from "../lib/monthlyReport.js";
 import { collectPostShowingCohort } from "../lib/postShowingCohort.js";
 import { projectMonthlyPublicInteractions } from "../lib/monthlyPublicProjection.js";
 import { generateProblemReport } from "../lib/problemReport.js";
@@ -319,6 +319,9 @@ export function withoutMoney(metrics: unknown): unknown {
     ...m,
     commission: null,
     expenses: null,
+    profit: null,
+    commissionAtClose: null,
+    expensesAtClose: null,
     agents: Array.isArray(m.agents)
       ? m.agents.map((a) => (a && typeof a === "object" ? { ...(a as object), commission: null } : a))
       : m.agents,
@@ -374,7 +377,12 @@ async function presentMonthlyReport<T extends { metrics: unknown; periodStart: D
       }
     }
   }
-  return { ...report, metrics: can(req, "finance.view") ? metrics : withoutMoney(metrics) };
+  if (!can(req, "finance.view")) return { ...report, metrics: withoutMoney(metrics) };
+  // Деньги месяца — живые, той же функцией, что «Финансы»; снимок — справкой (аудит денег 17.11, D1).
+  if (metrics && typeof metrics === "object" && !Array.isArray(metrics)) {
+    metrics = withLiveMoney(metrics as Record<string, unknown>, await liveMonthlyMoney(monthKeyLabel(report.periodStart)));
+  }
+  return { ...report, metrics };
 }
 
 /** Собрать отчёт за прошлый месяц немедленно — на случай, если ждать первого числа
