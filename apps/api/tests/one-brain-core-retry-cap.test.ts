@@ -13,7 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * the staff alert (the existing door, asserted) and the old bot (must not run in `core`, must run in `legacy`).
  */
 const f = vi.hoisted(() => ({ queryRaw: vi.fn(), opened: vi.fn(), modelTurn: vi.fn(), read: vi.fn(), alert: vi.fn(async () => "sent"),
-  qualify: vi.fn(), shadow: vi.fn() }));
+  qualify: vi.fn(), shadow: vi.fn(), log: vi.fn(async () => {}), transport: vi.fn() }));
+vi.mock("../src/lib/systemError.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()),
+  logSystemError: f.log }));
 vi.mock("../src/db.js", async importOriginal => {
   const original = await importOriginal<typeof import("../src/db.js")>();
   return { ...original, prisma: new Proxy(original.prisma, { get: (target, key) => key === "$queryRaw" ? f.queryRaw : Reflect.get(target, key) }) };
@@ -65,6 +67,8 @@ beforeEach(() => {
   f.alert.mockReset().mockResolvedValue("sent");
   f.qualify.mockReset().mockResolvedValue({ reply: ["old bot"], ready: false, lead: null });
   f.shadow.mockReset();
+  f.log.mockReset();
+  f.transport.mockReset();
   f.opened.mockReset().mockImplementation(async () => {
     const controller = new AbortController();
     const operation = createProviderOperation({ managed: true, deadlineAt: Date.now() + 30_000, maxAttempts: 8, signal: controller.signal,
@@ -94,8 +98,6 @@ describe("R1: the core's own refusals and limits — a person at once, no repeat
     // the model's own stop and a provider verdict that a repeat reproduces
     ["model_output_blocked (ManagedToolTurnStopError)", () =>
       f.modelTurn.mockRejectedValueOnce(Object.assign(new Error("model_output_blocked"), { name: "ManagedToolTurnStopError" }))],
-    ["provider budget_denied", () => f.modelTurn.mockRejectedValueOnce(new ProviderOperationError("budget_denied"))],
-    ["provider unsupported", () => f.modelTurn.mockRejectedValueOnce(new ProviderOperationError("unsupported"))],
     ["provider HTTP 400", () => f.modelTurn.mockRejectedValueOnce(httpError(400))],
   ])("%s → staff (core_refused) on the FIRST run", async (_label, arrange) => {
     arrange();
@@ -112,6 +114,55 @@ describe("R1: the core's own refusals and limits — a person at once, no repeat
       phoneKnown: false }, { mode: "live" });
     expect(outcome).toMatchObject({ status: "staff", reason: "core_refused", language: "ru" });
     expect(f.modelTurn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("R1-1: the provider's own refusal stops the REAL provider operation — still a person at once, with the true reason", () => {
+  // The real ProviderOperation (providerContract.ts); only the transport behind it is replaced: the stand-in model turn
+  // begins an attempt exactly as the Gemini client does (operation.begin) and would then call the network (f.transport).
+  const spec = { provider: "google", api: "generateContent", adapter: "tools", model: "gemini-test", profileRevision: "p",
+    endpoint: "https://example.invalid", maxOutputTokens: 1024 } as const;
+  let operation: ReturnType<typeof createProviderOperation> | null = null;
+  const realOperation = (accountant: { reserve: () => Promise<boolean> }, supports: () => boolean = () => true) => {
+    f.opened.mockImplementation(async () => {
+      const controller = new AbortController();
+      operation = createProviderOperation({ managed: true, deadlineAt: Date.now() + 30_000, maxAttempts: 8, signal: controller.signal,
+        accountant: { ...accountant, settle: async () => {} }, supports });
+      const current = operation;
+      f.modelTurn.mockImplementation(async () => { await current.begin(spec, 5_000); return f.transport(); });
+      return { status: "ready", runtime: { operation: current, modelTurn: f.modelTurn, stop: () => controller.abort("cancelled"), close: async () => {} } };
+    });
+  };
+  it.each([
+    ["budget_denied (the money accountant refuses the attempt)", () => realOperation({ reserve: async () => false })],
+    ["unsupported (the operation does not support this call)", () => realOperation({ reserve: async () => true }, () => false)],
+  ])("%s → operation stopped → staff `core_refused` on the FIRST run, no network call", async (_label, arrange) => {
+    arrange();
+    const outcome = await runChannelCoreTurn({ channel: "TELEGRAM", channelKey: "telegram", conversationId: "tg-r1", history: QUESTION,
+      phoneKnown: false }, { mode: "live" });
+    expect(operation?.stopped).toBe(true); // the path the review found: `operation_stopped`, not `turn_unavailable`
+    expect(outcome).toMatchObject({ status: "staff", reason: "core_refused", language: "ru" });
+    expect(f.transport).not.toHaveBeenCalled();
+    expect(f.modelTurn).toHaveBeenCalledTimes(1);
+    // through the door: one alert with the true reason («не смог ответить по существу»), the handover line, no retry
+    const result = await telegramTurn();
+    expect(result).toMatchObject({ reply: [HANDOVER_RU], verified: true });
+    expect(f.alert).toHaveBeenCalledTimes(1);
+    expect(f.alert).toHaveBeenCalledWith(expect.objectContaining({ why: "core_refused" }));
+  });
+  it("contrast: the accountant is unreachable (accounting_unavailable) — transient, the channel repeats", async () => {
+    realOperation({ reserve: async () => { throw new Error("db down"); } });
+    expect(await telegramTurn()).toBeNull();
+    expect(operation?.stopped).toBe(true);
+    expect(f.alert).not.toHaveBeenCalled();
+  });
+  it("`operation_stopped`: the cause decides, as for `turn_unavailable`", () => {
+    expect(channelCoreRetryable("operation_stopped", "provider_budget_denied")).toBe(false);
+    expect(channelCoreRetryable("operation_stopped", "provider_unsupported")).toBe(false);
+    expect(channelCoreRetryable("operation_stopped", "tool_limit")).toBe(false);
+    for (const c of ["provider_deadline", "provider_cancelled", "provider_accounting_unavailable", "turn_deadline", "AbortError", undefined]) {
+      expect(channelCoreRetryable("operation_stopped", c), String(c)).toBe(true);
+    }
   });
 });
 
@@ -150,10 +201,21 @@ describe("R1: a transient failure is repeated, but one customer turn gets at mos
     expect(f.alert).toHaveBeenLastCalledWith(expect.objectContaining({ why: "core_unavailable" }));
   });
 
-  it("nobody could be told at the cap: no «передал» promise; the result is still final (the job stops, the watchdog follows)", async () => {
+  it("R1-4: nobody could be told at the cap — the customer still hears the handover line, the director sees it in the error log", async () => {
     f.modelTurn.mockRejectedValue(httpError(503));
     f.alert.mockResolvedValueOnce("skipped");
-    expect(await telegramTurn(3)).toMatchObject({ reply: [], silent: "staff" });
+    const result = await telegramTurn(3);
+    expect(result).toMatchObject({ reply: [HANDOVER_RU], verified: true });
+    expect(result?.silent).toBeUndefined();
+    expect(f.log).toHaveBeenCalledTimes(1);
+    expect(f.log).toHaveBeenCalledWith("ai", expect.stringContaining("сигнал сотруднику не ушёл"),
+      expect.objectContaining({ dedupKey: "channel-core-staff-unalerted:TELEGRAM" }));
+  });
+  it("R1-2: «already told» (the watchdog claimed the episode) is the handover line too, and nothing is logged", async () => {
+    f.modelTurn.mockRejectedValueOnce(coded("tool_limit"));
+    f.alert.mockResolvedValueOnce("already");
+    expect(await telegramTurn()).toMatchObject({ reply: [HANDOVER_RU], verified: true });
+    expect(f.log).not.toHaveBeenCalled();
   });
 
   it("website: the same door and the same cap", async () => {

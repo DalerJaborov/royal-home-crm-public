@@ -125,7 +125,11 @@ export function humanRepliedSince(messages: unknown, since: Date): boolean {
     return (kind === "agent" || kind === "manual") && new Date(m.at).getTime() > since.getTime();
   });
 }
-export type ClientWaitingOutcome = "agent" | "director" | "skipped";
+/**
+ * `already` — this silence episode was claimed before (the watchdog, the core, an earlier tick): a person has been told, and a
+ * caller that answers the customer with «передал сотруднику» may do so (review #223 R1-2). `skipped` — nobody was told.
+ */
+export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped";
 
 const CHANNEL_NAME: Record<string, string> = {
   INSTAGRAM: "Instagram",
@@ -255,8 +259,8 @@ export async function alertClientWaiting(input: {
     if (!called || called.getTime() <= chat.lastAlertAt.getTime()) return "skipped";
   }
 
-  // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба.
-  if (!(await chat.claim(since))) return "skipped";
+  // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба. Проигравший — «уже сказали» (R1-2).
+  if (!(await chat.claim(since))) return "already";
 
   const name = chat.name;
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
@@ -384,7 +388,7 @@ async function sweepTelegramConversations(now: Date): Promise<{ checked: number;
       const called = d.clientId ? lastCall.get(d.clientId) : undefined;
       if (called && called.getTime() > d.since.getTime()) continue;
       const outcome = await alertClientWaiting({ conversationId: d.id, source: d.source, trigger: "silence", now });
-      if (outcome !== "skipped") alerted++;
+      if (outcome === "agent" || outcome === "director") alerted++;
     } catch (err) {
       reportCronRowError("Сторож «клиент ждёт ответа» (Telegram)", d.id, err);
     }
@@ -471,7 +475,7 @@ async function sweepBotConversations(now: Date): Promise<{ checked: number; aler
       const called = d.clientId ? lastCall.get(d.clientId) : undefined;
       if (called && called.getTime() > d.episode.since.getTime()) continue;
       const outcome = await alertClientWaiting({ conversationId: d.id, trigger: "silence", now });
-      if (outcome !== "skipped") alerted++;
+      if (outcome === "agent" || outcome === "director") alerted++;
     } catch (err) {
       reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
     }

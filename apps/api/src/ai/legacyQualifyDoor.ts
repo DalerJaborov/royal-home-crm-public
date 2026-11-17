@@ -25,6 +25,7 @@ import { customerAgentChannelMode, customerAgentLegacyChannelKey } from "../lib/
 import { channelOwnWords, runChannelCoreTurn, type ChannelCoreIntake, type ChannelCoreOutcome } from "../lib/customerChannelCore.js";
 import { customerAgentHandoverLine } from "./customerAgentRenderer.js";
 import { alertChannelStaff } from "../lib/channelStaffAlert.js";
+import { logSystemError } from "../lib/systemError.js";
 
 // Helpers of the old bot that callers still need. Re-exported here so that the old module has exactly one importer;
 // step 3b moves each of them to its own module and this list disappears.
@@ -128,10 +129,16 @@ async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOp
     const lastUser = [...turnHistory].reverse().find(item => item.role === "user")?.content ?? "";
     const alerted = await alertChannelStaff({ channel: source.channel, conversationId: options.conversationId ?? null,
       text: lastUser, why: outcome.reason, eventId: source.eventId ?? null });
-    // The customer hears the core's approved handover line (the Meta receipt wording), but only when a person really is
-    // responsible now — the alert went out for this message or already for this batch (review #223 M2).
-    if (alerted !== "skipped") return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [customerAgentHandoverLine(outcome.language)],
-      silent: undefined, verified: true };
+    // The customer ALWAYS hears the core's approved handover line (the Meta receipt wording), owner 17.11.2026 (review #223
+    // R1-2/R1-4): silence here kept the chat «unanswered», so the website's stuck-chat cron replayed it every 30 minutes and
+    // at night nobody answered at all. `sent`/`already`: a person knows. `skipped` (nobody to tell, a database error): the
+    // director learns from the error log instead, and the silence watchdog still sees the chat in working hours.
+    if (alerted === "skipped") {
+      void logSystemError("ai", `Клиенту в канале ${source.channel} бот ответил «передал сотруднику», но сигнал сотруднику не ушёл ` +
+        `(чат ${options.conversationId ?? "без номера"}): откройте переписку и ответьте сами.`,
+        { dedupKey: `channel-core-staff-unalerted:${source.channel}` }).catch(() => {});
+    }
+    return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [customerAgentHandoverLine(outcome.language)], silent: undefined, verified: true };
   }
   return channelCoreQualifyResult(outcome, ownTexts);
 }

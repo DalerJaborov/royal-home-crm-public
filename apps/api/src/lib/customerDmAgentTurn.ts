@@ -730,7 +730,7 @@ export async function customerReplyRepeatBlocked(principal: CustomerAgentMutatio
 }
 
 /** The follow-up signal of a reply that promised an agent (15.11.2026). Exported for the class test; never throws. */
-export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number): Promise<"agent" | "director" | "skipped"> {
+export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number): Promise<"agent" | "director" | "already" | "skipped"> {
   try {
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
     return await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs) });

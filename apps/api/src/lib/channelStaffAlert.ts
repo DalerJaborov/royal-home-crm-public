@@ -13,7 +13,8 @@ import type { ChannelCoreStaffReason } from "./customerChannelCore.js";
  *
  * Когда ядро на канале Telegram/сайт/YouTube зовёт сотрудника (или просит действие, которого на этом канале нет, не
  * может прочитать вход или отказывает так, что повтор ничего не даст), клиенту не уходит ответ по существу — значит,
- * человек обязан узнать сразу. Клиенту канал отправляет строку «передал сотруднику», только если этот вызов не `skipped`.
+ * человек обязан узнать сразу. Клиенту канал отправляет строку «передал сотруднику» всегда (ревью #223 R1-4); `skipped`
+ * («уведомить некого», ошибка базы) дверь ядра пишет в журнал ошибок, `already` — человеку уже сказали раньше.
  *  - Чаты BotConversation (сайт и Meta) — через ОДНУ дверь `alertClientWaiting` (lib/clientWaitingAlert.ts), повод
  *    `handover`: текст пуша говорит правду — клиенту уже сказано, что ответит человек (ревью #223 N8).
  *  - Telegram-бот (TelegramConversation) и личные сообщения канала (TelegramDirectConversation; канал `TELEGRAM_DIRECT`,
@@ -26,7 +27,7 @@ import type { ChannelCoreStaffReason } from "./customerChannelCore.js";
 const BATCH_MS = 2 * 60 * 1000;
 
 export type ChannelStaffWhy = ChannelCoreStaffReason | "bot_retired";
-/** The channel answers the customer with the handover line after these (when the alert was not skipped). */
+/** After these the customer hears the handover line (legacyQualifyDoor.ts), and the push says so. */
 const HANDED_OVER: ReadonlySet<ChannelStaffWhy> = new Set(["escalate", "action_needs_staff", "unreadable_input", "core_refused", "core_unavailable"]);
 const HANDED_OVER_NOTE = " Клиенту бот отвечает, что передал сообщение сотруднику.";
 
@@ -42,7 +43,8 @@ export async function alertChannelStaff(input: { channel: string;
       const outcome = await alertClientWaiting(HANDED_OVER.has(input.why)
         ? { conversationId: input.conversationId, trigger: "handover", why: `${WHY_TEXT[input.why]}${HANDED_OVER_NOTE}` }
         : { conversationId: input.conversationId, trigger: "failed", why: WHY_TEXT[input.why] });
-      return outcome === "skipped" ? "skipped" : "sent";
+      // «Уже сказали» (сторож молчания или прошлый ход занял эпизод) — не «некого»: клиенту можно сказать «передал» (R1-2).
+      return outcome === "agent" || outcome === "director" ? "sent" : outcome;
     }
     const select = { id: true, username: true, clientId: true,
       client: { select: { shortId: true, fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } } as const;

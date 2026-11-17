@@ -135,12 +135,13 @@ describe("the legacy door routes a `core` channel to the adapter", () => {
     expect(result?.silent).toBeUndefined();
     expect(f.alert).toHaveBeenCalledWith({ channel: "WEBSITE", conversationId: "c-2", text: "Позовите человека", why: "escalate", eventId: null });
   });
-  it("`core` + escalate but nobody could be told: no «передал» promise, silent + the channel's sweep", async () => {
+  it("`core` + escalate but nobody could be told: the handover line still goes out (owner 17.11, review #223 R1-4), the error log tells", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "website");
     f.alert.mockResolvedValueOnce("skipped");
     f.channelCore.mockResolvedValue({ status: "staff", reason: "escalate", intake, language: "ru" });
     const result = await runLegacyQualifyTurn([user("Позовите человека")] as never, { stage: "chatting" }, { conversationId: "c-3", channel: "WEBSITE" } as never, { channel: "WEBSITE" });
-    expect(result).toMatchObject({ reply: [], silent: "staff" });
+    expect(result).toMatchObject({ reply: ["Спасибо, передал ваше сообщение сотруднику."], verified: true });
+    expect(result?.silent).toBeUndefined();
   });
   it("`core` + core unavailable: null, so the channel's AI-retry job plays the turn again", async () => {
     vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram");

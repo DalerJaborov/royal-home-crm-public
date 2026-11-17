@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { customerAgentVerifiedContextSchema, type CustomerAgentLegacyChannel, type CustomerAgentToolCall,
   type CustomerAgentVerifiedContext } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -82,8 +82,8 @@ export type ChannelCoreStaffReason = "escalate" | "action_needs_staff" | "unread
  * HELD REASONS WORTH A REPEAT (review #223 N3 + R1, 17.11.2026). The channels' AI-retry ladder would play a turn again for up
  * to ~13 hours (jobs/aiReplyRetryPolicy.ts, 46 attempts, each a paid model call); on the core it is cut to
  * CHANNEL_CORE_MAX_ATTEMPTS. Only a failure that a later, fresh run can escape is repeated: the deadline ran out, the runtime
- * or the pinned revision is not available right now, the adapter threw, or the turn failed (`turn_unavailable`) with a
- * TRANSIENT cause — provider 408/429/5xx, network, timeout (customerCoreFailureTransient). `turn_unavailable` is EVERY
+ * or the pinned revision is not available right now, the adapter threw, or the turn failed (`turn_unavailable`, or
+ * `operation_stopped` when the provider operation stopped too — review #223 R1-1) with a TRANSIENT cause — provider 408/429/5xx, network, timeout (customerCoreFailureTransient). `turn_unavailable` is EVERY
  * exception of the turn, so its cause decides: the core's own limits and refusals (`tool_limit`, `unavailable_tool`,
  * `call_id_reused`…), the model's stops and provider 4xx/budget/unsupported are a person now, like every other reason
  * (no supported answer, surface decision denied, round/output limit, malformed model output, input too large…).
@@ -98,14 +98,67 @@ export const CHANNEL_CORE_RETRY_REASONS: readonly string[] = [
 /** Pure: is this HELD turn a transient failure (repeat) rather than the core's refusal (a person now)? */
 export function channelCoreRetryable(reason: string, cause?: string): boolean {
   if (!CHANNEL_CORE_RETRY_REASONS.includes(reason)) return false;
-  return reason !== "turn_unavailable" || customerCoreFailureTransient(cause);
+  // `operation_stopped` is the same exception with a stopped provider operation (review #223 R1-1): the provider's own
+  // `budget_denied` / `unsupported` stop it too (providerContract.ts), so its CAUSE decides exactly as for `turn_unavailable`.
+  return !CAUSE_DECIDES.has(reason) || customerCoreFailureTransient(cause);
 }
+const CAUSE_DECIDES: ReadonlySet<string> = new Set(["turn_unavailable", "operation_stopped"]);
 /**
  * At most this many runs of ONE customer turn on the core (owner 17.11.2026, review #223 R1): the live turn and two repeats.
  * After the last one a person is told at once and the customer hears the handover line; a run past the limit (a job that
  * failed after the model answered, a re-queued retry) never calls the model again.
  */
 export const CHANNEL_CORE_MAX_ATTEMPTS = 3;
+
+/**
+ * ONE COUNT OF CORE RUNS PER CUSTOMER MESSAGE, IN THE DATABASE (review #223 R1-2, 17.11.2026).
+ *
+ * The retry jobs count their own attempts, and a job's count dies with the job: the website's stuck-chat cron
+ * (cron.ts `health-automation`, every 30 minutes) queues a NEW `ai-reply-retry` for a chat that is still unanswered, and the
+ * manual «Повторить зависшим» button starts from 1 as well — up to ~94 paid core calls a day on one message. The count lives
+ * on the customer's message instead: one `ProcessedMessage` row per run (`channel-core-run`, key = channel + conversation +
+ * the stored message's time and content digest + run number), claimed atomically (ON CONFLICT DO NOTHING), so two concurrent
+ * runs never share a number and no job, cron tick or button can start the count again. Rows age out with the table's 3-day
+ * cleanup (webhookDedupe.ts) — far beyond every retry window (~13 h ladder, today-only stuck list).
+ * YouTube needs none of this: its counter is the comment queue row (`attempts`, raised on every claim, never reset).
+ * Unknown here (no conversation, a database error) → null: the caller's own attempt number still bounds the runs.
+ */
+const CORE_RUN_LEDGER = "channel-core-run";
+
+/** Pure: the stored customer message a run answers — its time (or position) and a digest of its words; null = none. */
+export function channelCoreMessageKey(messages: unknown): string | null {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const item = messages[i] as { role?: unknown; content?: unknown; at?: unknown } | null;
+    if (!item || item.role !== "user") continue;
+    const digest = createHash("sha256").update(typeof item.content === "string" ? item.content : "").digest("hex").slice(0, 16);
+    return typeof item.at === "string" && item.at ? `a${item.at}:${digest}` : `i${i}:${digest}`;
+  }
+  return null;
+}
+
+/** Which run of the customer's last stored message this is (1…MAX), MAX + 1 when the runs are used up, null = unknown. */
+export async function claimChannelCoreRun(turn: Pick<ChannelCoreTurn, "channel" | "conversationId">): Promise<number | null> {
+  try {
+    if (!turn.conversationId || turn.channel === "YOUTUBE") return null;
+    const query = { where: { id: turn.conversationId }, select: { messages: true } } as const;
+    const row = turn.channel === "TELEGRAM" ? await prisma.telegramConversation.findUnique(query)
+      : turn.channel === "TELEGRAM_DIRECT" ? await prisma.telegramDirectConversation.findUnique(query)
+      : await prisma.botConversation.findUnique(query);
+    const message = channelCoreMessageKey(row?.messages);
+    if (!message) return null;
+    const base = `${turn.channel}:${turn.conversationId}:${message}`;
+    for (let run = 1; run <= CHANNEL_CORE_MAX_ATTEMPTS; run++) {
+      const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+        VALUES (${randomUUID()},${CORE_RUN_LEDGER},${`${base}:${run}`},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
+      if (claimed === 1) return run;
+    }
+    return CHANNEL_CORE_MAX_ATTEMPTS + 1;
+  } catch (error) {
+    console.error("[one-brain] run count of a customer message unavailable:", error instanceof Error ? error.name : "UnknownError");
+    return null;
+  }
+}
 
 export const CHANNEL_CORE_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
 const MAX_DEADLINE_MS = 60_000;
@@ -181,9 +234,15 @@ function channelCoreRetriesExhausted(history: ChannelCoreTurn["history"]): Chann
  */
 export async function runChannelCoreTurn(turn: ChannelCoreTurn, options: ChannelCoreRunOptions): Promise<ChannelCoreOutcome> {
   if (options.mode === "shadow") return runChannelCoreTurnOnce(turn, options);
-  const attempt = Number.isSafeInteger(turn.attempt) && (turn.attempt as number) >= 1 ? turn.attempt as number : 1;
+  const asked = Number.isSafeInteger(turn.attempt) && (turn.attempt as number) >= 1 ? turn.attempt as number : 1;
   // Past the limit: no model call at all — this turn's repeats are spent (a re-queued job, a job that failed after the core).
-  if (attempt > CHANNEL_CORE_MAX_ATTEMPTS) return channelCoreRetriesExhausted(turn.history);
+  if (asked > CHANNEL_CORE_MAX_ATTEMPTS) return channelCoreRetriesExhausted(turn.history);
+  // The message's own count wins over a job's count that started again (review #223 R1-2): never more than MAX runs per message.
+  const attempt = Math.max(asked, await claimChannelCoreRun(turn) ?? 1);
+  if (attempt > CHANNEL_CORE_MAX_ATTEMPTS) {
+    console.error(`[one-brain] ${turn.channel}: this customer message already had ${CHANNEL_CORE_MAX_ATTEMPTS} core runs — a person answers`);
+    return channelCoreRetriesExhausted(turn.history);
+  }
   const outcome = await runChannelCoreTurnOnce(turn, options);
   if (outcome.status === "unavailable" && attempt >= CHANNEL_CORE_MAX_ATTEMPTS) {
     console.error(`[one-brain] ${turn.channel}: ${attempt} runs of one turn unavailable (${outcome.reason}) — a person answers`);
