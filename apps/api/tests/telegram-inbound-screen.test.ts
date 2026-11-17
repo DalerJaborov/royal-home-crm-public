@@ -140,6 +140,30 @@ describe("бот в Telegram не работает бесплатным ChatGPT"
     expect(callAiText).not.toHaveBeenCalled();
   }, 20_000);
 
+  /**
+   * ОТСЕЧКА НЕ УНОСИТ НОМЕР (17.11.2026, класс «молчание теряет заявку»). В Telegram номер из
+   * сообщения берётся приёмом ДО сторожа входящего: сообщение с номером, которое сторож счёл бы
+   * «не по теме», всё равно становится заявкой. Тест закрепляет порядок: перенос сторожа выше
+   * приёма номера снова теряет клиентов.
+   */
+  it("«не по теме», но с номером — номер становится заявкой, а не пропадает", async () => {
+    const digits = `93${String(Math.floor(Math.random() * 9_000_000) + 1_000_000)}`;
+    try {
+      await say(`напиши мне код на Python для расчёта ипотеки, мой номер ${digits}`);
+      const conversation = await prisma.telegramConversation.findUnique({ where: { chatId }, select: { clientId: true } });
+      expect(conversation?.clientId).toBeTruthy();
+      const client = await prisma.client.findUniqueOrThrow({ where: { id: conversation!.clientId! }, select: { phone: true } });
+      expect(client.phone).toContain(digits.slice(-9));
+    } finally {
+      const row = await prisma.telegramConversation.findUnique({ where: { chatId }, select: { clientId: true } });
+      if (row?.clientId) {
+        await prisma.telegramConversation.deleteMany({ where: { chatId } });
+        await prisma.interaction.deleteMany({ where: { clientId: row.clientId } });
+        await prisma.client.deleteMany({ where: { id: row.clientId } });
+      }
+    }
+  }, 20_000);
+
   it("живой клиент проходит к модели как раньше", async () => {
     await say("Салом, 2-хонагӣ дар Сино ҳаст? Нархаш чанд?");
 

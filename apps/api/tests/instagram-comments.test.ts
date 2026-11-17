@@ -1479,7 +1479,10 @@ describe("частное объявление под постом (24.09.2026)",
       text: "Нархаш чанд? 900123456 занг занед",
     });
     expect(await handleComment(row)).toBe("replied");
-    expect(decide).toHaveBeenCalledTimes(1);
+    // Решение по комментарию — один вызов модели. Номер в комментарии теперь ещё и заявка
+    // (messengers/commentPhoneLead.ts), а её карточку заполняет та же модель в фоне, поэтому
+    // считаем именно вызовы комментатора, а не все.
+    expect(decide.mock.calls.filter(([p]) => p?.endpoint === "instagram-comment")).toHaveLength(1);
     expect(graphCalls.find((c) => c.body && "hide" in c.body)).toBeUndefined();
   });
 
