@@ -5,5 +5,5 @@
  */
 export const NARRATION_PREVIEW_CLEARED = {
   narrationPreviewPath: null, narrationPreviewVersionId: null, narrationPreviewMasterKey: null, narrationPreviewAt: null,
-  narrationPreviewDueAt: null, narrationPreviewVoiceSec: null, narrationPreviewClipSec: null,
+  narrationPreviewDueAt: null, narrationPreviewVoiceSec: null, narrationPreviewClipSec: null, narrationPreviewNotifiedAt: null,
 } as const;

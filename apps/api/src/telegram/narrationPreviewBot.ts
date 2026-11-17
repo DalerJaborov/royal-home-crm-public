@@ -6,7 +6,8 @@
  *   ✅ Выпустить  ·  🎙 Другой голос или текст  ·  ↩️ Оставить старый.
  * «Другой голос или текст» сразу присылает кнопки озвучки (`nar:v|t|e:<версия>`, telegram/assistantNarration.ts):
  * новая версия → CRM наложит заново → снова сюда. Решения — те же функции, что у карточки CRM.
- * Без Telegram — уведомление CRM с пушем; молчит — ролик выйдет сам по сроку.
+ * Без Telegram — уведомление CRM с пушем; молчит — ролик выйдет сам по сроку. Отправляет задача
+ * narration-preview-due (lib/narrationPreview.ts → notifyPendingNarrationPreviews), с повтором после падения.
  */
 import { formatPropertyCode } from "@royal-home/shared";
 import fs from "node:fs";
@@ -17,7 +18,7 @@ import { clipOwnerAgent } from "../lib/clipReview.js";
 import { prepareClipForTelegram } from "../lib/clipReviewPreview.js";
 import { dushanbeDateTimeString } from "../lib/dushanbeTime.js";
 import { probeMediaInfo } from "../lib/ffmpeg.js";
-import { declineNarrationPreview, onNarrationPreviewReady, releaseNarrationPreview, type NarrationPreviewReadyEvent } from "../lib/narrationPreview.js";
+import { declineNarrationPreview, releaseNarrationPreview, type NarrationPreviewNotice } from "../lib/narrationPreview.js";
 import { createNotification } from "../lib/notifications.js";
 import { logSystemError } from "../lib/systemError.js";
 import { sendPushToAgent } from "../push.js";
@@ -39,7 +40,7 @@ export const previewCopy = {
     released: "✅ Выпускаем: новый ролик встанет в ближайшее время публикации, старые посты снимутся.",
     kept: "↩️ Оставили старый ролик. Новая озвучка на него не наложена.",
     change: "Выберите голос или текст: CRM наложит заново и пришлёт послушать.",
-    stale: "Этот ролик уже решён или устарел.", forbidden: "Это не ваш объект.", failed: "Не получилось, попробуйте ещё раз.",
+    stale: "Этот ролик уже решён или устарел.", busy: "Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару минут.", forbidden: "Это не ваш объект.", failed: "Не получилось, попробуйте ещё раз.",
     crmOnly: "Видео сюда не поместилось — посмотрите в CRM.",
   },
   tg: {
@@ -51,7 +52,7 @@ export const previewCopy = {
     released: "✅ Нашр мекунем: видеои нав дар вақти наздиктарини нашр мебарояд, постҳои кӯҳна гирифта мешаванд.",
     kept: "↩️ Видеои кӯҳна монд. Овози нав гузошта нашуд.",
     change: "Овоз ё матнро интихоб кунед: CRM аз нав мегузорад ва барои гӯш кардан мефиристад.",
-    stale: "Ин видео аллакай ҳал шудааст ё кӯҳна шудааст.", forbidden: "Ин объекти шумо нест.", failed: "Нашуд, боз кӯшиш кунед.",
+    stale: "Ин видео аллакай ҳал шудааст ё кӯҳна шудааст.", busy: "Видеои пешина ҳозир ба шабакаҳо меравад. Баъд аз ду-се дақиқа боз пахш кунед.", forbidden: "Ин объекти шумо нест.", failed: "Нашуд, боз кӯшиш кунед.",
     crmOnly: "Видео ба ин ҷо нағунҷид — дар CRM нигоҳ кунед.",
   },
 } as const;
@@ -71,7 +72,7 @@ export function narrationPreviewButtons(lang: Lang, versionId: string): Telegram
 const crmUrl = (propertyId: string) => `${process.env.CRM_PUBLIC_URL?.trim().replace(/\/+$/, "") || "https://crm.royalhome.tj"}/properties/${propertyId}`;
 
 /** Кандидат готов — хозяину объекта. Ошибки Telegram — в журнал и уведомлением CRM. */
-export async function notifyNarrationPreview(e: NarrationPreviewReadyEvent): Promise<void> {
+export async function notifyNarrationPreview(e: NarrationPreviewNotice): Promise<void> {
   const p = await prisma.property.findUnique({ where: { id: e.propertyId }, select: { id: true, shortId: true, narrationPreviewPath: true, narrationPreviewVersionId: true,
     narrationPreviewDueAt: true, narrationPreviewVoiceSec: true, narrationPreviewClipSec: true } });
   if (!p || p.narrationPreviewVersionId !== e.versionId || !p.narrationPreviewPath) return;
@@ -126,6 +127,8 @@ export async function handleNarrationPreviewCallback(query: TelegramCallbackQuer
     const result = action === "a" ? await releaseNarrationPreview(version.propertyId, versionId, actor)
       : await declineNarrationPreview(version.propertyId, versionId, actor, action === "k" ? "KEEP_OLD" : "CHANGE");
     if (result === "STALE") { await answer(c.stale); return true; }
+    // Решение не принято — кнопки остаются, человек нажмёт ещё раз.
+    if (result === "BUSY") { await answer(c.busy); return true; }
     const line = action === "a" ? c.released : action === "k" ? c.kept : c.change;
     await answer(action === "a" ? c.b.release : action === "k" ? c.b.keep : c.b.change);
     // Кнопки под роликом убираем: решение принято, второе нажатие ничего бы не сделало.
@@ -142,12 +145,4 @@ export async function handleNarrationPreviewCallback(query: TelegramCallbackQuer
     await answer(c.failed);
   }
   return true;
-}
-
-/** Подписка на «кандидат готов» — в процессе, где идёт перемикс (worker, cron.ts). */
-let registered = false;
-export function registerNarrationPreviewTelegram(): void {
-  if (registered) return;
-  registered = true;
-  onNarrationPreviewReady(notifyNarrationPreview);
 }

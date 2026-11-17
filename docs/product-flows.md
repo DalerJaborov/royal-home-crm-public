@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **778**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4066**. Модулей: **87**.
+Путей: **778**. Развилок в самих путях: **2485**; вместе с задачами по расписанию и фоновыми заданиями — **4068**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -11219,6 +11219,9 @@
 - если result === "STALE"
   - return res.status(409).json({ error: "Этот ролик уже решён или устарел. Обновите карточку." });
     · ответ 409 — «Этот ролик уже решён или устарел. Обновите карточку.»
+- если result === "BUSY"
+  - return res.status(409).json({ error: "Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару ми…
+    · ответ 409 — «Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару…»
 - res.json({ ok: true, result });
   · ответ 200
 
@@ -20994,7 +20997,7 @@
       - const rows = await prisma.property.findMany({ where: { id: { in: batch } }, select: { id: true, deletedAt: tr…
         · читает в базе: property
       - для каждого: const row of rows
-        - properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, coverSquareUr…
+        - properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, previewPath: …
           · дословно из кода
     - const clipUrlRows = await prisma.property.findMany({ where: { clipVideoUrl: { not: null } }, select: { clipVi…
       · читает в базе: property
@@ -23334,6 +23337,20 @@
 
 ### narration-preview-due — * * * * *
 
+- await notifyPendingNarrationPreviews(notifyNarrationPreview);
+  · зовёт notifyPendingNarrationPreviews()
+  - const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…
+    · читает в базе: property
+  - для каждого: const row of rows
+    - const claimed = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrat…
+      · меняет в базе: property
+    - если !claimed.count
+      - continue;
+        · переходит к следующему
+    - пробует
+    - если сорвалось
+      - void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание: ${err ins…
+        · запись в журнал ошибок
 - await releaseDueNarrationPreviews();
   · зовёт releaseDueNarrationPreviews()
   - const due = await prisma.property.findMany({ where: { narrationPreviewDueAt: { lte: now }, narrationPreviewVe…

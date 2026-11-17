@@ -2218,6 +2218,8 @@ async function finishReceivingVideo(
           videoMasterNarrationVersionId: master?.versionId ?? null,
           // Новый ролик от монтажёра — кандидат «прослушать перед выпуском» к старому больше не годится (17.11.2026).
           ...NARRATION_PREVIEW_CLEARED,
+          // и отказ хозяина от наложения версии на прежний ролик к новому ролику не относится.
+          narrationPreviewDeclinedVersionId: null,
           videoMasterMixError: null,
           videoMasterMixErrorVersionId: null,
           // Ожидание (ручное или пересылка рядом с держателем места) закрыто приёмом.

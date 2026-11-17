@@ -86,6 +86,8 @@ export function NarrationPreviewBlock({ propertyId, data, onMessage, onChangeVoi
       await api(`/properties/${propertyId}/narration/preview`, { method: "POST", body: { versionId: p.versionId, decision } });
       onMessage?.(MESSAGES[decision]);
       await client.invalidateQueries({ queryKey: ["property-narration", propertyId] });
+      // «Выпустить» меняет готовый ролик объекта — плеер в карточке должен показать новый (ревью 18.11.2026).
+      if (decision === "RELEASE") void client.invalidateQueries({ queryKey: ["property"] });
       if (decision === "CHANGE") onChangeVoice?.();
     } catch (err) {
       setError(err instanceof Error && /409|уже|устар/i.test(err.message) ? "Решение уже принято или ролик устарел. Обновляем." : err instanceof Error ? err.message : "Не получилось сохранить решение");

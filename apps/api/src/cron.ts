@@ -614,8 +614,6 @@ export function startCronJobs() {
   scheduleTracked("narration-auto-flow", "* * * * *", async () => {
     const { runNarrationAutoFlow } = await import("./lib/narrationAutoFlow.js");
     const { notifyNarrationApproval, remindPendingNarrationApprovals } = await import("./telegram/assistantNarration.js");
-    // Перемикс вышедшего ролика идёт здесь: «новый ролик — хозяину послушать» уходит в Шабнам (17.11.2026).
-    (await import("./telegram/narrationPreviewBot.js")).registerNarrationPreviewTelegram();
     await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApprovals });
   }, undefined, undefined, { timeoutMs: 170_000 });
   // Новая озвучка на вышедший ролик без монтажёра (16.11.2026): CRM сама убирает старый голос
@@ -623,13 +621,15 @@ export function startCronJobs() {
   // отдельной задачей, чтобы не держать черновики и одобрения озвучки (narration-auto-flow).
   scheduleTracked("narration-auto-master", "* * * * *", async () => {
     const { runMachineMastersTick } = await import("./lib/narrationAutoFlow.js");
-    (await import("./telegram/narrationPreviewBot.js")).registerNarrationPreviewTelegram();
     await runMachineMastersTick();
     // Звук + отделение (до 15 мин) + мастер + перемикс: с запасом; замок объекта живёт 40 мин.
   }, undefined, undefined, { timeoutMs: 30 * 60_000 });
-  // Прослушать перед выпуском (17.11.2026): хозяин не решил до срока — новый ролик выходит сам.
+  // Прослушать перед выпуском (17.11.2026): новый ролик — хозяину в Шабнам (с повтором после падения);
+  // хозяин не решил до срока — новый ролик выходит сам.
   scheduleTracked("narration-preview-due", "* * * * *", async () => {
-    const { releaseDueNarrationPreviews } = await import("./lib/narrationPreview.js");
+    const { notifyPendingNarrationPreviews, releaseDueNarrationPreviews } = await import("./lib/narrationPreview.js");
+    const { notifyNarrationPreview } = await import("./telegram/narrationPreviewBot.js");
+    await notifyPendingNarrationPreviews(notifyNarrationPreview);
     await releaseDueNarrationPreviews();
   }, undefined, undefined, { timeoutMs: 170_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {

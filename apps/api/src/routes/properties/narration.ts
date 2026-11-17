@@ -34,10 +34,13 @@ const configuration = loadNarrationConfiguration;
 const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" };
 /** Кто решает по новому ролику: тот, кто ведёт объект (canManageProperty проверен), не монтажёр и не «только чтение». */
 const canDecidePreview = (role: string) => role !== "EDITOR" && !isReadOnlyRole(role);
-function previewView(p: { narrationPreviewPath: string | null; narrationPreviewVersionId: string | null; videoHandoffFinalPath: string | null; videoMasterNarrationVersionId: string | null;
+function previewView(p: { videoHandoffStatus: string | null; narrationOff: boolean; narrationPreviewMasterKey: string | null; videoMasterStorageKey: string | null; narrationPreviewPath: string | null; narrationPreviewVersionId: string | null; videoHandoffFinalPath: string | null; videoMasterNarrationVersionId: string | null;
   narrationPreviewAt: Date | null; narrationPreviewDueAt: Date | null; narrationPreviewVoiceSec: number | null; narrationPreviewClipSec: number | null },
   versions: ReadonlyArray<{ id: string; revision: number; mixNote: string | null }>, role: string) {
   if (!p.narrationPreviewPath || !p.narrationPreviewVersionId || !p.narrationPreviewAt) return null;
+  // Кандидат к прежнему ролику (ролик вернули монтажёру, сменился ролик без голоса, «Без озвучки») — не показываем:
+  // кнопка всё равно ответила бы «устарел», а задача по сроку его уберёт.
+  if (p.videoHandoffStatus !== "RECEIVED" || p.narrationOff || p.narrationPreviewMasterKey !== p.videoMasterStorageKey) return null;
   const v = versions.find((x) => x.id === p.narrationPreviewVersionId);
   if (!v) return null;
   return { versionId: v.id, revision: v.revision, previewPath: p.narrationPreviewPath, currentPath: p.videoHandoffFinalPath, oldVersionId: p.videoMasterNarrationVersionId,
@@ -319,6 +322,7 @@ narrationRouter.post("/:id/narration/preview", async (req, res) => {
     ? await releaseNarrationPreview(p.id, parsed.data.versionId, actor)
     : await declineNarrationPreview(p.id, parsed.data.versionId, actor, parsed.data.decision);
   if (result === "STALE") return res.status(409).json({ error: "Этот ролик уже решён или устарел. Обновите карточку." });
+  if (result === "BUSY") return res.status(409).json({ error: "Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару минут." });
   res.json({ ok: true, result });
 });
 

@@ -2485,6 +2485,8 @@ model Property {
   narrationPreviewDueAt          DateTime?
   narrationPreviewVoiceSec       Float?
   narrationPreviewClipSec        Float?
+  /// Хозяину отправлено (задача narration-preview-due): пусто — отправит следующий тик (повтор после падения).
+  narrationPreviewNotifiedAt     DateTime?
   /// Хозяин отказался от наложения этой версии («Оставить старый» / «Другой голос или текст») —
   /// эту версию CRM больше не накладывает; новая версия озвучки — новый кандидат.
   narrationPreviewDeclinedVersionId String?

@@ -33,7 +33,8 @@ const { prisma } = await import("../src/db.js");
 const { receiveEditedVideoFromFile, videoHandoffPublishDedupeKey } = await import("../src/lib/videoHandoff.js");
 const { localVideoFilePath } = await import("../src/lib/localVideoStorage.js");
 const { remixFromMaster } = await import("../src/lib/narrationAutoFlow.js");
-const { declineNarrationPreview, onNarrationPreviewReady, releaseDueNarrationPreviews, releaseNarrationPreview } = await import("../src/lib/narrationPreview.js");
+const { declineNarrationPreview, notifyPendingNarrationPreviews, releaseDueNarrationPreviews, releaseNarrationPreview } = await import("../src/lib/narrationPreview.js");
+const { setPropertyNarrationOff } = await import("../src/lib/narrationOptOut.js");
 const { narrationFacts, narrationHash } = await import("../src/lib/propertyNarration.js");
 const { videoHandoffDir } = await import("../src/upload.js");
 
@@ -47,8 +48,6 @@ let configBefore: unknown = null;
 let hoursBefore = 3;
 const propertyIds: string[] = [];
 const modeBefore = process.env.CRM_NARRATION_EXECUTION_MODE;
-const ready: Array<{ propertyId: string; versionId: string }> = [];
-onNarrationPreviewReady(async (e) => { ready.push(e); });
 
 function ff(args: string[]) {
   const r = spawnSync(process.env.FFMPEG_BIN || "ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", ...args], { stdio: "ignore" });
@@ -140,7 +139,11 @@ describe.skipIf(!ffmpegReady)("прослушать перед выпуском 
     // 3 часа (ночью — до 07:00 по Душанбе, то есть не раньше чем через 3 часа).
     expect(waiting.narrationPreviewDueAt!.getTime()).toBeGreaterThanOrEqual(t0 + 3 * 3_600_000 - 5_000);
     expect(await prisma.videoRemakeRequest.count({ where: { propertyId: p.id } })).toBe(0);
-    expect(ready).toContainEqual({ propertyId: p.id, versionId: v2.id });
+    // Хозяину — задачей narration-preview-due, ровно один раз (отметка до отправки).
+    const sent: Array<{ propertyId: string; versionId: string }> = [];
+    await notifyPendingNarrationPreviews(async (n) => { sent.push(n); });
+    await notifyPendingNarrationPreviews(async (n) => { sent.push(n); });
+    expect(sent.filter((n) => n.propertyId === p.id)).toEqual([{ propertyId: p.id, versionId: v2.id }]);
     // Повтор тика: кандидат уже есть — второго не делаем.
     expect(await remixFromMaster(p.id)).toBe("SKIPPED");
 
@@ -224,5 +227,31 @@ describe.skipIf(!ffmpegReady)("прослушать перед выпуском 
     } finally {
       await setPreview(true);
     }
+  });
+
+  it("ревью 18.11: «Без озвучки», цена поменялась без новой версии, стёртый файл — не выпускаем, вышедший ролик цел", async () => {
+    // «Без озвучки» снимает кандидата сразу.
+    const a = await publishedWithNewVoice();
+    expect(await remixFromMaster(a.p.id)).toBe("PREVIEW");
+    await setPropertyNarrationOff(a.p.id, true, agentId);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: a.p.id } })).narrationPreviewVersionId).toBeNull();
+    expect(await releaseNarrationPreview(a.p.id, a.v2.id, { agentId, source: "crm" })).toBe("STALE");
+
+    // Цена снова поменялась, новая версия ещё не готова: старую цену в сети не выпускаем.
+    const b = await publishedWithNewVoice();
+    expect(await remixFromMaster(b.p.id)).toBe("PREVIEW");
+    await prisma.property.update({ where: { id: b.p.id }, data: { price: 70000 } });
+    expect(await releaseNarrationPreview(b.p.id, b.v2.id, { agentId, source: "crm" })).toBe("STALE");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: b.p.id } })).videoHandoffFinalPath).toBe(b.oldFinal);
+
+    // Файл кандидата стёрт с диска: «Выпустить» не оставляет объект без ролика.
+    const c = await publishedWithNewVoice();
+    expect(await remixFromMaster(c.p.id)).toBe("PREVIEW");
+    await fs.rm(diskOf((await prisma.property.findUniqueOrThrow({ where: { id: c.p.id } })).narrationPreviewPath!), { force: true });
+    expect(await releaseNarrationPreview(c.p.id, c.v2.id, { agentId, source: "crm" })).toBe("STALE");
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: c.p.id } });
+    expect(after.videoHandoffFinalPath).toBe(c.oldFinal);
+    expect(await exists(diskOf(c.oldFinal))).toBe(true);
+    expect(after.narrationPreviewPath).toBeNull();
   });
 });

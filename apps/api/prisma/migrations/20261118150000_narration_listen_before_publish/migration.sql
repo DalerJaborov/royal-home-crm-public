@@ -7,3 +7,4 @@ ALTER TABLE "Property" ADD COLUMN "narrationPreviewDueAt" TIMESTAMP(3);
 ALTER TABLE "Property" ADD COLUMN "narrationPreviewVoiceSec" DOUBLE PRECISION;
 ALTER TABLE "Property" ADD COLUMN "narrationPreviewClipSec" DOUBLE PRECISION;
 ALTER TABLE "Property" ADD COLUMN "narrationPreviewDeclinedVersionId" TEXT;
+ALTER TABLE "Property" ADD COLUMN "narrationPreviewNotifiedAt" TIMESTAMP(3);

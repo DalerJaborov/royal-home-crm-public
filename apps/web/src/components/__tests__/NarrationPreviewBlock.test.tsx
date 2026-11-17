@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PropertyNarrationView } from "@royal-home/shared";
@@ -20,6 +20,9 @@ function render(d: Data) {
 }
 
 describe("Прослушать перед выпуском", () => {
+  // Срок в данных — 17.11 15:20 по Душанбе; «сейчас» того же дня, иначе к времени дописывается дата.
+  beforeAll(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-17T08:00:00.000Z")); });
+  afterAll(() => { vi.useRealTimers(); });
   it("хозяин видит плеер, длину, сравнение, срок и три кнопки", () => {
     const html = render(data());
     for (const part of ["Новый ролик с новой озвучкой — послушайте", "/uploads/handoff/new.mp4", "Голос 34 с · ролик 36 с", "ускорено на 5 %",

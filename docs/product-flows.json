@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 778,
-  "forks": 4066,
+  "forks": 4068,
   "mounts": 87,
   "cron": 141,
   "jobs": 33,
@@ -49653,6 +49653,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "result === \"BUSY\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару ми…",
+       "a": [
+        "ответ 409 — «Прежний ролик прямо сейчас уходит в сети. Нажмите ещё раз через пару…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "res.json({ ok: true, result });",
      "a": [
@@ -93244,7 +93259,7 @@
            "c": [
             {
              "k": "do",
-             "t": "properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, coverSquareUr…",
+             "t": "properties.set(row.id, { trashed: row.deletedAt !== null, finalPath: row.videoHandoffFinalPath, previewPath: …",
              "a": [
               "дословно из кода"
              ],
@@ -104228,6 +104243,75 @@
    "id": "narration-preview-due",
    "when": "* * * * *",
    "tree": [
+    {
+     "k": "do",
+     "t": "await notifyPendingNarrationPreviews(notifyNarrationPreview);",
+     "a": [
+      "зовёт notifyPendingNarrationPreviews()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…",
+       "a": [
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of rows",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const claimed = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrat…",
+         "a": [
+          "меняет в базе: property"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!claimed.count",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": []
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"video-handoff\", `Новый ролик с озвучкой не отправлен хозяину на прослушивание: ${err ins…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "notifyPendingNarrationPreviews() — apps/api/src/lib/narrationPreview.ts"
+    },
     {
      "k": "do",
      "t": "await releaseDueNarrationPreviews();",
