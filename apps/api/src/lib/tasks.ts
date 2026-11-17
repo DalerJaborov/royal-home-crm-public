@@ -26,6 +26,16 @@ export const TASK_WHERE = {
 } satisfies Prisma.InteractionWhereInput;
 
 /**
+ * Просроченная задача: срок прошёл, выполненной не отмечена. Одно условие на
+ * «Контроль руководителя» (routes/oversight.ts), карточку сотрудника
+ * (routes/team.ts) и помощницу Шабнам (get_unworked, get_day_snapshot) —
+ * до 17.11.2026 жило в маршруте oversight.ts и импортировалось оттуда.
+ */
+export function overdueTasksWhere(now: Date): Prisma.InteractionWhereInput {
+  return { ...TASK_WHERE, completedAt: null, nextActionDate: { lt: now } };
+}
+
+/**
  * Показ, который засчитывается в цифры: любой, кроме отменённого.
  *
  * Отдельной колонки «отменён» в схеме нет, и заводить её не за чем: отмена уже

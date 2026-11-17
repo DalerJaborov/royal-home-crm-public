@@ -41,7 +41,7 @@ vi.mock("../src/ai/geminiSettings.js", async (importOriginal) => ({
 
 const { prisma } = await import("../src/db.js");
 const { waitForCount, waitForSettled } = await import("./helpers/waitFor.js");
-const { runTool, runAssistant } = await import("../src/ai/assistant.js");
+const { runTool, runAssistant, resolveStatsPeriod } = await import("../src/ai/assistant.js");
 const { dushanbeWallClock } = await import("../src/lib/dushanbeTime.js");
 
 const runId = Date.now();
@@ -306,6 +306,66 @@ describe("get_lead_sources — то же право, что REST /reports/source
     };
     const afterTotal = after.sources.find((s) => s.source === "REFERRAL")?.total ?? 0;
     expect(afterTotal - beforeTotal).toBe(1);
+  });
+});
+
+describe("сводки за день и за отрезок дат", () => {
+  // 17.11.2026, живой случай: на «сколько обращений сегодня» помощница отдала цифру
+  // за весь месяц и назвала её сегодняшней, а на «за 17.11» ответила, что по дням
+  // считать не умеет — у сводки не было периода вовсе.
+  it("resolveStatsPeriod: день, отрезок, пусто и ошибки", () => {
+    expect(resolveStatsPeriod(undefined, undefined)).toBeNull();
+    const day = resolveStatsPeriod("2019-03-05", undefined) as { from: Date; to: Date; label: string };
+    // Сутки по Душанбе (UTC+5): с 19:00 UTC накануне до 19:00 UTC этого дня.
+    expect(day.from.toISOString()).toBe("2019-03-04T19:00:00.000Z");
+    expect(day.to.toISOString()).toBe("2019-03-05T19:00:00.000Z");
+    expect(day.label).toBe("2019-03-05");
+    const range = resolveStatsPeriod("2019-03-04", "2019-03-05") as { from: Date; to: Date; label: string };
+    expect(range.from.toISOString()).toBe("2019-03-03T19:00:00.000Z");
+    expect(range.to.toISOString()).toBe("2019-03-05T19:00:00.000Z");
+    expect(range.label).toBe("2019-03-04 — 2019-03-05");
+    expect(resolveStatsPeriod("сегодня", undefined)).toEqual({ error: expect.any(String) });
+    expect(resolveStatsPeriod("2019-02-31", undefined)).toEqual({ error: expect.any(String) });
+    expect(resolveStatsPeriod("2019-03-05", "2019-03-04")).toEqual({ error: expect.any(String) });
+    expect(resolveStatsPeriod("2017-01-01", "2019-03-04")).toEqual({ error: expect.any(String) });
+  });
+
+  it("get_company_stats и get_lead_sources считают ровно названный день, а не месяц", async () => {
+    const stats = (from: string, to?: string) =>
+      runTool("get_company_stats", { from, ...(to ? { to } : {}) }, actorDirector()) as Promise<{
+        period: string; newLeads: number; month?: string; leadsBySource: { source: string; count: number }[];
+      }>;
+    const before = await stats("2019-03-05");
+    const beforeRange = await stats("2019-03-04", "2019-03-05");
+
+    // 00:30 пятого марта по Душанбе — это ещё четвёртое по UTC; 23:30 четвёртого — день раньше.
+    const inDay = await makeClient(`Клиент-День-${runId}`, agentAId);
+    const dayBefore = await makeClient(`Клиент-Накануне-${runId}`, agentAId);
+    await prisma.client.update({ where: { id: inDay }, data: { source: "TELEGRAM", createdAt: new Date("2019-03-04T19:30:00.000Z") } });
+    await prisma.client.update({ where: { id: dayBefore }, data: { source: "TELEGRAM", createdAt: new Date("2019-03-04T18:30:00.000Z") } });
+
+    const day = await stats("2019-03-05");
+    expect(day.period).toBe("2019-03-05");
+    expect("month" in day).toBe(false);
+    expect(day.newLeads - before.newLeads).toBe(1);
+    const tg = (r: { leadsBySource: { source: string; count: number }[] }) => r.leadsBySource.find((x) => x.source === "TELEGRAM")?.count ?? 0;
+    expect(tg(day) - tg(before)).toBe(1);
+
+    const range = await stats("2019-03-04", "2019-03-05");
+    expect(range.period).toBe("2019-03-04 — 2019-03-05");
+    expect(range.newLeads - beforeRange.newLeads).toBe(2);
+
+    const sources = (await runTool("get_lead_sources", { from: "2019-03-05" }, actorDirector())) as {
+      period: string; sources: { source: string; total: number }[];
+    };
+    expect(sources.period).toBe("2019-03-05");
+    expect(sources.sources.find((x) => x.source === "TELEGRAM")?.total).toBe(tg(day));
+
+    // Без дат — прежний месяц, и период назван словами, чтобы модель не выдала его за «сегодня».
+    const month = (await runTool("get_company_stats", {}, actorDirector())) as { period: string; month: string; today: string };
+    expect(month.period).toContain("текущий месяц");
+    expect(month.month).toBe(month.today.slice(0, 7));
+    expect(await runTool("get_company_stats", { from: "17.11.26" }, actorDirector())).toEqual({ error: expect.any(String) });
   });
 });
 

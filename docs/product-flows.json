@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4092,
+  "forks": 4057,
   "mounts": 87,
   "cron": 140,
   "jobs": 33,
@@ -11269,17 +11269,9 @@
      "c": [
       {
        "k": "do",
-       "t": "const candidates = await prisma.incomingCall.findMany({ where: { startedAt: { gte: since }, answered: false, …",
+       "t": "where.id = { in: await missedWithoutCallbackIds(since) };",
        "a": [
-        "читает в базе: incomingCall"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const calledBack = await findCallbackContacts( candidates.flatMap((c)",
-       "a": [
-        "зовёт findCallbackContacts()"
+        "зовёт missedWithoutCallbackIds()"
        ],
        "c": []
       }
@@ -19019,30 +19011,23 @@
      ]
     },
     {
-     "k": "if",
-     "t": "!request",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Заявка не найдена\" });",
-       "a": [
-        "ответ 404 — «Заявка не найдена»"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "const outcome = await approveClientDeleteRequest({ requestId: req.params.id, actorId: req.agent!.id, decision…",
+     "a": [
+      "зовёт approveClientDeleteRequest()"
+     ],
+     "c": []
     },
     {
      "k": "if",
-     "t": "request.status !== \"PENDING\"",
+     "t": "!outcome.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
+       "t": "return res.status(outcome.status).json({ error: outcome.error });",
        "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -19050,121 +19035,7 @@
     },
     {
      "k": "do",
-     "t": "const claimed = await prisma.clientDeleteRequest.updateMany({ where: { id: request.id, status: \"PENDING\" }, d…",
-     "a": [
-      "меняет в базе: clientDeleteRequest"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "claimed.count === 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
-       "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const releaseClaim = ()",
-     "a": [
-      "меняет в базе: clientDeleteRequest"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!alreadyTrashed",
-     "a": [],
-     "c": [
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "result = await trashClient(request.clientId, req.agent!.id);",
-         "a": [
-          "зовёт trashClient()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "throw err;",
-         "a": [
-          "пробрасывает ошибку дальше"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!result.ok",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(result.status).json({ error: result.error });",
-         "a": [
-          "ответ (код зависит от условия)"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "result?.ok",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "logAudit(req, \"TRASH\", \"Client\", result.client.id, { shortId: result.client.shortId, fullName: result.client.…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "void closeDeleteRequestForOtherReviewers(request.id).catch((err)",
-     "a": [
-      "зовёт closeDeleteRequestForOtherReviewers()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: request.id, clientId: request.clientId, agentIds: [request.requestedById],…",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true, message: alreadyTrashed ? \"Карточка уже была в Корзине — заявка закрыта, агенту отправле…",
+     "t": "res.json({ ok: true, message: outcome.message });",
      "a": [
       "ответ 200"
      ],
@@ -19213,30 +19084,23 @@
      ]
     },
     {
-     "k": "if",
-     "t": "!request",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Заявка не найдена\" });",
-       "a": [
-        "ответ 404 — «Заявка не найдена»"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "const outcome = await rejectClientDeleteRequest({ requestId: req.params.id, actorId: req.agent!.id, decisionN…",
+     "a": [
+      "зовёт rejectClientDeleteRequest()"
+     ],
+     "c": []
     },
     {
      "k": "if",
-     "t": "request.status !== \"PENDING\"",
+     "t": "!outcome.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
+       "t": "return res.status(outcome.status).json({ error: outcome.error });",
        "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -19244,62 +19108,7 @@
     },
     {
      "k": "do",
-     "t": "const decided = await prisma.clientDeleteRequest.updateMany({ where: { id: request.id, status: \"PENDING\" }, d…",
-     "a": [
-      "меняет в базе: clientDeleteRequest"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "decided.count === 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
-       "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"DELETE_REQUEST_REJECT\", \"Client\", request.clientId, { requestId: request.id, shortId: request.…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void sendPushToAgent(request.requestedById, { title: \"Заявка на удаление отклонена\", body: `${request.client.…",
-     "a": [
-      "push-уведомление"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void closeDeleteRequestForOtherReviewers(request.id).catch((err)",
-     "a": [
-      "зовёт closeDeleteRequestForOtherReviewers()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: request.id, clientId: request.clientId, agentIds: [request.requestedById],…",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true, message: \"Заявка отклонена, агенту отправлено объяснение\" });",
+     "t": "res.json({ ok: true, message: outcome.message });",
      "a": [
       "ответ 200"
      ],
@@ -28267,57 +28076,35 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "try",
-     "t": "пробует",
+     "k": "do",
+     "t": "const outcome = await reopenErrorLogEntry(req.params.id, { agentId: req.agent!.id, role: req.agent?.role, sec…",
+     "a": [
+      "зовёт reopenErrorLogEntry()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"not-found\"",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "await visibleErrorLogs(can(req, \"clients.securityReview\") ? req.agent?.role : undefined).update({ where: { ..…",
+       "t": "return res.status(404).json({ error: \"Запись не найдена\" });",
        "a": [
-        "зовёт visibleErrorLogs()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.status(204).end();",
-       "a": [
-        "ответ 204"
+        "ответ 404 — «Запись не найдена»"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(404).json({ error: \"Запись не найдена\" });",
-         "a": [
-          "ответ 404 — «Запись не найдена»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "throw err;",
-       "a": [
-        "пробрасывает ошибку дальше"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "res.status(204).end();",
+     "a": [
+      "ответ 204"
+     ],
+     "c": []
     }
    ]
   },
@@ -28339,57 +28126,35 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "try",
-     "t": "пробует",
+     "k": "do",
+     "t": "const outcome = await resolveErrorLogEntry(req.params.id, { agentId: req.agent!.id, role: req.agent?.role, se…",
+     "a": [
+      "зовёт resolveErrorLogEntry()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"not-found\"",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "await visibleErrorLogs(can(req, \"clients.securityReview\") ? req.agent?.role : undefined).update({ where: { ..…",
+       "t": "return res.status(404).json({ error: \"Запись не найдена\" });",
        "a": [
-        "зовёт visibleErrorLogs()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.status(204).end();",
-       "a": [
-        "ответ 204"
+        "ответ 404 — «Запись не найдена»"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(404).json({ error: \"Запись не найдена\" });",
-         "a": [
-          "ответ 404 — «Запись не найдена»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "throw err;",
-       "a": [
-        "пробрасывает ошибку дальше"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "res.status(204).end();",
+     "a": [
+      "ответ 204"
+     ],
+     "c": []
     }
    ]
   },
@@ -35119,9 +34884,9 @@
    "tree": [
     {
      "k": "do",
-     "t": "const rows = await prisma.integrationHealthSnapshot.findMany({ orderBy: { name: \"asc\" } });",
+     "t": "const rows = await loadIntegrationHealthSnapshot();",
      "a": [
-      "читает в базе: integrationHealthSnapshot"
+      "зовёт loadIntegrationHealthSnapshot()"
      ],
      "c": []
     },
@@ -46868,22 +46633,22 @@
    "tree": [
     {
      "k": "do",
-     "t": "const property = await prisma.property.findUnique({ where: { id: req.params.id }, include: { district: true, …",
+     "t": "const outcome = await completeEditing({ propertyId: req.params.id, actor: { agentId: req.agent!.id, can: (per…",
      "a": [
-      "читает в базе: property"
+      "зовёт completeEditing()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!property || property.deletedAt",
+     "t": "!outcome.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "t": "return res.status(outcome.status).json({ error: outcome.error });",
        "a": [
-        "ответ 404 — «Объект не найден»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -46891,97 +46656,12 @@
     },
     {
      "k": "if",
-     "t": "!canManageProperty(req, property)",
+     "t": "outcome.siteSyncError",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-       "a": [
-        "ответ 403 — «Недостаточно прав»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "property.status !== \"EDITING\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Кнопка «Готово» доступна только на этапе «Монтаж»\" });",
-       "a": [
-        "ответ 409 — «Кнопка «Готово» доступна только на этапе «Монтаж»»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const blockers = blockersForSale({ instagramUrl: property.instagramUrl, photoCount: property.photos.length });",
-     "a": [
-      "зовёт blockersForSale()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "blockers.length > 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: `Объект не готов: ${blockers.join(\", \")}` });",
-       "a": [
-        "ответ 409 — «Объект не готов: ${blockers.join(»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const updated = await prisma.property.update({ where: { id: property.id }, data: { status: \"AVAILABLE\", stage…",
-     "a": [
-      "меняет в базе: property"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);",
-     "a": [
-      "зовёт publishAfterEditingComplete()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void skipVideoHandoffOnManualPublish(published.id).catch((err)",
-     "a": [
-      "зовёт skipVideoHandoffOnManualPublish()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.statu…",
-     "a": [
-      "зовёт publishPropertyUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "siteSyncError",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(207).json({ ...presentProperty(published, req), siteSyncError });",
+       "t": "return res.status(207).json({ ...presentProperty(outcome.property, req), siteSyncError: outcome.siteSyncError…",
        "a": [
         "ответ 207"
        ],
@@ -46991,7 +46671,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentProperty(published, req));",
+     "t": "res.json(presentProperty(outcome.property, req));",
      "a": [
       "ответ 200"
      ],
@@ -58280,14 +57960,14 @@
     },
     {
      "k": "if",
-     "t": "parsed.data.status !== undefined && parsed.data.status !== existing.status",
+     "t": "parsed.data.status !== undefined",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const block = await manualStatusChangeBlock(existing, parsed.data.status, can(req, \"properties.moderate\"));",
+       "t": "const block = await propertyStatusChangeBlock(existing, parsed.data.status, { canModerate: can(req, \"properti…",
        "a": [
-        "зовёт manualStatusChangeBlock()"
+        "зовёт propertyStatusChangeBlock()"
        ],
        "c": []
       },
@@ -58299,81 +57979,6 @@
         {
          "k": "do",
          "t": "return res.status(block.status).json({ error: block.error });",
-         "a": [
-          "ответ (код зависит от условия)"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "parsed.data.status !== undefined && requiresPropertyModeration(existing.status, parsed.data.status) && !can(r…",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: PROPERTY_MODERATION_REQUIRED_MESSAGE });",
-       "a": [
-        "ответ 403"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "parsed.data.status === \"AVAILABLE\" && (isPipelineStatus(existing.status) || existing.status === \"WITHDRAWN\")",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const notReady = await saleReadinessBlock(existing, instagramUrl);",
-       "a": [
-        "зовёт saleReadinessBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "notReady",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(notReady.status).json({ error: notReady.error });",
-         "a": [
-          "ответ (код зависит от условия)"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "parsed.data.status !== undefined",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const revert = await completedDealRevertBlock(existing, parsed.data.status);",
-       "a": [
-        "зовёт completedDealRevertBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "revert",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(revert.status).json({ error: revert.error });",
          "a": [
           "ответ (код зависит от условия)"
          ],
@@ -58750,14 +58355,14 @@
         },
         {
          "k": "if",
-         "t": "result.count && data.status === \"WITHDRAWN\" && existing.status !== \"WITHDRAWN\"",
+         "t": "result.count",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "await recordPropertyRemoval(tx, { ...removal.data, propertyId: existing.id, actorId: req.agent!.id, operation…",
+           "t": "await recordStatusRemovalInTx(tx, { propertyId: existing.id, from: existing.status, to: data.status, removal:…",
            "a": [
-            "зовёт recordPropertyRemoval()"
+            "зовёт recordStatusRemovalInTx()"
            ],
            "c": []
           }
@@ -58913,19 +58518,12 @@
      ]
     },
     {
-     "k": "if",
-     "t": "data.status !== undefined && data.status !== existing.status",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "logAudit(req, \"PROPERTY_STATUS_CHANGED\", \"Property\", existing.id, { was: existing.status, becomes: data.statu…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "const statusFx = await runPropertyStatusEffects({ actorId: req.agent!.id, before: existing, updated, to: data…",
+     "a": [
+      "зовёт runPropertyStatusEffects()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -58967,66 +58565,6 @@
     },
     {
      "k": "if",
-     "t": "data.status !== undefined && data.status !== existing.status && data.status === \"PENDING_REVIEW\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void notifyPendingReview(updated.id, updated.shortId, updated.title).catch((err)",
-       "a": [
-        "зовёт notifyPendingReview()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "data.status !== undefined && data.status !== existing.status && data.status === \"EDITING\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void notifyEditingStarted(updated.id, updated.shortId, updated.title).catch((err)",
-       "a": [
-        "зовёт notifyEditingStarted()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "data.status !== undefined && data.status !== existing.status && existing.status === \"PENDING_REVIEW\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void closePendingReviewPush(existing.id).catch((err)",
-       "a": [
-        "зовёт closePendingReviewPush()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "data.status !== undefined && data.status !== existing.status && existing.status === \"EDITING\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void closeEditingPush(existing.id).catch((err)",
-       "a": [
-        "зовёт closeEditingPush()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
      "t": "fieldChanges.length > 0 && (data.status === undefined || data.status === existing.status)",
      "a": [],
      "c": [
@@ -59035,21 +58573,6 @@
        "t": "void notifyPropertyEditedBeforePublish({ before: { id: existing.id, shortId: existing.shortId, title: existin…",
        "a": [
         "зовёт notifyPropertyEditedBeforePublish()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "data.status !== undefined && data.status !== existing.status && data.status === \"AVAILABLE\" && !willAutoPubli…",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void notifyWaitingBuyersOfNewProperty(updated).catch((err)",
-       "a": [
-        "зовёт notifyWaitingBuyersOfNewProperty()"
        ],
        "c": []
       }
@@ -59067,137 +58590,6 @@
         "зовёт geocodeInBackground()"
        ],
        "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "becameWithdrawn && updated.sellerClientId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await recomputeSellerCardState({ sellerClientId: updated.sellerClientId, lostReason: removal.data.removalReas…",
-       "a": [
-        "зовёт recomputeSellerCardState()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const enteredPipeline = data.status !== undefined && isPipelineStatus(data.status) && existing.status === \"AV…",
-     "a": [
-      "зовёт isPipelineStatus()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "existing.status === \"EDITING\" && data.status !== undefined && data.status !== \"EDITING\" && isPipelineStatus(d…",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void closeVideoHandoff(updated.id, { holdQueue: false, reason: \"возвращён на доработку\" }).catch((err)",
-       "a": [
-        "запись в журнал ошибок"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "becameSold || becameWithdrawn || becameReserved",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "closeWorkAfterLeavingSale(updated.id, becameSold ? \"sold\" : becameWithdrawn ? \"withdrawn\" : \"reserved\");",
-       "a": [
-        "зовёт closeWorkAfterLeavingSale()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "existing.publishedOnSite && (becameSold || becameUnsold || becameWithdrawn || enteredPipeline)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const withRelations = await prisma.property.findUnique({ where: { id: updated.id }, include: { district: true…",
-       "a": [
-        "читает в базе: property"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "withRelations",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void syncPropertiesToSite([withRelations], action) .then((result)",
-         "a": [
-          "меняет в базе: property",
-          "запись в журнал ошибок"
-         ],
-         "c": [
-          {
-           "k": "if",
-           "t": "!problem",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "action === \"unpublish\"",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "return prisma.property .update({ where: { id: updated.id }, data: { publishedOnSite: false } }) .then(()",
-               "a": [
-                "меняет в базе: property"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "return;",
-             "a": [
-              "дальше не идёт, ничего не меняя"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "console.error(`[siteSync] Статус объекта ${updated.id} не дошёл до сайта: ${problem}`);",
-           "a": [
-            "пишет строку в журнал сервера"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "void logSystemError(\"site-sync\", `Статус объекта ${updated.id} не дошёл до сайта: ${problem}`, { url: `/prope…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
       }
      ]
     },
@@ -59771,37 +59163,22 @@
     },
     {
      "k": "do",
-     "t": "const request = await prisma.propertyChangeRequest.findUnique({ where: { id: req.params.rid }, include: { pro…",
+     "t": "const outcome = await rejectPropertyChangeRequest({ requestId: req.params.rid, actorId: req.agent!.id, note: …",
      "a": [
-      "читает в базе: propertyChangeRequest"
+      "зовёт rejectPropertyChangeRequest()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!request",
+     "t": "!outcome.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Заявка не найдена\" });",
+       "t": "return res.status(outcome.status).json({ error: outcome.error });",
        "a": [
-        "ответ 404 — «Заявка не найдена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "request.status !== \"PENDING\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
-       "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -59809,78 +59186,7 @@
     },
     {
      "k": "do",
-     "t": "const decided = await prisma.propertyChangeRequest.updateMany({ where: { id: request.id, status: \"PENDING\" },…",
-     "a": [
-      "меняет в базе: propertyChangeRequest"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "decided.count === 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
-       "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const summary = summarizeChangeRequest(request.kind, request.payload, request.property);",
-     "a": [
-      "зовёт summarizeChangeRequest()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"PROPERTY_CHANGE_REQUEST_DECIDED\", \"Property\", request.propertyId, { requestId: request.id, kin…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void sendPushToAgent(request.authorId, { title: \"Заявка отклонена\", body: `${request.property.title}: ${summa…",
-     "a": [
-      "push-уведомление"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void closeForOtherReviewers(request.id, req.agent!.id);",
-     "a": [
-      "зовёт closeForOtherReviewers()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: request.id, propertyId: request.propertyId, agentIds: [request.authorId], …",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const row = await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: request.id }, include: CHANGE…",
-     "a": [
-      "читает в базе: propertyChangeRequest"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ request: toChangeRequestDto(row), message: \"Заявка отклонена, агенту отправлена причина\" });",
+     "t": "res.json({ request: outcome.request, message: outcome.message });",
      "a": [
       "ответ 200"
      ],
@@ -60037,30 +59343,23 @@
      ]
     },
     {
-     "k": "if",
-     "t": "!request",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Заявка не найдена\" });",
-       "a": [
-        "ответ 404 — «Заявка не найдена»"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "const outcome = await approvePropertyDeleteRequest({ requestId: req.params.id, actorId: req.agent!.id, decisi…",
+     "a": [
+      "зовёт approvePropertyDeleteRequest()"
+     ],
+     "c": []
     },
     {
      "k": "if",
-     "t": "request.status !== \"PENDING\"",
+     "t": "!outcome.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
+       "t": "return res.status(outcome.status).json({ error: outcome.error });",
        "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -60068,137 +59367,7 @@
     },
     {
      "k": "do",
-     "t": "const claimed = await prisma.propertyDeleteRequest.updateMany({ where: { id: request.id, status: \"PENDING\" },…",
-     "a": [
-      "меняет в базе: propertyDeleteRequest"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "claimed.count === 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
-       "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const releaseClaim = ()",
-     "a": [
-      "меняет в базе: propertyDeleteRequest"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!alreadyTrashed",
-     "a": [],
-     "c": [
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "result = await trashProperty(request.propertyId, req.agent!.id, { removalReason: request.reason as PropertyDe…",
-         "a": [
-          "зовёт trashProperty()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "throw err;",
-         "a": [
-          "пробрасывает ошибку дальше"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!result.ok",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(result.status).json({ error: result.error });",
-         "a": [
-          "ответ (код зависит от условия)"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "result?.ok",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "logAudit(req, \"TRASH\", \"Property\", result.property.id, { shortId: result.property.shortId, title: result.prop…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "void applySellerRefusal({ propertyId: request.propertyId, reason: request.reason, comment: request.comment, r…",
-     "a": [
-      "зовёт applySellerRefusal()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void closeDeleteRequestForOtherReviewers(request.id).catch((err)",
-     "a": [
-      "зовёт closeDeleteRequestForOtherReviewers()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: request.id, propertyId: request.propertyId, agentIds: [request.requestedBy…",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishPropertyUpdated({ propertyId: request.propertyId, actorId: req.agent!.id, stage: \"TRASHED\" });",
-     "a": [
-      "зовёт publishPropertyUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true, message: alreadyTrashed ? \"Объект уже был в Корзине — заявка закрыта\" : \"Объект удалён в…",
+     "t": "res.json({ ok: true, message: outcome.message });",
      "a": [
       "ответ 200"
      ],
@@ -60247,30 +59416,23 @@
      ]
     },
     {
-     "k": "if",
-     "t": "!request",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Заявка не найдена\" });",
-       "a": [
-        "ответ 404 — «Заявка не найдена»"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "const outcome = await rejectPropertyDeleteRequest({ requestId: req.params.id, actorId: req.agent!.id, decisio…",
+     "a": [
+      "зовёт rejectPropertyDeleteRequest()"
+     ],
+     "c": []
     },
     {
      "k": "if",
-     "t": "request.status !== \"PENDING\"",
+     "t": "!outcome.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
+       "t": "return res.status(outcome.status).json({ error: outcome.error });",
        "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
@@ -60278,62 +59440,7 @@
     },
     {
      "k": "do",
-     "t": "const decided = await prisma.propertyDeleteRequest.updateMany({ where: { id: request.id, status: \"PENDING\" },…",
-     "a": [
-      "меняет в базе: propertyDeleteRequest"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "decided.count === 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"По этой заявке уже вынесено решение\" });",
-       "a": [
-        "ответ 409 — «По этой заявке уже вынесено решение»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"DELETE_REQUEST_REJECT\", \"Property\", request.propertyId, { requestId: request.id, shortId: requ…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void sendPushToAgent(request.requestedById, { title: \"Заявка на удаление отклонена\", body: `${request.propert…",
-     "a": [
-      "push-уведомление"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void closeDeleteRequestForOtherReviewers(request.id).catch((err)",
-     "a": [
-      "зовёт closeDeleteRequestForOtherReviewers()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: request.id, propertyId: request.propertyId, agentIds: [request.requestedBy…",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true, message: \"Заявка отклонена, агенту отправлено объяснение\" });",
+     "t": "res.json({ ok: true, message: outcome.message });",
      "a": [
       "ответ 200"
      ],
@@ -121907,6 +121014,52 @@
              "c": [
               {
                "k": "do",
+               "t": "const statusChange = readStatusChangeRequest(pre.payload);",
+               "a": [
+                "зовёт readStatusChangeRequest()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "statusChange",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "error = await executeStatusChange({ requestId, propertyId: property.id, actorId, statusChange, result });",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "else",
+               "t": "иначе",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "result.applied.push(OTHER_MANUAL_RESULT);",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "manualOnly = true;",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
                "t": "break;",
                "a": [
                 "прекращает перебор"
@@ -121987,6 +121140,21 @@
            "c": []
           }
          ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "claim.write && !isPropertyPublished(claim.write.before.status)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void notifyPropertyEditedBeforePublish({ before: { id: w.before.id, shortId: w.before.shortId, title: w.befor…",
+         "a": [
+          "зовёт notifyPropertyEditedBeforePublish()"
+         ],
+         "c": []
         }
        ]
       },
