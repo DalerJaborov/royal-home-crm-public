@@ -14,12 +14,12 @@
  "totals": {
   "screens": 49,
   "paths": 777,
-  "cron": 140,
+  "cron": 141,
   "jobs": 33,
-  "conditions": 4039,
+  "conditions": 4041,
   "untranslatedUnique": 464,
   "untranslatedTotal": 597,
-  "partialUnique": 1091,
+  "partialUnique": 1094,
   "translatedShare": 85
  },
  "untranslated": [
@@ -60667,18 +60667,16 @@
          "raw": "expected !== `\"${versionOf(raw)}\"`"
         },
         {
-         "t": "если есть keep stored look",
+         "t": "если есть keep stored look и есть stored look количество",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "если есть stored",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
+         "c": []
+        },
+        {
+         "t": "если Royal look сотрудник количество — «0»",
+         "k": "if",
+         "a": [],
+         "c": []
         },
         {
          "t": "если есть selected количество",
@@ -71790,6 +71788,39 @@
         {
          "t": "запись в журнал ошибок",
          "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "missed-call-task-whatsapp-close",
+   "when": "*/2 * * * *",
+   "label": "missed-call-task-whatsapp-close",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "и так по каждому",
+       "k": "loop",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: national",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: wrote",
+         "k": "if",
          "a": [],
          "c": []
         }

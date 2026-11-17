@@ -44,8 +44,10 @@ describe("actual canonical public company source, draft", () => {
   });
   it("answers service commission before asking one useful role question", () => {
     const text = render({ kind: "company_policy", topic: "commission", sourceHash, knowledge }, "role");
-    expect(text).toContain(`для продавца — ${AGENCY_FACTS.commission.sellerPercent}%`);
-    expect(text).toContain(`для покупателя — ${AGENCY_FACTS.commission.buyerPercent}%`);
+    // No long dash in a customer text (owner's rule; the commission line was rewritten 17.11.2026).
+    expect(text).toContain(`для продавца ${AGENCY_FACTS.commission.sellerPercent}%`);
+    expect(text).toContain(`для покупателя ${AGENCY_FACTS.commission.buyerPercent}%`);
+    expect(text).not.toMatch(/[—–]/u);
     expect(text).toContain("купить или продать"); expect(text?.match(/[?？]/gu)).toHaveLength(1);
     expect(text).not.toMatch(/номер телефона|позвонят|создан|сохран/iu);
   });

@@ -241,16 +241,23 @@ async function findByIntent(intent: Intent, actor: AssistantActor): Promise<Assi
   }
 }
 
-function replyFor(cards: AssistantCard[]): string {
+/** Язык ответа быстрого пути: язык разговора сотрудника (assistantLanguage), а не жёсткий русский. */
+export type FastPathLanguage = "ru" | "tg";
+
+function replyFor(cards: AssistantCard[], language: FastPathLanguage): string {
   return cards
     .map((card) => {
       if (card.kind === "property") {
         const title = card.title.replace(/[\[\]\r\n]+/g, " ").trim();
         const amount = card.price.toLocaleString("ru-RU");
-        const currency = card.currency === "USD" ? "USD" : "сомони";
-        return `Нашла [${card.code} · ${title}](${card.href}): ${amount} ${currency}.`;
+        const currency = card.currency === "USD" ? "USD" : language === "tg" ? "сомонӣ" : "сомони";
+        return language === "tg"
+          ? `Ёфтам [${card.code} · ${title}](${card.href}): ${amount} ${currency}.`
+          : `Нашла [${card.code} · ${title}](${card.href}): ${amount} ${currency}.`;
       }
-      return `Нашёл клиента [${card.name}](${card.href}) (${card.code}).`;
+      return language === "tg"
+        ? `Муштариро ёфтам: [${card.name}](${card.href}) (${card.code}).`
+        : `Нашёл клиента [${card.name}](${card.href}) (${card.code}).`;
     })
     .join("\n");
 }
@@ -261,7 +268,9 @@ function replyFor(cards: AssistantCard[]): string {
  * обычный путь через Gemini. Бросает только ошибки базы — вызывающий обязан
  * поймать и тоже уйти на обычный путь.
  */
-export async function tryAssistantFastPath(text: string, actor: AssistantActor): Promise<AssistantFastPathResult | null> {
+export async function tryAssistantFastPath(
+  text: string, actor: AssistantActor, language: FastPathLanguage = "ru",
+): Promise<AssistantFastPathResult | null> {
   const intent = parseFastPathIntent(text);
   if (!intent) return null;
   const cards = await findByIntent(intent, actor);
@@ -269,7 +278,7 @@ export async function tryAssistantFastPath(text: string, actor: AssistantActor):
     if (intent.kind !== "property-code") return null;
     // Номер удалённого объекта: «в Корзине, удалён тогда-то, кем», а не «не нашла» (пачка 2).
     // Та же справка и то же правило Корзины, что у get_property_card/find_property.
-    const note = await trashedPropertyNoteFor(String(intent.shortId), trashActorOf(actor), "ru");
+    const note = await trashedPropertyNoteFor(String(intent.shortId), trashActorOf(actor), language);
     if (note) {
       return {
         cards: [],
@@ -281,7 +290,9 @@ export async function tryAssistantFastPath(text: string, actor: AssistantActor):
     }
     return {
       cards: [],
-      reply: `Не нашла объект ОБ-${String(intent.shortId).padStart(6, "0")} среди доступных карточек.`,
+      reply: language === "tg"
+        ? `Объекти ОБ-${String(intent.shortId).padStart(6, "0")}-ро дар байни кортҳои дастрас наёфтам.`
+        : `Не нашла объект ОБ-${String(intent.shortId).padStart(6, "0")} среди доступных карточек.`,
       tool: "fast_path.property-code",
       argsSummary: JSON.stringify({ shortId: intent.shortId }),
     };
@@ -289,7 +300,9 @@ export async function tryAssistantFastPath(text: string, actor: AssistantActor):
   const first = cards[0];
   return {
     cards,
-    reply: replyFor(cards) + (cards.length > 1 ? "\nУточните, какую карточку открыть." : ""),
+    reply: replyFor(cards, language) + (cards.length > 1
+      ? language === "tg" ? "\nКадом кортро кушоям? Равшан кунед." : "\nУточните, какую карточку открыть."
+      : ""),
     tool: `fast_path.${intent.kind}`,
     argsSummary: JSON.stringify(first.kind === "client" ? { clientId: first.id } : { propertyId: first.id }),
   };

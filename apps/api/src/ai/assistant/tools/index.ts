@@ -1,6 +1,7 @@
 import { createKnowledgeSemanticTools } from "./knowledgeSemanticTools.js";
 import { createAssistantEmbeddingMoneyGuard } from "../moneyBudget.js";
 import { knowledgeTools } from "./knowledgeTools.js";
+import { groupQuietPlugin } from "./groupQuietTool.js";
 import { notificationPrefPlugin } from "./notificationPrefTool.js";
 import { registerAssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { brainReadTools } from "./brainReadTools.js";
@@ -43,7 +44,7 @@ function add(plugin: AssistantToolPlugin): () => void {
   };
 }
 
-for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools, ...marketTools, ...staffReadTools, ...staffWriteTools, transferPropertyTool, notificationPrefPlugin, ...brainReadTools, ...directorTools]) add(plugin);
+for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools, ...marketTools, ...staffReadTools, ...staffWriteTools, transferPropertyTool, notificationPrefPlugin, groupQuietPlugin, ...brainReadTools, ...directorTools]) add(plugin);
 
 /** Для тестов: добавить плагин на время теста; возвращает функцию снятия. */
 export function registerAssistantToolPlugin(plugin: AssistantToolPlugin): () => void {

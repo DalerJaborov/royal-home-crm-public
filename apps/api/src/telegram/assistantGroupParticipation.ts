@@ -170,10 +170,23 @@ export const GROUP_WELCOME_INTERVAL_MS = 60_000;
 export const GROUP_QUIET_MS = 30 * 60_000;
 export const PROACTIVE_GROUP_INTERVAL_MS = 12_000;
 
+/**
+ * Быстрый путь «помолчи» без модели. Сообщение должно быть ВЕСЬ командой (вежливая приставка или
+ * суффикс допустимы): «помолчи, а потом посмотри цену» — обычный запрос. Остальные формулировки
+ * («хватит писать сюда на сегодня», «до вечера не отвечай») решает модель инструментом
+ * set_group_quiet (ai/assistant/tools/groupQuietTool.ts); эта регулярка лишь ускоряет частые случаи.
+ * Таджикский пишут и с «ӯ», и с «у»/«ў» (на телефоне без раскладки).
+ */
+const POLITE = String.raw`(?:пожалуйста|пжлст|плиз|илтимос|лутфан)`;
+const QUIET_COMMAND = String.raw`(?:помолчи(?:те)?|замолчи|молчи|тише|стоп|хватит(?:\s+(?:писать|отвечать|болтать))?|(?:пока\s+)?не\s+(?:отвечай|пиши)(?:\s+сюда)?|хом[ӯуў]ш\s+(?:бош|шав|кун)|[ҷч]авоб\s+над[еи][ҳх])`;
+const RESUME_COMMAND = String.raw`(?:продолжай|можешь\s+(?:отвечать|писать)|аз\s+нав\s+[ҷч]авоб\s+де[ҳх])`;
+const QUIET_RE = new RegExp(String.raw`^(?:${POLITE},?\s+)?${QUIET_COMMAND}(?:,?\s+${POLITE})?$`, "iu");
+const RESUME_RE = new RegExp(String.raw`^(?:${POLITE},?\s+)?${RESUME_COMMAND}(?:,?\s+${POLITE})?$`, "iu");
+
 export function requestedGroupParticipation(text: string): "quiet" | "resume" | null {
-  const command = text.trim().replace(/[.!?]+$/u, "");
-  if (/^(?:пожалуйста,?\s+)?(?:помолчи|молчи|тише|стоп|(?:пока )?не отвечай|хомӯш бош)$/iu.test(command)) return "quiet";
-  if (/^(?:пожалуйста,?\s+)?(?:продолжай|можешь отвечать|аз нав ҷавоб деҳ)$/iu.test(command)) return "resume";
+  const command = text.trim().replace(/[.!?]+$/u, "").replace(/\s+/gu, " ");
+  if (QUIET_RE.test(command)) return "quiet";
+  if (RESUME_RE.test(command)) return "resume";
   return null;
 }
 

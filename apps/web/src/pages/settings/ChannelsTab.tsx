@@ -72,6 +72,7 @@ const CHANNEL_NAMES: Record<string, string> = {
 };
 
 import { OpenAiCoversSection } from "./OpenAiCoversSection";
+import { MissedCallSetting } from "./MissedCallSetting";
 import { NarrationSettingsPanel } from "../../components/settings/NarrationSettingsPanel";
 import { ReelsAutoBoostSection } from "./ReelsAutoBoostSection";
 
@@ -2685,6 +2686,8 @@ function IncomingCallsSection() {
       <RouteToAgentSetting />
 
       <RoutingModeSetting />
+
+      <MissedCallSetting />
     </SettingsSection>
   );
 }

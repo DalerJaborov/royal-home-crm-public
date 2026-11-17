@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4066,
+  "forks": 4068,
   "mounts": 87,
-  "cron": 140,
+  "cron": 141,
   "jobs": 33,
   "hidden": 0
  },
@@ -5545,7 +5545,7 @@
          "c": [
           {
            "k": "do",
-           "t": "const fast = await tryAssistantFastPath(lastMessage.content, actor);",
+           "t": "const fast = await tryAssistantFastPath(lastMessage.content, actor, assistantLanguage(parsed.data.messages) =…",
            "a": [
             "зовёт tryAssistantFastPath()"
            ],
@@ -79165,23 +79165,31 @@
         },
         {
          "k": "if",
-         "t": "keepStoredLook",
+         "t": "keepStoredLook && storedLook.length",
          "a": [],
          "c": [
           {
-           "k": "if",
-           "t": "stored",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "config.royalLookAgentIds = stored;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "config.royalLookAgentIds = storedLook;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "config.royalLookAgentIds?.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "delete config.royalLookAgentIds;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
           }
          ]
         },
@@ -103622,6 +103630,92 @@
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "missed-call-task-whatsapp-close",
+   "when": "*/2 * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await closeMissedCallTasksAnsweredInWhatsapp();",
+     "a": [
+      "зовёт closeMissedCallTasksAnsweredInWhatsapp()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const open = await prisma.interaction.findMany({ where: { autoTaskKind: \"inbound_missed_callback\", nextAction…",
+       "a": [
+        "читает в базе: interaction"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const task of open",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const national = toSmsPhone(task.client?.phone)?.slice(3);",
+         "a": [
+          "зовёт toSmsPhone()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!national",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const wrote = await prisma.botConversation.findFirst({ where: { channel: \"WHATSAPP\", subscriberId: { endsWith…",
+         "a": [
+          "читает в базе: botConversation"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!wrote",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "closed += await closeAutoTasks(task.clientId, [\"inbound_missed_callback\"], now);",
+         "a": [
+          "зовёт closeAutoTasks()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "closeMissedCallTasksAnsweredInWhatsapp() — apps/api/src/lib/telephony/missedCallFollowup.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
