@@ -14,9 +14,9 @@
  "totals": {
   "screens": 54,
   "paths": 772,
-  "cron": 143,
+  "cron": 144,
   "jobs": 33,
-  "conditions": 4123,
+  "conditions": 4125,
   "untranslatedUnique": 469,
   "untranslatedTotal": 610,
   "partialUnique": 1122,
@@ -75955,6 +75955,39 @@
          "a": [],
          "c": [],
          "raw": "error instanceof SomonSourceUnavailable && error.reason === \"not_ready\""
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "somon-owner-leads-silence",
+   "when": "47 * * * *",
+   "label": "somon-owner-leads-silence",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: включено",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть тревога",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
         }
        ]
       }

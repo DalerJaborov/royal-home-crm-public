@@ -289,7 +289,7 @@ const EVALUATORS: Record<string, Evaluator> = {
   // Читается тем же путём, что lib/telegramPortalPause.ts: по умолчанию — пауза.
   "telegram-portal-pause": ({ settings }) =>
     settings.telegramPortalAlertsPaused
-      ? { state: "off", reason: "На паузе: сообщения в Telegram по заявкам с Somon и Paydo не отправляются (в CRM заявки видны). Снять паузу можно только на сервере, кнопки в Настройках нет.", attention: true }
+      ? { state: "off", reason: "На паузе: заявки собственников с Somon не разбираются и агентам не уходят — ни в Telegram, ни в CRM (сбор рынка при этом идёт). Снять паузу можно только на сервере, кнопки в Настройках нет.", attention: true }
       : { state: "working", reason: "Сообщения в Telegram по заявкам с площадок отправляются." },
 
   "market-crawl": ({ env }) =>

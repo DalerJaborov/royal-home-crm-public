@@ -221,7 +221,7 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     title: "Telegram-сообщения по заявкам с Somon и Paydo",
     what: "Агентам приходят сообщения в Telegram о новых заявках с площадок.",
     group: "alerts",
-    cron: ["somon-owner-leads"],
+    cron: ["somon-owner-leads", "somon-owner-leads-silence"],
   },
   // ─── Рынок и площадки ───
   {
