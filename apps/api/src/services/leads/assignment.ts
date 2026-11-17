@@ -2,7 +2,6 @@ import { prisma, type TxClient } from "../../db.js";
 import { sendPushToAgents } from "../../push.js";
 import { sendLeadPush } from "../../lib/pushLeadActions.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
-import { loadEventPoints, recordScoreEvent, type ScoreEventKind } from "../../lib/scoreJournal.js";
 import { findMatchingPropertiesForClient } from "../../routes/matching.js";
 import { findAgentByInstagramPost } from "../../lib/instagramPostLead.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
@@ -478,35 +477,6 @@ export async function recordAssignReason(clientId: string, agentId: string, assi
   }
 }
 
-/**
- * Балл Royal Score за отказ №n подряд. Вызывается ТОЛЬКО после успешного атомарного
- * захвата в declineLead — n там инкрементится ровно раз на отказ, поэтому и балл
- * пишется ровно раз.
- *
- * sourceId — на конкретную выдачу лида (клиент + assignedAt), а не на пару
- * «агент + n» (23.09.2026, проверка раздачи, пункт 13). Принятие лида обнуляет
- * счётчик отказов, и следующая серия снова считает 1, 2, 3… с теми же ключами:
- * дедуп журнала молча выбрасывал каждый штраф второй и последующих серий.
- * Префикс `decline-${agentId}-${n}-` сохранён.
- */
-async function recordDeclineScore(
-  agentId: string,
-  n: number,
-  client: { id: string; fullName: string; assignedAt: Date | null }
-): Promise<void> {
-  const clientName = client.fullName;
-  const kind: ScoreEventKind =
-    n <= 1 ? "lead_declined_1" : n === 2 ? "lead_declined_2" : n === 3 ? "lead_declined_3" : "lead_declined_4plus";
-  const points = await loadEventPoints();
-  recordScoreEvent({
-    agentId,
-    kind,
-    delta: points[kind],
-    reason: `Отказ от лида подряд №${n}: ${clientName}`,
-    sourceId: `decline-${agentId}-${n}-${client.id}-${client.assignedAt?.getTime() ?? 0}`,
-  });
-}
-
 export type DeclineLeadResult =
   | { ok: true; reassignedTo: string | null; escalated: boolean; lost: boolean; declineCount: number }
   | { ok: false; reason: "not_found" | "not_own" | "already_accepted" };
@@ -515,11 +485,11 @@ export type DeclineLeadResult =
  * Агент нажал «Отклонить» на непринятом лиде (спецификация 01.08.2026, часть 1:
  * «Получение нового лида» — кнопки ✅ Принять / ❌ Отклонить).
  *
- * Royal Score: 1-й отказ подряд — без штрафа, 2-й/3-й/4-й+ — усиливающийся штраф
- * (см. scoreJournal.ts DEFAULT_EVENT_POINTS.lead_declined_*). Счётчик у АГЕНТА, не
- * у лида — «после успешной обработки любого нового лида счётчик обнуляется» (см.
- * routes/clients.ts POST /:id/accept). Штраф начисляется независимо от того,
- * нашёлся ли следующий агент — сам факт отказа уже произошёл.
+ * Счётчик отказов подряд у АГЕНТА, не у лида — «после успешной обработки любого
+ * нового лида счётчик обнуляется» (см. routes/clients.ts POST /:id/accept); он
+ * возвращается в ответе (declineCount). Баллы Royal Score за 2-й/3-й/4-й+ отказ
+ * подряд (lead_declined_*) сняты 16.11.2026 вместе с остальными автоматическими
+ * штрафами — решение владельца.
  *
  * Передача следующему свободному агенту использует тот же круг переназначения
  * (triedAgentIds), что и reassignStaleLeads: если
@@ -649,7 +619,6 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
       return agent.consecutiveLeadDeclines;
     });
     if (n === null) return { ok: false, reason: "not_own" };
-    void recordDeclineScore(agentId, n, client);
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
       title: "⚠️ Лид отклонён, эскалация",
@@ -692,7 +661,6 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
     return agent.consecutiveLeadDeclines;
   });
   if (n === null) return { ok: false, reason: "not_own" };
-  void recordDeclineScore(agentId, n, client);
   sendLeadPush(nextAgentId, clientId, {
     title: "🔔 Новый лид",
     body: `${client.fullName} — передан вам`,

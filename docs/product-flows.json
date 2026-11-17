@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 765,
-  "forks": 4077,
-  "mounts": 87,
-  "cron": 137,
+  "endpoints": 763,
+  "forks": 4051,
+  "mounts": 86,
+  "cron": 136,
   "jobs": 33,
   "hidden": 0
  },
@@ -12522,9 +12522,9 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.status(400).json({ error: \"Номер не таджикский — станция не сможет его набрать\" });",
+         "t": "return res.status(400).json({ error: stationDialRefusal(requestedPhone), code: \"not_dialable\" });",
          "a": [
-          "ответ 400 — «Номер не таджикский — станция не сможет его набрать»"
+          "ответ 400"
          ],
          "c": []
         }
@@ -12592,7 +12592,7 @@
       },
       {
        "k": "do",
-       "t": "return res.status(result.status).json({ error: result.error });",
+       "t": "return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });",
        "a": [
         "ответ (код зависит от условия)"
        ],
@@ -19366,6 +19366,21 @@
        "t": "return res.status(400).json({ error: \"Слишком короткий номер\" });",
        "a": [
         "ответ 400 — «Слишком короткий номер»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "isForeignPhone(digits)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(422).json({ error: FOREIGN_PHONE_CALL_ERROR, code: \"not_dialable\" });",
+       "a": [
+        "ответ 422"
        ],
        "c": []
       }
@@ -52379,29 +52394,6 @@
       },
       {
        "k": "if",
-       "t": "responsibleId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const points = await loadEventPoints();",
-         "a": [
-          "зовёт loadEventPoints()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "recordScoreEvent({ agentId: responsibleId, kind: \"property_rework_fixed\", delta: points.property_rework_fixed…",
-         "a": [
-          "зовёт recordScoreEvent()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
        "t": "!property.offSite",
        "a": [],
        "c": [
@@ -65448,274 +65440,6 @@
    ]
   },
   {
-   "method": "PATCH",
-   "path": "/:id/override",
-   "mount": "/api/v1/royal-score-events",
-   "full": "/api/v1/royal-score-events/:id/override",
-   "file": "apps/api/src/routes/royalScoreEvents.ts",
-   "router": "royalScoreEventsRouter",
-   "top": "apps/api/src/routes/royalScoreEvents.ts::royalScoreEventsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: score.clientLossOverride"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const parsed = overrideSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой overrideSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Некорректные данные\", details: parsed.error.flatten() });",
-       "a": [
-        "ответ 400 — «Некорректные данные»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const event = await prisma.royalScoreEvent.findUnique({ where: { id: req.params.id } });",
-     "a": [
-      "читает в базе: royalScoreEvent"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!event",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Событие не найдено\" });",
-       "a": [
-        "ответ 404 — «Событие не найдено»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!OVERRIDABLE_KINDS.includes(event.kind as (typeof OVERRIDABLE_KINDS)[number])",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Переопределить можно только client_lost_agent_fault/client_lost_no_faul…",
-       "a": [
-        "ответ 409 — «Переопределить можно только…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const existingCorrection = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `override-apply-${even…",
-     "a": [
-      "читает в базе: royalScoreEvent"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "existingCorrection",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "existingCorrection.kind === parsed.data.override",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Событие уже такого вида\" });",
-         "a": [
-          "ответ 409 — «Событие уже такого вида»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Это событие уже переопределяли — второй раз нельзя\" });",
-       "a": [
-        "ответ 409 — «Это событие уже переопределяли — второй раз нельзя»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "event.kind === parsed.data.override",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Событие уже такого вида\" });",
-       "a": [
-        "ответ 409 — «Событие уже такого вида»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const points = await loadEventPoints();",
-     "a": [
-      "зовёт loadEventPoints()"
-     ],
-     "c": []
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await recordScoreEventsAtomic([ { agentId: event.agentId, kind: event.kind as ScoreEventKind, delta: -event.d…",
-       "a": [
-        "зовёт recordScoreEventsAtomic()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "(err as { code?: string }).code === \"P2002\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Это событие уже переопределяли — второй раз нельзя\" });",
-         "a": [
-          "ответ 409 — «Это событие уже переопределяли — второй раз нельзя»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "void logSystemError(\"api\", `Royal Score: переопределение события ${event.id} не записано — ${message}`, { sta…",
-       "a": [
-        "запись в журнал ошибок"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return res.status(500).json({ error: \"Не удалось сохранить корректировку баллов — ничего не изменилось, попро…",
-       "a": [
-        "ответ 500 — «Не удалось сохранить корректировку баллов — ничего не изменилось,…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"ROYAL_SCORE_EVENT_OVERRIDE\", \"RoyalScoreEvent\", event.id, { from: event.kind, to: newKind, age…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/by-client/:clientId",
-   "mount": "/api/v1/royal-score-events",
-   "full": "/api/v1/royal-score-events/by-client/:clientId",
-   "file": "apps/api/src/routes/royalScoreEvents.ts",
-   "router": "royalScoreEventsRouter",
-   "top": "apps/api/src/routes/royalScoreEvents.ts::royalScoreEventsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: score.clientLossOverride"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const original = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `client-lost-${req.params.client…",
-     "a": [
-      "читает в базе: royalScoreEvent"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!original",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.json({ event: null });",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const correction = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `override-apply-${original.id}…",
-     "a": [
-      "читает в базе: royalScoreEvent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ event: { id: original.id, currentKind: (correction?.kind ?? original.kind) as (typeof OVERRIDABLE_…",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
    "method": "POST",
    "path": "/disconnect",
    "mount": "/api/v1/search-console",
@@ -74429,36 +74153,6 @@
          "t": "return res.status(400).json({ error: \"Конец окна публикаций должен быть позже начала\" });",
          "a": [
           "ответ 400 — «Конец окна публикаций должен быть позже начала»"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "pair.inactivityWarnAfterDays !== undefined || pair.inactivityPenaltyAfterDays !== undefined",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const currentDays = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { inactivityWarnAf…",
-       "a": [
-        "читает в базе: settings"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "penaltyDays <= warnDays",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Штраф должен наступать позже предупреждения — иначе предупреждать неког…",
-         "a": [
-          "ответ 400 — «Штраф должен наступать позже предупреждения — иначе предупреждать…»"
          ],
          "c": []
         }
@@ -89156,11 +88850,33 @@
         },
         {
          "k": "do",
-         "t": "const liveIds = clientIds.length ? new Set( (await prisma.client.findMany({ where: { id: { in: clientIds }, d…",
+         "t": "const livePhones = clientIds.length ? new Map( ( await prisma.client.findMany({ where: { id: { in: clientIds …",
          "a": [
           "читает в базе: client"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "const oldest = candidates.find((c)",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "c.clientId && !livePhones.has(c.clientId)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return false;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
         },
         {
          "k": "if",
@@ -94796,178 +94512,6 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "inactivity-check",
-   "when": "20 9 * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { warned, penalized } = await runInactivityCheck();",
-       "a": [
-        "зовёт runInactivityCheck()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const rules = await loadInactivityRules();",
-         "a": [
-          "зовёт loadInactivityRules()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const penaltyDelta = (await loadEventPoints()).inactivity_penalty;",
-         "a": [
-          "зовёт loadEventPoints()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const clients = await prisma.client.findMany({ where: { deletedAt: null, assignedAgentId: { not: null }, acce…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const client of clients",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "lastTouch <= penaltyCutoff",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const alreadyWarned = await prisma.royalScoreEvent.findUnique({ where: { kind_sourceId_agentId: { kind: \"inac…",
-             "a": [
-              "читает в базе: royalScoreEvent"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "!alreadyWarned",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "recordScoreEvent({ agentId, kind: \"inactivity_warning\", delta: 0, reason: `Предупреждение: по клиенту №${clie…",
-               "a": [
-                "зовёт recordScoreEvent()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "recordScoreEvent({ agentId, kind: \"inactivity_penalty\", delta: penaltyDelta, reason: `Клиент №${client.shortI…",
-             "a": [
-              "зовёт recordScoreEvent()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "lastTouch <= warnCutoff",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "recordScoreEvent({ agentId, kind: \"inactivity_warning\", delta: 0, reason: `Предупреждение: по клиенту №${clie…",
-             "a": [
-              "зовёт recordScoreEvent()"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "runInactivityCheck() — apps/api/src/lib/inactivityPenalty.ts"
-      },
-      {
-       "k": "if",
-       "t": "warned || penalized",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Бездействие: предупреждений ${warned}, штрафов ${penalized}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка проверки бездействия\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
    "id": "incoming-call-lead-sweep",
    "when": "*/10 * * * *",
    "tree": [
@@ -98145,9 +97689,9 @@
      "c": [
       {
        "k": "do",
-       "t": "const { penalized } = await penalizeMissedFirstCalls();",
+       "t": "const { handled } = await handleMissedFirstCalls();",
        "a": [
-        "зовёт penalizeMissedFirstCalls()"
+        "зовёт handleMissedFirstCalls()"
        ],
        "c": [
         {
@@ -98189,21 +97733,13 @@
          "c": [
           {
            "k": "do",
-           "t": "return { penalized: 0 };",
+           "t": "return { handled: 0 };",
            "a": [
             "дословно из кода"
            ],
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "const points = await loadEventPoints();",
-         "a": [
-          "зовёт loadEventPoints()"
-         ],
-         "c": []
         },
         {
          "k": "do",
@@ -98282,22 +97818,7 @@
           },
           {
            "k": "if",
-           "t": "verdict.keepLead",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "!verdict.penalize",
+           "t": "verdict.keepLead || !verdict.missed",
            "a": [],
            "c": [
             {
@@ -98320,30 +97841,15 @@
           },
           {
            "k": "do",
-           "t": "const already = await prisma.royalScoreEvent.findFirst({ where: { sourceId }, select: { id: true } });",
+           "t": "const alreadyNoted = await prisma.interaction.findFirst({ where: { clientId: client.id, actorKind: \"SYSTEM\", …",
            "a": [
-            "читает в базе: royalScoreEvent"
+            "читает в базе: interaction"
            ],
            "c": []
           },
           {
            "k": "if",
-           "t": "!already",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await recordScoreEvent({ agentId, kind: \"call_15min_missed\", delta: points.call_15min_missed, reason: `Не поз…",
-             "a": [
-              "зовёт recordScoreEvent()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "elseif",
-           "t": "!reassignOnMissedCall || ownLeadKept",
+           "t": "alreadyNoted && (!reassignOnMissedCall || ownLeadKept)",
            "a": [],
            "c": [
             {
@@ -98530,16 +98036,16 @@
          ]
         }
        ],
-       "from": "penalizeMissedFirstCalls() — apps/api/src/services/leads/firstCall.ts"
+       "from": "handleMissedFirstCalls() — apps/api/src/services/leads/firstCall.ts"
       },
       {
        "k": "if",
-       "t": "penalized > 0",
+       "t": "handled > 0",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "console.log(`[cron] Первый звонок сорван, лид снят: ${penalized}`);",
+         "t": "console.log(`[cron] Первый звонок сорван: ${handled}`);",
          "a": [
           "пишет строку в журнал сервера"
          ],
@@ -98556,7 +98062,7 @@
      "c": [
       {
        "k": "do",
-       "t": "reportCronTickError(\"Ошибка штрафа за сорванный звонок\", err);",
+       "t": "reportCronTickError(\"Ошибка разбора сорванного первого звонка\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -99040,14 +98546,6 @@
           },
           {
            "k": "do",
-           "t": "const points = await loadEventPoints();",
-           "a": [
-            "зовёт loadEventPoints()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
            "t": "const availableAgentsCount = await prisma.agent.count({ where: acceptingLeadsWhere() });",
            "a": [
             "считает в базе: agent"
@@ -99127,81 +98625,6 @@
              "t": "await escalateInsteadOfTransfer({ clientId: lead.id, mechanism, reason: \"клиент уже был на связи (контакт сос…",
              "a": [
               "зовёт escalateInsteadOfTransfer()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const calendarOf = (agentId: string)",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "!cal",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "calendars.set(agentId, (cal = loadDaysOffCalendar(agentId)));",
-               "a": [
-                "зовёт loadDaysOffCalendar()"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const penalizeIgnored = async (lead: (typeof stale)[number])",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const expiredWhileStopped = !isWithinDushanbeWindow(hours.start, hours.end, deadline) && deadline < dushanbeP…",
-             "a": [
-              "зовёт isWithinDushanbeWindow()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "expiredWhileStopped",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "return;",
-               "a": [
-                "дальше не идёт, ничего не меняя"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "isDayOff(deadline, await calendarOf(lead.assignedAgentId!))",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "return;",
-               "a": [
-                "дальше не идёт, ничего не меняя"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "return recordScoreEvent({ agentId: lead.assignedAgentId!, kind: \"lead_ignored\", delta: points.lead_ignored, r…",
-             "a": [
-              "зовёт recordScoreEvent()"
              ],
              "c": []
             }
@@ -99318,14 +98741,6 @@
                  "t": "contacted === \"escalated\"",
                  "a": [],
                  "c": [
-                  {
-                   "k": "do",
-                   "t": "await penalizeIgnored(lead);",
-                   "a": [
-                    "дословно из кода"
-                   ],
-                   "c": []
-                  },
                   {
                    "k": "do",
                    "t": "escalated++;",
@@ -102385,428 +101800,150 @@
        "c": [
         {
          "k": "do",
-         "t": "const notified = await notifyMissedShowings();",
-         "a": [
-          "зовёт notifyMissedShowings()"
-         ],
-         "c": [
-          {
-           "k": "if",
-           "t": "!(await isWithinWorkingHours(now))",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const missed = await prisma.interaction.findMany({ where: { ...TASK_WHERE, type: \"SHOWING\", completedAt: null…",
-           "a": [
-            "читает в базе: interaction"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "missed.length === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const points = await loadEventPoints();",
-           "a": [
-            "зовёт loadEventPoints()"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const task of missed",
-           "a": [],
-           "c": [
-            {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
-             "c": [
-              {
-               "k": "if",
-               "t": "!task.nextActionDate || !hasExactTime(task.nextActionDate)",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "if",
-               "t": "!ownerId",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "do",
-               "t": "await recordScoreEvent({ agentId: ownerId, kind: \"showing_missed\", delta: points.showing_missed, reason: \"Пок…",
-               "a": [
-                "зовёт recordScoreEvent()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "await prisma.interaction.update({ where: { id: task.id }, data: { noShowNotifiedAt: new Date() } });",
-               "a": [
-                "меняет в базе: interaction"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "reportCronRowError(\"Неотмеченный показ — руководителю\", task.id, err);",
-               "a": [
-                "зовёт reportCronRowError()"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          }
-         ],
-         "from": "notifyMissedShowings() — apps/api/src/lib/meetingReminders.ts"
-        },
-        {
-         "k": "if",
-         "t": "notified",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "console.log(`[cron] Непроведённых показов, о которых сообщили: ${notified}`);",
-           "a": [
-            "пишет строку в журнал сервера"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "reportCronTickError(\"Ошибка контроля показов\", err);",
-         "a": [
-          "зовёт reportCronTickError()"
-         ],
-         "c": [
-          {
-           "k": "do",
-           "t": "const reason = markCronTickFailed(label, err);",
-           "a": [
-            "зовёт markCronTickFailed()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ],
-         "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-        }
-       ]
-      },
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const notified = await notifyOverdueTasks();",
-         "a": [
-          "зовёт notifyOverdueTasks()"
-         ],
-         "c": [
-          {
-           "k": "if",
-           "t": "!(await isWithinWorkingHours(now))",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const overdue = await prisma.interaction.findMany({ where: { ...TASK_WHERE, type: { not: \"SHOWING\" }, complet…",
-           "a": [
-            "читает в базе: interaction"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "overdue.length === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const points = await loadEventPoints();",
-           "a": [
-            "зовёт loadEventPoints()"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const task of overdue",
-           "a": [],
-           "c": [
-            {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
-             "c": [
-              {
-               "k": "if",
-               "t": "!task.nextActionDate || !hasExactTime(task.nextActionDate)",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "if",
-               "t": "!ownerId",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "do",
-               "t": "await recordScoreEvent({ agentId: ownerId, kind, delta: points[kind], reason: isMeeting ? \"Встреча просрочена…",
-               "a": [
-                "зовёт recordScoreEvent()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "await prisma.interaction.update({ where: { id: task.id }, data: { noShowNotifiedAt: now } });",
-               "a": [
-                "меняет в базе: interaction"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "reportCronRowError(\"Просроченная задача — руководителю\", task.id, err);",
-               "a": [
-                "зовёт reportCronRowError()"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          }
-         ],
-         "from": "notifyOverdueTasks() — apps/api/src/lib/meetingReminders.ts"
-        },
-        {
-         "k": "if",
-         "t": "notified",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "console.log(`[cron] Просроченных встреч/задач, о которых сообщили: ${notified}`);",
-           "a": [
-            "пишет строку в журнал сервера"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "reportCronTickError(\"Ошибка контроля просроченных встреч/задач\", err);",
-         "a": [
-          "зовёт reportCronTickError()"
-         ],
-         "c": [
-          {
-           "k": "do",
-           "t": "const reason = markCronTickFailed(label, err);",
-           "a": [
-            "зовёт markCronTickFailed()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ],
-         "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-        }
-       ]
-      },
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const { reminded, escalated } = await remindIncompleteCards();",
-         "a": [
-          "зовёт remindIncompleteCards()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "reminded || escalated",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "console.log(`[cron] Незаполненные карточки: ${reminded} агентам, ${escalated} руководству`);",
-           "a": [
-            "пишет строку в журнал сервера"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "reportCronTickError(\"Ошибка контроля карточек\", err);",
-         "a": [
-          "зовёт reportCronTickError()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
          "t": "const notified = await notifyStaleOwnerQuestions();",
          "a": [
           "зовёт notifyStaleOwnerQuestions()"
          ],
-         "c": []
+         "c": [
+          {
+           "k": "do",
+           "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { ownerQuestionAutoRe…",
+           "a": [
+            "читает в базе: settings"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const stale = await prisma.ownerQuestion.findMany({ where: { customerActionId: null, answeredAt: null, autoRe…",
+           "a": [
+            "читает в базе: ownerQuestion"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const question of stale",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const target: DeliveryTarget | null = question.clientId ? await findClientDeliveryTarget(question.clientId) :…",
+               "a": [
+                "зовёт findClientDeliveryTarget()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!target",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "await isTargetPausedForBot(target)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "const text = await shortAgentReply( history, \"Клиент задал вопрос, на который бот честно ответил «уточню у со…",
+               "a": [
+                "зовёт shortAgentReply()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!text",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "const result = await deliverToConversation(target, text, undefined, { sender: { kind: \"bot\" } });",
+               "a": [
+                "зовёт deliverToConversation()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!result.ok",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "await prisma.ownerQuestion.update({ where: { id: question.id }, data: { autoRepliedAt: new Date() } });",
+               "a": [
+                "меняет в базе: ownerQuestion"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"ai\", `Автоответ на просроченный вопрос собственнику не отправлен: ${describeError(err)}`…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ],
+         "from": "notifyStaleOwnerQuestions() — apps/api/src/lib/ownerQuestionAnswer.ts"
         },
         {
          "k": "if",
@@ -102836,7 +101973,25 @@
          "a": [
           "зовёт reportCronTickError()"
          ],
-         "c": []
+         "c": [
+          {
+           "k": "do",
+           "t": "const reason = markCronTickFailed(label, err);",
+           "a": [
+            "зовёт markCronTickFailed()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ],
+         "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
         }
        ]
       }
@@ -106442,22 +105597,6 @@
          ]
         },
         {
-         "k": "do",
-         "t": "const alreadyScored = await prisma.royalScoreEvent.findMany({ where: { kind: { in: [\"photos_overdue\", \"video_…",
-         "a": [
-          "читает в базе: royalScoreEvent"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const points = await loadEventPoints();",
-         "a": [
-          "зовёт loadEventPoints()"
-         ],
-         "c": []
-        },
-        {
          "k": "loop",
          "t": "для каждого: const property of properties",
          "a": [],
@@ -106522,21 +105661,6 @@
             },
             {
              "k": "if",
-             "t": "!responsibleId",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
              "t": "property.status === \"EDITING\"",
              "a": [],
              "c": [
@@ -106567,7 +105691,7 @@
             },
             {
              "k": "if",
-             "t": "alreadyScoredIds.has(property.id)",
+             "t": "stageState(property.status, property.stageEnteredAt, deadlines, ruleSince).overdue",
              "a": [],
              "c": [
               {
@@ -106581,21 +105705,13 @@
              ]
             },
             {
-             "k": "do",
-             "t": "recordScoreEvent({ agentId: responsibleId, kind, delta: points[kind], reason: kind === \"photos_overdue\" ? \"Фо…",
-             "a": [
-              "зовёт recordScoreEvent()"
-             ],
-             "c": []
-            },
-            {
              "k": "if",
-             "t": "await shouldAlert(materialsTag, ALERT_MIN_INTERVAL_MS, now)",
+             "t": "await shouldAlert(materialsTag, sinceStageMs, now)",
              "a": [],
              "c": [
               {
                "k": "do",
-               "t": "await enqueueDirectorAlert({ title: kind === \"photos_overdue\" ? \"❗ Фото объекта просрочены\" : \"❗ Видео объект…",
+               "t": "await enqueueDirectorAlert({ title: photos ? \"❗ Фото объекта просрочены\" : \"❗ Видео объекта просрочено\", body…",
                "a": [
                 "зовёт enqueueDirectorAlert()"
                ],

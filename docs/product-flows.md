@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **765**. Развилок в самих путях: **2485**; вместе с задачами по расписанию и фоновыми заданиями — **4077**. Модулей: **87**.
+Путей: **763**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4051**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2882,8 +2882,8 @@
     - return res.status(400).json({ error: "Этот номер не принадлежит карточке клиента" });
       · ответ 400 — «Этот номер не принадлежит карточке клиента»
   - если !isDialableTajikNumber(requestedPhone)
-    - return res.status(400).json({ error: "Номер не таджикский — станция не сможет его набрать" });
-      · ответ 400 — «Номер не таджикский — станция не сможет его набрать»
+    - return res.status(400).json({ error: stationDialRefusal(requestedPhone), code: "not_dialable" });
+      · ответ 400
   - если requestedTail !== phoneTail(client.phone)
     - phoneOverride = requestedPhone;
       · дословно из кода
@@ -2896,7 +2896,7 @@
   - если result.status === 502 && !archiveReview
     - await markAgentAttempt(client.id, new Date(), req.agent!.id);
       · зовёт markAgentAttempt()
-  - return res.status(result.status).json({ error: result.error });
+  - return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });
     · ответ (код зависит от условия)
 - res.json({ ok: true, channelId: result.channelId, dialing: result.dialing });
   · ответ 200
@@ -4433,6 +4433,9 @@
 - если digits.replace(/\D/g, "").length < 5
   - return res.status(400).json({ error: "Слишком короткий номер" });
     · ответ 400 — «Слишком короткий номер»
+- если isForeignPhone(digits)
+  - return res.status(422).json({ error: FOREIGN_PHONE_CALL_ERROR, code: "not_dialable" });
+    · ответ 422
 - const existing = await findClientByPhoneDigits(digits);
   · зовёт findClientByPhoneDigits()
 - если existing
@@ -11827,11 +11830,6 @@
 - если created.length > 0 && property.status === "AWAITING_PHOTOS" && currentCount + created.length >= MIN_PROPERTY_…
   - await prisma.property.update({ where: { id: property.id }, data: { status: nextStatus, stageEnteredAt: new Da…
     · меняет в базе: property
-  - если responsibleId
-    - const points = await loadEventPoints();
-      · зовёт loadEventPoints()
-    - recordScoreEvent({ agentId: responsibleId, kind: "property_rework_fixed", delta: points.property_rework_fixed…
-      · зовёт recordScoreEvent()
   - если !property.offSite
     - void notifyPendingReview(property.id, property.shortId, property.title).catch((err)
       · зовёт notifyPendingReview()
@@ -14806,68 +14804,6 @@
 - res.json({ channels, totalWaiting: channels.reduce((sum, c)
   · ответ 200
 
-## /api/v1/royal-score-events
-
-### PATCH /api/v1/royal-score-events/:id/override
-
-`apps/api/src/routes/royalScoreEvents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: score.clientLossOverride
-
-- const parsed = overrideSchema.safeParse(req.body);
-  · проверяет данные схемой overrideSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Некорректные данные»
-- const event = await prisma.royalScoreEvent.findUnique({ where: { id: req.params.id } });
-  · читает в базе: royalScoreEvent
-- если !event
-  - return res.status(404).json({ error: "Событие не найдено" });
-    · ответ 404 — «Событие не найдено»
-- если !OVERRIDABLE_KINDS.includes(event.kind as (typeof OVERRIDABLE_KINDS)[number])
-  - return res.status(409).json({ error: "Переопределить можно только client_lost_agent_fault/client_lost_no_faul…
-    · ответ 409 — «Переопределить можно только…»
-- const existingCorrection = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `override-apply-${even…
-  · читает в базе: royalScoreEvent
-- если existingCorrection
-  - если existingCorrection.kind === parsed.data.override
-    - return res.status(409).json({ error: "Событие уже такого вида" });
-      · ответ 409 — «Событие уже такого вида»
-  - return res.status(409).json({ error: "Это событие уже переопределяли — второй раз нельзя" });
-    · ответ 409 — «Это событие уже переопределяли — второй раз нельзя»
-- если event.kind === parsed.data.override
-  - return res.status(409).json({ error: "Событие уже такого вида" });
-    · ответ 409 — «Событие уже такого вида»
-- const points = await loadEventPoints();
-  · зовёт loadEventPoints()
-- пробует
-  - await recordScoreEventsAtomic([ { agentId: event.agentId, kind: event.kind as ScoreEventKind, delta: -event.d…
-    · зовёт recordScoreEventsAtomic()
-- если сорвалось
-  - если (err as { code?: string }).code === "P2002"
-    - return res.status(409).json({ error: "Это событие уже переопределяли — второй раз нельзя" });
-      · ответ 409 — «Это событие уже переопределяли — второй раз нельзя»
-  - void logSystemError("api", `Royal Score: переопределение события ${event.id} не записано — ${message}`, { sta…
-    · запись в журнал ошибок
-  - return res.status(500).json({ error: "Не удалось сохранить корректировку баллов — ничего не изменилось, попро…
-    · ответ 500 — «Не удалось сохранить корректировку баллов — ничего не изменилось,…»
-- logAudit(req, "ROYAL_SCORE_EVENT_OVERRIDE", "RoyalScoreEvent", event.id, { from: event.kind, to: newKind, age…
-  · зовёт logAudit()
-- res.json({ ok: true });
-  · ответ 200
-
-### GET /api/v1/royal-score-events/by-client/:clientId
-
-`apps/api/src/routes/royalScoreEvents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: score.clientLossOverride
-
-- const original = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `client-lost-${req.params.client…
-  · читает в базе: royalScoreEvent
-- если !original
-  - return res.json({ event: null });
-    · ответ 200
-- const correction = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `override-apply-${original.id}…
-  · читает в базе: royalScoreEvent
-- res.json({ event: { id: original.id, currentKind: (correction?.kind ?? original.kind) as (typeof OVERRIDABLE_…
-  · ответ 200
-
 ## /api/v1/search-console
 
 ### POST /api/v1/search-console/disconnect
@@ -15985,12 +15921,6 @@
   - если endMin <= startMin
     - return res.status(400).json({ error: "Конец окна публикаций должен быть позже начала" });
       · ответ 400 — «Конец окна публикаций должен быть позже начала»
-- если pair.inactivityWarnAfterDays !== undefined || pair.inactivityPenaltyAfterDays !== undefined
-  - const currentDays = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { inactivityWarnAf…
-    · читает в базе: settings
-  - если penaltyDays <= warnDays
-    - return res.status(400).json({ error: "Штраф должен наступать позже предупреждения — иначе предупреждать неког…
-      · ответ 400 — «Штраф должен наступать позже предупреждения — иначе предупреждать…»
 - если pair.propertySummaryWindowStart !== undefined || pair.propertySummaryWindowEnd !== undefined
   - const currentWindow = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertySummar…
     · читает в базе: settings
@@ -20106,8 +20036,12 @@
     - если candidates.length === 0
       - return "idle";
         · дословно из кода
-    - const liveIds = clientIds.length ? new Set( (await prisma.client.findMany({ where: { id: { in: clientIds }, d…
+    - const livePhones = clientIds.length ? new Map( ( await prisma.client.findMany({ where: { id: { in: clientIds …
       · читает в базе: client
+    - const oldest = candidates.find((c)
+      - если c.clientId && !livePhones.has(c.clientId)
+        - return false;
+          · дословно из кода
     - если !oldest
       - return "idle";
         · дословно из кода
@@ -21311,44 +21245,6 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
-### inactivity-check — 20 9 * * *
-
-- пробует
-  - const { warned, penalized } = await runInactivityCheck();
-    · зовёт runInactivityCheck()
-    - const rules = await loadInactivityRules();
-      · зовёт loadInactivityRules()
-    - const penaltyDelta = (await loadEventPoints()).inactivity_penalty;
-      · зовёт loadEventPoints()
-    - const clients = await prisma.client.findMany({ where: { deletedAt: null, assignedAgentId: { not: null }, acce…
-      · читает в базе: client
-    - для каждого: const client of clients
-      - если lastTouch <= penaltyCutoff
-        - const alreadyWarned = await prisma.royalScoreEvent.findUnique({ where: { kind_sourceId_agentId: { kind: "inac…
-          · читает в базе: royalScoreEvent
-        - если !alreadyWarned
-          - recordScoreEvent({ agentId, kind: "inactivity_warning", delta: 0, reason: `Предупреждение: по клиенту №${clie…
-            · зовёт recordScoreEvent()
-          - continue;
-            · переходит к следующему
-        - recordScoreEvent({ agentId, kind: "inactivity_penalty", delta: penaltyDelta, reason: `Клиент №${client.shortI…
-          · зовёт recordScoreEvent()
-        - continue;
-          · переходит к следующему
-      - если lastTouch <= warnCutoff
-        - recordScoreEvent({ agentId, kind: "inactivity_warning", delta: 0, reason: `Предупреждение: по клиенту №${clie…
-          · зовёт recordScoreEvent()
-  - если warned || penalized
-    - console.log(`[cron] Бездействие: предупреждений ${warned}, штрафов ${penalized}`);
-      · пишет строку в журнал сервера
-- если сорвалось
-  - reportCronTickError("Ошибка проверки бездействия", err);
-    · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
-
 ### incoming-call-lead-sweep — */10 * * * *
 
 - если isIncomingLeadSweepRunning
@@ -22023,8 +21919,8 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 - пробует
-  - const { penalized } = await penalizeMissedFirstCalls();
-    · зовёт penalizeMissedFirstCalls()
+  - const { handled } = await handleMissedFirstCalls();
+    · зовёт handleMissedFirstCalls()
     - const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
       · читает в базе: settings
     - const { from: candidateFrom, to: cutoff } = firstCallCandidateWindow(settings, now);
@@ -22034,10 +21930,8 @@
     - const candidates = await prisma.client.findMany({ where: { acceptedAt: { not: null, gte: candidateFrom, lte: …
       · читает в базе: client
     - если candidates.length === 0
-      - return { penalized: 0 };
+      - return { handled: 0 };
         · дословно из кода
-    - const points = await loadEventPoints();
-      · зовёт loadEventPoints()
     - const supervisors = await findAgentsWithPermission("clients.assign");
       · зовёт findAgentsWithPermission()
     - const pauses = await firstCallPauses(candidates, telephonyOn, now, minutes);
@@ -22055,20 +21949,14 @@
           · переходит к следующему
       - const verdict = decideFirstCall({ telephonyOn, stationBlind, attempted: !!facts?.tried, tried: !!facts?.tried…
         · зовёт decideFirstCall()
-      - если verdict.keepLead
-        - continue;
-          · переходит к следующему
-      - если !verdict.penalize
+      - если verdict.keepLead || !verdict.missed
         - continue;
           · переходит к следующему
       - const ownLeadKept = reassignOnMissedCall && holdsOwnPropertyLead(client);
         · зовёт holdsOwnPropertyLead()
-      - const already = await prisma.royalScoreEvent.findFirst({ where: { sourceId }, select: { id: true } });
-        · читает в базе: royalScoreEvent
-      - если !already
-        - await recordScoreEvent({ agentId, kind: "call_15min_missed", delta: points.call_15min_missed, reason: `Не поз…
-          · зовёт recordScoreEvent()
-      - иначе если !reassignOnMissedCall || ownLeadKept
+      - const alreadyNoted = await prisma.interaction.findFirst({ where: { clientId: client.id, actorKind: "SYSTEM", …
+        · читает в базе: interaction
+      - если alreadyNoted && (!reassignOnMissedCall || ownLeadKept)
         - continue;
           · переходит к следующему
       - если !reassignOnMissedCall || ownLeadKept
@@ -22108,11 +21996,11 @@
       - если reassignResult.ok
         - sendLeadPush(nextAgentId, client.id, { title: "🔔 Новый лид", body: `${client.fullName} — передан вам`, url: …
           · зовёт sendLeadPush()
-  - если penalized > 0
-    - console.log(`[cron] Первый звонок сорван, лид снят: ${penalized}`);
+  - если handled > 0
+    - console.log(`[cron] Первый звонок сорван: ${handled}`);
       · пишет строку в журнал сервера
 - если сорвалось
-  - reportCronTickError("Ошибка штрафа за сорванный звонок", err);
+  - reportCronTickError("Ошибка разбора сорванного первого звонка", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -22217,8 +22105,6 @@
         · читает в базе: client
       - const supervisors = await findAgentsWithPermission("clients.assign");
         · зовёт findAgentsWithPermission()
-      - const points = await loadEventPoints();
-        · зовёт loadEventPoints()
       - const availableAgentsCount = await prisma.agent.count({ where: acceptingLeadsWhere() });
         · считает в базе: agent
       - const claimLead = async ( lead: { id: string; assignedAgentId: string | null; assignedAt: Date }, toAgentId: …
@@ -22238,21 +22124,6 @@
             · дословно из кода
         - await escalateInsteadOfTransfer({ clientId: lead.id, mechanism, reason: "клиент уже был на связи (контакт сос…
           · зовёт escalateInsteadOfTransfer()
-      - const calendarOf = (agentId: string)
-        - если !cal
-          - calendars.set(agentId, (cal = loadDaysOffCalendar(agentId)));
-            · зовёт loadDaysOffCalendar()
-      - const penalizeIgnored = async (lead: (typeof stale)[number])
-        - const expiredWhileStopped = !isWithinDushanbeWindow(hours.start, hours.end, deadline) && deadline < dushanbeP…
-          · зовёт isWithinDushanbeWindow()
-        - если expiredWhileStopped
-          - return;
-            · дальше не идёт, ничего не меняя
-        - если isDayOff(deadline, await calendarOf(lead.assignedAgentId!))
-          - return;
-            · дальше не идёт, ничего не меняя
-        - return recordScoreEvent({ agentId: lead.assignedAgentId!, kind: "lead_ignored", delta: points.lead_ignored, r…
-          · зовёт recordScoreEvent()
       - для каждого: const lead of stale
         - пробует
           - если lead.ownPropertyLead
@@ -22276,8 +22147,6 @@
               · переходит к следующему
           - если contacted
             - если contacted === "escalated"
-              - await penalizeIgnored(lead);
-                · дословно из кода
               - escalated++;
                 · дословно из кода
             - continue;
@@ -22924,99 +22793,47 @@
       - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
         · запись в журнал ошибок
   - пробует
-    - const notified = await notifyMissedShowings();
-      · зовёт notifyMissedShowings()
-      - если !(await isWithinWorkingHours(now))
-        - return 0;
-          · дословно из кода
-      - const missed = await prisma.interaction.findMany({ where: { ...TASK_WHERE, type: "SHOWING", completedAt: null…
-        · читает в базе: interaction
-      - если missed.length === 0
-        - return 0;
-          · дословно из кода
-      - const points = await loadEventPoints();
-        · зовёт loadEventPoints()
-      - для каждого: const task of missed
-        - пробует
-          - если !task.nextActionDate || !hasExactTime(task.nextActionDate)
-            - continue;
-              · переходит к следующему
-          - если !ownerId
-            - continue;
-              · переходит к следующему
-          - await recordScoreEvent({ agentId: ownerId, kind: "showing_missed", delta: points.showing_missed, reason: "Пок…
-            · зовёт recordScoreEvent()
-          - await prisma.interaction.update({ where: { id: task.id }, data: { noShowNotifiedAt: new Date() } });
-            · меняет в базе: interaction
-        - если сорвалось
-          - reportCronRowError("Неотмеченный показ — руководителю", task.id, err);
-            · зовёт reportCronRowError()
-    - если notified
-      - console.log(`[cron] Непроведённых показов, о которых сообщили: ${notified}`);
-        · пишет строку в журнал сервера
-  - если сорвалось
-    - reportCronTickError("Ошибка контроля показов", err);
-      · зовёт reportCronTickError()
-      - const reason = markCronTickFailed(label, err);
-        · зовёт markCronTickFailed()
-      - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-        · запись в журнал ошибок
-  - пробует
-    - const notified = await notifyOverdueTasks();
-      · зовёт notifyOverdueTasks()
-      - если !(await isWithinWorkingHours(now))
-        - return 0;
-          · дословно из кода
-      - const overdue = await prisma.interaction.findMany({ where: { ...TASK_WHERE, type: { not: "SHOWING" }, complet…
-        · читает в базе: interaction
-      - если overdue.length === 0
-        - return 0;
-          · дословно из кода
-      - const points = await loadEventPoints();
-        · зовёт loadEventPoints()
-      - для каждого: const task of overdue
-        - пробует
-          - если !task.nextActionDate || !hasExactTime(task.nextActionDate)
-            - continue;
-              · переходит к следующему
-          - если !ownerId
-            - continue;
-              · переходит к следующему
-          - await recordScoreEvent({ agentId: ownerId, kind, delta: points[kind], reason: isMeeting ? "Встреча просрочена…
-            · зовёт recordScoreEvent()
-          - await prisma.interaction.update({ where: { id: task.id }, data: { noShowNotifiedAt: now } });
-            · меняет в базе: interaction
-        - если сорвалось
-          - reportCronRowError("Просроченная задача — руководителю", task.id, err);
-            · зовёт reportCronRowError()
-    - если notified
-      - console.log(`[cron] Просроченных встреч/задач, о которых сообщили: ${notified}`);
-        · пишет строку в журнал сервера
-  - если сорвалось
-    - reportCronTickError("Ошибка контроля просроченных встреч/задач", err);
-      · зовёт reportCronTickError()
-      - const reason = markCronTickFailed(label, err);
-        · зовёт markCronTickFailed()
-      - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-        · запись в журнал ошибок
-  - пробует
-    - const { reminded, escalated } = await remindIncompleteCards();
-      · зовёт remindIncompleteCards()
-    - если reminded || escalated
-      - console.log(`[cron] Незаполненные карточки: ${reminded} агентам, ${escalated} руководству`);
-        · пишет строку в журнал сервера
-  - если сорвалось
-    - reportCronTickError("Ошибка контроля карточек", err);
-      · зовёт reportCronTickError()
-  - пробует
     - const notified = await notifyStaleOwnerQuestions();
       · зовёт notifyStaleOwnerQuestions()
+      - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { ownerQuestionAutoRe…
+        · читает в базе: settings
+      - const stale = await prisma.ownerQuestion.findMany({ where: { customerActionId: null, answeredAt: null, autoRe…
+        · читает в базе: ownerQuestion
+      - для каждого: const question of stale
+        - пробует
+          - const target: DeliveryTarget | null = question.clientId ? await findClientDeliveryTarget(question.clientId) :…
+            · зовёт findClientDeliveryTarget()
+          - если !target
+            - continue;
+              · переходит к следующему
+          - если await isTargetPausedForBot(target)
+            - continue;
+              · переходит к следующему
+          - const text = await shortAgentReply( history, "Клиент задал вопрос, на который бот честно ответил «уточню у со…
+            · зовёт shortAgentReply()
+          - если !text
+            - continue;
+              · переходит к следующему
+          - const result = await deliverToConversation(target, text, undefined, { sender: { kind: "bot" } });
+            · зовёт deliverToConversation()
+          - если !result.ok
+            - continue;
+              · переходит к следующему
+          - await prisma.ownerQuestion.update({ where: { id: question.id }, data: { autoRepliedAt: new Date() } });
+            · меняет в базе: ownerQuestion
+        - если сорвалось
+          - void logSystemError("ai", `Автоответ на просроченный вопрос собственнику не отправлен: ${describeError(err)}`…
+            · запись в журнал ошибок
     - если notified
       - console.log(`[cron] Автоответов на просроченные «уточню у собственника»: ${notified}`);
         · пишет строку в журнал сервера
   - если сорвалось
     - reportCronTickError("Ошибка автоответа на просроченные вопросы собственнику", err);
       · зовёт reportCronTickError()
+      - const reason = markCronTickFailed(label, err);
+        · зовёт markCronTickFailed()
+      - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+        · запись в журнал ошибок
 - в любом случае
   - isReminderBatchRunning = false;
     · дословно из кода
@@ -23800,10 +23617,6 @@
     - если overdueIds.length === 0
       - return 0;
         · дословно из кода
-    - const alreadyScored = await prisma.royalScoreEvent.findMany({ where: { kind: { in: ["photos_overdue", "video_…
-      · читает в базе: royalScoreEvent
-    - const points = await loadEventPoints();
-      · зовёт loadEventPoints()
     - для каждого: const property of properties
       - пробует
         - если !overdueIds.includes(property.id)
@@ -23817,22 +23630,17 @@
               · зовёт enqueueDirectorAlert()
           - continue;
             · переходит к следующему
-        - если !responsibleId
-          - continue;
-            · переходит к следующему
         - если property.status === "EDITING"
           - если await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now)
             - await enqueueDirectorAlert({ title: "🎬 Объект стоит на монтаже", body: `${property.title} — материалы одобре…
               · зовёт enqueueDirectorAlert()
           - continue;
             · переходит к следующему
-        - если alreadyScoredIds.has(property.id)
+        - если stageState(property.status, property.stageEnteredAt, deadlines, ruleSince).overdue
           - continue;
             · переходит к следующему
-        - recordScoreEvent({ agentId: responsibleId, kind, delta: points[kind], reason: kind === "photos_overdue" ? "Фо…
-          · зовёт recordScoreEvent()
-        - если await shouldAlert(materialsTag, ALERT_MIN_INTERVAL_MS, now)
-          - await enqueueDirectorAlert({ title: kind === "photos_overdue" ? "❗ Фото объекта просрочены" : "❗ Видео объект…
+        - если await shouldAlert(materialsTag, sinceStageMs, now)
+          - await enqueueDirectorAlert({ title: photos ? "❗ Фото объекта просрочены" : "❗ Видео объекта просрочено", body…
             · зовёт enqueueDirectorAlert()
       - если сорвалось
         - reportCronRowError("Просрочка этапа объекта", property.shortId, err);

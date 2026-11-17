@@ -46,6 +46,7 @@ import { DEFAULT_KPI_WEIGHTS, type KpiMetricKey } from "../kpi.js";
 import {
   COVER_SELECTION_MODES,
   EDITABLE_SCORE_EVENT_KEYS,
+  minScoreEventPoints,
   daysOffSchema,
   dealStageWinProbabilitySchema,
   mergeTranscriptFragments,
@@ -471,7 +472,7 @@ function toStaffSettings(settings: {
      * 17.09.2026, «клиент теряется, если вовремя не позвонить»): без этих двух
      * чисел агент не мог узнать дедлайн на своём же экране — окно приёма после
      * «Принять» уводит в карточку и на этом всё, а крон (services/leads/firstCall.ts,
-     * penalizeMissedFirstCalls) снимает лид молча. Коммерческой тайны в минутах и
+     * handleMissedFirstCalls) снимает лид молча. Коммерческой тайны в минутах и
      * секундах нет — то же обоснование, что у leadAcceptMinutes выше.
      */
     leadCallMinutes: settings.leadCallMinutes,
@@ -1219,9 +1220,10 @@ const settingsUpdateSchema = z.object({
   /** Резерв объекта на сделке (Путь покупателя) — сколько рабочих дней держим,
    *  прежде чем автоматически вернуть в продажу. */
   dealReservationBusinessDays: z.number().int().min(1).max(30).optional(),
-  inactivityWarnAfterDays: z.number().int().min(1).max(60).optional(),
-  inactivityPenaltyAfterDays: z.number().int().min(1).max(90).optional(),
-  inactivityPenaltyPoints: z.number().int().min(0).max(50).optional(),
+  // inactivityWarnAfterDays/inactivityPenaltyAfterDays/inactivityPenaltyPoints убраны
+  // из схемы 16.11.2026 вместе со штрафом за бездействие (lib/inactivityPenalty.ts
+  // удалён). Колонки в БД остаются; схема не строгая — старый экран, приславший
+  // поле, получит 200, поле просто отбросится.
   /** «Застой сделки» (владелец 30.08.2026, lib/dealStalePipeline.ts): продавец без
    *  единого объекта в CRM дольше стольких дней, или покупатель без единой сделки —
    *  застой. Потолки — тот же порядок, что и дефолт в схеме (10/21 дней), с запасом. */
@@ -1315,7 +1317,19 @@ const settingsUpdateSchema = z.object({
    *  события не пишутся (recordScoreEvent), push о счёте не уходит, кабинет и
    *  карточка в профиле агента не показываются. Журнал не стирается. */
   royalScoreEnabled: z.boolean().optional(),
-  royalScoreEventPoints: z.partialRecord(z.enum(SCORE_EVENT_KEYS), z.number().min(-100).max(100)).optional(),
+  // Минус — только у компенсаций уже начисленного плюса (minScoreEventPoints из
+  // общего каталога, то же правило, что у поля на экране): автоматических штрафов
+  // нет с 16.11.2026, и вернуть их «через цену» в Настройках нельзя.
+  royalScoreEventPoints: z
+    .partialRecord(z.enum(SCORE_EVENT_KEYS), z.number().min(-100).max(100))
+    .superRefine((points, ctx) => {
+      for (const [key, value] of Object.entries(points)) {
+        if (typeof value === "number" && value < minScoreEventPoints(key)) {
+          ctx.addIssue({ code: "custom", path: [key], message: "Цена события не может быть меньше нуля — баллы только начисляются" });
+        }
+      }
+    })
+    .optional(),
   /** Скользящее окно, за которое считается счёт, дней. Меньше суток бессмысленно —
    *  событие выпадало бы из расчёта в день начисления. */
   royalScoreWindowDays: z.number().int().min(1).max(365).optional(),
@@ -1466,22 +1480,6 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     const endMin = pair.publishScheduleWindowEndMin ?? currentPublish?.publishScheduleWindowEndMin ?? 1260;
     if (endMin <= startMin) {
       return res.status(400).json({ error: "Конец окна публикаций должен быть позже начала" });
-    }
-  }
-
-  // Сроки бездействия — тоже пара, и сломанной оказывается именно она: штраф раньше
-  // предупреждения означает, что предупреждать уже некогда, а вся суть правила была
-  // в том, чтобы не наказывать за то, о чём человека не предупредили. Сверяем с тем,
-  // что уже в базе: поля могут прийти по одному.
-  if (pair.inactivityWarnAfterDays !== undefined || pair.inactivityPenaltyAfterDays !== undefined) {
-    const currentDays = await prisma.settings.findUnique({
-      where: { id: "singleton" },
-      select: { inactivityWarnAfterDays: true, inactivityPenaltyAfterDays: true },
-    });
-    const warnDays = pair.inactivityWarnAfterDays ?? currentDays?.inactivityWarnAfterDays ?? 3;
-    const penaltyDays = pair.inactivityPenaltyAfterDays ?? currentDays?.inactivityPenaltyAfterDays ?? 5;
-    if (penaltyDays <= warnDays) {
-      return res.status(400).json({ error: "Штраф должен наступать позже предупреждения — иначе предупреждать некогда" });
     }
   }
 

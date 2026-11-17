@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { randomInt } from "node:crypto";
 import { prisma } from "../src/db.js";
 import { dushanbeNextOccurrence } from "../src/lib/dushanbeTime.js";
+import { waitForSettled } from "./helpers/waitFor.js";
 
 /**
  * ПР-000453 (владелец 23.09.2026): непринятый лид каждые 16 минут
@@ -10,7 +11,7 @@ import { dushanbeNextOccurrence } from "../src/lib/dushanbeTime.js";
  * крутился и ночью. Три правила этого файла:
  *  1. новый круг не выбирает текущего держателя;
  *  2. с конца до начала «Когда лиды уходят агентам» круг стоит;
- *  3. утром круг продолжает с вечернего лида и не штрафует за ночь.
+ *  3. утром круг продолжает с вечернего лида (штрафов нет вовсе с 16.11.2026).
  */
 
 const { push } = vi.hoisted(() => ({ push: vi.fn(async () => undefined) }));
@@ -175,7 +176,7 @@ describe("ночью круг стоит, утром продолжает", () =
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("в 10:01 вечерний лид (20:55) уходит дальше, штрафа за ночь нет", async () => {
+  it("в 10:01 вечерний лид (20:55) уходит дальше", async () => {
     const morning = dushanbeNextOccurrence("10:01");
     const evening = new Date(morning.getTime() - (13 * 60 + 6) * 60_000); // 20:55 накануне
     const lead = await makeLead({ holder: newbieId, assignedAt: evening });
@@ -185,13 +186,14 @@ describe("ночью круг стоит, утром продолжает", () =
     expect(result.skipped).toBe(false);
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(veteranId);
+    // Штраф lead_ignored снят 16.11.2026 (решение владельца) — ни ночью, ни днём.
     const penalties = await prisma.royalScoreEvent.count({
       where: { agentId: newbieId, kind: "lead_ignored", sourceId: { contains: lead.id } },
     });
     expect(penalties).toBe(0);
   });
 
-  it("днём просроченный лид по-прежнему штрафуется", async () => {
+  it("днём просроченный лид уходит дальше, баллов держателю не списано", async () => {
     const lead = await makeLead({ holder: newbieId, assignedAt: new Date(Date.now() - 16 * 60_000) });
     const noon = dushanbeNextOccurrence("12:00");
     // Держатель выдан в 11:44 того же дня, срок 11:59 — внутри часов раздачи.
@@ -199,9 +201,11 @@ describe("ночью круг стоит, утром продолжает", () =
 
     await cronTick(noon);
 
-    const penalties = await prisma.royalScoreEvent.count({
-      where: { agentId: newbieId, kind: "lead_ignored", sourceId: { contains: lead.id } },
-    });
-    expect(penalties).toBe(1);
+    const after = await prisma.client.findUnique({ where: { id: lead.id } });
+    expect(after?.assignedAgentId).not.toBe(newbieId);
+    const penalties = await waitForSettled(() =>
+      prisma.royalScoreEvent.count({ where: { agentId: newbieId, sourceId: { contains: lead.id } } })
+    );
+    expect(penalties).toBe(0);
   });
 });

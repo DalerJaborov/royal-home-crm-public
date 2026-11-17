@@ -3,8 +3,6 @@ import { prisma } from "../db.js";
 import { pickNextAgentByKpiQueue, isAgentAvailableForLead, pickStrongestAvailableAgent } from "../leads.js";
 import { findMatchingPropertiesForClient } from "../routes/matching.js";
 import { loadMaxTransfers, transfersExhausted } from "./leadTransfers.js";
-import { classifyClientLossFault } from "./clientLossFault.js";
-import { loadEventPoints, recordScoreEvent } from "./scoreJournal.js";
 import { sendPushToAgent, closeLeadPushNotification } from "../push.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { hadConductedShowing } from "./conductedShowing.js";
@@ -380,17 +378,7 @@ async function transferClientByAgentUnguarded(input: {
       toAgentId: client.assignedAgentId,
       reason: note,
     });
-    void (async () => {
-      const kind = await classifyClientLossFault(client.id);
-      const points = await loadEventPoints();
-      recordScoreEvent({
-        agentId: input.agentId,
-        kind,
-        delta: points[kind],
-        reason: `Клиент потерян после ${maxTransfers}-й передачи — ${client.fullName}`,
-        sourceId: `client-lost-${client.id}`,
-      });
-    })();
+    // Штраф «клиент потерян по вине агента» снят 16.11.2026 (решение владельца).
     // Открытые требования по потерянному клиенту гасим — тот же приём, что у
     // promoteToLost/refuse (docs/audit-02-09-2026/01-lifecycle.md, баг B14).
     // reassignClientSummaries с toAgentId=null гасит ВСЕ виды (аудит 02.09 §7 шаг 6):
