@@ -82,7 +82,7 @@ export function CallPhoneChooser({ clientId, phones, variant = "full", label, cl
                 <span className="t">
                   <b>{p.label}</b>
                   <span>{p.phone}</span>
-                  {p.detail && <span className="text-xs text-slate-500">{p.detail}</span>}
+                  {p.detail && <span className="text-[13px] text-slate-500">{p.detail}</span>}
                 </span>
                 {isCallableClientPhone(p.phone) ? (
                   <CallClientButton
