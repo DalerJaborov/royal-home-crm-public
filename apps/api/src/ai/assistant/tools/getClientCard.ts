@@ -103,8 +103,6 @@ export const getClientCardTool: AssistantReadToolPlugin = {
       href: `/clients/${client.shortId}`,
       name: safeField(clientDisplayName(presented)),
       kind: clientKindLabel(client),
-      status: client.status,
-      workStatus: client.workStatus,
       source: presented.source ?? null,
       pendingAcceptance: presented.pendingAcceptance,
       agent: client.assignedAgent?.fullName ?? null,

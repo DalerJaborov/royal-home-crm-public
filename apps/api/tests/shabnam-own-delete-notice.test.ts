@@ -209,20 +209,20 @@ describe("delete_client: свой клиент — в Корзину", () => {
 });
 
 describe("сообщение РОП, директору и админу об удалении — одно, с кнопкой «Восстановить»", () => {
-  it("клиент: директор и админ — с кнопкой, РОП — без (нет права восстанавливать), удалившему и постороннему — ничего; по одному сообщению", async () => {
+  // 17.11.2026: РОП решает заявки на удаление и восстанавливает из Корзины
+  // («РОП тут главнее») — кнопка «Восстановить» есть и у него.
+  it("клиент: РОП, директор и админ — с кнопкой, удалившему и постороннему — ничего; по одному сообщению", async () => {
     const client = await seedClient(ids.owner);
     await run(ids.owner, "delete_client", { clientId: client.id });
     await waitFor(() => (sentTo("director").length > 0 && sentTo("admin").length > 0 && sentTo("hos").length > 0 ? true : null));
     await waitForSettled(() => sendHtmlMessage.mock.calls.length);
 
-    for (const key of ["director", "admin"]) {
+    for (const key of ["director", "admin", "hos"]) {
       expect(sentTo(key), key).toHaveLength(1);
       expect(String(sentTo(key)[0][1])).toContain("удалил(а) клиента");
       expect(buttonsOf(sentTo(key)[0])).toContain(`tr:c:${client.id}`);
       expect(buttonsOf(sentTo(key)[0])).toContain("Не присылать такое");
     }
-    expect(sentTo("hos")).toHaveLength(1);
-    expect(buttonsOf(sentTo("hos")[0])).not.toContain("tr:c:");
     expect(sentTo("owner")).toHaveLength(0);
     expect(sentTo("other")).toHaveLength(0);
     expect(sentTo("bystander")).toHaveLength(0);
@@ -316,13 +316,11 @@ describe("кнопка «Восстановить»: та же дверь, чт�
     expect(answerCallbackQuery.mock.calls.at(-1)?.[1]).toBe("Клиент восстановлен");
   });
 
-  it("клиент: РОП без права «восстанавливать» и посторонний агент — отказ, карточка остаётся в Корзине", async () => {
+  it("клиент: посторонний агент — отказ, карточка остаётся в Корзине", async () => {
     const client = await seedClient(ids.owner);
     await run(ids.owner, "delete_client", { clientId: client.id });
-    await press("hos", `tr:c:${client.id}`);
-    expect(answerCallbackQuery.mock.calls.at(-1)?.[1]).toMatch(/директор или администратор/);
     await press("bystander", `tr:c:${client.id}`);
-    expect(answerCallbackQuery.mock.calls.at(-1)?.[1]).toMatch(/директор или администратор/);
+    expect(answerCallbackQuery.mock.calls.at(-1)?.[1]).toMatch(/РОП, директор или администратор/);
     expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).deletedAt).not.toBeNull();
   });
 

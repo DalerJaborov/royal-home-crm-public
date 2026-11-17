@@ -36,6 +36,7 @@ import { trashClient } from "../../lib/trashClient.js";
 import { maskPhone } from "./shared.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../../lib/clientPhone.js";
 import { enqueueDirectorAlert } from "../../lib/directorAlertQueue.js";
+import { fileClientDeleteRequest } from "../../lib/clientDeleteRequest.js";
 
 import { publishRequestUpdated } from "../../lib/livePublish.js";
 
@@ -204,51 +205,31 @@ deleteRequestsRouter.post(
       return res.status(409).json({ error: "По этому клиенту уже есть заявка — она ждёт решения руководства" });
     }
 
-    const request = await prisma.clientDeleteRequest.create({
-      data: {
-        clientId: client.id,
-        requestedById: req.agent!.id,
-        reason: parsed.data.reason,
-        comment: parsed.data.comment?.trim() || null,
-        commentVoiceUrl: parsed.data.voiceNoteUrl ?? null,
-        commentVoiceTranscript: parsed.data.voiceNoteTranscript ?? null,
-      },
+    // Одна дверь (lib/clientDeleteRequest.ts): ей же пользуются отказ и
+    // исчерпанные передачи, когда работа по клиенту закончилась.
+    const filed = await fileClientDeleteRequest({
+      clientId: client.id,
+      requestedById: req.agent!.id,
+      reason: parsed.data.reason,
+      comment: parsed.data.comment,
+      voiceNoteUrl: parsed.data.voiceNoteUrl,
+      voiceNoteTranscript: parsed.data.voiceNoteTranscript,
     });
+    if (!filed.ok) return res.status(404).json({ error: filed.error });
+    if (!filed.created) {
+      return res.status(409).json({ error: "По этому клиенту уже есть заявка — она ждёт решения руководства" });
+    }
 
     logAudit(req, "DELETE_REQUEST", "Client", client.id, {
-      requestId: request.id,
+      requestId: filed.id,
       reason: parsed.data.reason,
       shortId: client.shortId,
       fullName: client.fullName,
     });
 
-    // Кому решать — тем и сообщаем, по праву, а не по роли (lib/recipients.ts).
-    // Часы алармов (владелец 07.09.2026): заявка уже в очереди Архива, ждёт
-    // решения в любом случае — откладывается только пуш о ней.
-    const author = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
-    void enqueueDirectorAlert({
-      title: "🗑️ Заявка на удаление клиента",
-      body: `${author?.fullName ?? "Агент"}: ${client.fullName} — ${reasonLabel(parsed.data.reason, client.kind)}`,
-      url: "/archive",
-      kind: "oversight",
-      // Первый уровень владельца: пока заявка не решена, агент стоит и ждёт
-      // (см. NOTIFICATION_LEVELS в @royal-home/shared).
-      level: "APPROVAL",
-      tag: `delete-request-${request.id}`,
-      recipientPermission: "clients.delete",
-    });
-
-    publishRequestUpdated({
-      requestId: request.id,
-      clientId: client.id,
-      agentIds: [req.agent!.id],
-      stage: "PENDING",
-      actorId: req.agent!.id,
-    });
-
     res.status(201).json({
       ok: true,
-      id: request.id,
+      id: filed.id,
       message: "Заявка отправлена — карточку удалит директор или админ, если согласится",
     });
   }

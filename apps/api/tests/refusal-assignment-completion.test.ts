@@ -5,11 +5,10 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { refuseClient } from "../src/lib/clientRefuse.js";
 import { changeClientAgent } from "../src/lib/changeClientAgent.js";
-import { OCCUPIES_SLOT_WHERE } from "../src/lib/leadLimits.js";
+import { BUYERS_IN_WORK_WHERE } from "../src/lib/agentLoad.js";
 import { TASK_WHERE } from "../src/lib/tasks.js";
 import { upsertAutoTask, claimAutoTaskSlot } from "../src/lib/autoTasks.js";
 import { canTransferClient, transferClientByAgent } from "../src/lib/clientTransfer.js";
-import { deferClient, returnDeferredClientToWork } from "../src/lib/deferredClients.js";
 import { logTimeline } from "../src/lib/timeline.js";
 import { classifyClientLossFault } from "../src/lib/clientLossFault.js";
 
@@ -71,13 +70,6 @@ afterAll(async () => {
 });
 
 describe("Final refusal per assignment", () => {
-  it("does not let a deferred return timer revive a subsequently completed assignment", async () => {
-    const c = await makeClient();
-    expect((await deferClient({ clientId: c.id, agentId, reason: "WRONG_OBJECT", initiator: "CLIENT" })).ok).toBe(true);
-    expect((await refuse(c.id)).ok).toBe(true);
-    expect((await returnDeferredClientToWork(c.id, "timer")).ok).toBe(false);
-    expect((await prisma.client.findUniqueOrThrow({ where: { id: c.id } })).assignmentCompletedAt).not.toBeNull();
-  });
   it.each([false, true])("only director/admin can reassign refused work (dual=%s)", async (dual) => {
     const c = await makeClient(dual);
     expect((await refuse(c.id)).ok).toBe(true);
@@ -87,9 +79,6 @@ describe("Final refusal per assignment", () => {
       const accept = await request(app).post(`/api/v1/clients/${c.id}/accept`)
         .set("Authorization", `Bearer ${token}`).send({});
       expect(accept.status).toBe(409);
-      const activate = await request(app).post(`/api/v1/clients/${c.id}/activate`)
-        .set("Authorization", `Bearer ${token}`).send({});
-      expect(activate.status).toBe(403);
     }
     const decline = await request(app).post(`/api/v1/clients/${c.id}/decline`)
       .set("Authorization", `Bearer ${token}`).send({});
@@ -149,7 +138,7 @@ describe("Final refusal per assignment", () => {
     expect(current.refusalCount).toBe(1);
     expect(current.assignmentCompletedAt).not.toBeNull();
     expect(current.assignedAgentId).toBe(agentId);
-    expect(await prisma.client.count({ where: { id: c.id, ...OCCUPIES_SLOT_WHERE } })).toBe(0);
+    expect(await prisma.client.count({ where: { id: c.id, ...BUYERS_IN_WORK_WHERE } })).toBe(0);
     expect(await prisma.interaction.count({ where: { clientId: c.id, investigationOnly: false } })).toBe(1);
     expect(await prisma.interaction.count({ where: { clientId: c.id, investigationOnly: true } })).toBe(1);
     const edit = await request(app).patch(`/api/v1/clients/${c.id}`)
@@ -209,7 +198,7 @@ describe("Final refusal per assignment", () => {
     expect((await prisma.interaction.findUniqueOrThrow({ where: { id: existingTask.id } })).taskCancelledAt).toBeNull();
     expect(await prisma.royalScoreEvent.count({ where: { agentId,
       sourceId: `client-lost-${c.id}` } })).toBe(0);
-    expect(await prisma.client.count({ where: { id: c.id, ...OCCUPIES_SLOT_WHERE } })).toBe(1);
+    expect(await prisma.client.count({ where: { id: c.id, ...BUYERS_IN_WORK_WHERE } })).toBe(1);
     const edit = await request(app).patch(`/api/v1/clients/${c.id}`)
       .set("Authorization", `Bearer ${token}`).send({ requirementsNotes: "Continue the other work" });
     expect(edit.status).toBe(200);

@@ -8,10 +8,8 @@ import { ARCHIVE_REVIEW_NOTE_PREFIX } from "../archiveReviewCall.js";
 // leads.js → selection.js → agentOccupancyShield.js → callTracker.js → leads.js;
 // прямой импорт того же самого экспорта разрывает цикл, не меняя поведения.
 import { rewardFirstCallIfOnTime } from "./rewardFirstCallHook.js";
-import { refreshClientStatus } from "../clientAutoStatus.js";
 import { markAgentAttempt } from "../clientWorkStalled.js";
 import { notifyNoAnswerEscalation, planNoAnswerStep } from "../noAnswerStreak.js";
-import { checkNoAnswerStreakForTrafficLight } from "../noAnswerTrafficLight.js";
 import { closeStaleNextActions } from "../nextActionAutoClose.js";
 import { claimAutoTaskSlot, closeAutoTasks, CALLBACK_AUTO_TASK_KINDS } from "../autoTasks.js";
 import { logSystemError } from "../systemError.js";
@@ -541,22 +539,6 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
         // Звонок делал сам агент карточки — но проверку оставляем общей: если
         // набирал не он, счётчик его тишины двигать не за что.
         void markAgentAttempt(call.clientId, call.endedAt, call.agentId);
-      }
-      // Три недозвона подряд — «Не отвечает» (см. lib/clientAutoStatus.ts). Пересчёт
-      // ровно там же, где его делает ручная отметка, иначе статус двигался бы только
-      // от записей, сделанных руками. Не ждём: обработчик событий АТС не должен стоять.
-      if (clientDidNotAnswer && !call.archiveReview) {
-        void refreshClientStatus(call.clientId).catch((err) =>
-          console.error("[звонок] автостатус:", err instanceof Error ? err.message : err)
-        );
-      }
-      // Раздел C (план 19-plan-03-09-evening.md): 3 недозвона подряд без единого
-      // разговора между ними — автоматический вход в светофор неактивных. Не ждём:
-      // та же причина, что и у автостатуса выше.
-      if (clientDidNotAnswer && !call.archiveReview) {
-        void checkNoAnswerStreakForTrafficLight(call.clientId).catch((err) =>
-          console.error("[звонок] авто-неактивность по недозвонам:", err instanceof Error ? err.message : err)
-        );
       }
       // ЗАКРЫТЬ СТАРЫЕ ПОДСКАЗКИ КЛИЕНТА (18.08.2026, см. lib/nextActionAutoClose.ts):
       // звонок через CRM — новое реальное взаимодействие, только если телефон

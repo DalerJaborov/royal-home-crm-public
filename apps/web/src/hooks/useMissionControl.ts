@@ -234,7 +234,6 @@ export interface McAgentPhones extends McEmptyable {
 export interface McControlGaps {
   phones: McAgentPhones;
   overdueTasks: McEmptyable & { count: number; items: { id: string; title: string; agentName: string; overdueDays: number; href: string }[] };
-  atLimit: McEmptyable & { count: number; items: { agentId: string; name: string; taken: number; limit: number }[] };
   silentAfterShowing: McEmptyable & { count: number };
 }
 

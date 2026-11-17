@@ -723,15 +723,14 @@ const settingsUpdateSchema = z.object({
   botPauseEscalateHours: z.number().int().min(1).max(720).optional(),
   /** Сколько секунд разговора считаются состоявшимся звонком. 0 = порога нет. */
   leadCallMinSeconds: z.number().int().min(0).max(600).optional(),
-  /** Максимум активных лидов у агента одновременно («лимит 5»). 0 = без лимита. */
-  leadActiveLimit: z.number().int().min(0).max(100).optional(),
+  // leadActiveLimit, «свои объекты сверх лимита» и «взвешенные слоты» убраны
+  // 16.11.2026 (владелец: «лимитов заявок больше нет и не будет»). Колонки
+  // Settings остаются до отдельной миграции, PATCH их больше не принимает.
   /** Максимум объектов у агента одновременно в конвейере подготовки. 0 = без лимита. */
   propertyActiveLimit: z.number().int().min(0).max(100).optional(),
   /** Единая политика подбора (решение владельца 17.09.2026, docs/match-policy-plan-17-09.md)
    *  — вкладка «Подбор объектов». lib/matchPolicy.ts::loadMatchPolicy() читает те же поля. */
   autoMatchEnabled: z.boolean().optional(),
-  matchIncludeInactive: z.boolean().optional(),
-  matchIncludeDeferred: z.boolean().optional(),
   matchNotifyPropertyOwner: z.boolean().optional(),
   /** Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026, lib/market/buyerAlerts.ts). */
   marketBuyerAlertsEnabled: z.boolean().optional(),
@@ -751,28 +750,6 @@ const settingsUpdateSchema = z.object({
   /** Жёсткое исключение без порога: бот уже показал клиенту этот объект. */
   ownPropertyShownExceptionEnabled: z.boolean().optional(),
   ownPropertyShownWindowDays: z.number().int().min(1).max(365).optional(),
-  /** Лимит активных лидов — предел смешанного портфеля; свои объекты за него
-   *  выходят через освобождение места, а без обычных лидов — просто сверх. */
-  ownPropertyOverLimitEnabled: z.boolean().optional(),
-  ownPropertyReleaseEnabled: z.boolean().optional(),
-  // ownPropertyReleaseMode: режим "random" убран по закону владения (П-4/П-6,
-  // 17.09.2026, `docs/audit/lead-ownership-17-09.md` §4) — система больше не
-  // выбирает жертву сама. Поле нарочно НЕ принимается: сохранено в схеме БД
-  // (без миграции), но из формы Настроек и из PATCH исключено намеренно.
-  /** Надбавка к leadActiveLimit для лидов по своим объектам (не абсолютное
-   *  число) — по умолчанию 1, то есть потолок activeLimit+1. 0 = буквально
-   *  без предела. См. leads.ts::canTakeOwnPropertyLead. */
-  ownPropertyLeadCap: z.number().int().min(0).max(100).optional(),
-  /** «Взвешенные слоты» лимита (план владельца 20-21.08.2026): свежий лид
-   *  занимает целое место, доведённый до показа — половину, «думающий» —
-   *  четверть, и сливать почти доработанного клиента ради нового становится
-   *  незачем. Веса — в процентах слота. Потолок 1000 % оставлен намеренно:
-   *  владелец вправе сделать какую-то ступень дороже целого места, если решит
-   *  наоборот придерживать портфель. См. lib/leadLimits.ts. */
-  weightedLeadSlotsEnabled: z.boolean().optional(),
-  leadSlotWeightFreshPercent: z.number().int().min(0).max(1000).optional(),
-  leadSlotWeightAfterShowingPercent: z.number().int().min(0).max(1000).optional(),
-  leadSlotWeightThinkingPercent: z.number().int().min(0).max(1000).optional(),
   /** Раздача портфеля уволенного: клиенты — сильным по KPI, объекты — слабым. */
   handoverClientsToHighKpi: z.boolean().optional(),
   handoverPropertiesToLowKpi: z.boolean().optional(),
@@ -1250,13 +1227,6 @@ const settingsUpdateSchema = z.object({
    *  застой. Потолки — тот же порядок, что и дефолт в схеме (10/21 дней), с запасом. */
   dealStaleSellerDays: z.number().int().min(1).max(60).optional(),
   dealStaleBuyerDays: z.number().int().min(1).max(90).optional(),
-  /** Светофор неактивных (владелец 20-21.08.2026, lib/inactiveTrafficLight.ts): цвет
-   *  ставит система, эти числа настраивают только темп — как часто напоминать агенту
-   *  и после скольких попыток карточка уходит в Потерянные. Потолок часов 240 (10 суток) —
-   *  порог, за которым «напоминание» уже не отличить от «забыли». */
-  inactiveGreenPingHours: z.number().int().min(1).max(240).optional(),
-  inactiveYellowPingHours: z.number().int().min(1).max(240).optional(),
-  inactiveRedPingHours: z.number().int().min(1).max(240).optional(),
   /** Потерянный/Неактивный клиент, написавший сам, ждёт прежнего агента это время,
    *  прежде чем уйти в общую очередь по KPI. */
   lostReturnAcceptMinutes: z.number().int().min(5).max(1440).optional(),

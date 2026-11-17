@@ -53,7 +53,6 @@ const { autoLeadFromIncomingCall } = await import("../src/lib/telephony/autoLead
 const { sanitizeSpokenName } = await import("../src/lib/spokenName.js");
 const { dushanbeNextOccurrence, dushanbeTimeString } = await import("../src/lib/dushanbeTime.js");
 const { startOfWorkingDayAtOrAfter } = await import("../src/lib/alarmCalendar.js");
-const { processNoAnswerTailAnchors } = await import("../src/lib/noAnswerStreak.js");
 const { logTimeline } = await import("../src/lib/timeline.js");
 const { recordCallbackRequest } = await import("../src/lib/callbackRequests.js");
 const { recordContactFacts } = await import("../src/lib/contactProfiles.js");
@@ -486,40 +485,6 @@ describe("Б12: «Всегда первым» не заводит карточк
     const card = await prisma.client.findFirst({ where: { phone }, select: { id: true } });
     expect(card).not.toBeNull();
     clientIds.push(card!.id);
-  });
-});
-
-describe("Б13: повтор «попробовать дозвониться»", () => {
-  async function anchored(): Promise<{ clientId: string; anchorId: string }> {
-    const clientId = await ownClient(nextPhone());
-    const anchor = await logTimeline({
-      clientId,
-      actor: { kind: "system", source: "noAnswerStreak.tail", subjectAgentId: mainAgent },
-      type: "SYSTEM",
-      notes: "noAnswerTail:1",
-      nextActionDate: new Date(Date.now() - 60_000),
-      createdAt: new Date(Date.now() - 2 * 24 * 3600_000),
-    });
-    return { clientId, anchorId: anchor.id };
-  }
-  const tasksOf = (clientId: string) =>
-    prisma.interaction.count({ where: { clientId, autoTaskKind: "no_answer_tail_retry", nextAction: { not: null } } });
-
-  it("клиент молчал — агенту ставится задача (контроль)", async () => {
-    const { clientId } = await anchored();
-    await processNoAnswerTailAnchors();
-    expect(await tasksOf(clientId)).toBe(1);
-  });
-
-  it("клиент после эскалации перезвонил сам (или говорил с роботом) — задачи агенту нет", async () => {
-    const { clientId } = await anchored();
-    const channelId = `lv-loss-tail-${runId}`;
-    channelIds.push(channelId);
-    await prisma.incomingCall.create({
-      data: { channelId, phone: nextPhone(), clientId, startedAt: new Date(Date.now() - 3600_000), answered: true, answeredByConsultant: true },
-    });
-    await processNoAnswerTailAnchors();
-    expect(await tasksOf(clientId)).toBe(0);
   });
 });
 

@@ -14,7 +14,6 @@ vi.mock("../src/push.js", async (importOriginal) => ({
 
 const { prisma } = await import("../src/db.js");
 const { AUTO_THINKING_MARKER, runBuyerThinkingSlowTrackTick } = await import("../src/lib/buyerThinkingSlowTrack.js");
-const { processNoAnswerTailAnchors } = await import("../src/lib/noAnswerStreak.js");
 
 /**
  * Инцидент 11-12.09.2026: buyer-thinking-slow-track и no-answer-tail «молчали
@@ -69,14 +68,12 @@ afterAll(async () => {
 });
 
 describe("cron.ts — timeoutMs передан обоим тикам-виновникам инцидента", () => {
-  it("scheduleTracked(\"buyer-thinking-slow-track\", …) и scheduleTracked(\"no-answer-tail\", …) получают timeoutMs", () => {
+  it("scheduleTracked(\"buyer-thinking-slow-track\", …) получает timeoutMs (no-answer-tail удалён 16.11.2026)", () => {
     const src = fs.readFileSync(path.join(apiRoot, "src/cron.ts"), "utf8");
 
     const buyerThinkingBlock = src.slice(src.indexOf('"buyer-thinking-slow-track"'), src.indexOf('"buyer-thinking-slow-track"') + 1000);
     expect(buyerThinkingBlock).toMatch(/timeoutMs:\s*5\s*\*\s*60_000/);
 
-    const noAnswerTailBlock = src.slice(src.indexOf('"no-answer-tail"'), src.indexOf('"no-answer-tail"') + 1000);
-    expect(noAnswerTailBlock).toMatch(/timeoutMs:\s*5\s*\*\s*60_000/);
   });
 });
 
@@ -123,60 +120,3 @@ describe("buyer-thinking-slow-track — пачка 250 due-строк", () => {
   }, 60_000);
 });
 
-describe("no-answer-tail — пачка 250 due-маячков", () => {
-  const tailClientIds: string[] = [];
-
-  afterAll(async () => {
-    await prisma.interaction.deleteMany({ where: { clientId: { in: tailClientIds } } });
-    await prisma.client.deleteMany({ where: { id: { in: tailClientIds } } });
-  });
-
-  it("заводит ровно по одной задаче «перезвонить» на каждый из 250 актуальных маячков (до take:200 за тик)", async () => {
-    const BATCH = 250;
-    const PER_TICK = 200; // findMany(take: 200) — существующий постраничный лимит, см. комментарий выше
-    const now = new Date();
-    for (let i = 0; i < BATCH; i++) {
-      const client = await prisma.client.create({
-        data: {
-          fullName: `Хвост пачка ${runId}-${i}`,
-          phone: `+992902${runId}${i}`,
-          source: "PHONE_CALL",
-          assignedAgentId: agentId,
-          workStatus: "ACTIVE",
-        },
-      });
-      tailClientIds.push(client.id);
-      // Маячок — системная запись (П-10, 17.09.2026): держатель карточки живёт
-      // в subjectAgentId, а agentId у таких записей всегда null (CHECK в БД).
-      // processNoAnswerTailAnchors сверяет владельца именно с subjectAgentId —
-      // со старой формой (agentId) ни один маячок не считался актуальным.
-      await prisma.interaction.create({
-        data: {
-          clientId: client.id,
-          actorKind: "SYSTEM",
-          subjectAgentId: agentId,
-          type: "SYSTEM",
-          notes: `noAnswerTail:${runId}`,
-          nextActionDate: new Date(now.getTime() - 60_000),
-        },
-      });
-    }
-
-    const created = await processNoAnswerTailAnchors(now);
-    expect(created).toBe(PER_TICK);
-
-    const followUps = await prisma.interaction.findMany({
-      where: { clientId: { in: tailClientIds }, nextAction: { startsWith: "Ещё раз попробовать дозвониться" } },
-    });
-    const byClient = new Map<string, number>();
-    for (const row of followUps) byClient.set(row.clientId, (byClient.get(row.clientId) ?? 0) + 1);
-    expect(byClient.size).toBe(PER_TICK);
-    for (const count of byClient.values()) expect(count).toBe(1);
-
-    // Ровно take:200 маячков закрыты этим тиком, остаток (50) ждёт следующего.
-    const stillOpenAnchors = await prisma.interaction.count({
-      where: { clientId: { in: tailClientIds }, notes: { startsWith: "noAnswerTail:" }, completedAt: null },
-    });
-    expect(stillOpenAnchors).toBe(BATCH - PER_TICK);
-  }, 60_000);
-});

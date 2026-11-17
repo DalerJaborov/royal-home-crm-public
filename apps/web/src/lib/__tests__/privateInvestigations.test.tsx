@@ -12,10 +12,10 @@ describe("confidential investigation boundary", () => {
   });
 
   it("does not expose a historical investigation reason in a normal status badge", () => {
-    const html = renderToStaticMarkup(<ClientStateBadge client={{ kind: "BUYER", status: "LOST", workStatus: "ACTIVE",
+    const html = renderToStaticMarkup(<ClientStateBadge client={{ kind: "BUYER", status: "CONTACTED",
       hiddenReason: { kind: "securityReview", label: "Проверка СБ", detail: "Подозрение на обход компании" } }} />);
     expect(html).not.toMatch(/СБ|Подозрение|обход|Проверка/);
-    expect(html).toContain("Потерян");
+    expect(html).toBe("");
   });
 
   it("completed work is read-only even for an owner with assignment permission", () => {
