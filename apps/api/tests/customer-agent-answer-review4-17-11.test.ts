@@ -4,6 +4,9 @@ import { readCustomerAgentCompanyKnowledge } from "../src/lib/customerAgentPubli
 import { customerAgentCompanyKnowledgeHash } from "../src/ai/customerAgentPublicProtocol.js";
 import { customerSellerAskedTerms } from "../src/ai/customerAgentSellerGuard.js";
 import { HUMAN_PHRASES, customerAsksOrRequests, humanPhraseAgrees } from "../src/ai/customerAgentHumanText.js";
+import { customerAgentAnswerMode, customerAgentAnswerLiveChannels } from "../src/lib/customerAgentFeaturePolicy.js";
+import { traceCustomerCoreSchema } from "@royal-home/shared";
+import { readFileSync } from "node:fs";
 
 /**
  * Fourth review of #211 (17.11.2026, HEAD 10349c0b; probe5.ts / probe6.mts of the review session).
@@ -149,4 +152,40 @@ describe("п.3 «Какие все условия?» is the seller asking the ag
   it.each([["Какие все условия?", true], ["Каковы все условия?", true], ["Какие все условия у вас", true], ["Все условия есть?", false],
     ["Квартира со всеми условиями, интересует?", false], ["Продаю квартиру, все условия есть", false], ["Хонаи 3 ҳуҷрагӣ, ҳама шароит дорад", false]] as const)(
     "%s → %s", (text, expected) => { expect(customerSellerAskedTerms({ inputText: text, verifiedContext: seller })).toBe(expected); });
+});
+
+describe("live on one channel first (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS, 17.11.2026)", () => {
+  const ALL = ["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE"] as const;
+  it("live and no list: live on every channel (as before)", () => {
+    for (const env of [{ CUSTOMER_AGENT_ANSWER_MODE: "live" }, { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: " , " }]) {
+      for (const channel of ALL) expect(customerAgentAnswerMode(env, channel)).toBe("live");
+      expect(customerAgentAnswerMode(env)).toBe("live");
+    }
+  });
+  it("live and a list: live only on the listed channels, shadow on the others", () => {
+    const env = { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: " whatsapp, Website ,WHATSAPP" };
+    expect(customerAgentAnswerLiveChannels(env)).toEqual(["WHATSAPP", "WEBSITE"]);
+    expect(customerAgentAnswerMode(env, "WHATSAPP")).toBe("live");
+    expect(customerAgentAnswerMode(env, "WEBSITE")).toBe("live");
+    expect(customerAgentAnswerMode(env, "INSTAGRAM")).toBe("shadow");
+    expect(customerAgentAnswerMode(env, "FACEBOOK")).toBe("shadow");
+    expect(customerAgentAnswerMode(env)).toBe("shadow");
+    // A typo or a channel the core never sees is ignored, never «all channels».
+    const typo = { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "telegram, whatsap" };
+    for (const channel of ALL) expect(customerAgentAnswerMode(typo, channel)).toBe("shadow");
+  });
+  it("off stays off and shadow stays shadow whatever the list says", () => {
+    for (const channel of ALL) {
+      expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "off", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: channel }, channel)).toBe("off");
+      expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: channel }, channel)).toBe("shadow");
+      expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "LIVE", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: channel }, channel)).toBe("shadow");
+    }
+  });
+  it("the turn trace carries the mode; the variable reaches the api container (empty by default)", () => {
+    expect(traceCustomerCoreSchema.parse({ status: "ready", rounds: 1, toolCalls: 0, receiptOutcomes: [], answerStatus: "dropped", answerDropReason: "shadow",
+      answerMode: "shadow" })).toMatchObject({ answerMode: "shadow" });
+    expect(() => traceCustomerCoreSchema.parse({ status: "ready", rounds: 1, toolCalls: 0, receiptOutcomes: [], answerMode: "on" })).toThrow();
+    const compose = readFileSync(new URL("../../../docker-compose.prod.yml", import.meta.url), "utf8");
+    expect(compose).toContain('CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "${CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS:-}"');
+  });
 });

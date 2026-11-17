@@ -18,9 +18,30 @@ export function customerAgentSayMode(env: Readonly<Record<string, string | undef
  *  - `off`: the model is not asked for them at all and the old one-phrase `say` rules ride the turn again.
  * Going live is an explicit deploy-time decision (CUSTOMER_AGENT_ANSWER_MODE=live in the server .env) after the shadow day lines are read.
  */
-export function customerAgentAnswerMode(env: Readonly<Record<string, string | undefined>> = process.env): CustomerAgentAnswerMode {
+export function customerAgentAnswerMode(env: Readonly<Record<string, string | undefined>> = process.env, channel?: string): CustomerAgentAnswerMode {
   const value = env.CUSTOMER_AGENT_ANSWER_MODE;
-  return value === "live" ? "live" : value === "off" ? "off" : "shadow";
+  if (value !== "live") return value === "off" ? "off" : "shadow";
+  const listed = customerAgentAnswerLiveChannels(env);
+  return !listed.length || !!channel && listed.includes(channel.trim().toUpperCase()) ? "live" : "shadow";
+}
+
+/** The channel names the customer core sees on a turn (`principal.scope.channel`). */
+export const CUSTOMER_AGENT_ANSWER_CHANNELS = ["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE"] as const;
+/**
+ * Live on ONE channel first (17.11.2026): CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS, a comma list of the names above (any case,
+ * «whatsapp, website»). With CUSTOMER_AGENT_ANSWER_MODE=live:
+ *  - empty / unset list: live on every channel (as before);
+ *  - a list: live only on the listed channels, every other channel stays shadow.
+ * A name that is not a core channel (a typo, «telegram») is ignored, never «all channels»: a list of only such names is live nowhere.
+ * `off` and `shadow` do not read the list. Rollback in one step: CUSTOMER_AGENT_ANSWER_MODE back to empty (shadow) or `off`.
+ * Emptying the LIST is NOT a rollback: with the mode still `live` it widens live to every channel.
+ */
+export function customerAgentAnswerLiveChannels(env: Readonly<Record<string, string | undefined>> = process.env): string[] {
+  const raw = (env.CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS ?? "").split(",").map(name => name.trim().toUpperCase()).filter(Boolean);
+  if (!raw.length) return [];
+  const known = raw.filter(name => (CUSTOMER_AGENT_ANSWER_CHANNELS as readonly string[]).includes(name));
+  // A non-empty list that names no known channel still narrows to «none»: a placeholder that matches no channel.
+  return known.length ? [...new Set(known)] : ["-"];
 }
 
 /** Existing feature switches restrict implemented customer capabilities; a
