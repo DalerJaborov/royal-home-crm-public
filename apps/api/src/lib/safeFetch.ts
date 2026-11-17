@@ -1,5 +1,6 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import { Agent } from "undici";
 
 /**
  * Загрузка по ссылке, которую нам прислал посторонний человек.
@@ -22,10 +23,13 @@ import net from "node:net";
  *  3. ПОТОЛОК И ТАЙМАУТ ОБЯЗАТЕЛЬНЫ. Иначе один медленный сайт держит ход бота,
  *     а один большой файл съедает память контейнера.
  *
- * Оговорка честности: между проверкой имени и запросом адрес теоретически может
- * смениться (DNS rebinding). Полная защита требует своего резолвера с привязкой
- * IP к соединению; здесь взят разумный уровень — он закрывает всё, что делается
- * руками из чата, и не закрывает целенаправленную атаку с собственным DNS.
+ *  4. АДРЕС ПРОВЕРЯЕТСЯ В МОМЕНТ СОЕДИНЕНИЯ (аудит 17.11.2026, S2 — DNS
+ *     rebinding). Раньше имя проверялось отдельным запросом к DNS, а `fetch`
+ *     потом спрашивал DNS заново сам — между двумя ответами адрес мог смениться
+ *     с публичного на 127.0.0.1. Теперь соединение открывает свой диспетчер
+ *     (`pinnedDispatcher`), и сокет получает ТОЛЬКО адрес, который прошёл
+ *     проверку в этом же разрешении имени. Второго, непроверенного, ответа DNS
+ *     не бывает.
  *
  * ДВА ВХОДА, А НЕ ОДИН. `safeFetch` читает тело сам и годится там, где потолок
  * известен заранее (превью ссылки). Вложениям мессенджеров он не подходит: их
@@ -78,6 +82,10 @@ function isForbiddenAddress(ip: string): boolean {
     if (a === 172 && b >= 16 && b <= 31) return true; // частная сеть, в т.ч. docker
     if (a === 192 && b === 168) return true; // домашняя/офисная сеть
     if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a === 192 && b === 0) return true; // 192.0.0.0/24 служебные и 192.0.2.0/24 документация
+    if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15 — стенды и внутренние сети
+    if (a === 198 && b === 51) return true; // 198.51.100.0/24 документация
+    if (a === 203 && b === 0) return true; // 203.0.113.0/24 документация
     if (a >= 224) return true; // multicast и зарезервированное
     return false;
   }
@@ -85,6 +93,11 @@ function isForbiddenAddress(ip: string): boolean {
   if (v6 === "::1" || v6 === "::") return true;
   if (v6.startsWith("fe80")) return true; // link-local
   if (v6.startsWith("fc") || v6.startsWith("fd")) return true; // уникальные локальные
+  // NAT64 (64:ff9b::/96) и 6to4 (2002::/16) несут IPv4 внутри — в том числе
+  // 127.0.0.1 и сеть docker. Публичных адресов, нужных нам, там нет.
+  if (v6.startsWith("64:ff9b:")) return true;
+  if (v6.startsWith("2002:")) return true;
+  if (v6.startsWith("2001:db8:")) return true; // документация
 
   /**
    * IPv4, завёрнутый в IPv6, — та же петля, другая запись. И записей этих ДВЕ.
@@ -144,6 +157,48 @@ export async function assertPublicUrl(raw: string): Promise<URL> {
   }
   return url;
 }
+
+/**
+ * Разрешение имени В МОМЕНТ СОЕДИНЕНИЯ, с той же проверкой, что у assertPublicUrl.
+ *
+ * Сокет зовёт эту функцию сам, когда открывает соединение, и подключается ровно
+ * к тому адресу, который она вернула. Значит адрес, к которому мы реально идём,
+ * — это проверенный адрес, а не ответ следующего, отдельного запроса к DNS.
+ * Любой запрещённый адрес среди ответов — отказ целиком, как и в assertPublicUrl:
+ * выбор между адресами имени от нас не зависит.
+ */
+type LookupCallback = (err: Error | null, address: string | { address: string; family: number }[], family?: number) => void;
+function pinnedLookup(hostname: string, options: { all?: boolean } | number | undefined, callback: LookupCallback): void {
+  dns
+    .lookup(hostname, { all: true })
+    .then((records) => {
+      if (records.length === 0) throw new UnsafeUrlError(`у имени ${hostname} нет адресов`);
+      const checked = records.map((r) => ({ address: r.address, family: r.family ?? (net.isIPv6(r.address) ? 6 : 4) }));
+      const bad = checked.find((r) => isForbiddenAddress(r.address));
+      if (bad) throw new UnsafeUrlError(`имя ${hostname} указывает внутрь сети (${bad.address})`);
+      if (typeof options === "object" && options?.all) callback(null, checked);
+      else callback(null, checked[0].address, checked[0].family);
+    })
+    .catch((err: unknown) => callback(err instanceof Error ? err : new Error(String(err)), ""));
+}
+
+/**
+ * Один диспетчер на модуль: сокеты держатся по адресу и переиспользуются, но
+ * каждый новый сокет открывается только через pinnedLookup. Перенаправления
+ * идут через него же — каждый переход проверяется дважды: assertPublicUrl
+ * (схема, адрес-литерал) и сам момент соединения.
+ */
+const pinnedAgent = new Agent({
+  connect: { lookup: pinnedLookup as never },
+  keepAliveTimeout: 4_000,
+});
+/**
+ * Мост типов, не поведения: глобальный fetch Node 24 — это встроенный undici той
+ * же версии (7.29), что и пакет `undici`, но типы у них из двух разных пакетов
+ * (`undici` и `undici-types`) и формально не совпадают. Сам объект — настоящий
+ * диспетчер, его и ждёт fetch.
+ */
+const pinnedDispatcher = pinnedAgent as unknown as NonNullable<RequestInit["dispatcher"]>;
 
 export interface SafeResponse {
   url: string;
@@ -213,14 +268,27 @@ export async function safeOpen(raw: string, options: SafeOpenOptions = {}): Prom
     const left = deadline - Date.now();
     if (left <= 0) throw new Error(`таймаут ${timeoutMs} мс`);
 
-    const res = await fetch(url, {
+    const init: RequestInit = {
       // Ключевая строка всего модуля: переходы разбираем сами, иначе следующий
       // адрес никем не проверяется.
       redirect: "manual",
       ...(options.credentials ? { credentials: options.credentials } : {}),
       headers,
       signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(left)]) : AbortSignal.timeout(left),
-    });
+      // Соединение — только к адресу, проверенному в момент подключения (DNS rebinding).
+      dispatcher: pinnedDispatcher,
+    };
+    let res: Response;
+    try {
+      // fetch-timeout: allow срок в init.signal (AbortSignal.timeout(left) на всю цепочку переходов)
+      res = await fetch(url, init);
+    } catch (err) {
+      // Отказ проверки внутри соединения fetch заворачивает в «fetch failed» —
+      // достаём причину, чтобы вызывающий видел сработавшую защиту, а не сбой сети.
+      const cause = (err as { cause?: unknown })?.cause;
+      if (cause instanceof UnsafeUrlError) throw cause;
+      throw err;
+    }
 
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");

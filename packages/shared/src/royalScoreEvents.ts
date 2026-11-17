@@ -44,65 +44,40 @@ export const ROYAL_SCORE_EVENT_GROUPS = [
     title: "Лиды",
     events: [
       { key: "lead_accepted", label: "Лид принят", points: 0, editable: true },
-      { key: "lead_declined_1", label: "Отказ от лида, 1-й подряд", points: 0, editable: true },
-      { key: "lead_declined_2", label: "Отказ от лида, 2-й подряд", points: -1, editable: true },
-      { key: "lead_declined_3", label: "Отказ от лида, 3-й подряд", points: -2, editable: true },
-      { key: "lead_declined_4plus", label: "Отказ от лида, 4-й и далее подряд", points: -3, editable: true },
-      /**
-       * Заведён 12.08.2026 (голосовое владельца: «пуш пришёл, он ничего не
-       * сделал — минус балл»). Отдельно от отказов: там агент хотя бы явно
-       * ответил. -2 — между «отказался явно» (-1..-3) и «принял, но не
-       * позвонил» (-5); владелец тогда сказал «мы это ещё доработаем», для
-       * того цена и настраивается.
-       */
-      { key: "lead_ignored", label: "Лид молча не принят — карусель отдала его дальше", points: -2, editable: true },
     ],
   },
   {
-    title: "Первый контакт и обязательные окна",
+    title: "Первый контакт",
     events: [
-      { key: "call_15min_missed", label: "Первый звонок не совершён за 15 минут", points: -5, editable: true },
       { key: "call_on_time", label: "Первый звонок совершён вовремя", points: 2, editable: true },
-      { key: "mandatory_window_on_time", label: "Обязательное окно заполнено вовремя", points: 1, editable: true },
-      { key: "mandatory_window_overdue", label: "Обязательное окно просрочено", points: -2, editable: true },
     ],
   },
   {
     title: "Карточка клиента",
     events: [
       { key: "card_filled", label: "Карточка заполнена полностью", points: 2, editable: true },
-      { key: "card_not_filled", label: "Карточка не заполнена", points: -2, editable: true },
     ],
   },
   {
     title: "Показы и встречи",
     events: [
       { key: "showing_done", label: "Показ проведён, итог заполнен", points: 3, editable: true },
-      { key: "showing_missed", label: "Показ пропущен", points: -5, editable: true },
       { key: "meeting_done", label: "Встреча с собственником проведена", points: 2, editable: true },
-      { key: "meeting_overdue", label: "Встреча просрочена", points: -3, editable: true },
       { key: "task_on_time", label: "Задача выполнена вовремя", points: 1, editable: true },
-      { key: "task_overdue", label: "Задача просрочена", points: -2, editable: true },
     ],
   },
   {
     title: "Объекты",
     events: [
       { key: "property_added", label: "Объект добавлен и заполнен", points: 3, editable: true },
-      { key: "property_reworked", label: "Объект возвращён на доработку", points: -3, editable: true },
-      { key: "property_rework_fixed", label: "Объект исправлен после возврата", points: 2.7, editable: true },
       { key: "photos_approved_first_try", label: "Фото одобрены с первого раза", points: 1, editable: true },
       { key: "video_approved_first_try", label: "Видео одобрено с первого раза", points: 1, editable: true },
-      { key: "photos_overdue", label: "Фото не сданы в срок", points: -2, editable: true },
-      { key: "video_overdue", label: "Видео не сдано в срок", points: -2, editable: true },
     ],
   },
   {
     title: "Сделки и клиенты",
     events: [
       { key: "deal_closed", label: "Сделка закрыта", points: 10, editable: true },
-      { key: "client_lost_agent_fault", label: "Клиент потерян по вине агента", points: -5, editable: true },
-      { key: "client_lost_no_fault", label: "Клиент потерян не по вине агента", points: 0, editable: true },
       /**
        * Заведён 01.09.2026: клиента, слитого ДРУГИМ агентом, довёл до сделки
        * нынешний. Пишется вместе с deal_closed, а не вместо неё — это надбавка
@@ -141,13 +116,6 @@ export const ROYAL_SCORE_EVENT_GROUPS = [
     ],
   },
   {
-    title: "Бездействие",
-    events: [
-      { key: "inactivity_warning", label: "Предупреждение о бездействии", points: 0, editable: true },
-      { key: "inactivity_penalty", label: "Штраф за бездействие после предупреждения", points: -3, editable: true },
-    ],
-  },
-  {
     title: "Только для чтения старых записей",
     events: [
       /**
@@ -156,13 +124,61 @@ export const ROYAL_SCORE_EVENT_GROUPS = [
        * в «неизвестное событие».
        */
       { key: "kpi_override", label: "Ручная правка счёта (запрещена с 03.08.2026)", points: 0, editable: false },
-      { key: "lead_missed", label: "Лид не принят вовремя (старое имя call_15min_missed)", points: -5, editable: false },
+      { key: "lead_missed", label: "Лид не принят вовремя (старое имя call_15min_missed)", points: 0, editable: false },
+      /**
+       * АВТОМАТИЧЕСКИЕ ШТРАФЫ СНЯТЫ (решение владельца 16.11.2026: «убрать
+       * автоматические штрафы», модуль и плюсовые баллы остаются — «скоро
+       * включим баллы»). Виды оставлены, чтобы старые строки журнала читались,
+       * а не превратились в «неизвестное событие»; цена 0 — уже записанные
+       * штрафы в окне счёта тоже больше не тянут его вниз (loadEventPoints не
+       * берёт для них цену из Настроек). Записать такой вид автоматикой нельзя
+       * на уровне типов: recordScoreEvent принимает только ActiveScoreEventKind.
+       *
+       * Сюда же — «обязательное окно» (механизм удалён 13.09.2026) и
+       * классификация «клиент потерян по вине / не по вине агента»: она
+       * существовала ради штрафа −5, нулевая пара без него ничего не значит.
+       * Отказы 1-й…4-й подряд сняты все: 1-й стоил 0 и был только меткой серии.
+       */
+      { key: "lead_declined_1", label: "Отказ от лида, 1-й подряд", points: 0, editable: false },
+      { key: "lead_declined_2", label: "Отказ от лида, 2-й подряд (штраф снят)", points: 0, editable: false },
+      { key: "lead_declined_3", label: "Отказ от лида, 3-й подряд (штраф снят)", points: 0, editable: false },
+      { key: "lead_declined_4plus", label: "Отказ от лида, 4-й и далее подряд (штраф снят)", points: 0, editable: false },
+      { key: "lead_ignored", label: "Лид молча не принят (штраф снят)", points: 0, editable: false },
+      { key: "call_15min_missed", label: "Первый звонок не совершён за 15 минут (штраф снят)", points: 0, editable: false },
+      { key: "mandatory_window_on_time", label: "Обязательное окно заполнено вовремя (окна удалены)", points: 0, editable: false },
+      { key: "mandatory_window_overdue", label: "Обязательное окно просрочено (окна удалены)", points: 0, editable: false },
+      { key: "card_not_filled", label: "Карточка не заполнена (штраф снят)", points: 0, editable: false },
+      { key: "showing_missed", label: "Показ пропущен (штраф снят)", points: 0, editable: false },
+      { key: "meeting_overdue", label: "Встреча просрочена (штраф снят)", points: 0, editable: false },
+      { key: "task_overdue", label: "Задача просрочена (штраф снят)", points: 0, editable: false },
+      { key: "property_reworked", label: "Объект возвращён на доработку (штраф снят)", points: 0, editable: false },
+      /** Возврат 90% снятого за доработку (−3 → +2.7). Без самого штрафа это был бы
+       *  чистый плюс за то, что объект вернули: за доработку платили бы больше, чем
+       *  за «фото приняты с первого раза» (+1). Снят вместе со штрафом. */
+      { key: "property_rework_fixed", label: "Объект исправлен после возврата (снято вместе со штрафом)", points: 0, editable: false },
+      { key: "photos_overdue", label: "Фото не сданы в срок (штраф снят)", points: 0, editable: false },
+      { key: "video_overdue", label: "Видео не сдано в срок (штраф снят)", points: 0, editable: false },
+      { key: "client_lost_agent_fault", label: "Клиент потерян по вине агента (штраф снят)", points: 0, editable: false },
+      { key: "client_lost_no_fault", label: "Клиент потерян не по вине агента", points: 0, editable: false },
+      { key: "inactivity_warning", label: "Предупреждение о бездействии (снято)", points: 0, editable: false },
+      { key: "inactivity_penalty", label: "Штраф за бездействие (снят)", points: 0, editable: false },
     ],
   },
 ] as const satisfies readonly RoyalScoreEventGroup[];
 
 /** Все виды событий журнала — union прямо из каталога, второго списка нет. */
 export type ScoreEventKind = (typeof ROYAL_SCORE_EVENT_GROUPS)[number]["events"][number]["key"];
+
+/**
+ * Виды, которые ещё НАЧИСЛЯЮТСЯ (editable: true). Автоматика пишет в журнал только
+ * их — снятый штраф нельзя вернуть случайной правкой: запись `kind:
+ * "call_15min_missed"` не соберётся. Ручная поправка директора
+ * (recordScoreEventsAtomic) по-прежнему работает со старыми видами.
+ */
+export type ActiveScoreEventKind = Extract<
+  (typeof ROYAL_SCORE_EVENT_GROUPS)[number]["events"][number],
+  { editable: true }
+>["key"];
 
 const ALL_EVENTS: readonly RoyalScoreEventDef[] = ROYAL_SCORE_EVENT_GROUPS.flatMap((g) => [...g.events]);
 
@@ -171,6 +187,19 @@ export const DEFAULT_EVENT_POINTS = Object.fromEntries(ALL_EVENTS.map((e) => [e.
   ScoreEventKind,
   number
 >;
+
+/**
+ * Единственные виды, которым допустима отрицательная цена: они гасят уже
+ * начисленный плюс (сделку аннулировали задним числом). Автоматических штрафов нет
+ * (решение владельца 16.11.2026), поэтому всем остальным видам Настройки не дают
+ * поставить минус — ни экран, ни сервер (одно правило — minScoreEventPoints).
+ */
+export const COMPENSATION_SCORE_EVENT_KEYS: readonly ScoreEventKind[] = ["deal_closed_reversed", "client_recovered_bonus_reversed"];
+
+/** Нижняя граница цены события в Настройках: минус — только у компенсаций. */
+export function minScoreEventPoints(key: string): number {
+  return (COMPENSATION_SCORE_EVENT_KEYS as readonly string[]).includes(key) ? -100 : 0;
+}
 
 /** Что показывается в Настройках и принимается на правку. */
 export const EDITABLE_SCORE_EVENT_KEYS = ALL_EVENTS.filter((e) => e.editable).map((e) => e.key) as [

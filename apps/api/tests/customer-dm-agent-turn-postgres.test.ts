@@ -177,7 +177,9 @@ async function fixture(text = "Здравствуйте, хочу купить �
 beforeAll(async () => {
   dnsLookup = vi.spyOn(dns, "lookup").mockImplementation((async (hostname: string) => {
     if (hostname !== "royalhome.tj") throw Error("Unexpected external DNS in owned integration fixture");
-    return [{ address: "203.0.113.10", family: 4 }];
+    // Обычный публичный адрес: 203.0.113.0/24 (документация) с 17.11.2026 запрещён
+    // защитой safeFetch (lib/safeFetch.ts, isForbiddenAddress). Сеть не трогается — fetch подменён.
+    return [{ address: "93.184.216.34", family: 4 }];
   }) as typeof dns.lookup);
   settings = await readSettings(); policy = await readPolicy();
   const [saved] = await prisma.$queryRaw<Array<{ rolloutConfig: unknown }>>`SELECT "rolloutConfig" FROM "CustomerRuntimePolicy" WHERE "id"='singleton'`;

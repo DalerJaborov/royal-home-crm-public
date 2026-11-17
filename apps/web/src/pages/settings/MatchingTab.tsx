@@ -78,8 +78,6 @@ export function MatchingTab() {
   }
 
   const autoMatchOn = settings.autoMatchEnabled;
-  const includeInactiveOn = settings.matchIncludeInactive;
-  const includeDeferredOn = settings.matchIncludeDeferred;
   const notifyOwnerOn = settings.matchNotifyPropertyOwner;
   const marketAlertsOn = settings.marketBuyerAlertsEnabled ?? false;
   const ownersOnlyOn = settings.marketOwnersOnly ?? true;
@@ -129,28 +127,6 @@ export function MatchingTab() {
             autoMatchOn
               ? "Новый объект в продаже сам находит ждущих покупателей и уведомляет их агентов."
               : "Автоподбор выключен: агенты ищут объекты руками."
-          }
-        />
-
-        <SwitchRow
-          title="Учитывать неактивных клиентов"
-          on={includeInactiveOn}
-          onToggle={() => updateSettings.mutate({ matchIncludeInactive: !includeInactiveOn })}
-          hint={
-            includeInactiveOn
-              ? "Клиенты в статусе «Неактивный» тоже участвуют в подборе и счётчике спроса."
-              : "Неактивные клиенты в подбор и счётчик спроса не попадают."
-          }
-        />
-
-        <SwitchRow
-          title="Учитывать отложенных клиентов"
-          on={includeDeferredOn}
-          onToggle={() => updateSettings.mutate({ matchIncludeDeferred: !includeDeferredOn })}
-          hint={
-            includeDeferredOn
-              ? "Отложенные (DEFERRED) клиенты тоже участвуют в подборе и счётчике спроса."
-              : "Отложенные клиенты в подбор и счётчик спроса не попадают — у них свой таймер возврата."
           }
         />
 

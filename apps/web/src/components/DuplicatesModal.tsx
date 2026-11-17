@@ -124,7 +124,7 @@ export function DuplicatesModal({ onClose }: { onClose: () => void }) {
                   <div className="t">
                     <b>{c.fullName}</b>
                     <span>
-                      {c.phone} · {clientPrimaryState(c).label} · {CLIENT_SOURCE_LABELS[c.source]} ·{" "}
+                      {c.phone} · {clientPrimaryState(c)?.label ? `${clientPrimaryState(c)?.label} · ` : ""}{CLIENT_SOURCE_LABELS[c.source]} ·{" "}
                       {c.assignedAgent?.fullName ?? "без агента"} · {c._count.interactions + c._count.deals} записей ·{" "}
                       {relativeTime(c.createdAt)}
                     </span>

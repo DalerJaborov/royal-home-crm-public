@@ -123,21 +123,21 @@ describe("Кого показываем", () => {
    * 17.09.2026: «ждущий» теперь единое определение waitingBuyerWhere
    * (lib/matchPolicy.ts) — Client.status (воронка лида) в него не входит вовсе,
    * это отдельное измерение от workStatus (см. docstring waitingBuyerWhere).
-   * Что действительно исключает клиента безусловно — buyerStage=NEGOTIATION
-   * (уже занят показом другого объекта); включение/выключение по workStatus
-   * проверяется отдельно в match-policy.test.ts (matchIncludeInactive).
+   * Этапов покупателя («Переговоры», buyerStage) нет с 17.11.2026. Что исключает
+   * клиента безусловно — последний отказ «уже купил» (DONE_BUYING_REFUSAL_REASONS,
+   * без статуса LOST: «Потерянных» нет с 16.11.2026).
    */
-  it("клиент в «Переговорах» по другому объекту не показывается", async () => {
-    const negotiating = await makeClient({
-      fullName: `В переговорах-${runId}`,
+  it("клиент, отказавшийся «купил сам», не показывается", async () => {
+    const bought = await makeClient({
+      fullName: `Купил сам-${runId}`,
       desiredDistrictId: districtId,
       desiredRooms: 3,
       budgetMax: 450000,
       currency: "TJS",
-      buyerStage: "NEGOTIATION",
+      refusalReason: "BOUGHT_SELF",
     });
     const { items: matched } = await findMatchingClients(propertyId);
-    expect(matched.map((m) => m.id)).not.toContain(negotiating.id);
+    expect(matched.map((m) => m.id)).not.toContain(bought.id);
   });
 
   it("удалённый объект даёт пустой список, а не ошибку", async () => {

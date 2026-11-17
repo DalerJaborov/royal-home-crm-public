@@ -20,7 +20,7 @@ import type { ClientKind, MatchingClient } from "@royal-home/shared";
 // вместо тихого роста памяти/времени ответа по мере роста базы.
 export const DUPLICATES_SCAN_LIMIT = 20_000;
 
-export interface DuplicateGroupClient extends Pick<MatchingClient, "workStatus" | "inactiveLevel"> {
+export interface DuplicateGroupClient extends Pick<MatchingClient, "workStatus"> {
   id: string;
   fullName: string;
   phone: string;
@@ -70,7 +70,6 @@ export async function findDuplicateClientGroups(): Promise<DuplicateGroupsResult
       status: true,
         kind: true,
         workStatus: true,
-        inactiveLevel: true,
       source: true,
       createdAt: true,
       telegramChatId: true,

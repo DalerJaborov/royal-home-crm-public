@@ -50,7 +50,15 @@ export function summarizeCustomerAgentSayDay(rows: readonly { guard: string; cou
   return { total, dropped, share, reasons, intentional, alert: serious > 0 || total >= MIN_SAMPLE && share > DROP_SHARE_ALERT };
 }
 
-/** Once a day at most (the dedup key is the day): the log line the owner reads, not a page. */
+/**
+ * Once a day at most: the log line the owner reads, not a page.
+ *
+ * The day in the key alone did NOT make it daily (prod log 13–16.11.2026: 47 rows in four days, 19 on 13.11): `logSystemError` only
+ * looks back over its default 10-minute window, and `recordCustomerAgentSay` re-checks every 10 minutes, so each check wrote a new row.
+ * The window is now the whole day. `silent`: a quality metric is read in the morning report, it must not wake the director with a
+ * «new problem» push every day (the key is new each day, so it would).
+ */
+const SAY_REPORT_WINDOW_MS = 24 * 60 * 60_000;
 export async function reportCustomerAgentSayDay(now: Date = new Date()): Promise<CustomerAgentSayDay> {
   const day = dushanbeDateString(now);
   const rows = await prisma.guardHit.findMany({ where: { day, guard: { startsWith: "say_" } }, select: { guard: true, count: true }, take: 50 });
@@ -58,7 +66,7 @@ export async function reportCustomerAgentSayDay(now: Date = new Date()): Promise
   if (summary.alert) {
     await logSystemError("ai", `Бот: живая фраза отброшена в ${Math.round(summary.share * 100)}% ответов (${summary.dropped} из ${summary.total}), причины: ${
       summary.reasons.map(item => `${item.reason} ${item.count}`).join(", ") || "нет"}${
-      summary.intentional ? `. Не в счёт, выключено намеренно (таджикский и не личные сообщения): ${summary.intentional}` : ""}`, { dedupKey: `customer-agent-say:${day}` });
+      summary.intentional ? `. Не в счёт, выключено намеренно (таджикский и не личные сообщения): ${summary.intentional}` : ""}`, { dedupKey: `customer-agent-say:${day}`, dedupWindowMs: SAY_REPORT_WINDOW_MS, silent: true });
   }
   return summary;
 }

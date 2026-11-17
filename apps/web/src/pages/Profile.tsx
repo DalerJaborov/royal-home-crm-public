@@ -1233,6 +1233,18 @@ function TelegramLinkSection() {
   const createLink = useCreateTelegramLink();
   const unlink = useUnlinkTelegram();
   const [link, setLink] = useState<{ code: string; deepLink: string | null } | null>(null);
+  // Telegram — канал кода входа: привязать свой чат к чужой учётке значило бы
+  // входить в неё (аудит безопасности 17.11.2026). Сервер просит свежее
+  // подтверждение личности (428) — окно открываем здесь же и повторяем запрос.
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  useEffect(() => claimStepUp(), []);
+  const startLink = () =>
+    createLink.mutate(undefined, {
+      onSuccess: (data) => setLink(data),
+      onError: (err) => {
+        if (err instanceof ApiError && err.status === 428) setConfirmOpen(true);
+      },
+    });
 
   const linked = profile?.telegramLinked ?? false;
   const canModerate = profile?.permissions.includes("properties.moderate") ?? false;
@@ -1281,14 +1293,24 @@ function TelegramLinkSection() {
             className="pill ghost sm"
             type="button"
             disabled={createLink.isPending}
-            onClick={() => createLink.mutate(undefined, { onSuccess: (data) => setLink(data) })}
+            onClick={startLink}
           >
             Привязать
           </button>
         )}
       </div>
-      <MutationError mutation={linked ? unlink : createLink} fallback="Не удалось изменить привязку" />
+      {!confirmOpen && <MutationError mutation={linked ? unlink : createLink} fallback="Не удалось изменить привязку" />}
     </div>
+    {confirmOpen && (
+      <StepUpDialog
+        description="Через Telegram приходит код входа. Подтвердите, что привязываете свой чат."
+        onConfirmed={() => {
+          setConfirmOpen(false);
+          startLink();
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    )}
     {canModerate && <TelegramModerationToggle linked={linked} enabled={profile?.telegramModeration ?? false} />}
     {canReviewClips && <ClipReviewTelegramToggle linked={linked} enabled={profile?.clipReviewTelegram ?? false} />}
     </>

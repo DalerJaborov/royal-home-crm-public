@@ -40,7 +40,6 @@ vi.mock("../src/lib/autoTasks.js", async (importOriginal) => {
 
 import { prisma } from "../src/db.js";
 import { AUTO_THINKING_MARKER, runBuyerThinkingSlowTrackTick } from "../src/lib/buyerThinkingSlowTrack.js";
-import { processNoAnswerTailAnchors } from "../src/lib/noAnswerStreak.js";
 
 const SECOND_TIER_MARKER = "Связаться с клиентом — думает над показом (авто-подстраховка, шаг 2)";
 const runId = Date.now();
@@ -101,28 +100,3 @@ describe("advanceTier: преемник создаётся вместе с за�
   });
 });
 
-describe("processNoAnswerTailAnchors: маячок гасится после созданной задачи", () => {
-  it("сбой создания задачи оставляет маячок открытым, следующий тик заводит задачу", async () => {
-    const c = await makeClient("BUYER");
-    const anchor = await prisma.interaction.create({
-      data: {
-        clientId: c.id, type: "SYSTEM", actorKind: "SYSTEM", subjectAgentId: agentId,
-        notes: "noAnswerTail:day2", nextActionDate: new Date(Date.now() - 3600_000),
-        createdAt: new Date(Date.now() - 2 * 86_400_000),
-      },
-    });
-    failFor.autoTaskClientId = c.id;
-    failFor.autoTaskArmed = true;
-
-    await processNoAnswerTailAnchors().catch(() => undefined);
-    const afterFail = await prisma.interaction.findUnique({ where: { id: anchor.id } });
-    expect(afterFail?.completedAt).toBeNull();
-
-    await processNoAnswerTailAnchors();
-    const afterOk = await prisma.interaction.findUnique({ where: { id: anchor.id } });
-    expect(afterOk?.completedAt).not.toBeNull();
-    expect(
-      await prisma.interaction.count({ where: { clientId: c.id, autoTaskKind: "no_answer_tail_retry", completedAt: null } })
-    ).toBe(1);
-  });
-});

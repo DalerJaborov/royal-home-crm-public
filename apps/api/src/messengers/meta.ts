@@ -574,7 +574,7 @@ export interface MetaIncoming {
   /** Остальные вложения ТОГО ЖЕ сообщения (Instagram/Messenger позволяют пачку
    *  фото одним сообщением). До 26.08.2026 бралось только первое, остальные
    *  терялись молча — клиент присылал три фото квартиры, бот видел одно. */
-  extraAttachments?: { type?: string; url?: string; attachmentMediaId?: string }[];
+  extraAttachments?: { type?: string; url?: string; attachmentMediaId?: string; attachmentTitle?: string }[];
   /**
    * Человек пришёл по НАШЕЙ рекламе: Meta присылает referral с source=ADS и ad_id.
    *

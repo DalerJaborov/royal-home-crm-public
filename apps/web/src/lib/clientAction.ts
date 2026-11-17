@@ -29,7 +29,6 @@ type ActionInput = Pick<
   Client,
   | "kind"
   | "status"
-  | "workStatus"
   | "pendingAcceptance"
   | "escalatedAt"
   | "acceptedAt"
@@ -44,7 +43,6 @@ export function clientAction(c: ActionInput, nowMs: number, canAccept: boolean):
   // Не назначается агенту, в корзине или скрыт: у такой карточки своё состояние, не дело.
   if (c.kind === "OTHER" || c.deletedAt || c.hiddenReason) return null;
   if (["LOST", "ARCHIVED", "DEAL_CLOSED"].includes(c.status)) return null;
-  if (c.workStatus && c.workStatus !== "ACTIVE") return null;
 
   if (c.pendingAcceptance) {
     if (canAccept) {
