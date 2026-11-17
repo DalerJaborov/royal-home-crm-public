@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 760,
-  "forks": 4128,
+  "endpoints": 753,
+  "forks": 4066,
   "mounts": 85,
-  "cron": 143,
+  "cron": 137,
   "jobs": 33,
   "hidden": 0
  },
@@ -3364,14 +3364,6 @@
     },
     {
      "k": "do",
-     "t": "const hotScoreThreshold = await loadHotScoreThreshold();",
-     "a": [
-      "зовёт loadHotScoreThreshold()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
      "t": "const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…",
      "a": [
       "зовёт overdueTasksWhere()"
@@ -3380,9 +3372,9 @@
     },
     {
      "k": "do",
-     "t": "const stalledClientsAgentWhere = { ...stalledClientsWhere(now, hotScoreThreshold), assignedAgentId: id };",
+     "t": "const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };",
      "a": [
-      "зовёт stalledClientsWhere()"
+      "зовёт noContactWhere()"
      ],
      "c": []
     },
@@ -3734,14 +3726,6 @@
          "t": "await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…",
          "a": [
           "меняет в базе: agent"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);",
-         "a": [
-          "зовёт shiftInactiveClockAfterAbsence()"
          ],
          "c": []
         }
@@ -11803,49 +11787,11 @@
     },
     {
      "k": "do",
-     "t": "const parsedAccept = leadAcceptSchema.safeParse(req.body ?? {});",
-     "a": [
-      "проверяет данные схемой leadAcceptSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsedAccept.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsedAccept.error.flatten() });",
-       "a": [
-        "ответ 400 — «Неверные данные»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const outcome = await acceptLead({ clientId: client.id, agentId: req.agent!.id, releaseClientId: parsedAccept…",
+     "t": "const outcome = await acceptLead({ clientId: client.id, agentId: req.agent!.id });",
      "a": [
       "зовёт acceptLead()"
      ],
      "c": []
-    },
-    {
-     "k": "if",
-     "t": "!outcome.ok && outcome.requiresRelease",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ requiresRelease: true, error: \"Портфель полон — выберите, кого передать другому…",
-       "a": [
-        "ответ 409 — «Портфель полон — выберите, кого передать другому агенту»"
-       ],
-       "c": []
-      }
-     ]
     },
     {
      "k": "if",
@@ -11864,7 +11810,7 @@
     },
     {
      "k": "do",
-     "t": "logAudit(req, \"LEAD_ACCEPT\", \"Client\", client.id, { agentId: req.agent!.id, releasedClientId: outcome.release…",
+     "t": "logAudit(req, \"LEAD_ACCEPT\", \"Client\", client.id, { agentId: req.agent!.id });",
      "a": [
       "зовёт logAudit()"
      ],
@@ -11881,147 +11827,6 @@
     {
      "k": "do",
      "t": "res.json(presentClient(updated ?? client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), inve…",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "POST",
-   "path": "/:id/activate",
-   "mount": "/api/v1/clients",
-   "full": "/api/v1/clients/:id/activate",
-   "file": "apps/api/src/routes/clients/lifecycle.ts",
-   "router": "lifecycleRouter",
-   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const ownAgentId = scopeToOwnAgent(req);",
-     "a": [
-      "зовёт scopeToOwnAgent()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const client = await prisma.client.findUnique({ where: { id: req.params.id } });",
-     "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!client || client.deletedAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
-       "a": [
-        "ответ 404 — «Клиент не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!client.assignedAgentId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Возврат в работу доступен только клиенту с назначенным агентом\" });",
-       "a": [
-        "ответ 409 — «Возврат в работу доступен только клиенту с назначенным агентом»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "ownAgentId && client.assignedAgentId !== ownAgentId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-       "a": [
-        "ответ 403 — «Недостаточно прав»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const denied = foreignWriteDenied(req, client, ownAgentId);",
-     "a": [
-      "зовёт foreignWriteDenied()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "denied",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: denied });",
-       "a": [
-        "ответ 403"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId, actorAgentId: r…",
-     "a": [
-      "зовёт reactivateClient()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!result.ok",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Состояние или держатель карточки изменились — обновите карточку\" });",
-       "a": [
-        "ответ 409 — «Состояние или держатель карточки изменились — обновите карточку»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"CLIENT_ACTIVATE\", \"Client\", client.id, {});",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true });",
      "a": [
       "ответ 200"
      ],
@@ -13260,147 +13065,6 @@
    ]
   },
   {
-   "method": "POST",
-   "path": "/:id/deferred/return",
-   "mount": "/api/v1/clients",
-   "full": "/api/v1/clients/:id/deferred/return",
-   "file": "apps/api/src/routes/clients/lifecycle.ts",
-   "router": "lifecycleRouter",
-   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const ownAgentId = scopeToOwnAgent(req);",
-     "a": [
-      "зовёт scopeToOwnAgent()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const client = await prisma.client.findUnique({ where: { id: req.params.id } });",
-     "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!client || client.deletedAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
-       "a": [
-        "ответ 404 — «Клиент не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "client.workStatus !== \"DEFERRED\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Клиент не в «Отложенных»\" });",
-       "a": [
-        "ответ 409 — «Клиент не в «Отложенных»»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "ownAgentId && client.assignedAgentId !== ownAgentId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-       "a": [
-        "ответ 403 — «Недостаточно прав»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const denied = foreignWriteDenied(req, client, ownAgentId);",
-     "a": [
-      "зовёт foreignWriteDenied()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "denied",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: denied });",
-       "a": [
-        "ответ 403"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const result = await returnDeferredClientManually(client.id, req.agent!.id);",
-     "a": [
-      "зовёт returnDeferredClientManually()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!result.ok",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
-       "a": [
-        "ответ 404 — «Клиент не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"CLIENT_DEFERRED_RETURN\", \"Client\", client.id, {});",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
    "method": "GET",
    "path": "/:id/delete-request",
    "mount": "/api/v1/clients",
@@ -13575,15 +13239,45 @@
     },
     {
      "k": "do",
-     "t": "const request = await prisma.clientDeleteRequest.create({ data: { clientId: client.id, requestedById: req.age…",
+     "t": "const filed = await fileClientDeleteRequest({ clientId: client.id, requestedById: req.agent!.id, reason: pars…",
      "a": [
-      "создаёт в базе: clientDeleteRequest"
+      "зовёт fileClientDeleteRequest()"
      ],
      "c": []
     },
     {
+     "k": "if",
+     "t": "!filed.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: filed.error });",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!filed.created",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"По этому клиенту уже есть заявка — она ждёт решения руководства\" });",
+       "a": [
+        "ответ 409 — «По этому клиенту уже есть заявка — она ждёт решения руководства»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "logAudit(req, \"DELETE_REQUEST\", \"Client\", client.id, { requestId: request.id, reason: parsed.data.reason, sho…",
+     "t": "logAudit(req, \"DELETE_REQUEST\", \"Client\", client.id, { requestId: filed.id, reason: parsed.data.reason, short…",
      "a": [
       "зовёт logAudit()"
      ],
@@ -13591,31 +13285,7 @@
     },
     {
      "k": "do",
-     "t": "const author = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "void enqueueDirectorAlert({ title: \"🗑️ Заявка на удаление клиента\", body: `${author?.fullName ?? \"Агент\"}: $…",
-     "a": [
-      "зовёт enqueueDirectorAlert()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "publishRequestUpdated({ requestId: request.id, clientId: client.id, agentIds: [req.agent!.id], stage: \"PENDIN…",
-     "a": [
-      "зовёт publishRequestUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(201).json({ ok: true, id: request.id, message: \"Заявка отправлена — карточку удалит директор или а…",
+     "t": "res.status(201).json({ ok: true, id: filed.id, message: \"Заявка отправлена — карточку удалит директор или адм…",
      "a": [
       "ответ 201"
      ],
@@ -14392,14 +14062,6 @@
        ]
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "void refreshClientStatus(client.id).catch((err)",
-     "a": [
-      "зовёт refreshClientStatus()"
-     ],
-     "c": []
     },
     {
      "k": "if",
@@ -16316,75 +15978,6 @@
      ]
     },
     {
-     "k": "if",
-     "t": "isDeferredReason(parsed.data.reason)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const pre = await checkRefusalPreconditions(client.id, parsed.data);",
-       "a": [
-        "зовёт checkRefusalPreconditions()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!pre.ok",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(pre.status).json({ error: pre.error });",
-         "a": [
-          "ответ (код зависит от условия)"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const deferred = await deferClient({ clientId: client.id, agentId: client.assignedAgentId, reason: parsed.dat…",
-       "a": [
-        "зовёт deferClient()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!deferred.ok",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: deferred.error });",
-         "a": [
-          "ответ 409"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "logAudit(req, \"CLIENT_DEFER\", \"Client\", client.id, { reason: parsed.data.reason, deferredUntil: deferred.defe…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return res.json({ ok: true, deferred: true, deferredUntil: deferred.deferredUntil, message: deferredReturnMes…",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
      "t": "const result = await refuseClient({ clientId: client.id, ...parsed.data, actorId: req.agent!.id, actorAgentId…",
      "a": [
@@ -17007,7 +16600,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return false;",
+         "t": "return null;",
          "a": [
           "дословно из кода"
          ],
@@ -17071,6 +16664,36 @@
       "зовёт logAudit()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "reviewed.close",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });",
+       "a": [
+        "зовёт trashClient()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!trashed.ok",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.error(\"[security-review] карточка не убрана в Корзину:\", trashed.error);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
     },
     {
      "k": "do",
@@ -19058,14 +18681,14 @@
     },
     {
      "k": "if",
-     "t": "parsed.data.status && parsed.data.status !== existing.status && !can(req, \"clients.assign\")",
+     "t": "parsed.data.status && parsed.data.status !== existing.status",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: existing.kind === \"SELLER\" || requestedKind === \"SELLER\" ? \"Состояние пр…",
+       "t": "return res.status(400).json({ error: \"Статус клиента вручную не меняется: в CRM его больше нет. Работу с клие…",
        "a": [
-        "ответ 403"
+        "ответ 400 — «Статус клиента вручную не меняется: в CRM его больше нет. Работу с…»"
        ],
        "c": []
       }
@@ -19300,79 +18923,6 @@
     {
      "k": "do",
      "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigationV…",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/deferred",
-   "mount": "/api/v1/clients",
-   "full": "/api/v1/clients/deferred",
-   "file": "apps/api/src/routes/clients/list.ts",
-   "router": "listRouter",
-   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const paging = sectionPageSchema.safeParse(req.query);",
-     "a": [
-      "проверяет данные схемой sectionPageSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!paging.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: paging.error.flatten() });",
-       "a": [
-        "ответ 400 — «Неверные параметры»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const ownAgentId = scopeToOwnAgent(req);",
-     "a": [
-      "зовёт scopeToOwnAgent()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const total = await prisma.client.count({ where });",
-     "a": [
-      "считает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const clients = await prisma.client.findMany({ where, orderBy: [{ deferredUntil: \"asc\" }, { id: \"asc\" }], ski…",
-     "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ items: clients.map((c)",
      "a": [
       "ответ 200"
      ],
@@ -20084,110 +19634,6 @@
     {
      "k": "do",
      "t": "res.json([...identityGroups, ...fuzzyGroups]);",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/lost",
-   "mount": "/api/v1/clients",
-   "full": "/api/v1/clients/lost",
-   "file": "apps/api/src/routes/clients/list.ts",
-   "router": "listRouter",
-   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: clients.assign"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const paging = sectionPageSchema.safeParse(req.query);",
-     "a": [
-      "проверяет данные схемой sectionPageSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!paging.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: paging.error.flatten() });",
-       "a": [
-        "ответ 400 — «Неверные параметры»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const total = await prisma.client.count({ where: lostWhere });",
-     "a": [
-      "считает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const clients = await prisma.client.findMany({ where: lostWhere, orderBy: [ { lostAt: { sort: \"desc\", nulls: …",
-     "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "clients.length === 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.json({ items: [], total, page, pageSize });",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const chain = await prisma.interaction.findMany({ where: { clientId: { in: clients.map((c)",
-     "a": [
-      "читает в базе: interaction"
-     ],
-     "c": []
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const hop of chain",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "chainByClient.set(hop.clientId, [...(chainByClient.get(hop.clientId) ?? []), hop]);",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json({ items: clients.map((c)",
      "a": [
       "ответ 200"
      ],
@@ -20913,7 +20359,7 @@
     },
     {
      "k": "do",
-     "t": "const [ buyers, sellers, mine, other, lost, newToday, newYesterday, awaitingCount, oldest, noContactOverDay, …",
+     "t": "const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, noContactOverDay, showTo…",
      "a": [
       "считает в базе: client",
       "читает в базе: client",
@@ -20922,31 +20368,8 @@
      "c": []
     },
     {
-     "k": "if",
-     "t": "canAssign",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const [limits, agents] = await Promise.all([ loadLeadLimits(), prisma.agent.findMany({ where: { role: { in: […",
-       "a": [
-        "читает в базе: agent"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const loads = await activeLeadCounts(agents.map((a)",
-       "a": [
-        "зовёт activeLeadCounts()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
-     "t": "const summary: ClientsSummary = { buyers, sellers, mine, other, lost, newToday, newYesterday, awaitingAgent: …",
+     "t": "const summary: ClientsSummary = { buyers, sellers, mine, other, newToday, newYesterday, awaitingAgent: { coun…",
      "a": [
       "зовёт clientNamePhoneSafe()"
      ],
@@ -21290,57 +20713,12 @@
     },
     {
      "k": "if",
-     "t": "workStatus",
+     "t": "archived",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "where.workStatus = workStatus;",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "workStatus === \"INACTIVE\" && !status",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "workStatus === \"INACTIVE\" && !kind",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.kind = { in: [\"BUYER\", \"SELLER\"] };",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "inactiveLevel",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.inactiveLevel = inactiveLevel;",
+       "t": "where.status = \"ARCHIVED\";",
        "a": [
         "дословно из кода"
        ],
@@ -21353,21 +20731,6 @@
      "t": "pendingAcceptance",
      "a": [],
      "c": [
-      {
-       "k": "if",
-       "t": "!status",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "where.status = { notIn: [\"LOST\", \"DEAL_CLOSED\", \"ARCHIVED\"] };",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
       {
        "k": "if",
        "t": "!kind && !ownAgentId",
@@ -21424,6 +20787,21 @@
       {
        "k": "do",
        "t": "where.AND = textSearchAnd;",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "noContact",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Dat…",
        "a": [
         "дословно из кода"
        ],
@@ -25151,8 +24529,7 @@
      "k": "do",
      "t": "res.json({ kpis: { availableProperties: availableCount, portfolioValue: seesMoney ? portfolioValue : 0, poten…",
      "a": [
-      "ответ 200",
-      "считает в базе: client"
+      "ответ 200"
      ],
      "c": []
     }
@@ -27200,7 +26577,7 @@
              "c": [
               {
                "k": "do",
-               "t": "await tx.client.updateMany({ where: { id: existing.clientId, status: \"DEAL_CLOSED\" }, data: { status: \"HOT\" }…",
+               "t": "await tx.client.updateMany({ where: { id: existing.clientId, status: \"DEAL_CLOSED\" }, data: { status: \"CONTAC…",
                "a": [
                 "меняет в базе: client"
                ],
@@ -28393,7 +27770,6 @@
           "читает в базе: client",
           "меняет в базе: property",
           "читает в базе: deal",
-          "меняет в базе: client",
           "создаёт в базе: deal"
          ],
          "c": [
@@ -28473,14 +27849,6 @@
              "c": []
             }
            ]
-          },
-          {
-           "k": "do",
-           "t": "await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: nul…",
-           "a": [
-            "меняет в базе: client"
-           ],
-           "c": []
           },
           {
            "k": "do",
@@ -44940,87 +44308,6 @@
   },
   {
    "method": "GET",
-   "path": "/agents-at-limit",
-   "mount": "/api/v1/oversight",
-   "full": "/api/v1/oversight/agents-at-limit",
-   "file": "apps/api/src/routes/oversight.ts",
-   "router": "oversightRouter",
-   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: dashboard.analytics"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const limits = await loadLeadLimits();",
-     "a": [
-      "зовёт loadLeadLimits()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "limits.activeLimit <= 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.json({ items: [], limit: limits.activeLimit });",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, selec…",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const counts = await activeLeadCounts(agents.map((a)",
-     "a": [
-      "зовёт activeLeadCounts()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const items = agents .map((a)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return { id: a.id, fullName: a.fullName, avatarUrl: a.avatarUrl, frozen: a.frozenAt !== null, total: c.total,…",
-       "a": [
-        "зовёт slotsTaken()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json({ items, limit: limits.activeLimit });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
    "path": "/endless-negotiations",
    "mount": "/api/v1/oversight",
    "full": "/api/v1/oversight/endless-negotiations",
@@ -45082,7 +44369,7 @@
     },
     {
      "k": "do",
-     "t": "const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, acked…",
+     "t": "const [noContact, silent, refused, seller, endless, ackedNoContact, ackedSilent, ackedRefused, ackedSeller, a…",
      "a": [
       "читает в базе: client"
      ],
@@ -45090,12 +44377,12 @@
     },
     {
      "k": "loop",
-     "t": "для каждого: const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "t": "для каждого: const c of noContact.filter((x) => !ackedNoContact.has(x.id)).slice(0, FLAGS_PER_SLICE)",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "flags.push({ sliceKey: \"stalled-clients\", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без ко…",
+       "t": "flags.push({ sliceKey: \"no-contact-clients\", subjectId: c.id, title: `${name(c.fullName)}: без контакта больш…",
        "a": [
         "дословно из кода"
        ],
@@ -45175,9 +44462,9 @@
   },
   {
    "method": "GET",
-   "path": "/inactive-clients",
+   "path": "/lead-transfers",
    "mount": "/api/v1/oversight",
-   "full": "/api/v1/oversight/inactive-clients",
+   "full": "/api/v1/oversight/lead-transfers",
    "file": "apps/api/src/routes/oversight.ts",
    "router": "oversightRouter",
    "top": "apps/api/src/routes/oversight.ts::oversightRouter",
@@ -45211,9 +44498,9 @@
   },
   {
    "method": "GET",
-   "path": "/lead-transfers",
+   "path": "/no-contact-clients",
    "mount": "/api/v1/oversight",
-   "full": "/api/v1/oversight/lead-transfers",
+   "full": "/api/v1/oversight/no-contact-clients",
    "file": "apps/api/src/routes/oversight.ts",
    "router": "oversightRouter",
    "top": "apps/api/src/routes/oversight.ts::oversightRouter",
@@ -45228,16 +44515,32 @@
    "tree": [
     {
      "k": "do",
-     "t": "const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: \"desc\" …",
+     "t": "const where = noContactWhere(new Date());",
      "a": [
-      "читает в базе: interaction",
-      "считает в базе: interaction"
+      "зовёт noContactWhere()"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "res.json({ items: rows.map((r)",
+     "t": "const [light, total] = await Promise.all([ prisma.client.findMany({ where, take: NO_CONTACT_ORDER_CAP, select…",
+     "a": [
+      "читает в базе: client",
+      "считает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [rows] = await Promise.all([ prisma.client.findMany({ where: { id: { in: pageIds } }, select: { id: tru…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: await markAcked(\"no-contact-clients\", rows.map(({ interactions, ...c })",
      "a": [
       "ответ 200"
      ],
@@ -45626,50 +44929,6 @@
   },
   {
    "method": "GET",
-   "path": "/stalled-clients",
-   "mount": "/api/v1/oversight",
-   "full": "/api/v1/oversight/stalled-clients",
-   "file": "apps/api/src/routes/oversight.ts",
-   "router": "oversightRouter",
-   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: dashboard.analytics"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const where = stalledClientsWhere(now, await loadHotScoreThreshold());",
-     "a": [
-      "зовёт stalledClientsWhere()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ aiScore: \"desc\" }, { id…",
-     "a": [
-      "читает в базе: client",
-      "считает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ items: await markAcked(\"stalled-clients\", rows.map((c)",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
    "path": "/summary",
    "mount": "/api/v1/oversight",
    "full": "/api/v1/oversight/summary",
@@ -45703,33 +44962,6 @@
     {
      "k": "do",
      "t": "res.json(summary);",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/traffic-light-summary",
-   "mount": "/api/v1/oversight",
-   "full": "/api/v1/oversight/traffic-light-summary",
-   "file": "apps/api/src/routes/oversight.ts",
-   "router": "oversightRouter",
-   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: dashboard.analytics"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "res.json(await findTrafficLightSummary());",
      "a": [
       "ответ 200"
      ],
@@ -63664,21 +62896,6 @@
          ]
         },
         {
-         "k": "if",
-         "t": "outcome.requiresRelease",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return res.json({ ok: false, message: \"Портфель полон — откройте карточку и выберите, кого передать\", url, } …",
-           "a": [
-            "ответ 200"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
          "k": "do",
          "t": "return res.json({ ok: false, message: outcome.error, url } satisfies PushActionResult);",
          "a": [
@@ -77332,7 +76549,7 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.json({ statuses: STAGE_STATUSES, agents: [] });",
+       "t": "return res.json({ agents: [] });",
        "a": [
         "ответ 200"
        ],
@@ -77342,35 +76559,12 @@
     },
     {
      "k": "do",
-     "t": "const [statusRows, showingRows, showingRowsBySubject, dealRows] = await Promise.all([ prisma.client.groupBy({…",
+     "t": "const [showingRows, showingRowsBySubject, dealRows] = await Promise.all([ prisma.interaction.groupBy({ by: [\"…",
      "a": [
-      "считает в базе: client",
       "считает в базе: interaction",
       "считает в базе: deal"
      ],
      "c": []
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const row of statusRows",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "!row.assignedAgentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "continue;",
-         "a": [
-          "переходит к следующему"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
     },
     {
      "k": "loop",
@@ -77396,7 +76590,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ statuses: STAGE_STATUSES, agents: agentsOut });",
+     "t": "res.json({ agents: agentsOut });",
      "a": [
       "ответ 200"
      ],
@@ -77439,7 +76633,7 @@
     },
     {
      "k": "do",
-     "t": "const [interactions, deals, clients, pointsTotals, money, loadCounts, limits] = await Promise.all([ prisma.in…",
+     "t": "const [interactions, deals, clients, pointsTotals, money, loadCounts] = await Promise.all([ prisma.interactio…",
      "a": [
       "читает в базе: interaction",
       "читает в базе: deal",
@@ -86060,21 +85254,6 @@
                 "меняет в базе: agent"
                ],
                "c": []
-              },
-              {
-               "k": "if",
-               "t": "res.count > 0",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, now, tx);",
-                 "a": [
-                  "зовёт shiftInactiveClockAfterAbsence()"
-                 ],
-                 "c": []
-                }
-               ]
               }
              ]
             },
@@ -89802,116 +88981,6 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "client-auto-statuses",
-   "when": "40 4 * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { checked, changed } = await refreshStatusesByTime();",
-       "a": [
-        "зовёт refreshStatusesByTime()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const candidates = await prisma.client.findMany({ where: { kind: { in: [\"BUYER\", \"SELLER\"] }, deletedAt: null…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const c of candidates",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const next = await refreshClientStatus(c.id, now);",
-           "a": [
-            "зовёт refreshClientStatus()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "next",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "changed++;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "refreshStatusesByTime() — apps/api/src/lib/clientAutoStatus.ts"
-      },
-      {
-       "k": "if",
-       "t": "changed",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Автостатусы: проверено ${checked}, изменено ${changed}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка автостатусов\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
    "id": "client-follow-ups",
    "when": "*/10 * * * *",
    "tree": [
@@ -92594,138 +91663,6 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "deferred-clients-return",
-   "when": "*/30 * * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { returned } = await runDeferredClientsReturnTick();",
-       "a": [
-        "зовёт runDeferredClientsReturnTick()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const due = await prisma.client.findMany({ where: { workStatus: \"DEFERRED\", deletedAt: null, assignmentComple…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const c of due",
-         "a": [],
-         "c": [
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const result = await returnDeferredClientToWork(c.id, \"timer\");",
-             "a": [
-              "зовёт returnDeferredClientToWork()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "result.ok",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "returned++;",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "console.error(\"[cron] Возврат отложенного клиента:\", err instanceof Error ? err.message : err);",
-             "a": [
-              "пишет строку в журнал сервера"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "runDeferredClientsReturnTick() — apps/api/src/lib/deferredClients.ts"
-      },
-      {
-       "k": "if",
-       "t": "returned > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Отложенные: возвращено в работу ${returned}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка возврата отложенных клиентов\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
    "id": "director-alert-queue-flush",
    "when": "* * * * *",
    "tree": [
@@ -95026,435 +93963,6 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка сторожа пульса\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
-   "id": "inactive-traffic-light",
-   "when": "*/30 * * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { pinged, lost } = await runInactiveTrafficLightTick();",
-       "a": [
-        "зовёт runInactiveTrafficLightTick()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const withinHours = await isWithinWorkingHours(now);",
-         "a": [
-          "зовёт isWithinWorkingHours()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!withinHours",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return { pinged: 0, lost: 0 };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const settings = await loadTrafficLightSettings();",
-         "a": [
-          "зовёт loadTrafficLightSettings()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const absent = await absentAgentIds();",
-         "a": [
-          "зовёт absentAgentIds()"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: ;;",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const candidates = await prisma.client.findMany({ where: { ...(afterId ? { id: { gt: afterId } } : {}), workS…",
-           "a": [
-            "читает в базе: client"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "candidates.length === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "break;",
-             "a": [
-              "прекращает перебор"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const c of candidates",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "c.inactiveLevel && c.inactiveSince",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "!c.assignedAgentId || absent.has(c.assignedAgentId)",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "const level = await classifyInactiveLevelByDepth(c.id, c.kind, settings.leadCallMinSeconds);",
-             "a": [
-              "зовёт classifyInactiveLevelByDepth()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "const repaired = await prisma.client.updateMany({ where: { id: c.id, workStatus: \"INACTIVE\", status: c.status…",
-             "a": [
-              "меняет в базе: client"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "repaired.count === 1",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: \"INACTIVE\" });",
-               "a": [
-                "зовёт publishClientUpdated()"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const lastContactAt = await lastRealContactAt(live);",
-           "a": [
-            "зовёт lastRealContactAt()"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const c of live",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "!c.assignedAgentId || !c.inactiveLevel || !c.inactiveSince",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "lastContactAt.has(c.id)",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "const level = await classifyInactiveLevelByDepth( c.id, c.kind, settings.leadCallMinSeconds, );",
-               "a": [
-                "зовёт classifyInactiveLevelByDepth()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "const reset = await prisma.client.updateMany({ where: trafficSnapshotWhere(c), data: { inactiveSince: now, in…",
-               "a": [
-                "меняет в базе: client"
-               ],
-               "c": []
-              },
-              {
-               "k": "if",
-               "t": "reset.count !== 1",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "do",
-               "t": "publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: \"INACTIVE\" });",
-               "a": [
-                "зовёт publishClientUpdated()"
-               ],
-               "c": []
-              },
-              {
-               "k": "if",
-               "t": "c.inactiveLevel !== \"GREEN\"",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "const points = await loadEventPoints();",
-                 "a": [
-                  "зовёт loadEventPoints()"
-                 ],
-                 "c": []
-                },
-                {
-                 "k": "do",
-                 "t": "void recordScoreEvent({ agentId: c.assignedAgentId, kind, delta: points[kind], reason: `Дозвонился и вывел кл…",
-                 "a": [
-                  "зовёт recordScoreEvent()"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "dueAttempt <= c.inactivePingCount",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "c.inactivePingCount >= maxAttempts",
-             "a": [],
-             "c": [
-              {
-               "k": "if",
-               "t": "keepFromLost.has(c.id)",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "if",
-               "t": "await promoteToLost(c)",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "lost++;",
-                 "a": [
-                  "дословно из кода"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "const advanced = await prisma.client.updateMany({ where: trafficSnapshotWhere(c), data: { inactivePingCount: …",
-             "a": [
-              "меняет в базе: client"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "advanced.count !== 1",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "candidates.length < 500",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "break;",
-             "a": [
-              "прекращает перебор"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "runInactiveTrafficLightTick() — apps/api/src/lib/inactiveTrafficLight.ts"
-      },
-      {
-       "k": "if",
-       "t": "pinged > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Светофор неактивных: напоминаний ${pinged}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "lost > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Светофор неактивных: переведено в Потерянные ${lost}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка светофора неактивных\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -98864,14 +97372,6 @@
         },
         {
          "k": "do",
-         "t": "const maxTransfers = reassignOnMissedCall ? await loadMaxTransfers() : 0;",
-         "a": [
-          "зовёт loadMaxTransfers()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
          "t": "const candidates = await prisma.client.findMany({ where: { acceptedAt: { not: null, gte: candidateFrom, lte: …",
          "a": [
           "читает в базе: client"
@@ -99111,22 +97611,6 @@
            "t": "client.reassignCount >= escalateAfter || !nextAgentId",
            "a": [],
            "c": [
-            {
-             "k": "do",
-             "t": "const becameInactive = transfersExhausted(client.reassignCount, maxTransfers);",
-             "a": [
-              "зовёт transfersExhausted()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "const trafficFields = becameInactive ? await inactiveLevelFields(client.id, client.kind, \"OTHER\", undefined, …",
-             "a": [
-              "зовёт inactiveLevelFields()"
-             ],
-             "c": []
-            },
             {
              "k": "do",
              "t": "const escalation = await prisma.$transaction(async (tx)",
@@ -101367,193 +99851,6 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка разбора оборванных переписок\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
-   "id": "lost-inactive-trash-sweep",
-   "when": "30 0 * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { trashed, skipped } = await runLostInactiveTrashSweep();",
-       "a": [
-        "зовёт runLostInactiveTrashSweep()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const candidates = await prisma.client.findMany({ where: { deletedAt: null, reactivationOfferedToAgentId: nul…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "candidates.length === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return { trashed: 0, skipped: 0 };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "!byAgentId",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await logSystemError( \"api\", `Автоуборка Потерянных/Неактивных в Корзину: нет ни одного активного агента с ро…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const c of candidates",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const result = await trashClient(c.id, byAgentId, { notifyHolder: false, guardWhere: { status: c.status, work…",
-           "a": [
-            "зовёт trashClient()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "result.ok",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "c.assignedAgentId",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "trashedByHolder.set(c.assignedAgentId, [...(trashedByHolder.get(c.assignedAgentId) ?? []), c.shortId]);",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "else",
-           "t": "иначе",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "skipped++;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const [agentId, shortIds] of trashedByHolder",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void sendPushToAgent(agentId, { title: `🗑️ Автосвип: ${shortIds.length} ${shortIds.length === 1 ? \"карточка\"…",
-           "a": [
-            "push-уведомление",
-            "запись в журнал ошибок"
-           ],
-           "c": [
-            {
-             "k": "do",
-             "t": "void logSystemError( \"api\", `Сводный пуш автосвипа не отправлен (держатель ${agentId}): ${err instanceof Erro…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "runLostInactiveTrashSweep() — apps/api/src/lib/lostInactiveTrashSweep.ts"
-      },
-      {
-       "k": "if",
-       "t": "trashed || skipped",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Автоуборка Потерянных/Неактивных в Корзину: убрано ${trashed}, пропущено ${skipped}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка автоуборки Потерянных/Неактивных в Корзину\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -105024,158 +103321,6 @@
       }
      ],
      "from": "executeQueuedNarrationDeliveries() — apps/api/src/lib/narrationDelivery.ts"
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
-   "id": "no-answer-tail",
-   "when": "*/30 * * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const created = await processNoAnswerTailAnchors();",
-       "a": [
-        "зовёт processNoAnswerTailAnchors()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const anchors = await prisma.interaction.findMany({ where: { type: \"SYSTEM\", nextAction: null, completedAt: n…",
-         "a": [
-          "читает в базе: interaction"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "anchors.length === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return 0;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const [callbacks, talked] = await Promise.all([ prisma.incomingCall.findMany({ where: { clientId: { in: ancho…",
-         "a": [
-          "читает в базе: incomingCall",
-          "читает в базе: interaction"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const clients = await prisma.client.findMany({ where: { id: { in: anchorClientIds } }, select: { id: true, fu…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const results = await mapWithConcurrency(anchors, TICK_CONCURRENCY, async (anchor)",
-         "a": [
-          "меняет в базе: interaction"
-         ],
-         "c": [
-          {
-           "k": "if",
-           "t": "!eligible || !client",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await prisma.interaction.update({ where: { id: anchor.id }, data: { completedAt: now } });",
-             "a": [
-              "меняет в базе: interaction"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "await upsertAutoTask({ clientId: client.id, kind: \"no_answer_tail_retry\", actor: { kind: \"system\", source: \"n…",
-           "a": [
-            "зовёт upsertAutoTask()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await prisma.interaction.update({ where: { id: anchor.id }, data: { completedAt: now } });",
-           "a": [
-            "меняет в базе: interaction"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ],
-       "from": "processNoAnswerTailAnchors() — apps/api/src/lib/noAnswerStreak.ts"
-      },
-      {
-       "k": "if",
-       "t": "created > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Хвост дозвона: заведено задач ${created}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка хвоста дозвона\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -110303,331 +108448,6 @@
         "дословно из кода"
        ],
        "c": []
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
-   "id": "silent-client-auto-deactivate",
-   "when": "25 0 * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { deactivated } = await runSilentClientAutoDeactivate();",
-       "a": [
-        "зовёт runSilentClientAutoDeactivate()"
-       ],
-       "c": [
-        {
-         "k": "loop",
-         "t": "для каждого: ;;",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const candidates = await prisma.client.findMany({ where: { ...(afterId ? { id: { gt: afterId } } : {}), delet…",
-           "a": [
-            "читает в базе: client"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "candidates.length === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "break;",
-             "a": [
-              "прекращает перебор"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const sellersInWork = await sellersWithPropertyInWork( (candidates as SilentCandidate[]) .filter((c)",
-           "a": [
-            "зовёт sellersWithPropertyInWork()"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const c of candidates as SilentCandidate[]",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "sellersInWork.has(c.id)",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "!c.assignedAgentId",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "!last",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "last.role !== \"assistant\"",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "last.at.getTime() > cutoff.getTime()",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "const levelFields = await inactiveLevelFields( c.id, c.kind, \"STOPPED_RESPONDING\", undefined, now, );",
-               "a": [
-                "зовёт inactiveLevelFields()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "const written = await prisma.$transaction(async (tx)",
-               "a": [
-                "всё внутри — одной транзакцией",
-                "обращается к базе своим SQL",
-                "меняет в базе: client"
-               ],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${c.id} FOR UPDATE`;",
-                 "a": [
-                  "обращается к базе своим SQL"
-                 ],
-                 "c": []
-                },
-                {
-                 "k": "if",
-                 "t": "c.kind === \"SELLER\" && (await sellersWithPropertyInWork([c.id], {}, tx)).has(c.id)",
-                 "a": [],
-                 "c": [
-                  {
-                   "k": "do",
-                   "t": "return false;",
-                   "a": [
-                    "дословно из кода"
-                   ],
-                   "c": []
-                  }
-                 ]
-                },
-                {
-                 "k": "do",
-                 "t": "const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: \"ACTIVE\", kind: …",
-                 "a": [
-                  "меняет в базе: client"
-                 ],
-                 "c": []
-                },
-                {
-                 "k": "if",
-                 "t": "updated.count !== 1",
-                 "a": [],
-                 "c": [
-                  {
-                   "k": "do",
-                   "t": "return false;",
-                   "a": [
-                    "дословно из кода"
-                   ],
-                   "c": []
-                  }
-                 ]
-                },
-                {
-                 "k": "do",
-                 "t": "await logTimeline({ clientId: c.id, actor: { kind: \"system\", source: \"silentClientAutoDeactivate\", subjectAge…",
-                 "a": [
-                  "зовёт logTimeline()"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "if",
-               "t": "!written",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "do",
-               "t": "publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: \"INACTIVE\" });",
-               "a": [
-                "зовёт publishClientUpdated()"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "await logSystemError( \"api\", `Автопереход молчаливого клиента в Неактивные (клиент ${c.shortId}) не выполнен:…",
-               "a": [
-                "запись в журнал ошибок"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "candidates.length < 500",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "break;",
-             "a": [
-              "прекращает перебор"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "runSilentClientAutoDeactivate() — apps/api/src/lib/silentClientAutoDeactivate.ts"
-      },
-      {
-       "k": "if",
-       "t": "deactivated",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Молчаливых клиентов переведено в Неактивные: ${deactivated}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка автоперевода молчаливых клиентов\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
     }
@@ -118099,6 +115919,14 @@
         },
         {
          "k": "do",
+         "t": "const cutoff = reactivationCutoff(settings.reactivationAfterDays, now);",
+         "a": [
+          "зовёт reactivationCutoff()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const weekKey = reactivationWeekKey(now);",
          "a": [
           "зовёт reactivationWeekKey()"
@@ -118131,7 +115959,7 @@
         },
         {
          "k": "do",
-         "t": "const candidates = await prisma.client.findMany({ where: { deletedAt: null, ...(recentlyOffered.length ? { id…",
+         "t": "const candidates = await prisma.client.findMany({ where: { AND: [reactivationCandidateWhere(cutoff), ...(rece…",
          "a": [
           "читает в базе: client"
          ],
@@ -122470,6 +120298,22 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const eligibilitySettings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { reactiva…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const stillEligible = (await prisma.client.count({ where: { AND: [{ id: client.id }, reactivationCandidateWhe…",
+     "a": [
+      "считает в базе: client"
+     ],
+     "c": []
     },
     {
      "k": "if",
