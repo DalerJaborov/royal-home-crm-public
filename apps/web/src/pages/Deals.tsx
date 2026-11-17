@@ -1,7 +1,8 @@
 import { useCan, useIsReadOnly } from "../lib/permissions";
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { DndContext, MouseSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core";
+import { useTouchSafeDragSensors } from "../hooks/useTouchSafeDragSensors";
 import { ChevronLeft, ChevronRight, Send } from "lucide-react";
 import type { DealStage } from "@royal-home/shared";
 import { useAnnulDeal, useDeals, useUpdateDeal } from "../hooks/useDeals";
@@ -145,10 +146,7 @@ export function Deals() {
    * 8 точек: пролистывание уходит странице, перетаскивание начинается только
    * после осознанного удержания.
    */
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
-  );
+  const sensors = useTouchSafeDragSensors({ mouseDistance: 5 });
 
   const board = (deals ?? []).filter((d) => d.stage !== "CANCELLED" && d.stage !== "COMPLETED" && d.stage !== "PENDING_APPROVAL");
   // «Ждут одобрения» — сделки, которые агент уже отправил на закрытие (указал
