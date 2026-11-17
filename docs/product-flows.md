@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **763**. Развилок в самих путях: **2472**; вместе с задачами по расписанию и фоновыми заданиями — **4035**. Модулей: **86**.
+Путей: **763**. Развилок в самих путях: **2472**; вместе с задачами по расписанию и фоновыми заданиями — **4039**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16833,7 +16833,7 @@
 - пробует
   - const state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
     · читает в базе: somonMonitor
-  - const [pending, uncertain, review] = await Promise.all([ prisma.somonSeenAdvert.count({ where: { status: "PEN…
+  - const [pending, sellerUnknown, uncertain, review] = await Promise.all([ prisma.somonSeenAdvert.count({ where:…
     · считает в базе: somonSeenAdvert
     · считает в базе: somonDelivery
     · читает в базе: somonDelivery
@@ -24574,6 +24574,9 @@
               · дальше не идёт, ничего не меняя
           - throw new Error("Somon baseline pagination changed unexpectedly");
             · ошибка Error — «Somon baseline pagination changed unexpectedly»
+        - если data.ads.some(a => a.sellerId === null)
+          - await logSystemError("cron", "Somon: в выдаче нет ID автора у части объявлений; счёт объявлений продавца неиз…
+            · запись в журнал ошибок
         - const result = await recordBaselinePage(n, data.last, data.ads.map(a
           · зовёт recordBaselinePage()
         - если result === "complete" || result === "disabled"
@@ -24594,6 +24597,9 @@
               · дальше не идёт, ничего не меняя
           - если rejectedSlug
             - await logSystemError("cron", "Somon: часть ссылок объявлений не удалось обработать", { dedupKey: "somon-inval…
+              · запись в журнал ошибок
+          - если data.ads.some(a => a.sellerId === null)
+            - await logSystemError("cron", "Somon: в выдаче нет ID автора у части объявлений; счёт объявлений продавца неиз…
               · запись в журнал ошибок
           - await recordNewObservations(listings);
             · зовёт recordNewObservations()
@@ -24637,6 +24643,19 @@
             · дословно из кода
     - await cleanupSomonReceipts();
       · зовёт cleanupSomonReceipts()
+    - state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
+      · читает в базе: somonMonitor
+    - если state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000
+      - пробует
+      - если сорвалось
+        - если n > 1 && ((error instanceof SomonSourceUnavailable && error.status === 404) || error instanceof SomonEmptyLis…
+          - data = null;
+            · дословно из кода
+        - иначе
+          - throw error;
+            · пробрасывает ошибку дальше
+      - await rekeySellerPage(n, data ? data.last : n, data ? data.ads.map(a
+        · зовёт rekeySellerPage()
   - если сорвалось
     - если error instanceof SomonSourceUnavailable && error.reason === "not_ready"
       - return;

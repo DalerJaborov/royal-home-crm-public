@@ -11085,6 +11085,10 @@ model SomonMonitor {
   sourceStopped       Boolean  @default(false)
   sourceFailures      Int      @default(0)
   sourceLastFailureAt DateTime?
+  /// Мягкая дозапись ключа автора записям до появления SomonSeenAdvert.sellerKey: следующая
+  /// страница выдачи для прохода «только дописать ключ» (без новых записей и без сброса
+  /// baseline). null — проход не нужен или завершён (discoveryStore.rekeySellerPage).
+  sellerKeyRekeyPage  Int?
   updatedAt           DateTime @updatedAt
 }
 
@@ -11115,8 +11119,12 @@ model SomonSeenAdvert {
   status    String   @default("PENDING")
   sellerCheck Json?
   lastCheckedAt DateTime?
+  // HMAC от ID автора из выдачи категории — счёт объявлений автора в категории. Сырой ID здесь не пишется
+  // (временно он есть только в sellerCheck на время проверки профиля и обнуляется на конечных статусах).
+  sellerKey String?
 
   @@index([seenAt])
+  @@index([sellerKey])
 }
 
 // Keyed, non-reversible contact fingerprint prevents repeated outreach without storing a phone.
@@ -11644,4 +11652,35 @@ enum RobotCallStopSource {
   VOICE
   STAFF
   STATION
+}
+
+/// One-brain live check (17.11.2026): the model's words beside the template for one customer turn, kept 72 hours (lib/customerAgentAnswerSamples.ts).
+/// Phones and links masked; read only by the director through scripts/export-answer-samples.ts. No API route.
+model CustomerAgentAnswerSample {
+  id             String   @id @default(uuid())
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+  channel        String
+  conversationId String?
+  eventKey       String?
+  answerMode     String
+  status         String
+  reason         String?
+  customerText   String
+  modelText      String
+  templateText   String
+
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@index([eventKey])
+}
+
+// Ключевой хеш номера + объявление: один номер в 3+ разных объявлениях за 30 дней — агентство.
+model SomonPhoneSighting {
+  phoneHash String
+  advertId  String
+  seenAt    DateTime @default(now())
+
+  @@id([phoneHash, advertId])
+  @@index([seenAt])
 }

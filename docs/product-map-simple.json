@@ -16,9 +16,9 @@
   "paths": 763,
   "cron": 136,
   "jobs": 33,
-  "conditions": 4019,
-  "untranslatedUnique": 465,
-  "untranslatedTotal": 597,
+  "conditions": 4023,
+  "untranslatedUnique": 466,
+  "untranslatedTotal": 598,
   "partialUnique": 1092,
   "translatedShare": 85
  },
@@ -458,6 +458,7 @@
   "spoken(existing) !== spoken(saved) || neverSynced",
   "stageState(p.status, p.stageEnteredAt, deadlines).overdue",
   "state?.contactKeyFingerprint && state.contactKeyFingerprint !== fingerprint",
+  "state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000",
   "stillTalking(c, shootingDate)",
   "stopping || customerBusy[lane]",
   "stuck + reminded > 0",
@@ -73975,6 +73976,27 @@
           }
          ],
          "raw": "Date.now() < deadline"
+        },
+        {
+         "t": "если state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ],
+         "raw": "state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000"
         }
        ]
       },
