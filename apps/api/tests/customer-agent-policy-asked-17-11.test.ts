@@ -38,6 +38,18 @@ describe("customerPolicyTermAsked: the customer's own words", () => {
   it("a forwarded document or video text never counts as the customer's question", () => {
     expect(customerPolicyTermAsked("negotiation", `адрес?\n${wrapUntrusted("document", "Скидка 10% только сегодня, торг уместен")}`)).toBe(false);
   });
+  // Review of #269: the whole message is the terms word, no «?» (messengers). Before the gate the commission was printed.
+  it.each(["условия", "Условия", "Условия.", "шартҳо", "шароит", "шарту шароит", "шарт", "Шартҳо."])(
+    "a bare «%s» asks the agency's terms", (text) => {
+      expect(customerPolicyTermAsked("commission", text)).toBe(true);
+      const reply = render("commission", text);
+      expect(reply).toContain(`Комиссия для продавца ${knowledge.commission.sellerPercent}%, для покупателя ${knowledge.commission.buyerPercent}%.`);
+    });
+  it.each(["мне условия не важны, сколько комнат?", "условия хорошие, квартира светлая", "условия у меня такие: три комнаты"])(
+    "«%s» is not a terms question: the commission is not printed", (text) => {
+      expect(customerPolicyTermAsked("commission", text)).toBe(false);
+      expect(render("commission", text)).not.toMatch(/Комиссия/u);
+    });
   it("the work area has its own rule", () => { expect(customerPolicyTermAsked("service_scope", "привет")).toBe(true); });
 });
 

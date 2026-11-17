@@ -38,6 +38,12 @@ const ASKING_TERMS = asked(`какие|какая|какой|каковы|как
  * «со всеми условиями», «ҳама шароит»: the flat's amenities, never the agency's terms. Not after a question word:
  * «Какие все условия?», «Чи ҳама шартҳо?» ask the agency's terms (fourth review of #211, п.3).
  */
+/**
+ * The whole message is the terms word: «Условия.», «шартҳо», «шарту шароит» (review of #269: messengers write the question
+ * this way, and before the gate the commission was printed). One or two such words and nothing else; inside a longer
+ * phrase without a question («мне условия не важны») it stays a description.
+ */
+const BARE_TERMS = /^(?:шарт\p{L}*|шароит\p{L}*|услови\p{L}*)(?: (?:шарт\p{L}*|шароит\p{L}*|услови\p{L}*))?$/u;
 const AMENITIES = new RegExp(`(?<!${BW}(?:какие|каковы|какая|какой|чи|кадом|кадоме)\\s+)${BW}(?:все|всеми|всех|хама|хамаи|бо\\s+хама)\\s+(?:услови\\p{L}*|шароит\\p{L}*|шарт\\p{L}*)`, "u");
 
 /** The customer's own words name the agency's fee («комиссия 2% устроит» counts too: the wider reading). */
@@ -47,9 +53,16 @@ export function customerCommissionWordsAsked(text: string): boolean {
 
 /** The customer ASKS what the agency takes: a fee word or «какие у вас условия?», as a question. One detector for the renderer and the seller guard. */
 export function customerAgencyTermsAsked(text: string): boolean {
-  const words = ownWords(text);
-  return (COMMISSION_ASKED.test(words) || TERMS_WORD.test(words) && !AMENITIES.test(words)) &&
-    (/[?؟]/u.test(clientOwnWords(text)) || ASKING_TERMS.test(words)) && !NOT_AGENCY_TERMS.test(words) && !customerRecruitmentRequested(text);
+  const own = clientOwnWords(text), words = foldCustomerTextForRole(own);
+  if (NOT_AGENCY_TERMS.test(words) || customerRecruitmentRequested(text)) return false;
+  if (BARE_TERMS.test(words)) return true;
+  const isQuestion = (raw: string, folded: string) => /[?؟]/u.test(raw) || ASKING_TERMS.test(folded);
+  if (COMMISSION_ASKED.test(words) && isQuestion(own, words)) return true;
+  // «Условия» asks only inside its own clause: «мне условия не важны, сколько комнат?» is a question about rooms.
+  return (own.match(/[^,.;!?؟\n]+[,.;!?؟\n]*/gu) ?? []).some(clause => {
+    const folded = foldCustomerTextForRole(clause);
+    return TERMS_WORD.test(folded) && !AMENITIES.test(folded) && isQuestion(clause, folded);
+  });
 }
 
 const POLICY_ASKED: Partial<Record<CustomerAgentCompanyPolicyTopic, RegExp>> = {
