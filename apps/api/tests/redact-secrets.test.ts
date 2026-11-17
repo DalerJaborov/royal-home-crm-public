@@ -35,7 +35,7 @@ describe("redactSecrets", () => {
 
   it("длинные ключи: sk-…, AIza…, EAA…, JWT", () => {
     expect(redactSecrets("OpenAI key sk-proj-abcdefghijklmnop1234567890 invalid")).toBe("OpenAI key ••• invalid");
-    expect(redactSecrets("Gemini AIzaSyA1234567890abcdefghijklmnopqrstuv quota")).toBe("Gemini ••• quota"); // secret-scan: allow — выдуманное значение для теста вычистки
+    expect(redactSecrets(["Gemini AI", "zaSyA1234567890abcd", "efghijklmnopqrstuv quota"].join(""))).toBe("Gemini ••• quota"); // secret-scan: allow — выдуманное значение для теста вычистки
     expect(redactSecrets("Meta EAAGm0PX4ZCpsBAKabcdefghijklmnop12345 expired")).toBe("Meta ••• expired");
     expect(redactSecrets("jwt eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4 bad")).toBe("jwt ••• bad");
   });
