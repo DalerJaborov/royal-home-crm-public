@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PermissionId } from "@royal-home/shared";
 
 /**
@@ -160,7 +160,23 @@ describe("реестр и общая группа", () => {
   });
 });
 
+/**
+ * Показ засеян на 23:59 по Душанбе «сегодня» — в последнюю минуту суток он уже просрочен и счёт
+ * просрочек разойдётся. Часы (только Date) на время теста ставим на полдень этих суток: результат
+ * не зависит от минуты прогона. Запросы к базе и таймеры не трогаем.
+ */
+function useNoonClock(): void {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(dushanbeInputToDate(dushanbeDateString(), "12:00"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
 describe("get_unworked", () => {
+  useNoonClock();
   it("агент видит только своё: свою просрочку и своих без контакта, без Корзины", async () => {
     const own = await call("get_unworked", {}, actorA());
     expect(own.scope).toBe("только ваше");
@@ -202,6 +218,7 @@ describe("get_unworked", () => {
 });
 
 describe("get_my_day", () => {
+  useNoonClock();
   it("свои показы, просрочка и непринятая заявка; чужие дела не видны", async () => {
     const day = await call("get_my_day", {}, actorA());
     expect(day.scope).toBe("только ваше");

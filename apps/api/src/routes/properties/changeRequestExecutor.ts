@@ -572,6 +572,8 @@ async function executeFieldsChange(a: {
   return failure ? `Данные обновлены, но ролик не ушёл на перемонтаж: ${failure}` : null;
 }
 
+const STATUS_REQUEST_STALE = "Объект изменился, заявка устарела — подайте новую";
+
 /**
  * Смена статуса по заявке «Другое» от помощника — дверь lib/propertyStatusChange.ts правами
  * ТОГО, КТО ПРИНЯЛ (свежими, мимо кэша): не может он сам сменить такой статус в карточке —
@@ -586,15 +588,19 @@ async function executeStatusChange(a: {
 }): Promise<string | null> {
   const access = await loadAgentAccess(a.actorId, prisma);
   if (!access?.isActive) return "Сотрудник, принявший заявку, не активен";
-  const { to, removalReason, removalComment } = a.statusChange;
+  const { to, from, removalReason, removalComment } = a.statusChange;
+  // Заявка живёт дольше превью: пока она ждала, объект могли перевести в другой статус (на модерацию,
+  // в «Продано»). Без исходного статуса (старая заявка) вслепую не исполняем — тоже «устарела».
+  if (!from) return STATUS_REQUEST_STALE;
   const outcome = await changePropertyStatus({
     propertyId: a.propertyId,
     actor: { agentId: a.actorId, can: (permission) => access.permissions.has(permission) },
     to,
     removal: removalReason ? { removalReason, removalComment } : null,
+    expect: { status: from },
     auditMeta: { viaChangeRequest: a.requestId },
   });
-  if (!outcome.ok) return outcome.error;
+  if (!outcome.ok) return outcome.code === "STALE" ? STATUS_REQUEST_STALE : outcome.error;
   a.result.applied.push(
     `Статус: «${PROPERTY_STATUS_LABEL_RU[outcome.before.status]}» → «${PROPERTY_STATUS_LABEL_RU[outcome.property.status]}»`
   );

@@ -159,9 +159,11 @@ const asRequest = makeChangeRequestExecutor<Args>({
   },
 
   // Машинная часть: исполнитель заявок по ней зовёт ту же дверь, что карточка.
-  extraPayload: (args) => ({
+  extraPayload: (args, property) => ({
     statusChange: {
       to: args.status,
+      // Статус на момент подачи: при «Принять» объект обязан быть в нём же, иначе заявка устарела.
+      from: property.status,
       ...(args.removalReason ? { removalReason: args.removalReason } : {}),
       ...(args.removalComment ? { removalComment: args.removalComment } : {}),
     },
@@ -219,6 +221,9 @@ export const changePropertyStatusExecutor: AssistantActionExecutor<Args> = {
   tool: "change_property_status",
   // Как PATCH: права проверяются по объекту (canManagePropertyAs), а не общей галочкой заявок.
   channels: ["crm", "telegram"],
+  // Статус меняется сразу и закрывает показы и посты — не при чужих глазах в общей группе
+  // (вторая стена к GROUP_HIDDEN_TOOLS в telegram/assistantBot.ts).
+  privateTelegram: true,
   parseArgs: (raw) => argsSchema.parse(raw),
   authorize: asRequest.authorize,
 

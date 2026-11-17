@@ -772,6 +772,49 @@ describe("change_property_status", () => {
     expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("WITHDRAWN");
   });
 
+  it("заявка устарела: статус сменили, пока она ждала (WITHDRAWN → SOLD) — «Принять» даёт FAILED, статус остаётся SOLD", async () => {
+    const property = await seedReadyWithdrawn();
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "AVAILABLE" });
+    await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
+    const [request] = await requests(property.id, "OTHER");
+    // Исходный статус лежит в самой заявке.
+    expect(request.payload).toMatchObject({ statusChange: { to: "AVAILABLE", from: "WITHDRAWN" } });
+    await prisma.property.update({ where: { id: property.id }, data: { status: "SOLD" } });
+
+    const outcome = await approvePropertyChangeRequest({ requestId: request.id, actorId: directorId, note: null });
+    expect(outcome).toMatchObject({ ok: true });
+    const decided = await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(decided.status).toBe("FAILED");
+    expect(decided.error).toMatch(/Объект изменился, заявка устарела/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("SOLD");
+  });
+
+  it("старая заявка без исходного статуса (лежала в базе до поля from) вслепую не исполняется", async () => {
+    const property = await seedReadyWithdrawn();
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "AVAILABLE" });
+    await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
+    const [request] = await requests(property.id, "OTHER");
+    const payload = request.payload as { text: string; statusChange: Record<string, unknown> };
+    const { from: _from, ...legacy } = payload.statusChange;
+    await prisma.propertyChangeRequest.update({
+      where: { id: request.id },
+      data: { payload: { ...payload, statusChange: legacy } as never },
+    });
+
+    await approvePropertyChangeRequest({ requestId: request.id, actorId: directorId, note: null });
+    const decided = await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(decided.status).toBe("FAILED");
+    expect(decided.error).toMatch(/заявка устарела/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("WITHDRAWN");
+  });
+
+  it("только личка: change_property_status скрыт в общей группе, у исполнителя privateTelegram", async () => {
+    const { groupHiddenToolsForTests } = await import("../src/telegram/assistantBot.js");
+    const { getAssistantActionExecutor } = await import("../src/lib/assistantActions.js");
+    expect(groupHiddenToolsForTests().has("change_property_status")).toBe(true);
+    expect(getAssistantActionExecutor("change_property_status")?.privateTelegram).toBe(true);
+  });
+
   it("возврат в продажу: не готов — отказ сразу (и заявкой тоже); без права заявок — шаг маркетинга; руководитель — сразу", async () => {
     const bare = await seed({ status: "WITHDRAWN" });
     await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref: String(bare.shortId), status: "AVAILABLE" }, 409, /не готов к продаже/);

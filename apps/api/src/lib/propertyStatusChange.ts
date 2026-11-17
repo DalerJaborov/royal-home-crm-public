@@ -175,7 +175,15 @@ export async function runPropertyStatusEffects(input: {
   }
 
   if (flags.becameWithdrawn && updated.sellerClientId) {
-    await recomputeSellerCardState({ sellerClientId: updated.sellerClientId, lostReason: input.removalReason ?? null });
+    // Производные данные: сбой пересчёта не должен съесть остальное — в PATCH после этого шага
+    // идут запись «было → стало» и уведомление о правке (раньше пересчёт стоял ПОСЛЕ них).
+    try {
+      await recomputeSellerCardState({ sellerClientId: updated.sellerClientId, lostReason: input.removalReason ?? null });
+    } catch (err) {
+      void logSystemError("api", `Объект ${updated.id}: пересчёт карточки продавца после снятия не удался: ${describeError(err)}`, {
+        url: `/properties/${updated.id}`,
+      });
+    }
   }
 
   // Возврат из монтажа на доработку: монтажёр получает «сняли с монтажа», место освобождается.
@@ -371,6 +379,12 @@ export async function changePropertyStatus(input: {
 export const statusChangeRequestSchema = z.object({
   statusChange: z.object({
     to: z.enum(["AVAILABLE", "RESERVED", "SOLD", "WITHDRAWN"]),
+    /**
+     * Статус объекта на момент подачи заявки. При «Принять» объект обязан быть в нём же, иначе
+     * заявка устарела (17.11.2026). У заявок, лежавших в базе до этого поля, его нет — их тоже
+     * вслепую не исполняем.
+     */
+    from: z.string().trim().min(1).max(40).optional(),
     // Те же поля, что propertyRemovalSchema; полная проверка — в двери (checkPropertyStatusChange).
     removalReason: z.enum(PROPERTY_DELETE_REQUEST_REASONS).optional(),
     removalComment: z.string().trim().max(1000).optional(),

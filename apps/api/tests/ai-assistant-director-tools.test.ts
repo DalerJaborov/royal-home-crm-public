@@ -62,6 +62,20 @@ let agentId = "";
 /** Рубильник для проверки — без влияния на соседние тесты (только месячный отчёт по крону). */
 const SWITCH_KEY = "problemReportMonthlyEnabled";
 let switchBefore: boolean | null = null;
+/** Строки настроек до прогона могло не быть: тогда её создал сам тест, и убрать её надо тоже. */
+let settingsRowExisted = true;
+
+/** Вернуть рубильник как был (и убрать строку, если её создали мы) — в afterAll и в finally теста. */
+async function restoreSwitch(removeCreatedRow = false): Promise<void> {
+  if (!settingsRowExisted) {
+    if (!removeCreatedRow) return; // посреди прогона строку не убираем — она нужна следующим тестам
+    await prisma.settings.deleteMany({ where: { id: "singleton" } });
+    return;
+  }
+  if (switchBefore !== null) {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { [SWITCH_KEY]: switchBefore } as never });
+  }
+}
 
 async function agent(fullName: string, role: string, extra: Record<string, unknown> = {}) {
   const row = await prisma.agent.create({ data: { fullName, phone: phone(), role: role as never, passwordHash: "x", ...extra } });
@@ -117,14 +131,13 @@ beforeAll(async () => {
   noTotpDirectorId = (await agent(`Директор без кода ${runId}`, "DIRECTOR")).id;
   agentId = (await agent(`Агент режима ${runId}`, "AGENT")).id;
   const settings = (await prisma.settings.findUnique({ where: { id: "singleton" } })) as unknown as Record<string, unknown> | null;
+  settingsRowExisted = settings !== null;
   switchBefore = typeof settings?.[SWITCH_KEY] === "boolean" ? (settings[SWITCH_KEY] as boolean) : null;
 });
 
 afterAll(async () => {
   revokeElevation(directorId);
-  if (switchBefore !== null) {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { [SWITCH_KEY]: switchBefore } as never });
-  }
+  await restoreSwitch(true);
   await prisma.settingsSnapshot.deleteMany({ where: { agentId: { in: agentIds } } });
   await prisma.errorLog.deleteMany({ where: { id: { in: errorIds } } });
   await prisma.propertyChangeRequest.deleteMany({ where: { propertyId: { in: propertyIds } } });
@@ -200,22 +213,26 @@ describe("рубильник: код Google Authenticator и подтвержд�
   it("без кода — 428 и ничего не меняется; с кодом — переключено, журнал; откат возвращает", async () => {
     const before = (await runRead("list_switches", { key: SWITCH_KEY }, directorId)) as { switches: Array<{ on: boolean }> };
     const was = before.switches[0]!.on;
-    const card = await broker.createPendingAssistantAction(await telegramActor(directorId), "set_switch", { key: SWITCH_KEY, on: !was });
+    try {
+      const card = await broker.createPendingAssistantAction(await telegramActor(directorId), "set_switch", { key: SWITCH_KEY, on: !was });
 
-    await expect(broker.confirmAssistantAction(card.id, await telegramActor(directorId))).rejects.toMatchObject({ status: 428, code: "STEP_UP_REQUIRED" });
-    expect((await prisma.assistantAction.findUniqueOrThrow({ where: { id: card.id } })).status).toBe("PENDING");
+      await expect(broker.confirmAssistantAction(card.id, await telegramActor(directorId))).rejects.toMatchObject({ status: 428, code: "STEP_UP_REQUIRED" });
+      expect((await prisma.assistantAction.findUniqueOrThrow({ where: { id: card.id } })).status).toBe("PENDING");
 
-    const done = await broker.confirmAssistantAction(card.id, await verified());
-    expect(done.action.status).toBe("EXECUTED");
-    const now = (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" } })) as unknown as Record<string, unknown>;
-    expect(now[SWITCH_KEY]).toBe(!was);
-    await waitFor(async () => (await prisma.auditLog.count({ where: { agentId: directorId, action: "SETTINGS_UPDATE" } })) >= 1);
-    await waitFor(async () => (await prisma.auditLog.count({ where: { agentId: directorId, action: "ASSISTANT_SET_SWITCH" } })) >= 1);
+      const done = await broker.confirmAssistantAction(card.id, await verified());
+      expect(done.action.status).toBe("EXECUTED");
+      const now = (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" } })) as unknown as Record<string, unknown>;
+      expect(now[SWITCH_KEY]).toBe(!was);
+      await waitFor(async () => (await prisma.auditLog.count({ where: { agentId: directorId, action: "SETTINGS_UPDATE" } })) >= 1);
+      await waitFor(async () => (await prisma.auditLog.count({ where: { agentId: directorId, action: "ASSISTANT_SET_SWITCH" } })) >= 1);
 
-    await expect(broker.undoAssistantAction(card.id, await telegramActor(directorId))).rejects.toMatchObject({ status: 428 });
-    await broker.undoAssistantAction(card.id, await verified());
-    const back = (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" } })) as unknown as Record<string, unknown>;
-    expect(back[SWITCH_KEY]).toBe(was);
+      await expect(broker.undoAssistantAction(card.id, await telegramActor(directorId))).rejects.toMatchObject({ status: 428 });
+      await broker.undoAssistantAction(card.id, await verified());
+      const back = (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" } })) as unknown as Record<string, unknown>;
+      expect(back[SWITCH_KEY]).toBe(was);
+    } finally {
+      await restoreSwitch();
+    }
   });
 
   it("из CRM — только в окне подтверждения личности", async () => {

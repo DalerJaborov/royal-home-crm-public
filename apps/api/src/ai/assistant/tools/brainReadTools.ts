@@ -6,6 +6,7 @@ import { availabilityOf } from "../../../lib/agentAvailability.js";
 import { agentLoadCounts, NO_LOAD } from "../../../lib/agentLoad.js";
 import { findStaffByName } from "../../../lib/agentNameLookup.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../../../lib/clientPhone.js";
+import { redactSecrets } from "../../../lib/redactSecrets.js";
 import { withHiddenOrigin } from "../../../lib/clientOrigin.js";
 import { runLimited } from "../../../lib/concurrency.js";
 import { dushanbeDateString, dushanbeDateTimeString, dushanbeDayRange } from "../../../lib/dushanbeTime.js";
@@ -778,7 +779,7 @@ export const getStuckWorkTool: AssistantReadToolPlugin = {
       status: i.status,
       owner: i.ownerAgentName,
       attempts: `${i.attempts}/${i.maxAttempts}`,
-      lastError: safeField(phoneSafeText(i.lastError, actor.canViewPhone), 200),
+      lastError: safeField(phoneSafeText(redactSecrets(i.lastError), actor.canViewPhone), 200),
       updatedAt: dushanbeDateTimeString(i.updatedAt),
     });
     const broken = snapshot.filter((r) => r.ok === false);
@@ -802,7 +803,7 @@ export const getStuckWorkTool: AssistantReadToolPlugin = {
       },
       integrations: {
         checkedAt: checkedAt ? dushanbeDateTimeString(checkedAt) : null,
-        broken: broken.map((b) => ({ name: b.name, detail: safeField(b.detail, 160) })),
+        broken: broken.map((b) => ({ name: b.name, detail: safeField(redactSecrets(b.detail), 160) })),
         alive: snapshot.filter((r) => r.ok === true).length,
         notConfigured: snapshot.filter((r) => r.ok === null).length,
       },

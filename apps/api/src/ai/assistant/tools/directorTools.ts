@@ -29,6 +29,7 @@ import {
   type AssistantActionSnapshot,
 } from "../../../lib/assistantActions.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../../../lib/clientPhone.js";
+import { redactSecrets } from "../../../lib/redactSecrets.js";
 import { deepHealth } from "../../../lib/deepHealth.js";
 import { dushanbeDateString, dushanbeDateTimeString, dushanbeDayRange, dushanbeInputToDate } from "../../../lib/dushanbeTime.js";
 import { loadErrorLogDigest, reopenErrorLogEntry, resolveErrorLogEntry, type ErrorLogViewer } from "../../../lib/errorLogActions.js";
@@ -565,7 +566,7 @@ export const getErrorLogTool: AssistantReadToolPlugin = {
     const viewer: ErrorLogViewer = { agentId: actor.id, role: actor.role, securityRole: assistantInvestigationRole(actor) };
     const digest = await loadErrorLogDigest(viewer, window, { latestLimit: LIST_LIMIT });
     const groups = digest.groups.slice(0, LIST_LIMIT);
-    const text = (message: string) => safeField(phoneSafeText(message, actor.canViewPhone), 300);
+    const text = (message: string) => safeField(phoneSafeText(redactSecrets(message), actor.canViewPhone), 300);
     return {
       period: window.label,
       unresolved: digest.unresolvedTotal,
@@ -611,7 +612,7 @@ async function errorRowSnapshot(args: ResolveArgs, actor: AssistantActionActor):
   return {
     exists: true,
     source: row.source,
-    message: plainField(phoneSafeText(row.message, access.permissions.has("clients.viewPhone")), 150),
+    message: plainField(phoneSafeText(redactSecrets(row.message), access.permissions.has("clients.viewPhone")), 150),
     resolved: row.resolvedAt !== null,
   };
 }
@@ -715,7 +716,7 @@ export const getSystemHealthTool: AssistantReadToolPlugin = {
         ? "работает"
         : core.workerLastBeatSec === null ? "нет отметок — возможно, остановлен" : `молчит ${Math.round(core.workerLastBeatSec / 60)} мин`,
       channels: {
-        broken: broken.slice(0, LIST_LIMIT).map((c) => ({ name: c.name, detail: safeField(c.detail, 200), checkedAt: when(c.checkedAt) })),
+        broken: broken.slice(0, LIST_LIMIT).map((c) => ({ name: c.name, detail: safeField(redactSecrets(c.detail), 200), checkedAt: when(c.checkedAt) })),
         moreBroken: more(broken.length, Math.min(broken.length, LIST_LIMIT)),
         ok: channels.filter((c) => c.ok === true).length,
         notConfigured: channels.filter((c) => c.ok === null).length,
@@ -733,7 +734,7 @@ export const getSystemHealthTool: AssistantReadToolPlugin = {
         kind: b.kind,
         ok: b.success,
         finishedAt: when(b.finishedAt),
-        ...(b.success ? {} : { detail: safeField(b.detail, 200) }),
+        ...(b.success ? {} : { detail: safeField(redactSecrets(b.detail), 200) }),
       })),
       errorsLast24h: { needsHuman: errors.actionable, crmHandledItself: errors.operational, href: "/health" },
       ...(functions
@@ -743,7 +744,7 @@ export const getSystemHealthTool: AssistantReadToolPlugin = {
                 name: c.name,
                 health: c.health === "failing" ? "последний запуск упал" : "давно не запускалась",
                 lastRunAt: c.lastRunAt ? when(new Date(c.lastRunAt)) : null,
-                lastError: safeField(c.lastError, 200),
+                lastError: safeField(redactSecrets(c.lastError), 200),
               })),
               more: more(badCrons.length, Math.min(badCrons.length, LIST_LIMIT)),
               functionsNeedingAttention: functions.summary.attention,

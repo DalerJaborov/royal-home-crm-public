@@ -158,6 +158,8 @@ export async function missedWithoutCallbackIds(
   const candidates = await prisma.incomingCall.findMany({
     where: { ...scope, startedAt: { gte: since }, answered: false, irrelevant: false },
     select: { id: true, clientId: true, startedAt: true },
+    // Потолок режет хвост: пусть теряются самые старые пропущенные, а не свежие.
+    orderBy: { startedAt: "desc" },
     take: MISSED_NO_CALLBACK_CANDIDATES_CAP,
   });
   const calledBack = await findCallbackContacts(
