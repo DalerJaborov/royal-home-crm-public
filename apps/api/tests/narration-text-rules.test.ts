@@ -27,15 +27,15 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     expect(renderNarrationTemplate(tg, { ...apartment, totalFloors: null })).toContain("Ошёнаи панҷум.");
     expect(/\d/u.test(renderNarrationTemplate(tg, apartment))).toBe(false);
   });
-  it("keeps digits for Russian and capitalises sentence starts", () => {
-    expect(renderNarrationTemplate({ lang: "ru", text: "в продаже {вид}. [комнат: {комнаты}.] площадь {площадь} метров." }, apartment)).toBe("В продаже квартира. Комнат: 3. Площадь 86 метров.");
+  it("Russian is spoken in words too (owner 17.11.2026) and capitalises sentence starts", () => {
+    expect(renderNarrationTemplate({ lang: "ru", text: "в продаже {вид}. [комнат: {комнаты}.] площадь {площадь} метров." }, apartment)).toBe("В продаже квартира. Комнат: три. Площадь восемьдесят шесть метров.");
   });
   it("ordinals and the moved speech-number module agree", () => {
     expect([1, 2, 3, 4, 10, 30, 31].map(tajikOrdinal)).toEqual(["якум", "дуюм", "сеюм", "чорум", "даҳум", "сиюм", "сиву якум"]);
     expect(tajikCardinal(86)).toBe("ҳаштоду шаш");
     expect(tajikSpeechNumbers("3 ҳуҷра")).toBe("се ҳуҷра");
     expect(narrationSpeechText("3 ҳуҷра, 86 м²", "tg")).toBe("се ҳуҷра, ҳаштоду шаш метри мураббаъ");
-    expect(narrationSpeechText("3 комнаты", "ru")).toBe("3 комнаты");
+    expect(narrationSpeechText("3 комнаты", "ru")).toBe("три комнаты");
   });
   it("rejects unknown placeholders, unbalanced brackets and long dashes in owner templates", () => {
     expect(narrationTemplateError("{стоимость} сомонӣ")).toMatch(/Неизвестное/);
@@ -85,8 +85,8 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     expect(narrationPriceWords("390000.00", "TJS", "tg")).toBe("сесаду навад ҳазор сомонӣ");
     expect(narrationPriceWords(null, "USD", "tg")).toBe("бо мувофиқа");
     expect(narrationPriceWords("0", "TJS", "ru")).toBe("договорная");
-    expect(["1", "2", "5", "11", "21", "22"].map((p) => narrationPriceWords(p, "USD", "ru"))).toEqual(["1 доллар", "2 доллара", "5 долларов", "11 долларов", "21 доллар", "22 доллара"]);
-    expect(narrationPriceWords("390000", "TJS", "ru")).toBe("390000 сомони");
+    expect(["1", "2", "5", "11", "21", "22"].map((p) => narrationPriceWords(p, "USD", "ru"))).toEqual(["один доллар", "два доллара", "пять долларов", "одиннадцать долларов", "двадцать один доллар", "двадцать два доллара"]);
+    expect(narrationPriceWords("390000", "TJS", "ru")).toBe("триста девяносто тысяч сомони");
     const text = renderNarrationTemplate({ lang: "tg", text: "Нархаш {цена}." }, apartment);
     expect(text).toBe("Нархаш ҳаштоду панҷ ҳазор доллар.");
     expect(/\d/u.test(renderNarrationTemplate(seeded[0], apartment))).toBe(false);
