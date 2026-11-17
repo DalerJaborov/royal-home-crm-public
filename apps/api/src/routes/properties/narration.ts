@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { narrationConfigSchema, narrationConfigPatchSchema, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { hasMarketingRole } from "../marketing.js";
@@ -20,9 +20,10 @@ import { prepareNarrationDeliveryPlan, narrationDeliveryAttemptBudgetMs } from "
 import { mediaExecutionMode } from "../../lib/mediaExecution.js";
 import { preparePublicationMetadataPreview } from "../../lib/publicationMetadataSync.js";
 import { listPriceCaptionDelivery } from "../../lib/priceCaptionDelivery.js";
+import { createFreeNarrationRequest, freeNarrationFilePath, freeNarrationUsedToday, runFreeNarration } from "../../lib/freeNarration.js";
 
 export const narrationRouter = Router();
-narrationRouter.use(["/narration-settings", "/narration-options", "/narration-voice-samples", "/:id/narration"], requireAuth);
+narrationRouter.use(["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], requireAuth);
 const idSchema = z.string().uuid();
 const manager = (agent?: { permissions: ReadonlySet<string> } | null) => hasMarketingRole(agent);
 const configuration = loadNarrationConfiguration;
@@ -48,6 +49,66 @@ narrationRouter.get("/narration-options", async (_req, res) => {
     lastChoice: await narrationLastChoiceFor(_req.agent?.id, config),
     samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })) };
   res.json(view);
+});
+
+/**
+ * ОЗВУЧКА СВОБОДНОГО ТЕКСТА (16.11.2026). Тот же путь, что у «озвучь текст» в Шабнам: lib/freeNarration.ts.
+ * Любой активный сотрудник, кроме ролей «только чтение». Голоса, модель, словарь и дневной потолок знаков общие
+ * с озвучкой объектов. Экрана в CRM пока нет (следующий шаг): ответ — JSON и ссылка на файл на сутки.
+ */
+narrationRouter.get("/narration-free/options", async (req, res) => {
+  const { config } = await configuration();
+  const limits = freeNarrationLimits(config);
+  const used = await freeNarrationUsedToday(req.agent!.id);
+  res.json({ enabled: freeNarrationEnabled(config), voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
+    defaultVoiceId: pickNarrationVoice(config), lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
+    maxChars: limits.maxChars, perPersonDaily: limits.perPersonDaily, remainingToday: Math.max(0, limits.perPersonDaily - used) });
+});
+narrationRouter.post("/narration-free", async (req, res) => {
+  const body = freeNarrationRequestSchema.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: "Пришлите текст (от 3 знаков) и ключ повтора", details: body.error.flatten() });
+  const agentId = req.agent!.id;
+  const created = await createFreeNarrationRequest({ agentId, source: "API", text: body.data.text, lang: body.data.lang, requestKey: body.data.requestKey });
+  if (created.status === "NO_ACCESS") return res.status(403).json({ error: "Нет доступа к озвучке текста" });
+  if (created.status === "OFF") return res.status(403).json({ error: "Озвучка текста выключена в настройках" });
+  if (created.status === "NOT_CONFIGURED") return res.status(409).json({ error: "Озвучка не настроена: нет ключа, модели или голосов" });
+  if (created.status === "TOO_SHORT") return res.status(400).json({ error: "Текст слишком короткий" });
+  if (created.status === "KEY_CONFLICT") return res.status(422).json({ error: "Этот ключ уже использован для другого текста. Возьмите новый ключ повтора." });
+  if (created.status === "TOO_LONG") return res.status(400).json({ error: `Текст длиннее ${created.max} знаков (у вас ${created.length})` });
+  const outcome = await runFreeNarration({ id: created.row.id, agentId, voiceId: body.data.voiceId });
+  // Файл не сохранился, но озвучка уже оплачена: отдаём аудио из памяти прямо в ответе, повторять запрос (и платить) не нужно.
+  if (outcome.status === "READY" && !outcome.storageKey) {
+    res.setHeader("X-Free-Narration-Id", outcome.row.id); res.setHeader("Cache-Control", "private, no-store");
+    return res.type("audio/mpeg").send(outcome.audio);
+  }
+  const ready = outcome.status === "READY" ? outcome.row : outcome.status === "ALREADY_READY" ? outcome.row : null;
+  if (ready) {
+    const file = ready.storageKey;
+    if (!file) return res.status(410).json({ error: "Файл этой озвучки не сохранился и уже не получить. Отправьте текст заново с новым ключом." });
+    const { config } = await configuration();
+    const result: FreeNarrationResult = { id: ready.id, status: "READY", chars: ready.chars, voiceId: ready.voiceId ?? "",
+      voiceName: config.voices.find((v) => v.id === ready.voiceId)?.name ?? null, lang: ready.lang === "tg" || ready.lang === "ru" ? ready.lang : null,
+      fileUrl: `/api/v1/properties/narration-free/${ready.id}/file` };
+    return res.json(result);
+  }
+  switch (outcome.status) {
+    case "NO_ACCESS": return res.status(403).json({ error: "Нет доступа к озвучке текста" });
+    case "OFF": return res.status(403).json({ error: "Озвучка текста выключена в настройках" });
+    case "NOT_CONFIGURED": return res.status(409).json({ error: "Озвучка не настроена: нет ключа, модели или голосов" });
+    case "VOICE_UNKNOWN": return res.status(400).json({ error: "Такого голоса нет в утверждённых для озвучки" });
+    case "LIMIT_PERSON": return res.status(429).json({ error: `Сегодня уже ${outcome.limit} озвучек. Остальное завтра.` });
+    case "BUDGET": return res.status(429).json({ error: "Общий дневной предел озвучки исчерпан. Попробуйте завтра." });
+    case "ALREADY_RUNNING": return res.status(409).json({ error: "Эта озвучка уже готовится. Повторите запрос через минуту." });
+    case "ALREADY_FAILED": return res.status(409).json({ error: "Эта озвучка не получилась. Отправьте запрос с новым ключом." });
+    case "FAILED": return res.status(outcome.quota ? 503 : 502).json({ error: outcome.quota ? "Кредиты ElevenLabs закончились. Сообщите руководителю." : "Не получилось сделать озвучку. Попробуйте позже." });
+    default: return res.status(404).json({ error: "Запрос не найден" });
+  }
+});
+narrationRouter.get("/narration-free/:id/file", async (req, res) => {
+  const id = idSchema.safeParse(req.params.id);
+  const file = id.success ? await freeNarrationFilePath(id.data, req.agent!.id) : null;
+  if (!file) return res.status(404).json({ error: "Файла нет: озвучка хранится сутки" });
+  res.setHeader("Cache-Control", "private, no-store"); res.type("audio/mpeg").download(file, `ozvuchka-${id.data!.slice(0, 8)}.mp3`);
 });
 
 /**

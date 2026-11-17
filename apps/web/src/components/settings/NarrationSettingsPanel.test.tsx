@@ -39,7 +39,14 @@ describe("Настройки CRM: озвучка роликов", () => {
     const html = render(view({ canConfigure: false }));
     expect(html).toContain("Менять настройки озвучки может директор или администратор");
     expect(html).not.toContain("Сохранить настройки озвучки");
-    expect(html.match(/<fieldset[^>]*disabled/g)?.length).toBe(5);
+    expect(html.match(/<fieldset[^>]*disabled/g)?.length).toBe(6);
+  });
+  it("озвучка текста в помощнике: тумблер и три числа с умолчаниями, из настроек подставляются свои", () => {
+    const html = render(view());
+    for (const part of ["Озвучка текста в помощнике", "Озвучек на человека в сутки", "Символов в одном тексте", "Доля от дневного предела, %"]) expect(html).toContain(part);
+    expect(html).toContain('value="5"'); expect(html).toContain('value="1500"'); expect(html).toContain('value="30"');
+    const custom = render(view({ config: { ...view().config, freeNarrationPerPersonDaily: 7, freeNarrationMaxChars: 900, freeNarrationBudgetPercent: 15, freeNarrationEnabled: false } }));
+    expect(custom).toContain('value="7"'); expect(custom).toContain('value="900"'); expect(custom).toContain('value="15"');
   });
   it("кредиты закончились — предупреждение; без ключа образцы не заказать", () => {
     expect(render(view({ quotaExceeded: true }))).toContain("Кредиты ElevenLabs закончились");

@@ -56,6 +56,14 @@ export const narrationPronunciationDictionarySchema = z.object({
 
 const narrationConfigBase = z.object({
   ownerReportPreviewEnabled: z.boolean().optional(),
+  /** Рубильник «Озвучка текста в помощнике» (16.11.2026). Не задан или true: включено для всех активных сотрудников. */
+  freeNarrationEnabled: z.boolean().optional(),
+  /** Потолок озвучек свободного текста на человека в сутки (по Душанбе); по умолчанию FREE_NARRATION_DEFAULTS. */
+  freeNarrationPerPersonDaily: z.number().int().min(1).max(100).optional(),
+  /** Предел знаков одного свободного текста; по умолчанию FREE_NARRATION_DEFAULTS. */
+  freeNarrationMaxChars: z.number().int().min(50).max(5000).optional(),
+  /** Доля дневного предела озвучки (знаки и озвучки), которую могут выбрать свободные тексты, %; по умолчанию FREE_NARRATION_DEFAULTS. */
+  freeNarrationBudgetPercent: z.number().int().min(1).max(100).optional(),
   modelId: z.string().trim().max(100).default(""),
   voices: z.array(narrationVoiceSchema).max(50).default([]),
   /** Рубильник: озвучка сама готовится после создания объекта и после правки его данных. */
