@@ -27,6 +27,10 @@ import { runStationOutageProbeTick } from "./lib/stationOutage.js";
 import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
+import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
+import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
+import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
+import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
 import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
 import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
@@ -82,6 +86,7 @@ import { collectSiteStats } from "./lib/siteStats.js";
 import { notifyHotProperties } from "./lib/propertyHotAlert.js";
 import { runPublishedChannelsAuditTick } from "./lib/publishedChannelsAudit.js";
 import { checkBackupFreshness } from "./lib/backupFreshness.js";
+import { runBalanceWatch } from "./lib/balanceWatch.js";
 import { alertOnIntegrationBreakage, runIntegrationHealthChecks } from "./lib/integrationHealth.js";
 import { followUpLimit, isClosingMessage, isFollowUpDue } from "./lib/botFollowUps.js";
 import { distillLessons, EMPTY_LESSON } from "./lib/botLessons.js";
@@ -511,9 +516,10 @@ export async function sendDirectorDigest(): Promise<number> {
     ...(reviewsYesterday > 0
       ? [`⭐ ${reviewsYesterday} ${pluralizeRu(reviewsYesterday, ["отзыв", "отзыва", "отзывов"])} после сделки за вчера`]
       : []),
-    // Пачка 18 (12.09.2026): пропущенные без перезвона за вчера, на сейчас — по
-    // каждому отдельному звонку уже напоминает/эскалирует отдельный крон каждые
-    // 30 минут (lib/telephony/missedCallEscalation.ts), здесь только общий счёт.
+    // Пачка 18 (12.09.2026): пропущенные без перезвона за вчера, на сейчас. Крона, который
+    // каждые 30 минут эскалировал каждый пропущенный руководству, больше нет (убран владельцем
+    // 20.09.2026, см. ниже «ЭСКАЛАЦИЯ ПРОПУЩЕННЫХ РУКОВОДСТВУ УДАЛЕНА»): общий счёт здесь
+    // (lib/telephony/missedCallEscalation.ts::countMissedCallsNoCallbackYesterday), и всё.
     ...(missedCallsNoCallbackYesterday > 0
       ? [
           `📵 ${missedCallsNoCallbackYesterday} ${pluralizeRu(missedCallsNoCallbackYesterday, ["пропущенный", "пропущенных", "пропущенных"])} без перезвона за вчера`,
@@ -2793,6 +2799,66 @@ export function startCronJobs() {
   });
 
   /**
+   * СВЕРКА ПЕРЕПИСОК СТРАНИЦ С META (15.11.2026, lib/metaInboxReconcile.ts).
+   * Сторож выше видит только то, что уже в CRM; сообщение, которое Meta не
+   * прислала вебхуком (у приложения базовый доступ к Messenger чужой Страницы,
+   * обрыв на перезапуске), он не видит. Раз в 10 минут, круглые сутки (пуш ночью
+   * молчит по тихим часам, запись в колокольчике остаётся): не дошедшее — пуш
+   * «Ответьте вручную» тем, кто читает переписки. Только чтение Graph API.
+   * С 15.11.2026 и Direct аккаунтов Instagram (В4); у каждой площадки свой рубильник.
+   */
+  scheduleTracked("meta-inbox-reconcile", "3-59/10 * * * *", async () => {
+    try {
+      const { people, missed } = await runMetaInboxReconcile();
+      if (people > 0) console.log(`[cron] Сверка Страниц: не дошло до CRM ${missed} сообщ. от ${people} чел. — сотрудникам пуш`);
+    } catch (err) {
+      reportCronTickError("Ошибка сверки переписок Страниц", err);
+    }
+  });
+
+  /**
+   * ВЕБХУК WHATSAPP ЗАМОЛЧАЛ (15.11.2026, lib/whatsappWebhookWatch.ts). Входящие
+   * WhatsApp Meta отдаёт только вебхуком — сверить их, как Messenger, не с чем.
+   * Раз в 20 минут в рабочие часы: тишина дольше обычного — тревога руководству
+   * с причиной из Graph (только чтение). Рубильник Settings.whatsappWebhookWatchEnabled.
+   */
+  scheduleTracked("whatsapp-webhook-watch", "8-59/20 * * * *", async () => {
+    try {
+      const { alarmed, silenceMs } = await runWhatsappWebhookWatch();
+      if (alarmed) console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководству`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «вебхук WhatsApp замолчал»", err);
+    }
+  });
+
+  /**
+   * TELEGRAM НЕ ДОСТАВЛЯЕТ В CRM (15.11.2026, lib/telegramDeliveryWatch.ts): getWebhookInfo
+   * раз в 10 минут, только чтение — нет вебхука, свежая ошибка доставки, очередь копится —
+   * тревога руководству. Рубильник Settings.telegramDeliveryWatchEnabled.
+   */
+  scheduleTracked("telegram-delivery-watch", "4-59/10 * * * *", async () => {
+    try {
+      const { alarmed } = await runTelegramDeliveryWatch();
+      if (alarmed) console.log("[cron] Telegram не доставляет сообщения в CRM — тревога руководству");
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «Telegram не доставляет»", err);
+    }
+  });
+
+  /**
+   * СООБЩЕНИЕ БЕЗ ЧАТА CRM — СВОДКА «ОТВЕТЬТЕ ВРУЧНУЮ» (15.11.2026, customerHeldMessage.ts):
+   * раз в 2 минуты, круглые сутки (ночью пуш ждёт утра по тихим часам); одна сводка за тик.
+   */
+  scheduleTracked("customer-unrecorded-summary", "*/2 * * * *", async () => {
+    try {
+      const { people } = await runUnrecordedCustomerSummary();
+      if (people > 0) console.log(`[cron] Вне чата CRM: сводка «Ответьте вручную» по ${people} чел.`);
+    } catch (err) {
+      reportCronTickError("Ошибка сводки «сообщения вне чата CRM»", err);
+    }
+  });
+
+  /**
    * КОММЕНТАРИЙ БЕЗ ОТВЕТА БОТА — ЧЕЛОВЕКУ (15.11.2026, lib/commentWaitingAlert.ts).
    * Новое ядро ставит комментарию ESCALATED/FAILED и никого не зовёт; старый путь
    * зовёт сам. Одна дверь для обоих: свежий ESCALATED/FAILED без уведомления — пуш.
@@ -3497,6 +3563,17 @@ export function startCronJobs() {
       reportCronTickError("Ошибка сторожа свежести копий", err);
     }
   });
+
+  /** Остаток платных сервисов заранее: ElevenLabs по каждому ключу и счёт СМС (lib/balanceWatch.ts).
+   *  Раз в сутки, 09:20 Душанбе; только чтение остатка, ничего не тратит. */
+  scheduleTracked("balance-watch", "20 9 * * *", async () => {
+    try {
+      const alerts = await runBalanceWatch();
+      if (alerts) console.log(`[cron] Остатки платных сервисов: тревог поднято ${alerts}`);
+    } catch (err) {
+      reportCronTickError("Ошибка суточной проверки остатков", err);
+    }
+  }, { timezone: "Asia/Dushanbe" });
 
   // The ordinary durable queue still handles media once a minute. Customer
   // model turns and sends have separate bounded slots; both use runOne, DB

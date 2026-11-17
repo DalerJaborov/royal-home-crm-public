@@ -16,6 +16,7 @@
  *
  * Цифры в ответе — только из аргументов (данные базы), сам модуль их не придумывает.
  */
+import { serviceAreaIn } from "../lib/serviceArea.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerRoleSignals } from "./customerAgentRole.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
@@ -206,8 +207,8 @@ const LINES = {
     tg: (id: number) => `Хуб, оид ба объекти №${id} ба агент мерасонам, ӯ ҳамин ҷо ба шумо ҷавоб медиҳад.`,
   },
   seller: {
-    ru: (pct: number) => `Да, поможем продать. Комиссия агентства ${pct}%, работаем по Душанбе.`,
-    tg: (pct: number) => `Бале, дар фурӯш кӯмак мекунем. Комиссияи агентӣ ${pct}%, дар Душанбе кор мекунем.`,
+    ru: (pct: number) => `Да, поможем продать. Комиссия агентства ${pct}%, работаем ${serviceAreaIn("Душанбе", "ru")}.`,
+    tg: (pct: number) => `Бале, дар фурӯш кӯмак мекунем. Комиссияи агентӣ ${pct}%, ${serviceAreaIn("Душанбе", "tg")} кор мекунем.`,
   },
   propertyPrice: {
     ru: (id: number, m: string) => `Это объект №${id}, цена ${m}.`,

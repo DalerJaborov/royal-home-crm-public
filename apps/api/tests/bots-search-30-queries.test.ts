@@ -242,18 +242,16 @@ describe("30 запросов аудита на тестовом каталог�
     expect(marks(top)).toEqual(["shHouseCity"]);
   });
 
-  it("№14 дом в Вахдате — только загородные", async () => {
+  // Владелец 16.11.2026, дословно: «Загород не берём, только Душанбе» (зона — Душанбе и район Рудаки, lib/serviceArea.ts).
+  // Пригород не ищется и не предлагается: ни загородных, ни квартир города вместо них.
+  it("№14 дом в Вахдате — вне зоны: ничего не предлагаем", async () => {
     const q = await chat("Дом в Вахдате продаёте?");
     expect(q.suburban).toBe(true);
-    const top = await run(q, 10);
-    expect(marks(top)).toContain("shHouseVahdat");
-    expect(top.every((p) => p.match.suburban)).toBe(true);
+    expect(await run(q, 10)).toEqual([]);
   });
 
-  it("№15 дача в Варзобе — загородные, а не квартиры города", async () => {
-    const top = await run(await chat("Дача в Варзобе нужна"), 10);
-    expect(top.length).toBeGreaterThan(0);
-    expect(top.every((p) => p.match.suburban)).toBe(true);
+  it("№15 дача в Варзобе — вне зоны: ничего не предлагаем", async () => {
+    expect(await run(await chat("Дача в Варзобе нужна"), 10)).toEqual([]);
   });
 
   it("№16 трёшка до 1 млн в Шохмансуре — +3 % в допуске, с пометкой", async () => {

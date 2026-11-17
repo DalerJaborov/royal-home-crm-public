@@ -1,3 +1,4 @@
+import { districtPickAllowed, RUDAKI_DISTRICT_NAME } from "./serviceArea.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { customerAgentCompanyKnowledgeSchema, customerAgentCompanyPolicyCallSchema, customerAgentPropertySearchCallSchema, customerToolCallSchema, customerAgentCompanyInformationCallSchema,
@@ -20,6 +21,7 @@ import type { CustomerAgentCompanyInformationObservation } from "@royal-home/sha
 import { resolveSearchPlace } from "./searchPlace.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerAgentVacanciesCallSchema, type CustomerAgentVacanciesObservation } from "@royal-home/shared";
+import { customerSearchBudgetSane } from "@royal-home/shared";
 import { readCustomerOpenVacancies, customerOpenVacanciesCurrent } from "./recruitmentPositions.js";
 import { logSystemError } from "./systemError.js";
 
@@ -45,9 +47,11 @@ async function current(principal: CustomerPrincipal): Promise<boolean> {
 }
 async function searchPolicy(args: CustomerAgentPropertySearchArgs) {
   const [policy, money, features] = await Promise.all([loadMatchPolicy(), loadMoneyContext(), loadCustomerAgentFeaturePolicy()]);
-  const exact = args.districtName ? await prisma.district.findFirst({ where: { name: { equals: args.districtName, mode: "insensitive" } }, select: { name: true } }) : null;
+  // Точное имя «Рудаки (район)» — только если в самих словах модели район, а не проспект (districtPickAllowed).
+  const exact = args.districtName && districtPickAllowed(args.districtName, args.districtName) ? await prisma.district.findFirst({ where: { name: { equals: args.districtName, mode: "insensitive" } }, select: { name: true } }) : null;
   const place = args.districtName && !exact ? await resolveSearchPlace(args.districtName) : null;
-  const requestedDistrict = place?.suburban ? null : place?.districtName ?? place?.placeDistrictName;
+  // «район Рудаки» словами — район Рудаки (за городом, но свой район в справочнике, lib/serviceArea.ts); «Рудаки» — проспект.
+  const requestedDistrict = place?.districtName === RUDAKI_DISTRICT_NAME ? RUDAKI_DISTRICT_NAME : place?.suburban ? null : place?.districtName ?? place?.placeDistrictName;
   const mapped = requestedDistrict ? await prisma.district.findFirst({ where: { name: { equals: requestedDistrict, mode: "insensitive" } }, select: { name: true } }) : null;
   const districtName = exact?.name ?? mapped?.name ?? null;
   const hash = createHash("sha256").update(JSON.stringify({ query: args, budgetToleranceRatio: policy.budgetToleranceRatio,
@@ -85,6 +89,8 @@ export interface CustomerAgentPublicDataOptions {
    * brands: office, hours and rules stay shared (customerCompanyInformation.ts). */
   brandName?: string | null;
 }
+/** Причина отказа поиска: бюджет вне разумных границ своей валюты — модель уточняет сумму, а не говорит «ничего не нашлось». */
+export const CUSTOMER_SEARCH_BUDGET_OUT_OF_RANGE = "budget_out_of_range";
 export type CustomerAgentPublicDataResult =
     { status: "observed"; observation: CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentPublicationObservation | CustomerAgentCompanyInformationObservation | CustomerAgentVacanciesObservation } |
     { status: "denied" | "unavailable"; reason: string };
@@ -97,6 +103,12 @@ export type CustomerAgentPublicDataResult =
 export async function readCustomerAgentPublicData(rawCall: unknown, options: CustomerAgentPublicDataOptions): Promise<CustomerAgentPublicDataResult> {
   const call = calls.safeParse(rawCall);
   if (!call.success) return { status: "denied", reason: "invalid_public_call" };
+  // Бюджет вне разумных границ своей валюты («50», лишний ноль) — отказ с причиной (14.11.2026, ревью 16.11 К-3): потолком каталога
+  // он не становится. Проверка здесь, а не в общей схеме: схема входит в отпечаток знаний версии бота (пара обновления V2).
+  const budget = call.data.name === "search_public_properties" ? call.data.args.budget : undefined;
+  if (budget && ![budget.min, budget.max].every(bound => bound === undefined || customerSearchBudgetSane(bound, budget.currency))) {
+    return { status: "denied", reason: CUSTOMER_SEARCH_BUDGET_OUT_OF_RANGE };
+  }
   try {
     if (call.data.name === "get_company_information") return { status: "observed", observation: await readCustomerCompanyInformation(options.brandName) };
     if (call.data.name === "get_open_vacancies") return { status: "observed", observation: await readCustomerOpenVacancies() };

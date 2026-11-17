@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
  * - до публикации (проверка, монтаж) агент правит свой объект; монтажёр и
  *   модератор получают уведомление «было → стало»;
  * - после публикации агент не меняет ничего, кроме статуса: 409
- *   PROPERTY_EDIT_LOCKED (reason PUBLISHED), а кнопки видео-исправлений — 403;
+ *   PROPERTY_EDIT_LOCKED (reason PUBLISHED), а кнопки видео-исправлений — 403 (кроме перемонтажа своего, 15.11.2026);
  *   директор, админ и все с правом properties.editForeign правят всегда;
  * - каждая правка пишется в хронологию «было → стало»;
  * - «Готово» рассылает подпись, где факты переписаны точечно, а не заново;
@@ -242,14 +242,20 @@ describe("замок правки после публикации", () => {
     expect(res.body.code).toBe(PROPERTY_EDIT_LOCKED_CODE);
   });
 
-  it("кнопки видео-исправлений после публикации агенту-владельцу закрыты (403), руководству открыты", async () => {
+  it("кнопки видео-исправлений после публикации: перемонтаж своего открыт хозяину (15.11.2026), остальное закрыто (403)", async () => {
     const p = await seed({ status: "AVAILABLE", publishedChannels: ["TELEGRAM"], publishedPostIds: { TELEGRAM: "5" } });
     const post = (path: string, token: string, body: Record<string, unknown> = {}) =>
       request(app).post(`/api/v1/properties/${p.id}/${path}`).set("Authorization", `Bearer ${token}`).send(body);
 
+    // Владелец 15.11.2026 отменил для хозяина запрет 07.10 на «Вернуть монтажёру» у вышедшего объекта:
+    // дверь доступа (propertyAccess.publishedSendBackDeniedReasonAs) пускает, дальше отвечает сама функция
+    // (в этом тесте у объекта нет ролика — отказ по состоянию, но уже не «после публикации вам нельзя»).
     const sendBack = await post("send-back-to-montajer", agentToken, { reason: "WRONG_CAPTION", comment: "цена" });
-    expect(sendBack.status).toBe(403);
-    expect(sendBack.body.error).toBe(PROPERTY_PUBLISHED_ACTION_DENIED_MESSAGE);
+    expect(sendBack.body.error).not.toBe(PROPERTY_PUBLISHED_ACTION_DENIED_MESSAGE);
+    expect(sendBack.status).not.toBe(403);
+    // Но со снятием постов (видно подписчикам) — по-прежнему только маркетингу и руководству.
+    const withSocial = await post("send-back-to-montajer", agentToken, { reason: "WRONG_CAPTION", comment: "цена", removeFromSocial: true });
+    expect(withSocial.status).toBe(403);
     expect((await post("video-handoff/requeue", agentToken)).status).toBe(403);
     expect((await post("refresh-captions", agentToken)).status).toBe(403);
     expect((await post("finish-edit", agentToken)).status).toBe(403);

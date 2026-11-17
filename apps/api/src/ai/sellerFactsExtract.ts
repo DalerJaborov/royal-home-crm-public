@@ -1,3 +1,4 @@
+import { districtListForPrompt, districtPickAllowed } from "../lib/serviceArea.js";
 import { createHash } from "node:crypto";
 import {
   CURRENCIES,
@@ -132,7 +133,7 @@ function buildSystemPrompt(districtNames: string[]): string {
     "«3 хона» → rooms 3; «6 сотых», «6 сотка» → landAreaSotka 6. " +
     "Если в новых репликах продавец перешёл к ДРУГОМУ своему объекту — newObject=true и поля только этого " +
     "последнего объекта. Несколько объектов сразу — бери последний обсуждаемый. " +
-    (districtNames.length > 0 ? `Районы: ${districtNames.join(", ")}. ` : "") +
+    (districtNames.length > 0 ? `Районы: ${districtListForPrompt(districtNames)}. ` : "") +
     `Типы: ${PROPERTY_TYPES.map((t) => `${t}=${PROPERTY_TYPE_LABELS[t]}`).join(", ")}. ` +
     "Ответ — через инструмент submit_reply."
   );
@@ -315,7 +316,9 @@ export async function refreshSellerFacts(clientId: string): Promise<SellerFactsR
 
   const base = extract.newObject === true ? EMPTY_SELLER_OBJECT_FACTS : previous;
   const pick = <T>(value: T | null, fallback: T | null): T | null => (value === null ? fallback : value);
-  const districtName = typeof extract.districtName === "string" ? extract.districtName.trim().toLowerCase() : "";
+  // «Рудаки» от модели — только если в новых словах продавца район, а не проспект Рудаки (lib/serviceArea.ts).
+  const pickedDistrict = typeof extract.districtName === "string" && districtPickAllowed(extract.districtName.trim(), user) ? extract.districtName : "";
+  const districtName = pickedDistrict.trim().toLowerCase();
   const next: SellerObjectFacts = {
     type: pick(asPropertyType(extract.type), base.type),
     rooms: pick(asPositiveInt(extract.rooms), base.rooms),

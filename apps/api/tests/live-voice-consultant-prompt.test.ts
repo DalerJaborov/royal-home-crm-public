@@ -194,8 +194,11 @@ describe("роль консультанта на входящих", () => {
     for (const forceRussianOnly of [true, false]) {
       const prompt = buildConsultantSystemPrompt({ knowledge, caller: stranger, withinWorkingHours: true, forceRussianOnly });
       expect(prompt).toContain("ЯЗЫК — ТОЛЬКО РУССКИЙ ИЛИ ТАДЖИКСКИЙ");
-      expect(prompt).toContain("плохо слышно");
-      expect(prompt).toContain("Никогда не говори, на каких языках ты говоришь");
+      // 16.11.2026: готовой фразы «плохо слышно» нет, на «говорите по-таджикски?» — никогда «нет».
+      expect(prompt).not.toMatch(/плохо слышно/iu);
+      // «Ҳа» на «говорите по-таджикски?» — только без замка «только русский» (ревью #204, Н1).
+      if (forceRussianOnly) expect(prompt).not.toContain("«Ҳа»");
+      else expect(prompt).toContain("всегда «Ҳа»");
     }
     expect(LIVE_VOICE_SPEECH_RULES).toContain("ЯЗЫК — ТОЛЬКО РУССКИЙ ИЛИ ТАДЖИКСКИЙ");
   });

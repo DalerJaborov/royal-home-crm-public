@@ -18,6 +18,7 @@
  * ТАДЖИКСКИЙ — по скиллу tajik-phrasebook. Фразы без пометки взяты из live-agent-phrases.md как есть. Фразы,
  * собранные по образцу (их нет в разговорнике дословно), перечислены в описании PR для проверки владельцем.
  */
+import { RETIRED_SERVICE_AREA_LINES } from "../lib/serviceArea.js";
 import { clientSaidNothingSubstantive, isAdTemplateOpener } from "./adTemplatePhrase.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { extractAllPhones } from "../lib/shared/phoneText.js";
@@ -79,11 +80,6 @@ export function customerSubstantiveInput(text: string | undefined, asksNow: bool
   return asksNow || /\d{2,}/u.test(own(text));
 }
 
-/** Where the agency works (owner 15–16.11.2026): Dushanbe and the Rudaki district. Other cities: refused. */
-export function customerServiceArea(city: string, language: Lang): string {
-  if (city === "Душанбе") return language === "tg" ? "дар Душанбе ва ноҳияи Рӯдакӣ" : "в Душанбе и районе Рудаки";
-  return language === "tg" ? `дар ${city}` : `в городе ${city}`;
-}
 
 // ---- Recruitment (phone-only by the owner's decision 10–11.11.2026; Noza's number said ONCE per chat) ----
 /** The candidate gave their own number: it is passed on (the turn signals a person), Noza calls them herself. */
@@ -166,7 +162,7 @@ export const RETIRED_TEMPLATE_LINES: readonly string[] = [
   "Барои хариду фурӯши амвол дар Душанбе кӯмак мекунем.", "Помогаем с покупкой и продажей недвижимости в городе Душанбе.",
   "Барои хариду фурӯши амвол дар Душанбе кӯмак мекунем. Дар шаҳрҳои дигар кор намекунем.",
   "Помогаем с покупкой и продажей недвижимости в городе Душанбе. Другие города не обслуживаем.",
-  "Мутаассифона, мо танҳо дар Душанбе кор мекунем.", "К сожалению, мы работаем только в городе Душанбе.",
+  ...RETIRED_SERVICE_AREA_LINES,
   "Это наша публикация, но объект к ней не привязан. Напишите район и число комнат — подберу.",
   "Ин нашрияи мост, вале объект ба он пайваст нест. Минтақа ва шумораи ҳуҷраҳоро нависед — интихоб мекунам.",
   "Пришлите, пожалуйста, обычным фото — так агент его сохранит.",

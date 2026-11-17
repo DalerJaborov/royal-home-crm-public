@@ -294,9 +294,13 @@ function OutgoingCard({ call, onClose }: { call: ActiveCall; onClose: () => void
                   {/* Карточка клиента ссылкой: в макете такого перехода нет, но он
                       был в старой полосе звонка и терять его нельзя. Оформлен
                       прототипным `.lk`, а не своим классом. */}
-                  <Link className="lk mut" to={`/clients/${call.clientShortId}`}>
-                    Открыть карточку клиента
-                  </Link>
+                  {call.archiveReview ? (
+                    <span className="mut">Разбор удалённого клиента</span>
+                  ) : (
+                    <Link className="lk mut" to={`/clients/${call.clientShortId}`}>
+                      Открыть карточку клиента
+                    </Link>
+                  )}
                 </p>
                 <p className={`cw2-state ${stateTone}`.trim()}>{stateText}</p>
                 {call.talkSeconds > 0 && <p className="cw2-timer">{formatTalkTime(call.talkSeconds)}</p>}

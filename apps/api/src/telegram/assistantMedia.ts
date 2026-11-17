@@ -51,6 +51,22 @@ export async function downloadAssistantMedia(fileId: string, maximum: number): P
   return Buffer.concat(chunks, length);
 }
 
+/**
+ * Один разбор файла моделью (фото, PDF-скан, аудио) с тем же бюджетом и теми же двумя
+ * попытками, что у «пересказа файла». Общая дверь: сюда же ходит мастер объекта за
+ * текстом со сканов и фото документов (assistantPropertyDocument.ts).
+ */
+export async function runAssistantMediaUnderstanding(buffer: Buffer, mimeType: string, wallet?: AssistantMoneyWallet) {
+  const runtime = { ...await loadAssistantGeminiRuntime(), model: ASSISTANT_TAJIK_MODEL, fallbackModels: [], liteModel: "" };
+  if (!runtime.keys[0]) throw new Error("media_provider_unavailable");
+  const guard = createAssistantMoneyGuard({ wallet });
+  const attemptLimit = createAssistantAttemptLimit(reserveAssistantGeminiAttempt, 2);
+  return understandAssistantMedia({ buffer, mimeType, runtime, apiKey: runtime.keys[0], beforeAttempt: async (metadata) => {
+    await attemptLimit();
+    await guard(metadata);
+  } });
+}
+
 /** Caller MUST verify the Telegram sender is this active employee before invoking. */
 export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId: string, options: {
   /** Set only AFTER the caller's employee/group access and masking checks. */
@@ -84,14 +100,7 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
         ...short, readableText: "", visualDescription: "", incomplete: false,
       } };
     }
-    const runtime = { ...await loadAssistantGeminiRuntime(), model: ASSISTANT_TAJIK_MODEL, fallbackModels: [], liteModel: "" };
-    if (!runtime.keys[0]) throw new Error("media_provider_unavailable");
-    const guard = createAssistantMoneyGuard({ wallet: options.wallet });
-    const attemptLimit = createAssistantAttemptLimit(reserveAssistantGeminiAttempt, 2);
-    const result = await understandAssistantMedia({ buffer, mimeType, runtime, apiKey: runtime.keys[0], beforeAttempt: async (metadata) => {
-      await attemptLimit();
-      await guard(metadata);
-    } });
+    const result = await runAssistantMediaUnderstanding(buffer, mimeType, options.wallet);
     const content = [result.extraction.transcript, result.extraction.readableText, result.extraction.visualDescription].filter(Boolean).join("\n\n");
     return { extraction: result.extraction, text: content
       ? `Извлечено из файла; данные требуют проверки:\n\n${content}${result.extraction.incomplete ? "\n\nЧасть файла не удалось разобрать." : ""}`
