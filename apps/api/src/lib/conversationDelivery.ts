@@ -26,6 +26,7 @@ import {
 // Из отдельного модуля, а не из meta.js: чистая проверка, которую тест доставки
 // теперь берёт настоящую вместо копии (см. lib/messagingWindow.ts).
 import { isMessagingWindowClosedError } from "./messagingWindow.js";
+import { isMetaSendBlockError, metaSendBlockStaffText } from "./metaSendBlock.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
   sendMessage as sendTelegramMessage,
@@ -499,6 +500,12 @@ export async function deliverToConversation(
       await rollbackDeliveryPause(pauseUndo);
       return { ok: false, status: 409, error: `Сообщение не отправлено: ${err.message}` };
     }
+    // Meta не пропускает отправку аккаунта по правилам (lib/metaSendBlock.ts): сотрудник
+    // видит настоящую причину и что делать; журнал и руководство уже знают — один раз на эпизод.
+    if (isMetaSendBlockError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: metaSendBlockStaffText(err) };
+    }
     if (!isTelegram && err instanceof Error && isMessagingWindowClosedError(err.message)) {
       await rollbackDeliveryPause(pauseUndo);
       return {
@@ -842,6 +849,12 @@ export async function deliverVoiceToConversation(
     // Закрытое окно — не поломка CRM, не логируем (см. deliverToConversation выше
     // за подробным объяснением: fbtrace_id в тексте ошибки ломает дедупликацию
     // журнала, и без этой проверки каждое закрытое окно будило бы директора).
+    // Meta не пропускает отправку аккаунта по правилам (lib/metaSendBlock.ts): сотрудник
+    // видит настоящую причину и что делать; журнал и руководство уже знают — один раз на эпизод.
+    if (isMetaSendBlockError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: metaSendBlockStaffText(err) };
+    }
     if (!isTelegram && err instanceof Error && isMessagingWindowClosedError(err.message)) {
       await rollbackDeliveryPause(pauseUndo);
       return {
@@ -1164,6 +1177,12 @@ export async function deliverMediaToConversation(
     // Закрытое окно — не поломка CRM, не логируем (см. deliverToConversation выше
     // за подробным объяснением: fbtrace_id в тексте ошибки ломает дедупликацию
     // журнала, и без этой проверки каждое закрытое окно будило бы директора).
+    // Meta не пропускает отправку аккаунта по правилам (lib/metaSendBlock.ts): сотрудник
+    // видит настоящую причину и что делать; журнал и руководство уже знают — один раз на эпизод.
+    if (isMetaSendBlockError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: metaSendBlockStaffText(err) };
+    }
     if (!isTelegram && err instanceof Error && isMessagingWindowClosedError(err.message)) {
       await rollbackDeliveryPause(pauseUndo);
       return {

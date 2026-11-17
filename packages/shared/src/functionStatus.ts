@@ -107,6 +107,13 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     errorSources: ["ai"],
   },
   {
+    key: "meta-send-blocks",
+    title: "Отправка в Instagram, Facebook и WhatsApp",
+    what: "Пропускает ли Meta ответы каждого аккаунта. Если Meta временно запретила отправку по правилам, бот туда не пишет, клиентов передаёт сотрудникам и сам пробует снова.",
+    group: "bot",
+    errorSources: ["meta"],
+  },
+  {
     key: "bot-photos",
     title: "Фото объектов в чате",
     what: "Бот присылает клиенту фотографии объекта прямо в переписке.",

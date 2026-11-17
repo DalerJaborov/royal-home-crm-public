@@ -3,6 +3,7 @@ import { asBotChannel, loadBotChannelToggles } from "./botChannels.js";
 import { WEBSITE_CHANNEL } from "./channels.js";
 import { isMessagingWindowClosedError } from "../lib/messagingWindow.js";
 import { admitOutbound, isOutboundBlockedError } from "../lib/outboundShield.js";
+import { isMetaSendBlockError, withoutMetaSendProbe } from "../lib/metaSendBlock.js";
 
 /**
  * Отправка в тот канал, откуда клиент писал.
@@ -87,7 +88,9 @@ export async function sendBotMessageWithMid(
   const metaChannel = asMetaChannel(channel);
   if (metaChannel && (await isMetaChannelEnabled(metaChannel))) {
     try {
-      const mid = await sendMetaMessage(metaChannel, subscriberId, text, accountToken);
+      // Фоновая отправка (напоминание, просьба о номере) пробой «Meta снова пропускает?» не служит:
+      // проба — ответ живому человеку, а не сообщение тому, кто молчит (lib/metaSendBlock.ts).
+      const mid = await withoutMetaSendProbe(() => sendMetaMessage(metaChannel, subscriberId, text, accountToken));
       return { sent: true, mid };
     } catch (err) {
       /**
@@ -117,6 +120,9 @@ export async function sendBotMessageWithMid(
        * крон не станет на неё отвечать. Ровно этим и была петля 17.09.
        */
       if (isOutboundBlockedError(err)) return { sent: false, mid: null };
+      // Meta не пропускает отправку аккаунта по правилам — тот же «не отправлено»: реплика
+      // не пишется в историю, руководство и ждущие клиенты уже переданы людям.
+      if (isMetaSendBlockError(err)) return { sent: false, mid: null };
       const message = err instanceof Error ? err.message : String(err);
       if (isMessagingWindowClosedError(message)) {
         console.log(
