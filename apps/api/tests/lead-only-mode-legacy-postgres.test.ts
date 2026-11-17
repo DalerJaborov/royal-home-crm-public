@@ -299,6 +299,18 @@ describe("второе ревью, старый путь", () => {
     const prompt = JSON.stringify(callAi.mock.calls.find((call) => !["card-fill", "score-client", "client-current-intents"].includes(String((call[0] as { endpoint?: string })?.endpoint)))?.[0] ?? {});
     expect(prompt).toContain("НОМЕР ТЕЛЕФОНА НЕ СПРАШИВАЙ");
   });
+
+  // Review #262: the old bot's free text in the mode never opens with a consent word — after the phone-ask strip and without it.
+  it.each([
+    ["после вырезанной просьбы номера", "Хорошо, офис на Рудаки, 1. Оставьте, пожалуйста, ваш номер телефона, агент перезвонит."],
+    ["без правки", "Хорошо. Офис на Рудаки, 1."],
+  ])("WhatsApp: ответ старого бота без «Хорошо» в начале (%s)", async (_name, text) => {
+    callAi.mockResolvedValue({ reply: [text], intent: "other", confident: false, ready: false, topic: "other", openQuestion: "",
+      clientAnsweredOpenQuestion: false });
+    const result = await turn(whatsapp, digits(), "Где ваш офис?");
+    expect(result.reply).toMatch(/Офис на Рудаки/iu);
+    expect(result.reply).not.toMatch(/^\s*Хорошо/u);
+  });
 });
 
 // ── Третье ревью 13.11.2026: каждый тест проверен внесённой поломкой (номер находки — в имени) ──

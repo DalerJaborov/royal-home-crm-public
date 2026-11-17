@@ -59,6 +59,7 @@ import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
+import { withoutAgreementOpenings } from "../ai/customerAgentHumanText.js";
 import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyGivenLineAvoidingRepeat, leadOnlyOutgoing, leadOnlyStripPhoneAsk } from "../ai/leadOnlyMode.js";
 import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "../lib/leadOnlyHandover.js";
 import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
@@ -4185,6 +4186,18 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       if (first.changed || second.changed) {
         reply = first.text; reply2 = second.text;
         if (!reply.trim() && !reply2.trim()) await replaceWithLeadOnlyEscalate();
+      }
+    }
+    // The last door for the old path in lead-only mode (review #262): the old bot's free text — whatever local edit came
+    // before (phone-ask strip, filters) — never opens with a consent word («Хорошо, …», «Хуб, …»), as the mode's own lines
+    // and the core already don't. A reply left empty by the cut becomes the mode's escalate line.
+    if (capabilities.leadOnly) {
+      const first = withoutAgreementOpenings(reply), second = reply2 ? withoutAgreementOpenings(reply2) : { text: "", removed: [] };
+      if (first.removed.length || second.removed.length) {
+        reply = first.text.trim(); reply2 = second.text.trim();
+        void logSystemError("ai", `Режим «только заявки»: из ответа старого бота убрано слово согласия (диалог ${conversation.id}, ${channel}).`,
+          { dedupKey: `lead-only-agree-cut:${conversation.id}` });
+        if (!reply && !reply2) await replaceWithLeadOnlyEscalate();
       }
     }
     const visibleAt = websiteReplyVisibleAt(channel);
