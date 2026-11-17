@@ -141,6 +141,7 @@ import type { TelegramUpdate } from "../telegram/api.js";
 import { withTelegramUpdateRetry } from "../telegram/updateRetry.js";
 import { anyParams } from "../lib/routeParams.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
+import { requestAgentAttention } from "../lib/agentAttention.js";
 import { sendPushToAgents } from "../push.js";
 import { ensureMetaAdKnown } from "../lib/ads/syncMetaAds.js";
 
@@ -2761,6 +2762,8 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // другой по формулировке ответ на тот же вопрос («два похожих сообщения
       // подряд» из живой переписки).
       replySent = true;
+      // Обещание звонка доехало до клиента — теперь сигнал агенту (одна дверь, lib/agentAttention.ts).
+      if (providerAcceptedReply && result.agentSignal) void requestAgentAttention(result.agentSignal.clientId, result.agentSignal.reason);
       if (result.reply2) {
         // Между двумя сообщениями индикатор гаснет (отправка его сбрасывает) —
         // показываем «печатает…» заново, как человек, который дописывает мысль.

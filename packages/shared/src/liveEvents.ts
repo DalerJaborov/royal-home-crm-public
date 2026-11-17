@@ -63,6 +63,12 @@ export const LIVE_EVENT_TYPES = [
    * только затем, чтобы погасить те же ключи.
    */
   "request.updated",
+  /**
+   * Запрос на передачу объекта или клиента ждёт ответа хозяина, либо его
+   * состояние изменилось (подтверждён, отклонён, истёк). Хозяину по нему
+   * поднимается большое окно (components/TransferConfirmWindow.tsx).
+   */
+  "transfer.pending",
 ] as const;
 
 export type LiveEventType = (typeof LIVE_EVENT_TYPES)[number];

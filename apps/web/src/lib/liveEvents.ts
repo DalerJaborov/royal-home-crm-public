@@ -79,6 +79,8 @@ export const INVALIDATION: Record<LiveEventType, string[][]> = {
   // правка объекта на другом устройстве иначе не обновляла их до ручного захода.
   "property.updated": [["properties"], ["property"], ["marketing"], ["counters"], ["mission-control"], ["oversight"]],
   // Заявки на рассмотрение: у трёх механизмов один зритель и один экран.
+  // Передача с подтверждением хозяина: окно хозяина и статусы у того, кто просил.
+  "transfer.pending": [["transfer-requests"], ["properties"], ["property"], ["clients"], ["client"], ["counters"]],
   "request.updated": [
     ["delete-requests"],
     ["client-delete-request"],
@@ -99,6 +101,7 @@ export const INVALIDATION: Record<LiveEventType, string[][]> = {
  * Поэтому один раз гасим всё, чего поток вообще касается.
  */
 const ON_RESUME: string[][] = [
+  ["transfer-requests"],
   ["clients"],
   ["conversations"],
   ["deals"],
