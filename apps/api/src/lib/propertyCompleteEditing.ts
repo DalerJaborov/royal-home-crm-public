@@ -42,7 +42,6 @@ export type CompleteEditingFailure = {
 };
 
 const EDITING_INCLUDE = { district: true, photos: { orderBy: { order: "asc" } } } satisfies Prisma.PropertyInclude;
-type EditingProperty = Prisma.PropertyGetPayload<{ include: typeof EDITING_INCLUDE }>;
 
 export type CompleteEditingOutcome =
   | {
@@ -146,7 +145,7 @@ export async function completeEditing(input: {
     data: { status: "AVAILABLE", stageEnteredAt: new Date() },
   });
   if (moved.count === 0) return { ok: false, status: 409, code: "NOT_EDITING", error: NOT_EDITING_MESSAGE };
-  const updated: EditingProperty = await prisma.property.findUniqueOrThrow({
+  const updated = await prisma.property.findUniqueOrThrow({
     where: { id: input.propertyId },
     include: EDITING_INCLUDE,
   });
