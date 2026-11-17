@@ -77,6 +77,8 @@ export * from "./priceAdvisor.js";
 export * from "./uiShellRollout.js";
 export * from "./expenseWorkspace.js";
 export * from "./expenseAutoOverlap.js";
+export * from "./expenseVendors.js";
+export * from "./founders.js";
 export * from "./uploadLimits.js";
 export * from "./propertyChangeRequest.js";
 export * from "./adsAccess.js";
@@ -130,5 +132,6 @@ export * from "./formerStaff.js";
 export * from "./robotCallPolicy.js";
 export * from "./liveVoiceSpend.js";
 export * from "./metaEternal.js";
+export * from "./functionStatus.js";
 
 export * from "./reportPdf.js";
