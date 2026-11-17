@@ -4,7 +4,7 @@ import {
   BUYER_ALERT_MAX_PUSHES_PER_DAY, BUYER_ALERT_PER_PUSH, buyerAlertText, planBuyerAlerts, runBuyerMarketAlerts,
   type AlertBuyer, type AlertListing,
 } from "../src/lib/market/buyerAlerts.js";
-import { DEFAULT_MATCH_POLICY } from "../src/lib/matchPolicy.js";
+import { DEFAULT_MARKET_BUYER_RULES } from "../src/lib/market/buyerMatch.js";
 import { catalogRaw } from "./helpers/somonPage.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 import { makeAgent } from "./helpers/marketFixtures.js";
@@ -34,9 +34,12 @@ let buyerId: string;
 let buyerShortId: number;
 let agentId: string;
 
-/** Включённый рубильник с отметкой включения два часа назад: «новое» считается от неё (первый прогон иначе лишь ставит отметку). */
-async function setFlag(on: boolean, enabledAt: Date | null = on ? new Date(Date.now() - 2 * 3600_000) : null) {
-  const data = { marketBuyerAlertsEnabled: on, marketBuyerAlertsEnabledAt: enabledAt };
+/**
+ * Включённый рубильник с отметкой включения два часа назад: «новое» считается от неё (первый прогон иначе лишь ставит отметку).
+ * Рабочие часы — на все сутки: пуш молчит вне рабочих часов (проверено отдельным тестом), а прогон тестов идёт в любое время.
+ */
+async function setFlag(on: boolean, enabledAt: Date | null = on ? new Date(Date.now() - 2 * 3600_000) : null, hours = { workHoursStart: "00:00", workHoursEnd: "23:59" }) {
+  const data = { marketBuyerAlertsEnabled: on, marketBuyerAlertsEnabledAt: enabledAt, ...hours };
   await prisma.settings.upsert({ where: { id: "singleton" }, update: data, create: { id: "singleton", ...data } });
 }
 
@@ -57,10 +60,13 @@ async function listing(key: string, over: Record<string, unknown> = {}) {
   return l;
 }
 
+let savedHours: { workHoursStart: string; workHoursEnd: string } | null = null;
+
 const alertsOf = () => prisma.buyerMarketAlert.findMany({ where: { clientId: buyerId } });
 const pushesForBuyer = () => sendPushToAgent.mock.calls.filter(([id]) => id === agentId);
 
 beforeAll(async () => {
+  savedHours = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { workHoursStart: true, workHoursEnd: true } });
   const agent = await makeAgent(runId, "3");
   agentId = agent.id;
   agentIds.push(agent.id);
@@ -68,7 +74,7 @@ beforeAll(async () => {
   const buyer = await prisma.client.create({
     data: {
       fullName: `Покупатель новое ${runId}`, phone: `+992995${runId.slice(-7)}`, source: "PHONE_CALL", kind: "BUYER", assignedAgentId: agent.id,
-      acceptedAt: new Date(), lastContactAt: new Date(), currency: "TJS", budgetMax: 600_000, desiredDistrictId: districtIds[0], desiredRooms: 2,
+      acceptedAt: new Date(), lastContactAt: new Date(), currency: "TJS", budgetMax: 520_000, desiredDistrictId: districtIds[0], desiredRooms: 2,
     },
   });
   buyerId = buyer.id;
@@ -85,7 +91,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
-  await setFlag(false);
+  await setFlag(false, null, savedHours ?? { workHoursStart: "09:30", workHoursEnd: "18:00" });
   await prisma.marketListing.deleteMany({ where: { id: { in: listingIds } } });
   await prisma.buyerMarketAlert.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
@@ -131,11 +137,13 @@ describe("runBuyerMarketAlerts", () => {
     expect(await alertsOf()).toHaveLength(1);
   });
 
-  it("чужой район, не по бюджету, чужое число комнат (допуск ±1) и старое объявление не шлются", async () => {
+  it("чужой район, не по бюджету (±10%), другое число комнат (по умолчанию ровно как в запросе) и старое объявление не шлются", async () => {
     await setFlag(true);
     await listing("otherDistrict", { districtName: OTHER_DISTRICT });
     await listing("tooExpensive", { priceTjs: 900_000 });
     await listing("fiveRooms", { rooms: 5, areaSqm: 130, priceTjs: 520_000 });
+    await listing("threeRooms", { rooms: 3, areaSqm: 75, priceTjs: 510_000, floor: 6 });
+    await listing("tooCheap", { priceTjs: 400_000, areaSqm: 50, floor: 2 });
     await listing("oldOnSite", { publishedAt: new Date(Date.now() - 30 * 24 * 3600_000) });
     await listing("notNew", { firstSeenAt: new Date(Date.now() - 3 * 24 * 3600_000) });
     await listing("inactive", { isActive: false });
@@ -156,7 +164,7 @@ describe("runBuyerMarketAlerts", () => {
 
   it("в одном пуше не больше трёх объявлений, остальные не теряются, а ждут следующего прогона", async () => {
     await setFlag(true);
-    for (let i = 0; i < 5; i++) await listing(`m${i}`, { areaSqm: 50 + i * 5, priceTjs: 400_000 + i * 30_000, floor: 1 + i });
+    for (let i = 0; i < 5; i++) await listing(`m${i}`, { areaSqm: 50 + i * 5, priceTjs: 480_000 + i * 20_000, floor: 1 + i });
     await runBuyerMarketAlerts();
     expect(pushesForBuyer()).toHaveLength(1);
     expect(await alertsOf()).toHaveLength(BUYER_ALERT_PER_PUSH);
@@ -185,7 +193,7 @@ describe("runBuyerMarketAlerts", () => {
       data: { fullName: `Другой покупатель ${runId}`, phone: `+992996${runId.slice(-7)}`, source: "PHONE_CALL", kind: "BUYER", assignedAgentId: agentId, acceptedAt: new Date() },
     });
     clientIds.push(other.id);
-    await listing("fresh", { areaSqm: 45, priceTjs: 430_000, floor: 7 });
+    await listing("fresh", { areaSqm: 55, priceTjs: 490_000, floor: 7 });
     const t0 = Date.now() - 60_000;
     for (let i = 0; i < BUYER_ALERT_MAX_PUSHES_PER_DAY; i++) {
       const l = await listing(`otherDone${i}`, { areaSqm: 90 + i * 9, priceTjs: 700_000 + i * 50_000, floor: 2 + i });
@@ -266,6 +274,35 @@ describe("runBuyerMarketAlerts", () => {
     expect(await alertsOf()).toHaveLength(1);
   });
 
+  it("вне рабочих часов прогон молчит и ничего не записывает; в рабочие часы то же объявление уходит", async () => {
+    // Окно 09:30–18:00 по Душанбе; «сейчас» — 21:00 по Душанбе (16:00 UTC), потом 11:00 (06:00 UTC) того же дня.
+    const night = new Date("2026-11-16T16:00:00.000Z");
+    const morning = new Date("2026-11-16T06:00:00.000Z");
+    await setFlag(true, new Date("2026-11-15T00:00:00.000Z"), { workHoursStart: "09:30", workHoursEnd: "18:00" });
+    await listing("a", { firstSeenAt: new Date(morning.getTime() - 3600_000), lastSeenAt: morning });
+    const quiet = await runBuyerMarketAlerts(night);
+    expect(quiet.outsideWorkHours).toBe(true);
+    expect(pushesForBuyer()).toHaveLength(0);
+    expect(await alertsOf()).toHaveLength(0);
+    await runBuyerMarketAlerts(morning);
+    expect(pushesForBuyer()).toHaveLength(1);
+  });
+
+  it("предел пушей в сутки берётся из Настроек (marketBuyerAlertsPerDay)", async () => {
+    await setFlag(true);
+    const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { marketBuyerAlertsPerDay: true } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { marketBuyerAlertsPerDay: 1 } });
+    try {
+      const done = await listing("done", { areaSqm: 80, priceTjs: 560_000, floor: 9 });
+      await prisma.buyerMarketAlert.create({ data: { clientId: buyerId, listingId: done.id, agentId, notifiedAt: new Date(Date.now() - 60_000) } });
+      await listing("a");
+      await runBuyerMarketAlerts();
+      expect(pushesForBuyer()).toHaveLength(0);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { marketBuyerAlertsPerDay: before.marketBuyerAlertsPerDay } });
+    }
+  });
+
   it("покупатель без принятия агентом или без района и бюджета не получает пушей", async () => {
     await setFlag(true);
     await listing("a");
@@ -278,13 +315,13 @@ describe("runBuyerMarketAlerts", () => {
 
 describe("planBuyerAlerts и текст (чистая часть)", () => {
   const wants = (over = {}) => ({
-    districtName: "Сино", city: "Душанбе", rooms: 2, propertyType: null, areaMin: null, budgetMinTjs: null, budgetMaxTjs: 600_000,
-    policy: DEFAULT_MATCH_POLICY, ...over,
+    districtName: "Сино", city: "Душанбе", rooms: 2, propertyType: null, areaMin: null, budgetMinTjs: null, budgetMaxTjs: 520_000,
+    rules: DEFAULT_MARKET_BUYER_RULES, ...over,
   });
   const buyer = (id: string): AlertBuyer => ({ clientId: id, shortId: 7, kind: "BUYER", agentId: "ag", wants: wants() });
   const lst = (id: string, over: Partial<AlertListing> = {}): AlertListing => ({
     id, source: "somon.tj", sourceUrl: `u${id}`, title: "t", priceTjs: 500_000, pricePerSqmTjs: 8_300, areaSqm: 60, rooms: 2, floor: 4, totalFloors: 9,
-    districtName: "Сино", firstSeenAt: new Date(), publishedAt: null, city: "Душанбе", repair: null, ...over,
+    districtName: "Сино", firstSeenAt: new Date(), publishedAt: null, lastSeenAt: new Date(), city: "Душанбе", repair: null, ...over,
   });
   const base = { alreadyAlerted: new Set<string>(), previousByClient: new Map(), pushesTodayByAgent: new Map<string, number>() };
 
@@ -298,12 +335,32 @@ describe("planBuyerAlerts и текст (чистая часть)", () => {
   });
 
   it("два покупателя одного агента в одном прогоне вместе не дают больше предела; без района покупатель исключён", () => {
-    const listings = [lst("1"), lst("2", { floor: 5, areaSqm: 70, priceTjs: 530_000 })];
+    // Объявлений хватает всем (одно объявление агенту приходит один раз): упираемся именно в предел пушей.
+    const listings = Array.from({ length: 12 }, (_, i) => lst(`l${i}`, { floor: i + 1, areaSqm: 50 + i * 2, priceTjs: 480_000 + i * 7_000 }));
     const buyers = ["c1", "c2", "c3", "c4"].map((id) => buyer(id));
     const plan = planBuyerAlerts({ ...base, buyers, listings });
     expect(plan).toHaveLength(BUYER_ALERT_MAX_PUSHES_PER_DAY);
     const noDistrict: AlertBuyer = { ...buyer("c9"), wants: wants({ districtName: null }) };
     expect(planBuyerAlerts({ ...base, buyers: [noDistrict], listings })).toHaveLength(0);
+  });
+
+  it("одно объявление — одно уведомление агенту: второй покупатель того же агента его уже не получает", () => {
+    const listings = [lst("1")];
+    const plan = planBuyerAlerts({ ...base, buyers: [buyer("c1"), buyer("c2")], listings });
+    expect(plan.map((p) => p.buyer.clientId)).toEqual(["c1"]);
+    // Агент уже слышал об этом объявлении раньше (по другому клиенту) — тоже молчим.
+    expect(planBuyerAlerts({ ...base, buyers: [buyer("c2")], listings, alreadyToldAgent: new Set(["ag|1"]) })).toHaveLength(0);
+    // Другой агент — своё уведомление.
+    const otherAgent: AlertBuyer = { ...buyer("c3"), agentId: "ag2" };
+    expect(planBuyerAlerts({ ...base, buyers: [buyer("c1"), otherAgent], listings })).toHaveLength(2);
+  });
+
+  it("давно не виденное сбором (дольше порога свежести) и вне ±10% бюджета не шлётся; предел из Настроек", () => {
+    const stale = lst("s", { lastSeenAt: new Date(Date.now() - (DEFAULT_MARKET_BUYER_RULES.freshDays + 1) * 24 * 3600_000) });
+    expect(planBuyerAlerts({ ...base, buyers: [buyer("c1")], listings: [stale] })).toHaveLength(0);
+    expect(planBuyerAlerts({ ...base, buyers: [buyer("c1")], listings: [lst("cheap", { priceTjs: 400_000 })] })).toHaveLength(0);
+    const listings = [lst("1"), lst("2", { floor: 5, areaSqm: 70, priceTjs: 530_000 })];
+    expect(planBuyerAlerts({ ...base, buyers: [buyer("c1"), buyer("c2")], listings, maxPushesPerDay: 1 })).toHaveLength(1);
   });
 
   it("текст: код клиента, площадка, цена, район; несколько объявлений — «Ещё подходящих»; без «—»", () => {

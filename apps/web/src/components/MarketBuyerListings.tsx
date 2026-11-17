@@ -15,6 +15,10 @@ import { Rh2ErrorState } from "./rh2/Rh2ErrorState";
  * компонент для ПК и телефона: на телефоне карточка клиента рисует тот же узел (`overviewProperties`),
  * раскладку ≤820 px даёт сама тема. Все отборы и порядок считает сервер
  * (GET /clients/:id/market-listings); здесь только показ.
+ *
+ * Узкий подбор (17.11.2026): сервер отдаёт лучшие десять (район, комнаты, цена около бюджета, только
+ * собственники, только то, что сбор видел за последние дни); остальное — кнопкой «Показать ещё».
+ * Объявление без района — внизу и с подписью «район не указан».
  */
 
 function listingMain(l: MarketBuyerListing): string {
@@ -44,7 +48,28 @@ export function marketBuyerLineText(m: MarketBuyerSummary): string | null {
   return `${head} Бюджет клиента на ${Math.abs(p)}% ${p > 0 ? "выше" : "ниже"} типичной цены.`;
 }
 
-export function MarketBuyerListingsView({ data }: { data: MarketBuyerListingsResponse }) {
+export interface MarketBuyerMore {
+  /** Есть ли ещё страница. */
+  hasMore: boolean;
+  loading: boolean;
+  /** Прошлая попытка «Показать ещё» не удалась. */
+  failed?: boolean;
+  onMore: () => void;
+}
+
+/**
+ * `data` — первая страница (подписи, строка рынка, total), `listings` — все загруженные страницы подряд.
+ * Без `listings` показывается первая страница.
+ */
+export function MarketBuyerListingsView({
+  data,
+  listings = data.listings,
+  more,
+}: {
+  data: MarketBuyerListingsResponse;
+  listings?: MarketBuyerListing[];
+  more?: MarketBuyerMore;
+}) {
   if (data.status === "not_buyer" || data.status === "pending_acceptance") return null;
   return (
     <section className="card" aria-label="Объявления с площадок" data-testid="market-buyer-listings">
@@ -54,7 +79,11 @@ export function MarketBuyerListingsView({ data }: { data: MarketBuyerListingsRes
       <p className="sub">
         Чужие объявления с сайтов, не наши объекты. Цены в объявлениях — не цены сделок.
         {data.criteria.length > 0 ? ` Ищем: ${data.criteria.join(", ")}.` : ""}
+        {data.freshDays > 0 ? ` Только то, что было на сайте за последние ${data.freshDays} ${daysWord(data.freshDays)}.` : ""}
       </p>
+      {data.status === "ok" && data.clientDistrictMissing && (
+        <p className="sub" data-testid="market-district-missing">Район в пожеланиях не указан, поэтому подбор по всему городу.</p>
+      )}
       {data.ownersOnly?.enabled && data.ownersOnly.total > 0 && (
         <p className="sub" data-testid="market-owners-only">
           Показаны только собственники: {data.ownersOnly.kept} из {data.ownersOnly.total} объявлений.
@@ -69,12 +98,12 @@ export function MarketBuyerListingsView({ data }: { data: MarketBuyerListingsRes
           title="Не из чего подбирать"
           hint="Укажите район или бюджет в пожеланиях покупателя — тогда здесь появятся объявления."
         />
-      ) : data.listings.length === 0 ? (
+      ) : listings.length === 0 ? (
         <Rh2EmptyState icon={Search} title="Сейчас на площадках нет подходящих объявлений" hint="Список обновляется по мере появления новых." />
       ) : (
         <>
           <div className="list">
-            {data.listings.map((l) => (
+            {listings.map((l) => (
               <div className="row wrapt" key={l.sourceUrl}>
                 <div className="t">
                   <b>
@@ -90,7 +119,9 @@ export function MarketBuyerListingsView({ data }: { data: MarketBuyerListingsRes
                     </a>
                   </b>
                   <span>
-                    {[marketSourceName(l.source), l.districtName, `размещено ${dushanbeDate(l.publishedAt)}`].filter(Boolean).join(" · ")}
+                    {[marketSourceName(l.source), l.districtUnknown ? "район не указан" : l.districtName, `размещено ${dushanbeDate(l.publishedAt)}`]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                 </div>
                 <span className="chip">Чужое</span>
@@ -101,17 +132,31 @@ export function MarketBuyerListingsView({ data }: { data: MarketBuyerListingsRes
               </div>
             ))}
           </div>
-          {data.total > data.listings.length && (
-            <p className="sub">Показаны ближайшие {data.listings.length} из {data.total}{data.totalIsLowerBound ? "+" : ""}.</p>
+          {data.total > listings.length && (
+            <p className="sub">Показаны лучшие {listings.length} из {data.total}{data.totalIsLowerBound ? "+" : ""}.</p>
           )}
+          {more?.hasMore && (
+            <button type="button" className="pill ghost" onClick={more.onMore} disabled={more.loading} data-testid="market-buyer-more">
+              {more.loading ? "Загружаем…" : "Показать ещё"}
+            </button>
+          )}
+          {more?.failed && !more.loading && <p className="sub" role="status">Не удалось загрузить ещё, нажмите кнопку ещё раз.</p>}
         </>
       )}
     </section>
   );
 }
 
+/** «суток» после числа: 1 сутки, 2–4 суток, 5+ суток — во всех случаях «суток», кроме 1 и 21, 31… */
+function daysWord(n: number): string {
+  return n % 10 === 1 && n % 100 !== 11 ? "сутки" : "суток";
+}
+
 export function MarketBuyerListings({ clientId }: { clientId: string }) {
-  const { data, isLoading, isError, refetch, isFetching } = useMarketBuyerListings(clientId);
+  const query = useMarketBuyerListings(clientId);
+  const { isLoading, refetch, isFetching } = query;
+  const pages = query.data?.pages ?? [];
+  const data = pages[0];
   if (isLoading) {
     return (
       <section className="card" aria-busy="true" aria-label="Объявления с площадок">
@@ -120,7 +165,8 @@ export function MarketBuyerListings({ clientId }: { clientId: string }) {
       </section>
     );
   }
-  if (isError || !data) {
+  // Сбой «Показать ещё» не прячет уже показанное: экран ошибки — только когда нет первой страницы.
+  if (!data) {
     return (
       <section className="card" aria-label="Объявления с площадок">
         <div className="sec-h stack"><h2>С площадок (Somon/Paydo)</h2></div>
@@ -128,5 +174,11 @@ export function MarketBuyerListings({ clientId }: { clientId: string }) {
       </section>
     );
   }
-  return <MarketBuyerListingsView data={data} />;
+  return (
+    <MarketBuyerListingsView
+      data={data}
+      listings={pages.flatMap((p) => p.listings)}
+      more={{ hasMore: !!query.hasNextPage, loading: query.isFetchingNextPage, failed: query.isFetchNextPageError, onMore: () => void query.fetchNextPage() }}
+    />
+  );
 }

@@ -16,10 +16,10 @@
   "paths": 769,
   "cron": 138,
   "jobs": 33,
-  "conditions": 4050,
+  "conditions": 4051,
   "untranslatedUnique": 469,
   "untranslatedTotal": 601,
-  "partialUnique": 1097,
+  "partialUnique": 1098,
   "translatedShare": 85
  },
  "untranslated": [
@@ -70769,6 +70769,13 @@
           },
           {
            "t": "если нет: market покупатель alerts включено at",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если это не внутри dushanbe окно",
            "k": "if",
            "a": [],
            "c": [],

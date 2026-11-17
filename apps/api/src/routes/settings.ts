@@ -1,6 +1,6 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, canViewInvestigations } from "@royal-home/shared";
+import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, canViewInvestigations } from "@royal-home/shared";
 import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
@@ -737,6 +737,11 @@ const settingsUpdateSchema = z.object({
   marketBuyerAlertsEnabled: z.boolean().optional(),
   /** Подбор покупателю с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
   marketOwnersOnly: z.boolean().optional(),
+  /** Узкий подбор с площадок (17.11.2026, lib/market/buyerMatch.ts loadMarketBuyerRules): границы — общие с экраном. */
+  marketBuyerFreshDays: z.number().int().min(MARKET_BUYER_RULE_LIMITS.freshDays.min).max(MARKET_BUYER_RULE_LIMITS.freshDays.max).optional(),
+  marketBuyerBudgetTolerancePct: z.number().int().min(MARKET_BUYER_RULE_LIMITS.budgetTolerancePct.min).max(MARKET_BUYER_RULE_LIMITS.budgetTolerancePct.max).optional(),
+  marketBuyerRoomsTolerance: z.number().int().min(MARKET_BUYER_RULE_LIMITS.roomsTolerance.min).max(MARKET_BUYER_RULE_LIMITS.roomsTolerance.max).optional(),
+  marketBuyerAlertsPerDay: z.number().int().min(MARKET_BUYER_RULE_LIMITS.alertsPerDay.min).max(MARKET_BUYER_RULE_LIMITS.alertsPerDay.max).optional(),
   /** 0 = без срока. */
   matchRequirementTtlDays: z.number().int().min(0).max(365).optional(),
   matchBudgetTolerancePct: z.number().int().min(0).max(50).optional(),

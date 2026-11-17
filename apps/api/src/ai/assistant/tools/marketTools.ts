@@ -44,7 +44,8 @@ export const marketForClientTool: AssistantReadToolPlugin = {
   level: "A",
   description:
     "Рынок под запрос клиента-покупателя: какие объявления с Somon.tj и Paydo.tj подходят его району, комнатам и бюджету " +
-    "(до 5 ближайших, со ссылками) и типичная цена на рынке в его районе (медиана за м² и за квартиру), и как она соотносится " +
+    "(до 5 лучших: тот же район, те же комнаты, цена около бюджета, только собственники и только то, что сбор видел " +
+    "за последние дни; со ссылками) и типичная цена на рынке в его районе (медиана за м² и за квартиру), и как она соотносится " +
     "с его бюджетом. Зови на «что есть на рынке для клиента», «хватит ли бюджета», «сколько стоит такое в этом районе». " +
     "Это чужие объявления, не наши объекты. Цены объявлений — не цены сделок: скажи это. Если объявлений мало (меньше порога), " +
     "числа нет: так и скажи, не додумывай. Телефонов продавцов нет. Наши объекты под клиента ищи через find_property.",
@@ -92,7 +93,10 @@ export const marketForClientTool: AssistantReadToolPlugin = {
       listings: listings.map((l) => ({
         source: l.source, url: l.sourceUrl, priceTjs: l.priceTjs, pricePerSqmTjs: l.pricePerSqmTjs,
         areaSqm: l.areaSqm, rooms: l.rooms, floor: l.floor, totalFloors: l.totalFloors, district: l.districtName,
+        ...(l.districtUnknown ? { note: "район в объявлении не указан" } : {}),
       })),
+      // Тот же узкий подбор, что в карточке клиента (lib/market/buyerMatch.ts): только то, что сбор видел недавно.
+      freshDays: wants.rules.freshDays,
       market: {
         status: market.status,
         district: market.districtName,
