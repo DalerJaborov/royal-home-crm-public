@@ -13,7 +13,8 @@ import {
 import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { logAudit } from "../lib/audit.js";
-import { uploadsDir, UploadRejectedError } from "../upload.js";
+import { uploadsDir, UploadRejectedError, guardedUpload } from "../upload.js";
+import { PROXY_SINGLE_REQUEST_MAX_BYTES } from "@royal-home/shared";
 import { crmPublicBase } from "../lib/crmPublicUrl.js";
 import { invalidateLeadMagnetCache, rehearseCampaign } from "../lib/leadMagnet.js";
 import { anyParams } from "../lib/routeParams.js";
@@ -412,7 +413,9 @@ leadMagnetsRouter.delete("/:id", requirePermission("settings.manage"), async (re
  * и lib/crmPublicUrl.ts). Это осознанное решение, а не недосмотр: чек-лист —
  * рекламный материал, который мы и так раздаём всем желающим.
  */
-const pdfUpload = multer({
+const pdfUpload = guardedUpload({
+  name: "pdfUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: LEAD_MAGNET_FILE_MAX_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {

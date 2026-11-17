@@ -7,6 +7,9 @@ import { reportUploadIssue } from "./errorReporter";
 import { computeSpeedBps, isBlobReadable, unreadableFileMessage, type ProgressSample } from "./uploadFormat";
 import { useAuthStore } from "../store/auth";
 import { registerWork } from "./workGuard";
+import { uploadClipVideo } from "./clipVideoUpload";
+import type { ChunkedSessionHolder } from "./chunkedUpload";
+import { assertFitsSingleRequest } from "./singleRequestLimit";
 
 /**
  * Очередь загрузки фотографий и видео: прогресс видно, ничего не пропадает.
@@ -652,44 +655,32 @@ function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
- * Короткий ролик — одним запросом на маршрут сжатия. Сессий докачки у него нет
- * (сервер принимает файл целиком и ставит задание ffmpeg), поэтому при обрыве
- * очередь повторяет ролик заново — как и пачку фотографий.
+ * Короткий ролик — ЧАСТЯМИ (17.11.2026): одним запросом ролик тяжелее ~90 МБ отбивал прокси
+ * перед сервером (413 ещё до API). Части повторяются сами (lib/chunkedUpload.ts); при
+ * окончательном сбое очередь повторяет ролик заново новой сессией — как и пачку фотографий.
  */
-function sendClipTask(task: StoredTask, token: string | null, onProgress: (loaded: number, total: number) => void) {
-  return new Promise<SendResult>((resolve) => {
-    const form = new FormData();
-    form.append("video", task.files[0], task.filenames[0]);
+/** Сессия частей по id задания: очередь повторяет задание — докачиваем в ту же сессию
+ *  (ревью #254), а не грузим ролик заново. Живёт до успеха или перезагрузки вкладки. */
+const clipSessions = new Map<string, ChunkedSessionHolder>();
 
-    const xhr = new XMLHttpRequest();
-    const { settle, beat } = guardXhr(xhr, resolve);
-    xhr.open("POST", `/api/v1/properties/${task.propertyId}/clip-video`);
-    xhr.withCredentials = true;
-    xhr.setRequestHeader("X-Device-Id", getOrCreateDeviceId());
-    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-    xhr.upload.onprogress = (e) => {
-      beat();
-      if (e.lengthComputable) onProgress(e.loaded, e.total);
-    };
-    // Тело ушло целиком — дальше ждём сервер (ffmpeg ставит задание), и это
-    // тоже движение: сторож отсчитывает тишину заново.
-    xhr.upload.onload = beat;
-    xhr.onerror = () => settle({ status: 0, error: "Нет связи" });
-    xhr.ontimeout = () => settle({ status: 0, error: "Превышено время ожидания" });
-    xhr.onload = () => {
-      let error: string | null = null;
-      if (xhr.status < 200 || xhr.status >= 300) {
-        try {
-          error = (JSON.parse(xhr.responseText) as { error?: string })?.error ?? null;
-        } catch {
-          error = null;
-        }
-      }
-      settle({ status: xhr.status, error });
-    };
-    beat();
-    xhr.send(form);
-  });
+async function sendClipTask(task: StoredTask, _token: string | null, onProgress: (loaded: number, total: number) => void): Promise<SendResult> {
+  const file = task.files[0];
+  const named = file instanceof File ? file : new File([file], task.filenames[0], { type: file.type });
+  const session = clipSessions.get(task.id) ?? {};
+  clipSessions.set(task.id, session);
+  try {
+    const data = await uploadClipVideo(
+      task.propertyId,
+      named,
+      (percent) => onProgress(Math.round((percent / 100) * named.size), named.size),
+      session
+    );
+    clipSessions.delete(task.id);
+    return { status: 202, error: null, data };
+  } catch (err) {
+    if (err instanceof ApiError) return { status: err.status, error: err.message };
+    return { status: 0, error: err instanceof Error ? err.message : "Нет связи" };
+  }
 }
 
 function sendTask(task: StoredTask, token: string | null, onProgress: (loaded: number, total: number) => void) {
@@ -704,6 +695,14 @@ function sendPhotoTask(task: StoredTask, token: string | null, onProgress: (load
     const form = new FormData();
     task.files.forEach((file, i) => form.append("photos", file, task.filenames[i]));
     task.uploadKeys.forEach((key) => form.append("uploadKeys", key));
+    // Пачка режется по весу (batchPhotos), но одиночный несжатый снимок может оказаться
+    // тяжелее потолка одного запроса — такой честно отклоняем сразу, без повторов.
+    try {
+      assertFitsSingleRequest(form);
+    } catch (err) {
+      resolve({ status: 413, error: err instanceof Error ? err.message : null });
+      return;
+    }
 
     const xhr = new XMLHttpRequest();
     const { settle, beat } = guardXhr(xhr, resolve);
