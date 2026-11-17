@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 763,
-  "forks": 4027,
+  "forks": 4031,
   "mounts": 86,
   "cron": 136,
   "jobs": 33,
@@ -73418,7 +73418,7 @@
       },
       {
        "k": "do",
-       "t": "const [pending, uncertain, review] = await Promise.all([ prisma.somonSeenAdvert.count({ where: { status: \"PEN…",
+       "t": "const [pending, sellerUnknown, uncertain, review] = await Promise.all([ prisma.somonSeenAdvert.count({ where:…",
        "a": [
         "считает в базе: somonSeenAdvert",
         "считает в базе: somonDelivery",
@@ -110107,6 +110107,21 @@
              ]
             },
             {
+             "k": "if",
+             "t": "data.ads.some(a => a.sellerId === null)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await logSystemError(\"cron\", \"Somon: в выдаче нет ID автора у части объявлений; счёт объявлений продавца неиз…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "const result = await recordBaselinePage(n, data.last, data.ads.map(a",
              "a": [
@@ -110202,6 +110217,21 @@
                 {
                  "k": "do",
                  "t": "await logSystemError(\"cron\", \"Somon: часть ссылок объявлений не удалось обработать\", { dedupKey: \"somon-inval…",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "data.ads.some(a => a.sellerId === null)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await logSystemError(\"cron\", \"Somon: в выдаче нет ID автора у части объявлений; счёт объявлений продавца неиз…",
                  "a": [
                   "запись в журнал ошибок"
                  ],
@@ -110418,6 +110448,72 @@
           "зовёт cleanupSomonReceipts()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "state = await prisma.somonMonitor.findUnique({ where: { id: \"singleton\" } });",
+         "a": [
+          "читает в базе: somonMonitor"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "n > 1 && ((error instanceof SomonSourceUnavailable && error.status === 404) || error instanceof SomonEmptyLis…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "data = null;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "else",
+             "t": "иначе",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw error;",
+               "a": [
+                "пробрасывает ошибку дальше"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await rekeySellerPage(n, data ? data.last : n, data ? data.ads.map(a",
+           "a": [
+            "зовёт rekeySellerPage()"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },
