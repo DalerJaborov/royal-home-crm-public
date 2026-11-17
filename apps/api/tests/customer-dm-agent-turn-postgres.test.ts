@@ -901,7 +901,7 @@ describe("actual durable DM common core", () => {
     const parts = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: f.eventKey } });
     expect(parts).toHaveLength(1);
     expect(decodeCustomerOutboxPayload(parts[0])).toEqual({ kind: "text",
-      text: "Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил." });
+      text: "Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона для связи." });
   });
   it("keeps the accepted model usage but holds OUT when an employee pauses the original native during generation", async () => {
     const f = await fixture(); f.setOnGenerate(async () => {
@@ -1133,7 +1133,7 @@ describe("never silence (16.11.2026)", () => {
     const f = await fixture("Мне назначили собеседование сегодня в 11. Я подошёл, а тут никто не в курсе");
     f.setReplies([[{ text: JSON.stringify({ kind: "escalate", reason: "needs_staff" }) }]]);
     expect(await textOf(await runCustomerDmAgentTurn(f.eventKey))).toEqual({ kind: "text",
-      text: "Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил." });
+      text: "Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона для связи." });
   });
   it("Tajik buyer ready to go to the showing: the Tajik line («шумо»), and the second time no second phone request", async () => {
     const f = await fixture("Мо харидори аникем, фахмонен, рафта бинем, гучо равем?");

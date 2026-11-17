@@ -28,7 +28,7 @@ describe("legacy seller intake through bounded customer-core progress", () => {
     // 18.11.2026 (step 1a, item 8): every field is known, so the next step is the phone (no field asked again).
     expect(text).toBe("Какой номер телефона вы хотите оставить для связи?"); expect(text).not.toMatch(/этаж|район/iu);
     expect(customerAgentRenderedQuestion({ decision: { kind: "clarify", refs: [], social: "none", question: "rooms" },
-      evidence: [], surface: "dm", knownPhoneSource: "none", verifiedContext: prior, inputText: "3 этаж" })).toBe("seller_details");
+      evidence: [], surface: "dm", knownPhoneSource: "none", verifiedContext: prior, inputText: "3 этаж" })).toBe("phone");
   });
   it("uses the Tajik seller detector without switching the output to Russian", () => {
     const value = customerAgentIntake([user("Ман хона мефурӯшам. 3 ҳуҷра, 80 м2, ошёнаи 4")]);

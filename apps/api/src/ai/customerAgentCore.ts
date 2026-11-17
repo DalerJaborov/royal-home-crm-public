@@ -533,7 +533,11 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     // (the accepted-question proof and the short-yes vocabulary); denied → the ordinary turn goes on, nothing is said yet.
     const plainDm = frame.surface === "dm" && !frame.attachmentInput && !perception && !frame.requestedFacts.length && !evidence.length && context?.publicState.topic !== "job";
     const previousAssistant = context?.turns.at(-1)?.role === "assistant" ? context.turns.at(-1)!.text : undefined;
-    if (plainDm && customerAgentCallbackQuestionLast(previousAssistant) && isCustomerShortCallbackYes(frame.inputText) &&
+    // The memory omits a bot reply that carried a receipt («Спасибо, записал.\nХотите, чтобы сотрудник вам позвонил?»): with no bot turn
+    // visible the journal alone decides (its proof is the ACCEPTED question part itself); another visible last question skips this.
+    const callbackAsked = customerAgentCallbackQuestionLast(previousAssistant) ||
+      !!context?.turns.length && !context.turns.some(turn => turn.role === "assistant");
+    if (plainDm && callbackAsked && isCustomerShortCallbackYes(frame.inputText) &&
         frame.tools.some(tool => tool.name === "request_callback")) {
       const before = evidence.length;
       await execute({ name: "request_callback", args: { topic: "Клиент ответил согласием на вопрос бота о звонке" } }, undefined, true);
@@ -546,7 +550,9 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     }
     // A pure direct question about the company («Ватсап?», «Можно позвонить?», «Куда резюме?») is a fact the server holds: answered
     // without a model round, before any question of ours (18.11.2026, audit 17.11 class 1).
-    if (plainDm && customerAgencyDirectQuestion(frame.inputText) && frame.inputText.trim().length <= 80) {
+    // Only a message that is nothing but that question: «…номер телефона и работаете ли вы с арендой?» keeps its model round.
+    if (plainDm && customerAgencyDirectQuestion(frame.inputText) && frame.inputText.trim().length <= 40 &&
+        !/(?:^|\s)(?:и|а|ва|ҳам|хам|еще|ещё|боз)(?=\s)|[,;].*[?？]|[?？].*[?？]/iu.test(frame.inputText)) {
       const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs: [], social: "none", question: "none" });
       const text = renderDecision(decision);
       if (text) return await ready(decision, text);
