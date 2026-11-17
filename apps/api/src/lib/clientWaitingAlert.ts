@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { TG_PREFIX, TG_DIRECT_PREFIX } from "./conversationId.js";
-import { silentTurnReason } from "../messengers/replyChain.js";
+import { silentTurnReason } from "../messengers/silentTurn.js";
 import type { ChatMessage } from "../ai/client.js";
 import { sendPushToAgent } from "../push.js";
 import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
