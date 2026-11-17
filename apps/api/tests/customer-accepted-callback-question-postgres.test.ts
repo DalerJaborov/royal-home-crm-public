@@ -11,6 +11,12 @@ vi.mock("../src/lib/inboundSideEffects.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/inboundSideEffects.js")>()),
   applyInboundSideEffects: vi.fn(async () => ({ status: "duplicate" as const })),
 }));
+// The «Обучение бота» counters, observed (the real function still runs): which drop reason the model's words got.
+vi.mock("../src/ai/guardMetrics.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/ai/guardMetrics.js")>();
+  return { ...actual, guardFired: vi.fn(actual.guardFired) };
+});
+import { guardFired } from "../src/ai/guardMetrics.js";
 import { customerActionIntentsSchema } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
@@ -455,11 +461,16 @@ describe("actual accepted callback question → real next signed IN", () => {
     // Live is per channel since 17.11 (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS; empty = live nowhere): the fixture account is Instagram.
     vi.stubEnv("CUSTOMER_AGENT_ANSWER_MODE", "live"); vi.stubEnv("CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS", "INSTAGRAM");
     try {
+      vi.mocked(guardFired).mockClear();
       const f = await fixture(), key = await f.intake("Хочу купить квартиру, нужна консультация.");
       const part = await f.run(key, [[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "callback_consent",
         answer: { lead: "Хорошо, понимаю вас.", ask: "Хотите, чтобы сотрудник вам позвонил?" } }) }]]);
       const payload = decodeCustomerOutboxPayload(part);
       expect(payload).toEqual({ kind: "text", text: customerAgentCallbackQuestionText("ru") });
+      // The same template would go out in shadow: the counter proves the words were refused as agreement, not dropped as shadow.
+      const fired = vi.mocked(guardFired).mock.calls.map(call => call[0]);
+      expect(fired).toContain("answer_dropped_agree");
+      expect(fired).not.toContain("answer_dropped_shadow");
       expect(decodeCustomerOutboxPublicData(part)).toMatchObject({ callbackQuestion: { version: 1, kind: "callback_consent", language: "ru" } });
       expect(await dispatchCustomerOutboxPart(part.id)).toEqual({ status: "accepted" });
       const b = await f.intake("Да"), prepared = await f.beforeClaim(b);
