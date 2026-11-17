@@ -124,6 +124,17 @@ function speech24k(ms: number): Buffer {
   return buf;
 }
 
+// Замок «только русский», амбиент, вдох и тестовый номер — константы с 01.11.2026
+// (lib/settingsConstants.ts). Тест держит прежнюю среду (амбиент выключен) и
+// переключает замок подменой константы, а не полем Settings.
+const voiceTuning = vi.hoisted(() => ({
+  testExtension: "101008890", forceRussianOnly: false, breathEnabled: false, officeAmbienceEnabled: false, officeAmbienceVolume: 0.35,
+}));
+vi.mock("../src/lib/settingsConstants.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/settingsConstants.js")>()),
+  LIVE_VOICE_TUNING: voiceTuning,
+}));
+
 const { prisma } = await import("../src/db.js");
 const bridge = await import("../src/lib/telephony/liveVoiceBridge.js");
 const {
@@ -234,7 +245,7 @@ beforeAll(async () => {
   });
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { liveVoiceEnabled: true, liveVoiceInboundMode: "always", liveVoiceForceRussianOnly: false },
+    data: { liveVoiceEnabled: true, liveVoiceInboundMode: "always" },
   });
 });
 

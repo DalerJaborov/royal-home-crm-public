@@ -53,7 +53,21 @@ describe("F10 company information: services, hours and address by word boundarie
     expect(customerCompanyInformationRequested("Ҳаққи хизмат чанд фоиз аст?")).toBe(false);
     expect(customerCompanyInformationRequested("Сколько стоят услуги риелтора?")).toBe(false);
   });
-  it.each(["До скольки вы работаете?", "Кай кор мекунед? Соат чанд?", "Часы работы подскажите"])("answers only the hours for %s", inputText => {
+  // Живой случай 13.11.2026 (Messenger и Instagram Arvan): старый бот принял «график
+  // работы» за вопрос о вакансии. Ядро читает сведения о компании само и отвечает часами.
+  it.each(["Здравствуйте, какой у вас график работы?", "Какой график работы?", "Режим работы вашего офиса?"])("reads company information automatically and is not a job question: %s", inputText => {
+    expect(customerCompanyInformationRequested(inputText)).toBe(true);
+    expect(customerRecruitmentRequested(inputText)).toBe(false);
+  });
+  it("«график работы» outside a job conversation prints the hours, never vacancy conditions read alongside", () => {
+    const evidence = [ev(company, "e0"), ev(vacancies(true, [position({ detailsRu: "График 5/2, офис" })]), "e1")];
+    const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" } as never,
+      evidence, language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm",
+      inputText: "Здравствуйте, какой у вас график работы?" }) ?? "";
+    expect(text).toContain("Сотрудники на связи с 09:30 до 18:00");
+    expect(text).not.toMatch(/SMM|ваканси/iu);
+  });
+  it.each(["До скольки вы работаете?", "Кай кор мекунед? Соат чанд?", "Часы работы подскажите", "Здравствуйте, какой у вас график работы?"])("answers only the hours for %s", inputText => {
     const text = render([ev(company)], { inputText }) ?? "";
     expect(text).toContain("Сотрудники на связи с 09:30 до 18:00"); expect(text).not.toContain("Офис Royal Home");
   });
@@ -131,12 +145,14 @@ describe("F07 the résumé is asked once", () => {
   const perceived = (subject: "document" | "home_interior", readableText: string) => ({ language: "ru", transcript: "", subject, visible: [], readableText, speech: "none" });
   const renderJob = (extra: Record<string, unknown>, turns: Array<{ role: "user" | "assistant"; text: string }> = []) =>
     render([catalog, saved], { verifiedContext: context(turns, job), ...extra }, "name") ?? "";
-  it("control: a bare message after the receipt still gets one request for the résumé", () => {
-    expect(renderJob({ inputText: "Здравствуйте" })).toContain("Пришлите резюме");
+  it("control: a bare message after the receipt gets the specialist's phone line and no résumé request (phone-only recruitment)", () => {
+    const text = renderJob({ inputText: "Здравствуйте" });
+    expect(text).toContain("Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста.");
+    expect(text).not.toContain("Пришлите резюме");
   });
   it("does not ask for it after a document or a photographed résumé", () => {
     const text = renderJob({ inputText: "", mediaPerception: perceived("document", "Резюме. Меня зовут Мадина. Опыт: три года ведения Instagram") });
-    expect(text).toContain("Сведения добавлены к отклику на вакансию."); expect(text).not.toContain("Пришлите резюме");
+    expect(text).toContain("Спасибо, записал."); expect(text).not.toContain("Пришлите резюме");
   });
   it("does not ask after the candidate described themselves in text", () => {
     const text = renderJob({ inputText: "Меня зовут Мадина, мне 26 лет, пять лет веду Instagram для магазинов и умею снимать Reels" });
@@ -164,13 +180,16 @@ describe("F07 the résumé is asked once", () => {
 describe("F06 an unresolved reference says why", () => {
   const unresolved = (reason?: string, status: "missing" | "ambiguous" = "missing") => ev({ kind: "property_unresolved", status, ...(reason ? { reason } : {}) } as CustomerAgentObservation);
   const question = "Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.";
+  const business = "Что вас интересует: покупка или продажа недвижимости?";
+  // Failures of the reference are never voiced (30.10.2026): a foreign link gets the business question, a transient failure just the question.
   it.each([
-    ["unsupported", "Эту ссылку открыть не получилось: такой формат ссылок я не читаю."],
-    ["untrusted_origin", "Эта ссылка ведёт не на наши публикации, по ней объект определить не могу."],
-    ["not_found", "По этой ссылке или номеру объект не нашёлся."],
-    ["lookup_unavailable", "Сейчас не получилось проверить объект, это временный сбой. Попробуйте ещё раз чуть позже."],
-  ])("%s", (reason, line) => {
-    expect(render([unresolved(reason)], {}, "property")).toBe(`${line}\n${question}`);
+    ["unsupported", business],
+    ["untrusted_origin", business],
+    ["not_found", `По этой ссылке или номеру объект не нашёлся.
+${question}`],
+    ["lookup_unavailable", question],
+  ])("%s", (reason, expected) => {
+    expect(render([unresolved(reason)], {}, "property")).toBe(expected);
   });
   it("plain question without a reason, and a different one for an ambiguous match", () => {
     expect(render([unresolved()], {}, "property")).toBe(question);
@@ -181,7 +200,7 @@ describe("F06 an unresolved reference says why", () => {
     const ask = (text: string) => customerBarePropertyAnswer("172", context([{ role: "assistant", text }]));
     expect(ask(rendered)).toBe(172);
     expect(ask(customerAgentPropertyQuestionTexts("ru")[1])).toBe(172);
-    expect(ask("Я уточнял, о каком объекте речь. Пришлёте номер объекта или ссылку?")).toBe(172);
+    expect(ask("Подскажите номер объекта или пришлите ссылку, и я всё расскажу.")).toBe(172);
     expect(ask("Спасибо")).toBeNull();
   });
   it("derives the reason from the held evidence only", () => {
@@ -210,7 +229,8 @@ describe("F06 links and numbers the customer actually types", () => {
   it("accepts links written without https://", () => {
     expect(customerPropertyEvidenceFromText("смотрю instagram.com/p/ABC123/")).toEqual([{ kind: "url", origin: "message", reference: "https://www.instagram.com/p/ABC123/" }]);
     expect(customerPropertyEvidenceFromText("www.royalhome.tj/listing/12.")).toEqual([{ kind: "url", origin: "message", reference: "https://royalhome.tj/listing/12" }]);
-    expect(customerPropertyEvidenceFromText("facebook.com/share/p/1AbC/")).toEqual([{ kind: "untrusted_reference", origin: "message", reference: "unsupported_format" }]);
+    // An opaque share link is no longer rejected here: the resolver expands it once (customer-core-tails-23-10).
+    expect(customerPropertyEvidenceFromText("facebook.com/share/p/1AbC/")).toEqual([{ kind: "url", origin: "message", reference: "https://www.facebook.com/share/p/1AbC/" }]);
     expect(customerPropertyEvidenceFromText("https://www.instagram.com/p/ABC123/")).toHaveLength(1);
   });
   it("reads «номер 1234», «id 77», «рақами объект 9» but never a phone or a stray number", () => {

@@ -17,6 +17,7 @@ import { issueSession } from "../routes/auth.js";
 import { signPending2faToken } from "../lib/pending-2fa.js";
 import { grantElevation } from "../lib/stepUp.js";
 import { requireAuth } from "./middleware.js";
+import { STEP_UP_MINUTES } from "../lib/settingsConstants.js";
 
 export const testPasswordLoginRouter = Router();
 
@@ -40,9 +41,7 @@ testPasswordLoginRouter.post("/step-up", requireAuth, async (req, res, next) => 
   if (!agent || agent.totpEnabled || !agent.passwordHash || !(await bcrypt.compare(password, agent.passwordHash))) {
     return res.status(401).json({ error: "Неверный пароль" });
   }
-  const settings = await prisma.settings
-    .findUnique({ where: { id: "singleton" }, select: { stepUpMinutes: true } })
-    .catch(() => null);
-  grantElevation(agent.id, settings?.stepUpMinutes);
+  // Срок окна — константа с 01.11.2026 (lib/settingsConstants.ts).
+  grantElevation(agent.id, STEP_UP_MINUTES);
   res.json({ elevated: true });
 });

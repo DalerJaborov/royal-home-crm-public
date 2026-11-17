@@ -8,6 +8,7 @@ import { Toasts } from "./components/Toasts";
 import { GlobalStepUpHost } from "./components/GlobalStepUpHost";
 import { NotFound } from "./components/NotFound";
 import { AppSkeleton } from "./components/AppSkeleton";
+import { LoginSessionGate } from "./components/LoginSessionGate";
 import { Dashboard } from "./pages/Dashboard";
 import { loadCleanClients, loadCleanDeals, loadCleanFinance, loadCleanMessages, loadCleanProperties } from "./lib/cleanRouteChunks";
 import { useAuthStore } from "./store/auth";
@@ -140,6 +141,7 @@ const Comments = lazyWithReload(() => import("./pages/Comments").then((m) => ({ 
 const Funnel = lazyWithReload(() => import("./pages/Funnel").then((m) => ({ default: m.Funnel })));
 const Properties = lazyWithReload(loadCleanProperties);
 const PropertiesMap = lazyWithReload(() => import("./pages/PropertiesMap").then((m) => ({ default: m.PropertiesMap })));
+const MarketSegments = lazyWithReload(() => import("./pages/MarketSegments").then((m) => ({ default: m.MarketSegments })));
 const PropertyDetail = lazyWithReload(() => import("./pages/PropertyDetail").then((m) => ({ default: m.PropertyDetail })));
 const Clients = lazyWithReload(loadCleanClients);
 const LostClients = lazyWithReload(() => import("./pages/LostClients").then((m) => ({ default: m.LostClients })));
@@ -256,9 +258,11 @@ export default function App() {
       <Route
         path="/login"
         element={
-          <Suspense fallback={<AppSkeleton />}>
-            <Login />
-          </Suspense>
+          <LoginSessionGate>
+            <Suspense fallback={<AppSkeleton />}>
+              <Login />
+            </Suspense>
+          </LoginSessionGate>
         }
       />
       {/* Дев-стенд задачи 7 слоя 2 — вне ProtectedRoute/AppLayout: своя фикстура,
@@ -387,6 +391,7 @@ export default function App() {
         <Route path="activity" element={<Activity />} />
         <Route path="properties" element={<Properties />} />
         <Route path="properties/map" element={<PropertiesMap />} />
+        <Route path="market" element={<MarketSegments />} />
         <Route path="properties/:id/edit" element={<PropertyEdit />} />
         <Route path="properties/:id" element={<PropertyDetail />} />
         {/* `key` у четырёх маршрутов списка клиентов (02.10.2026): компонент один,

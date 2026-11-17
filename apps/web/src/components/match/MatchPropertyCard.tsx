@@ -4,6 +4,7 @@ import { rh2AvatarTone } from "../../lib/rh2Avatar";
 import { dushanbeDateTime } from "../../lib/date";
 import { formatMoney } from "../../lib/format";
 import type { ClientPropertyMatchEvidence } from "@royal-home/shared";
+import { MatchEvidenceLines, MatchSentChip, MatchTierChip } from "./MatchEvidence";
 import type { Property } from "../../types";
 
 /** Ответственный за объект: риелтор сделки, а если его ещё нет — тот, кто завёл.
@@ -100,12 +101,10 @@ export function MatchPropertyCard({
         </Link>
         <span className="client-match-params">{[p.district?.name, p.areaSqm ? `${p.areaSqm} м²` : null, p.rooms ? `${p.rooms} комн.` : null, p.floor != null ? `${p.floor}${p.totalFloors ? `/${p.totalFloors}` : ""} этаж` : null].filter(Boolean).join(" · ")}</span>
         <span className="wrap" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-          {p.match && <span className={`chip${p.match.tier === "exact" ? " ok" : ""}`}>
-            {p.match.tier === "exact" ? "Подходит по параметрам" : p.match.tier === "alternative" ? "Есть компромиссы" : "Нужно уточнить"}
-          </span>}
+          {p.match && <MatchTierChip tier={p.match.tier} />}
           {p.match?.isMine && <span className="chip">Мой объект</span>}
           {p.distanceM != null && <span className="chip">{formatDistance(p.distanceM)}</span>}
-          {offered && <span className="chip">{p.match?.lastSentAt ? `Отправляли ${dushanbeDateTime(p.match.lastSentAt)}` : "Отправляли"}</span>}
+          {p.match?.sentCount ? <MatchSentChip history={p.match} /> : offered && <span className="chip">Отправляли</span>}
           {/* «ИИ» — чипом в общем ряду: внутри `.t` любой span блочный, и
               чип растягивался на всю ширину строки. */}
 
@@ -122,11 +121,7 @@ export function MatchPropertyCard({
             </span>
           )}
         </span>
-        {p.match && <div className="client-match-evidence">
-          {p.match.reasons.length > 0 && <p>{p.match.reasons.join(" · ")}</p>}
-          {p.match.tradeoffs.length > 0 && <p className="client-match-tradeoff">Учесть: {p.match.tradeoffs.join(" · ")}</p>}
-          {p.match.unknowns.length > 0 && <p>Уточнить: {p.match.unknowns.join(" · ")}</p>}
-        </div>}
+        {p.match && <MatchEvidenceLines match={p.match} />}
       </div>
       <div className="who">
         {agentOf(p) ? (

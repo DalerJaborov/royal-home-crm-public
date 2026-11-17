@@ -2,6 +2,7 @@ import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { ClientSource } from "@royal-home/shared";
+import { reportDateRangeError } from "@royal-home/shared";
 import { useCan } from "../lib/permissions";
 import { useAuthStore } from "../store/auth";
 import { useMobileUx } from "../hooks/useMobileUx";
@@ -29,6 +30,7 @@ import { MoneyTabs } from "../components/SectionTabs";
 import { scrollableRegion } from "../lib/a11y";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { StatTile } from "../components/ui/StatTile";
+import { ReportPdfActions } from "../components/ReportPdfActions";
 
 /**
  * ОТЧЁТЫ — экран /reports темы «Royal Home 2026», перенесённый из прототипа
@@ -142,21 +144,22 @@ function ReportsScreen() {
   const [agentsShown, setAgentsShown] = useState(PAGE);
 
   const range = { from, to };
+  const rangeError = reportDateRangeError(from, to);
   const {
     data: funnelData,
     isLoading: funnelLoading,
     isError: funnelError,
     error: funnelErrObj,
     refetch: refetchFunnel,
-  } = useFunnelReport(range, true);
+  } = useFunnelReport(range, !rangeError);
   const {
     data: agentsData,
     isLoading: agentsLoading,
     isError: agentsError,
     error: agentsErrObj,
     refetch: refetchAgents,
-  } = useAgentsReport(range, true);
-  const { data: sourcesData, isLoading: sourcesLoading, isError: sourcesError, refetch: refetchSources } = useSourcesReport(range, true);
+  } = useAgentsReport(range, !rangeError);
+  const { data: sourcesData, isLoading: sourcesLoading, isError: sourcesError, refetch: refetchSources } = useSourcesReport(range, !rangeError);
 
   function applyPreset(key: PresetKey) {
     const r = presetRange(key);
@@ -202,7 +205,7 @@ function ReportsScreen() {
   // Убираем прежнюю ровно тогда, когда отрисована макетная, — и только её
   // текстовую часть: кнопки выгрузки живут в том же `.pg-h` и нужны на обеих
   // ширинах.
-  const mhHeaderShown = mobile && !clean && !funnelLoading && !funnelError && funnel.length > 0;
+  const mhHeaderShown = !rangeError && mobile && !clean && !funnelLoading && !funnelError && funnel.length > 0;
 
   return (
     <ReportsFrame clean={clean}>
@@ -242,7 +245,7 @@ function ReportsScreen() {
                   </button>
                   <button type="button" className="tile" onClick={() => scrollToSection("funnel-section")} title="Воронка за период — ниже">
                     <div className="v">{toDeal !== null ? `${toDeal} %` : "—"}</div>
-                    <div className="l">конверсия лид → сделка</div>
+                    <div className="l">сделки / новые лиды за период</div>
                   </button>
                 </div>
               </div>
@@ -294,8 +297,11 @@ function ReportsScreen() {
           )}
           {/* Выгрузки — под своим правом: сервер их всё равно закроет, а кнопка,
               дающая отказ, только раздражает. */}
+          <div className="acts">
+            {/* PDF отчёта за выбранный период (14.11.2026): кнопки скрыты без права reports.view. */}
+            <ReportPdfActions kind="team" params={{ from, to }} disabled={!!rangeError} layout="contents" />
           {can("properties.export") && (
-            <div className="acts">
+            <>
               {clean && <details className="relative text-sm">
                 <summary className="min-h-11 cursor-pointer rounded-xl px-4 py-3">Вспомогательная выгрузка объектов</summary>
                 <div className="flex flex-wrap gap-2 py-3">
@@ -322,8 +328,9 @@ function ReportsScreen() {
                 Объекты JSON
               </button>
               </>}
-            </div>
+            </>
           )}
+          </div>
         </div>
 
         <MoneyTabs />
@@ -393,19 +400,21 @@ function ReportsScreen() {
                 refetchAgents();
                 refetchSources();
               }}
+              disabled={!!rangeError}
             >
               Обновить
             </button>
           </div>
         </div>
 
+        {rangeError ? <p className="state err" role="alert">{rangeError}. Исправьте период, чтобы увидеть показатели.</p> : <>
         {clean && funnelData && !funnelLoading && !funnelError && <div className="tiles" aria-label="Основные показатели за выбранный период">
           <StatTile label="Новые лиды" value={leads?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
           <StatTile label="Показы" value={showings?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
           <StatTile label="Закрытые сделки" value={deals?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
           {deals?.commission != null
             ? <StatTile label="Комиссия" value={<Rh2Money value={deals.commission} cur="сомони" />} line="по закрытым сделкам" onClick={() => scrollToSection("funnel-section")} />
-            : <StatTile label="Лид → сделка" value={toDeal === null ? "—" : `${toDeal} %`} line="конверсия за период" onClick={() => scrollToSection("funnel-section")} />}
+            : <StatTile label="Сделки / новые лиды" value={toDeal === null ? "—" : `${toDeal} %`} line="соотношение событий за период" onClick={() => scrollToSection("funnel-section")} />}
         </div>}
 
         {/* Воронка за период */}
@@ -464,12 +473,12 @@ function ReportsScreen() {
                 <div className="prog-legend" style={{ marginTop: 16 }}>
                   {toDeal !== null && (
                     <span>
-                      <b>{toDeal} %</b>лид доходит до сделки
+                      <b>{toDeal} %</b>сделки / новые лиды за период
                     </span>
                   )}
                   {toNegotiation !== null && (
                     <span>
-                      <b>{toNegotiation} %</b>показ доходит до переговоров
+                      <b>{toNegotiation} %</b>переговоры / показы за период
                     </span>
                   )}
                   {deals?.commission != null && (
@@ -481,6 +490,10 @@ function ReportsScreen() {
                     </span>
                   )}
                 </div>
+                {(toDeal !== null || toNegotiation !== null) && <p className="note">
+                  Это соотношения событий, а не конверсия одних и тех же клиентов. События считаются по своим датам,
+                  поэтому результат может быть больше 100 %.
+                </p>}
               </>
             )}
           </div>
@@ -648,6 +661,7 @@ function ReportsScreen() {
         </div>
         </div>
 
+        </>}
         {/* «Горячие объекты» (28.09.2026) — чем интересуются прямо сейчас:
             сервер считал это с 09.09, а экрана не было. */}
         <HotPropertiesSection />

@@ -84,6 +84,8 @@ import { PropertyDocumentsCard, PropertyDocumentsField } from "../components/Pro
 import { PropertyStatsCard } from "../components/PropertyStatsCard";
 import { PropertyVoiceCard, PropertyVoiceDisclosure } from "../components/PropertyVoiceCard";
 import { PropertyPriceDemandCard } from "../components/PropertyPriceDemandCard";
+import { MarketBlock } from "../components/MarketBlock";
+import { MarketOnPlatforms } from "../components/MarketOnPlatforms";
 import { OwnerReportCard } from "../components/OwnerReportCard";
 import { moderationVisible, pipelineHintsVisible, sitePublishVisible, solveHasContent, tiktokVisible } from "../lib/propertySolve";
 
@@ -536,7 +538,7 @@ function PropertyViewCard({
   // назначенный агент при заполненном интейкере видели кнопки и получали 403.
   const myRole = useAuthStore((s) => s.agent?.role);
   const myId = useAuthStore((s) => s.agent?.id);
-  const canMarkGroupShare = !accountReadOnly && !isTrashed && canMarkFacebookGroupShare(myRole, myId, property);
+  const canMarkGroupShare = !accountReadOnly && !isTrashed && canMarkFacebookGroupShare(can("marketing.access"), myId, property);
 
   const legacyAgentMobile = useLegacyAgentMobile();
   const photos = property.photos ?? [];
@@ -584,7 +586,7 @@ function PropertyViewCard({
   // «Решить сейчас» — только когда в блоке есть что показать (lib/propertySolve.ts):
   // у агента на объекте в продаже от блока оставался один заголовок.
   const role = useAuthStore((s) => s.agent?.role);
-  const marketingRole = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
+  const marketingRole = can("marketing.access");
   const { data: channelsStatus } = useChannelsStatus(marketingRole);
   // Статус меняется и из просмотра (24.09.2026, пункт 5 разбора): тем же, кому
   // открыта правка, и тем же списком, что в правке.
@@ -855,6 +857,8 @@ function PropertyViewCard({
   const promotionBlock = <>
     <PropertyAdBadge propertyId={property.id} />
     {!isTrashed && property.status === "AVAILABLE" && <PropertyPriceDemandCard propertyId={property.id} />}
+    {!isTrashed && property.status === "AVAILABLE" && <MarketBlock propertyId={property.id} />}
+    {!isTrashed && property.status === "AVAILABLE" && <MarketOnPlatforms propertyId={property.id} />}
     <PriceHistoryBlock property={property} />
   </>;
   const shareOpensBlock = canEdit && !isTrashed && <PropertyShareOpensCard propertyId={property.id} />;
@@ -948,7 +952,7 @@ function PropertyViewCard({
                   />
                   <Row title="Номер объекта" meta={formatPropertyCode(property.shortId)} />
                   <Row title="Сайт royalhome.tj" meta={property.publishedOnSite ? "Опубликован" : "Не опубликован"} />
-                  {property.viewsCount > 0 && <Row title="Показов клиентам" meta={String(property.viewsCount)} />}
+                  {property.conductedShowingsCount != null && <Row title="Проведено показов" meta={String(property.conductedShowingsCount)} />}
                   {!!property.demandCount && !can("clients.viewAll") && (
                     <Row title="Покупателей ждут такой объект" meta={String(property.demandCount)} />
                   )}
@@ -2319,8 +2323,7 @@ function CompleteEditingButton({ propertyId }: { propertyId: string }) {
  */
 function TikTokPublishButton({ property }: { property: Property }) {
   const readOnly = useIsReadOnly();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canSeeMarketing = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
+  const canSeeMarketing = useCan()("marketing.access");
   const { data: channelsStatus } = useChannelsStatus(canSeeMarketing);
   const publish = useTikTokManualPublish(property.id);
   const [result, setResult] = useState<{ ok: boolean; note?: string; error?: string } | null>(null);

@@ -9,7 +9,10 @@ import {
   type ClientFilters,
 } from "../../hooks/useClients";
 import { useCan } from "../../lib/permissions";
+import { clientListScope } from "../../lib/clientListScope";
 import { useAccumulatedPages } from "../../hooks/useAccumulatedPages";
+import { useEmptyListGuard } from "../../hooks/useEmptyListGuard";
+import { EmptyListGuardBanner } from "../EmptyListGuardBanner";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useMarkSectionSeen } from "../../hooks/useCounters";
 import { useAuthStore } from "../../store/auth";
@@ -19,7 +22,6 @@ import { useDuplicates } from "../../hooks/useDuplicates";
 import { useTransferClient } from "../../hooks/useMissionControl";
 import { avatarInitial, avatarToneClass } from "../../lib/avatarTone";
 import { ChannelIcon, hasChannelGlyph, sourceChannel } from "../ChannelIcon";
-import { ClientFormModal } from "../ClientFormModal";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { DuplicatesModal } from "../DuplicatesModal";
 import { MutationError } from "../MutationError";
@@ -38,6 +40,7 @@ import {
 } from "../../lib/clientFormat";
 import { formatWait } from "../../lib/format";
 import type { Client } from "../../types";
+import { showsInactiveLabel } from "../InactiveLevelBadge";
 
 const num = (n: number) => n.toLocaleString("ru-RU");
 
@@ -102,7 +105,7 @@ const num = (n: number) => n.toLocaleString("ru-RU");
  *    хозяина, поэтому подойдёт та же разметка `.seg`/`.fld`, что у ПК и у
  *    MobilePropertiesList.tsx) — статус, источник, район, агент, порядок.
  */
-export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
+export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELLER"; onAddClient: () => void }) {
   const me = useAuthStore((s) => s.agent);
   const navigate = useNavigate();
   const can = useCan();
@@ -158,16 +161,14 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
   const [urlWorkStatus] = useState(() =>
     !isInactiveRoute && urlParams.get("workStatus") === "INACTIVE" ? ("INACTIVE" as const) : undefined
   );
-  const [newClientPhone] = useState(() => urlParams.get("phone") ?? undefined);
   const [noResponseYesterday, setNoResponseYesterday] = useState(
     () => urlParams.get("slice") === "noResponseYesterday"
   );
 
   const [slice, setSlice] = useState<"all" | "mine">("all");
   const [page, setPage] = useState(1);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => urlParams.get("q") ?? "");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [showForm, setShowForm] = useState(() => urlParams.get("new") === "1");
   const [showDuplicates, setShowDuplicates] = useState(false);
   /** Шторка «Фильтры» — статус, источник, район, агент, порядок (та же шторка,
    *  что на ПК, тот же корпус Rh2Sheet). */
@@ -216,6 +217,8 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
     setPage(1);
   }, [sectionKind]);
   const debouncedQ = useDebouncedValue(q, 350);
+  const searching = !!debouncedQ.trim();
+  const searchAcrossKinds = searching && (me?.role === "AGENT" || can("otherInquiries.view"));
 
   const filters: ClientFilters = {
     ...(isAllMineRoute
@@ -223,7 +226,7 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
       : isInactiveRoute
         ? // Раздел задан — сужаем и по виду: иначе у продавцов лежат покупатели.
           { workStatus: "INACTIVE" as const, ...(sectionKind ? { kind: sectionKind } : {}) }
-        : { kind }),
+        : { kind: pendingSlice || searchAcrossKinds ? undefined : sectionKind ?? kind }),
     page,
     q: debouncedQ?.trim() || undefined,
     ...(slice === "mine" && me && !isAllMineRoute ? { agentId: me.id } : {}),
@@ -233,11 +236,14 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
     ...(pendingSlice ? { pendingAcceptance: true } : {}),
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
     ...(urlWorkStatus ? { workStatus: urlWorkStatus } : {}),
+    scope: clientListScope({ allMine: isAllMineRoute, other: false, searching,
+      status: extraFilters.status, workStatus: isInactiveRoute ? "INACTIVE" : urlWorkStatus,
+      pending: pendingSlice, noResponseYesterday }),
   };
-  const { data, isLoading, error, refetch } = useClients(filters);
+  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useClients(filters);
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...filters, page: 1 }, page > 1);
-  const { data: summary } = useClientsSummary();
+  const { data: summary, isFetching: summaryFetching, refetch: refetchSummary } = useClientsSummary();
   // Дубликаты — только руководству (объединение задевает чужих клиентов) и
   // только у покупателей, тот же разбор, что в pages/Clients.tsx (ClientsList).
   const { data: duplicates } = useDuplicates(can("clients.merge") && kind === "BUYER");
@@ -276,6 +282,25 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
     `${kind}:${section}:${isInactiveRoute}:${isAllMineRoute}:${slice}:${debouncedQ}:${JSON.stringify(extraFilters)}:${pendingSlice}:${noResponseYesterday}`,
     headPage?.items
   );
+  // Самолечение пустого списка (hooks/useEmptyListGuard.ts, одна дверь с ПК).
+  const guardComparable =
+    filters.scope === "inWork" && !filters.status && !filters.source && !filters.districtId && !filters.agentId &&
+    !filters.q && !filters.workStatus && page === 1 && !!filters.kind;
+  const listGuard = useEmptyListGuard({
+    enabled: true,
+    sliceKey: `mobile:${filters.kind ?? "all"}:${guardComparable ? "plain" : "filtered"}`,
+    sliceName: `mobile-${(filters.kind ?? "all").toLowerCase()}`,
+    isLoading,
+    isFetching,
+    hasData: !!data,
+    error,
+    itemCount: items.length,
+    expected: !guardComparable ? null : summary ? (filters.kind === "SELLER" ? summary.sellers : summary.buyers) : undefined,
+    summaryPending: summaryFetching,
+    dataUpdatedAt,
+    refetchAll: () => Promise.all([refetch({ cancelRefetch: false }), refetchSummary({ cancelRefetch: false })]),
+  });
+
   const title = isAllMineRoute
     ? "Не на виду"
     : isInactiveRoute
@@ -389,7 +414,7 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
             type="button"
             className="ico card"
             aria-label={kind === "SELLER" ? "Новый продавец" : "Новый клиент"}
-            onClick={() => setShowForm(true)}
+            onClick={onAddClient}
           >
             <Plus className="i" aria-hidden />
           </button>
@@ -535,14 +560,9 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
 
       <div className="sec" id="mobile-clients-list" style={{ marginTop: 14 }}>
         <div className="list">
-          {error ? (
-            <div className="state err">
-              Список не загрузился.
-              <button type="button" className="lnk" onClick={() => refetch()}>
-                Повторить
-              </button>
-            </div>
-          ) : isLoading ? (
+          {listGuard.broken ? (
+            <EmptyListGuardBanner guard={listGuard} variant="mobile" />
+          ) : isLoading || error ? (
             <div className="state">Загружаем {title.toLowerCase()}</div>
           ) : items.length === 0 ? (
             <div className="state">
@@ -571,7 +591,6 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
         </div>
       )}
 
-      {showForm && <ClientFormModal kind={kind} initialPhone={newClientPhone} onClose={() => setShowForm(false)} />}
       {showDuplicates && <DuplicatesModal onClose={() => setShowDuplicates(false)} />}
 
       {/* Шторка «Фильтры» — статус, источник, район, агент, порядок. Тот же
@@ -791,6 +810,8 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
     wants || null,
     CLIENT_SOURCE_LABELS[c.source],
     step || null,
+    // Неактивные с 10.11.2026 стоят во вкладке «В работе» — метка, чтобы агент видел, кому звонить.
+    !c.hiddenReason && showsInactiveLabel(c) ? "неактивен" : null,
   ].filter(Boolean) as string[];
 
   const chip =

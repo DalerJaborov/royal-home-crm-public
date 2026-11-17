@@ -2,11 +2,32 @@ import { collectSellerFacts, SELLER_FACT_ORDER, type SellerFactKey } from "./sel
 import { customerRoleSignals } from "./customerAgentRole.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
+import { buyerNeedsFromMessages, buyerNeedsKnown, compactBuyerNeeds, customerSearchRequested, readBuyerNeeds } from "./customerBuyerNeeds.js";
+
+const NEGATED_WISH = /(?<![\p{L}\p{N}])(?:не|ни|на)\s*(?:\p{L}+\s+)?(?:хочу|хотим|хотел\p{L}*|ищу|ищем|нужн\p{L}*|планирую|собираюсь|куплю|покупаю|мехоҳам|меҷӯям|мехарам)/iu;
+
+/** «Сколько стоит объект 123?» is a request word without a wish: only a message that names a type, rooms, a place or an amount makes a buyer. */
+function namesAWish(text: string): boolean {
+  const reading = readBuyerNeeds(text);
+  return !!(reading.type || reading.rooms || reading.place || reading.budget);
+}
 
 /** Customer words only. This is conversational progress, never identity,
- * consent, a property record, a stored Profile or proof of a completed action. */
-export function customerAgentIntake(turns: readonly { role: "user" | "assistant"; text: string }[], current = "", initialRole: "buyer" | "seller" | "unknown" = "unknown") {
-  const own = [...turns.filter(t => t.role === "user").map(t => clientOwnWords(t.text)), clientOwnWords(current)].filter(Boolean);
+ * consent, a property record, a stored Profile or proof of a completed action.
+ * `askedBefore` (a user turn) / `lastAssistant` (the current one) is the bot's own question that message answers: a bare
+ * «3» / «5000» / «Сино» names a wish only as an answer to it. */
+export function customerAgentIntake(turns: readonly { role: "user" | "assistant"; text: string; askedBefore?: string }[], current = "",
+  initialRole: "buyer" | "seller" | "unknown" = "unknown", lastAssistant?: string) {
+  const own: string[] = [], asked: Array<string | undefined> = [];
+  let previousAssistant: string | undefined;
+  for (const turn of turns) {
+    if (turn.role === "assistant") { previousAssistant = turn.text; continue; }
+    const text = clientOwnWords(turn.text);
+    if (text) { own.push(text); asked.push(turn.askedBefore ?? previousAssistant); }
+    previousAssistant = undefined;
+  }
+  const currentText = clientOwnWords(current);
+  if (currentText) { own.push(currentText); asked.push(lastAssistant ?? previousAssistant); }
   let role: "buyer" | "seller" | "unknown" = initialRole;
   let start = 0;
   for (let i = 0; i < own.length; i++) {
@@ -14,10 +35,16 @@ export function customerAgentIntake(turns: readonly { role: "user" | "assistant"
     // A job inquiry is not a buy/sell role; a landlord is carried as a seller (the "аренда" wording stays in statements).
     const signals = customerRecruitmentRequested(text) ? null : customerRoleSignals(text);
     const seller = !!signals && (signals.sell || signals.landlord) && !signals.buyStrong;
-    const buyer = !!signals && (signals.buyStrong || signals.buyWeak) && !(signals.sell || signals.landlord);
+    let buyer = !!signals && (signals.buyStrong || signals.buyWeak) && !(signals.sell || signals.landlord);
+    // «Ищу двушку в Сино», «есть ли двушки до 60 тысяч»: a search request names no «хочу купить», but only a buyer asks it. It never
+    // flips an established role (a seller asking «сколько стоят двушки?» stays a seller).
+    if (!seller && !buyer && role === "unknown" && signals && !signals.rent && !signals.sell && !signals.landlord && !NEGATED_WISH.test(text) &&
+        customerSearchRequested(text) && namesAWish(text)) buyer = true;
     if (seller !== buyer) {
       const next = seller ? "seller" : "buyer";
-      if (next !== role) start = i;
+      // What the customer said BEFORE the role became clear («Сино, 3 хонагӣ, до 60 ҳазор» and only then «хочу купить») belongs to the
+      // new role; only a switch between two known roles starts the story over.
+      if (next !== role && role !== "unknown") start = i;
       role = next;
     }
   }
@@ -28,12 +55,11 @@ export function customerAgentIntake(turns: readonly { role: "user" | "assistant"
   const statements = role === "unknown" ? [] : relevant.filter(text =>
     /\d|комнат|двуш|тр[её]ш|сда[мюе]|сдать|аренд|иҷора|ичора|хона|ҳуҷра|хучра|район|ноҳия|нохия|ремонт|таъмир|бюджет|буҷет|назди|тарафи/iu.test(text)
   ).filter(text => text.length <= 360).slice(-6);
+  // The buyer's wishes by the one reader (customerBuyerNeeds): the same words fill the search, so what the bot would not ask again is what it searches by.
+  const buyerNeeds = role === "buyer"
+    ? compactBuyerNeeds(buyerNeedsFromMessages(relevant.map((text, index) => ({ text, asked: asked[start + index] })))) : undefined;
   return { role, sellerKnown: SELLER_FACT_ORDER.filter(key => facts[key]), statements,
-    buyerKnown: role === "buyer" ? [...new Set(relevant.flatMap(text => [
-      /\d\s*[- ]?\s*(?:комнат|комн|хонаг|ҳуҷра|хучра)/iu.test(text) ? "rooms" : null,
-      /(?:бюджет|буҷет|бучет|могу\s+(?:потратить|заплатить)|до|то)\s*[:—-]?\s*\d/iu.test(text) ? "budget" : null,
-      /(?:район|ноҳия|нохия|Сино|Фирдавс|Шоҳмансур|Шохмансур|Исмоил|ориентир|назди|тарафи)/iu.test(text) ? "location" : null,
-    ].filter((v): v is "rooms" | "budget" | "location" => v !== null)))] : [] };
+    buyerKnown: buyerNeedsKnown(buyerNeeds), ...(buyerNeeds ? { buyerNeeds } : {}) };
 }
 
 const labels: Record<SellerFactKey, { ru: string; tg: string }> = {
@@ -47,7 +73,34 @@ export function customerSellerIntakeQuestion(known: readonly SellerFactKey[], la
   if (!missing.length) return language === "tg"
     ? "Аксҳо ё видеои хонаи худро дар ҳамин чат фиристода метавонед?"
     : "Можете прислать фото или видео вашей недвижимости в этот чат?";
+  if (language === "tg") {
+    // Live Tajik (audit 16.11.2026, language.md п.6; tajik-phrasebook live-agent-phrases: «Чанд ҳуҷра?», «Чанд квадрат аст?»,
+    // «Кадом ошёна?», «Бо таъмир ё каробка?», «Нархашро чанд мегӯед?», «Ҳамаи маълумотро дар як паём нависед.») instead of the
+    // book list «шумораи ҳуҷраҳо, масоҳат, … нарх бо асъор-ро нависед» that 12 sellers got in a week.
+    const asks = missing.map(key => liveTg[key]);
+    const list = asks.length > 1 ? `${asks.slice(0, -1).join(", ")} ва ${asks[asks.length - 1]}` : asks[0];
+    return `Хонаатон ${list}? Ҳамаи маълумотро дар як паём нависед.`;
+  }
   const fields = missing.map(key => labels[key][language]).join(", ");
-  return language === "tg" ? `Барои фурӯш ${fields}-ро нависед. Ҳамаашро дар як паём фиристода метавонед.`
-    : `Для продажи напишите ${fields}. Можно всё одним сообщением.`;
+  return `Для продажи напишите ${fields}. Можно всё одним сообщением.`;
+}
+const liveTg: Record<SellerFactKey, string> = { rooms: "чанд ҳуҷра", area: "чанд квадрат", district: "дар куҷо", floor: "кадом ошёна",
+  condition: "бо таъмир ё каробка", price: "нархаш чанд" };
+/** RETIRED Tajik wording (before 16.11.2026): kept for the memory of older chats only. */
+function retiredSellerIntakeTg(known: readonly SellerFactKey[]): string | null {
+  const missing = SELLER_FACT_ORDER.filter(key => !known.includes(key));
+  if (!missing.length) return null;
+  return `Барои фурӯш ${missing.map(key => labels[key].tg).join(", ")}-ро нависед. Ҳамаашро дар як паём фиристода метавонед.`;
+}
+
+/** Every wording customerSellerIntakeQuestion can produce (any subset of known facts), for the read-only memory allow-list. */
+export function customerSellerIntakeQuestionLines(): string[] {
+  const keys = SELLER_FACT_ORDER, lines: string[] = [];
+  for (let mask = 0; mask < 1 << keys.length; mask++) {
+    const known = keys.filter((_, index) => mask & (1 << index));
+    for (const language of ["ru", "tg"] as const) lines.push(customerSellerIntakeQuestion(known, language));
+    const retired = retiredSellerIntakeTg(known);
+    if (retired) lines.push(retired);
+  }
+  return lines;
 }

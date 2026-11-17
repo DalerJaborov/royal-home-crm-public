@@ -1,10 +1,11 @@
-import { maskPhones, propertyFloorsLabel, propertyHeadline, submitReplySchema } from "@royal-home/shared";
+import { BOT_DISTRICT_NAMES, propertyFloorsLabel, propertyHeadline, submitReplySchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadMoneyContext } from "../lib/money.js";
 import { botOfferLink, findMatchingProperties, matchFitNote, type PropertyMatchQuery } from "../lib/propertyMatch.js";
 import { buyerQueryForTurn } from "../lib/searchPlace.js";
-import { callbackPromise, chatHoursBlock, companyInfoBlock, loadClientHours } from "./agencyFacts.js";
-import { findOffCatalogClaims } from "./catalogClaimsGuard.js";
+import { callbackPromise, chatHoursBlock, loadClientHours } from "./agencyFacts.js";
+import { catalogConditionNote } from "./objectFactsGuard.js";
+import { applyObjectFactGuards } from "./objectFactsChat.js";
 import { callAiText, type ChatMessage, type ImageInput } from "./client.js";
 import { traceFilterDelta, traceModelValidation } from "../lib/botTurnTrace.js";
 import { learnedRulesBlock } from "../lib/botLessons.js";
@@ -12,14 +13,23 @@ import { buildStyleBlock } from "./styleLearning.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { guardDiscounts, guardPrices } from "./priceGuard.js";
-import { UNTRUSTED_CONTENT_RULE, clientOwnWords } from "./untrustedContent.js";
-import { looksLikeBuyOrSellRequest, looksLikeRentBudget, looksLikeRentRequest } from "./rentGuard.js";
+import { UNTRUSTED_CONTENT_RULE } from "./untrustedContent.js";
+import {
+  looksLikeBuyOrSellRequest,
+  looksLikeRentBudget,
+  looksLikeRentRequest,
+  looksLikeThousandsShorthand,
+  smallBudgetNeedsClarifying,
+  THOUSANDS_SHORTHAND_MAX,
+} from "./rentGuard.js";
 import { applyAvailabilityGuard } from "./availabilityGuard.js";
 import { geoMentionBlock } from "./geoMentions.js";
 import { CLIENT_ADDRESS_RULES, MANDATORY_BOT_RULES, propertyGeographyBlock } from "./dushanbeGeography.js";
 import { folkGeographyBlock } from "./folkPlaces.js";
 import { accountPersona } from "../messengers/accounts.js";
-import { buildSellerRules, SALES_FACTS, salesTactics } from "./salesPlaybook.js";
+import { brandForAccount, brandize } from "./brandName.js";
+import { SALES_FACTS, salesTactics } from "./salesPlaybook.js";
+import { outsideAreaAcceptedText, RUDAKI_SELLER_RULE, serviceAreaOnly } from "../lib/serviceArea.js";
 import { abilitiesForIntent, isNonClientRole } from "./roleAbilities.js";
 import { WHO_IS_THIS } from "./botContract.js";
 import type { BotAbilities, LeadIntent, ShowcaseAbility, WhoIsThis } from "./botContract.js";
@@ -29,6 +39,37 @@ import { MIN_REAL_PURCHASE_TJS } from "./moneyThresholds.js";
 export { WHO_IS_THIS } from "./botContract.js";
 export type { BotAbilities, LeadIntent, ShowcaseAbility, WhoIsThis } from "./botContract.js";
 export type { LeadDraft } from "./leadDraft.js";
+import {
+  type AgentReplyContext,
+  HUMAN_REPLY_AWARENESS_RULE,
+  MAX_HISTORY_TO_MODEL,
+  buildShortReplySystem,
+  hasHumanReplies,
+  lastClientLanguage,
+  markHumanRepliesForModel,
+  maskHistoryForModel,
+  priceGuardFallbackReply,
+  shortAgentReply,
+} from "./shortAgentReply.js";
+export {
+  HUMAN_REPLY_AWARENESS_RULE,
+  buildShortReplySystem,
+  hasHumanReplies,
+  lastClientLanguage,
+  markHumanRepliesForModel,
+  maskHistoryForModel,
+  priceGuardFallbackReply,
+  shortAgentReply,
+};
+export type { AgentReplyContext };
+import {
+  AGENCY_COMPANY_INFO,
+  AGENCY_LANGUAGE_RULES,
+  AGENCY_VOICE,
+  PROPERTY_TYPE_LABELS,
+  resolveSellerRules,
+} from "./agencyVoice.js";
+export { AGENCY_COMPANY_INFO, AGENCY_LANGUAGE_RULES, AGENCY_VOICE, PROPERTY_TYPE_LABELS, resolveSellerRules };
 import { scenarioPromptBlock } from "./salesScenarios.js";
 import { SHOWING_HOURS_LAST, SHOWING_HOURS_START, type ShowingRequest } from "../lib/showingBooking.js";
 import { dushanbeWallClock } from "../lib/dushanbeTime.js";
@@ -41,8 +82,7 @@ import {
   stripRepeatGreeting,
   stripLeadingAck,
 } from "./replyGuards.js";
-import { detectClientLanguage, languageInstruction, type ClientLanguage } from "./clientLanguage.js";
-import { BW, EW } from "./wordBoundary.js";
+import { languageInstruction, type ClientLanguage } from "./clientLanguage.js";
 import { nowBlock, TIME_AWARENESS_RULE, withTimeGaps } from "./conversationTime.js";
 import { LEGAL_FAQ_BLOCK } from "./legalFaq.js";
 import { INSPECTION_CHECKLIST_BLOCK } from "./inspectionChecklist.js";
@@ -61,6 +101,7 @@ import {
 import {
   ASK_OWNER_DISABLED_RULE,
   CAUTIOUS_MODE_RULE,
+  LEAD_ONLY_MODE_RULE,
   LINKS_DISABLED_RULE,
   SHOWINGS_DISABLED_RULE,
   VACANCIES_DISABLED_RULE,
@@ -94,27 +135,6 @@ import {
   type SellerFacts,
 } from "./sellerIntake.js";
 
-/** Язык ПОСЛЕДНЕГО сообщения клиента — считается кодом (см. ai/clientLanguage.ts).
- *  Вынесено отдельно от languageLine, чтобы им мог пользоваться и щит цен/скидок
- *  (см. priceGuardFallbackReply ниже) — заглушке нужен голый язык, а не готовая
- *  инструкция для модели. */
-export function lastClientLanguage(history: ChatMessage[]): ClientLanguage {
-  /**
-   * КОРОТКОЕ «ОК» НЕ СТИРАЕТ ЯЗЫК РАЗГОВОРА (владелец 25.09.2026, живой случай
-   * с сайта). Клиент весь разговор писал по-русски, в конце ответил «Ок» — код
-   * по двум буквам язык не понял («unknown»), указание про язык пропало, и
-   * модель по таджикскому умолчанию промта ответила ему по-таджикски. Поэтому
-   * при «unknown» идём назад по его же репликам до первой, где язык понятен.
-   * Описание его видео/документа (clientOwnWords убирает) — не его слова: оно
-   * всегда по-русски и таджику подменило бы язык.
-   */
-  for (const m of [...history].reverse()) {
-    if (m.role !== "user") continue;
-    const language = detectClientLanguage(clientOwnWords(m.content ?? ""));
-    if (language !== "unknown") return language;
-  }
-  return "unknown";
-}
 
 /** Указание про язык ПОСЛЕДНЕГО сообщения клиента — считается кодом (см.
  *  ai/clientLanguage.ts). Общее правило «отвечай на языке клиента» в промте есть,
@@ -123,37 +143,6 @@ function languageLine(history: ChatMessage[]): string {
   return languageInstruction(lastClientLanguage(history));
 }
 
-/**
- * ЗАГЛУШКА НА МЕСТО ВЫДУМАННОЙ ЦЕНЫ/СКИДКИ, КОТОРУЮ НЕ УДАЛОСЬ ВЫЧИСТИТЬ.
- *
- * Прод-инцидент 16.09.2026: guardPrices/guardDiscounts (ai/priceGuard.ts) вырезают
- * не голую цифру, а целое предложение — так сделано намеренно, обрубок фразы хуже
- * голой цифры (см. докстринг файла). Если весь ответ бота — одна короткая реплика,
- * целиком построенная вокруг цены, вырезание съедает единственный пузырь целиком, и
- * щит возвращает keptDespiteViolation: true — а вместе с ним ИСХОДНЫЕ, непочищенные
- * bubbles: «пусть лучше один раз соврёт и мы это увидим, чем клиент получит
- * пустоту» — решение, принятое для случая полной пустоты, а не для случая
- * «отправить клиенту выдумку как факт». Бот назвал клиенту цену 1600, которой нет
- * ни в одном источнике, и она ушла как есть — синхронный logSystemError не блокирует
- * отправку и не успевает ничего предотвратить.
- *
- * Здесь — третий вариант, не пустота и не выдумка: безопасная заглушка, которая не
- * обещает цифру, но и не оставляет клиента без ответа. Она НЕ утверждает никакого
- * числа и не обещает время — только то, что уточнение придёт от человека, тем же
- * приёмом, что и «уточню у собственника» (см. ai/askOwner.ts).
- */
-export function priceGuardFallbackReply(language: ClientLanguage): string[] {
-  // Ревизия 02.10.2026: «и вернусь с ответом» обещало то, чего не помнит ни одна
-  // задача, — цифру называет агент, когда звонит. Смесь («Салом, квартира в Сино
-  // есть?») получает таджикский, а не две фразы встык на двух языках.
-  const ru = "Точную цифру уточнит наш агент, чтобы не ошибиться.";
-  const tg = "Нархи аниқро агенти мо мегӯяд, то хато нашавад.";
-  if (language === "tg" || language === "mixed") return [tg];
-  // "ru" и "unknown" — русский как безопасный умолчательный язык (см.
-  // languageInstruction: unknown ничего не навязывает модели, но здесь нужен
-  // конкретный текст, и русский — язык умолчания всего проекта).
-  return [ru];
-}
 import {
   DEFAULT_PHOTOS_PER_OFFER,
   alreadyShownPromptNote,
@@ -231,12 +220,6 @@ const NO_SHOWCASE: ShowcaseAbility = {
  * больше не может ни отменить запрет, ни вернуть отменённое поведение.
  */
 
-export const PROPERTY_TYPE_LABELS: Record<string, string> = {
-  APARTMENT: "Квартира",
-  HOUSE: "Дом",
-  COMMERCIAL: "Коммерческое",
-  LAND: "Участок",
-};
 
 export interface QualifyResult {
   /** 1-2 коротких сообщения подряд, как реальный человек, а не один длинный блок текста. */
@@ -294,672 +277,35 @@ export const GREETING =
   "Ассалому алейкум! Здравствуйте! Это Royal Home, агентство недвижимости в Душанбе.\n\n" +
   "Пишите на таджикском или русском, как удобнее. Чӣ гуна хона мекобед?";
 
-/** История диалога, уходящая в модель, ограничена последними ходами: контекст
- * приёма заявки короткий, а полная лента растила бы стоимость каждого ответа. */
-const MAX_HISTORY_TO_MODEL = 24;
 
-/**
- * Телефоны клиента/продавца — вне промта ИИ (решение владельца 18.08.2026).
- *
- * `maskPhones` до сих пор применялась только к ИСХОДЯЩИМ репликам (см.
- * conversationDelivery.ts, voiceComplianceGuard.ts, messageAttachments.ts) —
- * то, что уходит клиенту. Историю переписки, которая уходит МОДЕЛИ, никто не
- * маскировал: код клиента, продиктованный боту, свободно попадал в системный
- * промт каждого следующего хода.
- *
- * ВАЖНО: это преобразование только для копии, отдаваемой ИИ, — вызывается
- * ЗДЕСЬ, на границе перед `callAiText`, а не там, где история сохраняется в
- * БД (messengers/conversation.ts, appendConversationMessages). Хранимая
- * история и то, что видит оператор в интерфейсе (при праве clients.viewPhone),
- * этой функции не касаются и остаются с номером целиком.
- */
-export function maskHistoryForModel(history: ChatMessage[]): ChatMessage[] {
-  return history.map((m) => (m.content ? { ...m, content: maskPhones(m.content).text } : m));
-}
 
-/**
- * БОТ ОБЯЗАН ЗНАТЬ, ЧТО ОТВЕЧАЛ ЖИВОЙ ЧЕЛОВЕК (решение владельца 22.08.2026).
- *
- * Дословно: «надо выучить, что человек написал и почему, чтобы боту уроком стало;
- * если через 10 минут ещё раз пишут боту — он отвечает с учётом того, что человек
- * уже ответил, бот должен быть в курсе всего, а то получается как будто он с
- * середины пришёл».
- *
- * ЧТО БЫЛО НЕ ТАК. Ручной ответ сотрудника ложится в историю обычной репликой
- * `role: "assistant"` (см. lib/conversationDelivery.ts) — то есть модель читает его
- * как СВОИ собственные слова. Признак авторства в реплике есть (`by.kind`, см.
- * MessageSender в @royal-home/shared; тем же признаком уже пользуется
- * lib/operatorShowingDetector.ts → speakerLabel), но в модель он не уходил никак:
- * вызовы пересобирают сообщение по role/content, и любое служебное поле теряется.
- * Итог — бот, вернувшись в разговор после паузы, переспрашивал то, на что коллега
- * уже ответил, и продолжал линию, которой сам не вёл.
- *
- * РЕШЕНИЕ ТО ЖЕ, ЧТО У ПОМЕТОК О ВРЕМЕНИ (ai/conversationTime.ts): пишем прямо В
- * ТЕКСТ реплики, потому что до модели доедет только текст. Пометка ставится ТОЛЬКО
- * на ответы живых людей — на репликах самого бота её нет, и промт от этого не
- * растёт ни на байт в обычном разговоре.
- *
- * Преобразование, как и маскировка телефонов, делается на границе перед вызовом
- * модели — в сохранённую историю и в интерфейс оператора пометка не попадает.
- */
-export function markHumanRepliesForModel(history: ChatMessage[]): ChatMessage[] {
-  return history.map((m) => {
-    if (m.role !== "assistant" || !m.content) return m;
-    if (m.by?.kind === "agent") {
-      return { ...m, content: `[это написал живой сотрудник ${m.by.agentName}, не ты]\n${m.content}` };
-    }
-    // "manual" — ответили руками из самого мессенджера, мимо CRM: кто именно, Meta
-    // не сообщает (см. MessageSender). Имени нет, но для модели важно другое —
-    // что это не её слова.
-    if (m.by?.kind === "manual") {
-      return { ...m, content: `[это написал живой сотрудник, не ты]\n${m.content}` };
-    }
-    return m;
-  });
-}
+// Разбор номеров переехал в lib/shared/phoneText.ts; имена переизлучаются отсюда для старых импортов.
+import {
+  extractAllPhones,
+  extractPhoneOccurrences,
+  extractTypedPhone,
+  extractVolunteeredPhone,
+  looksDialable,
+  normalizeDigits,
+  TJ_NSN_LENGTH,
+  unclearRawMatchesKnownTail,
+  unparsedPhoneAttempt,
+  unreadablePhoneAttempt,
+} from "../lib/shared/phoneText.js";
+export {
+  extractAllPhones,
+  extractPhoneOccurrences,
+  extractTypedPhone,
+  extractVolunteeredPhone,
+  looksDialable,
+  normalizeDigits,
+  TJ_NSN_LENGTH,
+  unclearRawMatchesKnownTail,
+  unparsedPhoneAttempt,
+  unreadablePhoneAttempt,
+};
+export type { PhoneOccurrence, UnreadablePhone } from "../lib/shared/phoneText.js";
 
-/** Есть ли в истории ответы живых людей — только тогда правило ниже имеет смысл
- *  печатать: в обычном разговоре бота с клиентом оно лишние токены на каждом ходе. */
-export function hasHumanReplies(history: ChatMessage[]): boolean {
-  return history.some((m) => m.role === "assistant" && (m.by?.kind === "agent" || m.by?.kind === "manual"));
-}
-
-/**
- * Правило к пометкам выше. Без него модель видит отметку, но не знает, что с ней
- * делать, — ровно та же связка, что у TIME_AWARENESS_RULE и разрывов во времени.
- *
- * Ставится в ИЗМЕНЯЕМУЮ часть промта и только когда живой ответ в истории реально
- * есть (см. hasHumanReplies).
- */
-export const HUMAN_REPLY_AWARENESS_RULE =
-  "\n\nВ ЭТОМ РАЗГОВОРЕ КЛИЕНТУ УЖЕ ОТВЕЧАЛ ЖИВОЙ СОТРУДНИК. Его реплики помечены в истории как " +
-  "«[это написал живой сотрудник…]». Это НЕ твои слова и НЕ слова клиента, а служебная отметка об авторе.\n" +
-  "Что это значит для тебя:\n" +
-  "• всё, что сказал сотрудник, СКАЗАНО клиенту — считай это общим ответом компании и не начинай разговор " +
-  "с середины, будто ты только что пришёл;\n" +
-  "• НЕ переспрашивай то, на что сотрудник уже ответил, и не проси заново то, что он уже просил (номер, район, " +
-  "бюджет): для человека это один и тот же собеседник, и повтор читается как «меня не слушают»;\n" +
-  "• НЕ противоречь ему и не отменяй его слова. Сказал сотрудник «агент перезвонит завтра» — так и есть; " +
-  "если ты чего-то не знаешь про его договорённость, не выдумывай её содержание и не переигрывай;\n" +
-  "• не приписывай его слова себе («как я уже говорил») и не объясняй клиенту, кто из вас что писал: для него " +
-  "это одна переписка с Royal Home. Просто продолжай с того места, на котором остановился разговор.";
-
-/** Приводит цифры номера к международному формату. Короткие 9-значные номера считаем
- * местными (Таджикистан, без кода страны); "8XXXXXXXXXX" — привычная запись российского
- * номера через 8 вместо +7; всё остальное — уже полный номер, просто добавляем "+". */
-export function normalizeDigits(digits: string): string {
-  if (digits.length === 9) return `+992${digits}`;
-  // Десять цифр с ведущим нулём — это как номер и набирают внутри страны
-  // («0937001122»). Без этой ветки он попадал в общий случай и превращался в
-  // «+0937001122» — телефон, по которому нельзя позвонить, а Zod пропускает его
-  // дальше в карточку: схема считает цифры, а не проверяет формат. То же правило
-  // уже стоит в toCrmPhone для номеров, приходящих со станции.
-  if (digits.length === 10 && digits.startsWith("0")) return `+992${digits.slice(1)}`;
-  if (digits.length === 11 && digits.startsWith("8")) return `+7${digits.slice(1)}`;
-  // Код страны И местный набор через ноль сразу («992 0 93 700 11 22»): ноль
-  // здесь — часть набора внутри страны, а не цифра номера. Без этой ветки
-  // получался «+9920937001122» — тринадцать цифр, дозвониться нельзя.
-  if (digits.length === 13 && digits.startsWith("9920")) return `+992${digits.slice(4)}`;
-  /**
-   * «00» — МЕЖДУНАРОДНЫЙ ПРЕФИКС ВЫХОДА ВМЕСТО «+», А НЕ ЧАСТЬ НОМЕРА (владелец
-   * 03.09.2026). Проверяется ПОСЛЕДНЕЙ, а не первой веткой: коды операторов
-   * Таджикистана меняются и могут начинаться хоть с нуля (владелец поправил меня —
-   * у MegaFon есть код «01»), и если бы «00» отваливалось раньше, чем проверена
-   * длина, «0011234567» (десять цифр — трубка + номер с кодом «01») превращалось
-   * бы не в «+992011234567», а обрубалось до восьми цифр и терялось. Сюда мы
-   * попадаем только когда ни одна из веток выше не подошла по ДЛИНЕ — то есть
-   * это действительно похоже на «00 + код страны», а не на местный номер.
-   */
-  if (digits.length > 2 && digits.startsWith("00")) return normalizeDigits(digits.slice(2));
-  return `+${digits}`;
-}
-
-/**
- * Вырезает ссылки из текста перед поиском номера телефона.
- *
- * Живой случай 18.08.2026: спам-сообщение со ссылкой `wa.me/992880001013` (номер
- * поддержки САМОГО спамера, не клиента) — цифры после слэша прошли по форме
- * «таджикский номер с кодом страны», и бот принял чужой номер за оставленный
- * клиентом контакт. Ссылки — не то место, где клиент оставляет свой номер.
- */
-function stripUrls(text: string): string {
-  return text.replace(/(?:https?:\/\/|www\.)\S+/gi, " ").replace(/\b[a-z0-9-]+\.[a-z]{2,}\/\S*/gi, " ");
-}
-
-/**
- * Разделители ВНУТРИ одного номера: пробел, неразрывный пробел, точка, дефис,
- * скобки. Перевод строки сюда НЕ входит — и это принципиально.
- *
- * Раньше в классе стоял `\s`, а он матчит и перенос строки. Клиент, пишущий
- * номера столбиком, получал склейку: 18.08.2026 продавец дома в Дарёободе
- * (@shoga7820, Навруз) прислал четыре своих номера с новой строки каждый —
- * регулярка жадно слепила первые два в «030001023000001018», 18 цифр не прошли
- * проверку длины, extractTypedPhone вернул null, и КАРТОЧКА НЕ СОЗДАЛАСЬ. Бот при
- * этом ответил «маълумотатонро ба агент додам» — то есть пообещал передать контакт,
- * которого в CRM не появилось. Лид с домом за 1 050 000 сомони просто исчез.
- */
-/*
- * ЛЮБОЙ РАЗДЕЛИТЕЛЬ, А НЕ ТОЛЬКО ПРОБЕЛ/ТОЧКА/ДЕФИС (13.10.2026). Клиентка Instagram
- * прислала номер «908,88,94,27» — запятые рвали класс, ни приём, ни тревога
- * unparsedPhoneAttempt номера не увидели, бот ответил «Раҳмат», а карточки не
- * появилось. Добавлены запятая, «/», «_» и тире (– —), которыми пишут с телефона.
- * Цену «1,415,000» это номером не делает: семь цифр, а номеру нужно девять.
- */
-const PHONE_INNER = "[\\d \\u00A0.,/_()\\-\\u2013\\u2014]";
-
-/**
- * ТО ЖЕ, ЧТО PHONE_INNER, НО С «?» — модель именно так помечает цифру, которую
- * честно не расслышала (инструкция расшифровки, ai/transcribe.ts: «неразобранные
- * обозначь символом ?»), например «918 84 ?? 54».
- *
- * Своя, ОТДЕЛЬНАЯ от PHONE_INNER константа, не добавка к ней: обычный разбор
- * номера (strictPhone и всё, что на нём стоит) «?» видеть не должен вообще — тогда
- * он остаётся гарантией «то, что мы приняли за номер, действительно им является».
- * До этой правки (24.09.2026) «?» просто рвал класс символов PHONE_INNER пополам —
- * «918 84» и «54» коротки поодиночке (меньше девяти цифр), кандидатом в номер не
- * становились НИКАК, и оставленный клиентом номер тихо терялся: ни в карточку, ни
- * в переспрос, ни в тревогу руководству (см. phoneLeadWatchdog.ts) он не попадал.
- *
- * БЕЗ «.» И «:» (правка от того же дня, найдено ревью того же коммита) — у
- * PHONE_INNER точка есть, у обычного номера точка бывает разделителем («+992
- * 91.884.45.54»), но для НЕРАЗОБРАННОГО кандидата это опасно: дата «24.09.2026?»
- * и сумма «1.200.000?» тоже состоят из цифр, точек и одного «?». Разрешить точку
- * здесь значило бы склеить «24.09.2026?» в одну восьмизначную с «?» строку — ровно
- * девять цифровых мест, столько же, сколько в настоящем местном номере — и дата
- * из расшифровки превращалась бы в «неразобранный номер»: scrubMentionedPhones
- * маскировал дату, а unparsedPhoneAttempt переспрашивал телефон, которого никто
- * не диктовал. Без точки (и двоеточия — та же ловушка с временем «11:00?») дата и
- * время рвутся на куски короче семи символов и кандидатом не становятся вовсе.
- * Обычный разбор (PHONE_INNER) точку не теряет — там кандидат должен быть
- * заведомо похож на номер, а не просто «цифры с точками».
- */
-const PHONE_INNER_UNCLEAR = "[\\d ?\\u00A0()\\-]";
-
-/** Один кандидат в номер вместе с БЛИЖНИМ ОКРУЖЕНИЕМ — контекст («сомонӣ», «доллар»
- *  рядом) нужен, чтобы отличить номер от суммы, см. strictPhone. */
-interface PhoneCandidate {
-  raw: string;
-  /** Кусок строки вокруг кандидата, а НЕ строка целиком — см. looksLikeMoneyContext. */
-  context: string;
-}
-
-/**
- * Сколько символов слева и справа от кандидата входит в его «ближнее окружение».
- *
- * Узкое нарочно: «1050000 сомонӣ» — слово через один пробел, 7-8 символов. Более
- * широкое окно (пробовал 20) дотягивалось через фразу-связку до СЛЕДУЮЩЕГО, уже
- * настоящего номера в том же сообщении: «3 сотих, 1050000 сомонӣ, занг занед
- * 910001044» — «сомонӣ» отделено от «910001044» девятнадцатью символами через
- * «, занг занед », и на окне 20 оба числа гасились разом. Этот пример — не
- * придуманный, он уже был мотивирующим для «перебирать ВСЕХ кандидатов» выше по
- * файлу; проверка на нём и поймала ошибку.
- */
-const MONEY_CONTEXT_WINDOW = 10;
-
-/** Кандидаты в номера: каждая строка разбирается отдельно, поэтому соседние
- *  номера столбиком не склеиваются между собой. */
-function phoneCandidates(text: string): PhoneCandidate[] {
-  const re = new RegExp(`\\+?\\d${PHONE_INNER}{5,17}\\d`, "g");
-  return stripUrls(text)
-    .split(/[\n\r]+/)
-    .flatMap((line) =>
-      [...line.matchAll(re)].map((match) => ({
-        raw: match[0],
-        context: line.slice(
-          Math.max(0, match.index! - MONEY_CONTEXT_WINDOW),
-          match.index! + match[0].length + MONEY_CONTEXT_WINDOW
-        ),
-      }))
-    );
-}
-
-/**
- * Кандидаты «номер неразборчив» — та же форма, что у обычного кандидата, только
- * символьный класс включает «?» (PHONE_INNER_UNCLEAR) и в найденном обязана быть
- * хотя бы одна такая метка (иначе это обычный кандидат, его уже нашла
- * phoneCandidates выше). Отдельный проход, а не расширение phoneCandidates: смешать
- * их значило бы отдать «?» на вход strictPhone, а он обязан видеть только то, что
- * реально может быть набранным номером.
- */
-function unclearPhoneCandidates(text: string): PhoneCandidate[] {
-  const re = new RegExp(`(?:\\d|\\?)${PHONE_INNER_UNCLEAR}{5,17}(?:\\d|\\?)`, "g");
-  return stripUrls(text)
-    .split(/[\n\r]+/)
-    .flatMap((line) =>
-      [...line.matchAll(re)]
-        .filter((match) => match[0].includes("?") && /\d/.test(match[0]))
-        .map((match) => ({
-          raw: match[0],
-          context: line.slice(
-            Math.max(0, match.index! - MONEY_CONTEXT_WINDOW),
-            match.index! + match[0].length + MONEY_CONTEXT_WINDOW
-          ),
-        }))
-    );
-}
-
-/** Сколько «цифровых мест» в кандидате-неразборчивом номере — известные цифры
- *  плюс по одному месту на каждый «?» (модель пометила ровно одной «?» ровно одну
- *  нерасслышанную цифру, см. PHONE_INNER_UNCLEAR). Тот же порог длины, что и у
- *  обычного номера (9-15), только считает и то, что не расслышано. */
-function unclearDigitSlots(raw: string): number {
-  return (raw.match(/[\d?]/g) ?? []).length;
-}
-
-/**
- * СОВПАДАЕТ ЛИ «НЕРАЗБОРЧИВЫЙ» КАНДИДАТ С УЖЕ ИЗВЕСТНЫМ НОМЕРОМ КЛИЕНТА (правка
- * ревью 24.09.2026). scrubMentionedPhones раньше маскировал вообще ЛЮБОЙ unclear-
- * кандидат, включая тот случай, когда «?» стоит на месте цифры, которую клиент
- * произнёс из СВОЕГО ЖЕ основного номера («мой 918 84 ?5 54, я не сам его писал»)
- * — а этот номер и так открыт агенту в самой карточке (см. докстринг модуля).
- * Маскировать его в тексте — только мешать читать расшифровку.
- *
- * Сравнение по ШАБЛОНУ, а не по точному хвосту: у unclear-кандидата часть цифр
- * потеряна («?»), поэтому phoneTail() от него ничего не даст — сравниваем
- * последние TJ_NSN_LENGTH «мест» (цифра или «?») с последними TJ_NSN_LENGTH
- * цифрами каждого известного номера, «?» считается совпадающим с любой цифрой.
- */
-export function unclearRawMatchesKnownTail(raw: string, knownTails: Iterable<string>): boolean {
-  const slots = raw.match(/[\d?]/g) ?? [];
-  if (slots.length < TJ_NSN_LENGTH) return false;
-  const tailSlots = slots.slice(-TJ_NSN_LENGTH);
-  for (const tail of knownTails) {
-    if (tail.length !== TJ_NSN_LENGTH) continue;
-    let matches = true;
-    for (let i = 0; i < TJ_NSN_LENGTH; i++) {
-      const slot = tailSlots[i];
-      if (slot !== "?" && slot !== tail[i]) {
-        matches = false;
-        break;
-      }
-    }
-    if (matches) return true;
-  }
-  return false;
-}
-
-/**
- * СЛОВО ПРО ДЕНЬГИ РЯДОМ С ЧИСЛОМ — единственная защита от «сумма выглядит как
- * номер», которая НЕ зависит от того, с какой цифры начинается код оператора
- * (владелец 03.09.2026: коды меняются и появляются новые — у MegaFon, например,
- * есть «01», хотя раньше здесь считалось, что таджикский номер с нуля не
- * начинается никогда; это было неверно). Цены в этом бизнесе обычно 6-8 значащих
- * цифр («1 050 000 сомонӣ») и до девяти почти никогда не дотягивают, так что
- * столкновение редкое — но когда оно случается, решает СЛОВО клиента, а не
- * догадка по первой цифре.
- *
- * ОКНО, А НЕ ВСЯ СТРОКА (найдено на собственном тесте): «3 сотих, 1050000 сомонӣ,
- * занг занед 910001044» — цена и настоящий номер в ОДНОЙ строке через запятую.
- * Проверка по всей строке гасила бы оба числа разом, хотя «сомонӣ» относится
- * только к первому. `context` — уже вырезанный кусок ВОКРУГ конкретного кандидата
- * (см. phoneCandidates), а не полная строка: у соседнего номера в том же
- * сообщении, но подальше, слово о деньгах в окружение не попадёт.
- */
-// «у.е.» стояло с `\b` на конце и не совпадало никогда: после точки границы по
-// латинским правилам нет (см. ai/wordBoundary.ts). «30 у.е.» из-за этого не
-// считалось суммой вовсе.
-//
-// А без правой границы оно ловило начало обычных слов: «уехал 910001044» (разбор
-// 22.09.2026) считалось денежным окружением, и номер рядом переставал разбираться
-// строгим путём. Поэтому форма без точек требует конца слова, а с точками — нет:
-// «у.е.» само по себе уже однозначно.
-// «тыс»/«TJS» дописаны 24.09.2026 (правка ревью): суммы «1200 тыс.» и «15000 TJS»
-// рядом с «?»-номером раньше не распознавались как денежный контекст вовсе.
-const MONEY_CONTEXT_WORD = new RegExp(
-  `сомон|долл?ар|${BW}у\\.е\\.?|${BW}у\\.?е${EW}|\\$|ҳазор|тыс|TJS`,
-  "iu"
-);
-function looksLikeMoneyContext(context: string): boolean {
-  return MONEY_CONTEXT_WORD.test(context);
-}
-
-/**
- * ПОХОЖЕ НА ДАТУ ИЛИ ВРЕМЯ — вторая, независимая защита для UNCLEAR-кандидатов
- * (правка ревью 24.09.2026, тот же повод, что у PHONE_INNER_UNCLEAR без «.»/«:»
- * выше). Проверяется по `context` — куску ИСХОДНОГО текста вокруг кандидата, где
- * точки и двоеточия ещё на месте (сам `raw` unclear-кандидата их уже не содержит,
- * класс символов их не пропускает, см. PHONE_INNER_UNCLEAR) — второй, независимый
- * слой на случай, если модель всё же продиктует дату/время рядом с настоящим
- * unclear-фрагментом в одной строке («приходите 24.09.2026? к 918 84 ?? 54»).
- *
- * РАЗДЕЛИТЕЛЬ НАРОЧНО ТОЛЬКО «.» И «:», НЕ ПРОБЕЛ: пробел как разделитель дал бы
- * ложные срабатывания на настоящих номерах, записанных группами по 2-3 цифры —
- * «980 00 10 09» синтаксически неотличим от «день месяц год» через пробел
- * (\d{1,2} \d{2} \d{2,4}), а «980 001 009» — от суммы, гружённой тем же способом.
- * Дата/время в расшифровке ИИ (инструкция ai/transcribe.ts) пишутся с точкой и
- * двоеточием — этого формата достаточно, не расширяем его на пробел.
- */
-const DATE_LIKE = /\b\d{1,2}\.\d{2}(\.\d{2,4})?\b/;
-const TIME_LIKE = /\b\d{1,2}:\d{2}\b/;
-function looksLikeDateOrTime(context: string): boolean {
-  return DATE_LIKE.test(context) || TIME_LIKE.test(context);
-}
-
-/**
- * Ищет похожую на телефон подстроку в свободном тексте — клиент мог написать номер
- * вручную вместе с комментарием ("+992 93 700 11 22, звоните после 18"), а не одним
- * чистым сообщением.
- *
- * Перебираем ВСЕ кандидаты, а не только первый. Первым в сообщении часто идёт не
- * телефон: «3 сотих, 1050000 сомонӣ, занг занед 910 00 10 44». Останавливаться на
- * первом совпадении значило бы отбросить сообщение целиком из-за суммы в начале.
- */
-export function extractTypedPhone(text: string): string | null {
-  const candidates = phoneCandidates(text);
-
-  /**
-   * СНАЧАЛА — то, что похоже на настоящий номер по форме (правило
-   * extractVolunteeredPhone), и только потом мягкий разбор.
-   *
-   * Из четырёх номеров Навруза мягкое правило берёт первый по порядку —
-   * «030001023», хотя единственный настоящий мобильный в списке «940001011».
-   * А в «3 сотих, 1050000 сомонӣ, занг занед 910001044» первым числом идёт цена,
-   * и агенту в карточку уезжал бы телефон «+1050000». Строгая проверка обе эти
-   * ловушки снимает, а мягкая остаётся запасной: бот СПРОСИЛ номер, человек
-   * ответил — значит в ответе почти наверняка он, пусть и в непривычной форме
-   * (городской, зарубежный).
-   */
-  for (const { raw, context } of candidates) {
-    const strict = strictPhone(raw, context);
-    if (strict) return strict;
-  }
-
-  for (const { raw } of candidates) {
-    const digits = raw.replace(/[^\d]/g, "");
-    /**
-     * Нижняя граница — 9 цифр, а не 7. Столько в любом здешнем номере: мобильный
-     * «910001044», городской Душанбе «440001038». Семизначных телефонов, по
-     * которым агент может позвонить, у нас нет, а вот семизначные ЦЕНЫ в
-     * переписке сплошь и рядом: на «Нарх 1050000 сомонӣ» в ответ на просьбу
-     * оставить номер прежний порог заводил карточку с телефоном «+1050000».
-     */
-    if (digits.length < 9 || digits.length > 15) continue;
-    const normalized = normalizeDigits(digits);
-    if (!looksDialable(normalized)) continue;
-    return normalized;
-  }
-  return null;
-}
-
-/**
- * Номер, по которому в принципе можно позвонить — проверяется только ДЛИНОЙ, а не
- * тем, с какой цифры начинается (владелец 03.09.2026: коды операторов меняются,
- * гадать по цифрам — терять клиентов с новым или редким кодом).
- */
-export function looksDialable(normalized: string): boolean {
-  const digits = normalized.replace(/[^\d]/g, "");
-  if (digits.startsWith("992")) return digits.slice(3).length === 9;
-  /**
-   * Чужая страна — свой план нумерации, и сужать его нам не по чему. Проверяем
-   * единственное, что верно для всех: код страны плюс номер короче десяти цифр не
-   * бывает (E.164), а длиннее пятнадцати не бывает вовсе.
-   */
-  return digits.length >= 10 && digits.length <= 15;
-}
-
-/**
- * Проверка «похоже на настоящий номер по форме» — общая для обоих извлекателей.
- *
- * ГЕЙТ ПО ДЛИНЕ, НЕ ПО СОДЕРЖАНИЮ (владелец 03.09.2026: «может как-то по-другому
- * сделаешь, чтобы такие клиенты все сохранились, даже если ты код не знаешь»).
- *
- * Раньше здесь стояла проверка «значащая часть начинается с 3-9» — на том, что
- * коды операторов Таджикистана вроде бы известны заранее. Это было неверно (у
- * MegaFon есть код «01»), а справочник кодов и не может быть надёжным источником
- * правды: операторы получают новые ёмкости, о которых мы узнаём постфактум —
- * либо от владельца, либо когда живой клиент с таким номером теряется. Каждый
- * такой код, зашитый в регулярку, — это будущий потерянный лид, который появится
- * раньше, чем мы о коде узнаем.
- *
- * Единственное, что не меняется, — ДЛИНА: план нумерации Таджикистана закрытый,
- * и значащая часть номера всегда девять цифр, кто бы ни выдал код. Поэтому здесь
- * гейт только по длине, а различить номер и написанную рядом сумму (обе бывают
- * девятизначными, редко) помогает не цифра-другая, а слово клиента о деньгах —
- * см. looksLikeMoneyContext.
- */
-function strictPhone(raw: string, context: string = raw): string | null {
-  const trimmed = raw.trim();
-  const digits = trimmed.replace(/[^\d]/g, "");
-  const explicitPlus = trimmed.startsWith("+");
-
-  const localTj = digits.length === 9;
-  /** Местный набор через ноль — «0XXXXXXXXX» (девять значащих цифр после трубки). */
-  const localTjDialed = digits.length === 10 && digits.startsWith("0");
-  const tjWithCode = digits.length === 12 && digits.startsWith("992");
-  /** «992 0 XXXXXXXXX» — код страны плюс местный набор через ноль. */
-  const tjWithCodeDialed = digits.length === 13 && digits.startsWith("9920");
-  const ruKz = digits.length === 11 && /^[78]/.test(digits);
-  const international = explicitPlus && digits.length >= 10 && digits.length <= 15;
-
-  // Голая (без «+», без кода страны, без трубочного нуля) девяти- или десятизначная
-  // строка — единственная форма, которая реально путается с суммой прописью:
-  // «+992…», «7/8XXXXXXXXXX», «+что угодно» так прописью не пишут никогда.
-  if ((localTj || localTjDialed) && looksLikeMoneyContext(context)) return null;
-
-  if (localTj || localTjDialed || tjWithCode || tjWithCodeDialed || ruKz || international) {
-    return normalizeDigits(digits);
-  }
-
-  /**
-   * «00» ВПЕРЕДИ, НО НИ ОДНО ПРАВИЛО ВЫШЕ НЕ ПОДОШЛО — международный префикс
-   * выхода (ITU E.123), проверяется ПОСЛЕДНИМ, а не первым. «00 992 98 000 10 09»
-   * — тот же номер, что «+992 98 000 10 09», просто так его сохраняют в телефоне.
-   * Но если бы это правило стояло раньше проверки длины, оно перехватывало бы и
-   * «001234567» (десять цифр — трубка «0» + девятизначный номер, чей код
-   * начинается с нуля, как у MegaFon): localTjDialed уже опознал бы его выше как
-   * ПОЛНЫЙ местный номер, и обрубать с него ещё и «00» было бы ошибкой. Сюда мы
-   * попадаем только когда длина ни с чем не совпала — то есть это действительно
-   * похоже на «00 + код страны», а не на местный номер с непривычным кодом.
-   */
-  if (digits.length > 2 && digits.startsWith("00")) return strictPhone(`+${digits.slice(2)}`, context);
-
-  return null;
-}
-
-/**
- * ЧЕЛОВЕК ДАЛ ЧТО-ТО ПОХОЖЕЕ НА НОМЕР, А НИ ОДНА ФОРМА ВЫШЕ ЕГО НЕ ВЗЯЛА
- * (03.09.2026). Раз strictPhone больше не гадает по кодам, а только по длине,
- * это значит, что длина ДЕЙСТВИТЕЛЬНО не сходится — цифр не хватает или их
- * слишком много, а не то, что мы просто не знаем такой код.
- *
- * Молчать нельзя: строка из пяти-пятнадцати цифр в переписке про покупку жилья —
- * это почти всегда телефон, набранный с опечаткой или обрывком. Такой ход обязан
- * дойти до ЧЕЛОВЕКА (см. lib/phoneLeadWatchdog.ts) или получить переспрос от бота
- * (unreadablePhoneAttempt ниже), вместо того чтобы лид просто исчез.
- *
- * Возвращаем сами цифры (для текста тревоги), а не признак: руководителю нужно
- * видеть, что именно прислал клиент.
- */
-export function unparsedPhoneAttempt(text: string): string | null {
-  let attempt: string | null = null;
-  for (const { raw, context } of phoneCandidates(text)) {
-    // Хоть один разобранный номер в сообщении — тревожить некого: заявка оформится
-    // по нему обычным путём, а соседняя цепочка цифр почти наверняка цена или площадь.
-    if (strictPhone(raw, context)) return null;
-    const digits = raw.replace(/[^\d]/g, "");
-    /**
-     * Нижняя граница — 9 цифр, та же, что у самого номера: семизначные ЦЕНЫ
-     * («Нарх 1050000 сомонӣ» — 7 цифр) в переписке о недвижимости сплошь и рядом,
-     * и порог ниже девяти превращал бы почти каждую названную сумму в «переспросите
-     * номер». Сумму прописью рядом со словом о деньгах отсекаем и на длине 9+
-     * (looksLikeMoneyContext) — это не про код оператора, а про смысл фразы.
-     */
-    if (!attempt && digits.length >= 9 && digits.length <= 15 && !looksLikeMoneyContext(context)) {
-      attempt = raw.trim();
-    }
-  }
-  /**
-   * НОМЕР С «?» — ОТДЕЛЬНЫЙ ПРОХОД (24.09.2026). Строку с «?» phoneCandidates выше
-   * не находит вовсе (символ рвёт класс PHONE_INNER на куски короче девяти цифр),
-   * поэтому обычный номер в том же сообщении уже вернул бы null строкой выше, а
-   * досюда мы доходим только когда рядом ничего разобранного нет. Считаем «?»
-   * полноценным цифровым местом (unclearDigitSlots) — «918 84 ?? 54» даёт 9 мест,
-   * ровно как у настоящего местного номера, хотя разобранных цифр всего семь.
-   *
-   * looksLikeDateOrTime — правка ревью 24.09.2026: дата «24.09.2026?» и время
-   * «11:00?» рядом с вопросом сами по себе номером не являются (см. докстринг
-   * функции и PHONE_INNER_UNCLEAR выше).
-   */
-  if (!attempt) {
-    for (const { raw, context } of unclearPhoneCandidates(text)) {
-      if (looksLikeMoneyContext(context) || looksLikeDateOrTime(context)) continue;
-      const slots = unclearDigitSlots(raw);
-      if (slots >= 9 && slots <= 15) {
-        attempt = raw.trim();
-        break;
-      }
-    }
-  }
-  return attempt;
-}
-
-/**
- * ТО ЖЕ САМОЕ, НО С ДИАГНОЗОМ — чтобы бот мог сказать человеку, ЧТО не так
- * (владелец 03.09.2026: «пусть сразу переспрашивает и говорит, что не хватает цифры»).
- *
- * Сравниваем ДЛИНУ с девяткой — столько значащих цифр в любом номере Таджикистана,
- * мобильном и городском, какой бы код ни выдал оператор. Ведущие нули больше НЕ
- * считаются «лишними» и не отбрасываются перед сравнением: владелец поправил
- * (у MegaFon есть код «01») — цифра, а не мусор, и вычитать её из счёта было бы
- * той же ошибкой гадания по коду, от которой ушёл strictPhone. Код страны (992)
- * — единственное, что вычитаем: это не часть местного номера, а отдельный, точно
- * известный префикс.
- *
- * Диагноз намеренно грубый: «мало», «много», «не разобрал». Угадывать, КАКОЙ цифры
- * не хватает и где, мы не будем никогда — за этим и переспрашиваем живого человека,
- * у которого номер перед глазами.
- */
-export interface UnreadablePhone {
-  /** Что человек прислал — слово в слово, для текста переспроса. */
-  raw: string;
-  /** Сколько значащих цифр насчитали. */
-  digits: number;
-  /** «Не хватает N цифр» / «цифр больше, чем нужно» / «не разобрал». */
-  kind: "short" | "long" | "unclear";
-  /** Сколько цифр не хватает до девяти (только для kind === "short"). */
-  missing: number;
-}
-
-/** Столько цифр в любом номере Таджикистана без кода страны: мобильный «980001009»,
- *  городской Душанбе «372XXXXXX». */
-export const TJ_NSN_LENGTH = 9;
-
-export function unreadablePhoneAttempt(text: string): UnreadablePhone | null {
-  const raw = unparsedPhoneAttempt(text);
-  if (!raw) return null;
-  let digits = raw.replace(/[^\d]/g, "");
-  if (digits.startsWith("992")) digits = digits.slice(3);
-  if (digits.length < TJ_NSN_LENGTH) {
-    return { raw, digits: digits.length, kind: "short", missing: TJ_NSN_LENGTH - digits.length };
-  }
-  if (digits.length > TJ_NSN_LENGTH) return { raw, digits: digits.length, kind: "long", missing: 0 };
-  return { raw, digits: digits.length, kind: "unclear", missing: 0 };
-}
-
-/**
- * Номер, который клиент дал САМ, не дожидаясь вопроса («мада занг занен 880001007»).
- *
- * Здесь проверка строже, чем в extractTypedPhone: тот вызывается, когда бот уже
- * попросил телефон и любое число в ответе — почти наверняка он. А в свободной
- * переписке числа сыплются постоянно (бюджет «1 100 000», площадь, этаж), и мягкое
- * правило завело бы клиента с телефоном «+1100000». Поэтому принимаем только то,
- * что похоже на настоящий номер по ДЛИНЕ (см. strictPhone) — какой код оператора
- * ни стоял бы внутри. Суммы прописью отсекаются не по первой цифре, а по слову
- * рядом («сомонӣ», «доллар») — см. looksLikeMoneyContext.
- */
-export function extractVolunteeredPhone(text: string): string | null {
-  // Как и в extractTypedPhone: перебираем все кандидаты и построчно. Здесь это
-  // важно вдвойне — правило строгое, и первый же кандидат («3 сотих», «1050000»)
-  // почти всегда его не проходит; остановка на нём отбрасывала бы настоящий номер,
-  // стоящий следом.
-  for (const { raw, context } of phoneCandidates(text)) {
-    const strict = strictPhone(raw, context);
-    if (strict) return strict;
-  }
-  return null;
-}
-
-/**
- * ВСЕ номера из сообщения, а не один (18.08.2026).
- *
- * `phoneCandidates` находил их все и раньше, но наружу отдавался единственный —
- * тот, что уезжал в `Client.phone`. Остальные бот терял молча: продавец прислал
- * четыре своих номера столбиком, три из них агент потом переписал ТЕКСТОМ в
- * заметки карточки, и звонок с любого из них CRM не узнавала.
- *
- * Правило отбора — СТРОГОЕ (strictPhone), то же, что у extractVolunteeredPhone, и
- * без мягкого запасного разбора. Здесь это принципиально: мягкое правило нужно
- * лишь тогда, когда бот СПРОСИЛ номер и человек отвечает именно им. Для остальных
- * чисел в сообщении такого оправдания нет, а ценой ошибки будет чужой (или вовсе
- * не существующий) номер, навсегда приписанный клиенту, — и входящий звонок,
- * уведённый по нему не туда. Лучше запасной номер не сохранить, чем сохранить
- * цену «1050000» как телефон.
- *
- * Повторы убираются по девятизначному хвосту (dedupePhones в lib/clientPhones.ts
- * делает то же самое уже на границе карточки), порядок сохраняется.
- */
-export function extractAllPhones(text: string): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const { phone } of extractPhoneOccurrences(text)) {
-    const tail = phone.replace(/\D/g, "").slice(-9);
-    if (seen.has(tail)) continue;
-    seen.add(tail);
-    out.push(phone);
-  }
-  return out;
-}
-
-export interface PhoneOccurrence {
-  /** Как ровно записано в исходном тексте — «910 00 10 03», «+992 93...». */
-  raw: string;
-  /** Нормализованная строгая форма — та же, что кладёт extractAllPhones. Для
-   *  `unclear` номером НЕ является (в ней могут остаться «?») — использовать
-   *  как телефон нельзя, только для маскирования текста. */
-  phone: string;
-  /** true — это не настоящий номер, а кандидат «неразборчиво» (см.
-   *  unclearPhoneCandidates): цифры той же формы, но с «?» вместо одной или
-   *  нескольких. Не парсится в телефон и не сохраняется им нигде, но обязан
-   *  маскироваться в расшифровке точно так же, как обычный номер (24.09.2026,
-   *  см. lib/telephony/callPhoneMasking.ts). */
-  unclear?: boolean;
-}
-
-/**
- * То же, что extractAllPhones, но БЕЗ дедупликации и вместе с СЫРОЙ подстрокой
- * из текста — нужно тем, кому важно не только «какой номер», но и «где именно
- * он стоит в исходном тексте» (03.09.2026: маскировка запасных номеров в
- * расшифровке звонка, см. lib/telephony/callPhoneMasking.ts — там повтор
- * одного и того же номера дважды в разговоре обязан замаскироваться оба раза,
- * а не только на первом вхождении). extractAllPhones теперь построена НА ЭТОЙ
- * функции, а не дублирует её цикл.
- *
- * `includeUnclear` (24.09.2026, по умолчанию выключен): добавляет кандидатов
- * «номер неразборчив» (см. unclearPhoneCandidates) отдельными occurrence с
- * `unclear: true`. По умолчанию выключено намеренно — extractAllPhones строит
- * на этой функции РЕАЛЬНЫЕ номера клиента (Client.extraPhones и т.п.), и туда
- * половинчатый номер с «?» попадать не должен. Включает только маскировка
- * расшифровки звонка, которой не нужен точный номер — только не дать сырым
- * цифрам осесть в тексте.
- */
-export function extractPhoneOccurrences(text: string, opts: { includeUnclear?: boolean } = {}): PhoneOccurrence[] {
-  const out: PhoneOccurrence[] = [];
-  for (const { raw, context } of phoneCandidates(text)) {
-    const strict = strictPhone(raw, context);
-    if (strict) out.push({ raw, phone: strict });
-  }
-  if (opts.includeUnclear) {
-    // looksLikeDateOrTime — та же правка 24.09.2026, что и в unparsedPhoneAttempt
-    // выше: дата/время с «?» в расшифровке не маскируются как номер.
-    for (const { raw, context } of unclearPhoneCandidates(text)) {
-      if (looksLikeMoneyContext(context) || looksLikeDateOrTime(context)) continue;
-      const slots = unclearDigitSlots(raw);
-      if (slots < 9 || slots > 15) continue;
-      out.push({ raw, phone: raw, unclear: true });
-    }
-  }
-  return out;
-}
 
 /** Короткая сводка собранного черновика (используется Telegram-ботом). */
 export function summarizeDraft(draft: LeadDraft): string {
@@ -1062,7 +408,9 @@ export function normalizeReplyBubbles(
       .filter((s) => !isRepeatOfLastReply(s, lastAssistantText))
       // После срезанного приветствия отчёт о приёме оказывается в начале строки:
       // «Ассалому алейкум! Фаҳмо, дар Сино…» → «Фаҳмо, дар Сино…». Срезаем и его.
-      .map((s, i) => (i === 0 && alreadyGreeted ? stripLeadingAck(stripRepeatGreeting(s)) : s))
+      // Повторное приветствие режется в КАЖДОМ пузыре, а не только в первом (16.11.2026):
+      // «Тоҳир! …» / «Салом! …» вторым пузырём — то же «он забыл, с кем говорит».
+      .map((s, i) => (!alreadyGreeted ? s : i === 0 ? stripLeadingAck(stripRepeatGreeting(s)) : stripRepeatGreeting(s)))
       .filter((s) => s.length > 0)
       .slice(0, 2)
   );
@@ -1136,12 +484,28 @@ export { MIN_REAL_PURCHASE_TJS };
  *   запрет на аренду стоит и в промте, но однажды модель написала «иҷора надорем»
  *   и тут же выставила intent=buy, и живой агент получил арендатора как покупателя.
  */
-export function mergeDraft(draft: LeadDraft, result: QualifyResult, clientText?: string): LeadDraft {
+export function mergeDraft(
+  draft: LeadDraft,
+  result: QualifyResult,
+  clientText?: string,
+  /** Прошлая реплика бота: «сомони» считается тысячами только в ответ на вопрос о валюте. */
+  previousBotText?: string
+): LeadDraft {
   const text = clientText ?? "";
   const locationOutsideDushanbe = result.lead?.locationOutsideDushanbe ?? draft.locationOutsideDushanbe;
   const locationDifferentCountry = result.lead?.locationDifferentCountry ?? draft.locationDifferentCountry;
-  const rawMin = result.lead?.budgetMin ?? draft.budgetMin;
-  const rawMax = result.lead?.budgetMax ?? draft.budgetMax;
+  /**
+   * «Сомони» в ответ на «доллар ё ҳазор сомонӣ?» после «то 900–950» — тысячи сомони, покупка
+   * (16.11.2026, ai/rentGuard.ts::looksLikeThousandsShorthand). Сумма прошлого хода лежит в
+   * budgetUnrealistic: в поля бюджета она не годилась, а уточнение пришло отдельным ходом.
+   */
+  const somoniThisTurn = looksLikeThousandsShorthand(draft.budgetUnrealistic, text, previousBotText);
+  const modelMax = result.lead?.budgetMax ?? draft.budgetMax ?? (somoniThisTurn ? draft.budgetUnrealistic : undefined);
+  const thousands = looksLikeThousandsShorthand(modelMax, text, previousBotText);
+  const modelMin = result.lead?.budgetMin ?? draft.budgetMin;
+  const rawMin =
+    thousands && typeof modelMin === "number" && modelMin < THOUSANDS_SHORTHAND_MAX ? modelMin * 1000 : modelMin;
+  const rawMax = thousands && typeof modelMax === "number" ? modelMax * 1000 : modelMax;
   // Верхняя граница ниже порога — вся вилка нереальна: обе границы отбрасываем.
   const unrealistic = typeof rawMax === "number" && rawMax > 0 && rawMax < MIN_REAL_PURCHASE_TJS;
   const budgetMin = unrealistic ? undefined : rawMin;
@@ -1163,7 +527,8 @@ export function mergeDraft(draft: LeadDraft, result: QualifyResult, clientText?:
    * «2 хуҷрага бо нархи аз 3000 то 4500» — это месячная плата, и разговор про
    * аренду с первой минуты. Отсечка та же, что по слову, поэтому и метка та же.
    */
-  const rentByBudget = unrealistic && looksLikeRentBudget(rawMax, text);
+  // «То 900–950» без «в месяц» и без валюты — не отказ, а вопрос (ревью #207 В1).
+  const rentByBudget = unrealistic && looksLikeRentBudget(rawMax, text) && !smallBudgetNeedsClarifying(rawMax, text);
   /**
    * Настоящий бюджет снимает липкую метку наравне со словами о покупке: человек
    * сказал «3000–4500», бот переспросил про валюту, человек ответил «доллар» —
@@ -1292,83 +657,6 @@ const SALES_ROLE = `<system_role>
 </system_role>
 `;
 
-/**
- * ГОЛОС АГЕНТСТВА: факты о компании и правила языка.
- *
- * Отделено от «личности» 15.08.2026, когда у аккаунтов появился свой промт. Это
- * НЕ роль и НЕ цель — это то, что одинаково у ЛЮБОГО нашего аккаунта: как нас
- * зовут, чем мы занимаемся и как писать по-таджикски.
- *
- * Правила языка собирались несколькими заходами правок владельца (узбекизмы,
- * латиница вместо кириллицы, панибратство, «илтимос» вместо «хоҳиш мекунем»), и
- * свой промт у второго аккаунта не имеет права их потерять — иначе Royal Home
- * Info заговорил бы «кадом тарафда» ровно так, как основной уже отучили. Поэтому
- * блок приклеивается к ЛЮБОЙ личности: и к дефолтной, и к тексту владельца из
- * Настроек, и к собственному промту аккаунта.
- */
-/**
- * Отделено от языковых правил ниже (13.09.2026, разбор акцента живого голоса).
- * Живой голос в режиме «только русский» (liveVoicePersona.ts) подключает
- * ТОЛЬКО эту часть — факты о компании нейтральны к языку (собственные имена,
- * цифры), а весь блок таджикской орфографии ниже подозревается в утечке
- * акцента даже когда модель отвечает по-русски. AGENCY_VOICE (текстовому боту
- * и голосу без замка) собирает обе части, как и раньше, — это не меняет их
- * поведение ни на символ.
- */
-// Текст собирается из данных AGENCY_FACTS (ai/agencyFacts.ts, «одно окно» 10.10.2026):
-// побайтово тот же, что был литералом здесь, — и один на чат и голос.
-export const AGENCY_COMPANY_INFO = companyInfoBlock();
-
-export const AGENCY_LANGUAGE_RULES = `
-<language_and_slang>
-ОТВЕЧАЙ СТРОГО НА ЯЗЫКЕ КЛИЕНТА. Пишет на таджикском — отвечай на таджикском. Пишет по-русски — отвечай по-русски. Пишет смесью — отвечай смешанно (это самый естественный стиль для Душанбе).
-НЕ ПЕРЕКЛЮЧАЙСЯ НА РУССКИЙ САМ (владелец 17.09.2026, разбор реальных диалогов: бот смешал два языка в одном ответе). Если разговор уже идёт на таджикском, продолжай на таджикском, даже если твои же прошлые реплики в этом диалоге были по-русски по ошибке — не подстраивайся под свою же прошлую ошибку и не смешивай языки в одном сообщении.
-ВАЖНО ПРО ПИСЬМО: даже если клиент пишет на таджикском ЛАТИНИЦЕЙ (латинскими буквами), ты ВСЕГДА отвечаешь на таджикском КИРИЛЛИЦЕЙ (обычными таджикскими буквами), НИКОГДА не латиницей.
-ПИШИ ВЕЖЛИВЫМ ЛИТЕРАТУРНЫМ ТАДЖИКСКИМ, а не уличным (решение владельца 16.08.2026). Клиент — незнакомый человек, и панибратство он читает как неуважение. Литературная форма здесь уместна; сухой газетный слог не нужен, но и разговорные стяжения недопустимы.
-ЗАПРЕЩЕНО ПОИМЁННО:
-- Узбекский суффикс места "-да" вместо предлога "дар": НЕ "кадом тарафда", а "дар кадом тараф". Это самая заметная ошибка: она сразу выдаёт неместного.
-- Просторечные стяжения: НЕ "инашро", а "инро"; НЕ "ана ҳаминаш" — так с незнакомым не говорят вовсе.
-- Панибратские концовки и обрывы фраз. Заканчивай мысль, а не бросай её.
-- "оиди чизе" — правильно "оид ба чизе".
-- "илтимос" — это мольба ("умоляю"), а не деловая просьба: агентство так не пишет. И "хоҳиш мекунем" тоже НЕ писать (владелец 17.09.2026: «такого слова мы не используем»). Просьба — без вежливого слова, прямо: "Рақаматонро нависед", "Бо матн нависед".
-- "лутфан" — слишком книжно и отдаёт телевизионным слогом. Вместо него "Бемалол" ("если удобно, без стеснения") либо вовсе без вежливого слова. Слово "Безаҳмат" тоже больше не используем (решение владельца 16.08.2026).
-ГОВОРИ УВАЖИТЕЛЬНО: там, где речь о самом клиенте, добавляй "ба Шумо" ("Ба Шумо каробка лозим аст?"), а не безличное "даркор?".
-КАК НАЗЫВАТЬ ЗАЯВКУ: по-таджикски "дархост", а не "заявка". "Дархост қабул шуд", "Дархости Шумо аллакай қабул шуд".
-ТОЛЬКО ТАДЖИКСКИЙ И РУССКИЙ. Узбекских, персидских (фарси) и любых других слов быть не должно вообще. Ни "қизиқ"/"кизик", ни "яхши", ни "керак", ни "нима", ни "қандай", ни "йўқ", ни "хўп", ни "опа" — для клиента это звучит как машинный перевод. Таджикское слово всегда есть: "хуб", "лозим аст", "чӣ", "чӣ гуна", "не".
-ЧТО ОСТАЁТСЯ КАК ЕСТЬ — профессиональные термины рынка Душанбе: каробка, ҳавлӣ, плановик, замин, сотих, 2-хонага, ремонти нав, ремонти евро, навостройка. Это язык рынка, а не просторечие, и заменять их книжными синонимами нельзя.
-СЛОВА, КОТОРЫХ В ПЕРЕПИСКЕ БЫТЬ НЕ ДОЛЖНО (владелец 01.08.2026: «слишком литературно, никто не знает, что это»). Слева запрещённое, справа как говорят на самом деле:
-- "манзур" → "кадом тараф", "кучо" ("Кадом тараф хона мекобед?", а не "Кадом тарафи шаҳр манзур аст")
-- "хабарҳои шахсӣ" → "ба мо нависед"
-- "ироа кардан", "пешниҳод намудан" → "нишон медиҳем", "дорем"
-- "мутахассис" → "агент" ("агенти мо занг мезанад")
-- "баррасӣ мекунем" → "мебинем" (владелец 17.09.2026: слово вообще не употреблять, даже в значении "рассмотрим" — оно обещает то, чего не будет)
-- "бидонед" — книжное "знайте"; либо без него, либо "донед" в живой форме, если совсем нужно
-- "равон кунем" → "мефиристем" ("отправим")
-- "мушаххас кунед" → "аниқ гуед" ("скажите точно")
-- "бо камоли майл" — цветистая книжная вежливость, так не говорят; вовсе без вводного слова
-- "бо ҷону дил" — то же самое, вычурно; вовсе без него
-- "мувофиқи талаботи шумо" → "барои шумо"
-- "муфассал" → просто не используй это слово вовсе, оно книжное ("подробно" по-книжному); "ҳамаашро мегӯяд" вместо "ҳамаашро муфассал мегӯяд"
-- "фавран" → "ҳозир", "дарҳол"
-- "мутаассифона" — РАЗРЕШЕНО (владелец 17.09.2026: «нормальное слово, можно использовать»); прежний запрет снят.
-- "бинобар ин" → "барои ҳамин"
-- "сипос" → "раҳмат"
-- "пазируфтан" → "қабул кардан" (уже используется — "дархост қабул шуд")
-- "ёрӣ мерасонем", "ёрии калон мерасонем", "кӯмак мерасонем", "дар хизмати Шумо", "бо эҳтиром" → выдуманные вежливые концовки, перевод с русского «окажем помощь / с уважением» (владелец 17.09.2026). Концовка либо никакая, либо ровно "Агар савол бошад, нависед."
-Правило простое: если слово не встретишь в обычной переписке двух душанбинцев — не пиши его.
-САМЫЕ ПРОСТЫЕ СЛОВА ИЗ ВОЗМОЖНЫХ (02.09.2026). Всегда выбирай самое короткое и обычное слово из тех, что подходят по смыслу — как будто пишешь другу, а не сочиняешь текст для сайта. Ни одного редкого, книжного или "умного" слова, даже если оно формально правильное: если можно сказать проще — говори проще, без исключений. Ни одна фраза не должна читаться как выдержка из документа, инструкции или новости.
-Но и грубый уличный сленг/жаргон тоже не нужен — целься точно в середину: как нормальный вежливый человек пишет в WhatsApp/Instagram обычному клиенту, без канцелярита и без пацанского тона. Используй местный душанбинский риелторский сленг:
-- Жильё: "квартира" (не ҳуҷра), "навостройка", "домҳои советӣ", "секция", "хрущевка".
-- Частный дом/Земля: "ҳавлӣ" (дом на земле), "плановик" / "плановый", "замин" (участок), "участок".
-- Ремонт (очень важно!): "каробка" (черновая отделка/без ремонта), "под обой" (предчистовая/шпаклёвка), "ремонти нав", "ремонти евро", "ремонти замонавӣ", "люкс", "бе ремонт".
-- Размеры: "этаж", "квадрат", "сотих" (сотки для земли), "1-хонага", "2-хонага", "3-хонага", "4-хонага".
-- Условия: "арзон мешавад" (торг уместен), "савдо меша", "алиш" (обмен), "нақд" (наличка), "рассрочка".
-</language_and_slang>
-`;
-
-/** Как и раньше — обе части вместе, дословно тот же текст, что был в AGENCY_VOICE
- *  до разделения выше. Ничьё поведение (текстовый бот, голос без замка) не меняется. */
-export const AGENCY_VOICE = AGENCY_COMPANY_INFO + AGENCY_LANGUAGE_RULES;
 
 /** Образцы фраз ПРОДАЮЩЕГО бота — часть его «личности», а не общего голоса:
  *  информационный аккаунт про передачу агенту и бюджет не говорит вовсе. */
@@ -1499,11 +787,12 @@ export const SCENARIO_BUY = `
 
 /** Собственник. Полностью подаётся только разговору с intent=sell. */
 export const SCENARIO_SELL = `
-• SELL (Продажа): СНАЧАЛА выясни, ГДЕ находится объект. Мы принимаем на продажу ТОЛЬКО объекты в Душанбе (4 района выше) или, как исключение, в другом городе/районе ТАДЖИКИСТАНА. Объекты в ДРУГИХ СТРАНАХ (Россия, Узбекистан, где угодно за пределами Таджикистана) не принимаем НИКОГДА, ни при каких условиях — это не подлежит обсуждению.
+• SELL (Продажа): СНАЧАЛА выясни, ГДЕ находится объект. Мы принимаем на продажу ТОЛЬКО объекты в Душанбе (4 района выше) и районе Рудаки или, как исключение, в другом городе/районе ТАДЖИКИСТАНА. Объекты в ДРУГИХ СТРАНАХ (Россия, Узбекистан, где угодно за пределами Таджикистана) не принимаем НИКОГДА, ни при каких условиях — это не подлежит обсуждению.
+  - ${RUDAKI_SELLER_RULE}
   - Если клиент явно называет объект в ДРУГОМ городе/районе ТАДЖИКИСТАНА (Хуҷанд, Кӯлоб, Бохтар/Қӯрғонтеппа, Истаравшан, Панҷакент, Турсунзода, Ваҳдат, Ҳисор, Данғара, Рашт, Норак и т.п.) — заполни locationOutsideDushanbe=true, districtName оставь null, НЕ обещай бесплатную рекламу/2% (это только для Душанбе). ОТКАЖИ ВЕЖЛИВО И СРАЗУ, БЕЗ "баррасӣ мекунем" и любых похожих мягких обещаний подумать (владелец 17.09.2026: такие обороты обещают то, чего не будет). ready=true.
     ЗАПРЕЩЕНО ЛЮБОЕ ОБЕЩАНИЕ ЗВОНКА ИЛИ СВЯЗИ (владелец 17.09.2026, дословно: «номер принять можно, но НЕ обещать, что агент позвонит — зачем обещать»): ни "агент занг мезанад", ни "агенти мо тамос мегирад", ни "мутахассис бо шумо тамос мегирад", ни "свяжемся в ближайшее время", ни русское "агент позвонит" — этого разговора не будет, обещать его нельзя.
-    Номер сам НЕ проси. Если клиент просто назвал город без своих контактов — коротко скажи, что мы пока работаем только по Душанбе, и на этом стоп: "Ҳоло мо танҳо дар Душанбе кор мекунем." / "Мы пока работаем только по Душанбе."
-    Если клиент САМ, без просьбы, уже оставил номер телефона или прислал данные квартиры (площадь, район, цену и т.п.) — прими это как есть и ответь ИМЕННО так, слово в слово: "Сабт кардем, раҳмат. Ҳоло танҳо дар Душанбе кор мекунем; агар дар шаҳри шумо сар кунем, менависем." (по-русски: "Записали, спасибо. Пока работаем только по Душанбе; если начнём работать в вашем городе — напишем."). Дальше по этому объекту не продолжай.
+    Номер сам НЕ проси. Если клиент просто назвал город без своих контактов — коротко скажи, что мы пока работаем только в Душанбе и районе Рудаки, и на этом стоп: "${serviceAreaOnly("tg")}." / "${serviceAreaOnly("ru")}."
+    Если клиент САМ, без просьбы, уже оставил номер телефона или прислал данные квартиры (площадь, район, цену и т.п.) — прими это как есть и ответь ИМЕННО так, слово в слово: "${outsideAreaAcceptedText("tg")}" (по-русски: "${outsideAreaAcceptedText("ru")}"). Дальше по этому объекту не продолжай.
   - Если клиент называет объект ЗА ПРЕДЕЛАМИ Таджикистана (в другой стране — Россия и т.п., по названному городу или прямо сказанному "в России"/"тут не в Таджикистане") — заполни locationDifferentCountry=true, districtName оставь null, номер телефона НЕ ПРОСИ и не принимай, даже если клиент сам его пришлёт — просто вежливо откажи, без книжных вводных слов, НА ЯЗЫКЕ КЛИЕНТА: по-таджикски — "Мо танҳо дар Тоҷикистон кор мекунем ва наметавонем ин объектро гирем", по-русски — "К сожалению, мы работаем только в Таджикистане и не можем принять этот объект". Смысл один, язык — тот, на котором пишет человек. ready=true, дальше не продолжай разговор про этот объект.
   - Иначе (Душанбе или город не назван — по умолчанию считай Душанбе, не переспрашивай лишний раз) — locationOutsideDushanbe и locationDifferentCountry оставь false/не заполняй. ИСКЛЮЧЕНИЕ: если в подсказке стоит «ГОРОД НЕ ЯСЕН» (номер микрорайона, которого в Душанбе нет), Душанбе НЕ подразумевай — districtName оставь null и одним вопросом спроси город.
     СОБЕРИ КАРТОЧКУ ОБЪЕКТА ЦЕЛИКОМ, чтобы агенту не пришлось выспрашивать заново, — но ОДНИМ ВОПРОСОМ, а не по одному параметру за реплику (решение владельца 18.08.2026, подробности в блоке «приём_объекта_у_продавца» ниже). Попроси перечислить сразу: комнаты, площадь, район или ориентир, этаж и этажность, состояние (каробка / под обой / ремонти нав / евро), цену собственника — «напишите одним сообщением». Ответил не по всем пунктам — добери недостающее ТОЖЕ одним сообщением, а не цепочкой вопросов. Что уже названо, переспрашивать нельзя: смотри блок «ПРИЁМ ОБЪЕКТА», его считает код. Всё, что услышал сверх этого (мебель остаётся, срочно, обмен, есть долг по коммуналке), дословно клади в notes.
@@ -1600,7 +889,7 @@ const CORE_RULES_TAIL = `
 
 ПОПРОСИЛ ПОКАЗАТЬ — ПОКАЗЫВАЙ, А НЕ ДОПРАШИВАЙ (разбор живого диалога 16.08.2026). «Шумо худатон хонаро биёред, партоед», «скиньте что есть», «мо бинем» — это прямая просьба показать варианты, и она главнее любой анкеты. Ответь ею: назови 1-2 подходящих объекта из блока выше, а недостающее уточни ПОСЛЕ, по реакции человека.
 ОДИН И ТОТ ЖЕ ВОПРОС ДВАЖДЫ — УЖЕ ПЕРЕБОР, ЧЕТЫРЕЖДЫ — НЕИСПРАВНЫЙ АВТОМАТ. Живой случай: клиент четыре раза подряд получил «То чанд ҳазор доллар дар назар доред?», причём между ними он успел сказать, что согласен и на трёхкомнатную подешевле, и попросил просто показать дома. Не ответил на вопрос дважды — вопрос снимается, разговор ведёшь по тому, что человеку нужно. Бюджет не обязателен для подбора: район и число комнат уже дают варианты.
-СУММА, КОТОРАЯ ВЫГЛЯДИТ СТРАННО, — ЭТО ОПИСКА, А НЕ ОТКАЗ. «3000 сомонӣ», «5000 сомон то 3000» и подобное почти всегда значит другое: человек имел в виду доллары, тысячи или назвал ежемесячный платёж. ЗАПРЕЩЕНО отвечать на такое «за эти деньги у нас ничего нет» и тем более уводить разговор в аренду: живой человек с номером телефона уходит после такой фразы навсегда. Переспроси спокойно и коротко: «Ин ба доллар аст ё ҳазор сомонӣ?» — и продолжай.
+СУММА, КОТОРАЯ ВЫГЛЯДИТ СТРАННО, — ЭТО ОПИСКА, А НЕ ОТКАЗ. «3000 сомонӣ», «5000 сомон то 3000» и подобное почти всегда значит другое: человек имел в виду доллары, тысячи или назвал ежемесячный платёж. ЗАПРЕЩЕНО отвечать на такое «за эти деньги у нас ничего нет» и тем более уводить разговор в аренду: живой человек с номером телефона уходит после такой фразы навсегда. Переспроси спокойно и коротко: «Ин ба доллар аст ё ҳазор сомонӣ?» — и продолжай. Сумма до 2000 без «в месяц/моҳона» и без валюты («то 900–950») — непонятно, покупка это или аренда: отказ «аренды нет» ЗАПРЕЩЁН, уточни одним вопросом: «Барои харид ё иҷора? Ба доллар ё ҳазор сомонӣ?» / «Это на покупку или аренду? В долларах или тысячах сомони?». Ответ «сомонӣ» — тысячи сомони на покупку.
 
 НЕ ПРИПИСЫВАЙ КЛИЕНТУ ТО, ЧЕГО ОН НЕ ГОВОРИЛ (разбор переписки 14.08.2026). Пока человек сам не назвал сумму, у него НЕТ известного тебе бюджета. Запрещено: "подходит под ваш бюджет", "как раз в вашу сумму", "ин ба буҷети шумо мувофиқ аст" — и запрещено брать цену показанной квартиры за его бюджет ("подбираем в районе 130 тысяч долларов" после того, как ты сам же назвал цену объекта). То же самое про район, комнаты и состояние: не говори "как вы и хотели", если он этого не просил. Живой случай: бот трижды подряд назвал клиенту чужую сумму как его собственную, тот трижды переспросил "а с чего вы взяли?", и разговор ушёл в выяснение отношений вместо квартиры.
 Правильно так: назови факты объекта ("3-хонага дар Исмоили Сомонӣ, 1 460 000 сомонӣ") и, если нужно, мягко спроси про сумму. Хвалить вариант как подходящий можно только по тому, что клиент сказал СВОИМИ словами и что видно в переписке выше.
@@ -1663,7 +952,7 @@ export const SCENARIO_INTAKE = `
   - ПОКУПАТЕЛЬ: спрашивает про квартиру, цену, район, прислал публикацию или ссылку, "хона мекобам", "что есть до 300 тысяч". intent=buy.
   - ПРОДАВЕЦ: предлагает свой объект, называет площадь, этаж и свою цену, "мехоҳам фурӯшам", "у меня 3-комнатная". intent=sell.
   - СОБСТВЕННИК О СЕБЕ: "ман соҳибхона", "ман соҳиби хона", "я собственник", "хозяин это я" (с телефона часто пишут "сохиб" через "х"). Это ПРОДАВЕЦ, а не покупатель, даже без слова "фурӯш": intent=sell. Под постом с объектом это обычно хозяин ЭТОГО объекта. НЕ отвечай ему как покупателю: не пиши "торг с собственником", "после показа", "агент покажет квартиру". Просит поменять цену или объявление — скажи, что передашь агенту, который ведёт его объект, и заполни askOwner его просьбой одной фразой.
-  - АРЕНДА: "иҷора", "снять", "сдать", "на месяц", месячная плата вместо цены покупки. Арендой мы НЕ занимаемся ни в каком виде. Откажи СРАЗУ, одной фразой, в этом же ходе: "Мутаассифона, мо фақат бо хариду фурӯш машғулем, иҷора надорем." intent=rent, ready=true, номер не проси и ничего не обещай на будущее.
+  - АРЕНДА: "иҷора", "снять", "сдать", "на месяц", месячная плата вместо цены покупки (сумма вроде «900–950» без слов «в месяц/моҳона» — не аренда сама по себе: сначала уточни «барои харид ё иҷора, ба доллар ё ҳазор сомонӣ?»). Арендой мы НЕ занимаемся ни в каком виде. Откажи СРАЗУ, одной фразой, в этом же ходе: "Мутаассифона, мо фақат бо хариду фурӯш машғулем, иҷора надорем." intent=rent, ready=true, номер не проси и ничего не обещай на будущее.
   - КАНДИДАТ НА РАБОТУ: спрашивает про вакансию, работу агентом, резюме, "кор ҳаст?". intent=job. Подтверди, что мы набираем агентов по продажам, и спроси ОДНО: есть ли готовое резюме или анкета. Никого не отсеивай сам, про зарплату и условия ничего не обещай.
   - ПРЕДЛАГАЮТ НАМ УСЛУГИ ИЛИ РЕКЛАМУ: ремонт, мебель, натяжные потолки, продвижение, накрутка подписчиков, "сотрудничество", "коммерческое предложение". Это НЕ клиент, и продавать ему квартиру бессмысленно. Поблагодари, скажи, что передашь руководству, и возьми контакт ОДИН раз: "Раҳмат, ба роҳбарият мерасонам. Рақами тамосатонро нависед." Ничего не обещай и не договаривайся об условиях. intent=other.
   - ЗАСТРОЙЩИК ИЛИ АГЕНТСТВО про сотрудничество: спроси, что за проект или дом, и возьми контакт для руководства. Условия, проценты и совместную работу НЕ обсуждай — это не твоё решение. intent=other.
@@ -1977,38 +1266,6 @@ export async function resolveBotPersona(accountId?: string | null): Promise<stri
   }
 }
 
-/**
- * Настройки продавца (Настройки → Бот → «Как продавать»): предел вопросов, чем мы не
- * занимаемся, чем мы лучше. Приклеиваются ПОВЕРХ промта из Настроек — как и правила
- * продаж, иначе правка «личности» бота молча отменяла бы факты о компании.
- *
- * Отказ базы — пустая строка, а не умолчания: лучше бот без этих правил, чем бот с
- * чужими. Умолчания живут в схеме и приходят из настоящих настроек.
- */
-export async function resolveSellerRules(options: { questionLimit?: boolean } = {}): Promise<string> {
-  try {
-    const s = await prisma.settings.findUnique({
-      where: { id: "singleton" },
-      select: { sellerMaxQuestions: true, sellerNotSelling: true, sellerAdvantages: true },
-    });
-    if (!s) return "";
-    return buildSellerRules({
-      // Голосу предел не печатается (ai/liveVoiceKnowledge.ts): остальное — те же
-      // настройки владельца, одним источником с чат-ботом.
-      maxQuestions: options.questionLimit === false ? null : s.sellerMaxQuestions,
-      notSelling: s.sellerNotSelling,
-      advantages: s.sellerAdvantages,
-    });
-  } catch (err) {
-    // Молчал (правка 22.09.2026): правила приёма продавца просто исчезали из
-    // промта, и бот вёл продавца без ограничения на число вопросов и без
-    // преимуществ агентства — внешне это выглядит как «модель поглупела».
-    void logSystemError("ai", `Правила приёма продавца не прочитаны — бот идёт без них: ${describeError(err)}`, {
-      dedupKey: "bot-seller-rules",
-    });
-    return "";
-  }
-}
 
 /**
  * Публичная ссылка на объект: прямой пост в Instagram, иначе универсальный редирект
@@ -2123,7 +1380,10 @@ async function searchMatchingProperties(
       // пометка подбора («комнат на 1 больше», «чуть дороже бюджета») — matchFitNote.
       const landmark = !scopedCustomer && p.landmark?.trim() ? `, ориентир: ${p.landmark.trim()}` : "";
       const fit = matchFitNote(p.match);
-      return `- №${p.shortId} ${head}, ${place}${landmark}, ${price}, ${Number(p.areaSqm)} м²${floor}${fit ? ` (${fit})` : ""}${link}`;
+      // Состояние карточки (16.11.2026, аудит Ф3): без него модель говорила «бо ремонти нав»
+      // про коробку — взять правду ей было неоткуда (ai/objectFactsGuard.ts).
+      const condition = catalogConditionNote(p);
+      return `- №${p.shortId} ${head}, ${place}${landmark}, ${price}, ${Number(p.areaSqm)} м²${floor}${condition}${fit ? ` (${fit})` : ""}${link}`;
     });
     // Заголовок больше НЕ содержит слова «база». Запрет говорить его клиенту стоял в
     // правилах, а прямо рядом с объектами модель читала «ИЗ НАШЕЙ БАЗЫ» — и исправно
@@ -2375,7 +1635,7 @@ export const qualifySchema = (
             "цена ЗА КВАДРАТНЫЙ МЕТР («650 доллар за метр», расчёт для котлована/стадии строительства) — это " +
             "цена единицы площади, а не сумма всей покупки; сюда её не пиши.",
         },
-        districtName: { type: "string", enum: ["Исмоили Сомони", "Сино", "Фирдавси", "Шохмансур"] },
+        districtName: { type: "string", enum: [...BOT_DISTRICT_NAMES] },
         type: { type: "string", enum: ["APARTMENT", "HOUSE", "COMMERCIAL", "LAND"] },
         rooms: { type: "number" },
         notes: {
@@ -2616,7 +1876,8 @@ export async function runQualifyTurn(
     // Подборка — по черновику, ДОПОЛНЕННОМУ разбором этой реплики (аудит поиска P0-2):
     // черновик модель обновит только в ответе, а «ищу двушку в Сино» в первом же
     // сообщении обязано дать варианты в этом же ходе. Разбор не удался — черновик как был.
-    buyerQueryForTurn(draft, lastClientText)
+    // Режим «только заявки»: подборки в промте нет вовсе — модель не может ни прислать её, ни пересказать.
+    abilities.leadOnly ? Promise.resolve("") : buyerQueryForTurn(draft, lastClientText)
       .catch(() => draft)
       .then((turnQuery) =>
         searchMatchingProperties(
@@ -2774,6 +2035,7 @@ export async function runQualifyTurn(
       : callbackAsLeadPromptRule(callbackPromise(new Date(), clientHours))) +
     (abilities.vacancies ? "" : VACANCIES_DISABLED_RULE) +
     (abilities.links ? "" : LINKS_DISABLED_RULE) +
+    (abilities.leadOnly ? LEAD_ONLY_MODE_RULE : "") +
     // Выводы из случаев, где бот уже ошибался (см. lib/botLessons.ts). Идут в
     // изменяемую часть промта, а не в кэшируемую: список пополняется каждую ночь,
     // и внутри кэш-блока он ломал бы побайтовое совпадение префикса.
@@ -2809,10 +2071,14 @@ export async function runQualifyTurn(
     (options.retryDirective ?? "") +
     (recruitmentCatalog ? legacyRecruitmentCatalogBlock(recruitmentCatalog, recruitmentWords) : "");
 
+  // Имя компании аккаунта (ai/brandName.ts): «Royal Home» в собранном промте хода
+  // заменяется ОДИН раз, здесь, в точке сборки — а не копиями по файлам. У аккаунта
+  // без своего имени обе строки уходят побайтово прежними.
+  const brand = await brandForAccount(options.accountId);
   const rawResult = await callAiText<unknown>({
     endpoint: "lead-qualify",
-    systemStable,
-    system,
+    systemStable: brandize(systemStable, brand),
+    system: brandize(system, brand),
     // Разрывы во времени подмешиваются в текст реплик: без них разговор
     // трёхмесячной давности неотличим от начатого минуту назад (conversationTime.ts).
     messages: withTimeGaps(markHumanRepliesForModel(maskHistoryForModel(history.slice(-MAX_HISTORY_TO_MODEL)))),
@@ -2913,27 +2179,43 @@ export async function runQualifyTurn(
      * замерить. Цены здесь не повторяем — их уже снял guardPrices выше. Продавцу и
      * кандидату подборки нет: он называет свой объект, сверять не с чем.
      */
+    /**
+     * МЕСТО И СОСТОЯНИЕ ОБЪЕКТА — ТОЛЬКО ИЗ КАРТОЧКИ (16.11.2026, аудит facts.md Ф2/Ф3; правила —
+     * ai/objectFactsChat.ts). Продавцу и кандидату подборки нет — сверять не с чем.
+     */
     if (draft.intent !== "sell" && draft.intent !== "job") {
-      const claims = findOffCatalogClaims({
-        text: result.reply.join("\n"),
-        allowedText: propsBlock + "\n" + history.map((m) => m.content).join("\n"),
-        catalogText: `${propsBlock}\n${geoBlock}\n${folkGeography}`,
-        clientText: history
-          .filter((m) => m.role === "user")
-          .map((m) => m.content)
-          .join("\n"),
+      const facts = applyObjectFactGuards({
+        reply: result.reply,
+        propsBlock,
+        geoBlock,
+        folkGeography,
+        history,
         usdToTjs: money.usdToTjs,
+        language: lastClientLanguage(history),
       });
+      if (facts.streets.length > 0) {
+        traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
+        traceBefore = facts.afterPlace.join("\n");
+      }
+      if (facts.renovationRemoved > 0) {
+        traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
+        traceBefore = facts.reply.join("\n");
+        void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза вырезана.", {
+          dedupKey: "chat-renovation-claim",
+          dedupScope: options.conversationId ?? undefined,
+        });
+      }
+      result.reply = facts.reply;
       const what = [
-        claims.streets.length > 0 ? `улицы/ориентиры ${claims.streets.join(", ")}` : "",
-        claims.areas.length > 0 ? `площадь ${claims.areas.join(", ")} м²` : "",
-        claims.floors.length > 0 ? `этаж ${claims.floors.join(", ")}` : "",
+        facts.streets.length > 0 ? `улицы/ориентиры ${facts.streets.join(", ")} (фраза вырезана)` : "",
+        facts.areas.length > 0 ? `площадь ${facts.areas.join(", ")} м²` : "",
+        facts.floors.length > 0 ? `этаж ${facts.floors.join(", ")}` : "",
       ].filter(Boolean);
       if (what.length > 0) {
         void logSystemError(
           "ai",
           `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, ни в словах клиента. ` +
-            "Ответ ушёл как есть — проверьте диалог глазами.",
+            (facts.areas.length + facts.floors.length === 0 ? "Место вырезано из ответа." : "Площадь и этаж ушли как есть — проверьте диалог глазами."),
           { dedupKey: "chat-off-catalog-claim", dedupScope: options.conversationId ?? undefined }
         );
       }
@@ -3016,158 +2298,3 @@ export async function runQualifyTurn(
  * манеры продажи, normalizeReplyBubbles без alreadyGreeted/clientText — подключение
  * её «как готовой» молча оживило бы эти дыры. История — в git.
  */
-
-/**
- * Короткий реплик на языке клиента — для подтверждения заявки и ответов после её
- * приёма. Держим текст в руках ИИ (а не зашитыми строками), чтобы бот НЕ переходил
- * на русский, когда клиент пишет на таджикском, и звучал по-человечески (без
- * одинаковых повторов). Возвращает null при сбое ИИ.
- */
-const CLOSING_SCHEMA = {
-  type: "object",
-  properties: { reply: { type: "string", description: "короткая тёплая фраза для клиента на его языке" } },
-  required: ["reply"],
-};
-
-/** Что бот обязан помнить о собеседнике, когда пишет короткую реплику вне основного
- *  хода (напоминание молчащему, подтверждение заявки). */
-export interface AgentReplyContext {
-  name?: string | null;
-  /** Черновик заявки: бюджет, район, комнаты — то, что клиент уже рассказал. */
-  draft?: unknown;
-}
-
-/**
- * Подсказка для короткой реплики. Вынесена отдельно, чтобы правила «не здоровайся
- * заново» и «не переспрашивай собранное» можно было проверить тестом, а не на живых
- * клиентах: именно их отсутствие ломало напоминания.
- */
-export function buildShortReplySystem(instruction: string, context?: AgentReplyContext): string {
-  // Оба места, откуда сюда приходят, — СЕРЕДИНА уже идущего разговора. Без прямого
-  // запрета бот здоровался заново («Ассалом, чем могу помочь?»), как будто видит
-  // человека впервые: переписка в истории есть, но ничто не мешало начать с нуля.
-  const continuation =
-    "ВАЖНО: это ПРОДОЛЖЕНИЕ разговора, который уже идёт, а не первое сообщение. Ты УЖЕ общался с этим " +
-    "человеком — вся переписка выше. Категорически запрещено: здороваться заново, представляться, " +
-    "спрашивать «чем могу помочь» и вообще вести себя так, будто вы не знакомы. Опирайся на то, о чём " +
-    "вы говорили, и продолжай с того же места. " +
-    // Живой случай 31.07: клиент ответил на рекламу, бот спросил «кадом вариант ба шумо
-    // писанд омад?» — хотя НИ ОДНОГО варианта не присылал. Для клиента это выглядит так,
-    // будто с ним перепутали кого-то другого, и доверие теряется мгновенно.
-    "НИКОГДА не ссылайся на то, чего в переписке выше НЕ БЫЛО. Не спрашивай «какой вариант вам понравился», " +
-    "«посмотрели ли вы объекты», «как вам квартира», если ты не присылал ни объектов, ни ссылок. Не упоминай " +
-    "показы, встречи и договорённости, которых не было. Опирайся ТОЛЬКО на реально сказанное выше: если " +
-    "разговор оборвался на твоём вопросе, вернись именно к нему. " +
-    // Живой случай 01.08: напоминание клиенту, искавшему участок, обещало
-    // «вариантҳоро мефиристонем» — участков под его запрос у нас нет вовсе.
-    // Здесь, в короткой реплике, подборки объектов перед глазами НЕТ вообще,
-    // поэтому обещать наличие нельзя ни при каких условиях.
-    "НИЧЕГО НЕ ОБЕЩАЙ ПРО НАЛИЧИЕ. Ты не видишь, что сейчас есть в продаже, поэтому фразы «варианты есть», " +
-    "«отправим подходящее», «подберём» тебе недоступны — это была бы выдумка. Можно только спросить, " +
-    "актуален ли ещё запрос, и вернуться к тому, на чём разговор оборвался. " +
-    TIME_AWARENESS_RULE +
-    " ";
-  const nameLine = looksLikeRealName(context?.name)
-    ? `Имя клиента: ${context!.name}. Имя можно назвать как есть, без родовых приставок; обращений по полу не используй. `
-    : "";
-  // Черновик заявки — чтобы бот не спрашивал заново бюджет и район, которые ему уже назвали.
-  const draftLine =
-    context?.draft && Object.keys(context.draft as object).length > 0
-      ? `Что клиент уже рассказал (НЕ переспрашивай это): ${JSON.stringify(context.draft)}. `
-      : "";
-  return (
-    "Ты — консультант Royal Home в Душанбе; сам не пиши, что ты ИИ или бот, но на прямой вопрос «ты бот?» честно подтверди одной фразой и продолжай по делу. Пиши ОЧЕНЬ коротко — одна тёплая " +
-    "фраза. Отвечай СТРОГО на языке клиента: если он писал на таджикском — на таджикском кириллицей, без перехода " +
-    "на русский; если писал по-русски — отвечай по-русски, без перехода на таджикский. Таджикский по умолчанию " +
-    "только когда язык неясен/смешанный. Обращения по полу («акаҷон», «апаҷон» и подобные) ЗАПРЕЩЕНЫ: пол собеседника неизвестен, а ошибка обижает; " +
-    "при сомнении без обращения. " +
-    "НИКОГДА не используй тире «—». " +
-    continuation +
-    nameLine +
-    draftLine +
-    `Задача: ${instruction} ` +
-    "Свой ответ ВСЕГДА передавай через инструмент submit_reply, никогда обычным текстом."
-  );
-}
-
-export async function shortAgentReply(
-  history: ChatMessage[],
-  instruction: string,
-  context?: AgentReplyContext,
-  /** Диалог (Conversation.id) — см. QualifyTurnOptions.conversationId выше. */
-  conversationId?: string | null
-): Promise<string | null> {
-  // Именем из профиля мессенджера БОЛЬШЕ НЕ обращаемся — только тем, которое
-  // клиент сам написал в переписке (решение владельца 18.08.2026, см. replyGuards).
-  // `buildShortReplySystem` сам по себе не знает про источник имени (его тестируют
-  // отдельно, передавая имя напрямую) — фильтр здесь, на единственном боевом пути.
-  const safeContext: AgentReplyContext | undefined = context
-    ? { ...context, name: clientSelfStatedName(history) }
-    : context;
-  const system = buildShortReplySystem(instruction, safeContext);
-  const r = await callAiText<{ reply?: string }>({
-    endpoint: "lead-closing",
-    system,
-    // Разрывы во времени подмешиваются в текст реплик: без них разговор
-    // трёхмесячной давности неотличим от начатого минуту назад (conversationTime.ts).
-    messages: withTimeGaps(markHumanRepliesForModel(maskHistoryForModel(history.slice(-MAX_HISTORY_TO_MODEL)))),
-    maxTokens: 200,
-    // Одна фраза, но её видит клиент: это напоминание молчащему и подтверждение
-    // заявки. Именно здесь бот здоровался заново и выдумывал несуществующие
-    // «варианты» — дешёвый режим на коротком тексте экономит копейки, а стоит
-    // впечатления от всего разговора.
-    effort: "medium",
-    schema: CLOSING_SCHEMA,
-    conversationId,
-  });
-  // Тот же рубеж, что и у обычных реплик: короткая фраза уходит клиенту так же,
-  // как и длинная, и обращение по полу в ней стоит ровно столько же.
-  //
-  // Плюс один рубеж, которого нет у обычных реплик: приветствие. Сюда приходят
-  // только продолжения — напоминание молчащему, подтверждение заявки, просьба
-  // подтвердить встречу, — и «Ассалому алейкум» в них означает, что бот забыл, с
-  // кем говорит. Первое сообщение диалога идёт другим путём и здоровается по праву.
-  const cleaned = r?.reply ? stripRepeatGreeting(cleanOutgoingReply(r.reply.trim())) : "";
-  if (!cleaned) return null;
-
-  /**
-   * СВЕРКА НАЛИЧИЯ — ИМЕННО ЗДЕСЬ ОНА НУЖНА БОЛЬШЕ ВСЕГО (правка 22.08.2026).
-   *
-   * У этой короткой реплики подборки объектов перед глазами НЕТ ВООБЩЕ — так и
-   * написано в её же промте выше («НИЧЕГО НЕ ОБЕЩАЙ ПРО НАЛИЧИЕ… это была бы
-   * выдумка»). То есть hasProperties здесь не признак, а константа: обещать нечего
-   * никогда, ни при каких условиях. И запрет этот уже нарушался на живом клиенте —
-   * 01.08.2026 напоминание человеку, искавшему участок, обещало «вариантҳоро
-   * мефиристонем», хотя участков под его запрос у нас нет вовсе (тот же случай
-   * разобран в комментарии к continuation выше). Просьбой в промте он закрыт с того
-   * дня и всё равно остаётся просьбой (royal-home-prompt-is-not-a-guarantee).
-   *
-   * Второй рубеж — размер скидки: SALES_PLAYBOOK запрещает называть процент торга, а
-   * этой репликой бот отвечает клиенту ровно так же, как длинной, и запрет на неё
-   * распространяется в той же мере.
-   *
-   * Сверки ЦЕН здесь нет намеренно: белого списка взять неоткуда (ни блока объектов,
-   * ни черновика заявки эта функция не получает), а пустой белый список означал бы
-   * «вырезать любое число» — то есть резать честные ответы вроде повторённого
-   * бюджета клиента. Пустой белый список слепо не подставляем.
-   */
-  const withoutFalsePromise = applyAvailabilityGuard([cleaned], false, lastClientLanguage(history));
-  const withoutDiscount = guardDiscounts(withoutFalsePromise);
-  if (withoutDiscount.invented.length > 0) {
-    void logSystemError(
-      "ai",
-      `Бот назвал запрещённый размер скидки (${withoutDiscount.invented.join(", ")}%) в короткой реплике клиенту` +
-        (withoutDiscount.keptDespiteViolation
-          ? " — вычистить без потери ответа не вышло, клиенту ушла безопасная заглушка вместо выдумки."
-          : " — вырезано.")
-    );
-  }
-  // Тот же рубеж, что и у обычных реплик (см. выше в qualifyLead): исходный текст
-  // с недопустимым процентом торга клиенту не уходит — вместо него заглушка.
-  if (withoutDiscount.keptDespiteViolation) {
-    return priceGuardFallbackReply(lastClientLanguage(history)).join(" ").trim() || null;
-  }
-  // Реплика по построению одна; если щит оставил несколько кусков — склеиваем, а не
-  // теряем хвост: вызывающий ждёт ОДНУ строку и разбивать её на сообщения не умеет.
-  return withoutDiscount.bubbles.join(" ").trim() || null;
-}

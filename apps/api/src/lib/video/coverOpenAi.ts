@@ -33,6 +33,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp, { type OverlayOptions } from "sharp";
 import { prisma } from "../../db.js";
+import { OPENAI_COVER_TUNING } from "../settingsConstants.js";
 import { propertyCoversDir, uploadsDir } from "../../upload.js";
 import { logSystemError } from "../systemError.js";
 import { describeError } from "../describeError.js";
@@ -49,8 +50,6 @@ import {
   imageCostFromUsage,
   type ImageUsage,
   type OpenAiImageModel,
-  isOpenAiImageModel,
-  isOpenAiImageQuality,
   logOpenAiCall,
   openAiPost,
   resolveOpenAiKey,
@@ -1366,6 +1365,8 @@ export interface PropertyCoverAttempt {
 }
 
 export interface CoverRuntimeSettings {
+  /** Рубильник OpenAI целиком (Settings.openaiEnabled, 14.11.2026). */
+  openaiEnabled: boolean;
   coverGenerationEnabled: boolean;
   /** Кто рисует (28.09.2026): TEMPLATE — наш шаблон, OPENAI — ChatGPT. */
   coverProvider: CoverProvider;
@@ -1386,22 +1387,27 @@ export interface CoverRuntimeSettings {
 export async function loadCoverRuntimeSettings(): Promise<CoverRuntimeSettings> {
   const s = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { coverGenerationEnabled: true, coverProvider: true, coverPhotoRedraw: true, coverReferenceSquareUrl: true, coverReferenceStoryUrl: true, openaiImageQuality: true, openaiCoverDailyLimit: true, openaiCandidates: true, openaiTextMode: true, openaiPhotoSource: true, openaiImageModel: true, companyLogoUrl: true },
+    select: { coverGenerationEnabled: true, coverProvider: true, coverPhotoRedraw: true, coverReferenceSquareUrl: true, coverReferenceStoryUrl: true, openaiCoverDailyLimit: true, companyLogoUrl: true, openaiEnabled: true },
   });
-  const textMode: CoverTextMode = isCoverTextMode(s?.openaiTextMode) ? s.openaiTextMode : "MODEL";
+  // OpenAI выключен рубильником (14.11.2026) — обложка только шаблоном и без
+  // перерисовки фото: иначе путь OPENAI/перерисовка падал бы «ключ не задан» и
+  // писал ошибки, по которым шли напоминания об оплате.
+  const openaiOn = s?.openaiEnabled ?? false;
   return {
+    openaiEnabled: openaiOn,
     coverGenerationEnabled: s?.coverGenerationEnabled ?? true,
-    coverPhotoRedraw: s?.coverPhotoRedraw ?? true,
+    coverPhotoRedraw: openaiOn ? (s?.coverPhotoRedraw ?? true) : false,
     coverReferenceSquareUrl: s?.coverReferenceSquareUrl ?? null,
     coverReferenceStoryUrl: s?.coverReferenceStoryUrl ?? null,
-    coverProvider: (COVER_PROVIDERS as readonly string[]).includes(s?.coverProvider ?? "") ? (s!.coverProvider as CoverProvider) : DEFAULT_COVER_PROVIDER,
-    openaiImageQuality: isOpenAiImageQuality(s?.openaiImageQuality) ? s.openaiImageQuality : "high",
+    coverProvider: !openaiOn ? "TEMPLATE" : (COVER_PROVIDERS as readonly string[]).includes(s?.coverProvider ?? "") ? (s!.coverProvider as CoverProvider) : DEFAULT_COVER_PROVIDER,
     openaiCoverDailyLimit: s?.openaiCoverDailyLimit ?? 60,
-    // Пусто — по режиму: OVERLAY 1, MODEL 2 (владелец, v3).
-    openaiCandidates: s?.openaiCandidates === 1 || s?.openaiCandidates === 2 ? s.openaiCandidates : defaultCandidates(textMode),
-    openaiTextMode: textMode,
-    openaiPhotoSource: isCoverPhotoSource(s?.openaiPhotoSource) ? s.openaiPhotoSource : "ORIGINAL",
-    openaiImageModel: isOpenAiImageModel(s?.openaiImageModel) ? s.openaiImageModel : COVER_IMAGE_MODEL,
+    // Внутренние параметры генерации — константы с 01.11.2026 (lib/settingsConstants.ts,
+    // значения прода); колонки Settings.openai* (кроме лимита) не читаются.
+    openaiImageQuality: OPENAI_COVER_TUNING.imageQuality,
+    openaiCandidates: OPENAI_COVER_TUNING.candidates,
+    openaiTextMode: OPENAI_COVER_TUNING.textMode,
+    openaiPhotoSource: OPENAI_COVER_TUNING.photoSource,
+    openaiImageModel: OPENAI_COVER_TUNING.imageModel,
     companyLogoUrl: s?.companyLogoUrl ?? null,
   };
 }
@@ -1478,7 +1484,8 @@ export async function createPropertyCover(
     },
     await loadMoneyContext()
   );
-  const provider = options.provider ?? settings.coverProvider;
+  // Явный provider (кнопка пробы, добор) тоже не ходит в OpenAI, если он выключен рубильником.
+  const provider = settings.openaiEnabled ? (options.provider ?? settings.coverProvider) : "TEMPLATE";
   if (provider === "TEMPLATE") return createTemplateCover(property, property.photos, values, settings, options, started);
 
   let attempt: PropertyCoverAttempt;

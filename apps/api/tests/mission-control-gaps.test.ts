@@ -5,6 +5,8 @@ import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
 import { invalidateMissionControlCache } from "../src/lib/missionControlCache.js";
 import { invalidatePultModuleCache } from "../src/lib/pultModules.js";
+import { loadControlGaps, loadShowingsToday } from "../src/lib/missionControlGaps.js";
+import { findSilentAfterShowing } from "../src/routes/oversight.js";
 
 /**
  * БЛОКИ ПУЛЬТА, КОТОРЫЕ ПОКАЗЫВАЛИ «НЕТ ДАННЫХ» (владелец 12.09.2026: «почему
@@ -105,6 +107,87 @@ afterAll(async () => {
 });
 
 describe("Пульт: блоки, которые раньше всегда показывали «нет данных»", () => {
+  it("сегодняшние показы не возвращают выполненные встречи в ожидание подтверждения", async () => {
+    const now = new Date("2080-01-15T12:00:00Z");
+    const at = new Date("2080-01-15T07:00:00Z");
+    const client = await prisma.client.create({ data: {
+      fullName: `Showing queue ${runId}`, phone: `test-showing-queue-${runId}`,
+      source: "WEBSITE", kind: "BUYER", assignedAgentId: agentId,
+    } });
+    clientIds.push(client.id);
+    const base = { clientId: client.id, agentId, type: "SHOWING" as const,
+      nextAction: "Показ объекта", nextActionDate: at, notes: "Synthetic queue regression" };
+    const pending = await prisma.interaction.create({ data: base });
+    const confirmed = await prisma.interaction.create({ data: { ...base, confirmedAt: at } });
+    await prisma.interaction.create({ data: { ...base, completedAt: at } });
+    await prisma.interaction.create({ data: { ...base, completedAt: at, confirmedAt: at } });
+    await prisma.interaction.create({ data: { ...base, taskCancelledAt: at } });
+    await prisma.interaction.create({ data: { ...base, nextAction: null, declinedAt: at } });
+    const result = await loadShowingsToday(now, "DIRECTOR");
+    expect(result.count).toBe(2);
+    expect(result.confirmed).toBe(1);
+    expect(result.items.map(row => row.id).sort()).toEqual([pending.id, confirmed.id].sort());
+    await prisma.interaction.updateMany({ where: { id: { in: [pending.id, confirmed.id] } }, data: { completedAt: at } });
+    const finished = await loadShowingsToday(now, "DIRECTOR");
+    expect(finished).toMatchObject({ count: 0, confirmed: 0, items: [] });
+    expect(finished.reason).toBeTruthy();
+  });
+
+  it("тишина после проведённого показа совпадает с контролем и учитывает срок настройки", async () => {
+    const now = new Date();
+    const old = new Date(now.getTime() - 10 * 86400000);
+    await prisma.settings.update({ where: { id: "singleton" }, data: { sellerSilenceAfterShowingDays: 7 } });
+    const before = await loadControlGaps(now, "ADMIN");
+    const client = await prisma.client.create({ data: {
+      fullName: `Showing silence ${runId}`, phone: `test-silence-${runId}`, source: "WEBSITE",
+      kind: "BUYER", status: "CONTACTED", assignedAgentId: agentId, lastContactAt: old,
+    } });
+    clientIds.push(client.id);
+    const showing = await prisma.interaction.create({ data: {
+      clientId: client.id, agentId, type: "SHOWING", notes: "Test conducted showing",
+      createdAt: old, nextActionDate: old, completedAt: old,
+    } });
+    expect((await findSilentAfterShowing(now)).items.some(c => c.id === client.id)).toBe(true);
+    expect((await loadControlGaps(now, "ADMIN")).silentAfterShowing.count).toBe(before.silentAfterShowing.count + 1);
+    await prisma.settings.update({ where: { id: "singleton" }, data: { sellerSilenceAfterShowingDays: 14 } });
+    expect((await findSilentAfterShowing(now)).items.some(c => c.id === client.id)).toBe(false);
+    expect((await loadControlGaps(now, "ADMIN")).silentAfterShowing.count).toBe(before.silentAfterShowing.count);
+    await prisma.settings.update({ where: { id: "singleton" }, data: { sellerSilenceAfterShowingDays: 7 } });
+    await prisma.interaction.update({ where: { id: showing.id }, data: { taskCancelledAt: now } });
+    expect((await loadControlGaps(now, "ADMIN")).silentAfterShowing.count).toBe(before.silentAfterShowing.count);
+    await prisma.interaction.update({ where: { id: showing.id }, data: { taskCancelledAt: null, investigationOnly: true } });
+    const privateOnly = await loadControlGaps(now, "MANAGER");
+    expect((await loadControlGaps(now, "ADMIN")).silentAfterShowing.count).toBe(privateOnly.silentAfterShowing.count + 1);
+    await prisma.interaction.update({ where: { id: showing.id }, data: { investigationOnly: false } });
+    await prisma.client.update({ where: { id: client.id }, data: { status: "ARCHIVED" } });
+    expect((await findSilentAfterShowing(now)).items.some(c => c.id === client.id)).toBe(false);
+    expect((await loadControlGaps(now, "ADMIN")).silentAfterShowing.count).toBe(before.silentAfterShowing.count);
+    await prisma.client.update({ where: { id: client.id }, data: { status: "CONTACTED" } });
+    await prisma.interaction.create({ data: {
+      clientId: client.id, agentId, type: "CALL", notes: "Followup after showing",
+      createdAt: new Date(old.getTime() + 86400000),
+    } });
+    expect((await loadControlGaps(now, "ADMIN")).silentAfterShowing.count).toBe(before.silentAfterShowing.count);
+  });
+
+  it("контроль не считает задачи удалённого клиента и завершённого назначения", async () => {
+    const now = new Date();
+    const before = await loadControlGaps(now, "ADMIN");
+    const client = await prisma.client.create({ data: {
+      fullName: `Task scope ${runId}`, phone: `test-task-${runId}`, source: "WEBSITE", kind: "BUYER", assignedAgentId: agentId,
+    } });
+    clientIds.push(client.id);
+    await prisma.interaction.create({ data: {
+      clientId: client.id, agentId, type: "CALL", notes: "Test contact", nextAction: "Test followup",
+      nextActionDate: new Date(now.getTime() - 86400000),
+    } });
+    expect((await loadControlGaps(now, "ADMIN")).overdueTasks.count).toBe(before.overdueTasks.count + 1);
+    await prisma.client.update({ where: { id: client.id }, data: { assignmentCompletedAt: now } });
+    expect((await loadControlGaps(now, "ADMIN")).overdueTasks.count).toBe(before.overdueTasks.count);
+    await prisma.client.update({ where: { id: client.id }, data: { assignmentCompletedAt: null, deletedAt: now } });
+    expect((await loadControlGaps(now, "ADMIN")).overdueTasks.count).toBe(before.overdueTasks.count);
+  });
+
   it("«Ждут публикации», «Каналы» и «Пульс · 30 дней» приходят в секции маркетинга", async () => {
     const res = await zones(adminToken);
     expect(res.status).toBe(200);

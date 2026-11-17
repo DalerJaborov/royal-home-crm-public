@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { Link } from "react-router-dom";
+import { CCard, CLink } from "../components/clean/ui";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { useAuthStore } from "../store/auth";
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
@@ -115,10 +115,15 @@ export function Dashboard() {
           <MarketingHome />
         )
       ) : role === "SECURITY" ? (
-        <section className="card"><h1>Рабочие разделы</h1><div className="wrap">
-          <Link className="pill" to="/clients">Клиенты</Link>
-          <Link className="pill" to="/properties">Объекты</Link>
-        </div></section>
+        <section className="mx-auto w-full max-w-[1240px] pb-8" aria-label="Рабочие разделы службы безопасности">
+          <CCard className="space-y-4 p-5">
+            <h1 className="text-[28px] font-semibold leading-tight">Рабочие разделы</h1>
+            <nav className="flex flex-wrap gap-3" aria-label="Доступные разделы">
+              <CLink to="/clients">Клиенты</CLink>
+              <CLink to="/properties" variant="outline">Объекты</CLink>
+            </nav>
+          </CCard>
+        </section>
       ) : mobile ? (
         <MobileManagerHome />
       ) : (

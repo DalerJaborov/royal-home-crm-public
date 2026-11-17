@@ -19,7 +19,7 @@ import {
   type PropertyStatus,
   PROPERTY_CHANGE_KIND_LABELS,
 } from "@royal-home/shared";
-import type { z } from "zod";
+import { z } from "zod";
 import type { Prisma } from "../generated/prisma/client.js";
 import { formatPrice } from "../ai/seoGenerator.js";
 import { CAPTION_FACT_FIELDS } from "./publishedVideoFix.js";
@@ -60,15 +60,43 @@ export const CHANGE_REQUEST_INCLUDE = {
   property: { select: { shortId: true } },
 } as const;
 
+// Server-only metadata on a compensating PRICE_CHANGE request. The public input schema strips this key.
+export const PRICE_UNDO_GUARD = "_priceUndoGuard";
+const assistantPriceUndoLinkSchema = z.object({ actionId: z.string().uuid(), channel: z.enum(["crm", "telegram"]) });
+export type AssistantPriceUndoLink = z.infer<typeof assistantPriceUndoLinkSchema>;
+const priceUndoGuardSchema = z.object({
+  priceCents: z.number().int(),
+  currency: z.string(),
+  status: z.string(),
+  version: z.number().int(),
+  assistant: assistantPriceUndoLinkSchema.optional(),
+});
+
+function isGuardedPayload(payload: Prisma.JsonValue): payload is Prisma.JsonObject {
+  return payload !== null && typeof payload === "object" && !Array.isArray(payload) && Object.hasOwn(payload, PRICE_UNDO_GUARD);
+}
+
+/** Undefined identifies an ordinary request. A malformed undo guard must still fail closed. */
+export function readPriceUndoGuard(payload: Prisma.JsonValue) {
+  if (!isGuardedPayload(payload)) return undefined;
+  const guard = priceUndoGuardSchema.safeParse(payload[PRICE_UNDO_GUARD]);
+  return guard.success ? guard.data : null;
+}
+
 /** Строка таблицы → форма ответа API (общая для обоих концов, см. shared). */
 export function toChangeRequestDto(row: RequestRow): PropertyChangeRequestDto {
+  let payload = row.payload;
+  if (row.kind === "PRICE_CHANGE" && isGuardedPayload(payload)) {
+    const { [PRICE_UNDO_GUARD]: _guard, ...publicPayload } = payload;
+    payload = publicPayload;
+  }
   return {
     id: row.id,
     propertyId: row.propertyId,
     propertyShortId: row.property.shortId,
     kind: row.kind,
     status: row.status as PropertyChangeStatus,
-    payload: row.payload,
+    payload,
     comment: row.comment,
     author: row.author,
     decidedBy: row.decidedBy,

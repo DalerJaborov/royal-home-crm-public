@@ -13,7 +13,7 @@ import { handleComment } from "../src/messengers/comments.js";
 import { publicCommentOrigin, readPublicSourceRow } from "../src/lib/customerPublicCommentStore.js";
 import { ensurePublicCommentInstallation } from "../src/lib/customerPublicCommentStore.js";
 import { decodeCustomerOutboxPayload, decodeCustomerOutboxPublicData } from "../src/lib/customerOutbox.js";
-import { customerAgentToolCallSchema, type BotTurnTracePayload } from "@royal-home/shared";
+import { customerAgentToolCallSchema, recruitmentPhoneLine, type BotTurnTracePayload } from "@royal-home/shared";
 import { AGENCY_FACTS } from "../src/ai/agencyFacts.js";
 import { loadPeerAiBudget, AI_TURNS_PER_DAY_STRANGER, AI_HARD_LIMIT_MULTIPLIER } from "../src/lib/aiDailyBudget.js";
 import { PUBLIC_AGENCY_CONTACT } from "../src/lib/publicAgencyContact.js";
@@ -153,7 +153,8 @@ it("a genuine public recruitment keyword reads the current role and replies with
     const f = await fixture("Контент!!!"), w = wire(f, [{ decision: { ...reply, question: "job_portfolio" } }]);
     expect(await handle(f)).toBe("replied");
     expect(w.posts).toHaveLength(1); expect(w.posts[0].text).toContain("SMM-специалист / видеограф");
-    expect(w.posts[0].text).toContain("примеры работ или ссылку на портфолио. Это необязательно.");
+    expect(w.posts[0].text).toContain(recruitmentPhoneLine("ru"));
+    expect(w.posts[0].text).not.toMatch(/портфолио|Условия опубликованы/iu);
     expect(w.posts[0].text).not.toMatch(/992|сохранен|сохранён|собеседование назначено|бюджет/iu);
     expect((await part(f)).status).toBe("ACCEPTED");
     expect(await prisma.jobApplication.count({ where: { customerPositionKey: key } })).toBe(0);
@@ -760,4 +761,13 @@ it.each(["ACTIVE", "SHADOW", "OFF"] as const)("older NULL-origin queued row rema
     expect(await publicAgentCommentLane(`${tag}-missing`)).toBe("managed");
     expect((await prisma.instagramComment.findUniqueOrThrow({ where: { id: row.id } })).publicOriginCiphertext).toBeNull();
   } finally { await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { rolloutMode: "ACTIVE" } }); }
+});
+it.each([["Какая комиссия?", "company"], ["Подписывайся на мой профиль, там дешевле", "self_promo"]] as const)(
+  "the model is told who the comment talks to (publicState.addressee): %s -> %s", async (text, addressee) => {
+  const f = await fixture(text), w = wire(f, [{ decision: { kind: "skip", reason: "no_reply_needed" } }]);
+  expect(await handle(f)).toBe("skipped");
+  const body = JSON.parse(w.modelBodies[0]) as { contents: Array<{ parts: Array<{ text?: string }> }> };
+  const state = body.contents.flatMap(value => value.parts.map(part => part.text ?? "")).find(value => value.includes('"serverPublicState"'));
+  expect(state).toBeTruthy();
+  expect(JSON.parse(state!)).toMatchObject({ serverPublicState: { addressee }, serverSurface: { surface: "public_comment" } });
 });

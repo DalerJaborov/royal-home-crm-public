@@ -11,6 +11,7 @@ import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPr
 import { enrollCustomerAgentSubjectTx, readCustomerDmSourceExecution, type CustomerAgentExecution } from "./customerAgentEnrollment.js";
 import { captureCustomerDmRouting, inspectCustomerDmRouting, type CustomerDmRoutingWitness, type CustomerUnkeyedRoutingInput } from "./customerAgentRoutingReference.js";
 import { customerIngressPayloadHash } from "./customerIngressPayload.js";
+import { customerNonInputCode } from "./customerIngressNonInput.js";
 import { findOriginalNativeMid, persistOriginalLegacySource } from "./customerOriginalSource.js";
 export { inspectCustomerDmRouting, type CustomerDmRoutingWitness } from "./customerAgentRoutingReference.js";
 
@@ -55,8 +56,7 @@ export async function prepareVerifiedCustomerDmRouting(request: Request): Promis
   try { normalized = normalizeAuthenticatedCustomerIngress(request); }
   catch { return { status: "held", reason: "routing_normalization_unavailable" }; }
   const keyed = normalized.entries.filter((entry): entry is MetaEntry =>
-    ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(entry.channel) && !entry.observations.providerEcho &&
-    !entry.observations.referralOnly && entry.observations.classifier?.bareTemplateEcho !== true);
+    ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(entry.channel) && customerNonInputCode(entry) === null);
   if (new Set(keyed.map(key)).size !== keyed.length) return { status: "held", reason: "routing_source_ambiguous" };
   let rawSubjects: ReturnType<typeof normalizeAuthenticatedMetaRoutingSubjects>;
   try { rawSubjects = normalizeAuthenticatedMetaRoutingSubjects(request); }
@@ -122,7 +122,10 @@ export async function prepareVerifiedCustomerDmRouting(request: Request): Promis
             return { execution: { lane: "HELD" as const, reason: "original_native_source_already_observed" } };
           }
         }
-        const enrolled = await enrollCustomerAgentSubjectTx(tx, subject, input.eventId ? {} : { legacyOnly: true });
+        // Only a genuinely NEW keyed input (no original source yet) may move an
+        // idle LEGACY subject to the core; redeliveries keep their original owner.
+        const enrolled = await enrollCustomerAgentSubjectTx(tx, subject,
+          !input.eventId ? { legacyOnly: true } : !source && eventKey ? { legacyCutover: true } : {});
         if (!eventKey && enrolled.lane === "CORE") return { execution: { lane: "HELD" as const, reason: "unkeyed_core_input_unsupported" } };
         if (source?.lane === "LEGACY") return { execution: enrolled.lane === "LEGACY" ? source : { lane: "HELD" as const, reason: "historical_legacy_selection_conflict" } };
         if (enrolled.lane === "LEGACY" && eventKey && input.eventId) {

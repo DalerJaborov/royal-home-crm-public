@@ -3,7 +3,13 @@ import WebSocket, { type RawData } from "ws";
 import { describeError } from "../lib/describeError.js";
 import { logSystemError } from "../lib/systemError.js";
 import { bufferToInt16LE, int16ToBufferLE, resamplePcm16, ulawDecode, ulawEncode } from "../lib/telephony/pcmCodec.js";
-import { ensureElevenLabsAgentReady, elevenLabsRequest } from "./elevenLabsAgentSync.js";
+import {
+  ensureElevenLabsAgentReady,
+  elevenLabsRequest,
+  isElevenLabsToolOverridePaused,
+  isElevenLabsToolsNotAttachedClose,
+  noteElevenLabsToolsNotAttached,
+} from "./elevenLabsAgentSync.js";
 import type { LiveVoiceToolCall, LiveVoiceTranscriptEvent } from "./liveVoiceClient.js";
 import type { LiveVoiceConnectOptions, LiveVoiceLanguage } from "./liveVoiceProviderTypes.js";
 
@@ -42,6 +48,7 @@ import type { LiveVoiceConnectOptions, LiveVoiceLanguage } from "./liveVoiceProv
  *   { user_audio_chunk: "<base64>" }  — формат из user_input_audio_format;
  *   { type: "pong", event_id }         — ответ на каждый ping;
  *   { type: "user_message", text }     — служебная реплика (как sendText у Gemini);
+ *   { type: "contextual_update", text } — пометка без нового хода агента (sendContext);
  *   { type: "client_tool_result", tool_call_id, result: <строка>, is_error }.
  *  К нам:
  *   conversation_initiation_metadata → conversation_initiation_metadata_event
@@ -64,6 +71,9 @@ import type { LiveVoiceConnectOptions, LiveVoiceLanguage } from "./liveVoiceProv
  * ⚠️ НЕ ПРОВЕРЕНО ЖИВЫМ ЗВОНКОМ: из облачной сессии api.elevenlabs.io закрыт,
  * сверено только с документацией и юнит-тестами на поддельном сокете.
  */
+
+/** Обычное закрытие WebSocket (RFC 6455, 7.4.1) — так мост кладёт трубку. */
+export const ELEVENLABS_NORMAL_CLOSE_CODE = 1000;
 
 /** Сколько ждём рукопожатия WebSocket — как у Gemini. */
 const ELEVENLABS_HANDSHAKE_TIMEOUT_MS = 15_000;
@@ -211,8 +221,9 @@ export function parseElevenLabsServerMessage(raw: unknown): ElevenLabsServerUpda
 /**
  * ЗАКРЫТИЕ СО СТОРОНЫ ELEVENLABS — КОНЕЦ РАЗГОВОРА ИЛИ СБОЙ (02.10.2026).
  *
- * Агент сам кладёт трубку своим системным инструментом «End call» (или по
- * пределу длительности) — ElevenLabs закрывает сокет обычным кодом 1000. Это
+ * Агент сам кладёт трубку своим системным инструментом «End call» (с 11.11.2026
+ * CRM его выключает — ELEVENLABS_AGENT_CRM_POLICY; остаётся предел длительности и
+ * включение встроенного в кабинете между подготовками) — ElevenLabs закрывает сокет обычным кодом 1000. Это
  * такой же вежливый конец разговора, как end_call у Gemini, и мост обязан
  * закончить звонок как обычно, а не отдавать человека автоответчику. Сбоем
  * считается всё остальное: другой код (ключ, нарушение протокола, обрыв 1006),
@@ -230,8 +241,36 @@ export interface ElevenLabsCloseInfo {
   normal: boolean;
 }
 
-/** Агент отказал в разговоре (закрыл соединение до метаданных или промолчал). */
-export class ElevenLabsSetupRejectedError extends Error {}
+/** Агент отказал в разговоре (закрыл соединение до метаданных или промолчал).
+ *  toolsNotAttached — причина 1008 «Tool IDs not attached» (подменённые функции не у агента). */
+export class ElevenLabsSetupRejectedError extends Error {
+  constructor(
+    message: string,
+    readonly toolsNotAttached = false
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Звонок не начат: своего набора функций нет (повторное ревью 11.11.2026). Без подмены агент
+ * получил бы ВСЕ накопленные функции — и end_call чужих видов звонка с чужими причинами, итог
+ * звонка терялся бы. Отказ connect: мост поступает как с любым отказом поставщика до разговора
+ * (П1: занято/перенос до «алло», отбой с пометкой «наш сбой» после).
+ */
+export class ElevenLabsCallToolsUnavailableError extends Error {
+  readonly ourFault = true;
+}
+
+/**
+ * Сколько после начала разговора ещё можно переоткрыть его без подмены функций, если
+ * ElevenLabs закрыл его 1008 «Tool IDs not attached» (11.11.2026). Замер: закрытие
+ * приходит сразу после метаданных, агент ещё не сказал ни слова — человек повтора не
+ * заметит, кроме паузы на новое соединение. Позже разговор уже идёт — повтора нет.
+ */
+export const ELEVENLABS_TOOLS_RETRY_WINDOW_MS = 5_000;
+/** Служебных реплик до первого звука агента, которые повторяются в новый сокет. */
+const EARLY_TEXTS_MAX = 5;
 
 export interface ElevenLabsVoiceClientConfig {
   apiKey: string | null;
@@ -285,6 +324,14 @@ export class ElevenLabsVoiceClient extends EventEmitter {
   private heardAudio = false;
   /** Сервер прислал error или сокет упал — закрытие после этого не «конец разговора». */
   private failed = false;
+  /** Когда пришли метаданные текущего сокета (окно повтора без функций). */
+  private metadataAt = 0;
+  /** Повтор без подмены функций уже был — второго в этом звонке нет. */
+  private retriedWithoutTools = false;
+  /** Служебные реплики до первого звука агента — повторяются в новый сокет при повторе. */
+  private readonly earlyTexts: string[] = [];
+  /** Строгий режим (не входящий): без своего набора функций звонок не идёт, повтора без функций нет. */
+  private strictTools = true;
 
   constructor(
     private readonly config: ElevenLabsVoiceClientConfig,
@@ -292,6 +339,8 @@ export class ElevenLabsVoiceClient extends EventEmitter {
       socketFactory?: ElevenLabsSocketFactory;
       signedUrl?: (apiKey: string, agentId: string) => Promise<string>;
       prepareAgent?: typeof ensureElevenLabsAgentReady;
+      noteToolsNotAttached?: typeof noteElevenLabsToolsNotAttached;
+      toolOverridePaused?: typeof isElevenLabsToolOverridePaused;
     } = {}
   ) {
     super();
@@ -325,12 +374,31 @@ export class ElevenLabsVoiceClient extends EventEmitter {
     if (!agentId) throw new Error("Не указан id агента ElevenLabs");
 
     const prepare = this.deps.prepareAgent ?? ensureElevenLabsAgentReady;
-    const toolIdsByName = await prepare(apiKey, agentId, opts.tools ?? []);
-    // Подменяем набор функций, только если все функции этого звонка заведены.
+    // Заодно — настройки телефонного разговора и таджикский голос в пресете языка
+    // (ELEVENLABS_PHONE_AGENT_TUNING в elevenLabsAgentSync.ts).
+    const toolIdsByName = await prepare(apiKey, agentId, opts.tools ?? [], { voiceIdTg: this.config.voiceIdTg });
+    // Подменяем набор функций, только если все функции этого звонка заведены и подмена
+    // не на паузе после повторных 1008 «Tool IDs not attached» (noteElevenLabsToolsNotAttached).
+    const overridePaused = (this.deps.toolOverridePaused ?? isElevenLabsToolOverridePaused)(agentId);
     const toolIds =
-      toolIdsByName && (opts.tools ?? []).every((t) => toolIdsByName.has(t.name))
+      !overridePaused && toolIdsByName && (opts.tools ?? []).every((t) => toolIdsByName.has(t.name))
         ? (opts.tools ?? []).map((t) => toolIdsByName.get(t.name)!)
         : null;
+    this.strictTools = opts.direction !== "inbound";
+    if (this.strictTools && (opts.tools ?? []).length > 0 && !toolIds) {
+      const why = overridePaused
+        ? "подмена функций на паузе после повторных отказов агента (1008)"
+        : !toolIdsByName
+          ? "агент не подготовлен (подготовка не удалась или на паузе)"
+          : "не все функции звонка заведены у агента";
+      void logSystemError(
+        "telephony",
+        `Живой голос (ElevenLabs): звонок не начат — ${why}. Без своего набора функций агент получил бы функции ` +
+          "всех видов звонка, и итог звонка терялся бы. Наш сбой, не клиента; проверьте агента в Настройках.",
+        { dedupKey: "elevenlabs-call-tools-unavailable" }
+      );
+      throw new ElevenLabsCallToolsUnavailableError(`Живой голос (ElevenLabs): звонок не начат — ${why}`);
+    }
 
     const base: ElevenLabsInitiationOptions = {
       systemInstruction: opts.systemInstruction,
@@ -338,20 +406,35 @@ export class ElevenLabsVoiceClient extends EventEmitter {
       voiceId: pickElevenLabsVoiceId(this.config, opts.language),
       toolIds,
     };
-    try {
-      this.ws = await this.openSocket(apiKey, agentId, base);
-    } catch (err) {
-      // Таджикского может не оказаться в списке языков агента/модели — тогда
-      // ElevenLabs отклоняет разговор целиком. Второй заход без подмены языка
-      // (язык остаётся из кабинета, говорить по-таджикски велит сам промт)
-      // лучше, чем звонок, ушедший на автоответчик.
-      if (!(err instanceof ElevenLabsSetupRejectedError) || !base.language || this.closed) throw err;
-      void logSystemError(
-        "telephony",
-        `Живой голос (ElevenLabs): агент не принял язык «${base.language}» (${err.message}) — повторяю без подмены языка.`,
-        { dedupKey: `elevenlabs-language-rejected-${base.language}` }
-      );
-      this.ws = await this.openSocket(apiKey, agentId, { ...base, language: null });
+    let init = base;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.openSocket(apiKey, agentId, init);
+        break;
+      } catch (err) {
+        if (!(err instanceof ElevenLabsSetupRejectedError) || this.closed || attempt >= 2) throw err;
+        // Подменённые функции не у агента (1008). Исходящий — отказ старта (свой набор обязателен);
+        // входящий — тот же звонок с функциями агента (человек уже ждёт на линии).
+        if (err.toolsNotAttached && init.toolIds) {
+          if (this.strictTools) {
+            throw new ElevenLabsCallToolsUnavailableError("Живой голос (ElevenLabs): звонок не начат — агент отклонил набор функций звонка (1008)");
+          }
+          this.retriedWithoutTools = true;
+          init = { ...init, toolIds: null };
+          continue;
+        }
+        // Таджикского может не оказаться в списке языков агента/модели — тогда
+        // ElevenLabs отклоняет разговор целиком. Второй заход без подмены языка
+        // (язык остаётся из кабинета, говорить по-таджикски велит сам промт)
+        // лучше, чем звонок, ушедший на автоответчик.
+        if (!init.language) throw err;
+        void logSystemError(
+          "telephony",
+          `Живой голос (ElevenLabs): агент не принял язык «${init.language}» (${err.message}) — повторяю без подмены языка.`,
+          { dedupKey: `elevenlabs-language-rejected-${init.language}` }
+        );
+        init = { ...init, language: null };
+      }
     }
     if (this.closed) {
       this.ws?.close();
@@ -391,16 +474,45 @@ export class ElevenLabsVoiceClient extends EventEmitter {
       });
       ws.on("message", (raw: RawData) => {
         const metadataArrived = this.handleMessage(ws, raw);
-        if (metadataArrived) settle(() => resolve(ws));
+        // this.ws — сразу здесь, а не после await в connect: закрытие, пришедшее раньше, чем
+        // connect продолжится (1008 идёт сразу за метаданными), иначе терялось бы молча.
+        if (metadataArrived) {
+          settle(() => {
+            this.ws = ws;
+            this.metadataAt = Date.now();
+            resolve(ws);
+          });
+        }
       });
       ws.on("close", (code: number, reason: Buffer) => {
         const text = reason?.toString() ?? "";
         console.log(`[живой голос] сокет ElevenLabs закрыт: код ${code} причина «${text}»`);
+        const toolsNotAttached = isElevenLabsToolsNotAttachedClose(code, text);
+        // Наши функции не у агента: память подготовки врёт (первый раз) или причина не уходит
+        // (повтор за окно — пауза подмены функций). Решает одна функция в elevenLabsAgentSync.ts.
+        if (toolsNotAttached) (this.deps.noteToolsNotAttached ?? noteElevenLabsToolsNotAttached)(agentId);
         if (!settled) {
-          settle(() => reject(new ElevenLabsSetupRejectedError(`закрыто до начала разговора: код ${code} «${text}»`)));
+          settle(() =>
+            reject(new ElevenLabsSetupRejectedError(`закрыто до начала разговора: код ${code} «${text}»`, toolsNotAttached))
+          );
           return;
         }
         if (ws !== this.ws) return;
+        if (
+          toolsNotAttached &&
+          init.toolIds &&
+          !this.heardAudio &&
+          !this.closed &&
+          !this.retriedWithoutTools &&
+          !this.strictTools &&
+          Date.now() - this.metadataAt <= ELEVENLABS_TOOLS_RETRY_WINDOW_MS
+        ) {
+          // Агент ещё молчал: тот же звонок — новым разговором с функциями агента, мост закрытия не видит.
+          this.retriedWithoutTools = true;
+          this.ws = null;
+          void this.reopenWithoutTools(apiKey, agentId, init, code, text);
+          return;
+        }
         this.ws = null;
         this.clearTurnIdle();
         this.modelSpeaking = false;
@@ -417,6 +529,35 @@ export class ElevenLabsVoiceClient extends EventEmitter {
         // Закрытие придёт следом событием "close" — мост закончит сессию по нему.
       });
     });
+  }
+
+  /** Повтор разговора без подмены функций после 1008 (см. ELEVENLABS_TOOLS_RETRY_WINDOW_MS).
+   *  Служебные реплики, ушедшие в закрытый сокет, повторяются. Не вышло — закрытие-сбой наружу. */
+  private async reopenWithoutTools(
+    apiKey: string,
+    agentId: string,
+    init: ElevenLabsInitiationOptions,
+    code: number,
+    reason: string
+  ): Promise<void> {
+    try {
+      await this.openSocket(apiKey, agentId, { ...init, toolIds: null });
+      if (this.closed) {
+        this.ws?.close();
+        this.ws = null;
+        return;
+      }
+      for (const text of this.earlyTexts) this.ws?.send(JSON.stringify({ type: "user_message", text }));
+    } catch (err) {
+      if (this.closed) return;
+      this.failed = true;
+      void logSystemError(
+        "telephony",
+        `Живой голос (ElevenLabs): повтор разговора без подмены функций не удался (${describeError(err)}).`,
+        { dedupKey: "elevenlabs-tools-retry-failed" }
+      );
+      this.emit("close", { code, reason, normal: false } satisfies ElevenLabsCloseInfo);
+    }
   }
 
   /** Возвращает true на conversation_initiation_metadata. */
@@ -500,8 +641,17 @@ export class ElevenLabsVoiceClient extends EventEmitter {
   /** Служебная реплика от лица собеседника — тот же приём, что у Gemini
    *  (приветствие первым, извинение на таджикском). */
   sendText(text: string): void {
+    // До первого звука агента реплика может понадобиться новому сокету (повтор без функций после 1008).
+    if (!this.heardAudio && this.earlyTexts.length < EARLY_TEXTS_MAX) this.earlyTexts.push(text);
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({ type: "user_message", text }));
+  }
+
+  /** Пометка в контекст разговора без нового хода агента (см. LiveVoiceProviderClient.sendContext).
+   *  До соединения не копится: пометки о языке нужны только посреди разговора. */
+  sendContext(text: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: "contextual_update", text }));
   }
 
   /** Ответ на вызов функции. scheduling — понятие Gemini, здесь не нужно:
@@ -528,8 +678,12 @@ export class ElevenLabsVoiceClient extends EventEmitter {
     if (this.closed) return;
     this.closed = true;
     this.clearTurnIdle();
-    this.ws?.close();
+    // Код 1000 — обычное окончание (12.11.2026): без кода сокет закрывался 1005, а в истории
+    // ElevenLabs каждый звонок значился «Client disconnected unexpectedly».
+    // Сначала отвязываем: событие close этого сокета — уже не «поставщик закончил разговор».
+    const ws = this.ws;
     this.ws = null;
+    ws?.close(ELEVENLABS_NORMAL_CLOSE_CODE, "call ended");
     this.connectingWs?.close();
     this.connectingWs = null;
   }

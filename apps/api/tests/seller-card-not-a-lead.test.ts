@@ -61,6 +61,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
+  await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.agent.deleteMany({ where: { id: agentId } });
   await prisma.district.deleteMany({ where: { id: districtId } });
@@ -80,7 +81,7 @@ async function createPropertyWithSeller() {
       price: 515000,
       currency: "TJS",
       districtId,
-      address: `Тестовая улица ${runId}`,
+      address: `Тестовая улица ${runId}-${propertyIds.length}`,
       condition: "GOOD",
       sellerName: "Шухрат Тестовый",
       ownerContact: sellerPhone,
@@ -91,6 +92,22 @@ async function createPropertyWithSeller() {
 }
 
 describe("Карточка продавца из мастера объекта", () => {
+  it("создание объекта возвращает существующего неактивного продавца без звонка", async () => {
+    const seller = await prisma.client.create({ data: {
+      fullName: "Test waiting seller", phone: sellerPhone, kind: "SELLER", source: "PHONE_CALL",
+      status: "CONTACTED", workStatus: "INACTIVE", assignedAgentId: agentId, acceptedAt: new Date(),
+      inactiveSince: new Date(Date.now() - 60 * 86400000), inactiveLevel: "GREEN", inactivePingCount: 2,
+    } });
+    clientIds.push(seller.id);
+    const property = await createPropertyWithSeller();
+    expect(property.sellerClientId).toBe(seller.id);
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: seller.id } });
+    expect(after.workStatus).toBe("ACTIVE");
+    expect(after.inactiveSince).toBeNull();
+    expect(after.assignedAgentId).toBe(agentId);
+    // The remaining tests intentionally exercise creation of a new seller.
+    sellerPhone = `+992956${runId.toString().slice(-6)}`;
+  });
   it("сразу принадлежит тому, кто принёс объект, и уже принята", async () => {
     const property = await createPropertyWithSeller();
     expect(property.sellerClientId).toBeTruthy();

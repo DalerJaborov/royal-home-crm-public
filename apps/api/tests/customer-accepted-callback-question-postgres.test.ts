@@ -4,6 +4,13 @@
 // synthetic. No mocked authority, receipt, question sideband or model adapter.
 import { createHmac, randomInt, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+// Действия CRM на входящее (lib/inboundSideEffects.ts) зовут свои модели в фоне —
+// здесь они съедали бы сценарные ответы поддельного Gemini у самого хода ядра.
+// Сами действия проверяет tests/inbound-side-effects-postgres.test.ts.
+vi.mock("../src/lib/inboundSideEffects.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/inboundSideEffects.js")>()),
+  applyInboundSideEffects: vi.fn(async () => ({ status: "duplicate" as const })),
+}));
 import { customerActionIntentsSchema } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
@@ -40,7 +47,7 @@ let revisionId: string;
 let rollout: Awaited<ReturnType<typeof createCustomerRolloutFixture>>;
 function settingsSnapshot() { return prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
   botEnabled: true, metaEnabled: true, botInstagramEnabled: true, metaVerifyToken: true,
-  geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
+  geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true, botCanRequestCallback: true, botCanAskOwner: true,
 } }); }
 const phone = () => `+99293${randomInt(1_000_000, 9_999_999)}`;
 const decision = (question: "callback_consent" | "budget" | "phone" | "none" | "clarify_previous" | "name", refs: string[] = []) =>
@@ -175,7 +182,9 @@ beforeAll(async () => {
   savedSettings = await settingsSnapshot();
   await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true,
     botInstagramEnabled: true, metaVerifyToken: encryptSecret("synthetic-question-verify"),
-    geminiApiKey: encryptSecret(apiKey), geminiApiKey2: null, geminiApiKeysExtra: [] } });
+    geminiApiKey: encryptSecret(apiKey), geminiApiKey2: null, geminiApiKeysExtra: [],
+    // Тумблеры экрана «Бот» (31.10.2026): выключенный скрывает request_callback от модели.
+    botCanRequestCallback: true, botCanAskOwner: true } });
   vi.stubEnv("IG_PROXY_URL", igOrigin); vi.stubEnv("IG_PROXY_KEY", "");
   vi.stubEnv("GEMINI_PROXY_URL", geminiOrigin); vi.stubEnv("GEMINI_PROXY_KEY", "");
   vi.stubEnv("GEMINI_API_KEY", apiKey); vi.stubEnv("GEMINI_API_KEY_2", ""); vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");
@@ -316,7 +325,8 @@ describe("actual accepted callback question → real next signed IN", () => {
     const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: b } });
     expect(await prisma.customerAction.count({ where: { inquiry: { conversationId: ticket.conversationId! } } })).toBe(0);
   });
-  it.each([["ru", "Да"], ["tg", "Ҳа"]] as const)("%s accepted question and tiny yes commit exactly one real callback", async (language, yes) => {
+  // 14.11.2026: ordinary yes wording after our own accepted question (was lost: only bare «Да»/«Ҳа» counted).
+  it.each([["ru", "Да"], ["tg", "Ҳа"], ["ru", "Да, конечно"], ["ru", "Хорошо"], ["tg", "Ҳа, албатта"], ["tg", "Бале"]] as const)("%s accepted question and yes «%s» commit exactly one real callback", async (language, yes) => {
     const f = await fixture(), number = phone(), a = await f.questionA(language, number);
     expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });
     const attempt = await prisma.customerDeliveryAttempt.findFirstOrThrow({ where: { partId: a.part.id } });
@@ -405,6 +415,19 @@ describe("actual accepted callback question → real next signed IN", () => {
 
   // Three actual ingress/model/dispatch turns can exceed the global 20s budget
   // during a full Windows run under memory pressure. Keep the complete oracle.
+  // 14.11.2026: «Алишер 927…» / a bare number in reply to OUR callback question is consent with that number.
+  it.each([(n: string) => `Алишер ${n}`, (n: string) => n])("a name+number reply to the accepted callback question commits one callback with that number (%#)", async (reply) => {
+    const f = await fixture(), a = await f.questionA("ru", null);
+    expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });
+    const number = phone(), b = await f.intake(reply(number)), prepared = await f.beforeClaim(b);
+    const slot = customerActionIntentsSchema.parse(prepared.inquiry.actionIntents).callback;
+    expect(slot).toMatchObject({ status: "open", consent: { originalEventKey: b, acceptedQuestion: { questionEventKey: a.key, affirmationEventKey: b } } });
+    await f.run(b, [[{ functionCall: { name: "request_callback", args: { topic: "по звонку" }, id: "name-number" } }], decision("none", ["e0"])]);
+    const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: prepared.inquiry.id, kind: "callback" } });
+    expect(action).toMatchObject({ status: "COMMITTED" });
+    expect(await prisma.callbackRequest.findUniqueOrThrow({ where: { customerActionId: action.id } })).toMatchObject({ phone: number });
+  }, 60_000);
+
   it("accepted yes with no phone keeps open generation; actual phone-only C completes that same intent", async () => {
     const f = await fixture(), a = await f.questionA("ru", null);
     expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });
@@ -426,5 +449,89 @@ describe("actual accepted callback question → real next signed IN", () => {
     expect(await prisma.backgroundJob.count({ where: { dedupeKey: `customer-callback-notify:${action.id}` } })).toBe(1);
     expect(await consumeCustomerInboxTicket(c)).toEqual({ status: "unchanged", reason: "already_planned" });
     expect(await prisma.customerAction.count({ where: { inquiryId: preparedB.inquiry.id, kind: "callback" } })).toBe(1);
+  }, 60_000);
+});
+
+/** 13.11.2026: the lead created by the new core used to lose the object of the ad that brought the customer. */
+describe("a CORE lead from an ad of one object", () => {
+  it("goes to the agent of that object and the card remembers the ad", async () => {
+    const hours = vi.spyOn(workingHours, "isWithinWorkingHours").mockResolvedValue(true);
+    await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+      publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: true,
+    } } });
+    const owner = await prisma.agent.create({ data: { fullName: "Synthetic ad object owner", phone: phone(), role: "AGENT", passwordHash: "synthetic-not-a-hash" } });
+    const property = await prisma.property.create({ data: { title: `synthetic-ad-lead-${randomUUID()}`, type: "APARTMENT", areaSqm: 60, price: 960000,
+      currency: "TJS", condition: "GOOD", status: "AVAILABLE", publishedOnSite: true, address: "Synthetic private address", intakeAgentId: owner.id } });
+    const adExternalId = `synthetic-ad-lead-${randomUUID()}`;
+    let clientId: string | null = null;
+    try {
+      const f = await fixture(), a = await f.questionA("ru", phone(), "name");
+      expect(await dispatchCustomerOutboxPart(a.part.id)).toMatchObject({ status: "accepted" });
+      const b = await f.intake("Далер");
+      const part = await f.run(b, [[{ functionCall: { name: "save_contact", args: { name: "Далер" }, id: "ad-object-name" } }], decision("none", ["e0"])]);
+      // First-touch attribution the intake wrote for this conversation (lib/adAttribution.ts).
+      await prisma.botConversation.update({ where: { id: part.originalNativeId }, data: { adExternalId, adTopic: "property", adPropertyId: property.id } });
+      const source = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "contact", status: "COMMITTED" }, orderBy: { generation: "desc" } });
+      expect(await dispatchCustomerOutboxPart(part.id)).toMatchObject({ status: "accepted" });
+      expect((await createCustomerLeadAfterContactAction(source.id)).status).toBe("created");
+      const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "new_lead", status: "COMMITTED" } });
+      clientId = action.resourceId;
+      await processNewCustomerLeadPolicy(action.id);
+      const client = await prisma.client.findUniqueOrThrow({ where: { id: action.resourceId! } });
+      expect(client.assignedAgentId).toBe(owner.id);
+      expect(client.sourceAdId).toBe(adExternalId);
+    } finally {
+      hours.mockRestore();
+      await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+        publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: false,
+      } } });
+      if (clientId) await prisma.client.updateMany({ where: { id: clientId }, data: { assignedAgentId: null } });
+      await prisma.property.delete({ where: { id: property.id } }).catch(() => undefined);
+      await prisma.agent.delete({ where: { id: owner.id } })
+        .catch(() => prisma.agent.update({ where: { id: owner.id }, data: { isActive: false } }));
+    }
+    // The full signed intake, two core turns and the lead policy: about 19 s on the owner's laptop alone.
+  }, 60_000);
+
+  it("review 13.11 #10: a SELLER from an apartment ad does not go to the agent of that apartment", async () => {
+    const hours = vi.spyOn(workingHours, "isWithinWorkingHours").mockResolvedValue(true);
+    await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+      publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: true,
+    } } });
+    const owner = await prisma.agent.create({ data: { fullName: "Synthetic ad object owner", phone: phone(), role: "AGENT", passwordHash: "synthetic-not-a-hash" } });
+    const property = await prisma.property.create({ data: { title: `synthetic-ad-lead-${randomUUID()}`, type: "APARTMENT", areaSqm: 60, price: 960000,
+      currency: "TJS", condition: "GOOD", status: "AVAILABLE", publishedOnSite: true, address: "Synthetic private address", intakeAgentId: owner.id } });
+    const adExternalId = `synthetic-ad-lead-${randomUUID()}`;
+    let clientId: string | null = null;
+    try {
+      const f = await fixture(), a = await f.questionA("ru", phone(), "name");
+      expect(await dispatchCustomerOutboxPart(a.part.id)).toMatchObject({ status: "accepted" });
+      const b = await f.intake("Далер");
+      const part = await f.run(b, [[{ functionCall: { name: "save_contact", args: { name: "Далер" }, id: "ad-object-seller-name" } }], decision("none", ["e0"])]);
+      // First-touch attribution the intake wrote for this conversation (lib/adAttribution.ts).
+      await prisma.botConversation.update({ where: { id: part.originalNativeId }, data: { adExternalId, adTopic: "property", adPropertyId: property.id } });
+      const source = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "contact", status: "COMMITTED" }, orderBy: { generation: "desc" } });
+      expect(await dispatchCustomerOutboxPart(part.id)).toMatchObject({ status: "accepted" });
+      expect((await createCustomerLeadAfterContactAction(source.id)).status).toBe("created");
+      const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "new_lead", status: "COMMITTED" } });
+      clientId = action.resourceId;
+      // The same customer turns out to be a seller: the ad object must not route his card.
+      await prisma.client.update({ where: { id: action.resourceId! }, data: { kind: "SELLER" } });
+      await processNewCustomerLeadPolicy(action.id);
+      const client = await prisma.client.findUniqueOrThrow({ where: { id: action.resourceId! } });
+      // A fresh agent may still win the ordinary queue; what must not happen is routing BY the ad object.
+      expect(client.assignReason).not.toBe("own_property_explicit");
+      expect(client.sourceAdId).toBe(adExternalId);
+    } finally {
+      hours.mockRestore();
+      await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+        publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: false,
+      } } });
+      if (clientId) await prisma.client.updateMany({ where: { id: clientId }, data: { assignedAgentId: null } });
+      await prisma.property.delete({ where: { id: property.id } }).catch(() => undefined);
+      await prisma.agent.delete({ where: { id: owner.id } })
+        .catch(() => prisma.agent.update({ where: { id: owner.id }, data: { isActive: false } }));
+    }
+    // The full signed intake, two core turns and the lead policy: about 19 s on the owner's laptop alone.
   }, 60_000);
 });

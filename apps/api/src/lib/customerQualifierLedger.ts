@@ -56,6 +56,14 @@ export async function recordScopedCustomerInput(input: Pick<MessengerTurnInput, 
     if (saved && appended.length) {
       void captureConversationPhoneMessages(ticket.conversationId, appended.map(message => ({ ...message, at: new Date(evidence.issuedAt).toISOString() }))).catch(error => console.error("[contact-capture]", error instanceof Error ? error.name : "UnknownError"));
       void publishMessageNew("bot", ticket.conversationId, "IN");
+      // Действия CRM на входящее (пуш агенту, возврат из «Потерянных», автопилот…)
+      // — ровно один раз на сообщение: эта ветка проходится только в той
+      // транзакции, которая поставила inputRecordedAt. Не зависит от того,
+      // ответит ли мозг; ход не ждёт (lib/inboundSideEffects.ts).
+      void import("./inboundSideEffects.js")
+        .then(({ applyInboundSideEffects }) => applyInboundSideEffects({ source: "core", channel: evidence.channel,
+          peer: evidence.peer, conversationId: ticket.conversationId, text: evidence.inputText, eventId: evidence.eventId }))
+        .catch(error => console.error("[inbound-effects]", error instanceof Error ? error.name : "UnknownError"));
     }
     return saved;
   } catch (error) {

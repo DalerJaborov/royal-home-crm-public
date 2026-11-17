@@ -132,23 +132,22 @@ describe("adaptive current-role questions", () => {
       language: "ru", requestedFacts: [], surface, knownPhoneSource: "none", maxOutputChars: 6000, inputText,
       verifiedContext: { surface, revisionId: "a".repeat(64), turns: [], publicState: { language: "ru", topic: "job", openQuestion: "none", jobPositionKey: position.key }, ...context } });
   };
-  it("asks only the selected vacancy's configured missing field", () => {
-    const text = render({ ...DEFAULT_RECRUITMENT_SCREENING_RULES, requiredFacts: ["tools"] })!;
-    expect(text).toContain("Какими программами и инструментами пользуетесь?");
-    expect(text).not.toContain("Сколько вам полных лет?");
-    expect(render({ ...REALTOR_RECRUITMENT_SCREENING_RULES, requiredFacts: [] })).toContain("Сколько вам полных лет?");
-  });
-  it("moves past an available field and interprets the current bare answer without repeating it", () => {
+  const phone = "Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста.";
+  it("asks no screening question whatever the vacancy's configured fields are: the role and the specialist's phone only (phone-only recruitment, 10-11.11.2026)", () => {
+    for (const rules of [{ ...DEFAULT_RECRUITMENT_SCREENING_RULES, requiredFacts: ["tools" as const] }, { ...REALTOR_RECRUITMENT_SCREENING_RULES, requiredFacts: [] }]) {
+      const text = render(rules)!;
+      expect(text).toContain(recruitmentPositionTemplates()[1]!.titleRu);
+      expect(text).toContain(phone);
+      expect(text).not.toMatch(/Какими программами|Сколько вам полных лет|Вы сейчас работаете|Вы сейчас учитесь|резюме/u);
+    }
     const rules = { ...REALTOR_RECRUITMENT_SCREENING_RULES, requiredFacts: [] };
-    const text = render(rules, { recruitmentKnown: ["age"], recruitmentAnswerTo: "studyingNow" }, "нет")!;
-    expect(text).toContain("Вы сейчас работаете в другом месте?");
-    expect(text).not.toContain("Вы сейчас учитесь в школе");
-    const finished = render(rules, { recruitmentKnown: ["age", "studyingNow", "employedNow"] })!;
-    expect(finished).not.toContain("Вы сейчас работаете в другом месте?");
-    expect(finished).not.toContain("Сколько вам полных лет?");
+    const answered = render(rules, { recruitmentKnown: ["age"], recruitmentAnswerTo: "studyingNow" }, "нет")!;
+    expect(answered).toContain(phone);
+    expect(answered).not.toMatch(/Вы сейчас работаете в другом месте|Вы сейчас учитесь в школе|Сколько вам полных лет/u);
   });
   it("never publishes private screening questions in a public comment", () => {
     const text = render({ ...REALTOR_RECRUITMENT_SCREENING_RULES, requiredFacts: [] }, {}, "Подробнее", "public_comment")!;
-    expect(text).toContain("личные сообщения"); expect(text).not.toContain("Сколько вам полных лет?");
+    expect(text).toContain(phone); expect(text).not.toContain("Сколько вам полных лет?");
+    expect(text).not.toMatch(/резюме|личные сообщения/u);
   });
 });

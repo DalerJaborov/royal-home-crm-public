@@ -1,7 +1,7 @@
 import type { Request } from "express";
 import { prisma } from "../db.js";
 import { can, canBindClient } from "../auth/middleware.js";
-import { normalizeDigits } from "../ai/leadQualifier.js";
+import { normalizeDigits } from "./shared/phoneText.js";
 import { findPhoneOwners, phoneTail, PHONE_TAIL_LEN } from "./clientPhones.js";
 import { logTimeline, type TimelineTx } from "./timeline.js";
 import { formatPropertyCode } from "@royal-home/shared";

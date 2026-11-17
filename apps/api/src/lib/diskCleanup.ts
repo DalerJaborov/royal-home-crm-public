@@ -378,6 +378,17 @@ export async function runDiskCleanup(
   for (const row of draftRows) if (row.storageKey) rawRefs.add(row.storageKey);
   const sessionRows = await prisma.videoUploadSession.findMany({ select: { storageKey: true } });
   for (const row of sessionRows) rawRefs.add(row.storageKey);
+  // Озвучки, образцы голосов и ролики без голоса (11.11.2026) лежат в том же закрытом
+  // хранилище: без них уборка считала бы их «исходником без записи» и стирала.
+  for (const row of await prisma.propertyNarrationVersion.findMany({ where: { storageKey: { not: null } }, select: { storageKey: true } })) {
+    if (row.storageKey) rawRefs.add(row.storageKey);
+  }
+  for (const row of await prisma.narrationVoiceSample.findMany({ where: { storageKey: { not: null } }, select: { storageKey: true } })) {
+    if (row.storageKey) rawRefs.add(row.storageKey);
+  }
+  for (const row of await prisma.property.findMany({ where: { videoMasterStorageKey: { not: null } }, select: { videoMasterStorageKey: true } })) {
+    if (row.videoMasterStorageKey) rawRefs.add(row.videoMasterStorageKey);
+  }
 
   const facts: CleanupFacts = { properties, clipRefs, rawRefs };
   const candidates = planDiskCleanup(files, facts, nowMs);

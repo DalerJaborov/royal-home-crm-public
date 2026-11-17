@@ -15,7 +15,17 @@ import {
   Sparkles,
   TrendingDown,
 } from "lucide-react";
-import { LOST_REASON_LABELS, LOST_STAGES, LOST_STAGE_LABELS, voiceGender } from "@royal-home/shared";
+import {
+  ELEVENLABS_CREDITS_PER_MINUTE_ESTIMATE,
+  LIVE_VOICE_DAILY_MINUTES_CAP_DEFAULT,
+  LIVE_VOICE_INBOUND_WAIT_SECONDS,
+  LIVE_VOICE_MINUTES_CAP_MAX,
+  LIVE_VOICE_MONTHLY_MINUTES_CAP_DEFAULT,
+  LOST_REASON_LABELS,
+  LOST_STAGES,
+  LOST_STAGE_LABELS,
+  voiceGender,
+} from "@royal-home/shared";
 import {
   useSettings,
   useSettingsRestorePoints,
@@ -177,7 +187,6 @@ export function BotTab({ area }: { area?: "operation" | "answers" | "voice" | "l
         {(!area || area === "models") && <>
         {!searching && <SettingsGroupLabel>Ключи и модели</SettingsGroupLabel>}
         <AiKeysSection />
-        <GeminiModelsSection />
         <AssistantAbilitiesSection />
 
         </>}
@@ -338,203 +347,8 @@ interface GeminiCheckResult {
   keyIndex: number | null;
 }
 
-/** Понятная подпись под полем: чей это выбор. Владелец должен видеть разницу между
- *  «я так решил» и «так вышло по умолчанию» — иначе обновление кода однажды тихо
- *  сменит модель, и разбираться будут задним числом. */
-const MODEL_SOURCE_LABEL: Record<ModelSource, string> = {
-  settings: "выбрано здесь",
-  env: "из настроек сервера",
-  default: "заводское значение",
-};
-
-/**
- * Одна строка «модель + проверка».
- *
- * Кнопка «Проверить» — главное здесь, а не поле ввода. 22.08.2026 выяснение того,
- * почему бот отвечает на резервной модели, заняло полдня и потребовало входа на
- * сервер: за словом «недоступна» могли стоять 404 (модель закрыта), 429 (кончилась
- * квота), 401 (ключ мёртв) или 503 (Google перегружен) — четыре беды с четырьмя
- * разными лечениями. Теперь ответ Google виден на экране целиком и сразу.
- */
-function ModelField({
-  title,
-  description,
-  effective,
-  source,
-  onSave,
-  multi,
-}: {
-  title: string;
-  description: string;
-  effective: string | string[] | undefined;
-  source: ModelSource | undefined;
-  onSave: (value: string[]) => Promise<unknown>;
-  multi?: boolean;
-}) {
-  const current = Array.isArray(effective) ? effective.join(", ") : effective ?? "";
-  const [value, setValue] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [checking, setChecking] = useState<string | null>(null);
-  const [checks, setChecks] = useState<Record<string, GeminiCheckResult>>({});
-  // null — поле не трогали: показываем действующее значение. Пустая строка —
-  // владелец стёр текст намеренно, и это «вернуть заводское», а не «оставить как было».
-  const shown = value ?? current;
-  const models = current
-    .split(",")
-    .map((m) => m.trim())
-    .filter(Boolean);
-
-  async function save() {
-    setError(null);
-    setSaving(true);
-    try {
-      await onSave(
-        shown
-          .split(",")
-          .map((m) => m.trim())
-          .filter(Boolean)
-      );
-      setValue(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось сохранить");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function check(model: string) {
-    setChecking(model);
-    try {
-      const result = await api<GeminiCheckResult>("/settings/gemini-test", { method: "POST", body: { model } });
-      setChecks((prev) => ({ ...prev, [model]: result }));
-    } catch (err) {
-      setChecks((prev) => ({
-        ...prev,
-        [model]: {
-          ok: false,
-          status: null,
-          detail: err instanceof Error ? err.message : "Проверка не удалась",
-          ms: 0,
-          keyIndex: null,
-        },
-      }));
-    } finally {
-      setChecking(null);
-    }
-  }
-
-  return (
-    <div className={error ? "fld bad" : "fld"} style={{ marginTop: "var(--s4)" }}>
-      <span className="lab">
-        {title}
-        {source ? ` · ${MODEL_SOURCE_LABEL[source]}` : ""}
-      </span>
-      <input
-        value={shown}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder={multi ? "gemini-3.6-flash, gemini-3.5-flash" : "gemini-3.7-flash"}
-        spellCheck={false}
-        autoCapitalize="none"
-        aria-label={title}
-      />
-      <span className="msg">
-        {error ??
-          (shown !== current
-            ? shown.trim()
-              ? "Не сохранено. Проверять имеет смысл после сохранения — проверяется то, чем работает бот."
-              : "Пустое поле вернёт заводское значение."
-            : description)}
-      </span>
-      <div className="wrap" style={{ marginTop: "var(--s2)" }}>
-        <button className="pill" type="button" onClick={save} disabled={saving || shown === current}>
-          {saving ? "Сохраняю…" : "Сохранить"}
-        </button>
-        {models.map((model) => (
-          <button
-            key={model}
-            className="pill ghost sm"
-            type="button"
-            onClick={() => check(model)}
-            disabled={checking === model}
-          >
-            {checking === model ? "Спрашиваю Google…" : `Проверить ${model}`}
-          </button>
-        ))}
-      </div>
-      {models.map((model) => {
-        const result = checks[model];
-        if (!result) return null;
-        return (
-          <div className={result.ok ? "quiet" : "quiet crit"} key={model}>
-            <span className={result.ok ? "dot ok" : "dot crit"} />
-            <span className="txt">
-              {model}: {result.status !== null ? `HTTP ${result.status}` : "нет связи"} · {result.ms} мс
-              {result.keyIndex && result.keyIndex > 1 ? ` · ответил ключ №${result.keyIndex}` : ""}
-              {result.ok ? "" : ` · ${result.detail}`}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/**
- * Секция «Модели»: какие именно модели Google спрашивает бот.
- *
- * ПОЧЕМУ ЭТО ВООБЩЕ НА ЭКРАНЕ. Имя модели жило в переменных сервера, и смена его
- * требовала входа по SSH. За август Google закрыл две модели без предупреждения
- * (02.08 и 22.08.2026), и оба раза бот работал на резервной — медленнее и дороже —
- * пока до сервера не доходили руки. Имя модели меняется чаще, чем выкатывается код,
- * значит его место здесь, рядом с ключами.
- */
-function GeminiModelsSection() {
-  const { data: settings } = useSettings();
-  const updateSettings = useUpdateSettings({ silent: true });
-
-  return (
-    <SettingsSection icon={Sparkles} title="Какие модели работают" badge="5 настроек">
-      <ModelField
-        title="Модель диалогов"
-        description="Отвечает клиентам, разбирает переписку, оценивает лидов и заполняет карточки — 99% всех обращений к ИИ."
-        effective={settings?.geminiModelEffective}
-        source={settings?.geminiModelSource}
-        onSave={(models) => updateSettings.mutateAsync({ geminiModel: models[0] ?? "" })}
-      />
-      <ModelField
-        title="Резервные модели диалогов"
-        description="Подключаются по очереди, когда основная перегружена или закрыта. Пусто — при отказе основной бот замолчит."
-        effective={settings?.geminiFallbackModelsEffective}
-        source={settings?.geminiFallbackModelsSource}
-        onSave={(models) => updateSettings.mutateAsync({ geminiFallbackModels: models })}
-        multi
-      />
-      <ModelField
-        title="Модели расшифровки голосовых"
-        description="Голос требует модели умнее диалоговой: дешёвая не разбирает продиктованный номер телефона, и карточки клиентов не объединяются."
-        effective={settings?.geminiTranscribeModelsEffective}
-        source={settings?.geminiTranscribeModelsSource}
-        onSave={(models) => updateSettings.mutateAsync({ geminiTranscribeModels: models })}
-        multi
-      />
-      <ModelField
-        title="Дешёвая модель для простых задач"
-        description="Классификация, заполнение карточки, перевод расшифровки — около 1200 вызовов в неделю, где полноценная модель избыточна. Пусто — всё идёт обычной моделью. Если дешёвая откажет, вызов сам поднимется на обычную."
-        effective={settings?.geminiLiteModelEffective}
-        source={settings?.geminiLiteModelSource}
-        onSave={(models) => updateSettings.mutateAsync({ geminiLiteModel: models[0] ?? "" })}
-      />
-      <ModelField
-        title="Модель рисования"
-        description="Обложки для статей блога. Рисующие модели работают только на платном проекте Google: на бесплатном ответ будет 429, хотя текстовые модели тем же ключом идут."
-        effective={settings?.geminiImageModelEffective}
-        source={settings?.geminiImageModelSource}
-        onSave={(models) => updateSettings.mutateAsync({ geminiImageModel: models[0] ?? "" })}
-      />
-    </SettingsSection>
-  );
-}
+// «Какие модели работают» убрано с экрана 01.11.2026: имена моделей Gemini —
+// константы на сервере (apps/api/src/lib/settingsConstants.ts), на экране остались ключи.
 
 function GeminiExtraKeysSection() {
   const { data: settings, isSuccess } = useSettings();
@@ -871,6 +685,15 @@ const BOT_ABILITIES = [
     offHint: "Бот всегда отвечает только текстом, даже если клиент прислал голосовое.",
   },
   {
+    field: "botMergeQuickRepeats",
+    title: "Отвечать один раз на два сообщения подряд",
+    // 15.11.2026: клиентка с карточкой дважды за 3,5 с написала одно и то же и получила два разных ответа.
+    // Включено по умолчанию (владелец 15.11.2026: «Да, 6 секунд можно»); выключенное — прежнее «сразу» (19.08).
+    onHint:
+      "Клиент, который уже оставил номер, прислал два сообщения за несколько секунд — бот ждёт 6 секунд и отвечает один раз на оба.",
+    offHint: "Бот отвечает клиенту с номером сразу на каждое сообщение. Два сообщения подряд могут получить два ответа.",
+  },
+  {
     field: "botCautiousMode",
     title: "Режим запуска: отвечать строго по запросу",
     // Включается на время рекламной волны: в первые дни лучше недопродать, чем
@@ -905,16 +728,6 @@ const BOT_ABILITIES = [
       "Раз в сутки CRM ищет пары, похожие на одного человека по слабым признакам: одинаковое имя вместе с похожим хвостом номера или один и тот же ник в разных мессенджерах. Найденные пары попадают в «Возможные дубликаты» предложением — объединять или нет, решает человек. Само ничего не сливает.",
     offHint:
       "CRM сводит досье только по точным признакам: один и тот же номер в разных каналах и номер, названный в переписке. Вернувшийся человек с новым номером остаётся для бота незнакомцем.",
-  },
-  {
-    field: "geminiExplicitCachingEnabled",
-    title: "Явный кэш правил бота у Google",
-    // Меняет форму запроса к Gemini (cachedContent вместо systemInstruction/tools);
-    // на любой сбой кэша вызов сам откатывается на обычный путь (ai/geminiCache.ts).
-    onHint:
-      "Свод правил бота сохраняется у Google на час, и каждый ответ ссылается на него вместо повторной отправки — за эту часть берётся 10% обычной цены, причём гарантированно, а не как повезёт. При любом сбое кэша ответ уходит обычным путём.",
-    offHint:
-      "Каждый ответ отправляет полный свод правил заново. Google иногда сам узнаёт повтор и даёт скидку, но примерно через раз — без гарантии.",
   },
 ] as const;
 
@@ -1104,6 +917,8 @@ function BotPowerSection() {
         </div>
       </div>
 
+      <LeadOnlyModeFields onToggle={toggle} />
+
       <div className="grp-lab">Что бот умеет</div>
       <div className="quiet">
         <span className="dot" />
@@ -1127,7 +942,14 @@ function BotPowerSection() {
         // Напоминания молчащим держат два тумблера и число (cron.ts::sendFollowUps).
         const followUpBlock =
           field === "botCanFollowUp" && on && settings ? followUpBlockedBy(settings, "ability") : null;
-        const idle = showingBlock ? (
+        // Режим «только заявки» гасит фото и ссылки на сервере при любом положении этих тумблеров.
+        const leadOnlyBlock =
+          (field === "botCanSendPhotos" || field === "botCanSendLinks") && on && settings?.botLeadOnlyMode
+            ? "Сейчас не действует: включён режим «только заявки»."
+            : null;
+        const idle = leadOnlyBlock ? (
+          leadOnlyBlock
+        ) : showingBlock ? (
           <>
             {showingBlock}{" "}
             <Link className="lnk" to="/settings?tab=leads">
@@ -1169,6 +991,94 @@ function BotPowerSection() {
         </div>
       )}
     </SettingsSection>
+  );
+}
+
+/**
+ * РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (владелец 12–13.11.2026). Один главный тумблер; три
+ * уточнения показываются только при включённом режиме — без него они ни на что не
+ * влияют. Поведение — apps/api/src/ai/leadOnlyMode.ts (ядро и старый путь бота).
+ */
+function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: boolean) => void }) {
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const on = settings?.botLeadOnlyMode ?? false;
+  const useWhatsapp = settings?.botUseWhatsappNumber ?? true;
+  const hot = settings?.botHotIntentHandover ?? true;
+  const asks = settings?.botMaxPhoneAsks ?? 2;
+  const [askError, setAskError] = useState<string | null>(null);
+  return (
+    <>
+      <div className="grp-lab">Режим: только заявки</div>
+      <SwitchRow
+        title="Бот только принимает заявки"
+        on={on}
+        hint={
+          on
+            ? "WhatsApp, Instagram и Facebook: бот отвечает коротко, берёт номер и передаёт клиента агенту. Подборки, фото и ссылки не отправляет, цены называет только из базы. Чат сайта работает как раньше."
+            : "Обычный режим: бот сам подбирает варианты, присылает фото и ссылки."
+        }
+        onToggle={() => onToggle("botLeadOnlyMode", !on)}
+      />
+      {on && (
+        <>
+          <SwitchRow
+            title="В WhatsApp звонить на номер, с которого пишут"
+            on={useWhatsapp}
+            hint={
+              useWhatsapp
+                ? "Номер не спрашиваем: «Агент позвонит вам на этот номер, удобно?»"
+                : "Бот просит номер для звонка и в WhatsApp, как в Instagram."
+            }
+            onToggle={() => onToggle("botUseWhatsappNumber", !useWhatsapp)}
+          />
+          <SwitchRow
+            title="«Хотим посмотреть» — сразу агенту"
+            on={hot}
+            hint={
+              hot
+                ? "Слова «хотим посмотреть», «куда ехать», «адрес» и такие же по-таджикски сразу передают клиента агенту объекта, а без номера зовут сотрудника в переписку."
+                : "Такие слова бот отвечает как обычный вопрос."
+            }
+            onToggle={() => onToggle("botHotIntentHandover", !hot)}
+          />
+          <div className="mod">
+            <div className="t">
+              <b>Сколько раз просить номер</b>
+              <span style={{ whiteSpace: "normal" }}>
+                Instagram и Facebook. Потом бот даёт номер офиса и больше не настаивает.
+              </span>
+            </div>
+            <div className="acts">
+              <div className="seg" role="group" aria-label="Сколько раз просить номер">
+                {[1, 2, 3].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    // aria-pressed — смысл для экранного диктора (кнопка-переключатель); aria-selected — крючок стиля .seg на экране настроек.
+                    aria-pressed={asks === n}
+                    aria-selected={asks === n}
+                    onClick={() => {
+                      setAskError(null);
+                      updateSettings.mutate({ botMaxPhoneAsks: n }, {
+                        onError: (err) => setAskError(err instanceof Error ? err.message : "Не удалось сохранить настройку"),
+                      });
+                    }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {askError && (
+            <p className="msg" role="alert">
+              {askError}
+            </p>
+          )}
+        </>
+      )}
+    </>
   );
 }
 
@@ -2144,6 +2054,9 @@ function BotCommentsSection() {
   const { data } = useInstagramComments({ pageSize: 1 }, { enabled: canSee });
   const hidden = data?.counts.HIDDEN ?? 0;
   const waiting = data?.counts.ESCALATED ?? 0;
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const failureWatchOn = settings?.commentFailureWatchEnabled ?? true;
 
   return (
     <SettingsSection icon={MessageCircle} title="Комментарии под постами Instagram">
@@ -2162,6 +2075,17 @@ function BotCommentsSection() {
           пишет под постами, задаётся выше, в карточке «Промт ответов на комментарии».
         </span>
       </div>
+
+      <SwitchRow
+        title="Бот не смог ответить — сказать человеку"
+        on={failureWatchOn}
+        onToggle={() => updateSettings.mutate({ commentFailureWatchEnabled: !failureWatchOn })}
+        hint={
+          failureWatchOn
+            ? "Если ИИ был недоступен, у бота сорвался ответ или комментарий висит без ответа дольше 30 минут — тем, кто читает переписки, уходит одна сводка: «ответьте вручную»."
+            : "Не сообщаем: комментарий, на который бот не смог ответить из-за сбоя, останется без ответа, пока его не увидят в ленте."
+        }
+      />
 
       {canSee && (
         <div className="quiet">
@@ -2242,7 +2166,6 @@ function LiveVoiceSection() {
   const enabled = settings?.liveVoiceEnabled ?? false;
   const voice = settings?.liveVoiceVoiceName || "Kore";
   const voiceTajik = settings?.liveVoiceVoiceNameTajik || "";
-  const russianOnly = settings?.liveVoiceForceRussianOnly ?? true;
   const provider = settings?.liveVoiceProvider ?? "google";
   const preview = useLiveVoicePreviewVoice();
   const [previewLang, setPreviewLang] = useState<"ru" | "tg">("ru");
@@ -2307,16 +2230,10 @@ function LiveVoiceSection() {
 
       <ConsultantInboundFields enabled={enabled} />
 
-      <PlainSetting
-        title="Тестовый внутренний номер"
-        description="Номер, который владелец завёл на самой станции и направил в Stasis-приложение royalhome-live-voice. Пусто — тестовый номер не отвечает. Настоящие входящие от этого поля не зависят: их берёт консультант по режиму выше."
-        placeholder="1099"
-        value={settings?.liveVoiceTestExtension ?? ""}
-        pending={updateSettings.isPending}
-        onSave={(v) => updateSettings.mutate({ liveVoiceTestExtension: v || null })}
-      />
 
       <LiveVoiceProviderFields />
+
+      {provider === "elevenlabs" && <LiveVoiceSpendCapFields />}
 
       {provider === "google" && (
         <>
@@ -2411,18 +2328,8 @@ function LiveVoiceSection() {
         onSave={(v) => updateSettings.mutate({ interviewInviteAddress: v || null })}
       />
 
-      <SwitchRow
-        title="Только русский (диагностика акцента)"
-        hint={
-          russianOnly
-            ? "Включено — бот не переключается на таджикский, даже если собеседник заговорит на нём. Google добавил таджикский в Live API в сентябре 2026: выключите и проверьте живым тестовым звонком, ушёл ли акцент."
-            : "Выключено — бот отвечает на языке собеседника, включая таджикский, как задумано изначально. Проверьте живым тестовым звонком, что акцент приемлемый — Google добавил язык недавно, качество не гарантировано только фактом поддержки."
-        }
-        on={russianOnly}
-        onToggle={() => updateSettings.mutate({ liveVoiceForceRussianOnly: !russianOnly })}
-      />
-
-      <LiveVoiceSoundDesignFields settings={settings} pending={updateSettings.isPending} onSave={updateSettings.mutate} />
+      {/* Тестовый внутренний номер, замок «только русский», офисный амбиент и вдох
+          перед репликой — константы с 01.11.2026 (apps/api/src/lib/settingsConstants.ts). */}
 
       <LiveVoicePromptCard
         value={settings?.liveVoicePrompt}
@@ -2457,6 +2364,116 @@ function LiveVoiceSection() {
         </span>
       </div>
     </SettingsSection>
+  );
+}
+
+/**
+ * ПОТОЛОК МИНУТ РОБОТА (П5, 11.11.2026; сервер — apps/api/src/lib/liveVoiceSpend.ts).
+ * Владелец: «чтобы … деньги не пошли в минус». Два числа одной кнопкой и строка «сколько
+ * уже наговорено». Дошли до потолка — новые звонки робота на паузе (идущий разговор не
+ * рвётся), директору тревога на 80% и 100%. 0 — без потолка.
+ */
+function LiveVoiceSpendCapFields() {
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const [daily, setDaily] = useState(String(LIVE_VOICE_DAILY_MINUTES_CAP_DEFAULT));
+  const [monthly, setMonthly] = useState(String(LIVE_VOICE_MONTHLY_MINUTES_CAP_DEFAULT));
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // По самим полям, а не по объекту настроек: фоновое обновление не сбрасывает набранное.
+  const dailyCap = settings?.liveVoiceDailyMinutesCap;
+  const monthlyCap = settings?.liveVoiceMonthlyMinutesCap;
+  useEffect(() => {
+    if (dailyCap !== undefined) setDaily(String(dailyCap));
+  }, [dailyCap]);
+  useEffect(() => {
+    if (monthlyCap !== undefined) setMonthly(String(monthlyCap));
+  }, [monthlyCap]);
+
+  const spend = settings?.liveVoiceSpend;
+  const usage = (p: { usedMinutes: number; capMinutes: number } | undefined) =>
+    p ? (p.capMinutes > 0 ? `${p.usedMinutes} из ${p.capMinutes} мин` : `${p.usedMinutes} мин, без потолка`) : "—";
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError(null);
+        setSaved(false);
+        // Пустое поле — не «0»: Number("") дал бы 0, то есть молча снял бы потолок совсем.
+        if (daily.trim() === "" || monthly.trim() === "") {
+          setError("Впишите число минут в оба поля (0 — без потолка)");
+          return;
+        }
+        try {
+          await updateSettings.mutateAsync({ liveVoiceDailyMinutesCap: Number(daily), liveVoiceMonthlyMinutesCap: Number(monthly) });
+          setSaved(true);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Не удалось сохранить");
+        }
+      }}
+    >
+      <div className="mod">
+        <div className="t">
+          <b>Потолок минут робота</b>
+          <span style={{ whiteSpace: "normal" }}>
+            Сколько минут робот может проговорить за сутки и за месяц. Дошёл до потолка — новые звонки робота ждут
+            (исходящие переносятся, входящие уходят на автоответчик), идущий разговор не прерывается. На 80% и 100%
+            придёт тревога. Минута — примерно {ELEVENLABS_CREDITS_PER_MINUTE_ESTIMATE} кредитов ElevenLabs. 0 — без потолка.
+          </span>
+        </div>
+        <div className="acts">
+          <span className="nf">
+            <input
+              type="number"
+              min={0}
+              max={LIVE_VOICE_MINUTES_CAP_MAX}
+              inputMode="numeric"
+              value={daily}
+              onChange={(e) => setDaily(e.target.value)}
+              aria-label="Минут робота в сутки"
+            />
+            <span className="u">мин в сутки</span>
+          </span>
+          <span className="nf">
+            <input
+              type="number"
+              min={0}
+              max={LIVE_VOICE_MINUTES_CAP_MAX}
+              inputMode="numeric"
+              value={monthly}
+              onChange={(e) => setMonthly(e.target.value)}
+              aria-label="Минут робота в месяц"
+            />
+            <span className="u">мин в месяц</span>
+          </span>
+          <button className="pill sm" type="submit" disabled={updateSettings.isPending}>
+            Сохранить
+          </button>
+        </div>
+        {spend && (
+          <p className="msg" style={{ whiteSpace: "normal" }}>
+            Сегодня: {usage(spend.day)} · за месяц: {usage(spend.month)}
+          </p>
+        )}
+        {/* Условный рендер, а не hidden: на flex-элементе hidden не срабатывает. */}
+        {spend?.held && (
+          <p className="msg" role="alert" style={{ color: "var(--crit)", whiteSpace: "normal" }}>
+            Робот на паузе {spend.held === "month" ? "до следующего месяца" : "до завтра"}: потолок минут исчерпан. Поднимите
+            потолок, если звонки нужны сейчас.
+          </p>
+        )}
+      </div>
+      <div className="wrap">
+        {saved && <span className="saved on">Сохранено</span>}
+        {error && (
+          <span className="saved" style={{ color: "var(--crit)" }}>
+            {error}
+          </span>
+        )}
+      </div>
+    </form>
   );
 }
 
@@ -2646,23 +2663,9 @@ function ConsultantInboundFields({ enabled }: { enabled: boolean }) {
   const { data: agents } = useAgents();
   const updateSettings = useUpdateSettings();
   const mode = settings?.liveVoiceInboundMode ?? "off";
-  const wait = settings?.liveVoiceInboundWaitSeconds ?? 30;
-  const [waitDraft, setWaitDraft] = useState(String(wait));
-  const [waitError, setWaitError] = useState<string | null>(null);
-  useEffect(() => setWaitDraft(String(wait)), [wait]);
+  // Сколько секунд ждать оператора — константа с 01.11.2026 (packages/shared).
+  const wait = LIVE_VOICE_INBOUND_WAIT_SECONDS;
   const withSip = (agents ?? []).filter((a) => a.sipExtension);
-
-  const saveWait = () => {
-    const n = Math.round(Number(waitDraft));
-    if (!Number.isFinite(n) || n < 10 || n > 90) {
-      // Раньше значение молча откатывалось, и казалось, что поле не сохраняется.
-      setWaitError(`Ждать оператора можно от 10 до 90 секунд. Оставлено прежнее значение: ${wait}.`);
-      setWaitDraft(String(wait));
-      return;
-    }
-    setWaitError(null);
-    if (n !== wait) updateSettings.mutate({ liveVoiceInboundWaitSeconds: n });
-  };
 
   return (
     <>
@@ -2691,32 +2694,6 @@ function ConsultantInboundFields({ enabled }: { enabled: boolean }) {
 
       {enabled && mode !== "off" && <ConsultantInboundStatus mode={mode} />}
 
-      {enabled && mode === "no_answer" && (
-        <div className="fld" style={{ marginTop: "var(--s3)" }}>
-          <span className="lab">Сколько секунд ждать оператора</span>
-          <input
-            className="inp"
-            type="number"
-            min={10}
-            max={90}
-            inputMode="numeric"
-            value={waitDraft}
-            onChange={(e) => setWaitDraft(e.target.value)}
-            onBlur={saveWait}
-            disabled={updateSettings.isPending}
-            aria-label="Сколько секунд ждать оператора"
-            style={{ maxWidth: 120 }}
-          />
-          <span className="msg">От 10 до 90 секунд. У звонящего обычно около минуты гудков, дольше ставить незачем.</span>
-          {waitError && (
-            <div className="quiet warn" role="alert">
-              <span className="dot warn" />
-              <span className="txt">{waitError}</span>
-            </div>
-          )}
-        </div>
-      )}
-
       {enabled && (
         <div className="fld" style={{ marginTop: "var(--s3)" }}>
           <span className="lab">Кому соединять, если агента объекта и своего агента нет</span>
@@ -2740,70 +2717,6 @@ function ConsultantInboundFields({ enabled }: { enabled: boolean }) {
         </div>
       )}
     </>
-  );
-}
-
-/**
- * Звук помещения — реальный офисный амбиент + вдох. Отдельный компонент —
- * иначе LiveVoiceSection распухает до нечитаемости, а эта часть меняется реже
- * прочих.
- *
- * СИНТЕТИЧЕСКИЙ ГУЛ И ЩЕЛЧКИ КЛАВИАТУРЫ УБРАНЫ ЦЕЛИКОМ (14.09.2026, решение
- * владельца после появления настоящей записи офиса: «в этих mp3 есть любой
- * нужный мне шум» — генерировать искусственный гул/щелчок поверх настоящей
- * записи, где эти же звуки уже есть по-настоящему, стало не запасным
- * вариантом, а просто лишним слоем). Соответствующие функции
- * (generateComfortNoiseFrame/maybeAddTypingClick), константы и поля Settings —
- * удалены из liveVoiceBridge.ts/schema.prisma тем же коммитом, не только
- * скрыты из интерфейса.
- */
-function LiveVoiceSoundDesignFields({
-  settings,
-  pending,
-  onSave,
-}: {
-  settings: ReturnType<typeof useSettings>["data"];
-  pending: boolean;
-  onSave: (patch: Record<string, unknown>) => void;
-}) {
-  // С 02.10.2026 оба по умолчанию выключены — как в схеме и в мосте.
-  const breath = settings?.liveVoiceBreathEnabled ?? false;
-  const officeAmbience = settings?.liveVoiceOfficeAmbienceEnabled ?? false;
-  const officeAmbienceVolume = settings?.liveVoiceOfficeAmbienceVolume ?? 0.35;
-
-  return (
-    <div className="fld" style={{ marginTop: "var(--s4)" }}>
-      <span className="lab">Звук помещения</span>
-
-      <SwitchRow
-        title="Настоящий офисный амбиент"
-        hint="Реальная запись офиса (голоса, шаги, клавиатура на фоне) — один из двух файлов выбирается случайно на каждый звонок. Выключено — полная цифровая тишина в паузах бота (синтетический генератор шума и щелчков клавиатуры убраны 14.09.2026 — свои голоса и клавиатура в этой записи уже есть, дублировать нечего)."
-        on={officeAmbience}
-        onToggle={() => onSave({ liveVoiceOfficeAmbienceEnabled: !officeAmbience })}
-      />
-      {officeAmbience && (
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 220, marginTop: "var(--s2)" }}>
-          <span className="note">Громкость амбиента: {Math.round(officeAmbienceVolume * 100)}%</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={5}
-            value={Math.round(officeAmbienceVolume * 100)}
-            disabled={pending}
-            onChange={(e) => onSave({ liveVoiceOfficeAmbienceVolume: Number(e.target.value) / 100 })}
-            aria-label="Громкость офисного амбиента"
-          />
-        </label>
-      )}
-
-      <SwitchRow
-        title="Вдох перед репликой"
-        hint="Короткий вдох перед тем, как бот начинает говорить — приём, чтобы речь не звучала «по-дикторски» идеально ровно."
-        on={breath}
-        onToggle={() => onSave({ liveVoiceBreathEnabled: !breath })}
-      />
-    </div>
   );
 }
 

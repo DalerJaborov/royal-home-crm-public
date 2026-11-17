@@ -8,7 +8,7 @@ import { createNewCustomerChannelLeadTx } from "../services/leads/intake.js";
 import { customerIntakeContextSchema, type CustomerIntakeContext } from "./customerIntakeContext.js";
 import { inspectCustomerWriteAuthority, loadCustomerStateSnapshot, loadAcceptedCustomerState, assertCustomerFence, type CustomerWriteAuthority, type CustomerWriteEvidence } from "./customerState.js";
 import { isPublicAgencyPhone, isRetiredPublicAgencyPhone } from "./publicAgencyContact.js";
-import { normalizeDigits } from "../ai/leadQualifier.js";
+import { normalizeDigits } from "./shared/phoneText.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
 import { lockCustomerNative } from "./customerNativeLock.js";
 import { recoverAuthenticatedCustomerInput, inspectAuthenticatedCustomerInput, authenticatedInputMatchesFence } from "./customerIngressAuthority.js";

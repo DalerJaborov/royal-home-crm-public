@@ -37,6 +37,14 @@ afterAll(async () => {
 });
 
 describe("Служба безопасности в отчётах", () => {
+  it.each(["funnel", "agents", "sources"])("%s rejects a reversed period instead of returning zero activity", async endpoint => {
+    const res = await request(app).get(`/api/v1/reports/${endpoint}?from=2026-11-02&to=2026-10-30`).set("Authorization", `Bearer ${directorToken}`);
+    expect(res.status).toBe(400);
+  });
+  it.each(["funnel", "agents", "sources"])("%s accepts a single-day report", async endpoint => {
+    const res = await request(app).get(`/api/v1/reports/${endpoint}?from=2026-10-30&to=2026-10-30`).set("Authorization", `Bearer ${directorToken}`);
+    expect(res.status).toBe(200);
+  });
   it("воронка без комиссии", async () => {
     const res = await request(app).get("/api/v1/reports/funnel").set("Authorization", `Bearer ${securityToken}`);
     expect(res.status).toBe(200);

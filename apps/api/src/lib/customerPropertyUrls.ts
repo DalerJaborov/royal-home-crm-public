@@ -39,7 +39,8 @@ export function customerPropertyUrl(raw: string): CustomerPropertyUrl {
   }
   if (host === "facebook.com" || host === "m.facebook.com" || host === "web.facebook.com") {
     // "/share/p|r|v/<code>" is an opaque short link: its post id exists only behind a
-    // redirect, and following redirects is not allowed here. Unsupported by design.
+    // redirect. This pure parser never follows one (see customerPropertyShareLink and the
+    // resolver's single bounded expansion), so the shape stays unsupported here.
     if (/^\/share\/[prv]\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)) return { kind: "unsupported" };
     const post = /\/(?:reel|posts|videos)\/([\d_]+)\/?$/.exec(url.pathname);
     const video = url.pathname === "/watch/" ? url.searchParams.get("v") : null;
@@ -51,6 +52,26 @@ export function customerPropertyUrl(raw: string): CustomerPropertyUrl {
     return { kind: "unsupported" };
   }
   return { kind: "denied" };
+}
+
+/** Opaque short links ("facebook.com/share/p|r|v/<code>", "fb.watch/<code>"): the post id
+ * exists only behind a redirect. Returns the canonical form or null. It is never a property
+ * URL by itself; the resolver expands it once (customerShareLinkExpansion.ts). */
+export function customerPropertyShareLink(raw: string): string | null {
+  if (raw.length > 1024) return null;
+  let url: URL;
+  try { url = new URL(raw); } catch { return null; }
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.port) return null;
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  if (host === "fb.watch") {
+    const code = /^\/([A-Za-z0-9_-]{3,64})\/?$/.exec(url.pathname);
+    return code ? `https://fb.watch/${code[1]}/` : null;
+  }
+  if (host === "facebook.com" || host === "m.facebook.com" || host === "web.facebook.com") {
+    const share = /^\/share\/([prv])\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname);
+    return share ? `https://www.facebook.com/share/${share[1]}/${share[2]}/` : null;
+  }
+  return null;
 }
 
 export function safeCustomerPropertyLink(raw: string | null): string | null {

@@ -329,7 +329,10 @@ function MontageBlock({
   const [holdReason, setHoldReason] = useState("");
 
   const can = useCan();
-  const canModerateClip = can("properties.moderate");
+  const myId = useAuthStore((s) => s.agent?.id);
+  // Хозяин объекта решает по своему ролику наравне с модератором (14.11.2026,
+  // подтверждение хозяином; сервер проверяет то же правило заново).
+  const canModerateClip = can("properties.moderate") || (!!myId && vh?.clipReview.ownerAgentId === myId);
   const qc = useQueryClient();
   const [clipBusy, setClipBusy] = useState(false);
   const [clipMessage, setClipMessage] = useState<string | null>(null);
@@ -419,7 +422,7 @@ function MontageBlock({
         <p className="quiet ok">
           <span className="dot ok" />
           <span className="txt">
-            Ролик одобрил {vh.clipReview.decidedBy ?? "модератор"}
+            {vh.clipReview.decidedBy ? `Ролик одобрил ${vh.clipReview.decidedBy}` : "Ролик ушёл в публикацию автоматически: хозяин объекта не ответил вовремя"}
             {vh.clipReview.decidedAt ? ` в ${dushanbeTime(vh.clipReview.decidedAt)}` : ""}
           </span>
         </p>
@@ -642,7 +645,7 @@ export function AgentVideoStatus({ property }: { property: Property }) {
 export function PropertyVideoFixCard({
   property,
   readOnly,
-  canEdit,
+  canEdit: requestedCanEdit,
   viewer = "staff",
 }: {
   property: Property;
@@ -667,10 +670,10 @@ export function PropertyVideoFixCard({
    */
   viewer?: "staff" | "montajer";
 }) {
+  const canEdit = requestedCanEdit && !property.offSite;
   const isMontajerView = viewer === "montajer";
   const qc = useQueryClient();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canUnpublish = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
+  const canUnpublish = useCan()("marketing.access");
   /* Подключённые сети — чтобы в ходе публикации не обещать выход туда, куда ролик
      и не собирался (05.10.2026). Только тем, кому статус каналов вообще виден. */
   const { data: channelsStatus } = useChannelsStatus(canUnpublish);
@@ -689,7 +692,7 @@ export function PropertyVideoFixCard({
   /** Та же отметка для подписи кнопки — ref в разметке не читаем. */
   const [rightAwayLabel, setRightAwayLabel] = useState(false);
   /** Тот же список ролей, что requireMarketingRole на /publish-now. */
-  const canPublishNow = canUnpublish;
+  const canPublishNow = canUnpublish && !property.offSite;
   /**
    * «СНАЧАЛА УБРАТЬ СТАРЫЙ РОЛИК ИЗ СОЦСЕТЕЙ» ПЕРЕД ЗАМЕНОЙ (25.09.2026, Б4).
    * Замена уходит только туда, где объект ещё не вышел: в вышедших сетях
@@ -702,7 +705,7 @@ export function PropertyVideoFixCard({
    *  videos.ts: instagram-stories-publish, instagram-story-card, -sold, story-card.jpg).
    *  До 24.09.2026 кнопки висели по одному canEdit, и ответственный агент видел
    *  целый блок, где каждое нажатие кончалось отказом. */
-  const canStories = canUnpublish;
+  const canStories = canUnpublish && !property.offSite;
   const [askDiscard, setAskDiscard] = useState(false);
   const [busy, setBusy] = useState<null | "redo" | "requeue" | "upload" | "unpublish" | "captions" | "stories" | "sold" | "card" | "publishNow" | "discard">(
     null
@@ -1493,7 +1496,7 @@ export function PropertyVideoFixCard({
      а решает, показывать ли этот блок вообще, сама ветка isMontajerView
      (montajerMayUploadFinal). Текст описания различается: у монтажёра нет
      смысла говорить про расписание/сети так же, как агенту. */
-  const canUploadFinal = isMontajerView ? true : canEdit;
+  const canUploadFinal = !property.offSite && (isMontajerView ? true : canEdit);
   const finalUploadBlock = (
     <>
       {canUploadFinal && (
@@ -1682,7 +1685,7 @@ export function PropertyVideoFixCard({
       <section className="card">
       <div className="sec-h stack">
         <h2>Ролик и соцсети</h2>
-        <span className="note">Если с роликом что-то не так, карточку заполнять заново не нужно</span>
+        <span className="note">{property.offSite ? "Только для своих клиентов: новые публикации в соцсетях запрещены." : "Если с роликом что-то не так, карточку заполнять заново не нужно"}</span>
       </div>
 
       {publishedChannelsBlock}
@@ -2422,9 +2425,9 @@ interface RepostRecord {
  */
 export function RepostBlock({ property, readOnly, canEdit }: { property: Property; readOnly?: boolean; canEdit: boolean }) {
   const qc = useQueryClient();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canPublish = !readOnly && (role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN");
-  const enabled = !readOnly && property.status === "AVAILABLE";
+  const canMarketing = useCan()("marketing.access");
+  const canPublish = !readOnly && canMarketing;
+  const enabled = !readOnly && !property.offSite && property.status === "AVAILABLE";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const propertyId = property.id;
@@ -2559,8 +2562,8 @@ interface SocialExtrasRemoval {
  */
 export function SocialExtrasBlock({ property, readOnly }: { property: Property; readOnly?: boolean }) {
   const qc = useQueryClient();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canRemove = !readOnly && (role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN");
+  const canMarketing = useCan()("marketing.access");
+  const canRemove = !readOnly && canMarketing;
   const propertyId = property.id;
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -2680,7 +2683,7 @@ export function FacebookGroupShareBlock({
   const [error, setError] = useState<string | null>(null);
   const [copyModalText, setCopyModalText] = useState<string | null>(null);
 
-  const enabled = !readOnly && property.status === "AVAILABLE";
+  const enabled = !readOnly && !property.offSite && property.status === "AVAILABLE";
   const queryKey = ["property-group-share", property.id];
   const { data } = useQuery({
     queryKey,

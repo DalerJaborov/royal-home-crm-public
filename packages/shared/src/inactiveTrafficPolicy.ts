@@ -16,6 +16,18 @@ export const DEFAULT_INACTIVE_TRAFFIC_POLICY: Readonly<InactiveTrafficPolicy> = 
   inactiveRedMaxAttempts: 2,
 };
 
+/**
+ * Число проверок по цвету светофора — константа с 01.11.2026 (значения прода),
+ * на экране настроек остались только интервалы. Одно место на сервер и экран:
+ * экран по нему же показывает срок до потери клиента.
+ */
+export const INACTIVE_TRAFFIC_MAX_ATTEMPTS: Readonly<Pick<InactiveTrafficPolicy,
+  "inactiveGreenMaxAttempts" | "inactiveYellowMaxAttempts" | "inactiveRedMaxAttempts">> = {
+  inactiveGreenMaxAttempts: 2,
+  inactiveYellowMaxAttempts: 2,
+  inactiveRedMaxAttempts: 2,
+};
+
 /** The last check is followed by one response interval before loss. */
 export function inactiveTrafficHours(policy: InactiveTrafficPolicy, color: "Green" | "Yellow" | "Red"): number {
   return policy[`inactive${color}PingHours`] * (policy[`inactive${color}MaxAttempts`] + 1);

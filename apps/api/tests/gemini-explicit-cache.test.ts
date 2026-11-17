@@ -24,6 +24,15 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
 let explicitCachingEnabled = false;
 let storedCache: { hash: string; name: string; model: string; expiresAt: Date } | null = null;
 
+// Тумблер явного кэша — константа с 01.11.2026 (lib/settingsConstants.ts); тест
+// переключает её геттером, а не полем Settings, которое сервер больше не читает.
+vi.mock("../src/lib/settingsConstants.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/settingsConstants.js")>();
+  const mocked = { ...actual, GEMINI_LITE_MODEL_OVERRIDE: null };
+  Object.defineProperty(mocked, "GEMINI_EXPLICIT_CACHING_ENABLED", { get: () => explicitCachingEnabled, enumerable: true });
+  return mocked;
+});
+
 const aiLogCreate = vi.fn(() => Promise.resolve({}));
 vi.mock("../src/db.js", () => ({
   prisma: {
@@ -33,12 +42,6 @@ vi.mock("../src/db.js", () => ({
           geminiApiKey: null,
           geminiApiKey2: null,
           geminiApiKeysExtra: [],
-          geminiModel: null,
-          geminiFallbackModels: [],
-          geminiTranscribeModels: [],
-          geminiImageModel: null,
-          geminiLiteModel: null,
-          geminiExplicitCachingEnabled: explicitCachingEnabled,
         }),
     },
     aiLog: { create: (...a: unknown[]) => aiLogCreate(...a) },

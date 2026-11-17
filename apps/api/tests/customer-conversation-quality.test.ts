@@ -50,7 +50,8 @@ describe("customer conversation quality", () => {
       evidence: [{ ref: "e0", value: vacancies }],
     });
     expect(result).toContain("Да, конечно. Расскажите о себе и своём опыте на таджикском.");
-    expect(result).toContain("Размер зарплаты и точные часы пока не опубликованы.");
+    expect(result).toContain("Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста.");
+    expect(result).not.toContain("Размер зарплаты");
     expect(result).not.toMatch(/\b\d{4,}\b/u);
     expect(result).not.toContain("Какая должность вас интересует?");
   });
@@ -67,7 +68,8 @@ describe("customer conversation quality", () => {
       verifiedContext: context("job", [], position.key), evidence: [{ ref: "e0", value: vacancies }],
     });
     expect(result).toContain("Бале, албатта. Дар бораи худ ва таҷрибаатон ба тоҷикӣ нақл кунед.");
-    expect(result).toContain("Маош ва соатҳои дақиқ ҳоло нашр нашудаанд.");
+    expect(result).toContain("Дар бораи кор ҳамаи тафсилотро Ноза мегӯяд. Ба ӯ занг занед: 777 070 100.");
+    expect(result).not.toContain("Маош ва соатҳои дақиқ");
     expect(result).not.toMatch(/\b\d{4,}\b/u);
   });
 
@@ -78,8 +80,9 @@ describe("customer conversation quality", () => {
       verifiedContext: prior,
       evidence: [{ ref: "e0", value: { kind: "receipt", outcome: "job_application_saved" } }],
     });
-    expect(withReceipt).toContain("Понял.");
-    expect(withReceipt).toContain("Сведения добавлены к отклику на вакансию.");
+    // 16.11.2026: no second greeting and no «Понял.» in its place; the receipt is the answer.
+    expect(withReceipt).not.toContain("Здравствуйте");
+    expect(withReceipt).toContain("Спасибо, записал.");
     expect(renderCustomerAgentDecision({ ...base, decision: { ...decision, refs: [] }, inputText: "Опыт работы есть.", language: "ru",
       verifiedContext: prior,
     })).toBe("Понял.");
@@ -217,7 +220,7 @@ describe("customer conversation quality", () => {
       evidence: [{ ref: "e0", value: { kind: "receipt", outcome: "job_application_saved" } }],
     });
     expect(result).toContain("Я не могу сам подписаться на сайт или аккаунт.");
-    expect(result).toContain("Сведения добавлены к отклику на вакансию.");
+    expect(result).toContain("Спасибо, записал.");
   });
 
   it("preserves a saved-application receipt alongside the current-chat answer", () => {
@@ -228,6 +231,6 @@ describe("customer conversation quality", () => {
       verifiedContext: context("job", []),
     });
     expect(result).toContain("Можем продолжить здесь, в текущем чате.");
-    expect(result).toContain("Сведения добавлены к отклику на вакансию.");
+    expect(result).toContain("Спасибо, записал.");
   });
 });

@@ -79,6 +79,8 @@ export async function matchBuyersForListing(text: string): Promise<ListingBuyerM
   const matched = await findMatchingClientsForProperty(
     {
       id: "listing",
+      // Тип из объявления не разбираем — «не знаем», в подборе не участвует.
+      type: null,
       price: facts.price,
       currency: facts.currency,
       districtId: where.districtId,

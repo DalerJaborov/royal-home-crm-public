@@ -59,3 +59,12 @@ export async function resolveCustomerSharedPublication(target: { url?: string; p
   }
   return [];
 }
+
+/** Could this input be a publication forwarded from SOMEBODY ELSE'S account? Only an attachment that is a share, whose whole property
+ * evidence is that share itself (an ad/story/reply/typed link/selector means the customer pointed at one of ours). Whether it IS foreign
+ * is decided later from the lookup outcome (`customerShareLookupFoundNothing`): this is the necessary condition only. */
+export function customerForeignShareCandidate(input: { kinds: readonly string[] | undefined;
+  propertyEvidence: readonly { origin: string }[] }): boolean {
+  return !!input.kinds?.length && input.kinds.every(kind => kind === "share") &&
+    input.propertyEvidence.length > 0 && input.propertyEvidence.every(item => item.origin === "shared_media");
+}

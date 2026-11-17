@@ -20,3 +20,31 @@ export function isCustomerAgentQualityContinuityUpgradeV1(prior: Protocol, next:
     prior.toolSchemaHash === pair.toolSchemaHash && next.toolSchemaHash === pair.toolSchemaHash &&
     prior.knowledgeSchemaHash === pair.fromKnowledgeSchema && next.knowledgeSchemaHash === pair.toKnowledgeSchema;
 }
+
+/** Second separately approved quality/continuity edge (PR #41, 29.10.2026):
+ * the prompt gains the public-comment addressee rule (`serverPublicState.addressee`)
+ * and the shared public-state/property-context schemas carry that field. Tool
+ * catalog is unchanged; V1 stays pinned as history, not an alias. */
+export const CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 = Object.freeze({
+  fromPrompt: CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1.toPrompt,
+  toPrompt: "6a58b93a8b0addc2e15f239f9ada385ad44f95663b7d2b9266d12bf6ec06f329",
+  toolSchemaHash: CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1.toolSchemaHash,
+  fromKnowledgeSchema: CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1.toKnowledgeSchema,
+  toKnowledgeSchema: "f78386f9c7109595ae1350e55dcb2802e601b4f949342d58e34ec87b71b5909b",
+});
+
+export function isCustomerAgentQualityContinuityUpgradeV2(prior: Protocol, next: Protocol): boolean {
+  const pair = CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2;
+  return prior.promptHash === pair.fromPrompt && next.promptHash === pair.toPrompt &&
+    prior.toolSchemaHash === pair.toolSchemaHash && next.toolSchemaHash === pair.toolSchemaHash &&
+    prior.knowledgeSchemaHash === pair.fromKnowledgeSchema && next.knowledgeSchemaHash === pair.toKnowledgeSchema;
+}
+
+export type CustomerAgentQualityContinuityUpgradeVersion = "v1" | "v2";
+
+/** Exactly one pinned edge may match; a jump over an edge (V1.from → V2.to) is not an upgrade. */
+export function customerAgentQualityContinuityUpgradeVersion(prior: Protocol, next: Protocol): CustomerAgentQualityContinuityUpgradeVersion | null {
+  if (isCustomerAgentQualityContinuityUpgradeV1(prior, next)) return "v1";
+  if (isCustomerAgentQualityContinuityUpgradeV2(prior, next)) return "v2";
+  return null;
+}

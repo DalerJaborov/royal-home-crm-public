@@ -33,7 +33,7 @@ describe("actual recruitment failure mechanisms with synthetic facts", () => {
   it("retains the visual description for actual property media", () => {
     const text = render({ inputText: "Что на фото?", evidence: [], decision: { kind: "reply", refs: [], social: "none", question: "none" },
       mediaPerception: { ...perception, speech: "none", transcript: "", readableText: "", language: "unknown", subject: "home_interior" } })!;
-    expect(text).toContain("мебель");
+    expect(text).toContain("Спасибо, фото получил."); // 16.11.2026: no inventory list
   });
   it("matches configured CONTENT and repeated identical rows without inventing an ambiguous role", () => {
     expect(selectedRecruitmentPosition([...positions, ...positions], "Контент")?.key).toBe("smm-videographer");
@@ -50,9 +50,9 @@ describe("actual recruitment failure mechanisms with synthetic facts", () => {
   it("keeps the vacancy from the preceding perceived reel on a later genuine generic question", () => {
     const text = render({ inputText: "Можно подробнее о работе?", verifiedContext: { surface: "dm", revisionId: "a".repeat(64),
       turns: [{ role: "user", text: perception.transcript }], publicState: { language: "ru", topic: "job", openQuestion: "none" } } })!;
-    expect(text).toContain("Агент по недвижимости"); expect(text).toContain("оклада нет"); expect(text).not.toContain("SMM-специалист");
+    expect(text).toContain("Агент по недвижимости"); expect(text).toContain("777 070 100"); expect(text).not.toContain("оклада нет"); expect(text).not.toContain("SMM-специалист");
     const switched = render({ inputText: "Теперь интересует вакансия видеографа", verifiedContext: { surface: "dm", revisionId: "a".repeat(64),
       turns: [{ role: "user", text: perception.transcript }], publicState: { language: "ru", topic: "job", openQuestion: "none" } } })!;
-    expect(switched).toContain("SMM-специалист"); expect(switched).not.toContain("оклада нет");
+    expect(switched).toContain("SMM-специалист"); expect(switched).toContain("777 070 100"); expect(switched).not.toContain("оклада нет");
   });
 });

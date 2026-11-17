@@ -340,6 +340,20 @@ describe("Ролик, который сам никуда не уйдёт, не �
     expect(await jobOf(p.id)).toBeNull();
   });
 
+  it("перемонтаж с заменой старых постов: объект во всех пяти сетях, но ролик встаёт в публикацию (№164, 01.11.2026)", async () => {
+    const p = await makeProperty({ publishedChannels: ["INSTAGRAM", "FACEBOOK", "TELEGRAM", "YOUTUBE", "TIKTOK"] });
+    await prisma.videoRemakeRequest.create({
+      data: { propertyId: p.id, reason: "CARD_DATA_CHANGED", requestedById: ownerAgentId, replaceOldPostsOnPublish: true },
+    });
+
+    const res = await uploadWhole(p.id, "remake-replace");
+
+    expect(res.status).toBe(200);
+    expect(res.body.notPublishingReason ?? null).toBeNull();
+    expect(typeof res.body.scheduledPublishAt).toBe("string");
+    expect((await jobOf(p.id))?.status).toBe("PENDING");
+  });
+
   it("проданный объект: причина вместо часа, и «Опубликовать сейчас» честно отказывает", async () => {
     const p = await makeProperty({ status: "SOLD" });
 

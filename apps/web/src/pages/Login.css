@@ -1,0 +1,19 @@
+.rh2 .scr .lgn { min-height: 100dvh; }
+.rh2 .scr .lgn .login-code-card { padding: 32px; }
+.rh2 .scr .lgn .login-code-card .gerb { margin-bottom: 20px; }
+.rh2 .scr .lgn .login-code-card h1 { line-height: 1.25; text-wrap: balance; }
+.rh2 .scr .lgn .login-code-card .sub { margin: 10px auto 24px; line-height: 1.55; max-width: 32ch; }
+.rh2 .scr .lgn .code .login-code-input { width: 100%; max-width: 300px; min-height: 58px; letter-spacing: .3em; padding-left: .3em; font-size: 26px; }
+.rh2 .scr .lgn .login-error { margin: 12px 0 0; color: var(--crit); font-size: 14px; line-height: 1.5; text-wrap: pretty; }
+.rh2 .scr .lgn .login-code-card .pill.gold { margin-top: 20px; min-height: 46px; }
+.rh2 .scr .lgn .login-code-card .pill.gold:disabled,
+.rh2 .scr .lgn .login-code-card .pill.gold:disabled:hover { background: var(--soft); color: var(--muted); border: 1px solid var(--line); box-shadow: none; opacity: 1; }
+.rh2 .scr .lgn .login-code-secondary { margin-top: 20px; }
+.rh2 .scr .lgn .login-code-status { min-height: 22px; margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rh2 .scr .lgn .login-code-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 16px; margin-top: 4px; }
+.rh2 .scr .lgn .login-code-actions .lnk, .rh2 .scr .lgn .login-code-back .lnk { min-height: 44px; padding: 8px 4px; font-size: 13px; }
+.rh2 .scr .lgn .login-code-actions .lnk:disabled { color: var(--muted); text-decoration: none; cursor: default; }
+.rh2 .scr .lgn .login-code-back { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; }
+@media (max-width: 480px) {
+  .rh2 .scr .lgn .login-code-card { padding: 28px 20px 20px; }
+}

@@ -24,11 +24,13 @@ import { authRouter } from "./routes/auth.js";
 import { testPasswordLoginRouter } from "./auth/testPasswordLogin.js";
 import { meRouter } from "./routes/me.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { propertyOffersRouter } from "./routes/propertyOffers.js";
 import { agentsRouter } from "./routes/agents.js";
 import { districtsRouter } from "./routes/districts.js";
 import { geoRouter } from "./routes/geo.js";
 import { landmarksRouter } from "./routes/landmarks.js";
 import { propertiesRouter } from "./routes/properties.js";
+import { transferRequestsRouter } from "./routes/transferRequests.js";
 import { clientsRouter } from "./routes/clients.js";
 import { dealsRouter } from "./routes/deals.js";
 import { dealDocumentsRouter } from "./routes/dealDocuments.js";
@@ -44,6 +46,7 @@ import { callsRouter } from "./routes/calls.js";
 import { aiRouter } from "./routes/ai.js";
 import { transcribeRouter } from "./routes/transcribe.js";
 import { reportsRouter } from "./routes/reports.js";
+import { reportPdfRouter } from "./routes/reportPdf.js";
 import { settingsRouter } from "./routes/settings.js";
 import { uiShellRouter } from "./routes/uiShell.js";
 import { liveVoiceListenRouter } from "./routes/liveVoiceListen.js";
@@ -90,6 +93,9 @@ import { searchConsoleRouter, searchConsoleCallbackRouter, yandexCallbackRouter 
 import { budgetWebhookRouter } from "./routes/budgetWebhook.js";
 import { oversightRouter } from "./routes/oversight.js";
 import { insightsRouter } from "./routes/insights.js";
+import { marketRouter } from "./routes/market.js";
+import { marketMatchesRouter } from "./routes/marketMatches.js";
+import { marketContactRouter } from "./routes/marketContact.js";
 import { propertyShareRouter } from "./routes/propertyShare.js";
 import { ownerReportPublicRouter } from "./routes/ownerReportPublic.js";
 import { eventsRouter } from "./routes/events.js";
@@ -696,7 +702,9 @@ app.use("/api/v1/agents", agentOverviewRouter);
 app.use("/api/v1/districts", districtsRouter);
 app.use("/api/v1/geo", geoRouter);
 app.use("/api/v1/landmarks", landmarksRouter);
+app.use("/api/v1/property-offers", propertyOffersRouter);
 app.use("/api/v1/properties", propertiesRouter);
+app.use("/api/v1/transfer-requests", transferRequestsRouter);
 app.use("/api/v1/clients", clientsRouter);
 app.use("/api/v1/deals", dealsRouter);
 app.use("/api/v1/deals", dealDocumentsRouter);
@@ -717,6 +725,7 @@ app.use("/api/v1/live-voice", liveVoiceListenRouter);
 app.use("/api/v1/ai", aiRouter);
 app.use("/api/v1/transcribe", transcribeRouter);
 app.use("/api/v1/reports", reportsRouter);
+app.use("/api/v1/report-pdf", reportPdfRouter);
 // Раньше общего роутера настроек: у того нет своих путей под /restore-points,
 // но порядок здесь и читается как «частное перед общим».
 app.use("/api/v1/telephony/whisper", telephonyWhisperRouter);
@@ -791,6 +800,9 @@ app.use("/api/v1/vacancies", vacanciesRouter);
 // переводы в Неактивные, передачи. Право dashboard.analytics — внутри роутера.
 app.use("/api/v1/oversight", oversightRouter);
 app.use("/api/v1/insights", insightsRouter);
+app.use("/api/v1/market/matches", marketMatchesRouter);
+app.use("/api/v1/market", marketContactRouter);
+app.use("/api/v1/market", marketRouter);
 /**
  * Приватная ссылка на объект (docs/plan-18-08-private-listings-and-video.md §4) —
  * БЕЗ requireAuth, клиент её открывает без входа в CRM. Публичный маршрут, читающий

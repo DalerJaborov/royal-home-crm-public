@@ -1,13 +1,13 @@
+import { outsideAreaAcceptedText } from "../lib/serviceArea.js";
 import { prepareCustomerPublicAgentDraft, publicAgentCommentLane, finishPublicAgentDecision } from "../lib/customerPublicAgentTurn.js";
 import { expireUnsentPublicAgentPlans } from "../lib/customerPublicAgentFailure.js";
 import { inspectPublicCommentPrincipal } from "../lib/publicCommentSourceIssuer.js";
 import { withCustomerPublicDeliveryTrace } from "../lib/customerAgentDeliveryTrace.js";
 import { readPublicCommentMetaToken } from "../lib/customerPublicCommentStore.js";
 import { createCustomerPublicReplyStore, publicCommentWireTarget } from "../lib/customerPublicDelivery.js";
-import { PublicReplyHeldError, publicReplyReceipt, sendRecordedPublicReply } from "./publicCommentReply.js";
+import { PublicReplyHeldError, sendRecordedPublicReply } from "./publicCommentReply.js";
 import { prisma } from "../db.js";
 import { detectSpam } from "../lib/incomingSpam.js";
-import { isOwnAccountSender } from "../lib/ownAccountGuard.js";
 import { detectAgencyAd, detectListingAd, looksTajik } from "../lib/listingAd.js";
 import { executeCustomerPublicModeration } from "../lib/customerPublicModeration.js";
 import { detectHate } from "../lib/commentHate.js";
@@ -22,6 +22,8 @@ import { callAiText } from "../ai/client.js";
 import { learnedRulesBlock } from "../lib/botLessons.js";
 import { screenIncomingText } from "../ai/inboundScreen.js";
 import { siteListingUrl } from "../lib/siteListingUrl.js";
+import { loadMoneyContext } from "../lib/money.js";
+import { guardCommentPrice } from "./commentPriceGuard.js";
 import { captionShortId, describeProperty, healInstagramUrl, instagramShortcode, recordClientInterest } from "./sharedMedia.js";
 import {
   callGraph,
@@ -30,12 +32,10 @@ import {
   GRAPH_VERSION,
   instagramApiUrl,
   instagramRequest,
-  isMetaChannelEnabled,
   loadCredentials,
   sendPrivateReply,
 } from "./meta.js";
-import { isBotEnabledForChannel } from "./botChannels.js";
-import type { MessengerChannel } from "./conversation.js";
+import type { MessengerChannel } from "./turnTypes.js";
 import { loadBotCapabilities } from "./botCapabilities.js";
 import {
   hasPendingLeadMagnetDelivery,
@@ -45,13 +45,16 @@ import {
 } from "../lib/leadMagnet.js";
 import { loadPeerAiBudget, spendAiTurns } from "../lib/aiDailyBudget.js";
 import { resolveIncomingAccount } from "./accounts.js";
-import { ensureConversationId } from "./conversation.js";
+import { brandForAccount, brandize, guardBrandLeak } from "../ai/brandName.js";
+import { ensureConversationId } from "./conversationStore.js";
+import { ensureCustomerEndpoint, type CustomerTransportReference } from "../lib/customerConversationScope.js";
 import { propertyIdForStoredComment } from "../lib/propertyVoice/commentProperty.js";
 import { appendConversationMessages } from "./appendMessages.js";
 import { SALES_FACTS } from "../ai/salesPlaybook.js";
 import { MANDATORY_BOT_RULES, propertyGeographyBlock } from "../ai/dushanbeGeography.js";
 import { folkGeographyBlock } from "../ai/folkPlaces.js";
-import { AGENCY_COMPANY_INFO, extractAllPhones } from "../ai/leadQualifier.js";
+import { AGENCY_COMPANY_INFO } from "../ai/agencyVoice.js";
+import { extractAllPhones } from "../lib/shared/phoneText.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
 import { commentDecisionProviderSchema, type ClientSource, type CommentDecision } from "@royal-home/shared";
@@ -62,13 +65,13 @@ import {
   moderationFailureNote, moderationAcceptedNote, type ModerationOutcome, type ModerationProvider,
 } from "./commentModerationOutcome.js";
 import { mapWithConcurrency } from "../lib/concurrency.js";
-import { enqueueComments, noteCommentsOff, type IncomingComment } from "./commentsQueue.js";
+import { commentApi, isCommentGone, postCommentReply, postCommentReplyResponse, setCommentHidden } from "./commentGraphActions.js";
+export { isCommentGone, postCommentReply, postCommentReplyResponse, setCommentHidden };
+import { ingestInstagramComments, ingestManagedMetaPublicComments, isCommentsBotEnabled, parseIncomingComments } from "./commentIngest.js";
+export { ingestInstagramComments, ingestManagedMetaPublicComments, parseIncomingComments };
 import {
   deleteYouTubeComment,
   fetchYouTubeVideoInfo,
-  postYouTubeCommentReplyResponse,
-  setYouTubeCommentHidden,
-  youtubeCommentsConfigured,
 } from "./youtubeComments.js";
 
 /**
@@ -259,222 +262,6 @@ const STUCK_AFTER_MS = 10 * 60 * 1000;
 // IncomingComment живёт в commentsQueue.ts (импортирован выше) — общая форма строки
 // очереди, читаемая и YouTube-поллером, и этим файлом.
 
-interface CommentValue {
-  id?: string;
-  parent_id?: string;
-  text?: string;
-  from?: { id?: string; username?: string; name?: string };
-  media?: { id?: string };
-}
-
-/**
- * Лента страницы Facebook (field="feed"). Туда сыплется всё сразу: комментарии,
- * лайки, репосты, новые записи — поэтому в разборе обязательны `item` и `verb`.
- */
-interface FacebookFeedValue {
-  item?: string;
-  verb?: string;
-  comment_id?: string;
-  post_id?: string;
-  message?: string;
-}
-
-/**
- * Достаёт комментарии из тела вебхука Meta. Чистая функция — проверяется тестом
- * без базы и без сети.
- *
- * Отбрасываем собственные комментарии агентства: `entry.id` — идентификатор
- * НАШЕГО аккаунта Instagram, и совпадение с автором означает, что это наша же
- * реплика. Без этой проверки бот отвечает сам себе, а Meta исправно доставляет
- * каждый новый круг — зацикливание на глазах у всех подписчиков.
- */
-export function parseIncomingComments(body: unknown): IncomingComment[] {
-  const payload = body as {
-    object?: string;
-    entry?: { id?: string; changes?: { field?: string; value?: CommentValue & FacebookFeedValue }[] }[];
-  } | null;
-  // Instagram шлёт object=instagram, страница Facebook — object=page. Всё
-  // остальное (WhatsApp, изменения самого приложения) сюда не относится.
-  if (payload?.object !== "instagram" && payload?.object !== "page") return [];
-  const channel: MessengerChannel = payload.object === "page" ? "FACEBOOK" : "INSTAGRAM";
-
-  const out: IncomingComment[] = [];
-  for (const entry of payload.entry ?? []) {
-    for (const change of entry.changes ?? []) {
-      /**
-       * У ДВУХ КАНАЛОВ РАЗНАЯ ФОРМА ОДНОГО И ТОГО ЖЕ СОБЫТИЯ.
-       *
-       * Instagram: field="comments", в value сразу id/text/from/media.
-       * Facebook: field="feed" — это лента страницы целиком: комментарии, лайки,
-       * репосты, новые записи. Нужен только `item="comment"` и `verb="add"`:
-       * `edited` — правка чужого текста (отвечать заново не на что), `remove` —
-       * удаление. Идентификатор комментария там `comment_id`, публикация —
-       * `post_id`, текст — `message`, автор — `from.name` (ника у Facebook нет).
-       */
-      const value = change.value;
-      if (channel === "INSTAGRAM" && change.field !== "comments") continue;
-      if (channel === "FACEBOOK") {
-        if (change.field !== "feed") continue;
-        if (value?.item !== "comment" || value?.verb !== "add") continue;
-      }
-
-      const commentId = channel === "FACEBOOK" ? value?.comment_id : value?.id;
-      const authorId = value?.from?.id;
-      const text = ((channel === "FACEBOOK" ? value?.message : value?.text) ?? "").trim();
-      // Комментарий без текста (одна картинка-стикер) отвечать не на что.
-      if (!commentId || !authorId || !text) continue;
-      // Свой же комментарий (ответ страницы) назад в очередь не берём — иначе
-      // бот отвечает сам себе на глазах у подписчиков.
-      if (entry.id && authorId === entry.id) continue;
-      out.push({
-        channel,
-        commentId,
-        mediaId: (channel === "FACEBOOK" ? value?.post_id : value?.media?.id) ?? "",
-        accountExternalId: entry.id,
-        // У Facebook верхний комментарий тоже приходит с parent_id — равным id
-        // самой записи (02.10.2026). Такой считался «ответом в ветке»: личного не
-        // шло ни разу, а бот при этом писал «ответили вам в директ».
-        parentId:
-          channel === "FACEBOOK" && value?.parent_id && value.parent_id === value?.post_id
-            ? undefined
-            : value?.parent_id,
-        authorId,
-        authorName: channel === "FACEBOOK" ? value?.from?.name : value?.from?.username,
-        text,
-      });
-    }
-  }
-  return out;
-}
-
-/** Отвечаем ли мы сейчас на комментарии вообще: транспорт Instagram настроен и
- *  включён, и бот в Instagram не выключен рубильником (общим или канальным).
- *  Комментарии — тот же Instagram, что и директ: выключив бота в Instagram,
- *  владелец не должен обнаружить, что под постами он всё ещё говорит. */
-async function isCommentsBotEnabled(channel: MessengerChannel = "INSTAGRAM"): Promise<boolean> {
-  // Отдельный ползунок «отвечать на комментарии» (Настройки → Бот → «Что бот
-  // умеет»): под постами бот говорит на людях, и выключать это хочется отдельно
-  // от личной переписки, не трогая Instagram целиком.
-  if (!(await loadBotCapabilities()).comments) {
-    await noteCommentsOff(channel, "выключен общий ползунок «Отвечать на комментарии» (Настройки → Бот)");
-    return false;
-  }
-  // YOUTUBE — свой транспорт (Data API v3, опрос вместо вебхука), у него нет ни
-  // Meta-канального рубильника (isBotEnabledForChannel — только Meta+Telegram),
-  // ни isMetaChannelEnabled (это про WhatsApp/Instagram/Facebook): единственный
-  // вопрос — заведены ли ключи (см. youtubeComments.ts::youtubeCommentsConfigured).
-  if (channel === "YOUTUBE") {
-    if (!(await youtubeCommentsConfigured())) {
-      await noteCommentsOff(channel, "YouTube не настроен: нет client_id/client_secret/refresh_token в Настройках");
-      return false;
-    }
-    return true;
-  }
-  // Канальный рубильник — свой у каждого канала: владелец может отвечать в
-  // Instagram и молчать на странице Facebook, и наоборот (16.08.2026).
-  if (!(await isBotEnabledForChannel(channel))) {
-    await noteCommentsOff(channel, `бот выключен для канала ${channel} (Настройки → Бот → каналы)`);
-    return false;
-  }
-  if (!(await isMetaChannelEnabled(channel as "INSTAGRAM" | "FACEBOOK"))) {
-    await noteCommentsOff(
-      channel,
-      `канал ${channel} не настроен или выключен: нет маркера/секрета приложения либо снят общий рубильник Meta ` +
-        `(Настройки → Meta и Настройки → Каналы)`
-    );
-    return false;
-  }
-  return true;
-}
-
-// noteCommentsOff живёт в commentsQueue.ts (импортирован выше) — общая для
-// Instagram/Facebook и YouTube дневная дедупликация «модерация не работает».
-
-/**
- * Ставит комментарии в очередь. Возвращает число ПРИНЯТЫХ (без дублей) — по нему
- * видно, что повторная доставка ничего не породила.
- *
- * Ошибку наружу не бросаем: вебхук уже ответил Meta «200», и его падение здесь
- * обернулось бы только потерянной записью в журнале.
- */
-/**
- * РАЗБИРАЕМ СРАЗУ, НА СЛЕДУЮЩЕМ ТИКЕ КРОНА (переписано 05.09.2026, было —
- * искусственная пауза 1-2 минуты уже здесь, при приёме, для ВСЕХ комментариев
- * без разбора).
- *
- * Раньше пауза «на человечность» держала весь разбор целиком, то есть спам и
- * реклама конкурента под нашим постом висели на виду у подписчиков те же 1-3
- * минуты, что и обычный ответ — а прятать/удалять их незачем медленно (владелец
- * 05.09.2026: «надо быстро убирать»). Пауза никуда не делась, она переехала В
- * МОМЕНТ ПУБЛИКАЦИИ ТЕКСТА (см. humanReplyDelay() ниже) — держит смысл только
- * там, где боту есть что маскировать под живого человека. hide/delete/ignore
- * теперь ждут только естественный такт крона (до минуты), заодно это отменяет
- * прежнее исключение для воронки лид-магнита (владелец 16.08.2026, «жду две
- * минуты — ни ответа, ни файла») — воронка и всё остальное разбираются
- * одинаково быстро, отдельной ветки для неё здесь больше не нужно.
- *
- * Сама постановка в очередь (форма строки + createMany skipDuplicates) вынесена в
- * enqueueComments (commentsQueue.ts) — тем же путём кладёт свои строки и YouTube-
- * поллер (youtubeComments.ts), второй копии нет.
- */
-/** Комментарий оставил наш же аккаунт или сотрудник — отвечать ему бот не должен. */
-async function isOwnOrStaffCommenter(c: IncomingComment): Promise<boolean> {
-  if (await isOwnAccountSender({ senderId: c.authorId, senderName: c.authorName ?? null })) return true;
-  const nick = (c.authorName ?? "").trim().replace(/^@/, "").toLowerCase();
-  if (!nick || c.channel !== "INSTAGRAM") return false;
-  const agent = await prisma.agent.findFirst({
-    where: { instagramUsername: { equals: nick, mode: "insensitive" } },
-    select: { id: true },
-  });
-  return agent != null;
-}
-
-async function freshPublicCommentItems(items: readonly IncomingComment[]): Promise<IncomingComment[]> {
-  // Наша собственная реплика, вернувшаяся как новый комментарий. По `entry.id`
-  // такое обычно уже отсеяно, но полагаться на одну проверку в защите от
-  // зацикливания нельзя: цена ошибки — бесконечная ветка под постом.
-  const ours = await prisma.instagramComment.findMany({
-    where: { replyCommentId: { in: items.map((c) => c.commentId) } },
-    select: { replyCommentId: true },
-    take: items.length,
-  });
-  const ownIds = new Set(ours.map((o) => o.replyCommentId));
-  const fresh = [];
-  for (const c of items) {
-    if (ownIds.has(c.commentId)) continue;
-    // Второй наш аккаунт и сотрудники (02.10.2026). Защита личной переписки
-    // узнаёт свои аккаунты по нику (у Instagram у одного аккаунта бывают разные
-    // id), а комментарии сверяли только id — и бот отвечал под постом нашему же
-    // @royalhome.info и агентам, которые соавторы роликов.
-    if (await isOwnOrStaffCommenter(c)) continue;
-    fresh.push(c);
-  }
-  return fresh;
-}
-
-/** Managed producer only: errors propagate so the owning HTTP producer can return 503 BEFORE ACK.
- * Queue row + capture atomically persisted by root's P12 port, never by an optimistic note/boolean. */
-export async function ingestManagedMetaPublicComments(
-  capture: import("./commentsQueue.js").MetaPublicCaptureSession
-): Promise<import("../lib/publicCommentTypes.js").PublicResult<readonly import("../lib/publicCommentTypes.js").PublicSourceRef[]>> {
-  const fresh = await freshPublicCommentItems(capture.items);
-  const enabled = fresh.length > 0 ? await isCommentsBotEnabled(fresh[0].channel) : false;
-  return capture.commitFiltered(fresh, enabled);
-}
-
-export async function ingestInstagramComments(body: unknown): Promise<number> {
-  const items = parseIncomingComments(body);
-  if (items.length === 0) return 0;
-  try {
-    const fresh = await freshPublicCommentItems(items);
-    if (fresh.length === 0) return 0;
-    const enabled = await isCommentsBotEnabled(fresh[0]?.channel);
-    return await enqueueComments(fresh, enabled);
-  } catch (err) {
-    void logSystemError("meta", `Комментарии Instagram не приняты: ${describeError(err)}`);
-    return 0;
-  }
-}
 
 // ─── Что мы знаем о публикации ──────────────────────────────────────────────
 
@@ -925,6 +712,8 @@ export interface CommentPromptInput {
   /** Наши последние публичные ответы в этом канале — чтобы не повторять их дословно:
    *  одинаковые ответы под постами Instagram считает накруткой, а люди — автоматом. */
   recentReplies?: string[];
+  /** Как аккаунт называет компанию (ai/brandName.ts); пусто — «Royal Home», как было. */
+  brand?: string | null;
 }
 
 /** Строка промта с последними ответами; пусто, когда их нет. */
@@ -1053,13 +842,7 @@ export const COMMENT_SCENARIO_RULES =
   "\n<сценарии_под_постом>\n" +
   "АРЕНДА (иҷора/аренда/снять/сдать): аренды у нас нет. Одна вежливая фраза об этом (факт — в АГЕНТСТВЕ выше) " +
   "и всё. Номер телефона НЕ проси, в директ по этому поводу НЕ зови.\n" +
-  "ДРУГОЙ ГОРОД (не Душанбе): работаем ТОЛЬКО по Душанбе (см. факты агентства). Откажи одной вежливой фразой " +
-  "СРАЗУ. ЗАПРЕЩЕНО «баррасӣ мекунем», «можем рассмотреть» и любые похожие обещания. ЗАПРЕЩЕНО ЛЮБОЕ ОБЕЩАНИЕ " +
-  "ЗВОНКА ИЛИ СВЯЗИ (владелец 17.09.2026): «агент позвонит», «агенти мо тамос мегирад», «свяжемся в ближайшее " +
-  "время» и всё в этом духе — этого не будет, номер сам не проси. Если человек уже сам оставил номер или " +
-  "написал про свою квартиру — ответь ровно так: «Записали, спасибо. Пока работаем только по Душанбе; если " +
-  "начнём работать в вашем городе — напишем.» / «Сабт кардем, раҳмат. Ҳоло танҳо дар Душанбе кор мекунем; агар " +
-  "дар шаҳри шумо сар кунем, менависем.»\n" +
+  `ДРУГОЙ ГОРОД (не Душанбе и не район Рудаки): работаем ТОЛЬКО в Душанбе и районе Рудаки (см. факты агентства). Откажи одной вежливой фразой СРАЗУ. ЗАПРЕЩЕНО «баррасӣ мекунем», «можем рассмотреть» и любые похожие обещания. ЗАПРЕЩЕНО ЛЮБОЕ ОБЕЩАНИЕ ЗВОНКА ИЛИ СВЯЗИ (владелец 17.09.2026): «агент позвонит», «агенти мо тамос мегирад», «свяжемся в ближайшее время» и всё в этом духе — этого не будет, номер сам не проси. Если человек уже сам оставил номер или написал про свою квартиру — ответь ровно так: «${outsideAreaAcceptedText("ru")}» / «${outsideAreaAcceptedText("tg")}»\n` +
   "ПРОДАВЕЦ-СОБСТВЕННИК (продаёт СВОЮ квартиру, дом, участок: спрашивает нас про условия или просто выложил " +
   "объявление) — action=owner, см. правила выбора action. Подробности условий и выгод мы напишем ему в личку сами, " +
   "под постом их не расписывай.\n" +
@@ -1092,7 +875,9 @@ function knownPropertyRules(property: NonNullable<MediaContext["property"]>): st
     "ни «приезжайте». Ответил на вопрос — закончил.\n" +
     "Но если человек прямо под постом говорит, что готов купить, называет свою цену или просит скидку — это " +
     "торг, и тут зови в личные сообщения смело: там продолжится разговор о цене.\n" +
-    "Цену, площадь, район и комнаты бери ТОЛЬКО отсюда. Если объект уже не в продаже — скажи об этом честно " +
+    "Цену, площадь, район и комнаты бери ТОЛЬКО отсюда. Подпись публикации могла устареть: если цифры в ней " +
+    "расходятся с карточкой, верна карточка. Цену называй в той валюте, что в карточке, сам в доллары не пересчитывай " +
+    "(16.11.2026: «135 520 сомонӣ» вместо 1 250 000). Если объект уже не в продаже — скажи об этом честно " +
     "и предложи посмотреть похожее. Если спрашивают именно ЗА СКОЛЬКО объект продали (цену сделки) — скажи, что " +
     "квартира продана, а цену сделки НЕ называй ни в каком виде (владелец 17.09.2026); предложи похожие варианты."
   );
@@ -1301,14 +1086,17 @@ async function decideOnComment(input: CommentPromptInput, context: MediaContext)
     // переписке (ai/leadQualifier.ts). Выходило наоборот тому, чего требует цена
     // ошибки: под постом, где текст видят все подписчики, бот знал о городе меньше,
     // чем в личке с одним человеком, и спрашивал «Бустон Сити тарафи кадом район?».
-    systemStable: AGENCY_COMPANY_INFO + SALES_FACTS + (await folkGeographyBlock()) + MANDATORY_BOT_RULES + COMMENT_SCENARIO_RULES + (await propertyGeographyBlock()),
+    systemStable: brandize(
+      AGENCY_COMPANY_INFO + SALES_FACTS + (await folkGeographyBlock()) + MANDATORY_BOT_RULES + COMMENT_SCENARIO_RULES + (await propertyGeographyBlock()),
+      input.brand
+    ),
     // Выводы из случаев, где бот уже ошибался (lib/botLessons.ts) — та же функция,
     // что и в личной переписке (ai/leadQualifier.ts). В ИЗМЕНЯЕМУЮ часть промта, а
     // прямо в чате, см. routes/conversations.ts POST /:id/reply-feedback) чаще, чем
     // живёт кэш, и внутри кэшируемого блока новое правило не пробилось бы в промт,
     // пока не сменится что-то ещё в стабильной части (см. тот же приём и комментарий
     // в leadQualifier.ts).
-    system: buildCommentSystem(input, context, await loadCommentPrompt()) + (await learnedRulesBlock("comments")),
+    system: brandize(buildCommentSystem(input, context, await loadCommentPrompt()) + (await learnedRulesBlock("comments")), input.brand),
     user: `Комментарий от ${author}: «${input.text}»`,
     maxTokens: 400,
     // Комментарий читают посторонние — это лицо компании на публике, и экономить
@@ -1326,97 +1114,9 @@ async function decideOnComment(input: CommentPromptInput, context: MediaContext)
  *  по нему мы потом узнаём собственные комментарии.
  *  @param tokenOverride маркер аккаунта, под чьим постом комментарий (accounts.ts) —
  *  без него Meta отклонит ответ, если пост принадлежит НЕ аккаунту по умолчанию. */
-/**
- * АДРЕС И МАРКЕР ЗАВИСЯТ ОТ КАНАЛА (16.08.2026, комментарии Facebook).
- *
- * Instagram ходит на graph.instagram.com (а с нашего VPS — через прокси, см.
- * instagramApiUrl) и своим маркером. Страница Facebook — на graph.facebook.com и
- * маркером страницы. Один и тот же путь `/{id}/replies` у них устроен одинаково,
- * а вот домен и токен разные, и перепутать их значит получить «объект не найден».
- */
-async function commentApi(
-  channel: MessengerChannel,
-  path: string,
-  tokenOverride?: string
-): Promise<{ url: string; token: string }> {
-  const c = await loadCredentials();
-  if (channel === "FACEBOOK") {
-    const token = tokenOverride || c.pageToken;
-    if (!token) throw new Error("Маркер страницы Facebook не задан в Настройках");
-    return { url: `https://graph.facebook.com/${GRAPH_VERSION}${path}`, token };
-  }
-  const token = tokenOverride || c.igToken;
-  if (!token) throw new Error("Маркер Instagram не задан в Настройках");
-  return { url: instagramApiUrl(`/${GRAPH_VERSION}${path}`), token };
-}
 
-/**
- * Экспортирован для routes/instagramComments.ts (POST /:id/reply — ручной ответ
- * сотрудника): тот же путь Graph API, что использует бот, а не второй, слегка
- * другой вызов.
- *
- * @param row нужен целиком (или как минимум channel/commentId/parentId), а не
- *   только commentId: YouTube принимает ответ ТОЛЬКО на верхний комментарий
- *   ветки — если row.parentId заполнен (это ответ, а не корневой комментарий),
- *   в теле уходит parentId, а не commentId самой реплики (см.
- *   youtubeComments.ts::postYouTubeCommentReply). У Instagram/Facebook такого
- *   ограничения нет, им по-прежнему нужен только сам commentId.
- */
-export async function postCommentReplyResponse(
-  row: Pick<QueuedComment, "channel" | "commentId" | "parentId">,
-  message: string,
-  tokenOverride?: string,
-  beforePost?: () => Promise<void>
-): Promise<unknown> {
-  if (row.channel === "YOUTUBE") return postYouTubeCommentReplyResponse(row.parentId || row.commentId, message, beforePost);
-  // Ответ на комментарий у Facebook — POST /{id}/comments, «/replies» есть только
-  // у Instagram (02.10.2026): Facebook отвечал «Unsupported post request», а это
-  // ещё и принималось за «комментарий удалён».
-  const edge = row.channel === "FACEBOOK" ? "comments" : "replies";
-  const { url, token } = await commentApi(row.channel, `/${encodeURIComponent(row.commentId)}/${edge}`, tokenOverride);
-  const created = await callGraph<{ id?: string }>(url, token, { message }, "POST", beforePost);
-  return created;
-}
 
-export async function postCommentReply(row: Pick<QueuedComment, "channel" | "commentId" | "parentId">, message: string, tokenOverride?: string, beforePost?: () => Promise<void>): Promise<string | null> {
-  if (row.channel !== "INSTAGRAM" && row.channel !== "FACEBOOK" && row.channel !== "YOUTUBE") throw new PublicReplyHeldError("unsupported_channel");
-  const receipt = publicReplyReceipt(row.channel, await postCommentReplyResponse(row, message, tokenOverride, beforePost));
-  return receipt.outcome === "accepted" ? receipt.providerId : null;
-}
 
-/**
- * Скрыть комментарий от подписчиков или вернуть его обратно. Именно скрыть, а не
- * удалить: удаление необратимо и лишает руководство возможности посмотреть, за что
- * человека наказали.
- *
- * ОДНА ФУНКЦИЯ НА ОБА НАПРАВЛЕНИЯ И НА ВСЕ ТРИ ПЛОЩАДКИ (23.09.2026). Раньше здесь
- * жило только скрытие, а возврат подписчикам был вторым, слегка другим вызовом в
- * routes/instagramComments.ts — и этот второй ходил В INSTAGRAM ВСЕГДА, каким бы ни
- * был канал строки. Комментарий со страницы Facebook или из-под ролика YouTube
- * кнопка «Скрыть» в CRM не скрывала вовсе: маркер Instagram чужого комментария не
- * видит, Meta отвечала отказом, а сотрудник читал «Instagram не принял скрытие» под
- * комментарием, никакого отношения к Instagram не имеющим. Тот же класс, что уже
- * чинили 16.08.2026 у ответа и личного сообщения (см. commentApi): адрес Graph и
- * маркер зависят от канала, и второй копии этого выбора быть не должно.
- *
- * @param tokenOverride маркер аккаунта, под чьим постом комментарий (accounts.ts) —
- *   для YOUTUBE не нужен, там свой Bearer-токен (youtubeComments.ts).
- */
-export async function setCommentHidden(
-  channel: MessengerChannel,
-  commentId: string,
-  hide: boolean,
-  tokenOverride?: string
-): Promise<void> {
-  if (channel === "YOUTUBE") return setYouTubeCommentHidden(commentId, hide);
-  if (channel !== "INSTAGRAM" && channel !== "FACEBOOK") throw new Error("Unsupported comment moderation channel");
-  const { url, token } = await commentApi(channel, `/${encodeURIComponent(commentId)}`, tokenOverride);
-  // Поле у двух Graph разное (24.09.2026): Instagram понимает `hide`, а комментарий
-  // страницы Facebook — только `is_hidden`. С `hide` страница отвечала отказом, и
-  // скрытие спама под постами Facebook не работало ни у бота, ни у кнопки в CRM.
-  const response = await callGraph(url, token, channel === "FACEBOOK" ? { is_hidden: hide } : { hide });
-  requireModerationAccepted(graphModerationOutcome(channel, hide ? "hide" : "unhide", response));
-}
 
 async function hideComment(channel: MessengerChannel, commentId: string, tokenOverride?: string): Promise<void> {
   await setCommentHidden(channel, commentId, true, tokenOverride);
@@ -1466,6 +1166,34 @@ export type QueuedComment = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+/**
+ * ЧЕЙ НАШ АККАУНТ У АВТОРА КОММЕНТАРИЯ — ОДНА ДВЕРЬ для всех записей в CRM по
+ * комментарию: досье, переписка (личное, письмо собственнику), интерес к объекту.
+ *
+ * Тот же выбор, что у личного входящего (routes/webhooks.ts): строка аккаунта,
+ * если она есть, — прежний путь без изменений. Нет строки (account.id = null)
+ * — значит, страница Facebook подключена через Настройки, и namespace задаёт
+ * подписанный Meta получатель комментария `row.accountExternalId`; сверка, что
+ * это именно страница из Настроек, — внутри accountForEndpoint
+ * (readInstalledCustomerTransport), чужая страница получает отказ, как и раньше.
+ *
+ * Без этой половины каждый комментарий под постом страницы Facebook с 15.10.2026
+ * получал `Customer endpoint denied: account_unknown`: ответ под постом и личное
+ * уходили (отправка берёт страницу из Настроек сама, resolveLegacyMetaSendTransport),
+ * а досье, переписка и интерес к объекту не писались (ErrorLog прода 15.10–07.11).
+ * YouTube сюда не относится: у его архива нет namespace (upsertYouTubeCommentArchive).
+ */
+export async function commentAuthorScope(
+  row: Pick<QueuedComment, "channel" | "authorId" | "accountExternalId">,
+  accountId: string | null | undefined
+): Promise<{ accountId: string | null | undefined; transport?: CustomerTransportReference }> {
+  if (accountId || row.channel !== "FACEBOOK" || !row.accountExternalId) return { accountId };
+  const transport = await ensureCustomerEndpoint(prisma, {
+    channel: row.channel, subscriberId: row.authorId, accountExternalId: row.accountExternalId,
+  });
+  return { accountId: null, transport };
+}
 
 /**
  * Разбирает подошедшие комментарии. Зовётся кроном раз в минуту.
@@ -1564,7 +1292,13 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // A retained managed origin cannot enter legacy account/funnel/DM/moderation,
   // even after rollout OFF or when its genuine source proof has expired.
   try {
-    if (await publicAgentCommentLane(row.id) === "managed") {
+    const lane = await publicAgentCommentLane(row.id);
+    if (lane === "moved") {
+      // Ветка уже переведена на ядро (31.10): старый движок здесь не отвечает.
+      await finish(row.id, { status: "SKIPPED", note: "legacy_lane_moved" });
+      return "skipped";
+    }
+    if (lane === "managed") {
       const draft = await prepareCustomerPublicAgentDraft({ table: "meta", id: row.id });
       if (draft.status === "moderate") {
         const outcome = await executeCustomerPublicModeration(draft.principal);
@@ -1619,6 +1353,35 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // guessed запись досье/истории, сохраняя прежнюю привязку и карантин legacy.
   // Флаг не даёт permission на запись или перенос переписки в другой аккаунт.
   const accountGuess = "certain" in account && account.certain === false;
+  // Имя компании этого аккаунта (ai/brandName.ts): в промте и в готовых текстах ниже.
+  const brand = await brandForAccount(account.id);
+  /** Страховка на выходе: прежнее имя в готовом ответе заменяется и пишется в журнал. */
+  const leakSafe = (t: string): string => guardBrandLeak([t], brand, { where: "комментарий", conversationId: row.id })[0]!;
+  /** Цена под постом — только из карточки (messengers/commentPriceGuard.ts, 16.11.2026). */
+  const priceSafe = async (t: string, ctx: MediaContext): Promise<string> => {
+    if (!t) return t;
+    const p = ctx.property;
+    const card = p
+      ? {
+          // Ссылка карточки — в источниках: цифры её адреса не цена.
+          line: `${describeProperty(p as Parameters<typeof describeProperty>[0])} ${siteListingUrl(p) ?? ""}`,
+          price: Number(p.price),
+          currency: p.currency,
+          available: p.status === "AVAILABLE",
+        }
+      : null;
+    const money = await loadMoneyContext().catch(() => null);
+    const out = guardCommentPrice({ text: t, card, commentText: row.text, usdToTjs: money?.usdToTjs, channel: row.channel });
+    if (out.invented.length > 0) {
+      void logSystemError(
+        "ai",
+        `Бот под комментарием (${row.channel}) назвал цену, которой нет в карточке (${out.invented.join(", ")}) — ` +
+          "фраза вырезана" + (card?.available ? ", цену назвал код из карточки." : "."),
+        { dedupKey: "comment-invented-price", dedupScope: row.id }
+      );
+    }
+    return out.text;
+  };
 
   // Защита от зацикливания: одному человеку под одной публикацией отвечаем
   // ограниченное число раз в сутки. Дальше — молчим, разговор продолжает человек.
@@ -2005,6 +1768,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
       answered,
       channel,
       recentReplies: await recentPublicReplies(channel),
+      brand,
     },
     context
   );
@@ -2025,7 +1789,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     // Собственник, которого код не узнал (без номера, своими словами). Спросил НАС —
     // модель дала короткий публичный ответ, комментарий остаётся. Выложил объявление
     // для читателей — ответа нет, объявление убираем с глаз, как у кода выше.
-    const publicReply = cleanPublicCommentReply(stripShowingInvite(decision.reply?.trim() ?? ""), row.text);
+    const publicReply = await priceSafe(leakSafe(cleanPublicCommentReply(stripShowingInvite(decision.reply?.trim() ?? ""), row.text)), context);
     if (publicReply) {
       await humanReplyDelay();
       const replyCommentId = await postCommentReply(row, publicReply, account.token);
@@ -2082,8 +1846,11 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
    * только в InstagramComment.note/dmSentAt — сама карточка от него больше не
    * зависит.
    */
+  let authorTransport: CustomerTransportReference | undefined;
   try {
-    await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, account.id, accountGuess);
+    const scope = await commentAuthorScope(row, account.id);
+    authorTransport = scope.transport;
+    await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
   } catch (err) {
     void logSystemError("meta", `Досье комментатора ${row.commentId} не заведено: ${describeError(err)}`);
   }
@@ -2123,7 +1890,9 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
         channel,
         row.authorId,
         undefined,
-        account.id
+        // Тот же namespace, что у досье выше (commentAuthorScope): страница из
+        // Настроек без строки аккаунта иначе давала account_unknown.
+        authorTransport ?? account.id
       );
     }
   }
@@ -2151,14 +1920,14 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // смайликом — норма и прямо предписан промтом (в личке эмодзи запрещены). Поэтому
   // ответ, состоящий только из реакции, оставляем как есть; чистим лишь текст.
   const rawReply = stripShowingInvite(decision.reply?.trim() ?? "");
-  const replyText = cleanPublicCommentReply(rawReply, row.text);
+  const replyText = await priceSafe(leakSafe(cleanPublicCommentReply(rawReply, row.text)), context);
   if (replyText) await humanReplyDelay();
   const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
 
   // Личное только после публичного ответа: если публичный не ушёл, значит с
   // комментарием что-то не так, и лезть человеку в личку тем более не стоит.
   // Личное — это обычная переписка, и правила там ровно те же, что в директе.
-  const dmText = linkAsLastLine(cleanOutgoingReply(decision.dm?.trim() ?? ""), context.property) || undefined;
+  const dmText = (await priceSafe(leakSafe(linkAsLastLine(cleanOutgoingReply(decision.dm?.trim() ?? ""), context.property)), context)) || undefined;
   const dm = replyText ? await maybeSendPrivateReply(row, dmText, account.token) : { sent: false as const };
   // Личное ушло — оно ОБЯЗАНО появиться в переписке CRM (20.09.2026). Раньше текст
   // личного ложился только в журнал комментариев (InstagramComment.dmText), а в
@@ -2278,7 +2047,8 @@ async function contactOwner(
     void logSystemError("meta", `Подбор покупателей под объявление ${row.commentId} не удался: ${describeError(err)}`);
     return null;
   });
-  const dmText = ownerDmText(looksTajik(row.text), buyers?.total ?? 0);
+  // Готовый текст называет компанию: у аккаунта со своим брендом имя подменяется.
+  const dmText = brandize(ownerDmText(looksTajik(row.text), buyers?.total ?? 0), await brandForAccount(account.id));
   const dm = await maybeSendPrivateReply(row, dmText, account.token);
   if (dm.sent) {
     await recordOwnerConversation(row, dmText, dm.mid ?? null, account.id, account.certain === false);
@@ -2321,12 +2091,14 @@ async function recordOwnerConversation(
 ): Promise<void> {
   if (row.channel !== "INSTAGRAM" && row.channel !== "FACEBOOK") return;
   try {
+    const scope = await commentAuthorScope(row, accountId);
     const conversationId = await ensureConversationId(
       row.channel,
       row.authorId,
       row.authorName ?? undefined,
-      accountId,
-      accountGuess
+      scope.accountId,
+      accountGuess,
+      scope.transport
     );
     await appendConversationMessages(conversationId, [
       { role: "user", content: `(комментарий под нашим постом) ${row.text}` },
@@ -2429,12 +2201,14 @@ async function recordPrivateReply(
   // но проверка стоит явно: переписки этого канала в BotConversation не бывает.
   if (row.channel !== "INSTAGRAM" && row.channel !== "FACEBOOK") return;
   try {
+    const scope = await commentAuthorScope(row, accountId);
     const conversationId = await ensureConversationId(
       row.channel,
       row.authorId,
       row.authorName ?? undefined,
-      accountId,
-      accountGuess
+      scope.accountId,
+      accountGuess,
+      scope.transport
     );
     // Сам комментарий — тоже в переписку, как в recordOwnerConversation
     // (02.10.2026): без него бот в директе не знал, о чём человек спросил под
@@ -2578,21 +2352,6 @@ async function escalate(row: QueuedComment, reason?: string): Promise<void> {
 /** Ошибка «поставщик ИИ недоступен» — у неё свой, терпеливый путь повторов. */
 class AiUnavailableError extends Error {}
 
-/**
- * «Комментария больше нет» — Graph отвечает 400 с кодом 100 и текстом «Object with
- * ID … does not exist, cannot be loaded due to missing permissions, or does not
- * support this operation». Так выглядит удалённый автором комментарий (и наш же
- * скрытый), а не сбой.
- *
- * Отличать обязательно: этот отказ не лечится ни повтором, ни человеком. До
- * 20.08.2026 он шёл общим путём — три попытки, эскалация «бот несколько раз не
- * смог ответить» и три строки в журнале ошибок на каждый такой комментарий. Агент,
- * открыв эскалацию, не находил ни комментария, ни куда отвечать.
- */
-export function isCommentGone(err: unknown): boolean {
-  const text = err instanceof Error ? err.message : String(err ?? "");
-  return /does not exist|cannot be loaded due to missing permissions|commentNotFound|comment not found/i.test(text);
-}
 
 /**
  * Комментарий правда удалён, или площадка отказала по другой причине (02.10.2026)?
@@ -2684,6 +2443,11 @@ async function failComment(row: QueuedComment, err: unknown): Promise<void> {
    * решение бота передать реальный вопрос клиента человеку (см. ниже случай
    * `decision.action === "escalate"` — тот push остаётся: там модель сама решила,
    * что вопрос про документы/рассрочку/сделку ей не по силам, и это не сбой).
+   * 15.11.2026 ВЛАДЕЛЕЦ ЭТО РЕШЕНИЕ ОТМЕНИЛ (В2: «комментарии, на которые ИИ
+   * технически не смог ответить, теперь тоже уходят человеку»). Пуш по-прежнему
+   * не шлётся отсюда на каждый комментарий: человека зовёт сторож
+   * lib/commentWaitingAlert.ts одной сводкой за тик — и по финалу ai_down, и
+   * раньше, если комментарий висит без ответа дольше 30 минут.
    * Директор всё равно узнаёт немедленно через logSystemError выше по функции
    * (source "meta", единый канал «Здоровье системы» — 20.08.2026).
    */

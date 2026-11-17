@@ -22,7 +22,6 @@ import { requireElevation } from "../lib/stepUp.js";
 import { encryptSecret, decryptSecretSafe } from "../crypto.js";
 import { logAudit } from "../lib/audit.js";
 import { maskKey } from "../lib/maskSecret.js";
-import { OPENAI_IMAGE_MODELS } from "../ai/openaiClient.js";
 import { upload, uploadsDir } from "../upload.js";
 import {
   COVER_CHECK_ENDPOINT,
@@ -68,6 +67,7 @@ coverOpenAiRouter.get("/openai", requireAuth, requirePermission("settings.manage
     keyConfigured: !!fromSettings || !!envKey,
     keyMasked: fromSettings ? maskKey(fromSettings) : envKey ? maskKey(envKey) : null,
     keySource: fromSettings ? "settings" : envKey ? "env" : null,
+    openaiEnabled: runtime.openaiEnabled,
     enabled: runtime.coverGenerationEnabled,
     provider: runtime.coverProvider,
     referenceSquareUrl: runtime.coverReferenceSquareUrl,
@@ -97,49 +97,40 @@ coverOpenAiRouter.get("/openai", requireAuth, requirePermission("settings.manage
 const updateSchema = z.object({
   /** Пустая строка — очистить ключ в Настройках (вернуться на .env). */
   apiKey: z.string().trim().max(400).optional(),
+  /** Рубильник OpenAI целиком (14.11.2026): false — ни одного вызова api.openai.com. */
+  openaiEnabled: z.boolean().optional(),
   enabled: z.boolean().optional(),
   /** Кто рисует: TEMPLATE — наш шаблон, OPENAI — ChatGPT (28.09.2026). */
   provider: z.enum(COVER_PROVIDERS).optional(),
   /** Фото под наш шаблон перерисовывает ChatGPT «как для журнала» (29.09.2026). */
   photoRedraw: z.boolean().optional(),
-  quality: z.enum(["low", "medium", "high"]).optional(),
   dailyLimit: z.number().int().min(0).max(1000).optional(),
-  candidates: z.union([z.literal(1), z.literal(2)]).optional(),
-  textMode: z.enum(["OVERLAY", "MODEL"]).optional(),
-  photoSource: z.enum(["ORIGINAL", "MODEL"]).optional(),
-  imageModel: z.enum(OPENAI_IMAGE_MODELS).optional(),
+  // Качество, кандидаты, режим текста, фон и модель — константы с 01.11.2026
+  // (lib/settingsConstants.ts): здесь их больше не принимают.
 });
 
 coverOpenAiRouter.put("/openai", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Проверьте поля", details: parsed.error.flatten() });
-  const { apiKey, enabled, provider, photoRedraw, quality, dailyLimit, candidates, textMode, photoSource, imageModel } = parsed.data;
+  const { apiKey, openaiEnabled, enabled, provider, photoRedraw, dailyLimit } = parsed.data;
   await prisma.settings.update({
     where: { id: "singleton" },
     data: {
       ...(apiKey !== undefined ? { openaiApiKey: apiKey ? encryptSecret(apiKey) : null } : {}),
+      ...(openaiEnabled !== undefined ? { openaiEnabled } : {}),
       ...(enabled !== undefined ? { coverGenerationEnabled: enabled } : {}),
       ...(provider !== undefined ? { coverProvider: provider } : {}),
       ...(photoRedraw !== undefined ? { coverPhotoRedraw: photoRedraw } : {}),
-      ...(quality !== undefined ? { openaiImageQuality: quality } : {}),
       ...(dailyLimit !== undefined ? { openaiCoverDailyLimit: dailyLimit } : {}),
-      ...(candidates !== undefined ? { openaiCandidates: candidates } : {}),
-      ...(textMode !== undefined ? { openaiTextMode: textMode } : {}),
-      ...(photoSource !== undefined ? { openaiPhotoSource: photoSource } : {}),
-      ...(imageModel !== undefined ? { openaiImageModel: imageModel } : {}),
     },
   });
   logAudit(req, "COVER_OPENAI_SETTINGS", "Settings", "singleton", {
     keyChanged: apiKey !== undefined,
+    ...(openaiEnabled !== undefined ? { openaiEnabled } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
     ...(provider !== undefined ? { provider } : {}),
     ...(photoRedraw !== undefined ? { photoRedraw } : {}),
-    ...(quality !== undefined ? { quality } : {}),
     ...(dailyLimit !== undefined ? { dailyLimit } : {}),
-    ...(candidates !== undefined ? { candidates } : {}),
-    ...(textMode !== undefined ? { textMode } : {}),
-    ...(photoSource !== undefined ? { photoSource } : {}),
-    ...(imageModel !== undefined ? { imageModel } : {}),
   });
   res.json({ ok: true });
 });

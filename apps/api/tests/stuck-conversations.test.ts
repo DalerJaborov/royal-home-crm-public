@@ -35,7 +35,8 @@ vi.mock("../src/messengers/meta.js", async (importOriginal) => ({
 
 // Отметка «не дошло» — сама функция покрыта send-failure-marked-undelivered.test.ts,
 // здесь проверяется только, что повтор её зовёт (24.09.2026, ночная проверка).
-vi.mock("../src/messengers/conversation.js", () => ({ processMessengerTurn, stampOutgoingMid, markLastReplyUndelivered }));
+vi.mock("../src/messengers/conversation.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/messengers/conversation.js")>()), processMessengerTurn }));
+vi.mock("../src/messengers/conversationStore.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/messengers/conversationStore.js")>()), stampOutgoingMid, markLastReplyUndelivered }));
 
 vi.mock("../src/messengers/accounts.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/messengers/accounts.js")>()), accountTokenById, listAccounts,

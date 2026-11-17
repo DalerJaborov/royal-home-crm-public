@@ -13,7 +13,7 @@ import {
   type ConsultantCaller,
 } from "../../ai/liveVoiceConsultantPersona.js";
 import { loadLiveVoiceKnowledge } from "../../ai/liveVoiceKnowledge.js";
-import type { LeadDraft } from "../../ai/leadQualifier.js";
+import type { LeadDraft } from "../../ai/leadDraft.js";
 import { sendPushToAgent } from "../../push.js";
 import { claimAutoTaskSlot } from "../autoTasks.js";
 import { attachContactProfile, recordContactTurn, setContactNameFromCall } from "../contactProfiles.js";
@@ -22,7 +22,7 @@ import { describeError } from "../describeError.js";
 import { logSystemError } from "../systemError.js";
 import { findClientByPhoneDigits } from "../whatsappPhone.js";
 import { dedupePhones, pickFreeExtraPhones } from "../clientPhones.js";
-import { extractAllPhones } from "../../ai/leadQualifier.js";
+import { extractAllPhones } from "../shared/phoneText.js";
 import { looksLikeNoContactComplaint, looksLikeWantsHumanAgent } from "../../ai/complaintGuard.js";
 import { BW, TAIL } from "../../ai/wordBoundary.js";
 import { findAgentsWithPermission } from "../recipients.js";
@@ -131,6 +131,21 @@ export const CONSULTANT_TOOLS: LiveVoiceFunctionDeclaration[] = [
   TRANSFER_TOOL,
   ...ESCALATE_AND_END,
 ];
+
+/** Функции показа: без них консультант показ не назначает и не обсуждает (тумблер «показы боту»). */
+const SHOWING_TOOL_NAMES: ReadonlySet<string> = new Set(["showing_slots", "book_showing"]);
+
+/**
+ * Набор функций ЭТОГО звонка. Тумблер показов выключен (`botCanBookShowings`: показ назначает живой
+ * агент) — функций `showing_slots` и `book_showing` в наборе нет вообще, а не только просьба в промте
+ * «не зови» (11.11.2026: в симуляции модель звала book_showing вопреки промту). Перевод на агента — по
+ * рабочему времени, как раньше.
+ */
+export function consultantToolsFor(opts: { transferAvailable: boolean; showingsEnabled: boolean }): LiveVoiceFunctionDeclaration[] {
+  return CONSULTANT_TOOLS.filter(
+    (t) => (opts.transferAvailable || t.name !== TRANSFER_TOOL.name) && (opts.showingsEnabled || !SHOWING_TOOL_NAMES.has(t.name))
+  );
+}
 
 /** Всё, что консультант узнал о звонящем до ответа. */
 export interface IdentifiedCaller {
@@ -435,12 +450,16 @@ export async function resolveConsultantCall(info: LiveVoiceCallInfo): Promise<Li
               pickConsultantGreetingTrigger(false),
               consultantGreetingLanguage(info.settings?.liveVoiceForceRussianOnly ?? true, who.language)
             ),
-    tools: transferAvailable ? CONSULTANT_TOOLS : CONSULTANT_TOOLS.filter((t) => t.name !== TRANSFER_TOOL.name),
+    tools: consultantToolsFor({ transferAvailable, showingsEnabled: abilities.showings }),
     voiceName: consultantVoiceName(info.settings, who.language),
     language: consultantLanguage(info.settings, who.language),
     clientId: who.clientId,
     contactProfileId: who.contactProfileId,
-    onToolCall: (call, toolCtx) => handleConsultantTool(state, call, toolCtx?.isCancelled),
+    onToolCall: (call, toolCtx) => {
+      // Слова самого звонящего — для проверки района «Рудаки (район)» от модели (liveVoicePropertyTools.ts::voiceDistrictFromModel).
+      if (toolCtx) state.properties.callerWords = toolCtx.transcript.filter((l) => l.startsWith("Клиент:")).slice(-12).join("\n");
+      return handleConsultantTool(state, call, toolCtx?.isCancelled);
+    },
     onFinished: (result) => finishConsultantCall(state, result),
   };
 }

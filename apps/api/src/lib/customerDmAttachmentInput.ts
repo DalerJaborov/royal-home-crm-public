@@ -16,6 +16,6 @@ export function customerDmAttachmentInput(payload: CustomerNormalizedIngressInpu
     if (url?.kind === "site") return "link" as const;
     return "unknown" as const;
   });
-  if (!kinds.length && payload.propertyEvidence.some(e => e.kind === "url" && e.origin === "story")) kinds.push("share");
+  if (!kinds.length && payload.propertyEvidence.some(e => (e.kind === "url" || e.kind === "media") && e.origin === "story")) kinds.push("share");
   return kinds.length ? { kinds } : undefined;
 }

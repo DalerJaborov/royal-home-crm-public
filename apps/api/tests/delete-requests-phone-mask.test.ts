@@ -23,17 +23,18 @@ let seeingToken = "";
 let clientId = "";
 
 beforeAll(async () => {
-  const mk = async (phone: string, permissions: unknown) =>
+  const mk = async (phone: string, permissions: unknown, role = "MANAGER") =>
     (
       await prisma.agent.create({
-        data: { fullName: `Удаления ${phone}`, phone, role: "MANAGER", passwordHash: "x", permissions: permissions as never },
+        data: { fullName: `Удаления ${phone}`, phone, role: role as never, passwordHash: "x", permissions: permissions as never },
       })
     ).id;
   const blind = await mk(`+99211${tail}`, { granted: ["clients.delete", "clients.viewAll"], revoked: ["clients.viewPhone"] });
-  const seeing = await mk(`+99212${tail}`, { granted: ["clients.delete", "clients.viewAll", "clients.viewPhone"], revoked: [] });
+  // 16.11.2026 номера только директору: «видящий» — DIRECTOR.
+  const seeing = await mk(`+99212${tail}`, { granted: ["clients.delete", "clients.viewAll", "clients.viewPhone"], revoked: [] }, "DIRECTOR");
   agentIds.push(blind, seeing);
   blindToken = signAccessToken({ sub: blind, role: "MANAGER" });
-  seeingToken = signAccessToken({ sub: seeing, role: "MANAGER" });
+  seeingToken = signAccessToken({ sub: seeing, role: "DIRECTOR" });
   const client = await prisma.client.create({
     data: { fullName: `Входящий +992${DIGITS}`, phone: `+99213${tail}1`, kind: "BUYER", source: "TELEGRAM", assignedAgentId: blind, acceptedAt: new Date() } as never,
   });

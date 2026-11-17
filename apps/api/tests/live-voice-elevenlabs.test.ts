@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type WebSocket from "ws";
 import {
+  ElevenLabsCallToolsUnavailableError,
   ElevenLabsVoiceClient,
   buildElevenLabsAudioChunkMessage,
   buildElevenLabsInitiationMessage,
@@ -226,7 +227,8 @@ describe("ElevenLabs: разговор на поддельном сокете", 
     ws.server(METADATA);
     await connecting;
     expect(ready).toHaveBeenCalledTimes(1);
-    expect(prepareAgent).toHaveBeenCalledWith("sk_test", "agent_1", [SEARCH_TOOL]);
+    // Таджикский голос уходит в подготовку агента (пресет языка tg, 10.11.2026).
+    expect(prepareAgent).toHaveBeenCalledWith("sk_test", "agent_1", [SEARCH_TOOL], { voiceIdTg: "voice_tg" });
     expect(client.inputSampleRateHz).toBe(8000);
     expect(client.outputSampleRateHz).toBe(16000);
 
@@ -340,10 +342,18 @@ describe("ElevenLabs: разговор на поддельном сокете", 
     await expect(noAgent.connect({ systemInstruction: "P" })).rejects.toThrow("id агента");
   });
 
-  it("подготовка агента не удалась — набор функций агента не подменяется", async () => {
+  it("исходящий (по умолчанию): подготовка не удалась — звонок не начат, сокет не открыт (11.11.2026)", async () => {
     const sockets: FakeSocket[] = [];
     const { client } = makeClient(sockets, null);
-    const connecting = client.connect({ systemInstruction: "P", tools: [SEARCH_TOOL] });
+    await expect(client.connect({ systemInstruction: "P", tools: [SEARCH_TOOL] })).rejects.toBeInstanceOf(ElevenLabsCallToolsUnavailableError);
+    expect(sockets).toHaveLength(0);
+    client.close();
+  });
+
+  it("входящий: подготовка агента не удалась — набор функций агента не подменяется", async () => {
+    const sockets: FakeSocket[] = [];
+    const { client } = makeClient(sockets, null);
+    const connecting = client.connect({ systemInstruction: "P", tools: [SEARCH_TOOL], direction: "inbound" });
     const ws = await untilSocket(sockets, 0);
     expect((ws.sent[0].conversation_config_override as { agent: { prompt: Record<string, unknown> } }).agent.prompt).toEqual({
       prompt: "P",
@@ -441,9 +451,12 @@ describe("ElevenLabs: подготовка агента", () => {
     };
     expect(buildAgentSyncPatch(agent, ["tool_1", "own_tool"])).toEqual({
       conversation_config: {
-        agent: { prompt: { prompt: "старый", llm: "gemini-3.5-flash", tool_ids: ["own_tool", "tool_1"] } },
+        agent: {
+          prompt: { prompt: "старый", llm: "gemini-3.5-flash", tool_ids: ["own_tool", "tool_1"], built_in_tools: { end_call: null } },
+        },
       },
       platform_settings: {
+        privacy: { retention_days: 30 },
         overrides: {
           conversation_config_override: {
             agent: { prompt: { prompt: true, tool_ids: true }, first_message: true, language: true },

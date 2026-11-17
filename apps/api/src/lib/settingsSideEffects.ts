@@ -1,8 +1,13 @@
 import { restartAriEvents } from "./telephony/ariEvents.js";
-import { refreshInboundContexts } from "./telephony/incomingCalls.js";
 import { syncFailoverInBackground } from "./telephony/failoverSync.js";
 import { syncRoutingModeInBackground } from "./telephony/routingModeSync.js";
-import { restartLiveVoiceListener } from "./telephony/liveVoiceBridge.js";
+import {
+  refreshLiveVoiceSelectedProvider,
+  resetLiveVoiceProviderHolds,
+  restartLiveVoiceListener,
+} from "./telephony/liveVoiceBridge.js";
+import { startLiveVoiceAgentWarmup } from "./telephony/liveVoiceWarmup.js";
+import { refreshLiveVoiceSpend } from "./liveVoiceSpend.js";
 import { syncIncomingPrimaryReachabilityInBackground } from "./telephony/agentMobileFallback.js";
 
 /**
@@ -36,6 +41,14 @@ const LIVE_VOICE_FIELDS = [
   "asteriskAriPassword",
 ];
 
+/** Выбор голоса робота и всё, чем ElevenLabs опознаёт агента (П1, 11.11.2026): смена
+ *  снимает паузы поставщиков и забытые пробы — откат на Google действует сразу, а
+ *  починенный ключ не ждёт десять минут паузы, — и прогревает агента до первого звонка. */
+const LIVE_VOICE_PROVIDER_FIELDS = ["liveVoiceProvider", "elevenLabsApiKey", "elevenLabsAgentId", "elevenLabsVoiceIdTg"];
+
+/** Потолок минут робота и выбор голоса: от них зависит, держит ли потолок робота (lib/liveVoiceSpend.ts). */
+const LIVE_VOICE_SPEND_FIELDS = ["liveVoiceDailyMinutesCap", "liveVoiceMonthlyMinutesCap", "liveVoiceProvider"];
+
 /** Поля правила «если оператор не ответил» — их исполняет станция, а не CRM. */
 const FAILOVER_FIELDS = [
   "incomingNoAnswerAction",
@@ -52,7 +65,6 @@ const FAILOVER_FIELDS = [
   // рабочие часы, вне которых он берёт сразу, — тоже значения в базе станции.
   "liveVoiceEnabled",
   "liveVoiceInboundMode",
-  "liveVoiceInboundWaitSeconds",
   "workHoursStart",
   "workHoursEnd",
 ];
@@ -61,18 +73,25 @@ const FAILOVER_FIELDS = [
  * @param touched — имена полей, которые сохранение затронуло.
  *
  * Ничего не ждёт и не бросает: настройка уже записана, а отказ станции попадает
- * в журнал внутри самих вызовов. Порядок как раньше: список входящих контекстов
- * перечитывается сам и переподключения не требует, поэтому ветка `else if`.
+ * в журнал внутри самих вызовов. Список входящих контекстов с 01.11.2026 —
+ * константа (lib/settingsConstants.ts), перечитывать его при сохранении нечего.
  */
 export function applySettingsSideEffects(touched: readonly string[]): void {
   const set = new Set(touched);
   if (ARI_CONNECTION_FIELDS.some((f) => set.has(f))) {
     restartAriEvents();
-  } else if (set.has("incomingInboundContexts")) {
-    void refreshInboundContexts();
   }
   if (LIVE_VOICE_FIELDS.some((f) => set.has(f))) {
     restartLiveVoiceListener();
+  }
+  if (LIVE_VOICE_PROVIDER_FIELDS.some((f) => set.has(f))) {
+    resetLiveVoiceProviderHolds();
+    void refreshLiveVoiceSelectedProvider().catch(() => {});
+    void startLiveVoiceAgentWarmup();
+  }
+  // Потолок минут робота (П5): поднятый потолок отпускает входящие сразу, а не через минуту тика.
+  if (LIVE_VOICE_SPEND_FIELDS.some((f) => set.has(f))) {
+    void refreshLiveVoiceSpend().catch(() => {});
   }
   if (FAILOVER_FIELDS.some((f) => set.has(f))) {
     syncFailoverInBackground();

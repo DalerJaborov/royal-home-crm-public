@@ -152,7 +152,7 @@ export function MobileTaskCard({
   /** Просроченная: чип времени красный, как счётчик в шапке. */
   overdue?: boolean;
   onOpen: () => void;
-  onComplete: () => void;
+  onComplete?: () => void;
   /** Кнопка звонка (CallClientButton) — приходит готовой, чтобы правило
    *  «сначала через CRM» жило в одном компоненте, а не в копиях. */
   call?: ReactNode;
@@ -187,9 +187,9 @@ export function MobileTaskCard({
         </div>
         {confirmation ? <span className={chipTone(confirmation.className)}>{confirmation.label}</span> : null}
         <div className="act">
-          <button className="pill ghost sm" type="button" onClick={onComplete} title="Отметить выполненной">
+          {onComplete && <button className="pill ghost sm" type="button" onClick={onComplete} title="Отметить выполненной">
             Сделано
-          </button>
+          </button>}
           {isShowing && rescheduleValue === null && (
             <>
               <button className="pill ghost sm" type="button" onClick={onRescheduleStart}>

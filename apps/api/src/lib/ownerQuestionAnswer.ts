@@ -18,7 +18,7 @@ import {
   findClientDeliveryTarget,
   type DeliveryTarget,
 } from "./conversationDelivery.js";
-import { shortAgentReply } from "../ai/leadQualifier.js";
+import { shortAgentReply } from "../ai/shortAgentReply.js";
 import type { ChatMessage } from "../ai/client.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
@@ -164,7 +164,9 @@ export async function notifyStaleOwnerQuestions(): Promise<number> {
           "но ответа от собственника пока нет. Напиши ОДНО короткое дружелюбное сообщение на языке " +
           "клиента: подтверди, что вопрос не забыт, ты всё ещё уточняешь, и скоро вернёшься с ответом. " +
           "НЕ придумывай ответ на сам вопрос — ты его не знаешь. Не извиняйся чрезмерно, не создавай " +
-          "впечатление, что что-то пошло не так — обычное «ещё уточняю» без драмы."
+          "впечатление, что что-то пошло не так — обычное «ещё уточняю» без драмы.",
+        undefined,
+        target.id
       );
       if (!text) continue;
 

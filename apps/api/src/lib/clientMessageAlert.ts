@@ -1,4 +1,5 @@
 import { prisma } from "../db.js";
+import { PUSH_MESSAGE_THROTTLE_MINUTES } from "./settingsConstants.js";
 import { sendPushToAgent } from "../push.js";
 import { applyShowingReply } from "./showingConfirmation.js";
 import { fetchAndStoreClientAvatarIfMissing } from "./clientAvatar.js";
@@ -52,13 +53,8 @@ export function resetClientMessageThrottle(): void {
   lastMessagePush.clear();
 }
 
-async function messageThrottleMs(): Promise<number> {
-  const s = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: { pushMessageThrottleMinutes: true },
-  });
-  return Math.max(0, s?.pushMessageThrottleMinutes ?? 3) * 60_000;
-}
+/** Константа с 01.11.2026 (lib/settingsConstants.ts), колонка Settings не читается. */
+const MESSAGE_THROTTLE_MS = PUSH_MESSAGE_THROTTLE_MINUTES * 60_000;
 
 /**
  * КЛИЕНТ ПОДАЛ ПРИЗНАК ЖИЗНИ — ЭТО НЕ ТО ЖЕ, ЧТО «С НИМ РАБОТАЛИ».
@@ -152,7 +148,7 @@ export async function notifyAgentOfClientMessage(
 
     // Антиспам на пачку сообщений. Проверяется ПОСЛЕ разбора подтверждения показа
     // выше: пропустить уведомление можно, пропустить «да, приду» — нет.
-    const throttleMs = await messageThrottleMs();
+    const throttleMs = MESSAGE_THROTTLE_MS;
     const now = Date.now();
     if (throttleMs > 0) {
       const last = lastMessagePush.get(client.id);

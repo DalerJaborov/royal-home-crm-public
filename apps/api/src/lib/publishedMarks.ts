@@ -1,4 +1,4 @@
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { logSystemError } from "./systemError.js";
 
@@ -55,15 +55,15 @@ interface MarksStore {
   swap(id: string, seen: MarksRow, next: PublishedMarksChange): Promise<number>;
 }
 
-const propertyStore: MarksStore = {
-  find: (id) => prisma.property.findUnique({ where: { id }, select: { publishedChannels: true, publishedPostIds: true } }),
+const propertyStore = (db: TxClient): MarksStore => ({
+  find: (id) => db.property.findUnique({ where: { id }, select: { publishedChannels: true, publishedPostIds: true } }),
   async swap(id, seen, next) {
     const { data, ...marks } = next;
-    const written = await prisma.property.updateMany({
+    const written = await db.property.updateMany({
       where: {
         id,
         publishedChannels: { equals: seen.publishedChannels ?? [] },
-        publishedPostIds: seen.publishedPostIds == null ? { equals: Prisma.DbNull } : { equals: seen.publishedPostIds as Prisma.InputJsonValue },
+        publishedPostIds: seen.publishedPostIds == null ? { equals: Prisma.AnyNull } : { equals: seen.publishedPostIds as Prisma.InputJsonValue },
       },
       data: {
         ...(data ?? {}),
@@ -73,7 +73,7 @@ const propertyStore: MarksStore = {
     });
     return written.count;
   },
-};
+});
 
 const freeVideoStore: MarksStore = {
   find: (id) => prisma.socialVideoPost.findUnique({ where: { id }, select: { publishedChannels: true, publishedPostIds: true } }),
@@ -95,7 +95,7 @@ const freeVideoStore: MarksStore = {
   },
 };
 
-const storeFor = (owner: MarksOwner): MarksStore => (owner.kind === "property" ? propertyStore : freeVideoStore);
+const storeFor = (owner: MarksOwner, db: TxClient = prisma): MarksStore => (owner.kind === "property" ? propertyStore(db) : freeVideoStore);
 
 const ownerLabel = (owner: MarksOwner): string => (owner.kind === "property" ? `Объект ${owner.id}` : `Свободный ролик ${owner.id}`);
 
@@ -114,9 +114,10 @@ export async function readOwnerMarks(owner: MarksOwner): Promise<PublishedMarks 
  */
 export async function updateOwnerMarks(
   owner: MarksOwner,
-  compute: (current: PublishedMarks) => PublishedMarksChange | null
+  compute: (current: PublishedMarks) => PublishedMarksChange | null,
+  db?: TxClient
 ): Promise<{ applied: boolean; marks: PublishedMarks | null }> {
-  const store = storeFor(owner);
+  const store = storeFor(owner, db);
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const row = await store.find(owner.id);
     if (!row) return { applied: false, marks: null };
@@ -136,7 +137,8 @@ export async function updateOwnerMarks(
 /** Прежнее имя для объектов — все существующие вызовы остаются как были. */
 export function updatePublishedMarks(
   propertyId: string,
-  compute: (current: PublishedMarks) => PublishedMarksChange | null
+  compute: (current: PublishedMarks) => PublishedMarksChange | null,
+  db?: TxClient
 ): Promise<{ applied: boolean; marks: PublishedMarks | null }> {
-  return updateOwnerMarks({ kind: "property", id: propertyId }, compute);
+  return updateOwnerMarks({ kind: "property", id: propertyId }, compute, db);
 }

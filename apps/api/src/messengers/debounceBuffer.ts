@@ -71,7 +71,7 @@ async function replyTiming(): Promise<ReplyTiming> {
  *
  * ЗАЯВКА УЖЕ ПРИНЯТА — БЕЗ РЕАЛЬНОГО ОЖИДАНИЯ (владелец 19.08.2026, «не
  * переписываться пятьдесят раз ещё»): клиент, который уже оставил номер, ждёт
- * ответа так же быстро, как ждал бы «агент свяжется». `delayMs: 0` — не ждём
+ * ответа так же быстро, как ждал бы «агент свяжется». `delayMs: 0` только при выключенном botMergeQuickRepeats (по умолчанию 6 с) — не ждём
  * НАРОЧНО, `maxWaitMs` небольшой — потолок на случай, если несколько доставок всё
  * же пришли не совсем одновременно. Окно при этом остаётся ради атомарного захвата
  * буфера: две почти одновременные доставки не отвечают дважды.
@@ -85,14 +85,37 @@ async function replyTiming(): Promise<ReplyTiming> {
  *
  * undefined — обычное окно из Настроек.
  */
+/**
+ * ЗАЯВКА ПРИНЯТА, ТЕКСТ — ОКНО СКЛЕЙКИ ЗА РУБИЛЬНИКОМ (15.11.2026, живой чат Instagram).
+ * Клиентка с карточкой дважды прислала «Мехоҳам хонаамро фурӯшам» с разницей 3,5 с: при нулевом окне каждая
+ * доставка выиграла свой ход, и пришли два разных ответа подряд. ФАКТ (прод, 08–15.11): 2 переписки, 3,5 и 5 с.
+ * Окно 6 с склеивает их в один ход и добавляет 6 с к ответу. Владелец 15.11.2026 дословно: «Да, 6 секунд можно» —
+ * отменяет решение 19.08 «отвечать принятой заявке сразу» только в части склейки. Рубильник
+ * Settings.botMergeQuickRepeats («Настройки → Бот»), по умолчанию ВКЛ; выключен — окно прежнее (0 с).
+ */
+export const ACCEPTED_TEXT_MERGE_DELAY_MS = 6_000;
+const ACCEPTED_TEXT_MERGE_MAX_WAIT_MS = 15_000;
+
+/** Рубильник «отвечать один раз на два сообщения подряд». Нет строки или сбой чтения — значение по умолчанию (вкл). */
+export async function quickRepeatMergeEnabled(): Promise<boolean> {
+  try {
+    const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { botMergeQuickRepeats: true } });
+    return row?.botMergeQuickRepeats !== false;
+  } catch {
+    return true;
+  }
+}
+
 export function batchWindowFor(p: {
   accepted: boolean;
   hasMedia: boolean;
   greetingFast?: boolean;
+  /** Settings.botMergeQuickRepeats (quickRepeatMergeEnabled): склеивать быстрые дубли клиента с карточкой. */
+  mergeQuickRepeats?: boolean;
 }): ReplyTiming | undefined {
   if (p.accepted) {
-    return p.hasMedia
-      ? { delayMs: MEDIA_BURST_DELAY_MS, maxWaitMs: MEDIA_BURST_MAX_WAIT_MS }
+    if (p.hasMedia) return { delayMs: MEDIA_BURST_DELAY_MS, maxWaitMs: MEDIA_BURST_MAX_WAIT_MS };
+    return p.mergeQuickRepeats ? { delayMs: ACCEPTED_TEXT_MERGE_DELAY_MS, maxWaitMs: ACCEPTED_TEXT_MERGE_MAX_WAIT_MS }
       : { delayMs: 0, maxWaitMs: 3_000 };
   }
   return p.greetingFast ? { delayMs: 3_000, maxWaitMs: 8_000 } : undefined;

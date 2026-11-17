@@ -236,10 +236,12 @@ export async function runSilentClientAutoDeactivate(
           now,
         );
         const written = await prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${c.id} FOR UPDATE`;
+          if (c.kind === "SELLER" && (await sellersWithPropertyInWork([c.id], {}, tx)).has(c.id)) return false;
           const updated = await tx.client.updateMany({
             where: {
               id: c.id, deletedAt: null, workStatus: "ACTIVE",
-              kind: { not: "OTHER" },
+              kind: c.kind,
               status: { notIn: [...NOT_ELIGIBLE_STATUS] }, assignedAgentId: c.assignedAgentId,
               lastClientMessageAt: { lt: cutoff },
               reactivationOfferedToAgentId: null,

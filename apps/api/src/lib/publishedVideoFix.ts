@@ -26,13 +26,14 @@
  * честно сказать про две сети: неверный ролик тогда просто останется висеть,
  * а в CRM будет написано, что его нет.
  */
-import { prisma } from "../db.js";
+import { randomUUID } from "node:crypto";
+import { prisma, type TxClient } from "../db.js";
 import { logSystemError } from "./systemError.js";
 import { updatePublishedMarks } from "./publishedMarks.js";
 import { isYoutubeScopeError, reportYoutubeScopeMissing, YOUTUBE_SCOPE_MISSING_SHORT } from "./youtubeScope.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { loadCredentials } from "../messengers/meta.js";
-import { deleteChannelMessage, editMessageCaption } from "../telegram/api.js";
+import { deleteChannelMessage, editMessageCaption, TelegramApiError } from "../telegram/api.js";
 import {
   deleteFacebookVideo,
   deleteInstagramMedia,
@@ -68,6 +69,8 @@ import {
 import { tiktokPublishRetryDedupeKey } from "../jobs/tiktokPublishRetryPolicy.js";
 import { logTimeline } from "./timeline.js";
 import { localVideoDelete } from "./localVideoStorage.js";
+import { propertyOwnerAgentId } from "./propertyOwner.js";
+import { sendPushToAgent } from "../push.js";
 import { VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
 
 /** Каналы, где ПОДПИСЬ поддаётся правке из кода (refreshPublishedCaptions ниже) —
@@ -227,7 +230,11 @@ export function isTelegramMessageGone(err: unknown): boolean {
  * Канал, который снять не удалось, из списка НЕ вычёркивается: иначе второй
  * ролик встал бы рядом с первым вместо того, чтобы его заменить.
  */
-export async function removeFromSocial(propertyId: string, only?: string[]): Promise<SocialRemovalResult> {
+export async function removeFromSocial(
+  propertyId: string,
+  only?: string[],
+  opts: { insidePublishJob?: boolean } = {}
+): Promise<SocialRemovalResult> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
     select: { id: true, deletedAt: true, publishedChannels: true, publishedPostIds: true, instagramUrl: true },
@@ -237,8 +244,10 @@ export async function removeFromSocial(propertyId: string, only?: string[]): Pro
   // вышедший канал в конце своего шага: снятие посреди него вычеркнуло бы
   // канал, а задание вписало бы его обратно — и старый ролик вышел бы уже
   // после «удалили». Удалённый объект — не наш: его посты разбирают из корзины.
+  // Само задание публикации (insidePublishJob) снимает старые посты ДО своего
+  // шага публикации — это не гонка с ним, а его же первый шаг.
   if (property.deletedAt) return { removed: [], failed: [], manual: [], notes: [], blocked: "Объект удалён — снимать его посты отсюда нельзя." };
-  if (await isHandoffPublishRunning(propertyId)) {
+  if (!opts.insidePublishJob && (await isHandoffPublishRunning(propertyId))) {
     return { removed: [], failed: [], manual: [], notes: [], blocked: HANDOFF_PUBLISH_RUNNING_ERROR };
   }
 
@@ -577,7 +586,12 @@ export type SendBackResult =
        *  lib/clipReview.ts): вызывающий гасит кнопки у модераторов в Telegram. */
       clipReviewWasPending?: boolean;
     }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /** true — объект изменился после того, как вызывающий его видел (`options.guard`). */
+      stale?: true;
+    };
 
 /**
  * «УДАЛЕНО В ПРИЛОЖЕНИИ» (24.09.2026) — человек снял пост руками там, где программа
@@ -687,7 +701,25 @@ export async function sendBackToMontajer(
   reason: VideoRemakeReason,
   comment?: string | null,
   replaceVideoIds?: string[] | null,
-  options?: { removeFromSocial?: boolean }
+  /** removeFromSocial: true — снять старые посты сейчас; "on-new-video" — когда
+   *  выйдет новый ролик (задание публикации, replaceOldPostsBeforeRemakePublish). */
+  options?: {
+    removeFromSocial?: boolean | "on-new-video";
+    /**
+     * УСЛОВИЕ ЗАПИСИ (31.10.2026, ИИ-помощник, П3): `Property.videoRemakeCount` растёт при
+     * каждом возврате, поэтому «счётчик всё ещё тот, что видел человек в превью» значит
+     * «объект никто не отправлял на перемонтаж с тех пор». Проверяется ПОД замком, до
+     * записи; расхождение — отказ с `stale: true`. REST поле не передаёт.
+     */
+    guard?: { videoRemakeCount: number };
+    /**
+     * ПРОВЕРКА БЕЗ ЗАПИСИ (31.10.2026, ИИ-помощник, П3): прогоняет все отказы функции
+     * (занят монтажёром, продан, нет истории ролика, нет исходников, рубильник) под тем же
+     * замком и возвращает `ok` ДО первой записи. Превью помощника показывает отказ
+     * теми же словами, что и настоящая отправка, а не своей копией условий.
+     */
+    dryRun?: boolean;
+  }
 ): Promise<SendBackResult> {
   const replacing = replaceVideoIds && replaceVideoIds.length > 0 ? [...new Set(replaceVideoIds)] : null;
 
@@ -698,7 +730,7 @@ export async function sendBackToMontajer(
     queueOutcome: { dispatch: false } | { dispatch: true; propertyId: string; montajerAgentId: string };
     clipReviewWasPending: boolean;
   };
-  type LockResult = { ok: true; data: Prepared } | { ok: false; error: string };
+  type LockResult = { ok: true; data: Prepared } | { ok: true; dryRun: true } | { ok: false; error: string; stale?: true };
 
   // ВСЁ, ЧТО РЕШАЕТ СУДЬБУ ЭТОГО ОБЪЕКТА (проверка состояния + запись), — под
   // одним замком (п.2): второй параллельный вызов, пришедший, пока первый ещё
@@ -718,10 +750,14 @@ export async function sendBackToMontajer(
         instagramUrl: true,
         sellerClientId: true,
         clipReviewStatus: true,
+        videoRemakeCount: true,
         _count: { select: { videos: true } },
       },
     });
     if (!property || property.deletedAt) return { ok: false, error: "Объект не найден или удалён." };
+    if (options?.guard && property.videoRemakeCount !== options.guard.videoRemakeCount) {
+      return { ok: false, error: "Объект уже отправляли на перемонтаж после показа превью — проверьте ещё раз.", stale: true };
+    }
     if (property.videoHandoffStatus === "QUEUED" || property.videoHandoffStatus === "SENT_TO_EDITOR") {
       return { ok: false, error: "Объект уже у монтажёра или стоит в очереди — второй раз отправлять нечего." };
     }
@@ -795,6 +831,7 @@ export async function sendBackToMontajer(
     if (!settings.videoMontajerAgentId) {
       return { ok: false, error: "Монтажёр не назначен в Настройках → Публикации." };
     }
+    if (options?.dryRun) return { ok: true, dryRun: true };
 
     const reasonLabel = VIDEO_REMAKE_REASON_LABELS[reason];
     // Тот же builder, что и настоящая отправка/превью (buildMontajerMessageText,
@@ -867,7 +904,14 @@ export async function sendBackToMontajer(
       data: { status: "CANCELLED", resolvedAt: new Date(), error: "Ролик возвращён монтажёру — Reels прежнего ролика отменён" },
     });
     await tx.videoRemakeRequest.create({
-      data: { propertyId, reason, comment: comment ?? null, requestedById, messageText },
+      data: {
+        propertyId,
+        reason,
+        comment: comment ?? null,
+        requestedById,
+        messageText,
+        replaceOldPostsOnPublish: options?.removeFromSocial === "on-new-video",
+      },
     });
 
     if (property.sellerClientId) {
@@ -904,6 +948,7 @@ export async function sendBackToMontajer(
   });
 
   if (!lockResult.ok) return lockResult;
+  if ("dryRun" in lockResult) return { ok: true, queued: false, message: "Проверка пройдена, ничего не записано." };
   for (const key of lockResult.data.removedStorageKeys) void localVideoDelete(key);
 
   // П.4 (24.09.2026): снять старый ролик из соцсетей тем же removeFromSocial,
@@ -913,7 +958,7 @@ export async function sendBackToMontajer(
   // дозвона монтажёру ниже. Неудача снятия НЕ отменяет возврат монтажёру:
   // removeFromSocial сам пишет неудачные каналы в failed и в logSystemError,
   // мы только прокидываем итог наружу.
-  const social = options?.removeFromSocial ? await removeFromSocial(propertyId) : undefined;
+  const social = options?.removeFromSocial === true ? await removeFromSocial(propertyId) : undefined;
 
   // Дозвон монтажёру (Telegram, сеть) — вне замка, как и в queueVideoHandoff
   // (videoHandoff.ts): держать advisory-лок объекта на время сетевого похода
@@ -930,6 +975,75 @@ export async function sendBackToMontajer(
     ...(social ? { social } : {}),
     ...(lockResult.data.clipReviewWasPending ? { clipReviewWasPending: true } : {}),
   };
+}
+
+/**
+ * СТАРЫЕ ПОСТЫ УХОДЯТ, КОГДА ВЫХОДИТ НОВЫЙ РОЛИК (30.10.2026, владелец: «когда выйдет
+ * новый»). Возврат по смене цены или данных карточки (`removeFromSocial: "on-new-video"`)
+ * оставляет старый ролик висеть, пока монтажёр работает, — объект всё это время виден.
+ * Зовёт задание публикации нового ролика ПЕРЕД публикацией (jobs/videoHandoffPublish.ts):
+ *
+ *  1. снимает старые посты тем же removeFromSocial, что у кнопки «Убрать из соцсетей»;
+ *  2. Instagram и TikTok, которые снять нельзя (только руками), вычёркивает из
+ *     `publishedChannels` — иначе публикация пропустила бы их, и новая цена туда не
+ *     попала бы; хозяину объекта уходит пуш со ссылками на старые посты;
+ *  3. канал, где снятие отказало по сбою, остаётся в карточке: новый ролик туда не
+ *     выйдет, зато не встанет дублем рядом со старым (причина — в журнале).
+ *
+ * Отметка `oldPostsReplacedAt` ставится один раз: повтор задания после сбоя сети не
+ * снимает уже вышедший НОВЫЙ ролик. Возвращает null, если замены не просили.
+ */
+export async function replaceOldPostsBeforeRemakePublish(
+  propertyId: string
+): Promise<{ social: SocialRemovalResult; manual: ManualStep[] } | null> {
+  const request = await prisma.videoRemakeRequest.findFirst({
+    where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (!request) return null;
+  // Отметка ДО сетевых вызовов: упади задание посреди снятия — повтор не пойдёт снимать
+  // второй раз то, что могло уже стать новым роликом.
+  const claimed = await prisma.videoRemakeRequest.updateMany({
+    where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null },
+    data: { oldPostsReplacedAt: new Date() },
+  });
+  if (claimed.count === 0) return null;
+
+  const social = await removeFromSocial(propertyId, undefined, { insidePublishJob: true });
+  const manual = social.manual.filter((s) => s.channel === "INSTAGRAM" || s.channel === "TIKTOK");
+  if (manual.length > 0) {
+    const leave = manual.map((s) => s.channel as string);
+    await updatePublishedMarks(propertyId, (current) => {
+      const nextPostIds = { ...current.postIds };
+      for (const c of leave) delete nextPostIds[c];
+      return {
+        channels: current.channels.filter((c) => !leave.includes(c)),
+        postIds: nextPostIds,
+        ...(leave.includes("INSTAGRAM") ? { data: { instagramUrl: null } } : {}),
+      };
+    });
+    const property = await prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { shortId: true, title: true, intakeAgentId: true, assignedAgentId: true, createdById: true },
+    });
+    const body = manual.map((s) => `${s.channel === "INSTAGRAM" ? "Instagram" : "TikTok"}: ${s.url ?? "найдите старый ролик в приложении"}`).join("\n");
+    void logSystemError(
+      "meta",
+      `Объект №${property?.shortId ?? propertyId}: вышел перемонтированный ролик, старый удалите руками — ${body.replace(/\n/g, "; ")}`,
+      { dedupKey: "Объект №…: вышел перемонтированный ролик, старый удалите руками" }
+    );
+    const ownerId = property ? propertyOwnerAgentId(property) : null;
+    if (ownerId && property) {
+      void sendPushToAgent(ownerId, {
+        title: `Новый ролик №${property.shortId} выходит — удалите старый`,
+        body: `${property.title}\n${body}`,
+        url: `/properties/${property.shortId}`,
+        tag: `remake-old-posts-${propertyId}`,
+      }).catch(() => {});
+    }
+  }
+  return { social, manual };
 }
 
 /**
@@ -1006,6 +1120,56 @@ export async function refreshPublishedCaptions(
   propertyId: string,
   opts: { keepStoredCaption?: boolean } = {}
 ): Promise<CaptionRefreshResult> {
+  const refused = (error: string): CaptionRefreshResult => ({ caption: "", updated: [], failed: [{ channel: "—", error }], manual: [] });
+  const lease = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR NO KEY UPDATE`;
+    const property = await tx.property.findUnique({ where: { id: propertyId }, select: { deletedAt: true } });
+    if (!property || property.deletedAt) return { error: "Объект не найден" } as const;
+    const unresolved = await tx.publicationMetadataSync.findFirst({
+      where: { propertyId, operation: "CAPTION", status: { in: ["EXECUTING", "UNKNOWN"] } },
+      select: { id: true },
+    });
+    if (unresolved) return { error: "Подпись уже обновляется или ждёт проверки. Проверьте результат перед повтором." } as const;
+    const row = await tx.publicationMetadataSync.create({
+      data: {
+        propertyId, revisionHash: randomUUID(), channel: "*", operation: "CAPTION",
+        executionMode: "CAPTION_REFRESH", status: "EXECUTING", startedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    return { id: row.id } as const;
+  });
+  if (!lease.id) return refused(lease.error ?? "Обновление подписи недоступно");
+
+  let uncertain = false;
+  const settle = (status: "APPLIED" | "FAILED" | "UNKNOWN") => prisma.publicationMetadataSync.updateMany({
+    where: { id: lease.id, status: "EXECUTING" },
+    data: {
+      status,
+      finishedAt: new Date(),
+      reason: status === "UNKNOWN" ? "Проверьте, какие подписи приняли площадки, перед следующим обновлением." : null,
+    },
+  });
+  const assertLeaseActive = async () => {
+    const active = await prisma.publicationMetadataSync.count({ where: { id: lease.id, status: "EXECUTING" } });
+    if (!active) throw new Error("Обновление подписи уже передано на проверку");
+  };
+  try {
+    const result = await refreshCaptionsInOrder(propertyId, opts, assertLeaseActive, () => { uncertain = true; });
+    await settle(uncertain ? "UNKNOWN" : result.failed.length ? "FAILED" : "APPLIED");
+    return result;
+  } catch (err) {
+    await settle("UNKNOWN");
+    throw err;
+  }
+}
+
+async function refreshCaptionsInOrder(
+  propertyId: string,
+  opts: { keepStoredCaption?: boolean },
+  assertLeaseActive: () => Promise<void>,
+  markUncertain: () => void,
+): Promise<CaptionRefreshResult> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
     include: {
@@ -1046,7 +1210,13 @@ export async function refreshPublishedCaptions(
   // Концовка с агентом (25.09.2026) ставится и на сохранённую подпись: так
   // «Обновить подписи» доносит смену агента или его номера до вышедших постов.
   const caption = withPostFooter(applyContactFooter(captionBase, captionAgent), property.shortId);
-  await prisma.property.update({ where: { id: propertyId }, data: { reelsCaption: caption } });
+  const stored = await prisma.property.updateMany({
+    where: { id: propertyId, version: property.version, reelsCaption: property.reelsCaption, deletedAt: null },
+    data: { reelsCaption: caption },
+  });
+  if (!stored.count) {
+    return { caption: "", updated: [], failed: [{ channel: "—", error: "Карточка изменилась. Обновите подпись ещё раз." }], manual: [] };
+  }
 
   const channels = property.publishedChannels ?? [];
   const postIds = (property.publishedPostIds ?? {}) as Record<string, string>;
@@ -1064,8 +1234,13 @@ export async function refreshPublishedCaptions(
       const creds = await loadCredentials();
       if (!creds.pageToken) failed.push({ channel: "FACEBOOK", error: "Facebook не подключён в Настройках" });
       else {
-        const res = await updateFacebookVideoDescription(postIds.FACEBOOK, creds.pageToken, caption);
-        res.ok ? updated.push("FACEBOOK") : failed.push({ channel: "FACEBOOK", error: res.error ?? "неизвестная ошибка" });
+        await assertLeaseActive();
+        const res = await updateFacebookVideoDescription(postIds.FACEBOOK, creds.pageToken, caption, true);
+        if (res.ok) updated.push("FACEBOOK");
+        else {
+          if (res.delivery === undefined || res.delivery === "UNKNOWN") markUncertain();
+          failed.push({ channel: "FACEBOOK", error: res.error ?? "неизвестная ошибка" });
+        }
       }
     }
   }
@@ -1085,10 +1260,12 @@ export async function refreshPublishedCaptions(
     } else if (!settings?.telegramChannelId?.trim()) {
       failed.push({ channel: "TELEGRAM", error: "Канал Telegram не указан в Настройках" });
     } else {
+      await assertLeaseActive();
       try {
-        await editMessageCaption(settings.telegramChannelId.trim(), Number(postIds.TELEGRAM), caption);
+        await editMessageCaption(settings.telegramChannelId.trim(), Number(postIds.TELEGRAM), caption, undefined, true);
         updated.push("TELEGRAM");
       } catch (err) {
+        if (!(err instanceof TelegramApiError) || err.errorCode == null) markUncertain();
         failed.push({ channel: "TELEGRAM", error: err instanceof Error ? err.message : String(err) });
       }
     }
@@ -1099,9 +1276,12 @@ export async function refreshPublishedCaptions(
     if (hasExtra) {
       for (const [chatId, messageId] of Object.entries(telegramExtraIds!)) {
         if (!messageId) continue;
+        await assertLeaseActive();
         try {
-          await editMessageCaption(chatId, Number(messageId), caption);
+          await editMessageCaption(chatId, Number(messageId), caption, undefined, true);
         } catch (err) {
+          if (!(err instanceof TelegramApiError) || err.errorCode == null) markUncertain();
+          failed.push({ channel: "TELEGRAM", error: "Не обновилась подпись в дополнительном канале Telegram" });
           void logSystemError(
             "telegram",
             `Обновление подписи в дополнительном чате Telegram ${chatId} (объект ${propertyId}) не удалось: ${err instanceof Error ? err.message : String(err)}`
@@ -1115,9 +1295,10 @@ export async function refreshPublishedCaptions(
     if (!postIds.YOUTUBE) {
       failed.push({ channel: "YOUTUBE", error: "в карточке нет сохранённого id видео YouTube — подпись обновить нечем" });
     } else {
-      // title = description — то же правило, что при публикации и в
-      // publishedListingSync.ts: part=snippet заменяет snippet целиком.
-      const res = await updateYouTubeDescription(await youtubeCredentials(), postIds.YOUTUBE, caption, caption);
+      const credentials = await youtubeCredentials();
+      await assertLeaseActive();
+      const res = await updateYouTubeDescription(credentials, postIds.YOUTUBE, caption, caption, true);
+      if (!res.ok && (res.delivery === undefined || res.delivery === "UNKNOWN") && !isYoutubeScopeError(res.error)) markUncertain();
       if (res.ok) updated.push("YOUTUBE");
       else if (isYoutubeScopeError(res.error)) {
         // Нет права у ключа — причина общая для ВСЕХ объектов (lib/youtubeScope.ts):
@@ -1230,15 +1411,14 @@ export const CAPTION_FACT_FIELDS = [
  */
 export async function rewriteStoredCaptionAfterEdit(
   before: CaptionSource & { districtId: string | null; reelsCaption: string | null },
-  after: CaptionSource & { id: string; districtId: string | null }
+  after: CaptionSource & { id: string; districtId: string | null },
+  db: TxClient = prisma
 ): Promise<boolean> {
   if (!before.reelsCaption?.trim()) return true;
   const ids = [before.districtId, after.districtId].filter((x): x is string => !!x);
-  const [districts, money, settings] = await Promise.all([
-    ids.length ? prisma.district.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [],
-    loadMoneyContext(),
-    prisma.settings.findUnique({ where: { id: "singleton" }, select: { reelsCaptionTemplates: true } }),
-  ]);
+  const districts = ids.length ? await db.district.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+  const money = await loadMoneyContext(db);
+  const settings = await db.settings.findUnique({ where: { id: "singleton" }, select: { reelsCaptionTemplates: true } });
   const name = (id: string | null) => districts.find((d) => d.id === id)?.name ?? "";
   const rewritten = rewriteCaptionFacts(
     before.reelsCaption,
@@ -1248,7 +1428,11 @@ export async function rewriteStoredCaptionAfterEdit(
   );
   if (rewritten === null) return false;
   if (rewritten !== before.reelsCaption) {
-    await prisma.property.update({ where: { id: after.id }, data: { reelsCaption: rewritten } });
+    const write = await db.property.updateMany({
+      where: { id: after.id, reelsCaption: before.reelsCaption },
+      data: { reelsCaption: rewritten },
+    });
+    if (!write.count) return false;
   }
   return true;
 }

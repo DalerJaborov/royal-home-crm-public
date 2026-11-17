@@ -1,32 +1,31 @@
-import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { Mic, Send, Sparkles, X } from "lucide-react";
-import { streamAssistant, type AssistantMessage as Message } from "../lib/assistantStream";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Mic, RotateCcw, Send, Square, X } from "lucide-react";
+import type { AssistantActionView, AssistantCard } from "@royal-home/shared";
+import { AssistantStreamError, streamAssistant } from "../lib/assistantStream";
+import { loadAssistantHistory, saveAssistantHistory } from "../lib/assistantHistory";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+import { formatElapsed } from "../lib/audioRecording";
 import { ASSISTANT_CATEGORIES } from "../lib/assistantCategories";
 import { Rh2Portal } from "./rh2/Rh2Scope";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { useKeyboardInset } from "../hooks/useKeyboardInset";
+import { AssistantThread, type LiveTurn } from "./assistant/AssistantThread";
+import { historyForStorage, pushStep, replaceAction, upsertAction, type ThreadMessage, type TurnStep } from "./assistant/assistantTurn";
+import { ConfirmCard, createConfirmCardController } from "./assistant/ConfirmCard";
+import type { ConfirmCardController } from "./assistant/confirmCardModel";
 
-/** Ответы ассистента содержат markdown-ссылки на карточки — превращаем их в
- * навигацию роутера, остальное выводим как текст (никакого HTML от модели). */
-function renderContent(text: string, onNavigate: () => void) {
-  const parts: React.ReactNode[] = [];
-  const regex = /\[([^\]]+)\]\((\/[^)\s]*)\)/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  let key = 0;
-  while ((m = regex.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    parts.push(
-      <Link key={key++} to={m[2]} onClick={onNavigate} className="lk">
-        {m[1]}
-      </Link>
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
+/** Ответ оборвался, а карточка действия уже пришла: её всё равно надо показать — действие на сервере ждёт решения. */
+const BROKEN_REPLY_WITH_ACTIONS = "Ответ оборвался, но действие уже подготовлено — проверьте карточку ниже и решите сами.";
+
+interface PanelError {
+  message: string;
+  retryable: boolean;
+}
+
+function toPanelError(err: unknown): PanelError {
+  if (err instanceof AssistantStreamError) return { message: err.message, retryable: err.retryable };
+  return { message: err instanceof Error ? err.message : "ИИ недоступен, попробуйте позже", retryable: true };
 }
 
 export function AssistantPanel({
@@ -36,19 +35,35 @@ export function AssistantPanel({
 }: {
   onClose: () => void;
   autoStartVoice?: boolean;
-  /** Пункт «Спросить ИИ» в меню кнопки «+» (FabMenu.tsx) открывает панель и сразу
-   *  отправляет выбранную подсказку — без лишнего клика по чипу внутри панели. */
+  /** Подсказка, которую панель отправляет сама сразу при открытии (без лишнего клика по чипу). */
   initialPrompt?: string;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Диалог переживает закрытие панели (sessionStorage, см. lib/assistantHistory.ts):
+  // перешёл по ссылке из ответа и вернулся — переписка на месте.
+  const [messages, setMessages] = useState<ThreadMessage[]>(() => loadAssistantHistory());
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Пошаговый статус текущего раунда/тула (SSE, план B3) — заменяет статичное
-  // «Думаю…» на всё время диалога.
-  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<PanelError | null>(null);
+  // Лента шагов текущего хода (SSE `status`, П4а): чипы, пройденные — с «✓».
+  // Одинаково на телефоне и на компьютере.
+  const [steps, setSteps] = useState<TurnStep[]>([]);
+  // Текст ответа по мере генерации (SSE `token`) — живой пузырь.
+  const [liveText, setLiveText] = useState("");
+  // Карточки, пришедшие до финального текста (быстрый путь без модели).
+  const [liveCards, setLiveCards] = useState<AssistantCard[]>([]);
+  // Карточки действий (SSE `confirm`) текущего хода.
+  const [liveActions, setLiveActions] = useState<AssistantActionView[]>([]);
+  // Состояние карточек действий — по id, а не в самой карточке: карточка
+  // переезжает из текущего хода в готовую реплику и монтируется заново.
+  const controllersRef = useRef(new Map<string, ConfirmCardController>());
+  // Старый id → действие, на которое карточку перевели (STALE): ход, ещё собирающий реплику, берёт новое.
+  const replacedRef = useRef(new Map<string, AssistantActionView>());
+  const status = steps.length > 0 ? steps[steps.length - 1].text : null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const unmountedRef = useRef(false);
+  const seededRef = useRef(false);
 
   const speech = useSpeechRecognition((transcript) => {
     setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
@@ -58,11 +73,17 @@ export function AssistantPanel({
   // Телефонное поведение — по устройству (useMobileUx), не по вкусу в настройках
   // (см. хук). Хук вызван здесь, ДО любых ранних return, как и все остальные.
   const mobile = useMobileUx();
+  useKeyboardInset(mobile);
   const mobileEndRef = useRef<HTMLDivElement>(null);
+  // Первая прокрутка (панель открыта с сохранённым диалогом) — сразу, без анимации:
+  // плавная начиналась с высоты ещё не отрисованной ленты и оставляла начало диалога.
+  const firstScrollRef = useRef(true);
   useEffect(() => {
     if (!mobile) return;
-    mobileEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [mobile, messages, pending]);
+    const behavior = firstScrollRef.current ? "auto" : "smooth";
+    mobileEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    firstScrollRef.current = false;
+  }, [mobile, messages, pending, liveCards, liveActions, liveText]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -72,6 +93,22 @@ export function AssistantPanel({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // Закрытие панели обрывает идущий запрос: ответ некому показывать, а сервер
+  // не должен продолжать раунды модели впустую.
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Только текст: карточки действий в хранилище не пишутся, и после повторного
+    // открытия панели исполненное действие заново не предлагается (assistantTurn.ts).
+    saveAssistantHistory(historyForStorage(messages));
+  }, [messages]);
 
   // Удержание кнопки «+» в нижней навигации открывает панель СРАЗУ со включённым
   // микрофоном (прототип: «Удержите кнопку — заполню голосом») — не отдельная
@@ -83,33 +120,188 @@ export function AssistantPanel({
   }, [autoStartVoice]);
 
   useEffect(() => {
-    if (initialPrompt) void send(initialPrompt);
+    if (!initialPrompt || seededRef.current) return;
+    seededRef.current = true;
+    void send(initialPrompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPrompt]);
 
+  // Прокрутка вниз — только когда в ленте есть переписка. На пустой панели она
+  // уезжала к подсказкам и прятала приветствие над ними (15.11.2026).
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, pending]);
+    if (messages.length === 0 && !pending && liveCards.length === 0) return;
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: firstScrollRef.current ? "auto" : "smooth" });
+    firstScrollRef.current = false;
+  }, [messages, pending, liveCards, liveActions, liveText]);
+
+  // Окна отката и сроки подтверждения считают таймеры контроллеров — при закрытии
+  // панели снимаем их все, а не держим живыми в памяти вкладки.
+  useEffect(() => {
+    const controllers = controllersRef.current;
+    return () => {
+      for (const c of controllers.values()) c.stop();
+      controllers.clear();
+    };
+  }, []);
+
+  /**
+   * Контроллер карточки действия по id: один на действие, сколько бы раз оно ни
+   * пришло. Зовётся при отрисовке, поэтому ничего не меняет у уже известного —
+   * свежий статус с сервера принимает `onConfirm` (вне отрисовки).
+   */
+  const controllerFor = useCallback((action: AssistantActionView) => {
+    const known = controllersRef.current.get(action.id);
+    if (known) return known;
+    const created = createConfirmCardController(action);
+    controllersRef.current.set(action.id, created);
+    // 409 STALE принёс новое действие: переезжаем на его id (ключ контроллера и реплики), без второй карточки.
+    created.onReplace = (oldId, next) => {
+      const controllers = controllersRef.current;
+      if (controllers.get(oldId) === created) controllers.delete(oldId);
+      controllers.set(next.id, created);
+      replacedRef.current.set(oldId, next);
+      if (unmountedRef.current) return;
+      setLiveActions((prev) => replaceAction(prev, oldId, next));
+      setMessages((prev) => prev.map((m) => (m.actions ? { ...m, actions: replaceAction(m.actions, oldId, next) } : m)));
+    };
+    return created;
+  }, []);
+
+  /** Один запрос к помощнику по готовой истории (последняя реплика — вопрос человека). */
+  const ask = useCallback(async (history: ThreadMessage[]) => {
+    setError(null);
+    setSteps([]);
+    setLiveText("");
+    setLiveCards([]);
+    setLiveActions([]);
+    setPending(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const cards: AssistantCard[] = [];
+    let actions: AssistantActionView[] = [];
+    const withExtras = (content: string): ThreadMessage => ({
+      role: "assistant",
+      content,
+      ...(cards.length > 0 ? { cards } : {}),
+      ...(actions.length > 0 ? { actions: actions.map((a) => replacedRef.current.get(a.id) ?? a) } : {}),
+    });
+    try {
+      const reply = await streamAssistant(
+        history,
+        (message) => {
+          if (!unmountedRef.current) setSteps((prev) => pushStep(prev, message));
+        },
+        {
+          signal: controller.signal,
+          onCard: (card) => {
+            cards.push(card);
+            if (!unmountedRef.current) setLiveCards([...cards]);
+          },
+          onToken: (textSoFar) => {
+            if (!unmountedRef.current) setLiveText(textSoFar);
+          },
+          onConfirm: (action) => {
+            actions = upsertAction(actions, action);
+            controllersRef.current.get(action.id)?.sync(action);
+            if (!unmountedRef.current) setLiveActions(actions);
+          },
+        },
+      );
+      if (unmountedRef.current) return;
+      setMessages([...history, withExtras(reply)]);
+    } catch (err) {
+      if (unmountedRef.current) return;
+      // Действие уже лежит на сервере и ждёт решения — карточку не теряем вместе с ответом.
+      if (actions.length > 0) setMessages([...history, withExtras(BROKEN_REPLY_WITH_ACTIONS)]);
+      const failure = toPanelError(err);
+      // Человек сам нажал «Остановить» — это не сбой, но вопрос остался без ответа: даём повторить.
+      // Пришла карточка действия — исход хода в ней; повтор задал бы тот же вопрос второй раз.
+      setError(
+        err instanceof AssistantStreamError && err.code === "aborted"
+          ? { message: "Остановлено", retryable: actions.length === 0 }
+          : { ...failure, retryable: failure.retryable && actions.length === 0 },
+      );
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      if (!unmountedRef.current) {
+        setPending(false);
+        setSteps([]);
+        setLiveText("");
+        setLiveCards([]);
+        setLiveActions([]);
+      }
+    }
+  }, []);
 
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
-    setError(null);
-    setStatus(null);
-    const next = [...messages, { role: "user" as const, content: trimmed }];
+    const next: ThreadMessage[] = [...messages, { role: "user", content: trimmed }];
     setMessages(next);
     setInput("");
-    setPending(true);
-    try {
-      const reply = await streamAssistant(next, setStatus);
-      setMessages([...next, { role: "assistant", content: reply }]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "ИИ недоступен, попробуйте позже");
-    } finally {
-      setPending(false);
-      setStatus(null);
-    }
+    await ask(next);
   }
+
+  function retry() {
+    if (pending || messages.length === 0) return;
+    void ask(messages);
+  }
+
+  function stop() {
+    abortRef.current?.abort();
+  }
+
+  function newDialog() {
+    abortRef.current?.abort();
+    setMessages([]);
+    setError(null);
+    setLiveCards([]);
+    setLiveActions([]);
+    setLiveText("");
+    setSteps([]);
+    for (const c of controllersRef.current.values()) c.stop();
+    controllersRef.current.clear();
+    inputRef.current?.focus();
+  }
+
+  const live: LiveTurn = { pending, steps, text: liveText, cards: liveCards, actions: liveActions };
+  const thread = (
+    <AssistantThread
+      messages={messages}
+      live={live}
+      onNavigate={onClose}
+      onStop={stop}
+      renderAction={(action) => (
+        <ConfirmCard action={action} layout={mobile ? "rows" : "columns"} controller={controllerFor(action)} />
+      )}
+    />
+  );
+
+  const errorLine = error && (
+    <p className="state err" role="alert">
+      <span className="dot crit" />
+      <span className="txt">{error.message}</span>
+      {error.retryable && (
+        <button type="button" className="lk" onClick={retry}>
+          Повторить
+        </button>
+      )}
+    </p>
+  );
+
+  // Сбой голоса (нет доступа к микрофону, браузер не умеет запись, не расшифровалось)
+  // раньше терялся: хук его отдавал, а панель не показывала нигде, и микрофон
+  // выглядел просто «мёртвым» (владелец 15.11.2026: «микрофон не работает вроде»).
+  const voiceErrorLine = speech.error && (
+    <p className="state err" role="alert">
+      <span className="dot crit" />
+      <span className="txt">{speech.error}</span>
+      <button type="button" className="lk" onClick={speech.clearError}>
+        Понятно
+      </button>
+    </p>
+  );
+  const timer = formatElapsed(speech.elapsedMs);
 
   /**
    * ОБЛИК НА ТЕЛЕФОНЕ — шторка снизу с кругом-микрофоном, дословно по макету
@@ -131,11 +323,11 @@ export function AssistantPanel({
     const listening = speech.isListening;
     const transcribing = speech.isTranscribing;
     const statusText = listening
-      ? "Слушаю… говорите"
+      ? `Слушаю… ${timer}. Нажмите, когда закончите`
       : transcribing
         ? "Распознаю…"
         : pending
-          ? "Думаю…"
+          ? (status ?? "Думаю…")
           : messages.length > 0
             ? "Спросите ещё раз голосом или напишите ниже"
             : "Спросите про клиента, объект или что делать дальше";
@@ -146,27 +338,28 @@ export function AssistantPanel({
         onClose={onClose}
         title="Ассистент"
         ariaLabel="ИИ-ассистент"
+        className="assistant-sheet"
+        // Отправка — через форму самой шторки (Rh2Sheet всегда <form>), а не своей
+        // формой в подвале: вложенная форма отправлялась браузером мимо React, и
+        // страница перезагружалась на «/?» вместо вопроса помощнику (найдено
+        // кадрами П4а, 01.11.2026; правило — шапка Rh2Sheet.tsx).
+        onSubmit={() => void send(input)}
         footer={
-          <form
-            style={{ display: "flex", gap: 8, alignItems: "center" }}
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send(input);
-            }}
-          >
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
               ref={inputRef}
               className="inp"
-              style={{ flex: 1 }}
+              style={{ flex: 1, minWidth: 0 }}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Написать сообщение…"
+              enterKeyHint="send"
               aria-label="Вопрос ассистенту"
             />
             <button type="submit" className="call" disabled={pending || !input.trim()} aria-label="Отправить">
               <Send className="i" />
             </button>
-          </form>
+          </div>
         }
       >
         <div className={listening ? "mic on" : "mic"}>
@@ -177,13 +370,18 @@ export function AssistantPanel({
             type="button"
             className="orb"
             aria-pressed={listening}
-            aria-label={listening ? "Слушаю. Нажмите, чтобы остановить" : "Включить микрофон"}
-            disabled={!speech.supported || transcribing}
+            aria-label={listening ? "Остановить запись и отправить на распознавание" : "Включить микрофон"}
+            disabled={transcribing}
             onClick={() => (listening ? speech.stop() : speech.start())}
           >
-            {listening ? <Mic className="i" /> : <Sparkles className="i" />}
+            {listening ? <Square className="i" /> : <Mic className="i" />}
           </button>
-          <p>{statusText}</p>
+          <p aria-live="polite">{statusText}</p>
+          {listening && (
+            <button type="button" className="pill ghost sm" onClick={speech.cancel}>
+              Отмена
+            </button>
+          )}
           {messages.length === 0 && (
             <div className="hints">
               {ASSISTANT_CATEGORIES.slice(0, 3).map(({ label, example }) => (
@@ -193,31 +391,23 @@ export function AssistantPanel({
               ))}
             </div>
           )}
+          {messages.length > 0 && !pending && (
+            <button type="button" className="pill ghost sm" onClick={newDialog}>
+              Новый диалог
+            </button>
+          )}
         </div>
 
-        {messages.length > 0 && (
+        {voiceErrorLine}
+
+        {(messages.length > 0 || pending || liveCards.length > 0) && (
           <div className="thread">
-            {messages.map((m, i) => (
-              <div key={i} className={m.role === "user" ? "bub me" : "bub"}>
-                {m.role === "assistant" ? renderContent(m.content, onClose) : m.content}
-              </div>
-            ))}
-            {pending && (
-              <div className="bub bot">
-                <span className="who">ИИ-ассистент</span>
-                Думаю…
-              </div>
-            )}
+            {thread}
             <div ref={mobileEndRef} />
           </div>
         )}
 
-        {error && (
-          <p className="state err">
-            <span className="dot crit" />
-            {error}
-          </p>
-        )}
+        {errorLine}
       </Rh2Sheet>
     );
   }
@@ -238,12 +428,24 @@ export function AssistantPanel({
       {/* Прозрачный клик-перехватчик для закрытия по клику вне — без затемнения всего
           экрана: компактный виджет, а не модальный слайд-овер. */}
       <div className="sheet-back" style={{ background: "transparent", backdropFilter: "none" }} onClick={onClose} />
-      <div className="cw" role="dialog" aria-label="ИИ-ассистент" data-no-sheet onClick={(e) => e.stopPropagation()}>
+      <div className="cw assistant-cw" role="dialog" aria-label="ИИ-ассистент" data-no-sheet onClick={(e) => e.stopPropagation()}>
         <div className="cw-h">
           <div className="t">
             <b>ИИ-ассистент CRM</b>
             <span>Отвечает по данным вашего агентства</span>
           </div>
+          {messages.length > 0 && (
+            <button
+              type="button"
+              className="call"
+              onClick={newDialog}
+              disabled={pending}
+              title="Новый диалог"
+              aria-label="Новый диалог"
+            >
+              <RotateCcw className="i" />
+            </button>
+          )}
           <button type="button" className="call" onClick={onClose} aria-label="Закрыть">
             <X className="i" />
           </button>
@@ -253,13 +455,11 @@ export function AssistantPanel({
           {messages.length === 0 && (
             <>
               <p className="state">
-                Спрашивайте своими словами: я найду в базе объекты и клиентов, посчитаю статистику, подниму историю
-                встреч и, если попросите, создам задачу или перенесу встречу. Отвечаю только по работе агентства.
+                Спрашивайте своими словами, текстом или голосом: найду объекты и клиентов, посчитаю цифры,
+                подниму историю встреч, поставлю задачу или перенесу встречу. Номер объекта (ОБ-000088),
+                телефон или ссылка на пост Instagram — сразу открою карточку.
               </p>
-              <p className="state">
-                Ниже подсказки под ваш личный кабинет: «мои клиенты» и «встречи» относятся именно к вам,
-                а не ко всей команде. Нажмите на любую, чтобы сразу отправить.
-              </p>
+              <p className="state">Попробуйте одну из подсказок — «мои клиенты» и «встречи» считаются только по вам.</p>
               <div className="aib-sugg">
                 {ASSISTANT_CATEGORIES.map(({ icon: Icon, label, example }) => (
                   <button key={label} type="button" onClick={() => void send(example)} title={label}>
@@ -271,40 +471,37 @@ export function AssistantPanel({
             </>
           )}
 
-          {messages.length > 0 && (
+          {(messages.length > 0 || pending || liveCards.length > 0) && (
             <div className="thread" style={{ padding: 0, background: "transparent" }}>
-              {messages.map((m, i) => (
-                <div key={i} className={m.role === "user" ? "bub me" : "bub"}>
-                  {m.role === "assistant" ? renderContent(m.content, onClose) : m.content}
-                </div>
-              ))}
-              {pending && (
-                <div className="bub bot">
-                  <span className="who">ИИ-ассистент</span>
-                  {status ?? "Думаю…"}
-                </div>
-              )}
+              {thread}
             </div>
           )}
 
-          {error && (
-            <p className="state err">
-              <span className="dot crit" />
-              {error}
-            </p>
-          )}
-
-          {/* Пилюля записи — по прототипу: круглый микрофон, статус-подпись.
-              Живого текста распознавания здесь нет физически: запись идёт через
-              MediaRecorder и уходит на расшифровку целиком ПОСЛЕ отпускания
-              (useSpeechRecognition.ts), а не построчно во время речи. */}
-          {(speech.isListening || speech.isTranscribing) && (
-            <p className="quiet">
-              <span className={speech.isListening ? "dot crit" : "dot warn"} />
-              <span className="txt">{speech.isListening ? "Слушаю…" : "Распознаю…"}</span>
-            </p>
-          )}
+          {errorLine}
         </div>
+
+        {/* Состояние голоса — между лентой и полем ввода, а не в конце прокручиваемой
+            ленты: там «Слушаю…» и ошибка микрофона оставались за краем окна. */}
+        {(speech.isListening || speech.isTranscribing || speech.error) && (
+          <div className="cw-s">
+            {voiceErrorLine}
+            {/* Пилюля записи — по прототипу: круглый микрофон, статус-подпись.
+                Живого текста распознавания здесь нет физически: запись идёт через
+                MediaRecorder и уходит на расшифровку целиком ПОСЛЕ отпускания
+                (useSpeechRecognition.ts), а не построчно во время речи. */}
+            {(speech.isListening || speech.isTranscribing) && (
+              <p className="quiet" aria-live="polite">
+                <span className={speech.isListening ? "dot crit" : "dot warn"} />
+                <span className="txt">{speech.isListening ? `Слушаю… ${timer}` : "Распознаю…"}</span>
+                {speech.isListening && (
+                  <button type="button" className="lk" onClick={speech.cancel}>
+                    Отмена
+                  </button>
+                )}
+              </p>
+            )}
+          </div>
+        )}
 
         <form
           className="cw-f"
@@ -313,26 +510,25 @@ export function AssistantPanel({
             void send(input);
           }}
         >
-          {speech.supported && (
-            <button
-              type="button"
-              className="call"
-              disabled={speech.isTranscribing}
-              onClick={() => (speech.isListening ? speech.stop() : speech.start())}
-              title={speech.isListening ? "Остановить запись" : speech.isTranscribing ? "Распознаю…" : "Голосовой ввод"}
-              aria-label="Голосовой ввод"
-            >
-              <Mic className="i" />
-            </button>
-          )}
+          <button
+            type="button"
+            className={speech.isListening ? "call rec" : "call"}
+            disabled={speech.isTranscribing}
+            aria-pressed={speech.isListening}
+            onClick={() => (speech.isListening ? speech.stop() : speech.start())}
+            title={speech.isListening ? "Остановить запись" : speech.isTranscribing ? "Распознаю…" : "Голосовой ввод"}
+            aria-label={speech.isListening ? "Остановить запись" : "Голосовой ввод"}
+          >
+            {speech.isListening ? <Square className="i" /> : <Mic className="i" />}
+          </button>
           <input
             ref={inputRef}
             className="inp"
-            style={{ maxWidth: "none", flex: 1 }}
+            style={{ maxWidth: "none", flex: 1, minWidth: 0 }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              speech.isListening ? "Слушаю…" : speech.isTranscribing ? "Распознаю…" : "Спросите о клиентах, объектах, цифрах"
+              speech.isListening ? "Слушаю…" : speech.isTranscribing ? "Распознаю…" : "Спросите что угодно по работе"
             }
             aria-label="Вопрос ассистенту"
           />

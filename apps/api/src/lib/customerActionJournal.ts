@@ -7,7 +7,7 @@ import {
 } from "@royal-home/shared";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma, type TxClient } from "../db.js";
-import { extractAllPhones, normalizeDigits } from "../ai/leadQualifier.js";
+import { extractAllPhones, normalizeDigits } from "./shared/phoneText.js";
 import { customerCallbackConsentDecision, isCustomerCallbackAffirmative } from "./customerCallbackConsent.js";
 import { acceptedCallbackQuestionCurrentTx } from "./customerAcceptedCallbackQuestion.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
@@ -309,7 +309,10 @@ export async function executeCustomerAction(authority: CustomerWriteAuthority, r
       }
       // Missing dial target is an incomplete request, not a committed callback.
       // Preserve the open consent generation without creating an action or job.
-      const dialPhone = command.name === "request_callback" ? await callbackPhone(tx, inquiry, grant, statedPhones) : null;
+      // A human hand-off carries the number the customer already gave (audit 16.11.2026, Ф4: the HUMAN request was saved with an
+      // empty phone although the number was in the chat). Same protected candidate as a callback; optional, never required.
+      const dialPhone = command.name === "request_callback" || command.name === "request_handover"
+        ? await callbackPhone(tx, inquiry, grant, statedPhones) : null;
       if (command.name === "request_callback" && !dialPhone) return { status: "needs_input", reason: "phone_required" };
       if (command.name === "save_job_application" && !await customerRecruitmentIntakePermittedTx(tx, grant)) return { status: "denied", reason: "recruitment_closed" };
       const actionId = randomUUID(); const now = new Date();

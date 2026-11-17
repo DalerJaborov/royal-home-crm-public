@@ -22,8 +22,16 @@ import { INSTAGRAM_ONLINE_MIN_DAYS } from "../src/lib/publishSchedule.js";
  */
 
 const IG_USER = `ig-online-test-${Date.now()}`;
-const TOUCHED = ["publishScheduleUseHeatmap", "publishScheduleUseInstagramOnline", "publishScheduleLeadHours"] as const;
-let saved: Record<string, unknown>;
+
+// Источник часов и опережение — константы с 01.11.2026 (lib/settingsConstants.ts,
+// на проде карта выключена); тест включает их подменой константы, а не полем Settings.
+const tuning = vi.hoisted(() => ({
+  priorityWindows: [720, 840, 1140, 1260], heatmapDays: 90, leadHours: 1, useHeatmap: true, useInstagramOnline: true,
+}));
+vi.mock("../src/lib/settingsConstants.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/settingsConstants.js")>()),
+  PUBLISH_SCHEDULE_TUNING: tuning,
+}));
 
 /** Ответ Meta: одна точка на сутки, граница суток — полночь по Душанбе (19:00 UTC). */
 function metaBody(days: { endTime: string; value: Record<string, number> }[]) {
@@ -57,8 +65,7 @@ function stubMeta(insights: (url: string) => { status: number; body: unknown }) 
 }
 
 beforeAll(async () => {
-  const current = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
-  saved = Object.fromEntries(TOUCHED.map((k) => [k, (current as Record<string, unknown>)[k]]));
+  await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
 });
 
 afterEach(() => {
@@ -66,7 +73,6 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  await prisma.settings.update({ where: { id: "singleton" }, data: saved });
   await prisma.instagramOnlineFollowersHour.deleteMany({ where: { igUserId: IG_USER } });
 });
 
@@ -191,10 +197,7 @@ describe("Срез «Подписчики Instagram» и расписание", 
   });
 
   it("меньше недели сбора — расписание Instagram не верит", async () => {
-    await prisma.settings.update({
-      where: { id: "singleton" },
-      data: { publishScheduleUseHeatmap: true, publishScheduleUseInstagramOnline: true, publishScheduleLeadHours: 1 },
-    });
+    Object.assign(tuning, { useHeatmap: true, useInstagramOnline: true, leadHours: 1 });
     await seedDays(INSTAGRAM_ONLINE_MIN_DAYS - 2);
     expect(await instagramOnlineDaysCollected(90)).toBeLessThan(INSTAGRAM_ONLINE_MIN_DAYS);
     const loaded = await loadPublishScheduleRules();
@@ -204,10 +207,7 @@ describe("Срез «Подписчики Instagram» и расписание", 
   });
 
   it("с недели сбора часы выхода берутся из Instagram — за час до пика", async () => {
-    await prisma.settings.update({
-      where: { id: "singleton" },
-      data: { publishScheduleUseHeatmap: true, publishScheduleUseInstagramOnline: true, publishScheduleLeadHours: 1 },
-    });
+    Object.assign(tuning, { useHeatmap: true, useInstagramOnline: true, leadHours: 1 });
     await seedDays(10);
     const loaded = await loadPublishScheduleRules();
     expect(loaded.rules.prioritySource).toBe("instagram");
@@ -216,7 +216,7 @@ describe("Срез «Подписчики Instagram» и расписание", 
     expect(loaded.priorityHours).toEqual([8, 17]);
 
     // Выключили тумблер — снова по обращениям, как до правки.
-    await prisma.settings.update({ where: { id: "singleton" }, data: { publishScheduleUseInstagramOnline: false } });
+    tuning.useInstagramOnline = false;
     const off = await loadPublishScheduleRules();
     expect(off.rules.prioritySource).not.toBe("instagram");
     expect(off.instagramOnlineEnabled).toBe(false);

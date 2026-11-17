@@ -29,7 +29,7 @@
  */
 import { dushanbeDayKey } from "@royal-home/shared";
 import { Prisma, type Client } from "../generated/prisma/client.js";
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { toSearchTokens } from "./searchTokens.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { createNotification, createNotifications } from "./notifications.js";
@@ -85,7 +85,8 @@ export interface DuplicateReviewCandidate {
 export async function findFuzzyDuplicateCandidate(
   fullName: string,
   phone: string,
-  excludeClientId?: string
+  excludeClientId?: string,
+  db: Pick<TxClient, "$queryRaw"> = prisma,
 ): Promise<DuplicateReviewCandidate | null> {
   const tail = nearTail(phone);
   if (tail.length < NEAR_PHONE_TAIL_LEN) return null;
@@ -95,7 +96,7 @@ export async function findFuzzyDuplicateCandidate(
   // параметром-биндом заставляет Postgres видеть bigint там, где right() ждёт
   // integer, и падать с "function right(text, bigint) does not exist".
   const tailLen = Prisma.raw(String(NEAR_PHONE_TAIL_LEN));
-  const rows = await prisma.$queryRaw<
+  const rows = await db.$queryRaw<
     Array<{ id: string; shortId: number; fullName: string; assignedAgentId: string | null }>
   >(Prisma.sql`
     SELECT "id", "shortId", "fullName", "assignedAgentId"

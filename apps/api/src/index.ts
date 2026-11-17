@@ -1,4 +1,7 @@
+import { runStationHealthTick } from "./lib/telephony/stationHealth.js";
+import { recoverInterruptedTelegramDraftUploads } from "./telegram/assistantPropertyDraft.js";
 import "./loadEnv.js";
+import { telegramUpdatesMode } from "./telegram/updatesMode.js";
 import { assertProductionEnv } from "./env-check.js";
 import { app } from "./app.js";
 import { prisma } from "./db.js";
@@ -14,6 +17,7 @@ import {
 } from "./lib/telephony/liveVoiceBridge.js";
 import { onConsultantCallEnded, resolveConsultantCall } from "./lib/telephony/liveVoiceConsultant.js";
 import { startLiveVoiceScenarioTicks } from "./lib/telephony/liveVoiceScenarioTicks.js";
+import { startLiveVoiceAgentWarmup } from "./lib/telephony/liveVoiceWarmup.js";
 import { startCallMemoryTicks } from "./lib/telephony/callMemoryTicks.js";
 import { sweepStaleLiveCalls } from "./lib/telephony/callTracker.js";
 import { releaseInterruptedSiteEditClaims } from "./routes/siteNotifications.js";
@@ -123,9 +127,43 @@ const server = app.listen(port, () => {
   // Исходящие звонки робота — здесь же, рядом с мостом: задание разговора
   // живёт в памяти процесса, который слушает станцию (28.09.2026).
   startLiveVoiceScenarioTicks();
+  // Агент ElevenLabs готовится под каждый вид звонка до первого звонка, а не на нём
+  // (П1, 11.11.2026): в фоне, старт не ждёт; без ElevenLabs — ничего не делает.
+  void startLiveVoiceAgentWarmup();
   // Зависшие заготовки звонков и автопрозвон по просьбам — тоже здесь: оба
   // читают или пишут карту живых звонков этого процесса (02.10.2026).
   startCallMemoryTicks();
+
+  // Reads process-local ARI subscription and robot pause state: must run in API.
+  /**
+   * СВОДНАЯ ПРОВЕРКА ТЕЛЕФОНИИ — каждые 15 минут (разбор 20.09.2026, см. заголовок
+   * lib/telephony/stationHealth.ts). Три поломки в один день (мёртвая статическая
+   * трубка в очереди приёма, транк подставлял чужой CID, таймаут вебсокета 0,1 с)
+   * не поймала ни одна существующая проверка — узнали от владельца, а не от
+   * системы. Этот тик закрывает то, что не видят узкие сторожа рядом: жив ли
+   * ARI/AMI, загружен ли диалплан РЕАЛЬНО (не только в файле), доступен ли хоть
+   * один участник очереди прямо сейчас, на месте ли права AMI. Тревогу поднимает
+   * не с первого отказа, а только когда он подтвердился на следующем проходе
+   * подряд — тот же приём, что уже в этом файле у соседних телефонных тиков,
+   * потому что связь идёт через туннель и штатно моргает на десятки секунд.
+   */
+  let isStationHealthCheckRunning = false;
+  scheduleTracked("telephony-station-health", API_PROCESS_TICKS["telephony-station-health"], async () => {
+    if (isStationHealthCheckRunning) return;
+    isStationHealthCheckRunning = true;
+    try {
+      const { confirmedBroken } = await runStationHealthTick();
+      if (confirmedBroken.length > 0) {
+        console.log(`[cron] Телефония: подтверждённые поломки — ${confirmedBroken.join(", ")}`);
+      }
+    } catch (err) {
+      reportCronTickError("Сводная проверка телефонии", err);
+    } finally {
+      isStationHealthCheckRunning = false;
+    }
+  });
+
+
 
   /**
    * ДОСЧЁТ РАЗГОВОРОВ, У КОТОРЫХ КОНВЕЙЕР ОБОРВАЛО РЕСТАРТОМ (21.09.2026).
@@ -203,7 +241,14 @@ const server = app.listen(port, () => {
     "SITE_LISTING_DELETED",
     "SITE_COVER_IMAGE",
   ];
-  if (process.env.TELEGRAM_WEBHOOK_SECRET) webhookOwnedChannels.push("TELEGRAM");
+  if (telegramUpdatesMode() === "webhook") webhookOwnedChannels.push("TELEGRAM");
+  // Telegram на вебхуке обслуживает этот процесс — ему и снимать ролики мастера
+  // объекта, которые прошлый процесс не докачал (в режиме поллера — telegram/poller.ts).
+  if (telegramUpdatesMode() === "webhook") {
+    void recoverInterruptedTelegramDraftUploads().catch((err) =>
+      console.error("[telegram] снятие прерванных загрузок видео:", err instanceof Error ? err.message : err)
+    );
+  }
   void resetIncompleteProcessedMessages(webhookOwnedChannels, "api").catch((err) =>
     console.error("[webhook] сброс незавершённых отметок при старте:", err instanceof Error ? err.message : err)
   );

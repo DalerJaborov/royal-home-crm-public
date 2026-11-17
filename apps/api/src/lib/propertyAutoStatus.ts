@@ -215,6 +215,9 @@ const STATUS_LABEL: Record<PropertyStatus, string> = {
   WITHDRAWN: "Снято с продажи",
 };
 
+/** Те же подписи для ИИ-помощника (превью смены статуса): одно место, как в карточке. */
+export const PROPERTY_STATUS_LABEL_RU: Readonly<Record<PropertyStatus, string>> = STATUS_LABEL;
+
 const REASON_TEXT: Record<PropertyStatusReason, string> = {
   "deal-completed": "сделка завершена",
   "deal-active": "по объекту идёт сделка",

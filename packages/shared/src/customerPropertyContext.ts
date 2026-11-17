@@ -54,6 +54,9 @@ export const customerPropertyFocusSchema = z.object({
   status: z.enum(["pending", "resolved", "ambiguous", "missing", "denied"]),
   propertyId: z.string().uuid().nullable(),
   evidence: z.array(customerPropertyEvidenceSchema).max(16),
+  // Failed transient reads of this evidence so far (1..2). Present only while the focus is "missing" for
+  // that reason: the next inbound turn re-reads once more; any new evidence starts a fresh focus without it.
+  lookupAttempts: z.number().int().min(1).max(2).optional(),
 }).strict().superRefine((value, ctx) => {
   if ((value.status === "resolved") !== (value.propertyId !== null)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["propertyId"], message: "A non-resolved focus cannot retain the previous property" });

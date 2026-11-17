@@ -1,4 +1,5 @@
 import { readCustomerPublicSourceExecution } from "./customerAgentEnrollment.js";
+import { customerAgentAssignmentSuperseded } from "./customerAgentLegacyCutover.js";
 import { customerPublicModerationPlan } from "./customerPublicModerationPolicy.js";
 import { finishUnsentPublicAgentFailure } from "./customerPublicAgentFailure.js";
 // Common core public adapter: source-specific authority stays in this closure.
@@ -28,7 +29,7 @@ import { loadCustomerPublicThreadContext } from './customerPublicThreadContext.j
 import { readCustomerPublicPublicationSource } from './customerPublicPublicationSource.js';
 import { recruitmentPostCode, recruitmentKeyword } from '@royal-home/shared';
 import { readRecruitmentPositions } from './recruitmentPositions.js';
-import { readCustomerPublicAddressee } from './customerPublicAddressee.js';
+import { customerPublicAddresseeLabel, readCustomerPublicAddressee } from './customerPublicAddressee.js';
 
 export type CustomerPublicAgentDraft =
   | { status: 'moderate'; principal: PublicCommentPrincipal }
@@ -73,7 +74,8 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
     if (customerPublicModerationPlan(original.text)) return { status: 'moderate', principal };
     // Someone else's conversation (reply under another person's comment, a tag of another account)
     // or a bare reaction, with no question to the company: an allowed no-reply, never an object card.
-    if ((await readCustomerPublicAddressee(source)).skip) return { status: 'skip', reason: 'no_reply_needed', principal };
+    const addressee = await readCustomerPublicAddressee(source);
+    if (addressee.skip) return { status: 'skip', reason: 'no_reply_needed', principal };
     traceCustomerManagedBinding({ revisionId: revision.id, operationId: origin.agentPin.providerOperationId });
     // Explicit presentation preference fixed by this Meta adapter, never model routing.
     const linkPreference = 'social' as const;
@@ -122,8 +124,11 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
       }
     }
     const baseContext = await loadCustomerPublicThreadContext(principal, revision);
-    const verifiedContext = recruitmentPositionKey ? { ...(baseContext ?? { surface: 'public_comment' as const, revisionId: revision.id, turns: [] }),
-      publicState: { ...(baseContext?.publicState ?? { language: 'unknown' as const, openQuestion: 'none' as const }), topic: 'job' as const, jobPositionKey: recruitmentPositionKey } } : baseContext;
+    // The model also learns who the comment talks to (a server verdict; the skip itself was decided above).
+    const verifiedContext = { ...(baseContext ?? { surface: 'public_comment' as const, revisionId: revision.id, turns: [] }),
+      publicState: { ...(baseContext?.publicState ?? { language: 'unknown' as const, topic: 'unknown' as const, openQuestion: 'none' as const }),
+        ...(recruitmentPositionKey ? { topic: 'job' as const, jobPositionKey: recruitmentPositionKey } : {}),
+        addressee: customerPublicAddresseeLabel(addressee) } };
     const requestedFacts = verifiedContext?.publicState.topic === 'job' ? [] : classifyCustomerPropertyFactIntent(original.text, { hasPropertyContext: !!catalog }) ?? [];
     const result = await runCustomerAgentTurn({ surface: 'public_comment', language, inputText: original.text,
       knownPhoneSource: 'none', requestedFacts, revision, startedAt: origin.originalReceivedAt,
@@ -225,8 +230,13 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
 
 /** Fresh row/policy gate only. A retained managed origin never falls back to
  * legacy just because the current rollout was switched OFF. No new issuer. */
-export async function publicAgentCommentLane(id: string): Promise<'legacy' | 'managed'> {
+export async function publicAgentCommentLane(id: string): Promise<'legacy' | 'managed' | 'moved'> {
   const original = await readCustomerPublicSourceExecution(prisma, { table: 'meta', id });
+  // Effective lane (owner 31.10): a legacy-pinned row of a thread already moved
+  // to the core never reaches the old engine; it has no core origin either, so
+  // the caller closes it without a reply instead of a second brain answering.
+  if (original.lane === 'LEGACY' && original.assignment &&
+      await customerAgentAssignmentSuperseded(prisma, original.assignment.id)) return 'moved';
   return original.lane === 'LEGACY' ? 'legacy' : 'managed'; // HELD cannot fall through.
 }
 

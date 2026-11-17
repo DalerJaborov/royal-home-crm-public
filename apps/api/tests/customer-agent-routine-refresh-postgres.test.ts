@@ -21,7 +21,7 @@ import { drainBackgroundTasks } from '../src/lib/shutdownState.js';
 import { inspectCustomerDeliveryObservation } from '../src/lib/customerDeliveryObservation.js';
 import { dispatchCustomerOutboxPart } from '../src/lib/customerDeliveryDispatcher.js';
 import { CUSTOMER_RECRUITMENT_UPGRADE_V1, CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2 } from '../src/lib/customerRecruitmentUpgrade.js';
-import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1 } from '../src/lib/customerAgentQualityContinuityUpgrade.js';
+import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 } from '../src/lib/customerAgentQualityContinuityUpgrade.js';
 import {customerAgentRevisionReachable} from '../src/lib/customerAgentRevisionAdvance.js';
 import {readCustomerDmSourceExecution} from '../src/lib/customerAgentEnrollment.js';
 import * as revisionLineage from '../src/lib/customerAgentRevisionAdvance.js';
@@ -259,7 +259,8 @@ it('a failed prospective lineage observation rolls back the tentative edge and p
 });
 it('retains the catalog-only refresh path separately from the pinned quality/continuity prompt change',async()=>{
   const pair=CUSTOMER_RECRUITMENT_UPGRADE_V1;
-  expect(manifest.promptHash).toBe(CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1.toPrompt);
+  expect(manifest.promptHash).toBe(CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2.toPrompt);
+  expect(manifest.knowledgeSchemaHash).toBe(CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2.toKnowledgeSchema);
   expect(manifest.toolSchemaHash).toBe('16dcce629b9cec908e64942333769bdc05353fbe5675726fe9c9cfd3c9ee7b67');
   await install(await historical({toolSchemaHash:pair.toTools}));
   const before=await readPolicy();
@@ -272,7 +273,7 @@ it('retains the catalog-only refresh path separately from the pinned quality/con
   expect(audit.meta).toMatchObject({authority:'retained_policy_refresh',catalogFactsUpgrade:true,recruitmentProtocolUpgrade:false,paidConfirmed:null});
 });
 it('requires a distinct elevated quality/continuity acknowledgement before advancing the actual current factory',async()=>{
-  const pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1;
+  const pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2;
   await install(await historical({promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema}),'ACTIVE',10000);
   const before=await readPolicy();
   const denied=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
@@ -288,7 +289,7 @@ it('requires a distinct elevated quality/continuity acknowledgement before advan
   expect(after.capabilities).toEqual(before.capabilities);
   expect(after.rolloutConfig).toMatchObject({percentBasisPoints:10000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
   const audit=await prisma.auditLog.findFirstOrThrow({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'},orderBy:{createdAt:'desc'}});
-  expect(audit.meta).toMatchObject({authority:'quality_continuity_step_up',routineRefresh:true,qualityContinuityUpgradeVersion:'v1',recruitmentResumeUpgradeVersion:null,catalogFactsUpgrade:false,percentBasisPoints:10000,paidConfirmed:null,noDailyCapAcknowledged:null});
+  expect(audit.meta).toMatchObject({authority:'quality_continuity_step_up',routineRefresh:true,qualityContinuityUpgradeVersion:'v2',recruitmentResumeUpgradeVersion:null,catalogFactsUpgrade:false,percentBasisPoints:10000,paidConfirmed:null,noDailyCapAcknowledged:null});
   // Elevation is the existing timed settings session, not a consumed one-shot grant.
   expect((await request(app).get('/api/v1/auth/step-up').set(auth())).body.elevated).toBe(true);
 });
@@ -309,7 +310,7 @@ it('rejects quality acknowledgement for an unqualified prompt and a current-vers
   expect(await readPolicy()).toEqual(already);
 });
 it.each(['tools','knowledge','knowledge-schema','limits','provider-profile','provider-policy'] as const)('quality/continuity acknowledgement cannot change another %s',async field=>{
-  const pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1;
+  const pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2;
   const change:Record<string,unknown>={promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema};
   if(field==='tools')change.toolSchemaHash='f'.repeat(64);
   if(field==='knowledge')change.knowledgeSourceHash='f'.repeat(64);

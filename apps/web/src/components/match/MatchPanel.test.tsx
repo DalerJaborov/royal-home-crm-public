@@ -26,7 +26,7 @@ vi.mock("../rh2/Rh2Sheet", () => ({ Rh2Sheet: ({ children, footer }: { children:
 import { MatchPanel, PanelShell, SelectedMatchProperties } from "./MatchPanel";
 import { SendFallback, targetReady } from "./SendFallback";
 
-const evidence: ClientPropertyMatchEvidence = { tier: "exact", reasons: ["В пределах бюджета", "Нужное число комнат"], tradeoffs: [], unknowns: [], isMine: false, lastSentAt: null, sentCount: 0 };
+const evidence: ClientPropertyMatchEvidence = { tier: "exact", reasons: ["В пределах бюджета", "Нужное число комнат"], tradeoffs: [], unknowns: [], ask: [], isMine: false, lastSentAt: null, sentCount: 0 };
 function property(index: number, match: ClientPropertyMatchEvidence = evidence) {
   return { id: `property-${index}`, shortId: index, title: `Вариант номер ${index}`, price: "500000", currency: "TJS", rooms: 2, areaSqm: 60, status: "AVAILABLE", photos: [], district: { name: "Тестовый район" }, publishedOnSite: true, match, score: 99 } as unknown as Property & { match: ClientPropertyMatchEvidence };
 }
@@ -82,7 +82,8 @@ describe("buyer matching workflow", () => {
   it("does not call a showing or note an offer, but shows authoritative sending receipts", () => {
     state.properties = [property(1), property(2, { ...evidence, sentCount: 1, lastSentAt: "2026-10-20T10:00:00Z" })];
     const html = render(createElement(MatchPanel, { mode: "client", client: client(), open: true, onClose: vi.fn(), variant: "inline" }));
-    expect(html.match(/Отправляли/g)).toHaveLength(1);
+    // Подбор 2.0: «Уже отправляли N дней назад» — одна отметка у отправленного объекта.
+    expect(html.match(/Уже отправляли \d+ дн/g)).toHaveLength(1);
   });
   it("lets a writer select only linked conversations without exposing recipient addresses", () => {
     const html = render(createElement(MatchPanel, { mode: "client", client: client(), open: true, onClose: vi.fn(), variant: "inline" }));

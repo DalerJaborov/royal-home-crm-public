@@ -27,6 +27,7 @@ vi.mock("../signOut", () => ({ signOut: vi.fn(async () => {}) }));
 import { useAuthStore } from "../../store/auth";
 import { signOut } from "../signOut";
 import { api, didRefreshFailOffline, refreshAccessToken } from "../api";
+import { restoreLoginSession } from "../loginSession";
 import { saveDraftBeforeUpdate, consumeDraftBeforeUpdate, subscribeDraftBeforeUpdate } from "../draftBeforeUpdate";
 
 const A = { id: "agent-A", fullName: "А", phone: "+992900000001", role: "AGENT" as const };
@@ -77,6 +78,31 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe("/login keeps a persisted session through a failed refresh", () => {
+  it.each([502, 503])("HTTP %s shows retry; recovery opens the existing session", async (status) => {
+    useAuthStore.setState({ agent: A, hasSession: true, accessToken: null });
+    fetchMock.mockResolvedValueOnce(new Response("unavailable", { status }));
+    expect(await restoreLoginSession()).toBe("offline");
+    expect(didRefreshFailOffline()).toBe(true);
+    expect(useAuthStore.getState().hasSession).toBe(true);
+    expect(signOut).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValueOnce(refreshOk("tokA-recovered", A));
+    expect(await restoreLoginSession()).toBe("signed-in");
+    expect(useAuthStore.getState().accessToken).toBe("tokA-recovered");
+  });
+
+  it("network failure keeps retry while an actual 401 permits login", async () => {
+    useAuthStore.setState({ agent: A, hasSession: true, accessToken: null });
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    expect(await restoreLoginSession()).toBe("offline");
+    vi.mocked(signOut).mockImplementationOnce(async () => { useAuthStore.getState().logout(); });
+    fetchMock.mockResolvedValueOnce(refresh401());
+    expect(await restoreLoginSession()).toBe("guest");
+    expect(signOut).toHaveBeenCalledOnce();
+    expect(useAuthStore.getState().hasSession).toBe(false);
+  });
 });
 
 describe("№1: запоздавший refresh аккаунта А не трогает сессию Б", () => {

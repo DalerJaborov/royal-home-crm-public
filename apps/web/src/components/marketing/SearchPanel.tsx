@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { api } from "../../lib/api";
+import { useCan } from "../../lib/permissions";
 import { formatPropertyCode } from "../../lib/clientFormat";
 import { useSearchOverview } from "../../hooks/useMarketing";
 import { ErrorLine, PeriodTabs, QueryList, ReturnBanner, SearchTiles, dmy, num, place } from "./searchBits";
@@ -57,6 +58,8 @@ export function SearchPanel({ returnStatus }: { returnStatus: SearchReturnStatus
 }
 
 function GoogleSearchPanel({ returnStatus }: { returnStatus: { sc: string | null; reason: string | null } }) {
+  // Подключать и отключать каналы компании может только директор (замок прав 16.11.2026).
+  const canChannels = useCan()("finance.manage");
   const [days, setDays] = useState<number>(28);
   const q = useSearchOverview(days);
   const qc = useQueryClient();
@@ -118,7 +121,7 @@ function GoogleSearchPanel({ returnStatus }: { returnStatus: { sc: string | null
           месте сайт и какие объекты находят чаще всего.
         </p>
         {data.appConfigured ? (
-          <div className="acts">
+          <div className="acts" style={canChannels ? undefined : { display: "none" }}>
             <button className="pill" type="button" onClick={() => void connect()} disabled={busy}>
               <Search className="i" aria-hidden /> {busy ? "Открываем Google…" : "Подключить Google"}
             </button>
@@ -203,7 +206,7 @@ function GoogleSearchPanel({ returnStatus }: { returnStatus: { sc: string | null
 
       <p className="state">
         Данные Google приходят с задержкой в 2–3 дня: {dmy(data.start)} – {dmy(data.end)}.{" "}
-        <button className="pill ghost sm" type="button" onClick={() => void disconnect()} disabled={busy}>
+        <button className="pill ghost sm" type="button" onClick={() => void disconnect()} disabled={busy} style={canChannels ? undefined : { display: "none" }}>
           Отключить Google
         </button>
       </p>

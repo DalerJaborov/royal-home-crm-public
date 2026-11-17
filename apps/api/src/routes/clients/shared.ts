@@ -11,6 +11,7 @@ import { prisma } from "../../db.js";
 import { dushanbeDateString } from "../../lib/dushanbeTime.js";
 import { CLIENT_KIND_LABELS, CLIENT_PHONE_MASK_CHAR, formatClientCode, INACTIVE_REASON_LABELS, type ClientKind, type InactiveReason } from "@royal-home/shared";
 import { can } from "../../auth/middleware.js";
+import { clientWriteDenied } from "../../lib/clientWriteAccess.js";
 import { HIDDEN_ORIGIN_NAME, withHiddenOrigin } from "../../lib/clientOrigin.js";
 import { isPlaceholderName } from "../../lib/placeholderName.js";
 import { toTjs, type MoneyContext } from "../../lib/money.js";
@@ -41,13 +42,14 @@ export function foreignWriteDenied(
   client: { assignedAgentId: string | null; assignmentCompletedAt?: Date | null },
   ownAgentId: string | undefined
 ): string | null {
-  if (client.assignmentCompletedAt && req.agent!.role !== "ADMIN" && req.agent!.role !== "DIRECTOR") {
-    return "Работа по этому назначению завершена. Дальнейшее решение принимает руководитель";
-  }
-  if (ownAgentId) return null; // рядовой агент — его ограничивает своя проверка
-  if (can(req, "clients.assign")) return null;
-  if (client.assignedAgentId === req.agent!.id) return null;
-  return "Чужую карточку клиента ведёт закреплённый агент или руководитель";
+  // Само правило — в lib/clientWriteAccess.ts: его же зовёт ИИ-помощник
+  // (assertClientWritable), чтобы у REST и помощника не было двух проверок.
+  // Рядового агента (ownAgentId задан) ограничивает своя проверка у маршрута.
+  return clientWriteDenied(
+    { id: req.agent!.id, role: req.agent!.role, canAssignClients: can(req, "clients.assign") },
+    client,
+    ownAgentId,
+  );
 }
 
 export function normalizePhone(phone: string) {

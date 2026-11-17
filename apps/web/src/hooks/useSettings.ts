@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CoverProvider } from "@royal-home/shared";
+import type { CoverProvider, LiveVoiceSpendPeriod } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
 import { FALLBACK_USD_TO_TJS } from "../lib/format";
@@ -37,27 +37,6 @@ export interface Settings {
    *  наружу не отдаются никогда, а порядок масок совпадает с порядком ключей в базе —
    *  именно на место в этом списке ссылается сохранение (см. AiTab). */
   geminiExtraKeysMasked: string[];
-  /**
-   * ДЕЙСТВУЮЩИЕ ИМЕНА МОДЕЛЕЙ и то, откуда они взяты.
-   *
-   * `*Effective` — что бот спрашивает у Google прямо сейчас; `*Source` — чей это
-   * выбор: `settings` (владелец вписал), `env` (переменная на сервере) или
-   * `default` (заводское значение из кода). Без источника экран не отличил бы выбор
-   * владельца от совпавшего с ним дефолта, а это разные вещи: первый переживёт
-   * обновление, второй сменится вместе с ним.
-   */
-  geminiModelEffective: string;
-  geminiModelSource: ModelSource;
-  geminiFallbackModelsEffective: string[];
-  geminiFallbackModelsSource: ModelSource;
-  geminiTranscribeModelsEffective: string[];
-  geminiTranscribeModelsSource: ModelSource;
-  geminiImageModelEffective: string;
-  geminiImageModelSource: ModelSource;
-  /** Дешёвая ступень для простых задач. Пустая строка — не настроена: простые
-   *  задачи идут обычной моделью диалогов. */
-  geminiLiteModelEffective: string;
-  geminiLiteModelSource: ModelSource;
   companyName: string;
   companySlogan: string;
   companyLogoUrl: string | null;
@@ -96,16 +75,6 @@ export interface Settings {
   leadActiveLimit: number;
   /** Максимум объектов у агента одновременно в конвейере подготовки; 0 = без лимита. */
   propertyActiveLimit: number;
-  /** Веса шкалы совпадения «клиент ↔ объект» (Путь покупателя, п.5.1) — общая
-   *  шкала: и обычный подбор объекта с карточки клиента, и «свой объект» ниже. */
-  matchScoreBase: number;
-  matchScoreDistrict: number;
-  matchScoreRooms: number;
-  matchScoreBudget: number;
-  matchScoreHotBonus: number;
-  /** Расстояние до желаемого места клиента (12.09.2026) — отдельный вес,
-   *  matchScoreDistrict не трогает. */
-  matchScoreDistance: number;
   /** Единая политика подбора «клиент ↔ объект» (17.09.2026, matchPolicy.ts):
    *  общий рубильник автоподбора — новый объект сам находит ждущих покупателей. */
   autoMatchEnabled: boolean;
@@ -115,11 +84,12 @@ export interface Settings {
   matchIncludeDeferred: boolean;
   /** Хозяину объекта приходит пуш, когда его объект предложили чужому клиенту. */
   matchNotifyPropertyOwner: boolean;
+  /** Пуш агенту, когда на Somon/Paydo появилось объявление под его покупателя (по умолчанию выключено). */
+  marketBuyerAlertsEnabled: boolean;
+  /** Подбор с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
+  marketOwnersOnly: boolean;
   /** Срок жизни пожелания покупателя от последнего касания, дней; 0 — без срока. */
   matchRequirementTtlDays: number;
-  /** На сколько процентов должна упасть цена объекта, чтобы уже уведомлённого
-   *  покупателя предупредили повторно. */
-  matchPriceDropRenotifyPct: number;
   /** Допуск по бюджету клиента, % сверх названной суммы. */
   matchBudgetTolerancePct: number;
   /** Допуск по площади объекта, % от желаемой. */
@@ -128,10 +98,6 @@ export interface Settings {
   matchRoomsTolerance: number;
   /** Радиус вокруг точки на карте по умолчанию для новой точки клиента, метров. */
   matchDefaultRadiusM: number;
-  /** Во сколько раз можно расширить радиус, если кандидатов меньше minCandidates. */
-  matchRadiusMaxMultiplier: number;
-  /** Минимум объектов-кандидатов в радиусе, иначе радиус расширяется. */
-  matchMinCandidates: number;
   /** Приоритет «свой объект» (11.08.2026): агент, принявший объект, получает
    *  клиента по нему вне очереди по KPI. Порог — по шкале подбора 0..100. */
   ownPropertyPriorityEnabled: boolean;
@@ -159,10 +125,8 @@ export interface Settings {
   handoverPropertiesToLowKpi: boolean;
   /** Кнопки «Принять/Отклонить» прямо в шторке уведомлений и срок жизни маркера. */
   pushLeadActionsEnabled: boolean;
-  pushActionTtlMinutes: number;
-  /** Что ещё присылать: порог частоты о сообщениях, дубли показов руководству.
+  /** Что ещё присылать: дубли показов руководству. Порог частоты о сообщениях — константа с 01.11.2026.
    *  pushOnScoreChange/pushScoreThrottleMinutes убраны 28.09.2026 — их никто не читал. */
-  pushMessageThrottleMinutes: number;
   pushShowingsToSupervisors: boolean;
   /** Обязательное окно после исчерпания переносов блокирует работу во всей CRM. */
   /** Бот возвращает клиента к последнему незакрытому вопросу. */
@@ -191,7 +155,6 @@ export interface Settings {
   agentPauseMaxHours: number;
   agentPauseCooldownHours: number;
   /** Обязательные окна: отсрочка и её предел, сроки требований, дневное окно. */
-  propertySummaryAfterHours: number;
   propertySummaryWindowStart: string;
   propertySummaryWindowEnd: string;
   // waitingCheckAfterMinutes/waitingCheckMaxRepeats и callSummaryAfterMinutes убраны
@@ -211,16 +174,8 @@ export interface Settings {
    *  эти числа настраивают только темп напоминаний и порог перевода в Потерянные
    *  для каждого уровня (см. lib/inactiveTrafficLight.ts). */
   inactiveGreenPingHours: number;
-  inactiveGreenMaxAttempts: number;
   inactiveYellowPingHours: number;
-  inactiveYellowMaxAttempts: number;
   inactiveRedPingHours: number;
-  inactiveRedMaxAttempts: number;
-  /** Минимум зафиксированных попыток связаться перед переводом клиента в Неактивные
-   *  с причиной «перестал отвечать»/«другое». */
-  inactivateMinAttempts: number;
-  /** Перевёл клиента в Неактивные — следующий лид агенту не раньше чем через это время. */
-  inactivateCooldownHours: number;
   /** Потерянный/Неактивный клиент, написавший сам, ждёт прежнего агента это время. */
   lostReturnAcceptMinutes: number;
   /** Приёмка от продавца принята, объекта в CRM ещё нет — предупреждение / критично. */
@@ -230,8 +185,6 @@ export interface Settings {
   buyerThinkingFirstPingHours: number;
   buyerThinkingSecondPingHours: number;
   buyerThinkingSlowTrackDays: number;
-  /** Сколько минут живёт подтверждение личности в защищённых разделах (потолок 240). */
-  stepUpMinutes: number;
   /** Глобальный рубильник входа по отпечатку/лицу — false прячет кнопку у всех
    *  сотрудников; сам вход и привязка новых устройств отдельно проверяются на сервере. */
   passkeyLoginEnabled?: boolean;
@@ -250,6 +203,10 @@ export interface Settings {
   botCanConfirmShowings: boolean;
   botCanFollowUp: boolean;
   botCanAnswerComments: boolean;
+  /** Комментарий, на который бот не ответил из-за сбоя, — сводкой тем, кто читает переписки (15.11.2026). */
+  commentFailureWatchEnabled: boolean;
+  /** Передача РОП: уведомлять директора с кнопками «Подтвердить» / «Отклонить» (16.11.2026). */
+  ropTransferAlertEnabled: boolean;
   /** «Соедините с оператором»: очередь звонков и push агентам. */
   botCanRequestCallback: boolean;
   /** Дежурный оператор обратных звонков; null — авто-соединения нет. */
@@ -268,8 +225,6 @@ export interface Settings {
   /** Экономия промта: подробности сценария — только своему намерению. */
   botPromptIntentEconomy: boolean;
   contactLinkSweepEnabled: boolean;
-  /** Явный кэш правил бота у Google: гарантированная скидка 90% на стабильную часть. */
-  geminiExplicitCachingEnabled: boolean;
   /** Экран «Тренировка» (/bot-training): доступен владельцу только пока включено. */
   botTrainingScreenEnabled: boolean;
   /** Действующий промт чат-бота (кастомный или дефолтный). */
@@ -289,7 +244,16 @@ export interface Settings {
   botWhatsappEnabled: boolean;
   botInstagramEnabled: boolean;
   botFacebookEnabled: boolean;
+  /** Сверка с Meta: сообщение в Messenger / Instagram не дошло до CRM — «Ответьте вручную» (15.11.2026). */
+  messengerInboxReconcileEnabled: boolean;
+  instagramInboxReconcileEnabled: boolean;
   botTelegramEnabled: boolean;
+  /** Telegram: реплика клиента без ответа 30 минут — пуш ответственному (15.11.2026). */
+  telegramSilenceWatchEnabled: boolean;
+  /** Telegram: доставка сообщений в CRM сломалась (getWebhookInfo) — тревога руководству (15.11.2026). */
+  telegramDeliveryWatchEnabled: boolean;
+  /** WhatsApp: входящих нет дольше обычного в рабочие часы — тревога руководству (15.11.2026). */
+  whatsappWebhookWatchEnabled: boolean;
   botWebsiteChatEnabled: boolean;
   /** Задан ли маркер бота Telegram в окружении сервера. Без него канала нет. */
   telegramConfigured: boolean;
@@ -391,22 +355,11 @@ export interface Settings {
    * сервер (lib/publishScheduleRules.ts); здесь только показ и правка.
    */
   publishScheduleEnabled: boolean;
-  /** Часы выхода берутся из тепловой карты активности, а не из окон ниже. */
-  publishScheduleUseHeatmap: boolean;
-  /** Часы выхода по статистике Instagram «подписчики в сети» (с недели сбора). */
-  publishScheduleUseInstagramOnline: boolean;
   /** Границы рабочего окна публикаций, минуты от полуночи по Душанбе. */
   publishScheduleWindowStartMin: number;
   publishScheduleWindowEndMin: number;
   /** Минимум между двумя публикациями, минуты. */
   publishScheduleMinGapMin: number;
-  /** Постоянные часы публикации — плоский список пар «начало-конец» в минутах.
-   *  Работают, когда тепловая карта выключена или в ней мало событий. */
-  publishSchedulePriorityWindows: number[];
-  /** За сколько дней считать тепловую карту. */
-  publishScheduleHeatmapDays: number;
-  /** Насколько раньше часа пик выкладывать, чтобы пост успел разойтись. */
-  publishScheduleLeadHours: number;
   telegramChannelId: string | null;
   /** Дополнительные чаты Telegram (26.09.2026) — chat_id/@username через
    *  запятую/пробел/перевод строки, поверх основного канала выше. */
@@ -459,12 +412,16 @@ export interface Settings {
   /** Ручная передача видео монтажёру через Telegram (01.09.2026, lib/videoHandoff.ts) —
    *  единственный путь подготовки ролика с 04.09.2026. */
   videoHandoffEnabled: boolean;
+  /** Ролик от сотрудника через Шабнам (12.11.2026): по умолчанию включён. */
+  staffClipIntakeEnabled?: boolean;
   /** Проверять фото и видео агента перед монтажом (25.09.2026). false — CRM одобряет сама. */
   rawReviewRequired: boolean;
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: boolean;
-  /** Адресат пуша «объект ждёт проверки» по умолчанию — не заменяет право properties.moderate. */
-  videoModeratorAgentId: string | null;
+  /** Готовый ролик подтверждает хозяин объекта; без ответа — автопубликация (11.11.2026). */
+  clipOwnerApproveEnabled: boolean;
+  /** Через сколько часов без ответа хозяина ролик публикуется сам (1–48). */
+  clipOwnerAutoPublishHours: number;
   /** Единственный монтажёр, получающий сырые ролики в очереди «строго один-в-работе». */
   videoMontajerAgentId: string | null;
   /** Этап 4 (телефония): подключение к Asterisk ARI. URL/логин — как есть, пароль — маска. */
@@ -475,9 +432,8 @@ export interface Settings {
   /** Куда станция звонит сотруднику перед соединением с клиентом: "mobile" — на
    *  мобильный из карточки (софтфоны ещё не розданы), "extension" — на внутренний. */
   asteriskAgentDialMode: "mobile" | "extension" | "auto";
-  /** Управление станцией (AMI): порт и логин — как есть, пароль — маска. Адреса
+  /** Управление станцией (AMI): логин как есть (порт — константа на сервере), пароль — маска. Адреса
    *  здесь нет: он берётся из asteriskAriUrl, станция одна. */
-  asteriskAmiPort: number;
   asteriskAmiUsername: string | null;
   asteriskAmiPasswordMasked: string | null;
   asteriskAmiConfigured: boolean;
@@ -487,7 +443,6 @@ export interface Settings {
    *  Тестовый номер владелец заводит на станции сам (вне этого репозитория). */
   liveVoiceEnabled: boolean;
   postShowingCallEnabled: boolean;
-  liveVoiceTestExtension: string | null;
   /** Полный контроль из интерфейса (13.09.2026) — тот же приём, что у botSystemPrompt:
    *  действующий текст (свой или дефолт) + флаг «изменён». */
   liveVoicePrompt: string;
@@ -496,16 +451,11 @@ export interface Settings {
   liveVoiceVoiceNameTajik: string | null;
   /** Адрес собеседования для робота-приглашения (25.09.2026). */
   interviewInviteAddress?: string | null;
-  liveVoiceForceRussianOnly: boolean;
-  liveVoiceBreathEnabled: boolean;
-  liveVoiceOfficeAmbienceEnabled: boolean;
-  liveVoiceOfficeAmbienceVolume: number;
   /** Что не так с адресом звука на сервере (LIVE_VOICE_RTP_HOST/PORT); null — всё задано. */
   liveVoiceRtpProblem?: string | null;
   /** Консультант на телефоне (24.09.2026): когда берёт настоящие входящие, сколько
    *  секунд днём звонит оператор до него, кому переводить без агента объекта. */
   liveVoiceInboundMode: "off" | "no_answer" | "always";
-  liveVoiceInboundWaitSeconds: number;
   liveVoiceTransferAgentId: string | null;
   /** Кто слышит и говорит за робота на телефоне (02.10.2026): Google Gemini Live
    *  или агент ElevenLabs. Роль, справочник и функции у обоих наши. */
@@ -529,17 +479,36 @@ export interface Settings {
     rtpHostConfigured: boolean;
     stationDialplan: { ok: boolean | null; detail: string | null; checkedAt: string } | null;
   };
+  /** Потолок минут робота на ElevenLabs за сутки и месяц по Душанбе (П5, 11.11.2026);
+   *  0 — без потолка. */
+  liveVoiceDailyMinutesCap: number;
+  liveVoiceMonthlyMinutesCap: number;
+  /** Сколько робот наговорил против потолка (считает сервер, только чтение); null — не прочиталось. */
+  liveVoiceSpend?: {
+    day: LiveVoiceSpendPeriod;
+    month: LiveVoiceSpendPeriod;
+    held: "day" | "month" | null;
+    retryAt: string | null;
+    provider: string;
+  } | null;
   /** Голосовые ответы бота в переписке (13.09.2026) — озвучивает свой текст, только
    *  если клиент сам прислал голосовое в этом же ходе. По умолчанию false (владелец:
    *  «создай, но выключи, сам протестирую»). Тумблер в BOT_ABILITIES (BotTab.tsx). */
   botCanSendVoiceReplies: boolean;
+  /** Склеивать два быстрых сообщения клиента с карточкой в один ответ (окно 6 с). По умолчанию true (владелец 15.11.2026). */
+  botMergeQuickRepeats: boolean;
+  /** Режим «только заявки» (13.11.2026): бот берёт заявку и передаёт агенту. По умолчанию false. */
+  botLeadOnlyMode: boolean;
+  /** В режиме «только заявки»: WhatsApp-номер клиента — номер для звонка (по умолчанию true). */
+  botUseWhatsappNumber: boolean;
+  /** В режиме «только заявки»: сколько раз просить номер в Instagram/Facebook, 1..3 (по умолчанию 2). */
+  botMaxPhoneAsks: number;
+  /** В режиме «только заявки»: «хотим посмотреть», «адрес» → заявка агенту сразу (по умолчанию true). */
+  botHotIntentHandover: boolean;
   /* Поля браузерного софтфона (asteriskWebrtc*) и список операторов входящих
    * (incomingOperatorIds) убраны 18.08.2026 вместе с самим механизмом: роль
    * оператора отменена, звонки идут прямо агентам. Сервер их пока отдаёт —
    * лишнее поле в ответе ничего не ломает. */
-  /** Контексты диалплана АТС, из которых звонок считается входящим. Пустой массив —
-   *  действует встроенный набор (см. api/lib/telephony/incomingCalls.ts). */
-  incomingInboundContexts: string[];
   incomingAutoCreateClient: boolean;
   incomingDefaultKind: "OTHER" | "BUYER" | "SELLER";
   incomingAssignOnQualify: boolean;
@@ -578,13 +547,6 @@ export interface Settings {
   callWhisperEnabled: boolean;
   callWhisperIncoming: boolean;
   callWhisperOutgoing: boolean;
-  /** Состав фразы — блоки из WHISPER_PARTS (имя, вид, объект, бюджет, давность…).
-   *  Порядок звучания фиксирован на сервере, здесь только набор. */
-  callWhisperIncomingParts: string[];
-  callWhisperOutgoingParts: string[];
-  /** Язык подсказки по умолчанию; у сотрудника может стоять своё. */
-  callWhisperLanguage: string;
-  callWhisperVoice: string;
   /** Добавлять зацепку от ИИ по истории клиента — единственный блок, который не
    *  собирается из полей карточки и потому может ошибиться. */
   callWhisperAiHint: boolean;
@@ -606,6 +568,8 @@ export interface Settings {
    *  выключателем. Выключенный отчёт не собирается вовсе. */
   problemReportWeeklyEnabled: boolean;
   problemReportMonthlyEnabled: boolean;
+  /** Финансовый PDF за прошлый месяц директорам в Telegram (выключен по умолчанию). */
+  financePdfMonthlyEnabled?: boolean;
   /** Рабочие часы распределения лидов, "HH:MM" по Душанбе. Бот отвечает 24/7 —
    * это влияет только на то, когда новый лид уходит агенту. */
   workHoursStart: string;
@@ -623,6 +587,11 @@ export interface Settings {
   followUpEnabled: boolean;
   /** Окно инициативных сообщений бота, "HH:MM" по Душанбе. */
   aiAssistantEnabled: boolean;
+  /** Сколько дней хранить журнал помощницы (пачка 2, 07.11.2026). У сотрудников без настроек — нет. */
+  aiAssistantLogRetentionDays?: number;
+  /** Шагов помощницы на один ответ и срок ответа, секунд (решение владельца 07.11.2026). */
+  aiAssistantMaxRounds?: number;
+  aiAssistantDeadlineSec?: number;
   /** Google Search grounding для справочных вопросов ассистента CRM (рынок/законы/
    *  налоги/ипотека Таджикистана вне данных CRM). Выключен по умолчанию. */
   groundedSearchEnabled: boolean;
@@ -1108,6 +1077,8 @@ export interface OpenAiCoverSettings {
   keyConfigured: boolean;
   keyMasked: string | null;
   keySource: "settings" | "env" | null;
+  /** Рубильник OpenAI целиком (14.11.2026): false — ни одного вызова OpenAI, обложки только шаблоном. */
+  openaiEnabled: boolean;
   enabled: boolean;
   /** Кто рисует: TEMPLATE — наш шаблон, OPENAI — ChatGPT (28.09.2026). */
   provider: CoverProvider;
@@ -1154,7 +1125,8 @@ export function useOpenAiCovers() {
 export function useUpdateOpenAiCovers() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: Partial<{ apiKey: string; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; quality: OpenAiCoverSettings["quality"]; dailyLimit: number; candidates: 1 | 2; textMode: "OVERLAY" | "MODEL"; photoSource: "ORIGINAL" | "MODEL"; imageModel: OpenAiImageModel }>) =>
+    // Качество, кандидаты, режим текста, фото и модель — константы на сервере с 01.11.2026.
+    mutationFn: (input: Partial<{ apiKey: string; openaiEnabled: boolean; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
       api<{ ok: true }>("/settings/cover-templates/openai", { method: "PUT", body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: OPENAI_COVERS_KEY }),
   });

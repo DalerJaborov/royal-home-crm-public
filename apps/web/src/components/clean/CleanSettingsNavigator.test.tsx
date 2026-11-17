@@ -19,7 +19,7 @@ describe("Clean settings tasks", () => {
     ["ARI", "channels/phone"], ["YouTube Shorts", "channels/publishing"],
     ["WhatsApp", "channels/messengers"], ["Фид каталога", "channels/advertising"],
     ["ElevenLabs", "bot/voice"], ["Ключи моделей", "bot/models"],
-    ["Новый интерфейс CRM", "system/workspace"], ["Код по СМС при входе", "system/security"], ["СМС через Payom", "channels/sms"],
+    ["Новый интерфейс CRM", "system/workspace"], ["Подтверждение личности", "system/security"], ["СМС через Payom", "channels/sms"],
   ])("routes %s to the actual task %s", (query, destination) => {
     expect(findCleanSettingsTasks(query, "ADMIN").map((task) => `${task.tab}/${task.id}`)).toContain(destination);
   });

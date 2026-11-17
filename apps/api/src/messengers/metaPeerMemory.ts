@@ -24,9 +24,9 @@ export interface RememberedAdReferral {
   adTitle?: string;
 }
 export interface AdReferralSnapshot { readonly ref: RememberedAdReferral; readonly at: number }
-export function peekAdReferral(channel: string, senderId: string, accountScope: string, now = Date.now()): AdReferralSnapshot | null {
+export function peekAdReferral(channel: string, senderId: string, accountScope: string, now = Date.now(), maxAgeMs = AD_TTL_MS): AdReferralSnapshot | null {
   const entry = adByPeer.get(JSON.stringify([channel, senderId, accountScope]));
-  return entry && now - entry.at < AD_TTL_MS ? entry : null;
+  return entry && now - entry.at < Math.min(maxAgeMs, AD_TTL_MS) ? entry : null;
 }
 /** Compare the stored entry identity, so a newer referral survives an await. */
 export function consumeAdReferral(channel: string, senderId: string, accountScope: string, expected: AdReferralSnapshot): boolean {
@@ -51,6 +51,24 @@ function trim<T>(map: Map<string, T>): void {
     if (oldest === undefined) break;
     map.delete(oldest);
   }
+}
+
+/**
+ * ОБЪЯВЛЕНИЕ, ПРИВЯЗАННОЕ К КОНКРЕТНОМУ СООБЩЕНИЮ (30.10.2026, полоса CORE). Приём CORE разбирает одно и то же
+ * сообщение несколько раз (маршрут, запись, повторная доставка), а память о клике по рекламе меняется со временем.
+ * Первый разбор фиксирует итог для этого MID (метка или её отсутствие), и все следующие разборы получают тот же итог:
+ * иначе повторная доставка старого сообщения подхватила бы чужую, пришедшую позже метку и не совпала бы с записанным.
+ */
+const adByEvent = new Map<string, { ref: RememberedAdReferral | null; at: number }>();
+export function adReferralBoundToEvent(channel: string, senderId: string, accountScope: string, eventId: string,
+  choose: () => RememberedAdReferral | null): RememberedAdReferral | null {
+  const k = JSON.stringify([channel, senderId, accountScope, eventId]);
+  const known = adByEvent.get(k);
+  if (known) return known.ref;
+  const ref = choose();
+  adByEvent.set(k, { ref, at: Date.now() });
+  trim(adByEvent);
+  return ref;
 }
 
 export function rememberAdReferral(channel: string, senderId: string, ref: RememberedAdReferral, now = Date.now(), accountScope?: string): void {
@@ -104,6 +122,7 @@ export function recentSilentShare(channel: string, senderId: string, now = Date.
 /** Только для тестов. */
 export function resetMetaPeerMemory(): void {
   adByPeer.clear();
+  adByEvent.clear();
   foreignShareByPeer.clear();
   silentShareByPeer.clear();
 }

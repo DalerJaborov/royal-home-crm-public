@@ -1,5 +1,6 @@
 import { prisma } from "../../db.js";
 import { sendMessage, sendPhoto, TelegramApiError } from "../../telegram/api.js";
+import { portalAlertsPausedIn } from "../telegramPortalPause.js";
 
 function confirmedReceipt(value: unknown, chatId: string): boolean {
   if (!value || typeof value !== "object") return false;
@@ -17,7 +18,9 @@ export async function sendReservedSomon(advertId: string, agentId: string, chatI
     const recipient = await tx.somonRecipient.findUnique({ where: { agentId } });
     const agent = await tx.agent.findUnique({ where: { id: agentId }, select: { role: true, isActive: true, telegramChatId: true } });
     if (!item || item.status !== "SENDING" || item.agentId !== agentId) return "cancelled";
-    if (!state?.enabled || state.sourceStopped || !recipient?.enabled || !agent?.isActive || agent.role !== "AGENT" || agent.telegramChatId !== chatId) {
+    // Пауза площадок: последняя дверь перед Telegram — отправка снимается так же, как при выключенном получателе.
+    const paused = await portalAlertsPausedIn(tx);
+    if (paused || !state?.enabled || state.sourceStopped || !recipient?.enabled || !agent?.isActive || agent.role !== "AGENT" || agent.telegramChatId !== chatId) {
       await tx.somonDelivery.update({ where: { advertId }, data: { status: "CANCELLED" } });
       await tx.somonContactReceipt.deleteMany({ where: { advertId } });
       await tx.somonSeenAdvert.updateMany({ where: { advertId }, data: { status: "PENDING" } });

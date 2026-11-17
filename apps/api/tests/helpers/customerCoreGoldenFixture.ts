@@ -31,8 +31,13 @@ export const invalidDecision = (value: unknown): ModelPart => {
   return { text: JSON.stringify(value) };
 };
 
-export async function createCustomerCoreGoldenFixture(options: { media?: boolean; publicEnvelope?: boolean } = {}) {
-  const tag = `synthetic-core-companion-${randomUUID()}`, key = `${tag}-gemini-key`;
+/** Optional replacement for the scripted-queue model wire (attack harness: scripted policy or live Gemini forward). Returns
+ * synthetic parts, or a ready Response. Absent: the strict script queue below, exactly as before. */
+export type CoreModelWire = (request: { body: Record<string, unknown>; raw: string; path: string }) => Promise<{ parts: ModelPart[] } | { response: Response }>;
+export async function createCustomerCoreGoldenFixture(options: { media?: boolean; publicEnvelope?: boolean; modelWire?: CoreModelWire } = {}) {
+  // Без цифры 9: метка попадает в название района и в ответ бота, а тесты проверяют «в ответе
+  // нет номера» по /992/ — UUID вида …-4992a4… ронял их случайно (ship #156, 11.11.2026).
+  const tag = `synthetic-core-companion-${randomUUID().replaceAll("9", "g")}`, key = `${tag}-gemini-key`;
   const globalIgSecret = `${tag}-global-ig-secret`;
   // F02 (23.10.2026): with two global keys the signature now proves the namespace, and routing accepts exactly the
   // keys the strict proof accepts, so a NEW public_envelope can no longer arise from a real request. The
@@ -48,7 +53,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
     children?: { data: Array<{ id: string; media_type: string; media_url: string }> } }>>();
   const savedSettings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
     botEnabled: true, metaEnabled: true, botInstagramEnabled: true, geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
-    metaAppSecret: true, metaIgAppSecret: true,
+    metaAppSecret: true, metaIgAppSecret: true, botCanRequestCallback: true, botCanAskOwner: true,
   } });
   const savedPolicy = await prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" }, select: {
     contractVersion: true, rolloutMode: true, capabilities: true, activeAgentRevisionId: true,
@@ -71,6 +76,8 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
   try {
   await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true,
     botInstagramEnabled: true, geminiApiKey: encryptSecret(key), geminiApiKey2: null, geminiApiKeysExtra: [],
+    // Тумблеры экрана «Бот» (31.10.2026) включены: стенд проверяет полный набор инструментов ядра.
+    botCanRequestCallback: true, botCanAskOwner: true,
     ...(options.publicEnvelope ? { metaAppSecret: encryptSecret(`${tag}-other-global-app-secret`),
       metaIgAppSecret: encryptSecret(globalIgSecret) } : {}) } });
   if (options.publicEnvelope) {
@@ -147,7 +154,14 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
       counted++; return new Response(JSON.stringify({ totalTokens: 1000 }));
     }
     if (url.pathname !== "/gemini/v1beta/models/gemini-3.6-flash:generateContent") return denied("unexpected_synthetic_model_method_path");
-    bodies.push(JSON.parse(String(init.body))); const parts = scripts.shift(); generated++;
+    bodies.push(JSON.parse(String(init.body)));
+    if (options.modelWire) {
+      generated++; const wired = await options.modelWire({ body: bodies.at(-1) as Record<string, unknown>, raw: String(init.body), path: url.pathname });
+      if ("response" in wired) return wired.response;
+      return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts: wired.parts }, finishReason: "STOP" }],
+        usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 30, thoughtsTokenCount: 0, cachedContentTokenCount: 0 } }));
+    }
+    const parts = scripts.shift(); generated++;
     if (!parts) return denied("unscripted_extra_generation");
     return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts }, finishReason: "STOP" }],
       usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 30, thoughtsTokenCount: 0, cachedContentTokenCount: 0 } }));
@@ -184,10 +198,11 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
       accounts.push(id); owners.set(id, o); resetMetaAccountCredsCache(); return o;
     },
     async capture(o: { id: string; externalId: string; token: string; secret: string; peer: string }, text: string,
-      attachments?: Array<{ type: string; payload: { url?: string; reel_video_id?: string; ig_post_media_id?: string } }>) {
+      attachments?: Array<{ type: string; payload: { url?: string; reel_video_id?: string; ig_post_media_id?: string } }>,
+      replyToStory?: { id: string; url: string }) {
       const eventId = `${tag}-in-${randomUUID()}`, rawBody = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: o.externalId,
         messaging: [{ sender: { id: o.peer }, recipient: { id: o.externalId }, timestamp: Date.now(), message: { mid: eventId, text,
-          ...(attachments ? { attachments } : {}) } }] }] }));
+          ...(attachments ? { attachments } : {}), ...(replyToStory ? { reply_to: { story: replyToStory } } : {}) } }] }] }));
       const signature = `sha256=${createHmac("sha256", o.secret).update(rawBody).digest("hex")}`;
       expect(await verifySignature(rawBody, signature)).toBe(true);
       const request = { rawBody, get: () => signature }; registerAuthenticatedMetaCustomerRequest(request);
@@ -245,6 +260,9 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
         await prisma.customerPropertyIngressTicket.deleteMany({ where: { endpointScopeId: { in: scopeIds } } });
         await prisma.callbackRequest.deleteMany({ where: { customerActionId: { in: actionIds } } });
         await prisma.customerAction.deleteMany({ where: { id: { in: actionIds } } });
+        const jobApplicationIds = (await prisma.jobApplication.findMany({ where: { customerInquiryId: { in: inquiryIds } }, select: { id: true } })).map(row => row.id);
+        await prisma.recruitmentCommunication.deleteMany({ where: { jobApplicationId: { in: jobApplicationIds } } });
+        await prisma.jobApplication.deleteMany({ where: { id: { in: jobApplicationIds } } });
         await prisma.customerInquiry.deleteMany({ where: { id: { in: inquiryIds } } });
         await prisma.botConversation.deleteMany({ where: { id: { in: nativeIds } } });
         await prisma.customerEndpointScope.deleteMany({ where: { id: { in: scopeIds } } });

@@ -299,7 +299,10 @@ const expenseBaseSchema = z.object({
 /** Что обязательно заполнить, чтобы позже можно было понять, куда ушли деньги:
  * реклама — канал (сумма без разбивки по каналам бесполезна для стоимости лида),
  * зарплата — сотрудник, офис/прочее — комментарий (иначе строка ничего не объясняет). */
-export const expenseCreateSchema = expenseBaseSchema.superRefine((data, ctx) => {
+export const expenseCreateSchema = expenseBaseSchema.extend({
+  /** Человек видел «уже учтено автоматически» (expenseAutoOverlap.ts) и подтвердил, что это другой расход. */
+  confirmAutoOverlap: z.boolean().optional(),
+}).superRefine((data, ctx) => {
   if (data.category === "ADVERTISING" && !data.source) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["source"], message: "Укажите канал рекламы" });
   }
@@ -312,6 +315,8 @@ export const expenseCreateSchema = expenseBaseSchema.superRefine((data, ctx) => 
 });
 
 export const expenseUpdateSchema = expenseBaseSchema.partial().extend({
+  /** Правка сделала строку похожей на автоматическую (expenseAutoOverlap.ts) — человек подтвердил «другой». */
+  confirmAutoOverlap: z.boolean().optional(),
   /** Version read when opening the editor, not a fresh version fetched at save time. */
   version: z.number().int().nonnegative().optional(),
 });
@@ -330,7 +335,39 @@ export const clientsMergeSchema = z
   })
   .refine((d) => d.primaryId !== d.duplicateId, { message: "Нельзя объединить клиента с самим собой" });
 
-/** Сообщения ИИ-ассистента (диалог передаётся целиком, сервер не хранит состояние). */
+/**
+ * ОКНО ИСТОРИИ ИИ-АССИСТЕНТА (31.10.2026, пачка П1 задача 1.7,
+ * docs/design/internal-assistant-architecture-2026-10-31.md).
+ *
+ * Клиент шлёт всю историю, и раньше схема отвергала 31-е сообщение с 400
+ * «Неверные данные» — на 16-й паре реплик помощник просто переставал отвечать.
+ * Теперь лишнее не отвергается, а отрезается: в модель уходят последние
+ * ASSISTANT_HISTORY_WINDOW сообщений. Чем короче история, тем быстрее и дешевле
+ * каждый раунд модели, а старые реплики для ответа на текущий вопрос почти никогда
+ * не нужны.
+ */
+export const ASSISTANT_HISTORY_WINDOW = 12;
+/** Предел массива на входе — защита от тела в мегабайты, а не правило диалога:
+ *  всё, что сверх окна, всё равно отрезается. */
+const ASSISTANT_HISTORY_INPUT_MAX = 200;
+
+/**
+ * Последние `window` сообщений диалога, начиная с реплики пользователя: Gemini
+ * ждёт, что история открывается ходом пользователя, а срез посередине мог начаться
+ * с ответа ассистента. Одна функция на схему и на сервер (runAssistant режет и
+ * при прямом вызове, в обход роута).
+ */
+export function trimAssistantHistory<T extends { role: "user" | "assistant" }>(
+  messages: readonly T[],
+  window: number = ASSISTANT_HISTORY_WINDOW
+): T[] {
+  const tail = messages.slice(-window);
+  const firstUser = tail.findIndex((m) => m.role === "user");
+  return firstUser <= 0 ? [...tail] : tail.slice(firstUser);
+}
+
+/** Сообщения ИИ-ассистента (диалог передаётся целиком, сервер не хранит состояние;
+ *  в работу идёт только окно последних сообщений — см. trimAssistantHistory). */
 export const assistantRequestSchema = z.object({
   messages: z
     .array(
@@ -340,7 +377,8 @@ export const assistantRequestSchema = z.object({
       })
     )
     .min(1)
-    .max(30),
+    .max(ASSISTANT_HISTORY_INPUT_MAX)
+    .transform((messages) => trimAssistantHistory(messages)),
 });
 
 /** 13 select-полей «характеристик» объекта, как на сайте (Property.details, JSON).
@@ -691,7 +729,7 @@ export function hasValidPhoneDigitCount(v: string): boolean {
 
 /** Минимум 9 значащих цифр (без учёта +/скобок/пробелов) — реальные номера в базе всегда
  *  такие (+992 и 9-значный местный номер); отсекает явный мусор вроде "abc123". */
-const clientPhoneSchema = z
+export const clientPhoneSchema = z
   .string()
   .min(5)
   // Скрытый маской номер отвергаем ОТДЕЛЬНО и раньше проверки длины: цифр в нём

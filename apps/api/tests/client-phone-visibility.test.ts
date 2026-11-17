@@ -234,9 +234,9 @@ describe("Телефон клиента закрыт от сотрудника �
     expect(res.body.phone).toBe(PHONE);
   });
 
-  it("право выдаётся точечно: сотрудник с clients.viewPhone видит номер", async () => {
-    // Директор может открыть номера конкретному сотруднику, не открывая ему заодно
-    // чужие карточки, — ровно ради этого право отдельное.
+  it("16.11.2026 номера только директору: выданное не-директору clients.viewPhone номер НЕ открывает", async () => {
+    // Раньше директор мог открыть номера конкретному сотруднику точечной выдачей.
+    // Решение владельца 16.11.2026: право directorOnly — выдача не-директору молча игнорируется.
     await prisma.agent.update({
       where: { id: agentId },
       data: { permissions: { granted: ["clients.viewPhone"], revoked: [] } },
@@ -248,7 +248,7 @@ describe("Телефон клиента закрыт от сотрудника �
     try {
       const res = await request(app).get(`/api/v1/clients/${clientShortId}`).set("Authorization", `Bearer ${agentToken}`);
       expect(res.status).toBe(200);
-      expect(res.body.phone).toBe(PHONE);
+      expect(isMasked(res.body.phone)).toBe(true);
     } finally {
       await prisma.agent.update({ where: { id: agentId }, data: { permissions: Prisma.DbNull } });
       invalidateAgentAccess(agentId);

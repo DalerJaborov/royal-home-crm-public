@@ -12,6 +12,7 @@ import { customerPropertyRegistry, customerPropertyRegistryWithOwnSiteRead } fro
 import { createCustomerOwnSiteIdentityReader, customerOwnSiteListingId, type CustomerOwnSiteReadWait } from "./customerOwnSiteIdentity.js";
 import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
 import { readCustomerPropertyFocus } from "./customerPropertyFocus.js";
+import { classifyCustomerPropertyFactIntent } from "./customerPropertyFactIntent.js";
 import { customerPrincipalAuthenticatedInput } from "./customerPrincipal.js";
 import { resolveCustomerPropertyTurnContext, type CustomerPropertyTurnContext } from "./customerPropertyTurnContext.js";
 import { inspectAuthenticatedCustomerInput } from "./customerIngressAuthority.js";
@@ -56,9 +57,12 @@ export async function enrichCustomerAgentLinkFocus(input: FocusInput & { linkRea
 /** Selection is derived from the actual ACCEPTED list in this inquiry; the
  * source is checked again under the canonical locks before updating focus. */
 export async function enrichCustomerAgentSelectionFocus(input: FocusInput): ReturnType<typeof enrichCustomerAgentMediaFocus> {
-  const selected = await readCustomerSearchSelection(input.principal);
+  const frame = customerPrincipalAuthenticatedInput(input.principal), original = frame && inspectAuthenticatedCustomerInput(frame);
+  // A bare fact question ("район", "цена") that names no object anywhere may mean the single card the bot has just shown.
+  const factQuestion = !!original && !input.ticket.evidence.length && classifyCustomerPropertyFactIntent(original.inputText) !== null;
+  const current = factQuestion ? await readCustomerPropertyFocus(input.ticket) : null;
+  const selected = await readCustomerSearchSelection(input.principal, factQuestion ? { factQuestion, focusResolved: current?.focus.status === "resolved" } : {});
   if (selected.status === "none") {
-    const frame = customerPrincipalAuthenticatedInput(input.principal), original = frame && inspectAuthenticatedCustomerInput(frame);
     if (!original || customerBarePropertyNumber(original.inputText) === null) return { status: "unchanged" };
     const history = await loadCustomerAgentVerifiedDmContext({ principal: input.principal, revision: input.claim.pin.revision });
     if (history.status !== "current") return { status: "held", reason: history.reason };

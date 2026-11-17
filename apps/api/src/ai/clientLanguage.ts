@@ -33,7 +33,7 @@ import { stripUntrusted, unwrapUntrusted } from "./untrustedContent.js";
  * рядом с другими маркерами, поэтому потеря невелика; в русской они решают всё.
  */
 const TAJIK_WORDS =
-  /(?<![а-яёҳҷӣӯқғ])(ман|шумо|мо|хона|хонаи|мехохам|мехоҳам|мехаред|дорем|доред|даркор|аст|ҳаст|хаст|чанд|кучо|куҷо|нест|лозим|бошад|мешавад|мешава|кадом|барои|бале|ки|ва|бо|аз|дар|ин|намефамум|намефахмам|намефаҳмам|намефаҳмум|намедонам|наметавонам|уруси|урус|русӣ|маош|кор|нарх(?:аш|и|ат|ро)?|чанпул|чи|ака|апа|хуб|мешид|мегрифти|хавли|мефурӯш(?:ам|ем)?|мефуруш(?:ам|ем)?|мефурош(?:ам|ем)?|фурӯшам|фуруш(?:ам|ем)?|дорам|доштам|доштм)(?![а-яёҳҷӣӯқғ])/giu;
+  /(?<![а-яёҳҷӣӯқғ])(ман|шумо|мо|хона|хонаи|мехохам|мехоҳам|мехаред|дорем|доред|даркор|аст|ҳаст|хаст|чанд|кучо|куҷо|нест|лозим|бошад|мешавад|мешава|кадом|барои|бале|ки|ва|бо|аз|дар|ин|намефамум|намефахмам|намефаҳмам|намефаҳмум|намедонам|наметавонам|уруси|урус|русӣ|маош|кор|нарх(?:аш|и|ат|ро)?|чанпул|чи|ака|апа|хуб|(?:на)?шуд(?:ааст)?|мешид|мегрифти|хавли|мефурӯш(?:ам|ем)?|мефуруш(?:ам|ем)?|мефурош(?:ам|ем)?|фурӯшам|фуруш(?:ам|ем)?|дорам|доштам|доштм|кучост|куҷост|кучо|пул|пули|офисатон|офистон|хонаатон|мумкин|лутфан|биёед|харидан|фурухтан|ичора|арзон|кай|акс|фиристед|фиристам|мефиристам|мефиристед|метавонам|метавонед|метавонем|метавонад|кунам|кунем|кунед|кунад|тамошо|фардо|ошёна|ошёнаи|чандум|вазифа|вазифаи|вазифаҳо|кушода|бинам|бинед|нависам|нависед|гирам|гиред|биёям|биёед|мерасам|барам)(?![а-яёҳҷӣӯқғ])/giu;
 
 /**
  * ПРИВЕТСТВИЕ И «СПАСИБО» ЯЗЫКА НЕ ЗАДАЮТ (03.10.2026, живой сбой в Instagram).
@@ -73,6 +73,23 @@ const HAS_LATIN = /[a-z]/i;
  */
 const ENGLISH_WORDS =
   /(^|[^a-z])(the|and|you|your|are|is|do|does|have|has|can|could|would|want|need|price|how|much|many|what|where|when|hello|hi|please|thanks|thank|apartment|apartments|house|buy|sell|rent|for|with|about|in|of|to)([^a-z]|$)/i;
+
+/**
+ * Таджикские слова латиницей (24.10.2026, атакующий стенд): «salom, in khona chand pul» уходило в
+ * «unknown» (а значит, русский ответ), потому что «in» стоит и в английском списке. Эти слова
+ * английскими не бывают; «in»/«to» сюда НЕ входят, они двусмысленны и в английском счёте не участвуют.
+ */
+const TAJIK_LATIN_WORDS =
+  /(^|[^a-z])(salom|assalomu|alaykum|alejkum|rahmat|tashakkur|khona|xona|hona|honai|khonai|xonai|chand|chandta|pul|kuja|kujo|kucho|kuchost|kujost|narkh|narx|narxi|narxash|nark|dorem|doram|dorad|darkor|nest|hast|ast|ki|va|bo|ba|az|dar|baroi|mekhokham|mexoham|mehocham|mekhoham|lozim|mumkin|khub|xub|chi|kay|arzon|qimat|kor|bormi|kvartira|ofis|ofisatonro?)([^a-z]|$)/gi;
+const ENGLISH_STRONG_WORDS =
+  /(^|[^a-z])(the|and|you|your|are|is|does|have|has|can|could|would|want|need|price|how|much|many|what|where|when|hello|please|thanks|thank|apartment|apartments|house|buy|sell|rent|for|with|about|of)([^a-z]|$)/gi;
+
+/** Latin letters with no Cyrillic and no known Tajik-in-Latin word ("Binenw", "Blizkiyoooo"): noise, not evidence of Tajik. */
+export function isUnreadableLatin(text: string): boolean {
+  const trimmed = prepare(text);
+  return !HAS_CYRILLIC.test(trimmed) && HAS_LATIN.test(trimmed) && count(TAJIK_LATIN_WORDS, trimmed) === 0 &&
+    count(TAJIK_GREETINGS, trimmed) === 0;
+}
 
 export type ClientLanguage = "ru" | "tg" | "mixed" | "unknown";
 
@@ -116,11 +133,30 @@ export function stripNonLanguage(text: string): string {
 
 export type ClientLanguageScores = { tajik: number; russian: number; greetings: number };
 /** Word counts behind detectClientLanguage, for callers that must break a "mixed" tie themselves. */
-export function clientLanguageScores(text: string): ClientLanguageScores {
+export function clientLanguageScores(text: string, extension?: ClientLanguageExtension): ClientLanguageScores {
   const trimmed = prepare(text);
-  return { tajik: count(TAJIK_LETTER_WORDS, trimmed) + count(TAJIK_WORDS, trimmed), russian: count(RUSSIAN_WORDS, trimmed),
+  return { tajik: tajikCount(trimmed, extension), russian: russianCount(trimmed, extension),
     greetings: count(TAJIK_GREETINGS, trimmed) };
 }
+
+/**
+ * Extra word lists of ONE caller (16.11.2026, review #206 С2): the customer core reads Dushanbe colloquial Tajik and more
+ * Russian function words, while the legacy chat bot and the voice keep exactly the lists above. Without an extension
+ * every function here behaves as before.
+ */
+export interface ClientLanguageExtension { tajik?: RegExp; russian?: RegExp; uzbekLatin?: RegExp }
+/** Base counts, plus extension words at positions the base lists did not already match. */
+function extendedCount(text: string, base: RegExp[], extra: RegExp | undefined): number {
+  const total = base.reduce((sum, re) => sum + count(re, text), 0);
+  if (!extra) return total;
+  const seen = new Set<number>();
+  for (const re of base) for (const match of text.matchAll(new RegExp(re.source, re.flags))) seen.add(match.index ?? -1);
+  let more = 0;
+  for (const match of text.matchAll(new RegExp(extra.source, extra.flags))) if (!seen.has(match.index ?? -1)) more += 1;
+  return total + more;
+}
+const tajikCount = (text: string, extension?: ClientLanguageExtension) => extendedCount(text, [TAJIK_LETTER_WORDS, TAJIK_WORDS], extension?.tajik);
+const russianCount = (text: string, extension?: ClientLanguageExtension) => extendedCount(text, [RUSSIAN_WORDS], extension?.russian);
 
 function prepare(text: string): string {
   /**
@@ -138,14 +174,15 @@ function prepare(text: string): string {
   return stripNonLanguage(unwrapUntrusted(withoutFiles).replace(SYSTEM_MARKER, " "));
 }
 
-export function detectClientLanguage(text: string): ClientLanguage {
+export function detectClientLanguage(text: string, extension?: ClientLanguageExtension): ClientLanguage {
   const trimmed = prepare(text);
   // Слишком коротко («ок», «👍», «[📷]») — по такому языка не определить, и
   // навязывать модели язык на основании двух букв опаснее, чем не навязывать.
   if (trimmed.length < 4) {
     // Три буквы — уже слово, если это однозначно таджикское («Кор», «Ман»); голое «нет»/«ок» язык не задаёт.
     const long = (re: RegExp) => (trimmed.match(re) ?? []).filter(word => word.length >= 3).length;
-    return long(TAJIK_LETTER_WORDS) + long(TAJIK_WORDS) > 0 && count(RUSSIAN_WORDS, trimmed) === 0 ? "tg" : "unknown";
+    return long(TAJIK_LETTER_WORDS) + long(TAJIK_WORDS) + (extension?.tajik ? long(extension.tajik) : 0) > 0 &&
+      russianCount(trimmed, extension) === 0 ? "tg" : "unknown";
   }
 
   /**
@@ -154,8 +191,8 @@ export function detectClientLanguage(text: string): ClientLanguage {
    * чего в сообщении больше; «смесь» — только когда обоих поровну по-честному.
    */
   const greetings = count(TAJIK_GREETINGS, trimmed);
-  const tajik = count(TAJIK_LETTER_WORDS, trimmed) + count(TAJIK_WORDS, trimmed);
-  const russian = count(RUSSIAN_WORDS, trimmed);
+  const tajik = tajikCount(trimmed, extension);
+  const russian = russianCount(trimmed, extension);
 
   if (tajik > 0 && russian > 0) {
     if (russian >= tajik * 2) return "ru";
@@ -170,6 +207,10 @@ export function detectClientLanguage(text: string): ClientLanguage {
   // («salom, hona darkor»), а не английский. Но если в тексте есть английские
   // служебные слова, язык не навязываем вовсе: пусть решает модель по переписке.
   if (!HAS_CYRILLIC.test(trimmed) && HAS_LATIN.test(trimmed)) {
+    // Таджикские слова латиницей перевешивают случайное «in»/«to»; чисто английская фраза остаётся «unknown».
+    const tajikLatin = count(TAJIK_LATIN_WORDS, trimmed), english = count(ENGLISH_STRONG_WORDS, trimmed);
+    if (extension?.uzbekLatin && count(extension.uzbekLatin, trimmed) > tajikLatin) return "unknown";
+    if (tajikLatin > 0 && tajikLatin >= english) return "tg";
     return ENGLISH_WORDS.test(trimmed) ? "unknown" : "tg";
   }
   return "unknown";

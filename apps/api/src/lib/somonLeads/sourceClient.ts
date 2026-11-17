@@ -1,8 +1,20 @@
-import { claimSomonRequest, recordSomonResponse } from "./sourceBudgetStore.js";
+import { claimSomonRequest, recordSomonResponse, type ClaimOptions } from "./sourceBudgetStore.js";
 
 const INTERVAL_MS = 10000;
 export class SomonSourceUnavailable extends Error {
-  constructor(public readonly reason: "not_ready" | "http" | "network", public readonly status?: number) { super(`Somon source unavailable: ${reason}`); }
+  constructor(public readonly reason: "not_ready" | "http" | "network", public readonly status?: number, public readonly failureCode?: string) {
+    super(`Somon source unavailable: ${reason}${status !== undefined ? ` HTTP ${status}` : ""}${failureCode ? ` (${failureCode})` : ""}`);
+  }
+}
+
+// Only bounded diagnostic codes reach logs: never copy an upstream message,
+// request URL, body or credentials into the system journal.
+function failureCode(error: unknown): string {
+  const e = error as { name?: string; code?: string; cause?: { code?: string } } | null;
+  if (e?.name === "TimeoutError" || e?.name === "AbortError") return "REQUEST_TIMEOUT";
+  if (e?.code === "SOMON_BODY_LIMIT") return "BODY_TOO_LARGE";
+  const code = e?.cause?.code ?? e?.code;
+  return code && ["ENOTFOUND", "EAI_AGAIN", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "UND_ERR_SOCKET"].includes(code) ? code : "FETCH_FAILED";
 }
 
 function retryDelay(header: string | null, now: number): number | undefined {
@@ -13,13 +25,16 @@ function retryDelay(header: string | null, now: number): number | undefined {
 }
 
 /** All background Somon calls must go through this budgeted entry point. */
-export async function fetchSomon(path: string, now = new Date(), request: typeof fetch = fetch): Promise<Response> {
-  const permitted = /^\/nedvizhimost\/prodazha-kvartir\/dushanbe\/(?:\?page=\d{1,5})?$/.test(path)
+export async function fetchSomon(path: string, now = new Date(), request: typeof fetch = fetch, options: ClaimOptions = {}): Promise<Response> {
+  // Страницы списков: квартиры (лиды и рынок) и дома (только рынок). Больше ничего. Раздел домов —
+  // prodazha-domov-havli-i-dach (рубрика 218); прежний адрес prodazha-domov с 11.2026 отдаёт ОБЩУЮ
+  // ленту всех объявлений сайта (9 326 страниц), поэтому закрыт (12.11.2026).
+  const permitted = /^\/nedvizhimost\/prodazha-(?:kvartir|domov-havli-i-dach)\/dushanbe\/(?:\?page=\d{1,5})?$/.test(path)
     || /^\/items\/author\/\d{1,20}\/$/.test(path)
     || /^\/api\/items\/get_phone\/\d{1,20}\/$/.test(path)
     || /^\/api\/v2\/spa\/adverts\/card\/[\w%-]+\/$/.test(path);
   if (!permitted) throw new Error("Invalid Somon source path");
-  const token = await claimSomonRequest(now, INTERVAL_MS);
+  const token = await claimSomonRequest(now, INTERVAL_MS, options);
   if (!token) throw new SomonSourceUnavailable("not_ready");
   let response: Response;
   try {
@@ -33,7 +48,7 @@ export async function fetchSomon(path: string, now = new Date(), request: typeof
           const part = await reader.read();
           if (part.done) break;
           size += part.value.byteLength;
-          if (size > 4 * 1024 * 1024) { await reader.cancel(); throw new Error("Somon response too large"); }
+          if (size > 4 * 1024 * 1024) { await reader.cancel(); throw Object.assign(new Error("Somon response too large"), { code: "SOMON_BODY_LIMIT" }); }
           chunks.push(part.value);
         }
       }
@@ -42,9 +57,9 @@ export async function fetchSomon(path: string, now = new Date(), request: typeof
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
       response = new Response(size ? bytes : null, { status: response.status, headers: response.headers });
     }
-  } catch {
+  } catch (error) {
     await recordSomonResponse(token, 0, new Date());
-    throw new SomonSourceUnavailable("network");
+    throw new SomonSourceUnavailable("network", undefined, failureCode(error));
   }
   await recordSomonResponse(token, response.status, new Date(), retryDelay(response.headers.get("retry-after"), Date.now()));
   if (!response.ok) throw new SomonSourceUnavailable("http", response.status);

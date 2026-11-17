@@ -72,18 +72,31 @@ export function CustomerAgentRolloutSection() {
     retry: false, onSuccess: async () => { setConfirm(null); setCandidate(null); setRecruitmentUpgrade(false); setQualityContinuityUpgrade(false); await refresh(); },
   });
   const data = state.data;
+  // Форма берёт значения с сервера только при смене опубликованной политики: фоновое обновление
+  // (возврат на вкладку, новые счётчики диалогов) иначе стирало несохранённые галочки владельца.
+  const policyRevision = data?.policyRevision;
   useEffect(() => {
     if (!data) return;
     setPercent(Math.floor((data.rollout?.percentBasisPoints ?? 0) / 100));
     setSelected(data.rollout?.allowed.map(scope => scope.endpointScopeId) ?? []);
     setCapabilities(data.capabilities);
-  }, [data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- намеренно: только при смене политики
+  }, [policyRevision]);
   const busy = register.isPending || publish.isPending || kill.isPending || adopt.isPending;
   const active = data?.rolloutMode === "ACTIVE";
   const chosenScopes = data?.scopes.filter(scope => selected.includes(scope.endpointScopeId)) ?? [];
   const changingRevision = !!candidate && !!data?.activeAgentRevisionId && candidate !== data.activeAgentRevisionId;
   const canPublish = !!data && !!(candidate || data.activeAgentRevisionId) && chosenScopes.length > 0 &&
     reason.trim().length > 0 && paid && noCap && (!changingRevision || advanceIdle) && !data.moreScopes && !busy;
+
+  const publishMissing = !data || busy ? [] : [
+    !reason.trim() && "причина изменения",
+    chosenScopes.length === 0 && "хотя бы один аккаунт",
+    !paid && "галочка «Платные обращения»",
+    !noCap && "галочка «Дневной потолок расходов»",
+    changingRevision && !advanceIdle && "галочка «Обновить версию нового бота»",
+    data.moreScopes && "не все аккаунты загружены — обновите страницу",
+  ].filter((item): item is string => !!item);
 
   function submitPublish() {
     if (!data) return;
@@ -146,6 +159,7 @@ export function CustomerAgentRolloutSection() {
         <label className="mod"><span className="t"><b>Платные обращения</b><span>Подтверждаю, что включение может создавать оплачиваемые обращения к модели.</span></span><input type="checkbox" checked={paid} onChange={event => setPaid(event.target.checked)} /></label>
         <label className="mod"><span className="t"><b>Дневной потолок расходов</b><span>Подтверждаю отсутствие настроенного дневного лимита.</span></span><input type="checkbox" checked={noCap} onChange={event => setNoCap(event.target.checked)} /></label>
         <button type="button" className="pill" disabled={!canPublish} onClick={() => setConfirm("publish")}>{active ? "Опубликовать изменения" : "Включить текстового агента"}</button>
+        {publishMissing.length > 0 && <p className="state">Чтобы опубликовать, не хватает: {publishMissing.join(", ")}.</p>}
       </>}
       {data.counts.map(({ lane, count }) => <p className="state" key={lane}>{lane === "CORE" ? "Новый бот" : "Прежний бот"}: {count}</p>)}
     </>}

@@ -70,6 +70,7 @@ async function countContacts(propertyId: string, since: Date | null): Promise<nu
     prisma.interaction.findMany({
       where: {
         propertyId,
+        archiveReview: false,
         type: { in: ["CALL", "MESSAGE"] },
         // Не безуспешная попытка агента (исход «не дозвонился» ставит только он сам). Записано
         // через OR, а не NOT: у Prisma NOT по необязательному полю теряет строки с NULL — а

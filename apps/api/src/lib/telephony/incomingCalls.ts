@@ -11,6 +11,7 @@ import { closeStaleNextActions } from "../nextActionAutoClose.js";
 import { claimAutoTaskSlot, closeAutoTasks, CALLBACK_AUTO_TASK_KINDS } from "../autoTasks.js";
 import { loadIncomingSettings, incomingHoursOpen } from "./incomingSettings.js";
 import { maskClientPhone } from "../clientPhone.js";
+import { INCOMING_INBOUND_CONTEXTS } from "../settingsConstants.js";
 import {
   routeIncomingToAssignedAgent,
   releaseChannelToOperator,
@@ -93,7 +94,7 @@ export { SERVICE_NUMBER_IRRELEVANT_MARKS } from "./incomingCallConstants.js";
  * и имя у него ровно одно.
  */
 /**
- * ЭТО ЛИШЬ УМОЛЧАНИЕ. Настоящий список живёт в `Settings.incomingInboundContexts`:
+ * ЭТО ЛИШЬ УМОЛЧАНИЕ. Замена — константа INCOMING_INBOUND_CONTEXTS (lib/settingsConstants.ts, с 01.11.2026; раньше Settings.incomingInboundContexts):
  * контекст транка — конфигурация ЧУЖОЙ системы (FreePBX), и она меняется без выката
  * CRM. Пустая настройка означает «берём встроенный набор» — безопасное состояние
  * «ничего не настроено».
@@ -184,21 +185,14 @@ export function createInboundContextsAlarm(alarmAfterMs: number = CONTEXTS_ALARM
 
 const inboundContextsAlarm = createInboundContextsAlarm();
 
-/** Перечитать список входящих контекстов из настроек. Не бросает: телефония важнее. */
+/** Перечитать список входящих контекстов. С 01.11.2026 это константа
+ *  (lib/settingsConstants.ts, на проде список пуст — действует встроенный набор),
+ *  колонка Settings.incomingInboundContexts не читается. Подпись и вызовы
+ *  оставлены: список по-прежнему ставится на старте процесса. */
 export async function refreshInboundContexts(): Promise<void> {
-  try {
-    const settings = await prisma.settings.findUnique({
-      where: { id: "singleton" },
-      select: { incomingInboundContexts: true },
-    });
-    const list = settings?.incomingInboundContexts?.map((c) => c.trim()).filter(Boolean) ?? [];
-    inboundContextsOverride = list.length > 0 ? list : null;
-    inboundContextsAlarm.ok();
-  } catch (err) {
-    // Настройка не прочиталась — остаёмся на прежнем списке (в худшем случае на
-    // умолчаниях). Обнулять его молча нельзя: это выключило бы приём входящих.
-    inboundContextsAlarm.failed(err instanceof Error ? err.message : String(err));
-  }
+  const list = INCOMING_INBOUND_CONTEXTS.map((c) => c.trim()).filter(Boolean);
+  inboundContextsOverride = list.length > 0 ? list : null;
+  inboundContextsAlarm.ok();
 }
 
 /** Только для тестов: подменить список контекстов, не трогая базу. */

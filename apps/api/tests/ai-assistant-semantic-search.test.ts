@@ -16,6 +16,9 @@ vi.mock("../src/lib/embeddingSearch.js", () => ({ semanticPropertySearch }));
 
 const { prisma } = await import("../src/db.js");
 const { runTool } = await import("../src/ai/assistant.js");
+// Тумблеры помощника кэшируются на 15 с (ai/assistant/runtime.ts) — после каждого
+// переключения в базе кэш сбрасывается, иначе runTool увидел бы прошлое значение.
+const { resetAssistantRuntimeCache } = await import("../src/ai/assistant/runtime.js");
 
 const runId = Date.now();
 let districtId: string;
@@ -67,6 +70,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.settings.update({ where: { id: "singleton" }, data: { semanticSearchEnabled: savedToggle } });
+  resetAssistantRuntimeCache();
   await prisma.property.deleteMany({ where: { id: { in: [idOld, idMid, idNew] } } });
   await prisma.district.deleteMany({ where: { id: districtId } });
   await prisma.$disconnect();
@@ -75,6 +79,7 @@ afterAll(async () => {
 describe("тумблер Settings.semanticSearchEnabled — выключен по умолчанию", () => {
   it("semanticQuery передан, но тумблер выключен — семантику не зовём, порядок обычный", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { semanticSearchEnabled: false } });
+    resetAssistantRuntimeCache();
     semanticPropertySearch.mockReset();
 
     const result = (await runTool(
@@ -91,6 +96,7 @@ describe("тумблер Settings.semanticSearchEnabled — выключен п�
 describe("тумблер Settings.semanticSearchEnabled — включён", () => {
   it("semanticQuery не передан — семантику всё равно не зовём", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { semanticSearchEnabled: true } });
+    resetAssistantRuntimeCache();
     semanticPropertySearch.mockReset();
 
     await runTool("search_properties", { districtName: `Ассистент-семантика-${runId}` }, actor);
@@ -100,6 +106,7 @@ describe("тумблер Settings.semanticSearchEnabled — включён", () 
 
   it("семантика переставляет структурную выдачу по своему рангу, не отменяя фильтры", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { semanticSearchEnabled: true } });
+    resetAssistantRuntimeCache();
     semanticPropertySearch.mockReset().mockResolvedValue([
       { propertyId: idOld, score: 0.9 },
       { propertyId: idMid, score: 0.5 },

@@ -8,6 +8,17 @@ import { readRecruitmentPositions } from "./recruitmentPositions.js";
 /** Who a public comment is talking to. Server-side structure only (thread parent,
  * @mentions, the text itself); never a model label, grant or permission. */
 export type PublicCommentAddressee = "company_question" | "ad_keyword" | "reply_to_other" | "reaction" | "self_promo" | "unspecified";
+/** The model-facing label (publicState.addressee) of a server verdict. */
+export type CustomerPublicAddresseeLabel = "company" | "other_person" | "reaction" | "self_promo" | "unknown";
+export function customerPublicAddresseeLabel(verdict: PublicAddresseeVerdict): CustomerPublicAddresseeLabel {
+  switch (verdict.kind) {
+    case "company_question": case "ad_keyword": return "company";
+    case "reply_to_other": return "other_person";
+    case "reaction": return "reaction";
+    case "self_promo": return "self_promo";
+    default: return "unknown";
+  }
+}
 export type PublicParentKind = "none" | "own_comment" | "own_reply" | "other_person" | "unknown";
 export interface PublicAddresseeVerdict { kind: PublicCommentAddressee; companyQuestion: boolean;
   /** Permitted no-reply outcome: someone else's conversation or a bare reaction. Never an object card. */

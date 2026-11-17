@@ -24,7 +24,7 @@ import { requireAuth } from "../auth/middleware.js";
 import { lookupGeoPoint } from "../lib/geoLookup.js";
 import { suggestGeoAddress, SUGGEST_DEFAULT_LIMIT, SUGGEST_MAX_LIMIT } from "../lib/geoSuggest.js";
 import { resolveGeoText } from "../lib/geoResolve.js";
-import { suggestLandmarks } from "../lib/landmarkPick.js";
+import { suggestLandmarksForPoint } from "../lib/landmarkPick.js";
 import { isInsideDushanbe } from "../lib/geo.js";
 import { logSystemError } from "../lib/systemError.js";
 
@@ -109,11 +109,9 @@ geoRouter.get("/landmarks", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Нужны координаты lat и lng", details: parsed.error.flatten() });
   }
   const { lat, lng } = parsed.data;
-  // За пределами Душанбе справочника ориентиров нет — пустой ответ, а не
-  // «ближайший» ориентир за десятки километров.
-  if (!isInsideDushanbe(lat, lng)) return res.json({ text: "", landmarks: [] });
   try {
-    return res.json(await suggestLandmarks(lat, lng));
+    // За пределами Душанбе — пустой ответ (lib/landmarkPick.ts).
+    return res.json(await suggestLandmarksForPoint(lat, lng));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await logSystemError("api", `geo.landmarks(${lat},${lng}): ${message}`, {

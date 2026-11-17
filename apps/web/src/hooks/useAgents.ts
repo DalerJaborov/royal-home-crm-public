@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AbsenceKind, Role } from "@royal-home/shared";
+import { INCLUDE_FORMER_STAFF_PARAM, type AbsenceKind, type Role } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { SAFETY_REFETCH_MS } from "../lib/refetchIntervals";
 
@@ -60,11 +60,20 @@ export interface AgentListItem {
    *  поле в ответе ничего не ломает, уберут вместе с серверной частью. */
 }
 
-export function useAgents(options?: { enabled?: boolean }) {
+/**
+ * Справочник сотрудников. Бывших (isActive=false) сервер не отдаёт
+ * (владелец 11.11.2026, packages/shared/src/formerStaff.ts) — поэтому их нет ни
+ * в одном выпадающем выборе. `includeFormer` — только экран сотрудников у
+ * директора (вкладка «Отключённые», чтобы вернуть ошибочно отключённого);
+ * без права agents.manage сервер этот флаг молча игнорирует.
+ */
+export function useAgents(options?: { enabled?: boolean; includeFormer?: boolean }) {
+  const includeFormer = options?.includeFormer === true;
   return useQuery({
     refetchInterval: SAFETY_REFETCH_MS,
-    queryKey: ["agents"],
-    queryFn: () => api<AgentListItem[]>("/agents"),
+    // Префикс ["agents"] общий: invalidateQueries(["agents"]) гасит оба варианта.
+    queryKey: includeFormer ? ["agents", "with-former"] : ["agents"],
+    queryFn: () => api<AgentListItem[]>(includeFormer ? `/agents?${INCLUDE_FORMER_STAFF_PARAM}=1` : "/agents"),
     enabled: options?.enabled ?? true,
   });
 }

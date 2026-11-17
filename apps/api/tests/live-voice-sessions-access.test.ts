@@ -24,11 +24,11 @@ let sessionId = "";
 const ids: string[] = [];
 const tokens: Record<string, string> = {};
 
-async function agentWith(name: string, granted: string[], revoked: string[] = []) {
+async function agentWith(name: string, granted: string[], revoked: string[] = [], role = "AGENT") {
   const id = await createTestAgent(name);
   ids.push(id);
-  await prisma.agent.update({ where: { id }, data: { permissions: { granted, revoked } } });
-  return signAccessToken({ sub: id, role: "AGENT" });
+  await prisma.agent.update({ where: { id }, data: { role: role as never, permissions: { granted, revoked } } });
+  return signAccessToken({ sub: id, role });
 }
 
 beforeAll(async () => {
@@ -37,7 +37,9 @@ beforeAll(async () => {
   tokens.noHear = await agentWith("Голос Без Записи", ["settings.manage", "calls.transcripts"]);
   tokens.hear = await agentWith("Голос С Записью", ["settings.manage", "calls.transcripts", "calls.hearRecording"]);
   tokens.noPhone = await agentWith("Голос Без Номера", ["settings.manage", "calls.transcripts"], ["clients.viewPhone"]);
-  tokens.phone = await agentWith("Голос С Номером", ["settings.manage", "calls.transcripts", "clients.viewPhone"]);
+  // 16.11.2026 номера только директору: «с номером» — DIRECTOR (clients.viewPhone стало directorOnly).
+  tokens.phone = await agentWith("Голос С Номером", ["settings.manage", "calls.transcripts", "clients.viewPhone"], [], "DIRECTOR");
+  tokens.grantedNotDirector = await agentWith("Голос Выдано Не Директору", ["settings.manage", "calls.transcripts", "clients.viewPhone"]);
   sessionId = (
     await prisma.liveVoiceSession.create({
       data: {
@@ -85,7 +87,13 @@ describe("превью расшифровки живого голоса", () => 
     expect(text).toContain("•");
   });
 
-  it("с clients.viewPhone текст как есть", async () => {
+  it("16.11.2026 номера только директору: не-директору даже с granted viewPhone — маска", async () => {
+    const text = await preview(tokens.grantedNotDirector);
+    expect(text).not.toContain("901234567");
+    expect(text).toContain("•");
+  });
+
+  it("директору (clients.viewPhone) текст как есть", async () => {
     expect(await preview(tokens.phone)).toContain("+992901234567");
   });
 });

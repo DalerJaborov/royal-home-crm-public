@@ -216,10 +216,13 @@ function stopCode(raw: unknown): { stopCode: string } | Record<string, never> {
 export function traceCustomerCoreResult(result: { status: "ready" | "held"; decision?: { kind: unknown };
   rounds: number; toolCalls: number; evidence: readonly { value: { kind: string; outcome?: unknown } }[]; reason?: unknown; cause?: string;
   rejectedDecisionKind?: unknown; skipReason?: unknown;
-  fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string }): void {
+  fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string;
+  /** Verdict of the model's free phrase; the phrase itself never reaches the trace. */
+  say?: { status: "absent" | "used" | "dropped"; reason?: string } }): void {
   observe(ctx => {
     if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning") return;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ status: result.status,
+      ...(result.say ? { sayStatus: result.say.status, ...(result.say.status === "dropped" ? { sayDropReason: result.say.reason } : {}) } : {}),
       ...(result.status === "ready" && result.decision ? { decisionKind: result.decision.kind } : {}),
       rounds: result.rounds, toolCalls: result.toolCalls,
       receiptOutcomes: [...new Set(result.evidence.filter(e => e.value.kind === "receipt").map(e => e.value.outcome))],

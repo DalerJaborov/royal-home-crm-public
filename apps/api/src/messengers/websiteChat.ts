@@ -42,12 +42,8 @@ import type { ChatMessage, PropertyCard } from "../ai/shared.js";
 import { WEBSITE_CHANNEL } from "./channels.js";
 export { WEBSITE_CHANNEL };
 
-/**
- * Идентификатор сессии посетителя. Приходит с сайта и попадает в subscriberId, то
- * есть в ключ, по которому находится переписка, — поэтому форма проверяется строго:
- * произвольная строка из браузера не должна становиться чем угодно в нашей базе.
- */
-export const WEBSITE_SESSION_RE = /^[a-zA-Z0-9_-]{16,64}$/;
+import { WEBSITE_SESSION_RE } from "../lib/shared/websiteSession.js";
+export { WEBSITE_SESSION_RE };
 
 export interface WebsiteChatMessage {
   role: "user" | "assistant";

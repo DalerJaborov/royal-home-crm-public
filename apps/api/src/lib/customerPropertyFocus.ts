@@ -33,6 +33,8 @@ export async function reserveCustomerPropertyFocus(tx: TxClient, ticket: Custome
       )`);
 }
 
+/** In-turn retry counts as one: a failed read is re-read on ONE later turn, then reported to the customer. */
+export const CUSTOMER_PROPERTY_LOOKUP_MAX_ATTEMPTS = 2;
 export interface CustomerPropertyFocusSnapshot { focus: CustomerPropertyFocus; revision: number }
 function ownsPending(ticket: CustomerPropertyAdmission, snapshot: CustomerPropertyFocusSnapshot): boolean {
   return snapshot.focus.status === "pending" && snapshot.focus.scopeKey === ticket.scopeKey &&
@@ -60,8 +62,11 @@ export async function completeCustomerPropertyFocus(
 ): Promise<boolean> {
   if (!ownsPending(ticket, snapshot)) return false;
   if (ticket.accountId === null && ticket.channel !== "WEBSITE" && !ticket.endpointScopeId) return false;
+  const { lookupAttempts: previousAttempts, ...rest } = snapshot.focus;
   const next = customerPropertyFocusSchema.parse({
-    ...snapshot.focus, status: resolution.status, propertyId: resolution.propertyId,
+    ...rest, status: resolution.status, propertyId: resolution.propertyId,
+    // A transient read failure is remembered so the next turn can retry; any other answer clears it.
+    ...(resolution.reason === "lookup_unavailable" ? { lookupAttempts: Math.min((previousAttempts ?? 0) + 1, CUSTOMER_PROPERTY_LOOKUP_MAX_ATTEMPTS) } : {}),
   });
   const changed = await prisma.$executeRaw(Prisma.sql`
     UPDATE "BotConversation"
@@ -100,5 +105,31 @@ export async function persistCustomerPropertyBatchEvidence(
       AND "customerPropertyFocus"->>'eventKey' = ${ticket.eventKey}
       AND "customerPropertyFocus"->>'lastEvidenceOrder' = ${ticket.order}
       AND "customerPropertyFocus"->>'status' = 'pending'`);
+  return changed > 0 ? { focus: next, revision: snapshot.revision + 1 } : null;
+}
+
+export function customerPropertyLookupRetryDue(focus: CustomerPropertyFocus): boolean {
+  return focus.status === "missing" && focus.evidence.length > 0 && focus.lookupAttempts !== undefined &&
+    focus.lookupAttempts < CUSTOMER_PROPERTY_LOOKUP_MAX_ATTEMPTS;
+}
+/** The focus owner stays the original evidence event (same eventKey/order); only the generation changes, so
+ * the ordinary pending branch re-resolves it. Compare-and-set on revision: a concurrent turn wins, never both. */
+export async function reopenCustomerPropertyFocusForRetry(
+  ticket: CustomerPropertyAdmission,
+  snapshot: CustomerPropertyFocusSnapshot,
+): Promise<CustomerPropertyFocusSnapshot | null> {
+  if (!customerPropertyLookupRetryDue(snapshot.focus)) return null;
+  if (ticket.accountId === null && ticket.channel !== "WEBSITE" && !ticket.endpointScopeId) return null;
+  const next = customerPropertyFocusSchema.parse({ ...snapshot.focus, status: "pending", propertyId: null, generation: randomUUID() });
+  const changed = await prisma.$executeRaw(Prisma.sql`
+    UPDATE "BotConversation" SET "customerPropertyFocus" = ${JSON.stringify(next)}::jsonb,
+      "customerPropertyFocusRevision" = "customerPropertyFocusRevision" + 1
+    WHERE "id" = ${ticket.conversationId} AND "channel" = ${ticket.channel}
+      AND "accountId" IS NOT DISTINCT FROM ${ticket.accountId}
+      AND (${ticket.endpointScopeId ?? null}::text IS NULL OR "endpointScopeId" = ${ticket.endpointScopeId ?? null})
+      AND "customerPropertyFocusRevision" = ${snapshot.revision}
+      AND "customerPropertyFocus"->>'scopeKey' = ${ticket.scopeKey}
+      AND "customerPropertyFocus"->>'generation' = ${snapshot.focus.generation}
+      AND "customerPropertyFocus"->>'status' = 'missing'`);
   return changed > 0 ? { focus: next, revision: snapshot.revision + 1 } : null;
 }

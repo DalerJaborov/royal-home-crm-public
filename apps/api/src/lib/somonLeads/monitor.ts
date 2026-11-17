@@ -7,17 +7,70 @@ import { processSomonPending } from "./processPending.js";
 import { cleanupSomonReceipts } from "./deliveryStore.js";
 import { logSystemError } from "../systemError.js";
 import { somonKeyFingerprint } from "./contactIdentity.js";
+import { saveSomonPageHtml } from "../market/somonCrawler.js";
+import { isTelegramPortalAlertsPaused } from "../telegramPortalPause.js";
 
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const MAX_PAGES_PER_TICK = 8;
 const MAX_SCAN_PAGES = 25;
+let marketIngestRunning = false;
+/**
+ * Та же страница, что скачал парсер лидов, пишется в рыночный каталог БЕЗ второго
+ * запроса к Somon. Изоляция от лидов обязательна: функция не бросает и не ждёт
+ * записи (парсер её не awaitит), сама запись — вне транзакций лидов, а пока
+ * прошлая запись не закончилась, новая страница пропускается (следующий полный
+ * обход всё равно подберёт). Не изменившиеся объявления не перезаписываются (saveListings
+ * только отмечает «видели»). MARKET_MONITOR_INGEST=0 выключает запись целиком.
+ * Возвращает промис только для тестов.
+ */
+export function ingestMarketPage(html: string): Promise<void> {
+  // Аварийный выключатель записи рынка из парсера лидов: MARKET_MONITOR_INGEST=0.
+  if (process.env.MARKET_MONITOR_INGEST === "0") return Promise.resolve();
+  if (marketIngestRunning) return Promise.resolve();
+  marketIngestRunning = true;
+  return (async () => {
+    try {
+      await new Promise<void>(resolve => setImmediate(resolve)); // разбор страницы — после ближайшего ввода-вывода лидов, не в их ветке
+      await saveSomonPageHtml(html);
+    } catch {
+      // Ошибку рынка не пробрасываем и тело/адрес в журнал не кладём.
+      await logSystemError("api", "Somon: страница не записалась в рыночный каталог; лиды не затронуты", { dedupKey: "somon-market-ingest" }).catch(() => undefined);
+    } finally {
+      marketIngestRunning = false;
+    }
+  })();
+}
+
+/**
+ * Пишет ли минутный парсер лидов страницы квартир Somon в рыночный каталог (12.11.2026).
+ *
+ * Отвечает рыночному инкременту (`market/somonIncremental.ts`): когда парсер лидов работает, он сам
+ * отдаёт каталогу первые страницы квартир, и второй запрос тех же страниц — лишний трафик к Somon.
+ * Когда лиды выключены, остановлены или стоят на ПАУЗЕ уведомлений площадок, — не пишет, и квартиры
+ * обновляет инкремент. Условия те же, что у ранних выходов `runSomonMonitorTick` ниже (кроме
+ * секундной паузы бюджета `blockedUntil`: она сама проходит за ~10 с и «не пишет» не означает).
+ */
+export async function somonMonitorFeedsMarket(): Promise<boolean> {
+  if (process.env.MARKET_MONITOR_INGEST === "0") return false;
+  const state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" }, select: { enabled: true, sourceStopped: true, contactKeyFingerprint: true } });
+  if (!state?.enabled || state.sourceStopped) return false;
+  if (await isTelegramPortalAlertsPaused()) return false;
+  try {
+    return !!state.contactKeyFingerprint && state.contactKeyFingerprint === somonKeyFingerprint();
+  } catch {
+    return false;
+  }
+}
+
 async function page(n: number) {
   const response = await fetchSomon(`/nedvizhimost/prodazha-kvartir/dushanbe/${n === 1 ? "" : `?page=${n}`}`);
   const html = await response.text();
   // An empty page is treated as a possible shrinking baseline only after a
   // fresh first-page pagination check; malformed nonempty pages fail closed.
   if (!html.includes('self.__next_f.push')) throw new Error("Somon listing payload unavailable");
-  return parseSomonListingPage(html, n);
+  const parsed = parseSomonListingPage(html, n);
+  void ingestMarketPage(html);
+  return parsed;
 }
 
 /** Only an explicit sufficiently old time permits an early stop. */
@@ -52,6 +105,9 @@ export async function runSomonMonitorTick(pause: (ms: number) => Promise<void> =
   if (stuck) await logSystemError("telegram", "Somon: обнаружены отправки с неизвестным результатом; автоматического повтора нет", { dedupKey: "somon-delivery-stuck" });
   let state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
   if (!state?.enabled || state.sourceStopped || (state.blockedUntil && state.blockedUntil > new Date())) return;
+  // Пауза уведомлений площадок: объявления не разбираем и очередь не трогаем — после снятия паузы всё продолжится.
+  // Рыночный каталог при этом не стоит: квартиры обновляет инкремент рынка (somonMonitorFeedsMarket выше).
+  if (await isTelegramPortalAlertsPaused()) return;
   try {
     if (!state.contactKeyFingerprint || state.contactKeyFingerprint !== somonKeyFingerprint()) throw new Error("contact identity key changed");
   } catch {

@@ -4,6 +4,7 @@ import { runRecruitmentCommunicationTick } from "../recruitmentCommunications.js
 import { runPostShowingCallTick } from "../postShowingCall.js";
 import { runSellerProbeCallTick } from "../sellerProbeCall.js";
 import { sweepLiveVoiceStationLeftovers } from "./liveVoiceBridge.js";
+import { refreshLiveVoiceSpend } from "../liveVoiceSpend.js";
 
 /**
  * ИСХОДЯЩИЕ ЗВОНКИ РОБОТА — В ТОМ ЖЕ ПРОЦЕССЕ, ГДЕ ЖИВЁТ ЕГО ГОЛОС (28.09.2026).
@@ -34,9 +35,31 @@ export const LIVE_VOICE_SCENARIO_TICKS = [
   "post-showing-call",
   "interview-invite-call",
   "live-voice-orphan-sweep",
+  "live-voice-spend-ceiling",
 ] as const;
 
 export function startLiveVoiceScenarioTicks(): void {
+  /**
+   * ПОТОЛОК МИНУТ РОБОТА (П5, 11.11.2026, lib/liveVoiceSpend.ts). Исходящие дверь
+   * проверяет по базе перед каждым набором сама; этот тик держит удержание ВХОДЯЩИХ
+   * (память процесса моста) и ставит тревоги директору на 80% и 100%. Первый проход —
+   * сразу при старте: после выката робот не должен минуту брать трубку сверх потолка.
+   */
+  let isSpendCeilingRunning = false;
+  const spendCeiling = async () => {
+    if (isSpendCeilingRunning) return;
+    isSpendCeilingRunning = true;
+    try {
+      await refreshLiveVoiceSpend();
+    } catch (err) {
+      reportCronTickError("Ошибка подсчёта минут робота (потолок расхода)", err);
+    } finally {
+      isSpendCeilingRunning = false;
+    }
+  };
+  void spendCeiling();
+  scheduleTracked("live-voice-spend-ceiling", API_PROCESS_TICKS["live-voice-spend-ceiling"], spendCeiling);
+
   /**
    * ПРОВЕРКА СО СТОРОНЫ ПРОДАВЦА (порог 5 воронки) — РАЗ В ЧАС: до звонка
    * собственнику доходят единицы в месяц. Проход считает досье (иногда с

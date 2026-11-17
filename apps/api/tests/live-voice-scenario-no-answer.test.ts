@@ -1,4 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+// П3 (11.11.2026): часы, «не звонить» и частоту звонков робота проверяет одна дверь
+// (robot-call-policy.test.ts); здесь — механика моста, и она должна быть зелёной в любой час.
+vi.mock("../src/lib/robotCallPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/robotCallPolicy.js")>()),
+  robotCallRefusal: vi.fn(async () => null),
+}));
 
 /**
  * НЕДОЗВОН РОБОТА — СЦЕНАРИЮ СРАЗУ (02.10.2026, находка треда «Анкеты кандидатов»).

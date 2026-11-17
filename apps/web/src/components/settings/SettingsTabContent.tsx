@@ -15,7 +15,7 @@ import {
   ImportSection,
   PasskeyToggleSection,
   ProblemReportsSection,
-  StepUpSection,
+  FinancePdfMonthlySection,
   StuckConversationsSection,
   SystemHealthSection,
   SiteAdminSection,
@@ -65,9 +65,9 @@ export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSetti
     case "bot/learning": return <BotTab area="learning" />;
     case "bot/models": return <BotTab area="models" />;
     case "bot/rollout": return agentRole === "DIRECTOR" || agentRole === "ADMIN" ? <CustomerAgentRolloutSection /> : null;
-    case "system/monitoring": return <><SystemHealthSection /><AssistantAuditSection /><StuckConversationsSection /><ProblemReportsSection /></>;
+    case "system/monitoring": return <><SystemHealthSection /><AssistantAuditSection /><StuckConversationsSection /><ProblemReportsSection /><FinancePdfMonthlySection /></>;
     case "system/workspace": return <><UiShellRolloutSection /><PultModulesSection /></>;
-    case "system/security": return <><StepUpSection /><PasskeyToggleSection /></>;
+    case "system/security": return <PasskeyToggleSection />;
     case "system/data": return <><RestorePointsSection /><ImportSection /></>;
     case "system/website": return agentRole === "DIRECTOR" ? <SiteAdminSection /> : null;
     default: return <p role="alert">Блок настроек не найден. Выберите другой блок выше.</p>;
@@ -147,9 +147,9 @@ export function SettingsTabContent({ tab, agentRole }: { tab: SettingsTabId; age
       <PultModulesSection />
       <StuckConversationsSection />
       <ProblemReportsSection />
+      <FinancePdfMonthlySection />
 
       <SettingsGroupLabel>Безопасность</SettingsGroupLabel>
-      <StepUpSection />
       <PasskeyToggleSection />
 
       <SettingsGroupLabel>Данные</SettingsGroupLabel>

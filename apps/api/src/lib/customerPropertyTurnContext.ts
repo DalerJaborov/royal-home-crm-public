@@ -6,7 +6,7 @@ import { findScopedBotConversation, type CustomerTransportReference } from "./cu
 import { admitCustomerPropertyInput, customerPropertyInputAlreadyManaged, verifyCustomerPropertyAdmission, type CustomerPropertyAdmissionInput } from "./customerPropertyAdmission.js";
 import { customerPropertyContextEnabled } from "./customerPropertyContextFlag.js";
 import { customerPropertyEvidenceFromText, mergeCustomerPropertyEvidence } from "./customerPropertyEvidence.js";
-import { completeCustomerPropertyFocus, persistCustomerPropertyBatchEvidence, readCustomerPropertyFocus, type CustomerPropertyFocusSnapshot } from "./customerPropertyFocus.js";
+import { completeCustomerPropertyFocus, customerPropertyLookupRetryDue, persistCustomerPropertyBatchEvidence, readCustomerPropertyFocus, reopenCustomerPropertyFocusForRetry, type CustomerPropertyFocusSnapshot } from "./customerPropertyFocus.js";
 import { customerPropertyRegistry } from "./customerPropertyRegistry.js";
 import { resolveCustomerPropertyEvidence } from "./customerPropertyResolver.js";
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
@@ -97,6 +97,12 @@ export async function resolveCustomerPropertyTurnContext(
   if (BigInt(ticket.order) < BigInt(snapshot.focus.lastEvidenceOrder)) {
     traceCustomerPropertyResolution({ status: snapshot.focus.status, propertyId: snapshot.focus.propertyId, provenanceKinds: snapshot.focus.evidence.map((item) => item.kind) }, true);
     return { ticket, snapshot, facts: null, superseded: true };
+  }
+  if (customerPropertyLookupRetryDue(snapshot.focus)) {
+    // The previous read of this very evidence failed transiently and no new link has come since: re-read it
+    // once now instead of freezing the failure until the customer sends another link. A lost race re-reads.
+    snapshot = await reopenCustomerPropertyFocusForRetry(ticket, snapshot) ?? await readCustomerPropertyFocus(ticket);
+    if (!snapshot) return null;
   }
   if (snapshot.focus.status === "pending") {
     // The prompt winner can be a later plain question. Use the immutable

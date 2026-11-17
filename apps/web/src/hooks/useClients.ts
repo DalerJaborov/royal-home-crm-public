@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
-import type { ClientPropertyMatchEvidence, ClientPropertyMatchSummary, ClientKind, ClientSort, SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
+import type { ClientPropertyMatchEvidence, ClientPropertyMatchSummary, ClientKind, ClientSort, RobotCallStopState, SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
 import { api, ApiError } from "../lib/api";
 import { keepWhilePaging, keepWhilePagingAt, keepWhilePagingIndexed } from "../lib/keepWhilePaging";
 import { OfflineQueuedError } from "../lib/offlineQueue";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
-import type { Client, Paginated, Property } from "../types";
+import type { Client, Interaction, Paginated, Property } from "../types";
 import { useProperties } from "./useProperties";
 import { withRetryKey, type RetryKey } from "./useRetryKey";
 import { useAccumulatedPages } from "./useAccumulatedPages";
+import { audioFileNameFor } from "../lib/audioRecording";
 
 /** Оптимистично правит открытую карточку клиента в кэше (кэш по shortId из URL,
  *  значение — Client с .id=uuid). Возвращает снимок для отката при реальной ошибке. */
@@ -68,7 +69,7 @@ export interface ClientFilters {
   noFirstContactYesterday?: boolean;
   /** Вкладка «Все мои клиенты» (18.09.2026, задание В §f п.1) — снимает Корзину/
    *  kind/status-срезы у своего агента, см. серверный комментарий (routes/clients/list.ts). */
-  scope?: "allMine";
+  scope?: "allMine" | "inWork";
 }
 
 function toQuery(filters: ClientFilters) {
@@ -271,6 +272,47 @@ export function useClientTrash(page: number, enabled = true) {
   });
 }
 
+/** «Разбор удалённого клиента» (GET /clients/trash/:id/review): кто удалил, причина, журнал, история. */
+export interface ClientTrashReview {
+  client: {
+    id: string;
+    shortId: number;
+    fullName: string;
+    kind: ClientKind;
+    status: string;
+    createdAt: string;
+    deletedAt: string | null;
+    deletedBy: { id: string; fullName: string } | null;
+    deletedAutomatically: boolean;
+    owner: { id: string; fullName: string } | null;
+  };
+  deleteRequest: {
+    reason: string;
+    reasonLabel: string;
+    comment: string | null;
+    status: string;
+    requestedBy: { id: string; fullName: string };
+    createdAt: string;
+    decidedBy: { id: string; fullName: string } | null;
+    decidedAt: string | null;
+    decisionNote: string | null;
+  } | null;
+  audit: { id: string; action: string; label: string; agentName: string; createdAt: string }[];
+  interactions: Interaction[];
+  interactionsTotal: number;
+  /** Есть записи старше показанных. */
+  hasMore?: boolean;
+  canCall: boolean;
+}
+
+export function useClientTrashReview(clientId: string | null) {
+  return useQuery({
+    queryKey: ["clients-trash-review", clientId],
+    queryFn: () => api<ClientTrashReview>(`/clients/trash/${clientId}/review`),
+    enabled: !!clientId,
+  });
+}
+
 export function useRestoreClient() {
   const qc = useQueryClient();
   return useMutation({
@@ -460,6 +502,66 @@ export function useLiveVoiceCall(clientId: string) {
 }
 
 /**
+ * «Не звонить роботом» (П3, 11.11.2026): GET/PUT /clients/:id/robot-call-stop.
+ * Отметку читает одна дверь на сервере (lib/robotCallPolicy.ts) перед каждым набором
+ * робота — опрос, проверка продавца, приглашение и кнопка «Звонок роботом».
+ */
+export function robotCallStopKey(clientId: string | undefined): QueryKey {
+  return ["robot-call-stop", clientId];
+}
+
+export function useRobotCallStop(clientId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: robotCallStopKey(clientId),
+    queryFn: () => api<RobotCallStopState>(`/clients/${clientId}/robot-call-stop`),
+    enabled: !!clientId && enabled,
+    staleTime: 60_000,
+  });
+}
+
+/** Что меняет ручка «не звонить роботом»: отметку сотрудника или (руководитель) разрешение вопреки просьбе клиента. */
+export type RobotStopChange = { stopped: boolean; overrideClientRequest?: true };
+
+/** Положение до ответа сервера: тумблер — только отметка сотрудника, просьба клиента остаётся. */
+export function robotStopOptimistic(prev: RobotCallStopState, change: RobotStopChange, now: Date = new Date()): RobotCallStopState {
+  if (change.overrideClientRequest) {
+    return { ...prev, stopped: false, staffStop: false, clientReasons: [], canClear: false, canOverride: false,
+      allowedBySupervisor: prev.optedOutInChat || prev.allowedBySupervisor };
+  }
+  if (change.stopped) {
+    return { ...prev, stopped: true, staffStop: true, canClear: true, allowedBySupervisor: false,
+      since: prev.since ?? now.toISOString() };
+  }
+  return { ...prev, staffStop: false, canClear: false, stopped: prev.clientReasons.length > 0 };
+}
+
+/**
+ * Тумблер переключается сразу (правило владельца 11.08): положение меняется до ответа
+ * сервера, отказ возвращает прежнее, ответ сервера — окончательная правда.
+ */
+export function useSetRobotCallStop(clientId: string) {
+  const qc = useQueryClient();
+  const key = robotCallStopKey(clientId);
+  return useMutation({
+    mutationFn: (change: RobotStopChange) =>
+      api<RobotCallStopState>(`/clients/${clientId}/robot-call-stop`, { method: "PUT", body: change }),
+    onMutate: async (change: RobotStopChange) => {
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<RobotCallStopState>(key);
+      if (prev) qc.setQueryData<RobotCallStopState>(key, robotStopOptimistic(prev, change));
+      return { prev };
+    },
+    onError: (_err, _change, ctx) => {
+      if (ctx?.prev) qc.setQueryData(key, ctx.prev);
+    },
+    onSuccess: (state) => {
+      qc.setQueryData(key, state);
+    },
+    meta: { silent: true },
+  });
+}
+
+/**
  * Что устаревает после новой записи по клиенту.
  *
  * Открытая карточка кэширована по shortId из URL, а не по UUID (тот же баг, что
@@ -531,7 +633,7 @@ export function useSendClientVoiceMessage(clientId: string, conversationId?: str
   return useMutation({
     mutationFn: (blob: Blob) => {
       const form = new FormData();
-      form.append("audio", blob, "voice.webm");
+      form.append("audio", blob, audioFileNameFor(blob.type));
       if (conversationId) form.append("conversationId", conversationId);
       return api<{ ok: boolean }>(`/clients/${clientId}/message-voice`, { method: "POST", body: form });
     },
@@ -919,10 +1021,13 @@ export function usePropertyPickerOptions(clientId: string | undefined, q?: strin
     useCatalog
   );
   return useCatalog
-    ? { properties: fallback.data?.items, isLoading: fallback.isLoading, usedFallback: true, unfiltered: false }
+    ? { properties: fallback.data?.items, isLoading: fallback.isLoading, isFetching: fallback.isFetching, isError: fallback.isError, refetch: fallback.refetch, usedFallback: true, unfiltered: false }
     : {
         properties: matched.data?.properties,
         isLoading: matched.isLoading,
+        isFetching: matched.isFetching,
+        isError: matched.isError,
+        refetch: matched.refetch,
         usedFallback: false,
         unfiltered: matched.data?.unfiltered ?? false,
       };

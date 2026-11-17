@@ -106,10 +106,12 @@ const factQuestions: Record<RecruitmentFactKey, { ru: string; tg: string }> = {
   studyingNow: { ru: "Вы сейчас учитесь в школе, колледже или вузе? Курсы не считаются.", tg: "Ҳоло дар мактаб, коллеҷ ё донишгоҳ мехонед? Курсҳо ба ҳисоб намераванд." },
   employedNow: { ru: "Вы сейчас работаете в другом месте?", tg: "Ҳоло дар ҷои дигар кор мекунед?" },
   education: { ru: "Какое у вас образование?", tg: "Таҳсилоти шумо чӣ гуна аст?" },
-  experience: { ru: "Расскажите о вашем опыте. Если его пока нет, так и напишите — это не означает отказ.", tg: "Дар бораи таҷрибаатон нависед. Агар таҷриба надошта бошед, ҳамин тавр нависед — ин маънои рад шуданро надорад." },
+  experience: { ru: "Расскажите о вашем опыте. Если его пока нет, так и напишите: это не означает отказ.", tg: "Дар бораи таҷрибаатон нависед. Агар таҷриба надошта бошед, ҳамин тавр нависед, ин маънои рад шуданро надорад." },
   languages: { ru: "На каких языках вы говорите?", tg: "Бо кадом забонҳо гап мезанед?" },
   startWhen: { ru: "Когда готовы приступить к работе?", tg: "Кай ба кор шурӯъ карда метавонед?" },
   skills: { ru: "Какие задачи вы умеете выполнять самостоятельно?", tg: "Кадом вазифаҳоро мустақилона иҷро карда метавонед?" },
   tools: { ru: "Какими программами и инструментами пользуетесь?", tg: "Аз кадом барномаҳо ва воситаҳо истифода мебаред?" },
 };
 export function recruitmentRequiredQuestion(key: RecruitmentFactKey, language: "ru" | "tg"): string { return factQuestions[key][language]; }
+/** Every fixed fact-question wording, for the read-only memory allow-list and the repeated-question check. */
+export function recruitmentFactQuestionLines(): string[] { return Object.values(factQuestions).flatMap(line => [line.ru, line.tg]); }

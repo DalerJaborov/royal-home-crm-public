@@ -8,25 +8,25 @@ import express, { Router, type Request } from "express";
 import path from "node:path";
 import { makePropertyCover, storeManualCover } from "../../lib/video/coverOpenAi.js";
 import fs from "node:fs/promises";
-import { createReadStream } from "node:fs";
+import { streamFileArchive } from "../../lib/streamFileArchive.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import multer from "multer";
-import { ZipArchive } from "archiver";
+
+import type { PermissionId } from "@royal-home/shared";
 import type { Prisma, PropertyVideo } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
-import { requireAuth } from "../../auth/middleware.js";
+import { can, requireAuth } from "../../auth/middleware.js";
+import { sendBackDenied, sendPropertyBackToMontajerAs } from "../../lib/propertySendBack.js";
 import { upload, clipVideoUpload, clipVideoDir, videoHandoffUpload, videoTmpDir, moveUploadedFile, propertyCoversDir, UploadRejectedError } from "../../upload.js";
 import { probeDurationSec, MAX_CLIP_VIDEO_DURATION_SEC } from "../../lib/propertyClipVideo.js";
 import { probeRawVideoFacts } from "../../lib/rawVideoFacts.js";
 import { revertToReviewAfterVideoUpload } from "../../lib/propertyPipeline.js";
 import { autoApproveIfRawReviewOff } from "../../lib/propertyReview.js";
-import { afterClipRejected } from "../../lib/clipReview.js";
 import {
   receiveEditedVideo,
   requeueVideoHandoff,
   receiveEditedVideoFromFile,
-  notifyMontajerFinalUploadedManually,
   buildMontajerMessageText,
   withPropertyLock,
   publishHandoffNow,
@@ -41,6 +41,7 @@ import {
 import { logSystemError } from "../../lib/systemError.js";
 import { describeError } from "../../lib/describeError.js";
 import { logAudit } from "../../lib/audit.js";
+import { acceptFinalVideoFromStaff, selfApprovedClipOptsFor } from "../../lib/finalVideoIntake.js";
 import { enqueueBackgroundJob } from "../../jobs/enqueue.js";
 import {
   TIKTOK_PUBLISH_RETRY_JOB_TYPE,
@@ -55,13 +56,12 @@ import {
   publishPropertyInstagramStories,
   publishPropertySoldStory,
 } from "../../lib/instagramStories.js";
-import { requireMarketingRole, hasMarketingRole } from "../marketing.js";
+import { requireMarketingRole } from "../marketing.js";
 import { publishPropertyPhotoPost, removePropertyPhotoPosts } from "../../lib/photoPosts.js";
 import { countRemovableSocialExtras, removeSocialExtras } from "../../lib/socialExtrasRemoval.js";
 import { publishPropertyRepost, removePropertySocialReposts } from "../../lib/socialReposts.js";
 import {
   removeFromSocial,
-  sendBackToMontajer,
   openForManualFinalVideo,
   refreshPublishedCaptions,
   markRemovedByHand,
@@ -185,9 +185,8 @@ async function canManageOrIsHandoffMontajer(req: Request, property: { status: st
  * не обходит — ради его роликов она и существует.
  */
 async function selfApprovedClipOpts(req: Request): Promise<{ approvedById?: string }> {
-  if (!req.agent || req.agent.role === "EDITOR" || !req.agent.can("properties.moderate")) return {};
-  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
-  return settings?.videoMontajerAgentId === req.agent.id ? {} : { approvedById: req.agent.id };
+  // Одно правило с роликом от сотрудника в Telegram (lib/finalVideoIntake.ts).
+  return selfApprovedClipOptsFor(req.agent ? { id: req.agent.id, role: req.agent.role, canModerate: req.agent.can("properties.moderate") } : null);
 }
 
 /**
@@ -275,32 +274,17 @@ async function finishHandoffAfterStateCheck(
    * 08.09.2026, так что монтажёр реоткрывал приём у ЛЮБОГО чужого объекта в
    * любом состоянии; finalReopenDeniedReason закрывает эту дыру одной проверкой).
    */
-  const reopenDenied = finalReopenDeniedReason(req, property);
-  if (property.videoHandoffStatus !== "SENT_TO_EDITOR") {
-    if (reopenDenied) {
-      return { status: 409, body: { error: reopenDenied } };
-    }
-    const opened = await openForManualFinalVideo(property.id);
-    if (!opened.ok) return { status: 409, body: { error: opened.error } };
-    logAudit(req, "PROPERTY_FINAL_VIDEO_MANUAL", "Property", property.id, { shortId: property.shortId });
-  }
-
-  // Объект действительно держал монтажёр (не ручное ожидание) — запомним до приёма.
-  const heldByMontajer = property.videoHandoffStatus === "SENT_TO_EDITOR" && !property.videoHandoffManualSince;
-  const result = await receive();
-  if (!result.ok) {
-    // Отказ приёма не отменяет уже принятый прежний ролик (24.09.2026).
-    await closeManualFinalVideoWait(property.id);
-    return { status: 409, body: { error: result.error } };
-  }
-  // Загрузил сотрудник, а не сам монтажёр: монтажёр получает «готов, доделывать не
-  // нужно», следующий из очереди уже ушёл вслед за приёмом (05.10.2026).
-  if (heldByMontajer && req.agent?.role !== "EDITOR") {
-    void notifyMontajerFinalUploadedManually(property.id, property.shortId).catch((err) =>
-      console.error("[video-handoff] уведомление монтажёру о ручной загрузке:", err)
-    );
-  }
-  return { status: 200, body: handoffReceivedBody(result) };
+  // Одна дверь с роликом от сотрудника в Telegram (12.11.2026, lib/finalVideoIntake.ts):
+  // открыть приём, принять, при отказе закрыть ожидание, монтажёру — «доделывать не нужно».
+  const outcome = await acceptFinalVideoFromStaff({
+    property,
+    actorIsEditor: req.agent?.role === "EDITOR",
+    reopenDenied: finalReopenDeniedReason(req, property),
+    receive,
+    onOpened: () => logAudit(req, "PROPERTY_FINAL_VIDEO_MANUAL", "Property", property.id, { shortId: property.shortId }),
+  });
+  if (!outcome.ok) return { status: 409, body: { error: outcome.error } };
+  return { status: 200, body: handoffReceivedBody(outcome.result) };
 }
 
 /**
@@ -1405,26 +1389,15 @@ videosRouter.get("/:id/videos/archive.zip", requireAuth, async (req, res) => {
   });
   if (!videos.length) return res.status(400).json({ error: "Видео не загружены" });
 
-  res.setHeader("Content-Type", "application/zip");
-  res.setHeader("Content-Disposition", `attachment; filename="videos-${property.shortId}.zip"`);
-
-  // Видео уже сжаты кодеком — level 0 (store, без повторного deflate) экономит CPU,
-  // не меняя итоговый размер архива заметно.
-  const archive = new ZipArchive({ zlib: { level: 0 } });
-  archive.on("error", (err: Error) => {
-    void logSystemError("storage", `Архив видео объекта ${property.id} не собран: ${err.message}`);
-    if (!res.headersSent) res.status(500);
-    res.end();
-  });
-  archive.pipe(res);
-
+  const files: { path: string; name: string }[] = [];
   for (const video of videos) {
     const filePath = localVideoFilePath(video.storageKey);
     if (!filePath || !(await localVideoExists(video.storageKey))) continue;
-    archive.append(createReadStream(filePath), { name: video.filename });
+    files.push({ path: filePath, name: video.filename });
   }
-
-  await archive.finalize();
+  await streamFileArchive(res, files, `videos-${property.shortId}.zip`, 0, (err) => {
+    void logSystemError("storage", `Архив видео объекта ${property.id} не собран: ${err.message}`);
+  });
 });
 
 videosRouter.delete("/:id/videos/:videoId", requireAuth, async (req, res) => {
@@ -1480,57 +1453,28 @@ videosRouter.post("/:id/video-handoff/requeue", requireAuth, async (req, res) =>
 });
 
 videosRouter.post("/:id/send-back-to-montajer", requireAuth, async (req, res) => {
+  // Порядок ответов прежний: 404 (нет объекта) → 403 (не ваш, после публикации — руководству)
+  // → 400 (тело) → 403 (снятие из соцсетей — маркетингу). Тело — lib/propertySendBack.ts,
+  // его же зовёт ИИ-помощник (send_to_remake).
   const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   if (!property) return res.status(404).json({ error: "Объект не найден" });
-  if (!canManageProperty(req, property)) return res.status(403).json({ error: "Недостаточно прав" });
-  const sendBackDenied = publishedActionDeniedReason(req, property);
-  if (sendBackDenied) return res.status(403).json({ error: sendBackDenied });
+  const actor = { agentId: req.agent!.id, role: req.agent?.role, can: (permission: PermissionId) => can(req, permission) };
+  const early = sendBackDenied(actor, property, undefined);
+  if (early) return res.status(early.status).json({ error: early.error });
 
   const parsed = sendBackToMontajerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Неверные данные" });
   }
 
-  // Право на removeFromSocial:true — то же, что у кнопки «Убрать из соцсетей»
-  // (POST /:id/social-unpublish, requireMarketingRole): снятие вышедшего поста
-  // видно подписчикам так же, как публикация, и отменить его нельзя. Без
-  // права поле молча игнорировать нельзя — веб показал бы «убрали», когда не
-  // убирали, — поэтому 403 тем же текстом, что и у social-unpublish.
-  if (parsed.data.removeFromSocial && !hasMarketingRole(req.agent?.role)) {
-    return res.status(403).json({ error: "Недостаточно прав" });
-  }
-
-  // Замена исходника стирает старые ролики — право то же, что у DELETE
-  // /:id/videos/:videoId выше (canManageProperty), он уже проверен в начале.
-  const result = await sendBackToMontajer(
-    property.id,
-    req.agent!.id,
-    parsed.data.reason,
-    parsed.data.comment ?? null,
-    parsed.data.replaceVideoIds ?? null,
-    { removeFromSocial: parsed.data.removeFromSocial }
-  );
-  if (!result.ok) return res.status(409).json({ error: result.error });
-  // Ролик ждал проверки модератора — этот возврат и есть решение по нему
-  // (25.09.2026, lib/clipReview.ts): журнал и кнопки у модераторов в Telegram.
-  if (result.clipReviewWasPending) {
-    afterClipRejected({
-      propertyId: property.id,
-      shortId: property.shortId,
-      byId: req.agent!.id,
-      source: "crm",
-      reason: parsed.data.reason,
-      comment: parsed.data.comment ?? null,
-    });
-  }
-  logAudit(req, "PROPERTY_SENT_BACK_TO_MONTAJER", "Property", property.id, {
-    shortId: property.shortId,
-    queued: result.queued,
-    reason: parsed.data.reason,
-    replacedSource: !!parsed.data.replaceVideoIds?.length,
-    socialRemoved: result.social?.removed ?? undefined,
+  const outcome = await sendPropertyBackToMontajerAs({
+    propertyId: property.id,
+    actor,
+    body: parsed.data,
+    source: "crm",
   });
-  res.json(result);
+  if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+  res.json(outcome.result);
 });
 
 /**

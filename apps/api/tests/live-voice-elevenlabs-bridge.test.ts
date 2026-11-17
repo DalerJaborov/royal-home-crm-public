@@ -107,6 +107,17 @@ vi.mock("../src/lib/r2Client.js", async (importOriginal) => ({
   isR2Configured: () => false,
 }));
 
+// Замок «только русский», амбиент, вдох и тестовый номер — константы с 01.11.2026
+// (lib/settingsConstants.ts). Тест держит прежнюю среду (амбиент выключен) и
+// переключает замок подменой константы, а не полем Settings.
+const voiceTuning = vi.hoisted(() => ({
+  testExtension: "101008890", forceRussianOnly: false, breathEnabled: false, officeAmbienceEnabled: false, officeAmbienceVolume: 0.35,
+}));
+vi.mock("../src/lib/settingsConstants.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/settingsConstants.js")>()),
+  LIVE_VOICE_TUNING: voiceTuning,
+}));
+
 const { prisma } = await import("../src/db.js");
 const bridge = await import("../src/lib/telephony/liveVoiceBridge.js");
 const { onLiveVoiceAriEvent, liveVoiceLineBusy, setLiveVoiceCallResolver, resetLiveVoiceAudioPathForTests } = bridge;
@@ -148,7 +159,9 @@ async function startInbound(tag: string): Promise<{ channelId: string; client: F
 }
 
 async function useSettings(data: Partial<SettingsSnapshot>): Promise<void> {
-  await prisma.settings.update({ where: { id: "singleton" }, data });
+  const { liveVoiceForceRussianOnly, ...dbData } = data;
+  if (liveVoiceForceRussianOnly !== undefined) voiceTuning.forceRussianOnly = liveVoiceForceRussianOnly;
+  if (Object.keys(dbData).length > 0) await prisma.settings.update({ where: { id: "singleton" }, data: dbData });
 }
 
 const aiLogCount = (channelId: string) => () => prisma.aiLog.count({ where: { conversationId: channelId } });

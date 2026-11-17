@@ -1,0 +1,184 @@
+import { prisma } from "../db.js";
+import { decryptSecret } from "../crypto.js";
+import { adjustTelegramVoiceTempo } from "../lib/audioTranscode.js";
+import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
+import { directAssistantVoice } from "./assistantVoiceDirection.js";
+import { prepareAssistantReply, type AssistantSpeechLanguage } from "./assistantReply.js";
+import { claimAssistantTtsChars } from "./assistantVoiceBudget.js";
+import { assistantElevenLabsPaused, noteAssistantElevenLabsFailure } from "./assistantElevenLabsAvailability.js";
+import { sendChatAction, sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
+import { z } from "zod";
+import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio, writeAssistantVoiceCache, isOggOpusAudio } from "./assistantVoiceCache.js";
+
+/** ElevenLabs speech. Each language needs an explicitly configured voice.
+ * Missing settings, unavailable budget or provider errors leave the full text response.
+ */
+const TTS_TIMEOUT_MS = 12_000;
+const TAJIK_TEMPO = 1.06;
+const TTS_FORMAT = "opus_48000_64";
+const VOICE_PROFILES = {
+  ru: {
+    model: "eleven_v4_turbo",
+    endpoint: "https://api.elevenlabs.io/v1/text-to-speech",
+    normalization: "on",
+    settings: { stability: 0.45, similarity_boost: 0.75 },
+  },
+  tg: {
+    model: "eleven_v4",
+    endpoint: "https://api.elevenlabs.io/v1/text-to-dialogue",
+    normalization: "off",
+  },
+} as const;
+const sentVoiceSchema = z.object({ voice: z.object({ file_id: z.string().min(1).max(1024) }) });
+
+interface SpeechConfig { voiceId: string; key: string | null }
+interface PronunciationDictionaryLocator {
+  pronunciation_dictionary_id: string;
+  version_id: string;
+}
+
+function pronunciationDictionary(language: "ru" | "tg"): PronunciationDictionaryLocator | undefined {
+  const locale = language.toUpperCase();
+  const dictionaryId = process.env[`ASSISTANT_TTS_DICTIONARY_ID_${locale}`]?.trim();
+  const versionId = process.env[`ASSISTANT_TTS_DICTIONARY_VERSION_${locale}`]?.trim();
+  const isId = (value: string | undefined): value is string => /^[A-Za-z0-9_-]{1,128}$/.test(value ?? "");
+  // Both fields are required locally so cache entries never track a mutable "latest".
+  if (!isId(dictionaryId) || !isId(versionId)) return undefined;
+  return { pronunciation_dictionary_id: dictionaryId, version_id: versionId };
+}
+
+async function resolveSpeechConfig(language: "ru" | "tg"): Promise<SpeechConfig | null> {
+  const envVoice = (language === "tg" ? process.env.ASSISTANT_TTS_VOICE_ID_TG : process.env.ASSISTANT_TTS_VOICE_ID)?.trim();
+  const saved = await prisma.assistantVoiceConfig.findUnique({ where: { id: "singleton" } });
+  if (saved) {
+    const voiceId = language === "tg" ? saved.voiceIdTg : saved.voiceIdRu;
+    return { voiceId, key: decryptSecret(saved.encryptedKey) };
+  }
+  const envKey = process.env.ELEVENLABS_API_KEY?.trim();
+  // One snapshot per reply: cache identity and synthesis must use the same resolved voice.
+  const row = envVoice && envKey ? null : await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { elevenLabsApiKey: true, elevenLabsVoiceIdRu: true, elevenLabsVoiceIdTg: true },
+  });
+  const voiceId = envVoice || (language === "tg" ? row?.elevenLabsVoiceIdTg : row?.elevenLabsVoiceIdRu)?.trim();
+  if (!voiceId) return null;
+  return { voiceId, key: envKey || resolveElevenLabsKey(row?.elevenLabsApiKey ?? null) };
+}
+
+/** Текст ответа → то, что приятно слушать: без ссылок, смайлов, разделителей и цифр телефонов. */
+export function speechTextFromReply(text: string): string {
+  return prepareAssistantReply(text).speech;
+}
+
+async function synthesize(
+  text: string, language: "ru" | "tg", config: SpeechConfig, dictionary: PronunciationDictionaryLocator | undefined,
+): Promise<Buffer | null> {
+  const { voiceId, key } = config;
+  if (!key || assistantElevenLabsPaused(key, "synthesis")) return null;
+  if (!(await claimAssistantTtsChars(text.length))) return null;
+  const profile = VOICE_PROFILES[language];
+  const endpoint = language === "ru" ? `${profile.endpoint}/${encodeURIComponent(voiceId)}` : profile.endpoint;
+  const input = language === "ru"
+    ? { text, voice_settings: VOICE_PROFILES.ru.settings }
+    : { inputs: [{ text, voice_id: voiceId }] };
+  const res = await fetch(`${endpoint}?output_format=${TTS_FORMAT}`, {
+    method: "POST",
+    headers: { "xi-api-key": key, "content-type": "application/json" },
+    body: JSON.stringify({
+      ...input,
+      model_id: profile.model,
+      language_code: language,
+      apply_text_normalization: profile.normalization,
+      ...(dictionary ? { pronunciation_dictionary_locators: [dictionary] } : {}),
+    }),
+    signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    await noteAssistantElevenLabsFailure(key, "synthesis", res);
+    throw new Error(`ElevenLabs HTTP ${res.status}`);
+  }
+  const audio = Buffer.from(await res.arrayBuffer());
+  if (!isOggOpusAudio(audio)) throw new Error("ElevenLabs returned invalid Ogg/Opus audio");
+  if (language === "tg") {
+    const adjusted = await adjustTelegramVoiceTempo(audio, TAJIK_TEMPO).catch(() => null);
+    if (adjusted && isOggOpusAudio(adjusted)) return adjusted;
+  }
+  return audio;
+}
+
+/** Озвучивает ответ и шлёт голосовым. Никогда не бросает. */
+export async function sendAssistantVoiceReply(
+  chatId: string, replyText: string, replyTo?: number, fallbackLanguage?: AssistantSpeechLanguage, messageThreadId?: number,
+): Promise<boolean> {
+  let stage: "configuration" | "synthesis" | "telegram_delivery" = "configuration";
+  try {
+    const plan = prepareAssistantReply(replyText, false, fallbackLanguage);
+    if (plan.language === "text-only") return false;
+    const language = plan.language;
+    const speech = plan.speech;
+    if (speech.length < 3) return false;
+    const performance = directAssistantVoice(speech);
+    if (!performance) return false;
+    const config = await resolveSpeechConfig(language);
+    if (!config) return false;
+    const dictionary = pronunciationDictionary(language);
+    stage = "synthesis";
+    const showVoiceAction = (action: "record_voice" | "upload_voice") => void (messageThreadId === undefined
+      ? sendChatAction(chatId, undefined, action) : sendChatAction(chatId, undefined, action, messageThreadId));
+    const render = async () => {
+      const showRecording = () => showVoiceAction("record_voice");
+      showRecording();
+      const indicator = setInterval(showRecording, 4_000).unref();
+      try {
+        return await synthesize(performance, language, config, dictionary);
+      } finally {
+        clearInterval(indicator);
+      }
+    };
+    const postAudio = (audio: Buffer) => {
+      stage = "telegram_delivery";
+      return messageThreadId === undefined ? sendVoiceFile(chatId, audio, replyTo)
+        : sendVoiceFile(chatId, audio, replyTo, undefined, messageThreadId);
+    };
+    if (!cacheableAssistantSpeech(speech)) {
+      const audio = await render();
+      if (!audio?.length) return false;
+      showVoiceAction("upload_voice");
+      await postAudio(audio);
+      return true;
+    }
+    const { voiceId } = config;
+    const { model, endpoint, normalization } = VOICE_PROFILES[language];
+    const key = assistantVoiceCacheKey(performance, {
+      voiceId, model, endpoint, format: TTS_FORMAT, language, normalization,
+      ...(language === "ru" ? { settings: VOICE_PROFILES.ru.settings } : { tempo: TAJIK_TEMPO }),
+      ...(dictionary ? { dictionary } : {}),
+    });
+    const entry = await cachedAssistantAudio(key, render);
+    if (!entry) return false;
+    if (entry.fileId) {
+      stage = "telegram_delivery";
+      showVoiceAction("upload_voice");
+      try {
+        if (messageThreadId === undefined) await sendAssistantVoiceId(chatId, entry.fileId, replyTo);
+        else await sendAssistantVoiceId(chatId, entry.fileId, replyTo, messageThreadId);
+        return true;
+      }
+      catch (err) {
+        // Re-upload only after a definite invalid-file rejection; never retry timeouts/429.
+        if (!(err instanceof TelegramApiError && err.errorCode === 400 && /wrong file identifier|file_id.*invalid|file reference.*expired/i.test(err.message))) throw err;
+        delete entry.fileId;
+        await writeAssistantVoiceCache(key, entry);
+      }
+    }
+    showVoiceAction("upload_voice");
+    const sent = await postAudio(Buffer.from(entry.audio, "base64"));
+    const parsed = sentVoiceSchema.safeParse(sent);
+    if (parsed.success) await writeAssistantVoiceCache(key, { ...entry, fileId: parsed.data.voice.file_id });
+    return true;
+  } catch (err) {
+    const code = err instanceof TelegramApiError ? err.errorCode : undefined;
+    console.warn("[telegram:assistant:voice] voice failed", { stage, ...(code === undefined ? {} : { telegramCode: code }) });
+    return false;
+  }
+}

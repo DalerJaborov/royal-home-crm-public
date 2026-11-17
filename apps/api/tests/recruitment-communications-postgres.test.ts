@@ -265,3 +265,32 @@ describe("durable staff recruitment SQL and actual transport boundary", () => {
     expect((await recruitmentContactOptions(legacy.app, actorId)).language).toBeNull();
   });
 });
+
+describe("П3: дверь звонков робота в рекрутинге", () => {
+  it("отложенный дверью звонок (частота) ждёт retryAfter и не загораживает очередь; дверь получает диалог и цель", async () => {
+    const c = await queued({ ...invite(), channels: ["ASSISTANT_CALL"] });
+    const at = new Date(); at.setUTCHours(7, 0, 0, 0);
+    const retryAt = new Date(at.getTime() + 24 * 3600_000);
+    call.mockResolvedValueOnce({ ok: false, busy: true, notDialed: true, policyCode: "daily_limit", retryAt, error: "Робот уже разговаривал с этим номером сегодня" });
+    await dispatchRecruitmentCommunication(c.id, at);
+    const [after] = await prisma.$queryRaw<Array<{ status: string; retryAfter: Date | null }>>`SELECT "status","retryAfter" FROM "RecruitmentCommunication" WHERE "id"=${c.id}`;
+    expect(after.status).toBe("QUEUED");
+    expect(after.retryAfter?.toISOString()).toBe(retryAt.toISOString());
+    const task = call.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(task).toMatchObject({ purpose: "interview_invite", conversationId: c.native });
+    call.mockClear();
+    await runRecruitmentCommunicationTick(at);
+    expect(call.mock.calls.some((args) => (args[2] as { channelId?: string } | undefined)?.channelId === c.id)).toBe(false);
+    await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='CANCELLED' WHERE "id"=${c.id}`;
+  });
+
+  it("окончательный отказ двери («не беспокойте») — REJECTED с причиной словами, без повтора", async () => {
+    const c = await queued({ ...invite(), channels: ["ASSISTANT_CALL"] });
+    const at = new Date(); at.setUTCHours(7, 0, 0, 0);
+    call.mockResolvedValueOnce({ ok: false, notDialed: true, policyCode: "opted_out", error: "Клиент просил его не беспокоить — робот не звонит" });
+    await dispatchRecruitmentCommunication(c.id, at);
+    const [after] = await prisma.$queryRaw<Array<{ status: string; reason: string | null }>>`SELECT "status","reason" FROM "RecruitmentCommunication" WHERE "id"=${c.id}`;
+    expect(after).toMatchObject({ status: "REJECTED" });
+    expect(after.reason).toContain("не беспокоить");
+  });
+});

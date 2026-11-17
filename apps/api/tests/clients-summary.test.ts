@@ -25,6 +25,45 @@ let agentId = "";
 /** Возраст непринятой карточки — считается по тому же правилу, что и фикстура. */
 let pendingWaitingMinutes = 0;
 
+// 10.11.2026: неактивные (светофор) — тоже «в работе», иначе агент не видел
+// часть своих клиентов, в том числе переданных от уволенного сотрудника.
+it("счётчик и список В работе включают неактивных, исключают закрытые назначения, поиск сохраняет историю", async () => {
+  const token = await login(agentPhone);
+  const get = (path: string) => request(app).get(path).set("Authorization", `Bearer ${token}`);
+  const before = await get("/api/v1/clients/summary");
+  const marker = `workscope${runId}`;
+  const fixtures = [
+    { status: "CONTACTED", workStatus: "ACTIVE" },
+    { status: "CONTACTED", workStatus: "INACTIVE" },
+    { status: "LOST", workStatus: "ACTIVE" },
+    { status: "ARCHIVED", workStatus: "ACTIVE" },
+    { status: "DEAL_CLOSED", workStatus: "ACTIVE" },
+    { status: "CONTACTED", workStatus: "ACTIVE", assignmentCompletedAt: new Date() },
+  ] as const;
+  const created: string[] = [];
+  try {
+    for (const [i, state] of fixtures.entries()) {
+      const c = await prisma.client.create({ data: {
+        fullName: `${marker} ${i}`, phone: `test-${marker}-${i}`, source: "WEBSITE",
+        kind: "BUYER", assignedAgentId: agentId, acceptedAt: new Date(), ...state,
+      } });
+      created.push(c.id);
+    }
+    const after = await get("/api/v1/clients/summary");
+    expect(after.body.buyers).toBe(before.body.buyers + 2);
+    const work = await get(`/api/v1/clients?scope=inWork&kind=BUYER&q=${marker}`);
+    expect(work.status).toBe(200);
+    expect(work.body.items.map((c: { id: string }) => c.id).sort()).toEqual([created[0], created[1]].sort());
+    const search = await get(`/api/v1/clients?q=${marker}`);
+    expect(search.status).toBe(200);
+    expect(search.body.items).toHaveLength(fixtures.length);
+    const inactive = await get(`/api/v1/clients?workStatus=INACTIVE&q=${marker}`);
+    expect(inactive.body.items.map((c: { id: string }) => c.id)).toEqual([created[1]]);
+  } finally {
+    await prisma.client.deleteMany({ where: { id: { in: created } } });
+  }
+});
+
 async function login(phone: string): Promise<string> {
   const res = await request(app).post("/api/v1/auth/login").send({ phone, password });
   expect(res.status).toBe(200);
@@ -77,6 +116,34 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.client.deleteMany({ where: { id: { in: ids } } });
   await prisma.agent.deleteMany({ where: { phone: { in: [agentPhone, directorPhone] } } });
+});
+
+it("карточки с заявкой на удаление: счётчик «в работе» равен длине списка (сторож пустых списков)", async () => {
+  const token = await login(agentPhone);
+  const get = (path: string) => request(app).get(path).set("Authorization", `Bearer ${token}`);
+  const marker = `pendel${runId}`;
+  const before = await get("/api/v1/clients/summary");
+  const created = await prisma.client.create({ data: {
+    fullName: `${marker} 0`, phone: `test-${marker}-0`, source: "WEBSITE",
+    kind: "BUYER", status: "CONTACTED", assignedAgentId: agentId, acceptedAt: new Date(),
+  } });
+  try {
+    const afterCreate = await get("/api/v1/clients/summary");
+    expect(afterCreate.body.buyers).toBe(before.body.buyers + 1);
+    await prisma.clientDeleteRequest.create({ data: {
+      clientId: created.id, requestedById: agentId, reason: "OTHER", comment: "test", status: "PENDING",
+    } });
+    const after = await get("/api/v1/clients/summary");
+    const list = await get(`/api/v1/clients?scope=inWork&kind=BUYER&pageSize=200`);
+    expect(list.status).toBe(200);
+    // Список прячет карточку, и сводка обязана вести себя так же.
+    expect(list.body.items.map((c: { id: string }) => c.id)).not.toContain(created.id);
+    expect(after.body.buyers).toBe(before.body.buyers);
+    expect(after.body.buyers).toBe(list.body.total);
+  } finally {
+    await prisma.clientDeleteRequest.deleteMany({ where: { clientId: created.id } });
+    await prisma.client.delete({ where: { id: created.id } });
+  }
 });
 
 describe("GET /clients/summary", () => {

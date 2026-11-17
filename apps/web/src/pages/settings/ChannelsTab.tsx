@@ -3,6 +3,7 @@ import { GEMINI_VOICES, voiceGenderLabel } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { dushanbeDate, dushanbeDayKey, dushanbeTime, dushanbeTodayKey } from "../../lib/date";
 import { MessengerAccounts } from "./MessengerAccounts";
+import { MetaEternalKeys } from "./MetaEternalKeys";
 import { useSearchParams } from "react-router-dom";
 import {
   AtSign,
@@ -10,6 +11,7 @@ import {
   Clapperboard,
   Megaphone,
   MessageSquare,
+  Mic,
   Music2,
   PhoneCall,
   PhoneIncoming,
@@ -35,7 +37,9 @@ import { SettingsSection, SettingsGroupLabel } from "../../components/settings/S
 import { pcmBase64ToWavUrl } from "../../lib/pcmToWav";
 import { SecretKeyEditor } from "../../components/SecretKeyEditor";
 import { useAgents } from "../../hooks/useAgents";
+import { useCan } from "../../lib/permissions";
 import { useConnectAds, useDisconnectAds } from "../../hooks/useAds";
+
 import { useConnectTikTok, useDisconnectTikTok, useTikTokCreatorInfo } from "../../hooks/useTikTok";
 import { useConnectThreads, useDisconnectThreads, useThreadsProfile } from "../../hooks/useThreads";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -68,9 +72,14 @@ const CHANNEL_NAMES: Record<string, string> = {
 };
 
 import { OpenAiCoversSection } from "./OpenAiCoversSection";
+import { NarrationSettingsPanel } from "../../components/settings/NarrationSettingsPanel";
 import { ReelsAutoBoostSection } from "./ReelsAutoBoostSection";
 
+/** Подключать и отключать каналы компании может только директор (замок прав 16.11.2026): остальным кнопки не показываем. */
+const hideUnlessDirector = (allowed: boolean) => (allowed ? undefined : { display: "none" as const });
+
 export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "advertising" | "phone" } = {}) {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   // silent: SecretKeyEditor ниже сам показывает «Ключ сохранён»/ошибку под полем —
@@ -104,6 +113,12 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
       {/* Обложки (28.09.2026): переключатель «наш шаблон | ChatGPT»; при шаблоне
           раздел сам показывает список шаблонов (CoverTemplatesSection). */}
       {(!area || area === "publishing") && <OpenAiCoversSection templateHeading={area ? "Шаблоны обложек" : undefined} />}
+      {/* 14.11.2026, владелец: техника озвучки — только здесь, в карточке объекта агент видит голос и текст. */}
+      {(!area || area === "publishing") && (
+        <SettingsSection icon={Mic} title="Озвучка роликов" badge="ElevenLabs">
+          <NarrationSettingsPanel />
+        </SettingsSection>
+      )}
       {(!area || area === "messengers") && <>
       <SettingsGroupLabel>Мессенджеры</SettingsGroupLabel>
 
@@ -149,6 +164,19 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
             metaEnabled && !metaConfigured
               ? "Заполнены не все ключи ниже: нужны секрет приложения, проверочная строка и хотя бы один канал — WhatsApp (маркер вместе с номером), Instagram (аккаунт в списке или маркер) или Страница Facebook (маркер вместе с её идентификатором)."
               : null
+          }
+        />
+
+        {/* Вебхук WhatsApp замолчал (15.11.2026, lib/whatsappWebhookWatch.ts): входящие WhatsApp
+            приходят только вебхуком, сверить их не с чем — следим за потоком целиком. */}
+        <SwitchRow
+          title="Следить, что WhatsApp не замолчал"
+          on={settings?.whatsappWebhookWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ whatsappWebhookWatchEnabled: !(settings?.whatsappWebhookWatchEnabled ?? true) })}
+          hint={
+            settings?.whatsappWebhookWatchEnabled ?? true
+              ? "Если в рабочие часы входящих в WhatsApp нет дольше обычного, руководство получает тревогу с причиной: номер отключён, подписка слетела или вебхук не доходит."
+              : "Не следим: если Meta перестанет присылать сообщения WhatsApp, это заметят только по жалобам клиентов."
           }
         />
 
@@ -209,6 +237,9 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
         {/* Список аккаунтов — над одиночным маркером: он теперь запасной путь
             для тех, кто ещё не завёл аккаунты списком. */}
         <MessengerAccounts />
+
+        {/* Вечные ключи (12.11.2026): какой канал уже работает ключом компании. */}
+        <MetaEternalKeys />
 
         <SecretKeyEditor
           title="Маркер Instagram"
@@ -279,6 +310,28 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
           onSave={(list) => updateSettings.mutate({ facebookShareGroups: list })}
         />
 
+        {/* Сверка с Meta (15.11.2026, lib/metaInboxReconcile.ts): то, что видно у Meta, но не дошло до CRM. */}
+        <SwitchRow
+          title="Messenger: сверять, всё ли дошло"
+          on={settings?.messengerInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ messengerInboxReconcileEnabled: !(settings?.messengerInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.messengerInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет переписки Страниц с Meta: если человек написал, а до CRM сообщение не дошло, всем, кто читает переписки, приходит «Ответьте вручную»."
+              : "Не сверяем: сообщение в Messenger, которое Meta не прислала в CRM, никто не увидит, пока не откроет Business Suite."
+          }
+        />
+        <SwitchRow
+          title="Instagram: сверять, всё ли дошло"
+          on={settings?.instagramInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ instagramInboxReconcileEnabled: !(settings?.instagramInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.instagramInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет Direct аккаунтов Instagram с Meta: не дошедшее до CRM — «Ответьте вручную» тем, кто читает переписки."
+              : "Не сверяем: сообщение в Direct, которое Meta не прислала в CRM, никто не увидит, пока не откроет Instagram."
+          }
+        />
+
         <div className="quiet">
           <span className="dot" />
           <span className="txt">
@@ -292,10 +345,30 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
         <div className="quiet">
           <span className="dot" />
           <span className="txt">
-            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника
+            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника канала
             здесь нет. Бот отвечает только клиентам, которые написали ему сами.
           </span>
         </div>
+        <SwitchRow
+          title="Клиент без ответа — сказать человеку"
+          on={settings?.telegramSilenceWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramSilenceWatchEnabled: !(settings?.telegramSilenceWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramSilenceWatchEnabled ?? true
+              ? "Клиент написал в Telegram, а за 30 минут ему не ответили ни бот, ни сотрудник — агенту клиента (или руководству) уходит пуш. В рабочие часы."
+              : "Не следим: молчание в Telegram никто не заметит, пока не откроет переписку."
+          }
+        />
+        <SwitchRow
+          title="Следить, что Telegram доставляет сообщения"
+          on={settings?.telegramDeliveryWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramDeliveryWatchEnabled: !(settings?.telegramDeliveryWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramDeliveryWatchEnabled ?? true
+              ? "Раз в 10 минут CRM спрашивает у Telegram, доходят ли сообщения бота: если нет — руководство получает тревогу с причиной."
+              : "Не следим: если Telegram перестанет доставлять сообщения в CRM, это заметят только по жалобам клиентов."
+          }
+        />
       </SettingsSection>
 
       </>}
@@ -341,7 +414,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
               копировать и вставлять ничего не нужно.
             </span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             {settings?.metaAdsConfigured && (
               <button
                 className="pill ghost sm"
@@ -855,6 +928,7 @@ const TIKTOK_PRIVACY_LABELS: Record<string, string> = {
  * нет отдельной кнопки «Сохранить» под блоком «Как публиковать».
  */
 function TikTokChannelSection() {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const updateSecretKey = useUpdateSettings({ silent: true });
@@ -949,7 +1023,7 @@ function TikTokChannelSection() {
               Нужен бизнес-аккаунт @royal.home.tjk — войдите под ним в окне TikTok, которое откроет кнопка.
             </span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             <button
               className="pill sm"
               type="button"
@@ -990,7 +1064,7 @@ function TikTokChannelSection() {
                   : ""}
               </span>
             </div>
-            <div className="acts">
+            <div className="acts" style={hideUnlessDirector(canChannels)}>
               <button className="pill ghost sm" type="button" onClick={() => setConfirmingDisconnect(true)}>
                 Отключить
               </button>
@@ -1117,6 +1191,7 @@ function TikTokChannelSection() {
  * Threads их не спрашивает, договор задания это подтверждает.
  */
 function ThreadsChannelSection() {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const updateSecretKey = useUpdateSettings({ silent: true });
@@ -1210,7 +1285,7 @@ function ThreadsChannelSection() {
             <b>Аккаунт не подключён</b>
             <span style={{ whiteSpace: "normal" }}>Аккаунт Threads, привязанный к нашему Instagram.</span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             <button
               className="pill sm"
               type="button"
@@ -1242,7 +1317,7 @@ function ThreadsChannelSection() {
                   : ""}
               </span>
             </div>
-            <div className="acts">
+            <div className="acts" style={hideUnlessDirector(canChannels)}>
               <button className="pill ghost sm" type="button" onClick={() => setConfirmingDisconnect(true)}>
                 Отключить
               </button>
@@ -1283,12 +1358,12 @@ function VideoHandoffFields() {
   const montajerId = settings?.videoMontajerAgentId ?? "";
   const rawReviewOn = settings?.rawReviewRequired ?? true;
   const clipReviewOn = settings?.clipReviewEnabled ?? false;
+  const clipOwnerOn = settings?.clipOwnerApproveEnabled ?? false;
+  const clipOwnerHours = settings?.clipOwnerAutoPublishHours ?? 3;
+  const staffClipOn = settings?.staffClipIntakeEnabled !== false;
 
   return (
     <>
-      {/* «Модератор видео по умолчанию» убран 23.09.2026: выбор сохранялся, но пуш
-          «Объект ждёт проверки» никому по этому полю не уходит — ни одна строка сервера это поле не читает (проверено поиском 23.09.2026).
-          Поле videoModeratorAgentId остаётся в базе. */}
       <div className="mod">
         <div className="t">
           <b>Монтажёр ручной передачи</b>
@@ -1328,6 +1403,18 @@ function VideoHandoffFields() {
         warning={handoffOn && !montajerId ? "Монтажёр не выбран — объекты будут копиться в очереди без единой отправки." : null}
       />
 
+      {/* 12.11.2026, владелец: ролик снял СММщик или другой сотрудник — он присылает его Шабнам. */}
+      <SwitchRow
+        title="Ролики от сотрудников через Шабнам"
+        on={staffClipOn}
+        onToggle={() => updateSettings.mutate({ staffClipIntakeEnabled: !staffClipOn })}
+        hint={
+          staffClipOn
+            ? "Сотрудник присылает видео Шабнам: оно само находит объект и уходит в выпуск или монтажёру."
+            : "Видео от сотрудников Шабнам не принимает как ролики объектов."
+        }
+      />
+
       {/* 25.09.2026, владелец: «выключи временно одобрение роликов от агентов —
           пусть сразу идут монтажёру». Сервер: lib/propertyReview.ts::autoApproveIfRawReviewOff. */}
       <SwitchRow
@@ -1353,6 +1440,48 @@ function VideoHandoffFields() {
             : "Принятый ролик сразу встаёт в расписание публикаций — монтажёр и есть последняя проверка."
         }
       />
+
+      {/* 11.11.2026, владелец: «все ролики что от монтажера обратно идут после
+          монтажа пусть идут к своим хозяином с кнопками подтвердить», страховка —
+          «автоматически поститься но не ночью с 12 по 7 утра». Сервер: lib/clipReview.ts. */}
+      <SwitchRow
+        title="Готовый ролик подтверждает хозяин объекта (в Telegram)"
+        on={clipOwnerOn}
+        onToggle={() => updateSettings.mutate({ clipOwnerApproveEnabled: !clipOwnerOn })}
+        hint={
+          clipOwnerOn
+            ? `Ролик от монтажёра приходит только агенту, за которым объект, с кнопками «Подтвердить» и «Вернуть монтажёру»; руководству и админу в Telegram он не приходит (в карточке объекта кнопки есть). ${
+                clipOwnerHours > 0
+                  ? `Не ответил за ${clipOwnerHours} ч — ролик публикуется сам, но не ночью: с 00:00 до 07:00 ждёт до 07:00.`
+                  : "Сам ролик не опубликуется, пока агент не решит; раз в 6 часов ему придёт напоминание."
+              }`
+            : "Выключено — решение по готовому ролику за руководством (переключатель выше)."
+        }
+      />
+      {clipOwnerOn && (
+        <div className="mod">
+          <div className="t">
+            <b>Через сколько часов публиковать без ответа</b>
+            <span style={{ whiteSpace: "normal" }}>Если хозяин объекта молчит, ролик уходит в публикацию сам. «Не публиковать сам» — ролик ждёт ответа хозяина.</span>
+          </div>
+          <div className="acts">
+            <select
+              className="inp"
+              style={{ maxWidth: 200 }}
+              aria-label="Через сколько часов публиковать без ответа"
+              value={clipOwnerHours}
+              onChange={(e) => updateSettings.mutate({ clipOwnerAutoPublishHours: Number(e.target.value) })}
+              disabled={updateSettings.isPending}
+            >
+              {[0, 1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
+                <option key={h} value={h}>
+                  {h === 0 ? "Не публиковать сам" : `${h} ч`}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1375,14 +1504,12 @@ function PublishScheduleSection() {
   const updateSettings = useUpdateSettings();
 
   const scheduleOn = settings?.publishScheduleEnabled ?? true;
-  const heatmapOn = settings?.publishScheduleUseHeatmap ?? true;
-  const instagramOnlineOn = settings?.publishScheduleUseInstagramOnline ?? true;
 
   return (
     <SettingsSection
       icon={CalendarClock}
       title="Расписание выхода роликов"
-      badge={scheduleOn ? (heatmapOn ? "по тепловой карте" : "по своим часам") : "выходят сразу"}
+      badge={scheduleOn ? "по расписанию" : "выходят сразу"}
     >
       <SwitchRow
         title="Расставлять ролики по времени"
@@ -1395,36 +1522,9 @@ function PublishScheduleSection() {
         }
       />
 
-      <SwitchRow
-        title="Брать часы выхода из тепловой карты"
-        on={heatmapOn}
-        onToggle={() => updateSettings.mutate({ publishScheduleUseHeatmap: !heatmapOn })}
-        hint={
-          heatmapOn
-            ? "Часы считаются по реальным обращениям клиентов — звонки, комментарии, переписки. Пока обращений мало, расписание само возвращается к постоянным часам ниже и честно пишет об этом."
-            : "Ролики выходят в постоянные часы, заданные ниже, независимо от того, когда клиенты активны."
-        }
-        warning={scheduleOn ? null : "Расписание выключено ползунком выше — эта настройка ни на что не влияет."}
-      />
-
-      <SwitchRow
-        title="Для часов выхода верить статистике Instagram"
-        on={instagramOnlineOn}
-        onToggle={() => updateSettings.mutate({ publishScheduleUseInstagramOnline: !instagramOnlineOn })}
-        hint={
-          instagramOnlineOn
-            ? "Часы берутся из того, когда наши подписчики Instagram в сети, — это считает сам Instagram. Сервер забирает эти данные раз в сутки; пока их меньше недели, часы считаются по обращениям клиентов."
-            : "Часы считаются только по обращениям клиентов, статистика Instagram не учитывается."
-        }
-        warning={
-          !scheduleOn
-            ? "Расписание выключено ползунком выше — эта настройка ни на что не влияет."
-            : !heatmapOn
-              ? "Тепловая карта выключена ползунком выше — ролики выходят в постоянные часы, эта настройка ни на что не влияет."
-              : null
-        }
-      />
-
+      {/* Источник часов выхода (тепловая карта, статистика Instagram), постоянные
+          часы 12:00–14:00 и 19:00–21:00, глубина карты и опережение пика — константы
+          с 01.11.2026 (apps/api/src/lib/settingsConstants.ts). */}
       <PublishWindowFields />
     </SettingsSection>
   );
@@ -1443,27 +1543,6 @@ function timeToMin(value: string): number | null {
   return min >= 0 && min <= 24 * 60 ? min : null;
 }
 
-/** Плоский список пар минут ⇄ «12:00-14:00, 19:00-21:00». */
-function windowsToText(flat: number[]): string {
-  const parts: string[] = [];
-  for (let i = 0; i + 1 < flat.length; i += 2) parts.push(`${minToTime(flat[i])}-${minToTime(flat[i + 1])}`);
-  return parts.join(", ");
-}
-function textToWindows(text: string): number[] | null {
-  const trimmed = text.trim();
-  if (trimmed === "") return [];
-  const flat: number[] = [];
-  for (const piece of trimmed.split(",")) {
-    const [rawStart, rawEnd, ...rest] = piece.trim().split("-");
-    if (rest.length > 0 || rawEnd === undefined) return null;
-    const start = timeToMin(rawStart.trim());
-    const end = timeToMin(rawEnd.trim());
-    if (start === null || end === null || start >= end) return null;
-    flat.push(start, end);
-  }
-  return flat.length <= 12 ? flat : null;
-}
-
 function PublishWindowFields() {
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
@@ -1471,21 +1550,6 @@ function PublishWindowFields() {
   const startMin = settings?.publishScheduleWindowStartMin ?? 9 * 60;
   const endMin = settings?.publishScheduleWindowEndMin ?? 21 * 60;
   const gapMin = settings?.publishScheduleMinGapMin ?? 90;
-  const days = settings?.publishScheduleHeatmapDays ?? 90;
-  const lead = settings?.publishScheduleLeadHours ?? 1;
-  const windowsValue = windowsToText(settings?.publishSchedulePriorityWindows ?? []);
-
-  /**
-   * Черновик догоняет сервер, пока человек не начал править, — тот же приём и по
-   * той же причине, что в PlainSetting ниже: поле рисуется раньше ответа
-   * /settings, и без этого один клик записал бы поверх настройки пустоту.
-   */
-  const [windowsDraft, setWindowsDraft] = useState(windowsValue);
-  const [windowsTouched, setWindowsTouched] = useState(false);
-  useEffect(() => {
-    if (!windowsTouched) setWindowsDraft(windowsValue);
-  }, [windowsValue, windowsTouched]);
-  const parsedWindows = textToWindows(windowsDraft);
 
   return (
     <>
@@ -1555,106 +1619,6 @@ function PublishWindowFields() {
         </div>
       </div>
 
-      <div className="mod">
-        <div className="t">
-          <b>Постоянные часы выхода</b>
-          <span style={{ whiteSpace: "normal" }}>
-            Куда метит первый ролик пачки, когда тепловая карта выключена или в ней ещё мало обращений. Формат:
-            «12:00-14:00, 19:00-21:00». Не больше шести отрезков.
-          </span>
-        </div>
-        <div className="acts">
-          <input
-            className="inp"
-            style={{ maxWidth: 240 }}
-            aria-label="Постоянные часы выхода"
-            placeholder="12:00-14:00, 19:00-21:00"
-            value={windowsDraft}
-            disabled={updateSettings.isPending}
-            onChange={(e) => {
-              setWindowsTouched(true);
-              setWindowsDraft(e.target.value);
-            }}
-          />
-          <button
-            className="pill sm"
-            type="button"
-            disabled={!windowsTouched || parsedWindows === null || windowsDraft === windowsValue || updateSettings.isPending}
-            onClick={() => {
-              if (parsedWindows === null) return;
-              updateSettings.mutate({ publishSchedulePriorityWindows: parsedWindows });
-              setWindowsTouched(false);
-            }}
-          >
-            Сохранить
-          </button>
-        </div>
-        {/* Условный рендер, а не hidden: на flex-элементе hidden не срабатывает. */}
-        {windowsTouched && parsedWindows === null && (
-          <p className="msg" style={{ color: "var(--crit)" }}>
-            Не разобрали. Каждый отрезок — «ЧЧ:ММ-ЧЧ:ММ», конец позже начала, отрезки через запятую.
-          </p>
-        )}
-      </div>
-
-      <div className="mod">
-        <div className="t">
-          <b>Глубина тепловой карты</b>
-          <span style={{ whiteSpace: "normal" }}>
-            За сколько дней считать активность клиентов. Меньше месяца — мало событий на 168 клеток недели, больше
-            трёх — в расчёт попадает прошлый сезон, а спрос на жильё сезонный.
-          </span>
-        </div>
-        <div className="acts">
-          <span className="nf">
-            <input
-              type="number"
-              min={7}
-              max={365}
-              inputMode="numeric"
-              aria-label="Дней в тепловой карте"
-              defaultValue={days}
-              disabled={updateSettings.isPending}
-              onBlur={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isInteger(n) && n >= 7 && n <= 365 && n !== days) {
-                  updateSettings.mutate({ publishScheduleHeatmapDays: n });
-                }
-              }}
-            />
-            <span className="u">дней</span>
-          </span>
-        </div>
-      </div>
-
-      <div className="mod">
-        <div className="t">
-          <b>Насколько раньше часа пик выкладывать</b>
-          <span style={{ whiteSpace: "normal" }}>
-            Пост должен успеть разойтись до того, как аудитория выйдет в сеть. Ноль — публиковать ровно в час пик.
-          </span>
-        </div>
-        <div className="acts">
-          <span className="nf">
-            <input
-              type="number"
-              min={0}
-              max={6}
-              inputMode="numeric"
-              aria-label="Часов до пика"
-              defaultValue={lead}
-              disabled={updateSettings.isPending}
-              onBlur={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isInteger(n) && n >= 0 && n <= 6 && n !== lead) {
-                  updateSettings.mutate({ publishScheduleLeadHours: n });
-                }
-              }}
-            />
-            <span className="u">часа</span>
-          </span>
-        </div>
-      </div>
     </>
   );
 }
@@ -1963,91 +1927,6 @@ function parseInboundContexts(text: string): string[] {
   return [...new Set(list)];
 }
 
-/**
- * Список контекстов входящих: textarea по строке на контекст — тот же формат,
- * что у остальных построчных настроек («Чем не занимаемся» во вкладке «Бот»).
- * Чипы здесь были бы хуже: значение вводят один раз, зато переносят его глазами
- * из чужой панели, а из textarea видно сразу весь список.
- */
-function InboundContextsSetting({
-  value,
-  pending,
-  onSave,
-}: {
-  value: string[];
-  pending: boolean;
-  onSave: (list: string[]) => void;
-}) {
-  const [draft, setDraft] = useState(value.join("\n"));
-  const parsed = parseInboundContexts(draft);
-  const changed = parsed.join("\n") !== value.join("\n");
-  const tooMany = parsed.length > MAX_INBOUND_CONTEXTS;
-  const tooLong = parsed.find((entry) => entry.length > MAX_INBOUND_CONTEXT_LENGTH);
-  const error = tooMany
-    ? `Слишком много строк: не больше ${MAX_INBOUND_CONTEXTS}.`
-    : tooLong
-      ? `Слишком длинное имя контекста: не больше ${MAX_INBOUND_CONTEXT_LENGTH} символов.`
-      : null;
-
-  return (
-    <div className={error ? "fld bad" : "fld"} style={{ marginTop: "var(--s4)" }}>
-      <span className="lab">Откуда станция отдаёт входящие</span>
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={4}
-        spellCheck={false}
-        placeholder={"from-trunk\next-queues"}
-        aria-label="Контексты входящих звонков"
-      />
-      <span className="msg">
-        {error ??
-          "Имена контекстов из настроек АТС — по ним CRM понимает, что звонок пришёл снаружи, а не уходит от нас. По одному в строке. Сравнение идёт по началу имени, поэтому строка from-trunk покрывает и from-trunk-sip-out."}
-      </span>
-      <div className="wrap" style={{ marginTop: "var(--s2)" }}>
-        <button className="pill" type="button" onClick={() => onSave(parsed)} disabled={!changed || !!error || pending}>
-          Сохранить
-        </button>
-        {value.length > 0 && (
-          <button
-            className="pill ghost"
-            type="button"
-            disabled={pending}
-            onClick={() => {
-              setDraft("");
-              onSave([]);
-            }}
-          >
-            Вернуть встроенные
-          </button>
-        )}
-      </div>
-      <div className="quiet">
-        <span className="dot" />
-        <span className="txt">
-          {/*
-            Подсказка говорит о СОХРАНЁННОМ значении, а человек смотрит на поле. Пока
-            набранное не сохранено, «поле пустое» рядом с непустым полем читается как
-            враньё — поэтому у неподтверждённого набора свой, третий текст.
-          */}
-          {value.length === 0 && parsed.length > 0
-            ? `Набранное ещё не сохранено — пока работает встроенный список: ${DEFAULT_INBOUND_CONTEXTS_HINT}.`
-            : value.length === 0
-              ? `Сейчас поле пустое — работает встроенный список: ${DEFAULT_INBOUND_CONTEXTS_HINT}. Пока входящие доходят, менять здесь нечего.`
-              : `Свой список заменяет встроенный целиком, поэтому очередь ext-queues вписывают руками. Встроенный был: ${DEFAULT_INBOUND_CONTEXTS_HINT}.`}
-        </span>
-      </div>
-      <div className="quiet warn">
-        <span className="dot warn" />
-        <span className="txt">
-          Значение спрашивают у того, кто настраивал станцию. Неверное — и входящие звонки перестают доходить в CRM:
-          не будет ни журнала входящих, ни окна оператора, ни задач по пропущенным, хотя на самой станции звонки идут
-          как обычно.
-        </span>
-      </div>
-    </div>
-  );
-}
 
 /**
  * ГРУППЫ FACEBOOK ДЛЯ РУЧНОЙ РАЗДАЧИ (28.09.2026, docs/agent-briefs/facebook-groups-share-28-09.md).
@@ -2566,12 +2445,7 @@ function AmiSection() {
         onClear={() => updateSecretKey.mutateAsync({ asteriskAmiPassword: "" })}
       />
 
-      <PortSetting
-        key={settings?.asteriskAmiPort ?? 5038}
-        value={settings?.asteriskAmiPort ?? 5038}
-        pending={updateSettings.isPending}
-        onSave={(port) => updateSettings.mutate({ asteriskAmiPort: port })}
-      />
+      {/* Порт AMI (5038) — константа с 01.11.2026 (apps/api/src/lib/settingsConstants.ts). */}
 
       <div className="wrap" style={{ marginTop: "var(--s4)" }}>
         <button className="pill ghost" type="button" onClick={() => test.mutate()} disabled={!configured || test.isPending}>
@@ -2600,8 +2474,8 @@ function AmiSection() {
 }
 
 // LiveVoiceSection/LiveVoiceOutboundTestCall переехали в BotTab.tsx (13.09.2026,
-// см. комментарий у места их прежнего рендера выше). PlainSetting/WHISPER_VOICES
-// ниже экспортированы — BotTab их импортирует, чтобы не заводить вторую копию.
+// см. комментарий у места их прежнего рендера выше). PlainSetting ниже
+// экспортирован — BotTab его импортирует, чтобы не заводить вторую копию.
 
 /*
  * Раздела «Звонки прямо в браузере» здесь больше нет (владелец 18.08.2026).
@@ -2611,41 +2485,6 @@ function AmiSection() {
  * браузере настраивать ими нечего.
  */
 
-/**
- * Порт управления станцией. Отдельным полем, а не общим PlainSetting: там кнопка
- * «Сохранить» осталась бы активной на «пять тысяч» и молча ничего не делала —
- * худший вид отказа, когда человек не понимает, сохранилось у него или нет.
- */
-function PortSetting({
-  value,
-  pending,
-  onSave,
-}: {
-  value: number;
-  pending: boolean;
-  onSave: (port: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  const port = Number(draft);
-  const valid = Number.isInteger(port) && port > 0 && port < 65536;
-  return (
-    <div className={valid ? "mod" : "mod bad"}>
-      <div className="t">
-        <b>Порт</b>
-        <span>5038 — стандартный. Менять только если на станции его изменили.</span>
-      </div>
-      <div className="acts">
-        <span className="nf">
-          <input value={draft} onChange={(e) => setDraft(e.target.value)} inputMode="numeric" placeholder="5038" aria-label="Порт AMI" />
-        </span>
-        <button className="pill sm" type="button" onClick={() => onSave(port)} disabled={!valid || port === value || pending}>
-          Сохранить
-        </button>
-      </div>
-      {!valid && <p className="msg">Порт — число от 1 до 65535.</p>}
-    </div>
-  );
-}
 
 /**
  * «Входящие звонки» — рабочее место оператора, настраиваемое без правки кода.
@@ -2826,12 +2665,8 @@ function IncomingCallsSection() {
 
       <IncomingHoursSetting />
 
-      <InboundContextsSetting
-        key={(settings?.incomingInboundContexts ?? []).join("\n")}
-        value={settings?.incomingInboundContexts ?? []}
-        pending={updateSettings.isPending}
-        onSave={(list) => updateSettings.mutate({ incomingInboundContexts: list })}
-      />
+      {/* Контексты диалплана входящих — константа с 01.11.2026 (встроенный набор,
+          apps/api/src/lib/telephony/incomingCalls.ts). */}
 
       <PrimaryTargetSetting />
 
@@ -2844,41 +2679,8 @@ function IncomingCallsSection() {
   );
 }
 
-/**
- * ПОДСКАЗКА АГЕНТУ О ЗВОНЯЩЕМ (владелец 20.08.2026: «агент ответил на звонок, но даже
- * не знает, с кем общается»).
- *
- * Три вещи, которые этот экран обязан показывать живыми данными, а не обещаниями:
- * ЧТО именно услышит агент (настоящая фраза о настоящем клиенте), СКОЛЬКО это секунд
- * (клиент в это время слушает гудки) и ДОХОДИТ ЛИ всё это до станции. Настройка, про
- * которую нельзя понять, работает она или нет, уже стоила агентству двух суток тишины
- * вместо музыки ожидания (15.08.2026) — здесь этой ошибки быть не должно.
- */
-const WHISPER_PARTS_UI = [
-  { key: "label", title: "«Исходящий»", hint: "Метка направления. На входящих не звучит: агент и так знает, что ему звонят." },
-  { key: "name", title: "Имя", hint: "Всегда первым — если агент отвлёкся, услышать он должен имя." },
-  { key: "role", title: "Покупатель или продавец", hint: "«харидор» / «фурӯшанда»." },
-  { key: "anchor", title: "Объект и район", hint: "«манзил дар Сомонӣ» — то, чем клиент отличается от остальных." },
-  { key: "budget", title: "Бюджет", hint: "«то 150 ҳазор доллар»." },
-  { key: "promise", title: "Договорённость", hint: "Незакрытое обещание с датой — «ваъда: пагоҳ»." },
-  { key: "recency", title: "Когда общались", hint: "«сӯҳбати охирин: дирӯз»." },
-  { key: "aiHint", title: "Зацепка от ИИ", hint: "Короткая фраза по истории. Пишет модель — она может и ошибиться." },
-] as const;
 
-/** Готовые составы: три частых случая, чтобы не собирать фразу по кубику. */
-const WHISPER_PRESETS = [
-  { title: "Коротко", parts: ["name", "role"] },
-  { title: "Средне", parts: ["name", "role", "anchor"] },
-  { title: "Подробно", parts: ["name", "role", "anchor", "budget", "recency"] },
-] as const;
 
-/** Голоса синтеза, проверенные на таджикском 20.08.2026. */
-export const WHISPER_VOICES = [
-  { value: "Kore", title: "Kore — женский, ровный" },
-  { value: "Charon", title: "Charon — мужской, низкий" },
-  { value: "Orus", title: "Orus — мужской, твёрдый" },
-  { value: "Achernar", title: "Achernar — женский, мягкий" },
-] as const;
 
 /**
  * ВЕСЬ КАТАЛОГ ГОЛОСОВ GEMINI (13.09.2026, «полный выбор голосов») — 30 штук.
@@ -2912,8 +2714,6 @@ function CallWhisperSetting() {
   const enabled = settings?.callWhisperEnabled ?? false;
   const onIncoming = settings?.callWhisperIncoming ?? true;
   const onOutgoing = settings?.callWhisperOutgoing ?? false;
-  const language = (settings?.callWhisperLanguage ?? "tg") as "tg" | "ru";
-  const voice = settings?.callWhisperVoice ?? "Kore";
 
   const { data: status } = useQuery<CallWhisperStatus>({
     queryKey: ["call-whisper"],
@@ -2964,66 +2764,8 @@ function CallWhisperSetting() {
             onToggle={() => updateSettings.mutate({ callWhisperOutgoing: !onOutgoing })}
           />
 
-          {onIncoming && (
-            <WhisperComposition
-              direction="in"
-              title="Что говорить на входящем"
-              parts={settings?.callWhisperIncomingParts ?? ["name", "role", "anchor"]}
-              language={language}
-              voice={voice}
-              pending={updateSettings.isPending}
-              onChange={(parts) => updateSettings.mutate({ callWhisperIncomingParts: parts })}
-            />
-          )}
-
-          {onOutgoing && (
-            <WhisperComposition
-              direction="out"
-              title="Что говорить на исходящем"
-              parts={settings?.callWhisperOutgoingParts ?? ["label", "name", "role"]}
-              language={language}
-              voice={voice}
-              pending={updateSettings.isPending}
-              onChange={(parts) => updateSettings.mutate({ callWhisperOutgoingParts: parts })}
-            />
-          )}
-
-          <div className="mod">
-            <div className="t">
-              <b>Язык и голос</b>
-              <span style={{ whiteSpace: "normal" }}>
-                У каждого сотрудника язык можно поменять в его карточке (Настройки → Сотрудники), там же есть «не
-                играть мне».
-              </span>
-            </div>
-            <div className="acts">
-              <select
-                className="inp"
-                style={{ maxWidth: 160 }}
-                aria-label="Язык подсказки по умолчанию"
-                value={language}
-                onChange={(e) => updateSettings.mutate({ callWhisperLanguage: e.target.value })}
-                disabled={updateSettings.isPending}
-              >
-                <option value="tg">Таджикский</option>
-                <option value="ru">Русский</option>
-              </select>
-              <select
-                className="inp"
-                style={{ maxWidth: 220 }}
-                aria-label="Голос подсказки"
-                value={voice}
-                onChange={(e) => updateSettings.mutate({ callWhisperVoice: e.target.value })}
-                disabled={updateSettings.isPending}
-              >
-                {WHISPER_VOICES.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          {/* Состав фразы, язык (русский) и голос (Achernar) — константы с 01.11.2026
+              (apps/api/src/lib/settingsConstants.ts). Язык сотрудника — в его карточке. */}
 
           <div className="card flat">
             <div className="sec-h stack">
@@ -3067,130 +2809,6 @@ function CallWhisperSetting() {
   );
 }
 
-/**
- * Состав фразы и живой предпросмотр.
- *
- * Фраза показывается НА НАСТОЯЩЕМ КЛИЕНТЕ и обновляется на каждое переключение —
- * бесплатно, потому что текст собирается сервером без синтеза речи. Озвучка стоит
- * денег, поэтому звук — только по кнопке.
- */
-function WhisperComposition({
-  direction,
-  title,
-  parts,
-  language,
-  voice,
-  pending,
-  onChange,
-}: {
-  direction: "in" | "out";
-  title: string;
-  parts: string[];
-  language: "tg" | "ru";
-  voice: string;
-  pending: boolean;
-  onChange: (parts: string[]) => void;
-}) {
-  const [playing, setPlaying] = useState(false);
-  const [playError, setPlayError] = useState<string | null>(null);
-
-  const preview = useQuery<{ text: string; clientName: string }>({
-    queryKey: ["call-whisper-preview", direction, language, [...parts].sort().join(",")],
-    queryFn: () =>
-      api<{ text: string; clientName: string }>("/settings/call-whisper/preview", {
-        method: "POST",
-        body: { direction, language, parts, voice },
-      }),
-    retry: false,
-  });
-
-  const toggle = (key: string) => {
-    onChange(parts.includes(key) ? parts.filter((p) => p !== key) : [...parts, key]);
-  };
-
-  const listen = async () => {
-    setPlaying(true);
-    setPlayError(null);
-    try {
-      const result = await api<{ audioBase64: string; sampleRateHz: number }>("/settings/call-whisper/preview", {
-        method: "POST",
-        body: { direction, language, parts, voice, speak: true },
-      });
-      const url = pcmBase64ToWavUrl(result.audioBase64, result.sampleRateHz);
-      const audio = new Audio(url);
-      // Ссылку освобождаем после проигрывания: иначе каждый клик оставляет в памяти
-      // вкладки по файлу, и за день их накапливается сотня.
-      audio.addEventListener("ended", () => URL.revokeObjectURL(url), { once: true });
-      await audio.play();
-    } catch {
-      setPlayError("Не удалось озвучить — проверьте ключ Gemini и «Здоровье системы».");
-    } finally {
-      setPlaying(false);
-    }
-  };
-
-  // На исходящем метка направления уместна, на входящем — нет (см. WHISPER_PARTS_UI).
-  const available = WHISPER_PARTS_UI.filter((part) => part.key !== "label" || direction === "out");
-
-  return (
-    <div className="card flat">
-      <div className="sec-h stack">
-        <h2>{title}</h2>
-        <span className="note">Готовые составы: три частых случая, чтобы не собирать фразу по кубику</span>
-      </div>
-
-      <div className="seg" role="group" aria-label={`Готовые составы: ${title}`}>
-        {WHISPER_PRESETS.map((preset) => (
-          <button
-            key={preset.title}
-            type="button"
-            disabled={pending}
-            onClick={() => onChange(direction === "out" ? ["label", ...preset.parts] : [...preset.parts])}
-          >
-            {preset.title}
-          </button>
-        ))}
-      </div>
-
-      {available.map((part) => (
-        <SwitchRow
-          key={part.key}
-          title={part.title}
-          on={parts.includes(part.key)}
-          hint={part.hint}
-          onToggle={() => toggle(part.key)}
-        />
-      ))}
-
-      <div className="grp-lab">Агент услышит</div>
-      {preview.data ? (
-        <div className="quiet">
-          <span className="dot ok" />
-          <span className="txt">
-            «{preview.data.text}» Пример собран по карточке клиента {preview.data.clientName}.
-          </span>
-        </div>
-      ) : (
-        <div className="quiet">
-          <span className="dot" />
-          <span className="txt">
-            {preview.isError ? "Показать не на ком: нет клиента с ответственным агентом." : "Собираем фразу…"}
-          </span>
-        </div>
-      )}
-      <div className="wrap" style={{ marginTop: "var(--s2)" }}>
-        <button className="pill ghost sm" type="button" onClick={listen} disabled={playing || !preview.data}>
-          {playing ? "Озвучиваем…" : "Прослушать"}
-        </button>
-        {playError && (
-          <span className="saved" style={{ color: "var(--crit)" }}>
-            {playError}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /**
  * НОЧНОЙ РЕЖИМ (владелец 14.08.2026: «когда нас нет — звук автоответчика»).

@@ -4,6 +4,7 @@ import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientRow, cleanClientColumns } from "../components/clean/CleanClientRow";
 import { CButton, cn } from "../components/clean/ui";
 import { lazyWithReload } from "../lib/lazyWithReload";
+import { clientListScope } from "../lib/clientListScope";
 const MobileClientsList = lazyWithReload(() => import("../components/mobile/MobileClientsList").then((m) => ({ default: m.MobileClientsList })));
 const MobileInquiries = lazyWithReload(() => import("../components/mobile/MobileInquiries").then((m) => ({ default: m.MobileInquiries })));
 import { useCallback, useEffect, useState } from "react";
@@ -40,6 +41,8 @@ import { SwipeRow } from "../components/SwipeRow";
 import { useMarkSectionSeen } from "../hooks/useCounters";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
+import { useEmptyListGuard } from "../hooks/useEmptyListGuard";
+import { EmptyListGuardBanner } from "../components/EmptyListGuardBanner";
 import { Pagination } from "../components/Pagination";
 import { useDistricts } from "../hooks/useDistricts";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
@@ -49,7 +52,7 @@ import { useAuthStore } from "../store/auth";
 import { DuplicatesModal } from "../components/DuplicatesModal";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { isRecentlyReturned } from "../components/ReturnedBadge";
-import { INACTIVE_LEVEL_LABELS } from "../components/InactiveLevelBadge";
+import { INACTIVE_LEVEL_LABELS, showsInactiveLabel } from "../components/InactiveLevelBadge";
 import { ClientStateBadge } from "../components/ClientStateBadge";
 import { clientPrimaryState } from "../lib/clientPrimaryState";
 import { ClientFormModal } from "../components/ClientFormModal";
@@ -129,11 +132,21 @@ export function Clients({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER
    */
   const gateRole = useAuthStore((s) => s.agent?.role);
   const legacyAgentMobile = useLegacyAgentMobile();
+  const readOnly = useIsReadOnly();
+  const [formParams] = useSearchParams();
+  const [formKind, setFormKind] = useState<"BUYER" | "SELLER" | null>(() =>
+    kind !== "OTHER" && formParams.get("new") === "1"
+      ? readKindParam(formParams.get("kind")).sectionKind ?? kind : null);
+  const [newClientPhone] = useState(() => formParams.get("phone") ?? undefined);
   if (kind !== "OTHER" && (gateRole === "MARKETING" || gateRole === "EDITOR")) {
     return <RoleGate title="Клиенты" text="Раздел недоступен этой роли." />;
   }
-  if (legacyAgentMobile) return kind === "OTHER" ? <MobileInquiries /> : <MobileClientsList kind={kind} />;
-  return <ClientsList kind={kind} />;
+  return <>
+    {legacyAgentMobile
+      ? kind === "OTHER" ? <MobileInquiries /> : <MobileClientsList kind={kind} onAddClient={() => setFormKind(kind)} />
+      : <ClientsList kind={kind} onAddClient={setFormKind} />}
+    {formKind && !readOnly && <ClientFormModal kind={formKind} initialPhone={newClientPhone} onClose={() => setFormKind(null)} />}
+  </>;
 }
 
 /** Экран роли без доступа — тихой строкой прототипа (договор §6.12), а не пустотой. */
@@ -148,7 +161,7 @@ function RoleGate({ title, text }: { title: string; text: string }) {
   );
 }
 
-function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" } = {}) {
+function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER" | "OTHER"; onAddClient: (kind: "BUYER" | "SELLER") => void }) {
   const clean = useCleanShell();
   const isSeller = kind === "SELLER";
   const isOther = kind === "OTHER";
@@ -240,9 +253,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
    * установленного приложения и «+» → «Новый клиент» (FabMenu). Читаем один раз и
    * тут же убираем ключ из адреса (в `drop` ниже): иначе он останется в закладке.
    */
-  const [showForm, setShowForm] = useState(() => !isOther && searchParams.get("new") === "1");
   /** `?phone=` вместе с `?new=1` — из наборщика: набранного номера нет в базе. */
-  const [newClientPhone] = useState(() => searchParams.get("phone") ?? undefined);
   const [showDuplicates, setShowDuplicates] = useState(false);
   /** Шторка «Фильтры»: срез, статус, источник, район, агент, порядок. */
   const [showFilters, setShowFilters] = useState(false);
@@ -314,7 +325,8 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
     // «Ждут принятия» — и покупатели, и продавцы разом: так считает число в шторке
     // (useClientsSummary.awaitingAgent), и срез по разделу давал список короче числа.
     kind: kindForQuery,
-    ...(isAllMineRoute ? { scope: "allMine" as const } : {}),
+    scope: clientListScope({ allMine: isAllMineRoute, other: isOther, searching,
+      status: filters.status, workStatus: filters.workStatus, pending: pendingSlice, noResponseYesterday }),
     ...(pendingSlice ? { pendingAcceptance: true } : {}),
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
     // «Прочие обращения»: свежие сверху (серверный порядок по умолчанию и есть рабочий).
@@ -322,7 +334,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
   };
   // «Прочие обращения» — управленческий раздел: без права сервер ответил бы 403.
   const otherBlocked = isOther && !can("otherInquiries.view");
-  const { data, isLoading, error, refetch } = useClients(clientQuery, !otherBlocked);
+  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useClients(clientQuery, !otherBlocked);
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...clientQuery, page: 1 }, (filters.page ?? 1) > 1 && !otherBlocked);
   // Мягкая подгрузка вместо страниц (решение владельца 15.09.2026): строки копятся,
@@ -346,7 +358,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
   // Дубликаты видит только руководство — объединение затрагивает клиентов разных агентов.
   const { data: duplicates } = useDuplicates(can("clients.merge"));
   /** Сводка экрана: счётчики срезов, «ждёт агента», «не на виду». Один запрос. */
-  const { data: summary } = useClientsSummary(!isOther);
+  const { data: summary, isFetching: summaryFetching, refetch: refetchSummary } = useClientsSummary(!isOther);
   // Список агентов — только для шторки фильтров руководителя (агент видит своих и так).
   const { data: agents } = useAgents({ enabled: can("clients.viewAll") });
   const assign = useTransferClient();
@@ -355,6 +367,27 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
   const waitLabel = oldest ? formatWait(oldest.waitingMinutes) : "";
   // «Не на виду»: список грузится только когда шторка открыта.
   const hiddenQuery = useClients({ scope: "allMine" }, showHidden);
+  // Самолечение пустого списка (hooks/useEmptyListGuard.ts, одна дверь с телефоном):
+  // сводку можно сравнивать только с обычной вкладкой «в работе» без условий.
+  const guardComparable =
+    clientQuery.scope === "inWork" && !clientQuery.status && !clientQuery.source && !clientQuery.districtId && !clientQuery.agentId &&
+    !clientQuery.q && !clientQuery.workStatus && (filters.page ?? 1) === 1 && !!kindForQuery;
+  const listGuard = useEmptyListGuard({
+    enabled: !otherBlocked,
+    sliceKey: `desktop:${kindForQuery ?? "all"}:${guardComparable ? "plain" : "filtered"}`,
+    sliceName: `desktop-${(kindForQuery ?? "all").toLowerCase()}`,
+    isLoading,
+    isFetching,
+    hasData: !!data,
+    error,
+    itemCount: visibleItems.length,
+    expected: !guardComparable ? null : summary ? (kindForQuery === "SELLER" ? summary.sellers : summary.buyers) : undefined,
+    summaryPending: summaryFetching,
+    dataUpdatedAt,
+    refetchAll: () =>
+      Promise.all([refetch({ cancelRefetch: false }), isOther ? undefined : refetchSummary({ cancelRefetch: false })]),
+  });
+
 
   // «Прочие обращения» — управленческий раздел, агентам сюда доступа нет (API и так
   // не вернёт им ни одной записи, но сообщение понятнее пустого списка).
@@ -469,11 +502,11 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
     <Rh2Screen title={title} back={isAllMineRoute ? sectionPath(section) : undefined} actions={shellActions} className={clean ? "clean-clients-page" : undefined}>
       {mobile ? (
         // Заголовок на телефоне стоит в шапке оболочки; для скринридера он остаётся.
-        clean && !isOther && !readOnly ? <div className="flex justify-end"><h1 className="sr-only">{title}</h1><CButton onClick={() => setShowForm(true)}><Plus size={18} aria-hidden />Добавить клиента</CButton></div> : <h1 className="sr-only">{title}</h1>
+        clean && !isOther && !readOnly ? <div className="flex justify-end"><h1 className="sr-only">{title}</h1><CButton onClick={() => onAddClient(section)}><Plus size={18} aria-hidden />Добавить клиента</CButton></div> : <h1 className="sr-only">{title}</h1>
       ) : clean ? (
         <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
           <div><h1 className="text-[28px] font-semibold tracking-tight text-ink">{title}</h1><p className="mt-2 text-[16px] text-gray-500">{sub}</p></div>
-          <div className="flex flex-wrap items-center gap-3">{segment}{!isOther && !readOnly && <CButton onClick={() => setShowForm(true)}><Plus size={18} aria-hidden />Добавить клиента</CButton>}</div>
+          <div className="flex flex-wrap items-center gap-3">{segment}{!isOther && !readOnly && <CButton onClick={() => onAddClient(section)}><Plus size={18} aria-hidden />Добавить клиента</CButton>}</div>
         </div>
       ) : (
         <PageHeader
@@ -493,7 +526,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
               {/* «Прочие обращения» приходят извне — вручную такая карточка не заводится.
                   Единственная синяя кнопка экрана. */}
               {!isOther && !readOnly && (
-                <Button icon={<Plus size={18} aria-hidden />} onClick={() => setShowForm(true)}>
+                <Button icon={<Plus size={18} aria-hidden />} onClick={() => onAddClient(section)}>
                   Клиент
                 </Button>
               )}
@@ -592,14 +625,14 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
         )}
 
         {/* Состояния блока: загрузка, ошибка, пусто */}
-        {isLoading && !error && (
+        {(isLoading || (!!error && !listGuard.broken)) && (
           <div role="status" aria-label="Загружаем клиентов">
             {[0, 1, 2, 3, 4].map((i) => (
               <Skeleton key={i} kind="row" />
             ))}
           </div>
         )}
-        {error && <Rh2ErrorState message="Список не загрузился." onRetry={() => refetch()} />}
+        {listGuard.broken && <EmptyListGuardBanner guard={listGuard} variant="desktop" />}
 
         {data && visibleItems.length > 0 && (
           <List aria-label="Клиенты">
@@ -617,7 +650,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
           </List>
         )}
 
-        {data && visibleItems.length === 0 && (
+        {data && visibleItems.length === 0 && !listGuard.broken && (
           <Rh2EmptyState
             icon={UserRound}
             title={
@@ -650,7 +683,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
             }
             action={
               !isOther && !readOnly && !pendingSlice && !inactiveView ? (
-                <Button variant="ghost" onClick={() => setShowForm(true)}>
+                <Button variant="ghost" onClick={() => onAddClient(section)}>
                   Завести карточку
                 </Button>
               ) : undefined
@@ -850,9 +883,6 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
           )}
         </Rh2Sheet>
       )}
-      {showForm && !readOnly && (
-        <ClientFormModal kind={section} initialPhone={newClientPhone} onClose={() => setShowForm(false)} />
-      )}
       {showDuplicates && <DuplicatesModal onClose={() => setShowDuplicates(false)} />}
     </Rh2Screen>
   );
@@ -950,6 +980,7 @@ function ClientRow({
           CLIENT_SOURCE_LABELS[c.source],
           showAgent && c.assignedAgent?.fullName ? `Агент ${c.assignedAgent.fullName}` : null,
           isRecentlyReturned(c.returnedAt) ? "вернулся" : null,
+          showsInactiveLabel(c) ? "неактивен" : null,
         ]
   ).filter(Boolean);
 
@@ -1016,16 +1047,18 @@ function ClientRow({
     />
   );
 
+  const visibleNextStep = !isTrashed && !c.hiddenReason && !pending && (!c.workStatus || c.workStatus === "ACTIVE") ? c.nextStep : null;
   const row = clean && !inSheet ? (
     <CleanClientRow
       id={c.id}
       name={name}
       href={isTrashed ? undefined : `/clients/${c.shortId}`}
       avatar={<ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />}
-      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · ")}
+      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null, showsInactiveLabel(c) ? "неактивен" : null].filter(Boolean).join(" · ")}
       request={isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен"}
       source={CLIENT_SOURCE_LABELS[c.source] ?? c.source}
-      nextAction={canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (!isTrashed && !c.hiddenReason && !pending && (!c.workStatus || c.workStatus === "ACTIVE") && c.nextStep?.nextAction ? <span className="text-[14px] text-ink">{c.nextStep.nextAction}</span> : null)}
+      nextAction={canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null)}
+      nextActionDate={!canAcceptRow && !chip ? visibleNextStep?.nextActionDate : null}
       lastContact={relativeTime(c.lastContactAt)}
       staleContact={stale && !chip && !canAcceptRow}
       showAgent={showAgent}

@@ -124,10 +124,13 @@ describe("Маркер действия", () => {
     });
   });
 
-  it("срок жизни берётся из Настроек", async () => {
+  it("срок жизни — константа 30 минут с 01.11.2026: колонка Settings на него не влияет", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { pushActionTtlMinutes: 7 } });
-    expect((await loadPushActionRules()).ttlMinutes).toBe(7);
-    await prisma.settings.update({ where: { id: "singleton" }, data: { pushActionTtlMinutes: 30 } });
+    try {
+      expect((await loadPushActionRules()).ttlMinutes).toBe(30);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { pushActionTtlMinutes: 30 } });
+    }
   });
 });
 

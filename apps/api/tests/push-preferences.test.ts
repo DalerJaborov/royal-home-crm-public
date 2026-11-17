@@ -30,7 +30,7 @@ const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
 const { sendPushToAgent } = await import("../src/push.js");
 const { recordScoreEvent } = await import("../src/lib/scoreJournal.js");
-const { notifyAgentOfClientMessage } = await import("../src/lib/clientMessageAlert.js");
+const { notifyAgentOfClientMessage, resetClientMessageThrottle } = await import("../src/lib/clientMessageAlert.js");
 
 const runId = Date.now();
 const password = "testpass123";
@@ -205,11 +205,15 @@ describe("Пачка сообщений клиента", () => {
     expect(sentCount()).toBe(1);
   });
 
-  it("нулевой порог возвращает прежнее поведение — уведомление на каждое сообщение", async () => {
+  it("порог — константа 3 минуты с 01.11.2026: ноль в колонке Settings антиспам не снимает", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { pushMessageThrottleMinutes: 0 } });
-    await notifyAgentOfClientMessage(clientId, "раз");
-    await notifyAgentOfClientMessage(clientId, "два");
-    expect(sentCount()).toBe(2);
-    await prisma.settings.update({ where: { id: "singleton" }, data: { pushMessageThrottleMinutes: 3 } });
+    resetClientMessageThrottle(); // окно предыдущего теста живёт в памяти процесса
+    try {
+      await notifyAgentOfClientMessage(clientId, "раз");
+      await notifyAgentOfClientMessage(clientId, "два");
+      expect(sentCount()).toBe(1);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { pushMessageThrottleMinutes: 3 } });
+    }
   });
 });

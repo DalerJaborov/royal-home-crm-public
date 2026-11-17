@@ -20,6 +20,17 @@ describe("tiny affirmation is data until an actual accepted question is verified
     expect(customerCallbackConsentDecision("Не звоните мне")).toBe("cancelled");
     expect(customerCallbackConsentDecision("занг назанед")).toBe("cancelled");
   });
+  // 14.11.2026: на собственный вопрос бота «можно агенту позвонить?» люди отвечают
+  // не голым «Да». Прежняя проверка ^(да|ҳа)$ теряла все эти ответы.
+  it.each(["Да, конечно", "Да, пожалуйста", "Хорошо", "Давайте", "Ага", "Бале", "Хуб", "Ҳа, албатта", "ха", "Ха албатта",
+    "Конечно, звоните", "Да можно", "ок", "Майлаш", "bale", "Алишер 927123456", "Вот мой номер 927 12 34 56",
+    "Номам Алишер, рақамам 927123456", "+992 900 00 00 01"])("ordinary yes or name+number answers our question: %s", text => {
+    expect(isCustomerCallbackAffirmative(text), text).toBe(true);
+  });
+  it.each(["Хорошо?", "Да, но позже напишу", "Нет, спасибо", "Нет 927123456", "Не звоните 927123456", "Он сказал: хорошо",
+    "«Хорошо»", "Да, а сколько стоит квартира в Сино?", "Хуб, лекин занг назанед", "927", "Да 927123456 и 935555555"])("not a clean yes: %s", text => {
+    expect(isCustomerCallbackAffirmative(text), text).toBe(false);
+  });
   it("allows question-only encrypted evidence, never an empty sideband", () => {
     expect(customerAgentDeliveryEvidenceSchema.safeParse(base).success).toBe(false);
     expect(customerAgentDeliveryEvidenceSchema.safeParse({ ...base,

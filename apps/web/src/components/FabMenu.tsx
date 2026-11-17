@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/auth";
-import { useCan } from "../lib/permissions";
+import { useCan, useIsReadOnly, roleCreatesProperties } from "../lib/permissions";
 import type { PermissionId } from "@royal-home/shared";
 import { hapticTap } from "../lib/haptics";
 import { RH2_ROW_BUTTON, Rh2Portal } from "./rh2/Rh2Scope";
@@ -70,7 +70,7 @@ const TINTS = {
   green: { bg: "#e5f6ee", fg: "#2f9068" },
 };
 
-function buildItems(role: string | undefined, can: (p: PermissionId) => boolean): FabMenuItem[] {
+export function buildItems(role: string | undefined, can: (p: PermissionId) => boolean, readOnly = false): FabMenuItem[] {
   const objectNew: FabMenuItem = {
     label: "Новый объект",
     sub: "форма в 4 шага",
@@ -96,15 +96,15 @@ function buildItems(role: string | undefined, can: (p: PermissionId) => boolean)
     action: "showing",
   };
   const taskNew: FabMenuItem = {
-    label: "Поставить задачу",
-    sub: "агенту офиса",
+    label: "Контроль задач",
+    sub: "сроки и нагрузка команды",
     icon: ClipboardList,
     tint: TINTS.violet.bg,
     fg: TINTS.violet.fg,
     to: "/oversight",
   };
   const reportWeek: FabMenuItem = {
-    label: "Отчёт за неделю",
+    label: "Отчёты",
     sub: "комиссия и воронка",
     icon: BarChart3,
     tint: TINTS.blueInfo.bg,
@@ -112,8 +112,8 @@ function buildItems(role: string | undefined, can: (p: PermissionId) => boolean)
     to: "/reports",
   };
   const expenseNew: FabMenuItem = {
-    label: "Добавить расход",
-    sub: "в финансы месяца",
+    label: "Расходы",
+    sub: "открыть финансы месяца",
     icon: Wallet,
     tint: TINTS.pink.bg,
     fg: TINTS.pink.fg,
@@ -144,7 +144,7 @@ function buildItems(role: string | undefined, can: (p: PermissionId) => boolean)
     to: "/calls",
   };
   const acceptCall: FabMenuItem = {
-    label: "Принять звонок",
+    label: "Телефония",
     sub: "станция и очередь",
     icon: PhoneCall,
     tint: TINTS.green.bg,
@@ -160,6 +160,21 @@ function buildItems(role: string | undefined, can: (p: PermissionId) => boolean)
     to: "/other-inquiries",
   };
 
+  const allowed = (items: FabMenuItem[]): FabMenuItem[] => items.filter(item => {
+    if (item.to === "/properties/new") return !readOnly && roleCreatesProperties(role);
+    if (item.to === "/clients?new=1") return !readOnly && role !== "MARKETING" && role !== "EDITOR";
+    if (item.action === "showing") return !readOnly;
+    if (item.to === "/sources" || item.to === "/reports") return can("reports.view");
+    if (item.to === "/finance") return can("finance.view");
+    if (item.to === "/oversight") return can("dashboard.analytics");
+    if (item.to === "/security") return can("clients.securityReview");
+    if (item.to === "/calls") return can("calls.transcripts") || can("calls.ownTranscripts");
+    if (item.to === "/telephony") return can("calls.transcripts");
+    if (item.to === "/other-inquiries") return can("otherInquiries.view");
+    return true;
+  });
+  if (role === "SHAREHOLDER" || readOnly) return allowed([reportWeek, expenseNew]);
+
   // Директор/админ (в прототипе — `boss`): ровно набор со скриншота владельца.
   if (role === "DIRECTOR" || role === "ADMIN") {
     return [
@@ -170,16 +185,16 @@ function buildItems(role: string | undefined, can: (p: PermissionId) => boolean)
     ].filter((i): i is FabMenuItem => i !== null);
   }
   if (role === "MARKETING" || role === "EDITOR") {
-    return [objectNew, sources, clientNew].filter(Boolean) as FabMenuItem[];
+    return allowed([objectNew, sources]);
   }
   if (role === "SECURITY") {
-    return [can("clients.securityReview") ? checkNew : null, callsList].filter(Boolean) as FabMenuItem[];
+    return allowed([checkNew, callsList]);
   }
   if (role === "MANAGER") {
-    return [acceptCall, routeInquiry, clientNew, showNew];
+    return allowed([acceptCall, routeInquiry, clientNew, showNew]);
   }
   // Агент по умолчанию — самое частое действие первым.
-  return [objectNew, clientNew, showNew];
+  return allowed([objectNew, clientNew, showNew]);
 }
 
 export function FabMenu({
@@ -193,7 +208,8 @@ export function FabMenu({
   const role = useAuthStore((s) => s.agent?.role);
   const can = useCan();
   const legacyAgentMobile = useLegacyAgentMobile();
-  const items = buildItems(role, can).map((item) => legacyAgentMobile && item.action === "showing"
+  const readOnly = useIsReadOnly();
+  const items = buildItems(role, can, readOnly).map((item) => legacyAgentMobile && item.action === "showing"
     ? { ...item, action: undefined, to: "/calendar", sub: "выбрать клиента в календаре" }
     : item);
   // «Записать показ» открывает форму поверх меню, а не уводит на другой экран:

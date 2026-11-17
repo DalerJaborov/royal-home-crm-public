@@ -4,6 +4,7 @@ import { closeNotifications } from "./notifications.js";
 import { cancelPendingClientDeleteRequestOnTransfer } from "./trashClient.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { logSystemError } from "./systemError.js";
+import { closePropertyClientOffersOnTransfer } from "./propertyClientOfferClose.js";
 
 /**
  * ГАШЕНИЕ СПУТНИКОВ ВЛАДЕНИЯ — ОДНО МЕСТО НА ВСЕ ПУТИ СМЕНЫ АГЕНТА
@@ -145,6 +146,19 @@ export async function closeOwnershipSatellites(input: CloseOwnershipSatellitesIn
       void logSystemError(
         "api",
         `Заявка на удаление не снята при смене владения (${clientId}): ${err instanceof Error ? err.message : err}`
+      );
+    }
+  }
+
+  // Предложения объектов коллегой (lib/propertyClientOffers.ts) — прежнему агенту
+  // отвечать на них больше не за кого: клиент не его.
+  if (fromAgentId !== toAgentId) {
+    try {
+      await closePropertyClientOffersOnTransfer(clientId, toAgentId);
+    } catch (err) {
+      void logSystemError(
+        "api",
+        `Предложения объектов не закрыты при смене владения (${clientId}): ${err instanceof Error ? err.message : err}`
       );
     }
   }

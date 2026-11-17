@@ -13,9 +13,12 @@ const { processTurn, sendMessage, showTyping, push, releaseCalled, stampFailure,
   push: vi.fn(async (..._args: unknown[]) => 1),
   releaseCalled: vi.fn(), stampFailure: { enabled: false }, logError: vi.fn(async (..._args: unknown[]) => undefined),
 }));
-vi.mock("../src/messengers/conversation.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/messengers/conversation.js")>();
-  return { ...actual, processMessengerTurn: processTurn,
+vi.mock("../src/messengers/conversation.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/messengers/conversation.js")>()), processMessengerTurn: processTurn,
+}));
+vi.mock("../src/messengers/conversationStore.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/messengers/conversationStore.js")>();
+  return { ...actual,
     stampOutgoingMid: (...args: Parameters<typeof actual.stampOutgoingMid>) => {
       if (stampFailure.enabled) throw new Error("synthetic stamp persistence failure after MID");
       return actual.stampOutgoingMid(...args);

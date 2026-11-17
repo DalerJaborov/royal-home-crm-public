@@ -3,14 +3,11 @@ import { formatUploadSize } from "../../lib/uploadFormat";
 
 /**
  * Пределы самого черновика объекта — сколько снимков/роликов в него вообще
- * помещается Копия НАРОЧНО: подпись в шапке блока («до 60 снимков») должна совпадать
- * с тем, что реально отвергнет сервер.
- *
- * Источник: `MAX_DRAFT_PHOTOS`/`MAX_DRAFT_VIDEOS` в
- * apps/api/src/routes/properties/drafts.ts.
+ * помещается. Подпись в шапке блока («до 60 снимков») должна совпадать с тем,
+ * что реально отвергнет сервер, поэтому число одно — в packages/shared
+ * (propertyWizardDraft.ts), его же зовёт сервер (lib/propertyDraftMedia.ts).
  */
-export const MAX_DRAFT_PHOTOS = 60;
-export const MAX_DRAFT_VIDEOS = 10;
+export { MAX_DRAFT_PHOTOS, MAX_DRAFT_VIDEOS } from "@royal-home/shared";
 
 /**
  * Отсев выбранных роликов ДО постановки в очередь (07.10.2026): тяжелее

@@ -16,6 +16,7 @@ import {
   HANDOFF_DISPATCH_BUSY_WINDOW_MS,
 } from "../lib/videoHandoff.js";
 import { logAudit } from "../lib/audit.js";
+import { hasMarketingRole } from "../lib/marketingRole.js";
 import { HAS_INSTAGRAM_LINK_WHERE } from "../lib/instagramLink.js";
 import { PROPERTY_LIST_INCLUDE, presentPropertyListItems, type PropertyListRecord } from "../lib/propertyListItem.js";
 import {
@@ -86,29 +87,28 @@ import { parseTelegramChatIds } from "../lib/telegramChats.js";
  *  с removeFromSocial:true (routes/properties/videos.ts) применяет её условно,
  *  только когда поле передано, — обычному requireMarketingRole как middleware
  *  этого не сделать, а вторая копия списка ролей разошлась бы с этой. */
-export function hasMarketingRole(role: string | undefined): boolean {
-  return role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
-}
+export { hasMarketingRole };
 
 /** Экспортирована (17.09.2026): TikTok (routes/tiktok.ts) использует те же права,
  *  что кабинет маркетинга — общий helper, а не вторая копия проверки роли. */
 export function requireMarketingRole<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.agent) return res.status(401).json({ error: "Требуется авторизация" });
-  if (!hasMarketingRole(req.agent.role)) {
+  if (!hasMarketingRole(req.agent)) {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   next();
 }
 
+/** Подключение и отключение каналов компании (TikTok, Threads, Search Console, Яндекс, пароль
+ *  приложения): только директор (finance.manage; решение владельца 16.11.2026, строже прежнего «маркетинг и руководство»). Право marketing.access (его получает и РОП)
+ *  этого не открывает — подключённый не тем человеком канал уводит ролики компании на чужую страницу
+ *  (ревью 14.11.2026). */
+export { requireChannelAdmin } from "../lib/marketingRole.js";
+
 /** /editors-load — своя очередь монтажа, её видят маркетинг, монтажёр, директор и админ. */
 function requireEditorsLoadRole<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.agent) return res.status(401).json({ error: "Требуется авторизация" });
-  if (
-    req.agent.role !== "MARKETING" &&
-    req.agent.role !== "EDITOR" &&
-    req.agent.role !== "DIRECTOR" &&
-    req.agent.role !== "ADMIN"
-  ) {
+  if (req.agent.role !== "EDITOR" && !hasMarketingRole(req.agent)) {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   next();

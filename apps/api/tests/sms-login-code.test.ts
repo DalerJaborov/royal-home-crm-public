@@ -9,12 +9,14 @@ import request from "supertest";
 
 const sent: { phone: string; text: string; journalText?: string }[] = [];
 let smsFails = false;
+let smsDelayMs = 0;
 
 vi.mock("../src/lib/sms/index.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../src/lib/sms/index.js")>();
   return {
     ...orig,
     sendSms: async (p: { phone: string; text: string; journalText?: string }) => {
+      if (smsDelayMs) await new Promise((resolve) => setTimeout(resolve, smsDelayMs));
       if (smsFails) return { ok: false, error: "на счёте Payom закончились деньги" };
       sent.push(p);
       return { ok: true, id: "t", parts: 1 };
@@ -24,7 +26,7 @@ vi.mock("../src/lib/sms/index.js", async (importOriginal) => {
 
 const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
-const { LOGIN_SMS_MAX_ATTEMPTS } = await import("../src/lib/loginSmsCode.js");
+const { LOGIN_SMS_MAX_ATTEMPTS, issueLoginCode } = await import("../src/lib/loginSmsCode.js");
 
 const phone = `+99277${String(Date.now()).slice(-7)}`;
 const tgPhone = `+99278${String(Date.now()).slice(-7)}`;
@@ -61,6 +63,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   sent.length = 0;
   smsFails = false;
+  smsDelayMs = 0;
   await prisma.loginSmsCode.deleteMany({ where: { agentId: { in: ids() } } });
 });
 
@@ -156,11 +159,50 @@ describe("вход по коду без пароля", () => {
     expect(await prisma.loginSmsCode.count({ where: { agentId: tgAgentId, channel: "telegram" } })).toBe(1);
   });
 
-  it("после СМС можно сразу попросить код в Telegram", async () => {
+  it("смена канала не обходит минутный таймер и не заменяет действующий код", async () => {
     await askCode(tgPhone);
+    const originalCode = lastCode();
     const tg = await askCode(tgPhone, "telegram");
-    expect(tg.status).toBe(200);
-    expect(tg.body.channel).toBe("telegram");
+    expect(tg.status).toBe(429);
+    expect(tg.body.resendAfterSec).toBeGreaterThan(0);
+    expect(await prisma.loginSmsCode.count({ where: { agentId: tgAgentId } })).toBe(1);
+    expect(lastCode()).toBe(originalCode);
+  });
+
+  it("параллельные запросы в разные каналы резервируют ровно один код", async () => {
+    const actor = { id: tgAgentId, phone: tgPhone, telegramChatId: "test-chat" };
+    const results = await Promise.all([issueLoginCode(actor, "sms"), issueLoginCode(actor, "telegram")]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    const refused = results.find((r) => !r.ok);
+    expect(refused && !refused.ok && refused.retryAfterSec).toBeGreaterThan(0);
+    expect(await prisma.loginSmsCode.count({ where: { agentId: tgAgentId } })).toBe(1);
+  });
+
+  it("отказ провайдера освобождает резерв: исправленная доставка доступна сразу", async () => {
+    smsFails = true;
+    expect((await askCode(phone)).status).toBe(503);
+    smsFails = false;
+    expect((await askCode(phone)).status).toBe(200);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("время доставки не добавляет лишнюю минуту к серверному таймеру", async () => {
+    smsDelayMs = 1100;
+    const result = await askCode(phone);
+    expect(result.status).toBe(200);
+    expect(result.body.resendAfterSec).toBeGreaterThan(0);
+    expect(result.body.resendAfterSec).toBeLessThanOrEqual(59);
+  });
+
+  it("после минуты другой канал разрешён, действующим становится новая запись", async () => {
+    await askCode(tgPhone);
+    const original = await prisma.loginSmsCode.findFirstOrThrow({ where: { agentId: tgAgentId } });
+    await prisma.loginSmsCode.updateMany({ where: { agentId: tgAgentId }, data: { createdAt: new Date(Date.now() - 61_000) } });
+    const again = await askCode(tgPhone, "telegram");
+    expect(again.status).toBe(200);
+    const latest = await prisma.loginSmsCode.findFirstOrThrow({ where: { agentId: tgAgentId }, orderBy: { createdAt: "desc" } });
+    expect(latest.id).not.toBe(original.id);
+    expect(latest.channel).toBe("telegram");
   });
 
   it("старый вход паролем закрыт: без пароля в теле маршрут отвечает 410", async () => {

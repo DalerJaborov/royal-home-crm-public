@@ -51,13 +51,26 @@ export function customerPresentedShortIds(text: string, shortIds: readonly numbe
   return positions.sort((a, b) => a.at - b.at).map(value => value.shortId);
 }
 
-export async function readCustomerSearchSelection(principal: CustomerPrincipal): Promise<
+export async function readCustomerSearchSelection(principal: CustomerPrincipal, options: {
+  /** The words are a bare fact question ("этаж", "район", "цена") with no object named anywhere. */
+  factQuestion?: boolean;
+  /** An object is already the focus: a single shown card then replaces it only when it is the very last bot message. */
+  focusResolved?: boolean;
+} = {}): Promise<
   { status: "none" } | { status: "ambiguous" } |
   { status: "selected"; shortId: number; assertSourceCurrent(tx: TxClient): Promise<boolean> }
 > {
   const input = inspectAuthenticatedCustomerInput(customerPrincipalAuthenticatedInput(principal));
   const choice = input ? customerSearchPosition(input.inputText) : null;
-  if (!choice) return { status: "none" };
+  if (!choice) {
+    // 31.10 live: the bot showed ONE card from a search, the customer asked "район" and got "Какой объект?". Exactly one shown
+    // object is the one being asked about; several are not guessed (the renderer asks which of them).
+    if (!input || !options.factQuestion) return { status: "none" };
+    const [shown] = await readCustomerAcceptedSearchCollections(principal);
+    if (!shown || options.focusResolved && !shown.latestReply) return { status: "none" };
+    const only = customerPresentedShortIds(shown.text, shown.observations.flatMap(value => value.cards.map(card => card.facts.shortId)));
+    return only?.length === 1 ? selectedFrom(principal, shown, only[0], input.issuedAt) : { status: "none" };
+  }
   if (choice.position === null) return { status: "ambiguous" };
   const [collection] = await readCustomerAcceptedSearchCollections(principal);
   if (choice.bare && (!collection?.latestReply || /[?？]/u.test(collection.text))) return { status: "none" };
@@ -65,6 +78,11 @@ export async function readCustomerSearchSelection(principal: CustomerPrincipal):
   const ids = customerPresentedShortIds(collection.text, collection.observations.flatMap(value => value.cards.map(card => card.facts.shortId)));
   const shortId = ids?.[choice.position - 1];
   if (!shortId) return { status: "ambiguous" };
+  return selectedFrom(principal, collection, shortId, input!.issuedAt);
+}
+
+type SearchCollection = Awaited<ReturnType<typeof readCustomerAcceptedSearchCollections>>[number];
+function selectedFrom(principal: CustomerPrincipal, collection: SearchCollection, shortId: number, issuedAt: number): { status: "selected"; shortId: number; assertSourceCurrent(tx: TxClient): Promise<boolean> } {
   return { status: "selected", shortId, async assertSourceCurrent(tx) {
     const [part] = await tx.$queryRaw<Array<{ payloadHash: string; fenceJson: unknown }>>`
       SELECT "payloadHash","fenceJson" FROM "CustomerOutboxPart" p WHERE p."id"=${collection.partId}
@@ -73,7 +91,7 @@ export async function readCustomerSearchSelection(principal: CustomerPrincipal):
         AND p."status"='ACCEPTED' AND p."mode"='LIVE' AND p."sourceKind"='BOT_TURN'
         AND p."projectionRecordedAt" IS NOT NULL AND p."supersededAt" IS NULL AND p."cancelRequestedAt" IS NULL
         AND p."acceptedAt">=now()-interval '7 days'
-        AND p."acceptedAt"<=to_timestamp(${input!.issuedAt}/1000.0)
+        AND p."acceptedAt"<=to_timestamp(${issuedAt}/1000.0)
         AND EXISTS(SELECT 1 FROM "CustomerDeliveryAttempt" a WHERE a."partId"=p."id" AND a."outcome"='ACCEPTED'
           AND a."providerMid" IS NOT NULL AND length(trim(a."providerMid"))>0 AND a."finishedAt" IS NOT NULL
           AND a."claimRevision"=p."claimRevision" AND a."endpointScopeId"=p."endpointScopeId") FOR SHARE OF p`;

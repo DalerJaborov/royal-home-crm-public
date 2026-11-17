@@ -47,7 +47,27 @@ export type PushKind =
   | "look"
   /** «Объект загорелся» (24.09.2026): объект агента резко набрал просмотры на
    *  сайте — самое время позвонить тем, кто им интересовался. */
-  | "hot";
+  | "hot"
+  /** «Ваш объект есть на Somon/Paydo» (02.11.2026): совпадение нашего объекта с
+   *  чужим объявлением, смена цены там, снятие. Отдельный вид, а не «hot»: кто
+   *  отключил «Объект загорелся», не должен молча терять находки на площадках. */
+  | "market"
+  /** «Новое объявление под вашего покупателя» (14.11.2026, lib/market/buyerAlerts.ts): отдельный вид, чтобы
+   *  можно было выключить, не теряя находки «ваш объект на площадках» (`market`). */
+  | "market_buyer"
+  /** Оплаты подписок и сервисов (10.11.2026): за 3 дня, в день оплаты и при
+   *  сбое оплаты (lib/paymentReminders.ts). Получают те, у кого право
+   *  `finance.view`. */
+  | "payment"
+  /** Объект вышел в сетях — пост, чтобы поделиться у себя (lib/agentSharePost.ts). */
+  | "publication"
+  /** Сотрудник удалил свой объект или клиента через помощницу — руководству: «лежит в Корзине, можно
+   *  восстановить» (15.11.2026, lib/trashRemovalNotice.ts). */
+  | "trash"
+  /** БЕЗОПАСНОСТЬ (10.11.2026): изменение прав и ролей сотрудников, серия
+   *  неверных кодов входа (lib/staffSecurityNotify.ts). НЕ ОТКЛЮЧАЕТСЯ — не в
+   *  PUSH_KINDS, а в ALWAYS_ON_KINDS ниже, с причиной для человека. */
+  | "security";
 
 /**
  * ЧЕТЫРЕ УРОВНЯ УВЕДОМЛЕНИЙ — ПО СУТИ ДЕЛА, А НЕ ПО ГРОМКОСТИ
@@ -117,6 +137,16 @@ export const DEFAULT_LEVEL_BY_KIND: Record<PushKind, NotificationLevel> = {
   look: "OTHER",
   // «Загорелся» — подсказка системы, ничью работу не блокирует.
   hot: "INSIGHT",
+  // Находка на площадке — подсказка системы, ничью работу не блокирует.
+  market: "INSIGHT",
+  market_buyer: "INSIGHT",
+  // Оплата подписки — к сведению, пока не сорвалась; сбой оплаты вызывающий
+  // помечает CRITICAL явно.
+  payment: "OTHER",
+  publication: "OTHER",
+  // Удаление в Корзину — к сведению руководству, восстановить можно кнопкой.
+  trash: "OTHER",
+  security: "CRITICAL",
 };
 
 export function isNotificationLevel(value: unknown): value is NotificationLevel {
@@ -126,7 +156,11 @@ export function isNotificationLevel(value: unknown): value is NotificationLevel 
 /** Уровень уведомления: явно заданный, иначе по виду, иначе «Прочее». */
 export function notificationLevelOf(kind: string | null | undefined, explicit?: unknown): NotificationLevel {
   if (isNotificationLevel(explicit)) return explicit;
-  if (isPushKind(kind)) return DEFAULT_LEVEL_BY_KIND[kind];
+  // По таблице, а не по isPushKind: неотключаемые виды (security, celebration)
+  // в PUSH_KINDS нет, но уровень у них свой.
+  if (typeof kind === "string" && Object.prototype.hasOwnProperty.call(DEFAULT_LEVEL_BY_KIND, kind)) {
+    return DEFAULT_LEVEL_BY_KIND[kind as PushKind];
+  }
   return "OTHER";
 }
 
@@ -151,7 +185,52 @@ export const PUSH_KINDS: { key: PushKind; label: string; hint: string }[] = [
     label: "Объект загорелся",
     hint: "Ваш объект резко набрал просмотры на сайте — самое время позвонить тем, кто им интересовался",
   },
+  {
+    key: "market",
+    label: "Объект на площадках",
+    hint: "Ваш объект нашёлся на Somon или Paydo, цена там изменилась или объявление сняли",
+  },
+  {
+    key: "market_buyer",
+    label: "Объявления под покупателя",
+    hint: "На Somon или Paydo появилось новое объявление, подходящее вашему покупателю (не больше трёх пушей в день)",
+  },
+  {
+    key: "payment",
+    label: "Оплаты подписок",
+    hint: "За 3 дня до оплаты сервиса, в день оплаты и если оплата не прошла",
+  },
+  {
+    key: "publication",
+    label: "Публикации объектов",
+    hint: "Ваш объект вышел в сетях — пост, чтобы поделиться у себя",
+  },
+  {
+    key: "trash",
+    label: "Удаления в Корзину",
+    hint: "Сотрудник удалил свой объект или клиента — они лежат в Корзине, оттуда их можно вернуть кнопкой",
+  },
 ];
+
+/**
+ * ЧТО ВЫКЛЮЧИТЬ НЕЛЬЗЯ — и почему (владелец 10.11.2026: «не присылай мне
+ * такое» работает для всех и про всё, кроме защиты учётки).
+ *
+ * Отдаётся экрану профиля и помощнице как есть: человек, который попросил
+ * выключить такое сообщение, получает честную причину, а не молчаливый отказ.
+ */
+export const ALWAYS_ON_KINDS: { key: PushKind; label: string; why: string }[] = [
+  {
+    key: "security",
+    label: "Безопасность",
+    why: "Неверные коды входа и изменение прав. Если кто-то чужой пытается войти или меняет права, вы должны узнать сразу — поэтому это не выключается.",
+  },
+];
+
+/** Вид, который человек может выключить себе сам (есть в PUSH_KINDS). */
+export function isMutablePushKind(value: unknown): value is PushKind {
+  return isPushKind(value);
+}
 
 const KNOWN: ReadonlySet<string> = new Set(PUSH_KINDS.map((k) => k.key));
 

@@ -41,6 +41,7 @@ export function ShowingQuickForm({
         clientId={picked.id}
         selectedClientName={clean ? picked.displayName ?? picked.fullName : undefined}
         initialType="SHOWING"
+        mode="schedule"
         initialPropertyId={initialPropertyId}
         isSeller={picked.kind === "SELLER"}
         onClose={onClose}

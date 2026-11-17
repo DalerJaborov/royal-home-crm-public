@@ -2,6 +2,7 @@ import { prisma } from "../db.js";
 import { decryptSecretSafe, encryptSecret } from "../crypto.js";
 import { logSystemError } from "../lib/systemError.js";
 import { fetchWithRetry, GRAPH_VERSION, instagramApiUrl, instagramRequest, loadCredentials } from "./meta.js";
+import { instagramQueryTokenRequest } from "./metaGraph.js";
 import { describeError } from "../lib/describeError.js";
 
 /**
@@ -240,7 +241,8 @@ const REFRESH_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 /** Просит у Graph API новый маркер взамен переданного. Бросает при отказе —
  *  что писать в базу (и писать ли вообще), решает вызывающий. */
 async function requestRefreshedInstagramToken(igToken: string): Promise<string> {
-  const req = instagramRequest(instagramApiUrl("/refresh_access_token?grant_type=ig_refresh_token"), igToken);
+  // Маркер только в строке запроса: Bearer этот адрес не читает (см. instagramQueryTokenRequest).
+  const req = instagramQueryTokenRequest(instagramApiUrl("/refresh_access_token?grant_type=ig_refresh_token"), igToken);
   const res = await fetchWithRetry(req.url, { headers: req.headers });
   if (!res.ok) {
     throw new Error(`Graph API HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);

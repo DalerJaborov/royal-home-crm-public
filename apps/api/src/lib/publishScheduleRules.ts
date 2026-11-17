@@ -15,13 +15,12 @@
  * «одно правило написано дважды», за которым в этом репозитории уже ходили.
  */
 import { prisma } from "../db.js";
+import { PUBLISH_SCHEDULE_TUNING } from "./settingsConstants.js";
 import { logSystemError } from "./systemError.js";
 import {
   instagramOnlineDaysCollected,
   loadHeatmapCells,
   summarizeHeatmap,
-  HEATMAP_DEFAULT_DAYS,
-  PUBLISH_LEAD_HOURS,
 } from "./audienceHeatmap.js";
 import {
   DEFAULT_PUBLISH_SCHEDULE_RULES,
@@ -72,14 +71,9 @@ export async function loadPublishScheduleRules(): Promise<LoadedPublishScheduleR
     where: { id: "singleton" },
     select: {
       publishScheduleEnabled: true,
-      publishScheduleUseHeatmap: true,
       publishScheduleWindowStartMin: true,
       publishScheduleWindowEndMin: true,
       publishScheduleMinGapMin: true,
-      publishSchedulePriorityWindows: true,
-      publishScheduleHeatmapDays: true,
-      publishScheduleLeadHours: true,
-      publishScheduleUseInstagramOnline: true,
     },
   });
 
@@ -88,16 +82,18 @@ export async function loadPublishScheduleRules(): Promise<LoadedPublishScheduleR
   const windowStartMin = settings?.publishScheduleWindowStartMin ?? d.windowStartMin;
   const windowEndMin = settings?.publishScheduleWindowEndMin ?? d.windowEndMin;
   const minGapMin = settings?.publishScheduleMinGapMin ?? d.minGapMin;
-  const heatmapDays = settings?.publishScheduleHeatmapDays ?? HEATMAP_DEFAULT_DAYS;
-  const leadHours = settings?.publishScheduleLeadHours ?? PUBLISH_LEAD_HOURS;
-  const instagramOnlineEnabled =
-    (settings?.publishScheduleUseHeatmap ?? true) && (settings?.publishScheduleUseInstagramOnline ?? true);
+  // Источник часов, окна, глубина карты и опережение — константы с 01.11.2026
+  // (lib/settingsConstants.ts, значения прода); колонки Settings не читаются.
+  const tuning = PUBLISH_SCHEDULE_TUNING;
+  const heatmapDays = tuning.heatmapDays;
+  const leadHours = tuning.leadHours;
+  const instagramOnlineEnabled = tuning.useHeatmap && tuning.useInstagramOnline;
   let instagramOnlineDays = 0;
 
   // Постоянные окна хранятся плоским списком пар — разворачиваем и отбрасываем
   // мусор: настройка правится человеком, и нечётный хвост здесь не должен
   // валить расстановку.
-  const flat = settings?.publishSchedulePriorityWindows ?? [];
+  const flat = tuning.priorityWindows;
   const fixedWindows: [number, number][] = [];
   for (let i = 0; i + 1 < flat.length; i += 2) {
     if (flat[i] < flat[i + 1]) fixedWindows.push([flat[i], flat[i + 1]]);
@@ -116,11 +112,9 @@ export async function loadPublishScheduleRules(): Promise<LoadedPublishScheduleR
     priorityHoursByDow: null,
   });
 
-  // Строки настроек может не быть вовсе (свежая база до первого сохранения) —
-  // тогда берём то же, что стоит умолчанием у колонки в схеме: карта включена.
-  // Писать здесь false означало бы, что до первого захода в Настройки
-  // расстановка тихо идёт не по карте, хотя тумблер на экране показан включённым.
-  if (!(settings?.publishScheduleUseHeatmap ?? true)) return asFixed(0, false);
+  // Карта как источник часов выключена (константа, как было на проде) —
+  // расстановка идёт по постоянным окнам.
+  if (!tuning.useHeatmap) return asFixed(0, false);
 
   try {
     // ПРЯМОЙ ИСТОЧНИК ПЕРВЫМ: статистика самого Instagram — сколько наших
@@ -197,12 +191,6 @@ export async function loadPublishScheduleRules(): Promise<LoadedPublishScheduleR
  * молча расходились.
  */
 export async function loadHeatmapAdviceSettings(): Promise<{ days: number; leadHours: number }> {
-  const settings = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: { publishScheduleHeatmapDays: true, publishScheduleLeadHours: true },
-  });
-  return {
-    days: settings?.publishScheduleHeatmapDays ?? HEATMAP_DEFAULT_DAYS,
-    leadHours: settings?.publishScheduleLeadHours ?? PUBLISH_LEAD_HOURS,
-  };
+  // Те же константы, что у расстановки (с 01.11.2026, lib/settingsConstants.ts).
+  return { days: PUBLISH_SCHEDULE_TUNING.heatmapDays, leadHours: PUBLISH_SCHEDULE_TUNING.leadHours };
 }

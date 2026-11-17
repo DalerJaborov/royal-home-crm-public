@@ -9,6 +9,14 @@ import {
   retiredGeminiModelReason,
 } from "./geminiTransport.js";
 import { logSystemError } from "../lib/systemError.js";
+import {
+  GEMINI_EXPLICIT_CACHING_ENABLED,
+  GEMINI_FALLBACK_MODELS_OVERRIDE,
+  GEMINI_IMAGE_MODEL_OVERRIDE,
+  GEMINI_LITE_MODEL_OVERRIDE,
+  GEMINI_MODEL_OVERRIDE,
+  GEMINI_TRANSCRIBE_MODELS_OVERRIDE,
+} from "../lib/settingsConstants.js";
 
 /**
  * ЧТО ИМЕННО СПРАШИВАТЬ У GOOGLE: ключи и имена моделей — из Настроек, а не только
@@ -81,6 +89,21 @@ export interface GeminiModelSettings {
   geminiTranscribeModels?: string[] | null;
   geminiImageModel?: string | null;
 }
+
+/**
+ * Имена моделей с 01.11.2026 — константы (lib/settingsConstants.ts, значения прода),
+ * а не поля Настроек: экран оставляет владельцу только ключи. Пустое значение здесь —
+ * «не задано»: действует .env сервера или умолчание из geminiTransport.ts, ровно как
+ * раньше при пустом поле. Сменить модель (Google закрыл старую) — правкой константы
+ * или GEMINI_* в .env сервера.
+ */
+export const GEMINI_MODEL_SETTINGS: Readonly<GeminiModelSettings> = {
+  geminiModel: GEMINI_MODEL_OVERRIDE,
+  geminiLiteModel: GEMINI_LITE_MODEL_OVERRIDE,
+  geminiFallbackModels: [...GEMINI_FALLBACK_MODELS_OVERRIDE],
+  geminiTranscribeModels: [...GEMINI_TRANSCRIBE_MODELS_OVERRIDE],
+  geminiImageModel: GEMINI_IMAGE_MODEL_OVERRIDE,
+};
 
 /**
  * Какие модели в силе — ЧИСТАЯ функция, один источник правды.
@@ -213,12 +236,6 @@ export async function resolveGeminiRuntime(): Promise<GeminiRuntime> {
     geminiApiKey: string | null;
     geminiApiKey2: string | null;
     geminiApiKeysExtra: string[];
-    geminiModel: string | null;
-    geminiFallbackModels: string[];
-    geminiTranscribeModels: string[];
-    geminiImageModel: string | null;
-    geminiLiteModel: string | null;
-    geminiExplicitCachingEnabled: boolean;
   } | null = null;
   try {
     settings = await prisma.settings.findUnique({
@@ -227,12 +244,6 @@ export async function resolveGeminiRuntime(): Promise<GeminiRuntime> {
         geminiApiKey: true,
         geminiApiKey2: true,
         geminiApiKeysExtra: true,
-        geminiModel: true,
-        geminiFallbackModels: true,
-        geminiTranscribeModels: true,
-        geminiImageModel: true,
-        geminiLiteModel: true,
-        geminiExplicitCachingEnabled: true,
       },
     });
   } catch {
@@ -257,12 +268,11 @@ export async function resolveGeminiRuntime(): Promise<GeminiRuntime> {
     keys.push(key);
   }
 
-  const models = effectiveGeminiModels(settings);
+  const models = effectiveGeminiModels(GEMINI_MODEL_SETTINGS);
   // Сверка имён — здесь, а не у каждого вызывающего: это единственная точка, через
   // которую имена попадают в запросы, и одна строка на имя за жизнь процесса стоит
   // дешевле, чем ещё один месяц незамеченных 404 (см. checkGeminiModelNames).
   checkGeminiModelNames(models);
-  // Отказ базы даёт ПРЕЖНЕЕ поведение (без кэша), а не новое — у этого признака нет
-  // безопасного умолчания «включено», ровно как у promptEconomy (см. leadQualifier.ts).
-  return { keys, ...models, explicitCaching: settings?.geminiExplicitCachingEnabled ?? false };
+  // Явный кэш — константа с 01.11.2026 (lib/settingsConstants.ts, на проде включён).
+  return { keys, ...models, explicitCaching: GEMINI_EXPLICIT_CACHING_ENABLED };
 }

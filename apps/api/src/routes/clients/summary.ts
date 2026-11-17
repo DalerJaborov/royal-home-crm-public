@@ -5,6 +5,8 @@ import type { ClientStatus } from "@royal-home/shared";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { can, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
+import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
+import { pendingDeleteHideWhere } from "../../lib/clientSearchWhere.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
 import { activeLeadCounts, loadLeadLimits, slotsTaken } from "../../lib/leadLimits.js";
@@ -86,9 +88,15 @@ export const summaryRouter = Router();
 summaryRouter.get("/summary", requireAuth, async (req, res) => {
   const now = new Date();
   const ownAgentId = scopeToOwnAgent(req);
-  const base: Prisma.ClientWhereInput = ownAgentId
-    ? { deletedAt: null, assignedAgentId: ownAgentId, kind: { in: ["BUYER", "SELLER"] } }
-    : { deletedAt: null };
+  // Карточки с заявкой на удаление список прячет от агента — сводка считает без них
+  // (то же условие, что у списка: lib/clientSearchWhere.ts).
+  const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
+  const base: Prisma.ClientWhereInput = {
+    ...(ownAgentId
+      ? { deletedAt: null, assignedAgentId: ownAgentId, kind: { in: ["BUYER", "SELLER"] } }
+      : { deletedAt: null }),
+    ...hideWhere,
+  };
   const today = dushanbeDayRange(now);
   const yesterday = dushanbeDayRange(new Date(today.start.getTime() - 1));
   const tomorrow = dushanbeDayRange(new Date(today.end.getTime() + 1));
@@ -140,8 +148,8 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     deferred,
     trashedMine,
   ] = await Promise.all([
-      prisma.client.count({ where: { ...base, kind: "BUYER" } }),
-      prisma.client.count({ where: { ...base, kind: "SELLER" } }),
+      prisma.client.count({ where: { ...base, ...CLIENT_IN_WORK_WHERE, kind: "BUYER" } }),
+      prisma.client.count({ where: { ...base, ...CLIENT_IN_WORK_WHERE, kind: "SELLER" } }),
       /**
        * СОГЛАСОВАНО СО СПИСКОМ (18.09.2026, задание В §f п.4, §c разведки 17.09:
        * «Мои N» расходилось со списком agentId=me»). Раньше здесь стояли

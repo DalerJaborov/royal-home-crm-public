@@ -1,7 +1,8 @@
+import { districtPickAllowed } from "../lib/serviceArea.js";
 import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import { readCustomerDmSubjectExecution } from "../lib/customerAgentEnrollment.js";
 import { prisma } from "../db.js";
-import { CustomerScopeDenied, ensureScopedBotConversation, findScopedBotConversation, resolveCustomerEndpoint, loadCustomerTransportForConversation,
+import { CustomerScopeDenied, resolveCustomerEndpoint, loadCustomerTransportForConversation,
   type CustomerTransportReference, type CustomerTransportHint } from "../lib/customerConversationScope.js";
 import type { CustomerPropertyAdmission, CustomerPropertyAdmissionResult, ManagedCustomerPropertyReply } from "@royal-home/shared";
 import { customerPropertyTurnAlreadyManaged, prepareCustomerPropertyAdmission, resolveCustomerPropertyTurnContext } from "../lib/customerPropertyTurnContext.js";
@@ -15,13 +16,22 @@ import { boundedCustomerPropertyBatch, customerPropertyPromptHistory, customerPr
 import { classifyCustomerPropertyFactIntent } from "../lib/customerPropertyFactIntent.js";
 import { renderCustomerPropertyFacts, renderMissingCustomerProperty } from "../lib/customerPropertyFacts.js";
 import { managedCustomerPropertyReply, persistManagedCustomerPropertyReply, publishManagedCustomerPropertyReply } from "../lib/customerPropertyDelivery.js";
-import { withBotTurnTrace, currentBotTurnTrace, traceBindConversation, traceResolution, traceGrouped, traceOutcome, traceNoReply, traceStamp, traceMediaKinds, traceKnownContacts } from "../lib/botTurnTrace.js";
+import { withBotTurnTrace, currentBotTurnTrace, traceBindConversation, traceResolution, traceGrouped, traceOutcome, traceNoReply, traceMediaKinds, traceKnownContacts } from "../lib/botTurnTrace.js";
 import type { ChatMessage, StoredAttachment } from "../ai/client.js";
 // Атомарный append истории вынесен в appendMessages.ts (без зависимостей от
 // лидов): иначе conversationDelivery → этот файл → leads → intake → … давал цикл.
 export { appendConversationMessages, appendTelegramConversationMessages } from "./appendMessages.js";
+import {
+  ensureConversationContactProfile,
+  ensureConversationId,
+  markLastReplyUndelivered,
+  markMessageDeliveryStatus,
+  stampOutgoingMid,
+  upsertConversation,
+} from "./conversationStore.js";
+export { ensureConversationId, markLastReplyUndelivered, markMessageDeliveryStatus, stampOutgoingMid };
 import { appendConversationMessages } from "./appendMessages.js";
-import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, takeStuckBuffers } from "./debounceBuffer.js";
+import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, quickRepeatMergeEnabled, takeStuckBuffers } from "./debounceBuffer.js";
 import { claimUnreadablePhoneAsk } from "./phoneRetryClaim.js";
 import { CLIENT_KIND_LABELS, CLIENT_SOURCES, formatClientCode, type ClientSource } from "@royal-home/shared";
 import { clientSelfStatedName, normalizeClientName } from "../ai/replyGuards.js";
@@ -45,19 +55,15 @@ import {
   topicStateOf,
   topicStateUpdate,
 } from "../ai/topicLock.js";
-import {
-  extractAllPhones,
-  extractTypedPhone,
-  extractVolunteeredPhone,
-  lastClientLanguage,
-  unreadablePhoneAttempt,
-  type UnreadablePhone,
-  mergeDraft,
-  runQualifyTurn,
-  shortAgentReply,
-  type LeadDraft,
-  type ShowcaseAbility,
-} from "../ai/leadQualifier.js";
+import { mergeDraft, runQualifyTurn } from "../ai/leadQualifier.js";
+import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
+import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
+import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
+import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyPhoneLine } from "../ai/leadOnlyMode.js";
+import { notifyLeadOnlyHandover } from "../lib/leadOnlyHandover.js";
+import { legacyLeadOnlyDraftForPhone, planLegacyLeadOnlyTurn } from "./leadOnlyLegacy.js";
+import { type LeadDraft } from "../ai/leadDraft.js";
+import { type ShowcaseAbility } from "../ai/botContract.js";
 import { looksLikeRentRequest, rentRefusalReply } from "../ai/rentGuard.js";
 import { isOtherCityReason } from "../ai/leadKind.js";
 import { NEUTRAL_FIRST_REPLY } from "../ai/intentDirectionGuard.js";
@@ -72,6 +78,8 @@ import { extractPostAcceptFacts } from "../ai/postAcceptFacts.js";
 import { countNoContactComplaints, looksLikeNoContactComplaint, looksLikeWantsHumanAgent } from "../ai/complaintGuard.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
+import { requestAgentAttention } from "../lib/agentAttention.js";
+import { newerClientMessagePending } from "./turnSupersede.js";
 import { detectAgencyPitch } from "../ai/agencyPitchGuard.js";
 import { guardFired } from "../ai/guardMetrics.js";
 import { createLeadFromChannel } from "../leads.js";
@@ -82,10 +90,9 @@ import {
   requestedAgentNotice,
   type RequestedAgentMatch,
 } from "../lib/requestedAgent.js";
-import { returningAgentStillAvailable } from "../lib/returningClientRouting.js";
 import { FRUSTRATION_HINT, looksFrustrated } from "../ai/frustrationGuard.js";
 import { resolveBotPropertyMention, resolveMentionedPropertyId } from "../lib/botPropertyMention.js";
-import { reactivateClientFromLost } from "../lib/clientLifecycle.js";
+import { applyInboundSideEffects, applyKnownClientMessageEffects } from "../lib/inboundSideEffects.js";
 import { detectClientLanguage, type ClientLanguage } from "../ai/clientLanguage.js";
 import { applyShowingRequestInBackground } from "../lib/showingBooking.js";
 import { rememberConversationShowingRequest } from "../lib/buyerShowingCandidates.js";
@@ -116,19 +123,19 @@ import {
   vacancyTurnHint,
 } from "../ai/adTemplateOpener.js";
 import { clientMeansHousingDeal } from "../ai/housingIntent.js";
-import { botAskedQuestion, isAckOnlyMessage } from "../ai/ackOnly.js";
+import { botAskedQuestion, isAckOnlyMessage, isThanksOnlyMessage } from "../ai/ackOnly.js";
 import { photoAlreadyAcknowledged } from "../ai/photoAckGuard.js";
 import { shouldStaySilentOnBareShare } from "../ai/bareShareRepeat.js";
 import { isWithinWorkingHours } from "../lib/workingHours.js";
 import { notifyAgentOfClientMessage } from "../lib/clientMessageAlert.js";
 import { notifyPropertyChatMessage } from "../lib/propertyChatMessageAlert.js";
 import { propertyChatLeadPropertyId } from "../lib/ownBotConversationScope.js";
+import { firstTouchAdPatch, persistFirstTouchAdAttribution } from "../lib/adAttribution.js";
 import { analyzeMessageForPropertyCounts } from "../ai/chatPropertyCount.js";
 import { scrubMentionedClientPhonesInText } from "../lib/clientPhoneMasking.js";
-import { checkExplicitRefusal } from "../lib/explicitRefusalDetector.js";
 import { isClosingMessage, isOptOutMessage } from "../lib/botFollowUps.js";
 import { isConfusedMessage, recordLesson } from "../lib/botLessons.js";
-import { linkWhatsAppConversationToClient, resolveWhatsAppLeadIdentity } from "../lib/whatsappPhone.js";
+import { resolveWhatsAppLeadIdentity } from "../lib/whatsappPhone.js";
 import { dedupePhones, pickFreeExtraPhones } from "../lib/clientPhones.js";
 import { maskClientPhone, maskPhonesInFreeText } from "../lib/clientPhone.js";
 import { isBotEnabledForChannel } from "./botChannels.js";
@@ -142,24 +149,19 @@ import {
 } from "./propertyShowcase.js";
 import { ensureConversationScenario } from "../ai/salesScenarios.js";
 import { runClientAutopilotInBackground } from "../lib/clientAutopilot.js";
-import { detectNewInquiryFromKnownClient } from "../lib/newInquiryDetector.js";
 import { checkClientInactiveSignal } from "../lib/clientInactiveTextDetector.js";
 import { botAbilitiesOf, loadBotCapabilities } from "./botCapabilities.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "../jobs/aiReplyRetryPolicy.js";
 import { logSystemError } from "../lib/systemError.js";
 import {
-  attachContactProfile,
   categoryForLeadKind,
-  identitiesForMessengerChannel,
   linkContactProfileToClient,
-  recordContactTurn,
 } from "../lib/contactProfiles.js";
 import { contactProfileForPrompt, rememberContactTurn } from "../lib/contactProfileMemory.js";
 import { collectSellerFacts } from "../ai/sellerIntake.js";
 import { describeError } from "../lib/describeError.js";
-import { recordAudienceMessage } from "../lib/audienceHeatmap.js";
-import { tryHandleDealReviewReply } from "../lib/dealReviewIntake.js";
+import { revokeRobotCallAllowOnOptOut } from "../lib/robotCallPolicy.js";
 import {
   aiDailyBudgetOf,
   noticeAiBudgetHandover,
@@ -446,169 +448,8 @@ export async function recoverStuckPendingMessages(): Promise<number> {
   return recovered;
 }
 
-/**
- * Проставляет идентификатор ОТПРАВЛЕННОГО сообщения последней нашей реплике.
- *
- * Порядок здесь обратный привычному: ответ бота попадает в переписку ДО отправки
- * (иначе сбой между «сгенерировали» и «отправили» терял бы его), а идентификатор
- * Meta выдаёт только в ответе на отправку. Поэтому проставляем его вдогонку.
- *
- * Нужен ровно для цитат: клиент нажимает «ответить» на конкретное сообщение, Meta
- * присылает его mid — и без этой отметки в переписке не найти, на что он ответил.
- *
- * Бот отвечает двумя пузырями, а лежат они одной репликой: первый идентификатор
- * пишется в `mid`, второй — в `mid2`. Отказ здесь безвреден: пропадёт только цитата,
- * поэтому ошибку глотаем, а не роняем ход, в котором клиент УЖЕ получил ответ.
- */
-export async function stampOutgoingMid(
-  channel: MessengerChannel,
-  subscriberId: string,
-  mid: string | null,
-  accountId?: string | null | CustomerTransportReference
-): Promise<void> {
-  if (!mid) { traceStamp(null, "missing"); return; }
-  try {
-    const scoped = await findScopedBotConversation({ channel, subscriberId,
-      ...(typeof accountId === "object" && accountId ? { transport: accountId } : { accountId }) });
-    if (!scoped) { traceStamp(mid, "missing"); return; }
-    /**
-     * Два запроса вместо одного с подставляемым именем поля — нарочно. Имя ключа
-     * параметром в `->>` Postgres принять не может: у оператора две подписи (по
-     * тексту и по номеру), и параметр неизвестного типа делает вызов неоднозначным.
-     */
-    const first = await prisma.$executeRaw`
-      UPDATE "BotConversation"
-      SET "messages" = jsonb_set(
-        "messages",
-        ARRAY[(jsonb_array_length("messages") - 1)::text, 'mid'],
-        to_jsonb(${mid}::text)
-      )
-      WHERE "id" = ${scoped.id}
-        AND jsonb_typeof("messages") = 'array'
-        AND jsonb_array_length("messages") > 0
-        AND "messages"->-1->>'role' = 'assistant'
-        AND "messages"->-1->'customerPropertyDelivery' IS NULL
-        AND "messages"->-1->>'mid' IS NULL`;
-    // Первый пузырь занял "mid" — значит это второй пузырь того же ответа.
-    let affected = first;
-    if (first === 0) {
-      affected = await prisma.$executeRaw`
-        UPDATE "BotConversation"
-        SET "messages" = jsonb_set(
-          "messages",
-          ARRAY[(jsonb_array_length("messages") - 1)::text, 'mid2'],
-          to_jsonb(${mid}::text)
-        )
-        WHERE "id" = ${scoped.id}
-          AND jsonb_typeof("messages") = 'array'
-          AND jsonb_array_length("messages") > 0
-          AND "messages"->-1->>'role' = 'assistant'
-          AND "messages"->-1->'customerPropertyDelivery' IS NULL
-          AND "messages"->-1->>'mid' IS NOT NULL
-          AND "messages"->-1->>'mid2' IS NULL`;
-    }
-    traceStamp(mid, affected > 0 ? true : "missing");
-  } catch (err) {
-    traceStamp(mid, false);
-    console.error("[бот] идентификатор отправленного сообщения не записан:", describeError(err));
-  }
-}
 
-/**
- * ОТПРАВКА НЕ УДАЛАСЬ — ПОМЕТИТЬ ОТВЕТ КАК НЕ ДОШЕДШИЙ.
- *
- * Реплика бота пишется в переписку ДО отправки в Meta (так к ней потом
- * привязывается mid), и если отправка упала — закрытое окно 24 часов, отозванный
- * маркер, 5xx Graph API — в CRM остаётся ответ, которого клиент никогда не
- * видел. Вебхуку при этом уже ответили 200, повтора не будет. Сотрудник открывает
- * переписку, видит «бот ответил» и не отвечает сам: человек остаётся без ответа
- * вообще (docs/bot-razbor-20-09.md, класс 7 п. 1).
- *
- * Механизм отметок уже есть и уже показывается галочками в интерфейсе
- * (markMessageDeliveryStatus ниже, DeliveryTicks в вебе) — здесь он применяется к
- * случаю, когда mid'а не будет вовсе, поэтому отметка ставится по последней
- * реплике бота, как в stampOutgoingMid.
- *
- * УСЛОВИЕ `mid IS NULL` — ЭТО И ЕСТЬ ПРОВЕРКА «КЛИЕНТ НЕ ПОЛУЧИЛ НИЧЕГО». Если
- * mid уже стоит, первый пузырь ушёл, и метить всю реплику неудачей было бы
- * враньём в обратную сторону. Отдельный случай «первый пузырь дошёл, второй нет»
- * этим не покрывается: у второго пузыря своего элемента в переписке нет (он
- * ложится тем же элементом через mid2), и честно пометить только его нечем.
- */
-export async function markLastReplyUndelivered(
-  channel: MessengerChannel,
-  subscriberId: string,
-  accountId?: string | null | CustomerTransportReference
-): Promise<void> {
-  try {
-    const scoped = await findScopedBotConversation({ channel, subscriberId,
-      ...(typeof accountId === "object" && accountId ? { transport: accountId } : { accountId }) });
-    if (!scoped) return;
-    await prisma.$executeRaw`
-      UPDATE "BotConversation"
-      SET "messages" = jsonb_set(
-        "messages",
-        ARRAY[(jsonb_array_length("messages") - 1)::text, 'deliveryStatus'],
-        to_jsonb('failed'::text)
-      )
-      WHERE "id" = ${scoped.id}
-        AND jsonb_typeof("messages") = 'array'
-        AND jsonb_array_length("messages") > 0
-        AND "messages"->-1->>'role' = 'assistant'
-        AND "messages"->-1->'customerPropertyDelivery' IS NULL
-        AND "messages"->-1->>'mid' IS NULL
-        AND "messages"->-1->>'deliveryStatus' IS NULL`;
-  } catch (err) {
-    console.error("[бот] неудачная отправка не отмечена:", describeError(err));
-  }
-}
 
-/**
- * Отмечает доставку/прочтение НАШЕГО сообщения — по `mid`/`mid2`, а не по позиции
- * в массиве: статус может прийти для любого прошлого сообщения, не только для
- * последнего (WhatsApp присылает delivered/read с задержкой, а сообщений между
- * ними могло уйти уже несколько). LATERAL — ищем индекс элемента с совпавшим
- * mid ПРЯМО в UPDATE, без гонки «прочитали — записали устаревший снимок»
- * (тот же принцип, что у appendConversationMessages).
- *
- * `read` перекрывает `delivered`, но не наоборот — если статусы придут не по
- * порядку (сеть, ретраи Meta), «прочитано» не должно откатиться обратно на
- * «доставлено».
- */
-export async function markMessageDeliveryStatus(
-  subscriberId: string,
-  mid: string,
-  status: "sent" | "delivered" | "read" | "failed",
-  accountExternalId?: string
-): Promise<void> {
-  try {
-    const scoped = await findScopedBotConversation({ channel: "WHATSAPP", subscriberId, accountExternalId });
-    if (!scoped) return;
-    // CTE вместо UPDATE...FROM LATERAL: цель UPDATE нельзя коррелировать из
-    // подзапроса во FROM (Postgres 42P10 «invalid reference to FROM-clause
-    // entry»), а отдельный CTE — обычный независимый запрос, который потом
-    // просто join'ится с целью по id.
-    await prisma.$executeRaw`
-      WITH idx AS (
-        SELECT c.id AS conv_id, (t.ord - 1) AS pos
-        FROM "BotConversation" c, jsonb_array_elements(c."messages") WITH ORDINALITY AS t(elem, ord)
-        WHERE c."id" = ${scoped.id}
-          AND (t.elem->>'mid' = ${mid} OR t.elem->>'mid2' = ${mid})
-        ORDER BY t.ord DESC LIMIT 1
-      )
-      UPDATE "BotConversation" b
-      SET "messages" = jsonb_set(b."messages", ARRAY[idx.pos::text, 'deliveryStatus'], to_jsonb(${status}::text))
-      FROM idx
-      WHERE b."id" = idx.conv_id
-        AND (
-          b."messages"->(idx.pos::int)->>'deliveryStatus' IS NULL
-          OR ${status} = 'read'
-          OR b."messages"->(idx.pos::int)->>'deliveryStatus' = 'sent'
-        )`;
-  } catch (err) {
-    console.error("[бот] статус доставки не записан:", describeError(err));
-  }
-}
 
 // Окно склейки быстрых сообщений, его пауза и потолок живут в debounceBuffer.ts —
 // общие для каналов Meta и Telegram (01.10.2026, находка №132). replyWaitMs
@@ -735,131 +576,9 @@ async function describeShowcase(
 
 // recentBotText — в messengers/replyChain.ts (03.10.2026): им же пользуется Telegram.
 
-/**
- * Заводит (или находит) диалог, переживая параллельный запуск.
- *
- * `upsert` не атомарен: он сначала читает, и если строки нет — вставляет. Meta
- * доставляет первые сообщения нового собеседника пачкой вебхуков одновременно, и
- * тогда ДВА-ТРИ хода читают пустоту, вставляют каждый своё, а уникальный ключ
- * (channel, subscriberId) пропускает только первого. Остальные падали P2002 —
- * то есть первые же слова человека терялись, а Meta повтора не сделает.
- *
- * Отказ по уникальности здесь означает ровно одно: соседний ход только что создал
- * ту же запись. Значит повторяем — второй заход уже попадёт в ветку update. Двух
- * попыток достаточно (проигравшему больше некому проиграть), но на всякий случай
- * последний заход читает строку напрямую: лучше отдать диалог без правки имени,
- * чем уронить ход.
- */
-async function upsertConversation(
-  channel: MessengerChannel,
-  subscriberId: string,
-  name?: string,
-  accountId?: string | null,
-  /**
-   * Аккаунт выбран догадкой (ResolvedAccount.certain=false): scoped facade
-   * отклоняет её, не создаёт диалог и не меняет пустую либо прежнюю привязку.
-   * Точный другой аккаунт тоже не усыновляет старую переписку: в Gate A такая
-   * коллизия удерживается до отдельного contract-cutover scoped ключей.
-   */
-  accountGuess = false,
-  transport?: CustomerTransportReference
-) {
-  if (accountGuess) throw new CustomerScopeDenied("account_unknown");
-  return prisma.$transaction(async tx => {
-    const scoped = await ensureScopedBotConversation(tx, { channel, subscriberId, accountId, transport });
-    return name ? tx.botConversation.update({ where: { id: scoped.id }, data: { name } })
-      : tx.botConversation.findUniqueOrThrow({ where: { id: scoped.id } });
-  });
-}
 
-/**
- * ДОСЬЕ СОБЕСЕДНИКА НА ПЕРВОМ ЖЕ ВХОДЯЩЕМ (владелец 21.09.2026).
- *
- * Стоит внутри общего входа, а не в `getConversation`, нарочно: в диалог ведут
- * ДВА пути — обычный ход модели и воронка лид-магнита через
- * `ensureConversationId` (lib/leadMagnet.ts, messengers/comments.ts), которая
- * `processMessengerTurn` не зовёт вовсе. Поставь отметку в одном из них — второй
- * молча остался бы без досье, и заметно это стало бы только по жалобе владельца.
- */
-async function ensureConversationContactProfile(conversation: {
-  id: string;
-  channel: string;
-  subscriberId: string;
-  name: string | null;
-  contactProfileId: string | null;
-}): Promise<string | null> {
-  const identities = identitiesForMessengerChannel(conversation.channel, conversation.subscriberId);
-  if (identities.length === 0) return conversation.contactProfileId;
-  return attachContactProfile({
-    existingProfileId: conversation.contactProfileId,
-    identities,
-    name: conversation.name,
-    // Имя пришло из профиля соцсети: обращаться им бот не станет
-    // («royal_dream_777»), но в досье оно полезно человеку.
-    nameSource: "profile",
-    link: async (profileId) => {
-      await prisma.botConversation.update({
-        where: { id: conversation.id },
-        data: { contactProfileId: profileId },
-      });
-    },
-  });
-}
 
-/**
- * Диалог для СЛУЖЕБНОЙ записи в переписку — без назначения манеры продажи и без
- * всего остального, что делает `getConversation` перед ходом модели.
- *
- * Нужен воронке лид-магнита (lib/leadMagnet.ts): она отвечает человеку сама, без
- * ИИ, и её реплики обязаны лечь в ту же переписку. Иначе в CRM видно, что человек
- * вдруг пишет «спасибо» в пустой диалог, а куда делось всё до этого — неизвестно.
- * Манеру продажи здесь не назначаем нарочно: жребий должен падать, когда с
- * человеком начинает говорить модель, а не когда автомат прислал ему файл.
- *
- * accountId тот же смысл, что у getConversation ниже: в какой НАШ аккаунт
- * написал человек. Воронка лид-магнита живёт в вебхуке наравне с обычным ходом
- * модели и обязана помечать диалог тем же аккаунтом — иначе служебная запись
- * молча осталась бы «ничьей».
- */
-export async function ensureConversationId(
-  channel: MessengerChannel,
-  subscriberId: string,
-  name?: string,
-  accountId?: string | null,
-  accountGuess = false,
-  transport?: CustomerTransportReference
-): Promise<string> {
-  // YouTube comments retain their legacy archival dossier. They have no DM
-  // endpoint, customer admission, principal or action/write authority. This is
-  // deliberately not a fallback for unknown Meta accounts or other channels.
-  if (channel === "YOUTUBE" && (accountId || accountGuess || transport || !subscriberId || subscriberId.length > 512)) {
-    throw new CustomerScopeDenied("scope_unknown");
-  }
-  const conversation = channel === "YOUTUBE" ? await upsertYouTubeCommentArchive(subscriberId, name)
-    : await upsertConversation(channel, subscriberId, name, accountId, accountGuess, transport);
-  await ensureConversationContactProfile(conversation);
-  return conversation.id;
-}
 
-async function upsertYouTubeCommentArchive(subscriberId: string, name?: string) {
-  const where = { channel_subscriberId: { channel: "YOUTUBE", subscriberId } };
-  const readArchive = async (create: boolean) => prisma.$transaction(async tx => {
-    const include = { endpointScope: { select: { kind: true } } } as const;
-    const row = create ? await tx.botConversation.upsert({ where, include,
-      create: { channel: "YOUTUBE", subscriberId, name, messages: [], leadDraft: { stage: "chatting" } },
-      update: name ? { name } : {},
-    }) : await tx.botConversation.findUniqueOrThrow({ where, include });
-    // The expansion migration attaches only a LEGACY_UNKNOWN scope/HOLD state
-    // to archival rows. Never adopt a configured Meta binding as an archive.
-    if (row.accountId !== null || row.endpointScope?.kind !== "LEGACY_UNKNOWN") throw new CustomerScopeDenied("scope_unknown");
-    return row;
-  });
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try { return await readArchive(true); }
-    catch (error) { if ((error as { code?: string }).code !== "P2002") throw error; }
-  }
-  return readArchive(false);
-}
 
 async function getConversation(
   channel: MessengerChannel,
@@ -1130,12 +849,19 @@ export async function acceptLead(
      * lastMessageAt/readAt: реплика клиента там уже есть, новых событий не было.
      */
     fromHistory?: boolean;
+    /**
+     * РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (13.11.2026): готовый короткий ответ сервера
+     * (ai/leadOnlyMode.ts) вместо закрывающей реплики модели. Модель не зовётся.
+     */
+    fixedReply?: string;
   }
 ): Promise<MessengerTurnResult> {
   // Без учёта регистра, общим правилом на все каналы (ночная проверка
   // 24.09.2026): раньше здесь стояло точное сравнение, и «сино» из разговора
   // не находило «Сино» в справочнике — район молча не попадал в карточку.
-  const districtId = await findDistrictIdByName(draft.districtName);
+  // «Рудаки (район)» от модели — только если клиент сам говорил о районе Рудаки, а не о проспекте (lib/serviceArea.ts).
+  const districtSourceWords = [...history.filter((m) => m.role === "user").map((m) => (typeof m.content === "string" ? m.content : "")), options?.clientText ?? ""].join("\n");
+  const districtId = districtPickAllowed(draft.districtName, districtSourceWords) ? await findDistrictIdByName(draft.districtName) : undefined;
 
   // Продажа объекта ЗА ПРЕДЕЛАМИ Таджикистана (Россия и т.п.) — не принимаем вообще:
   // заявку не заводим и телефон не сохраняем, даже если клиент сам его прислал.
@@ -1509,7 +1235,8 @@ export async function acceptLead(
             "оно есть — его можно прислать текстом или фотографиями страниц. НЕ задавай эти вопросы цепочкой " +
             "по одному. НЕ обещай зарплату, условия, сроки выхода и трудоустройство. НЕ пиши, что передашь " +
             "руководству, — рано.",
-      { name, draft }
+      { name, draft },
+      conversationId
     );
     // Запасные фразы — те же, что в Telegram-путях (messengers/leadAcceptedReply.ts),
     // на языке кандидата (ревизия 02.10.2026: русскому кандидату при сбое модели
@@ -1554,6 +1281,14 @@ export async function acceptLead(
    * по параметру draft, который у обоих вызовов одинаково устаревший) — тот же
    * приём, что и захват буфера дебаунса (debounceAndMerge): забирает ход ровно
    * один раз, опоздавший тихо уходит без второго ответа клиенту.
+   *
+   * «done» БЕЗ КАРТОЧКИ — НЕ ЗАНЯТО, А БРОШЕНО (14.11.2026, живой случай Instagram 10.11:
+   * бот ответил «Приняли ваш номер», карточки нет). Победитель ставит «done» ВМЕСТЕ с
+   * clientId одной записью (ниже), поэтому «done» при пустом clientId гонкой не бывает:
+   * это след удалённой карточки (routes/clients/card.ts отвязывает диалог, стадию не
+   * трогает) или любой другой отвязки. Раньше такой диалог не мог принять номер НИКОГДА:
+   * ни живой ход, ни сторож лидов — только тревога руководству. Защита по умолчанию:
+   * условие здесь, а не сброс стадии в каждом месте, где диалог отвязывают.
    */
   let claimed = await prisma.$executeRaw`
     UPDATE "BotConversation"
@@ -1561,7 +1296,8 @@ export async function acceptLead(
       jsonb_set(COALESCE("leadDraft", '{}'::jsonb), '{stage}', '"accepting"'),
       '{acceptingAt}', to_jsonb((extract(epoch from clock_timestamp()) * 1000)::bigint))
     WHERE "id" = ${conversationId}
-      AND COALESCE("leadDraft"->>'stage', '') NOT IN ('done', 'accepting')`;
+      AND (COALESCE("leadDraft"->>'stage', '') NOT IN ('done', 'accepting')
+        OR ("leadDraft"->>'stage' = 'done' AND "clientId" IS NULL))`;
   if (claimed === 0) {
     /**
      * ЗАВИСШИЙ ЗАХВАТ — ПЕРЕЗАХВАТ (AI-DIALOGUE01, аудит 04.10.2026).
@@ -1599,6 +1335,8 @@ export async function acceptLead(
      * что бот промолчал. Теперь во втором случае реплику сохраняем (кроме повтора
      * по уже сохранённой истории, см. `fromHistory`) и пишем в журнал; ответа
      * клиенту по-прежнему нет — карточку в такой переписке заводит человек.
+     * С 14.11.2026 «done» БЕЗ карточки захватывается выше и сюда не доходит; ветка
+     * осталась для «done» при живой карточке (приём сюда звать не должны) — след в журнале.
      */
     const stale = await prisma.botConversation
       .findUnique({ where: { id: conversationId }, select: { leadDraft: true } })
@@ -1859,7 +1597,9 @@ export async function acceptLead(
    * только то, что слышит клиент. intent=job сюда не доходит вовсе: своя ветка
    * (#454/#455) возвращает результат раньше, до вычисления kind.
    */
-  const closing = await leadAcceptedReply({
+  // Готовый ответ режима «только заявки» обещает звонок агента: для «прочего обращения» агента нет, и
+  // действует правило выше (ревью 13.11.2026), поэтому там — обычная честная фраза.
+  const closing = (kind !== "OTHER" ? options?.fixedReply : undefined) ?? await leadAcceptedReply({
     kind,
     otherCity,
     created,
@@ -2045,34 +1785,21 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   traceKnownContacts([resolved.name]);
   if (input.adPropertyId !== undefined) traceResolution("ad", input.adPropertyId);
   if (input.sharedPropertyId !== undefined) traceResolution("shared", input.sharedPropertyId);
-  // В WhatsApp номер отправителя известен из самого транспорта (wa_id), поэтому
-  // писавшего раньше клиента узнаём сразу — до пуша агенту, иначе он не получит
-  // уведомление о сообщении собственного клиента.
-  const link = await linkWhatsAppConversationToClient(resolved.id, channel, subscriberId);
-  if (link.linked) resolved = { ...resolved, clientId: link.clientId };
-  // Карточка клиента наконец нашлась — связываем её с досье: досье есть у всех
-  // написавших, Client — только у оформленного, и без этой связи они жили бы
-  // рядом, ничего не зная друг о друге.
-  if (resolved.contactProfileId && resolved.clientId) {
-    await linkContactProfileToClient(resolved.contactProfileId, resolved.clientId);
+  // ДЕЙСТВИЯ CRM НА ВХОДЯЩЕЕ (31.10.2026) — связка WhatsApp с карточкой, досье,
+  // тепловая карта, опрос о сделке, пуш агенту, пуш по чату объекта, число
+  // объектов, явный отказ — живут в lib/inboundSideEffects.ts и срабатывают там
+  // же для ядра. Идемпотентно по идентификатору сообщения у поставщика: повторная
+  // доставка не шлёт второй пуш. Повтор зависшего хода (skipSaveIncoming) — не
+  // новое сообщение, реплика сотрудника со своего аккаунта — не клиент: в
+  // тепловую карту их не считаем, как и раньше.
+  const inboundEffects = await applyInboundSideEffects({
+    source: "legacy", channel, peer: subscriberId, conversationId: resolved.id, text,
+    eventId: input.skipSaveIncoming ? null : input.messageId,
+    countAudience: !input.skipSaveIncoming && !input.fromStaff,
+  });
+  if (inboundEffects.status === "applied" && inboundEffects.clientId && inboundEffects.clientId !== resolved.clientId) {
+    resolved = { ...resolved, clientId: inboundEffects.clientId };
   }
-  // ОТМЕТКА КАСАНИЯ В ДОСЬЕ: счётчик сообщений и язык человека. Язык решается по
-  // большинству входящих, а не по последнему сообщению — одно «salom» не делает
-  // переписку таджикской (lib/contactProfiles.ts). Одно и то же правило во всех
-  // каналах: ровно этого владелец и просил 21.09.2026.
-  // СЧЁТЧИК ТЕПЛОВОЙ КАРТЫ: каждое сообщение клиента в свой час
-  // (lib/audienceHeatmap.ts). Повтор зависшего хода (skipSaveIncoming) — не новое
-  // сообщение, реплика сотрудника со своего аккаунта — не клиент. Не ждём:
-  // приём сообщения важнее карты.
-  if (!input.skipSaveIncoming && !input.fromStaff) void recordAudienceMessage(channel);
-  if (resolved.contactProfileId) {
-    await recordContactTurn({
-      profileId: resolved.contactProfileId,
-      language: text ? detectClientLanguage(text) : null,
-      conversationId: resolved.id,
-    });
-  }
-
 
   /**
    * КАРТОЧКА УШЛА В КОРЗИНУ — ДИАЛОГ ОТВЯЗЫВАЕМ (аудит №4, 27.08).
@@ -2082,7 +1809,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * в одном списке — ни лида, ни таймеров, ни ответственного, и пуш «клиент
    * написал» уходил агенту на удалённого клиента. Отвязка возвращает диалог на
    * обычный путь: приём заявки воскресит карточку из Корзины штатно
-   * (resumeExistingChannelLead).
+   * (resumeExistingChannelLead). Пуш и прочие действия по удалённой карточке
+   * applyInboundSideEffects уже не выполнил.
    */
   if (resolved.clientId) {
     const owner = await prisma.client.findUnique({
@@ -2107,101 +1835,39 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   }
 
   /**
-   * ОТВЕТ НА ВОПРОС ОБ ОТЗЫВЕ (Пачка 11, 11.09.2026) — перехватывается ДО AI и
-   * до дебаунса: если у клиента висит неотвеченный DealReview, разбираем ответ
-   * лёгким парсером и отвечаем сами, минуя модель (см. lib/dealReviewIntake.ts).
-   * Не разобрали (handled: false) — ход идёт обычным путём, как будто этой
-   * проверки не было вовсе.
+   * ОТВЕТ НА ВОПРОС ОБ ОТЗЫВЕ (Пачка 11, 11.09.2026) — разобран в
+   * applyInboundSideEffects ДО AI и до дебаунса; отвечаем сами, минуя модель
+   * (см. lib/dealReviewIntake.ts).
    */
-  if (resolved.clientId) {
-    const reviewIntake = await tryHandleDealReviewReply(resolved.clientId, text).catch((err) => {
-      console.error("[отзыв] перехват ответа упал:", err instanceof Error ? err.message : err);
-      return { handled: false as const };
-    });
-    if (reviewIntake.handled) {
-      // Записываем ход в историю сам — обычный путь ниже (debounceAndMerge/AI)
-      // здесь не выполняется, и без этого реплика клиента и наш ответ выпали
-      // бы из переписки, видимой в CRM. processMessengerTurn всегда работает с
-      // BotConversation (Telegram — отдельный поллер со своим диалогом).
-      await appendConversationMessages(resolved.id, [
-        { role: "user", content: text },
-        { role: "assistant", content: reviewIntake.reply ?? "" },
-      ]).catch(() => {});
-      return { reply: reviewIntake.reply ?? "", ready: true, accepted: true };
-    }
+  if (inboundEffects.status === "applied" && inboundEffects.dealReview) {
+    // Записываем ход в историю сам — обычный путь ниже (debounceAndMerge/AI)
+    // здесь не выполняется, и без этого реплика клиента и наш ответ выпали
+    // бы из переписки, видимой в CRM. processMessengerTurn всегда работает с
+    // BotConversation (Telegram — отдельный поллер со своим диалогом).
+    await appendConversationMessages(resolved.id, [
+      { role: "user", content: text },
+      { role: "assistant", content: inboundEffects.dealReview.reply },
+    ]).catch(() => {});
+    return { reply: inboundEffects.dealReview.reply, ready: true, accepted: true };
   }
 
-  if (resolved.clientId) void notifyAgentOfClientMessage(resolved.clientId, text, channel, subscriberId, resolved.propertyChatAgentId ? resolved.id : undefined);
-  if (Array.isArray(resolved.messages) && resolved.messages.length > 0) void notifyPropertyChatMessage(resolved.id);
-  // ЧИСЛО ОБЪЕКТОВ ИЗ ПЕРЕПИСКИ (владелец 06.09.2026, разбор слепых зон п.3) —
-  // фоново, ПОСЛЕ того как ответ клиенту уже готовится/отправлен, не мешая
-  // живому мозгу бота (ai/leadQualifier.ts). См. ai/chatPropertyCount.ts.
-  void analyzeMessageForPropertyCounts(resolved.clientId, text);
-
-  // Детектор явного отказа в переписке (план 03.09.2026 §D) — «не буду покупать»,
-  // «уже купил», «передумал продавать» и т.п. Фоново, не задерживает ответ бота;
-  // не путать со светофором неактивных (та же CLAUDE.md уже предупреждает не
-  // путать эти две задачи) — это окончательный ответ клиента, а не пауза.
-  if (resolved.clientId) {
-    void checkExplicitRefusal({ clientId: resolved.clientId, text }).catch((err) =>
-      console.error("[отказ] проверка явного отказа в переписке:", err instanceof Error ? err.message : err)
-    );
-  }
-
-  // С какого объявления пришёл человек — пишем первым касанием и не перезаписываем:
+  // С какого объявления пришёл человек — первым касанием и без перезаписи:
   // атрибуция отвечает «какая реклама ПРИВЕЛА», а не «какую он видел последней».
-  // Ответ клиенту от этого не зависит — ошибку глотаем в лог и идём дальше.
-  if (input.adExternalId && !resolved.adExternalId) {
-    resolved = { ...resolved, adExternalId: input.adExternalId };
-    void prisma.botConversation
-      .updateMany({ where: { id: resolved.id, adExternalId: null }, data: { adExternalId: input.adExternalId } })
-      .then(async () => {
-        // Диалог уже привязан к карточке (клиент писал раньше, потом кликнул
-        // рекламу) — карточке без атрибуции достаётся это объявление.
-        if (resolved.clientId) {
-          await prisma.client.updateMany({
-            where: { id: resolved.clientId, sourceAdId: null },
-            data: { sourceAdId: input.adExternalId },
-          });
-        }
-      })
+  // Одно правило с новым ядром (lib/adAttribution.ts): объявление, ctwa_clid клика,
+  // тема рекламы (вакансия/собственник/объект — переживает первое сообщение и
+  // возвращается в подсказку модели на каждом ходе) и объект объявления (нужен
+  // СЛЕДУЮЩЕМУ ходу, когда человек наконец скажет, что ему нужно). Ответ клиенту
+  // от записи не зависит — ошибку глотаем в лог и идём дальше.
+  const adPatch = firstTouchAdPatch(resolved, {
+    ...(input.adExternalId ? { adExternalId: input.adExternalId } : {}),
+    ...(input.adClickId ? { adClickId: input.adClickId } : {}),
+    ...(input.adTopic ? { adTopic: input.adTopic } : {}),
+    ...(input.adPropertyId ? { adPropertyId: input.adPropertyId } : {}),
+  });
+  if (Object.keys(adPatch).length) {
+    resolved = { ...resolved, ...adPatch };
+    void persistFirstTouchAdAttribution(resolved.id, adPatch, { clientId: resolved.clientId })
       .catch((err) => console.error("[messenger] атрибуция рекламы:", err instanceof Error ? err.message : err));
-  }
-
-  // ctwa_clid клика по рекламе WhatsApp — тем же первым касанием и без перезаписи (04.10.2026).
-  // Условие НЕ завязано на adExternalId: клик мог прийти и без разобранного объявления, а
-  // повтор того же referral (или другой клик позже) первый идентификатор не затирает —
-  // атомарно, через adClickId: null в where. Только хранение, наружу ничего не уходит.
-  if (input.adClickId && !resolved.adClickId) {
-    resolved = { ...resolved, adClickId: input.adClickId };
-    void prisma.botConversation
-      .updateMany({ where: { id: resolved.id, adClickId: null }, data: { adClickId: input.adClickId } })
-      .catch((err) => console.error("[messenger] ctwa_clid рекламы:", err instanceof Error ? err.message : err));
-  }
-
-  /**
-   * ПРИЗНАК «ЭТО ПРО ВАКАНСИЮ» ПЕРЕЖИВАЕТ ПЕРВОЕ СООБЩЕНИЕ (17.09.2026).
-   *
-   * Тем же приёмом, что и adExternalId выше: первым касанием, без перезаписи.
-   * Разница в том, что здесь признак ещё и ВОЗВРАЩАЕТСЯ в подсказку модели на
-   * каждом последующем ходе — иначе бот, поздоровавшись с кандидатом, вторым
-   * сообщением спрашивал бы у него, сколько комнат он ищет.
-   */
-  if (input.adTopic && !resolved.adTopic) {
-    resolved = { ...resolved, adTopic: input.adTopic };
-    void prisma.botConversation
-      .updateMany({ where: { id: resolved.id, adTopic: null }, data: { adTopic: input.adTopic } })
-      .catch((err) => console.error("[messenger] тема рекламы:", err instanceof Error ? err.message : err));
-  }
-
-  // Объект из объявления — тем же первым касанием и по той же причине: на
-  // шаблонную фразу бот отвечает нейтральным вопросом, и объект нужен СЛЕДУЮЩЕМУ
-  // ходу, когда человек наконец скажет, что ему нужно.
-  if (input.adPropertyId && !resolved.adPropertyId) {
-    resolved = { ...resolved, adPropertyId: input.adPropertyId };
-    void prisma.botConversation
-      .updateMany({ where: { id: resolved.id, adPropertyId: null }, data: { adPropertyId: input.adPropertyId } })
-      .catch((err) => console.error("[messenger] объект рекламы:", err instanceof Error ? err.message : err));
   }
 
   // «Голос рынка» (03.10.2026): объект, по которому человек пришёл, — след в
@@ -2235,6 +1901,13 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     await prisma.botConversation
       .update({ where: { id: resolved.id }, data: { optedOutAt: new Date() } })
       .catch((err) => console.error("[messenger] отметка отказа от рассылки:", err instanceof Error ? err.message : err));
+  }
+  // Клиент снова просит не беспокоить — разрешение руководства звонить роботом вопреки
+  // прежней просьбе гаснет (П3; optedOutAt выше ставится только один раз).
+  if (text && isOptOutMessage(text)) {
+    await revokeRobotCallAllowOnOptOut(resolved.id).catch((err) =>
+      console.error("[messenger] отзыв разрешения робота:", err instanceof Error ? err.message : err)
+    );
   }
 
   /**
@@ -2978,13 +2651,20 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * его разбирает обычный ход.
    */
   const lastBotEntry = [...history].reverse().find((m) => m.role === "assistant");
+  /**
+   * Кандидату на вакансию «спасибо» — тоже только реакция, даже после нашего вопроса
+   * (13.11.2026, живой чат: на каждое «спасибо» модель по подсказке вакансии слала
+   * весь блок вакансии заново). Только благодарность, без «да»/«ок»: «ок» на вопрос
+   * остаётся ответом и идёт обычным ходом.
+   */
+  const jobThanks = (conversation.adTopic === "job" || draft.intent === "job") && isThanksOnlyMessage(text);
   const ackOnly =
     botSpeaks &&
     !!lastBotEntry &&
     images.length === 0 &&
     saved.length === 0 &&
     isAckOnlyMessage(text) &&
-    !botAskedQuestion(lastBotEntry.content);
+    (!botAskedQuestion(lastBotEntry.content) || jobThanks);
   if (ackOnly) {
     guardFired("ack_only");
     await saveIncoming(historyText);
@@ -3168,37 +2848,12 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   if (conversation.clientId) {
     /**
      * СНЯТИЕ LOST СООБЩЕНИЕМ КЛИЕНТА (18.09.2026, решение владельца — «он же сам
-     * обратился», тот же принцип, что уже действует для входящего звонка,
-     * `lib/telephony/inboundRouting.ts`: «клиент в статусе LOST, который сам
-     * звонит в CRM, больше не считается потерянным»). Карточка, уже привязанная
-     * к этому диалогу (`conversation.clientId`), уходит прямиком в ветку короткого
-     * ответа ниже и раньше сюда не заходила ни разу — «Коротко от ИИ» и подбор
-     * объектов молчали навсегда, даже когда клиент писал сам через месяцы.
-     *
-     * Реактивация ДО saveIncoming/автопилота — иначе client_message ниже читает
-     * ещё не обновлённый статус LOST и молча пропускает пересчёт (см.
-     * ai/scoring.ts::SCORABLE_CLIENT_STATUSES).
+     * обратился»), автопилот карточки и «новый повод обратиться» — общие с ядром,
+     * lib/inboundSideEffects.ts (applyKnownClientMessageEffects). Реактивация там
+     * идёт ДО автопилота — иначе client_message читает ещё LOST и молча
+     * пропускает пересчёт (ai/scoring.ts::SCORABLE_CLIENT_STATUSES).
      */
-    const lostCheck = await prisma.client.findUnique({
-      where: { id: conversation.clientId },
-      select: { status: true, lastAgentId: true, deletedAt: true },
-    });
-    if (lostCheck && !lostCheck.deletedAt && lostCheck.status === "LOST") {
-      // Исход как у звонка и заявки (B1, 02.10.2026): прежнему агенту — принятым,
-      // с таймером возврата и пушем; пауза лидов — не помеха (returningClientRouting).
-      const previousAgentId = await returningAgentStillAvailable(lostCheck.lastAgentId);
-      await reactivateClientFromLost({
-        clientId: conversation.clientId,
-        reason: previousAgentId
-          ? "Написал сам, потерянный клиент — возвращён прежнему агенту"
-          : "Написал сам, потерянный клиент — прежний агент недоступен, очередь руководителя",
-        agentId: previousAgentId ?? undefined,
-        accept: !!previousAgentId,
-        returnTimer: !!previousAgentId,
-      }).catch((err) =>
-        console.error("[messenger] реактивация LOST по сообщению:", err instanceof Error ? err.message : err)
-      );
-    }
+    await applyKnownClientMessageEffects(conversation.clientId, text);
 
     /**
      * ЗАЯВКА УЖЕ ПРИНЯТА — БОТ БОЛЬШЕ НЕ ОГРАНИЧИВАЕТ СЕБЯ ОДНОЙ ФРАЗОЙ
@@ -3233,7 +2888,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * теперь решает `debounceAndMerge` ниже (он и был написан для неё же,
      * просто раньше эта ветка была не под ним).
      */
-    if (text) runClientAutopilotInBackground(conversation.clientId, "client_message");
+    // (автопилот и «новый повод обратиться» — в applyKnownClientMessageEffects выше)
 
     /**
      * ОТВЕТ НА ДОГОНЯЮЩИЙ ВОПРОС ПРО ИМЯ — СОХРАНЕНО И ПОСЛЕ ОТМЕНЫ 18.09.2026
@@ -3287,7 +2942,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * только заметить постфактум в переписке. Фоново, без ожидания: не должно
      * задерживать сам ответ.
      */
-    void detectNewInquiryFromKnownClient(conversation.clientId, text);
+    // (автопилот и «новый повод обратиться» — в applyKnownClientMessageEffects выше)
 
     /**
      * ТО, ЧТО СКАЗАНО ПОСЛЕ НОМЕРА, ТОЖЕ ДОЛЖНО ДОЕХАТЬ В КАРТОЧКУ (жалоба
@@ -3399,26 +3054,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * Без назначенного агента отмечать некого — обычная раздача заявки решит
      * этот случай сама.
      */
-    if (looksLikeWantsHumanAgent(text)) {
-      void (async () => {
-        const card = await prisma.client.findUnique({
-          where: { id: conversation.clientId! },
-          select: { shortId: true, fullName: true, assignedAgentId: true, agentAttentionRequestedAt: true },
-        });
-        if (!card?.assignedAgentId || card.agentAttentionRequestedAt) return;
-        await prisma.client
-          .update({ where: { id: conversation.clientId! }, data: { agentAttentionRequestedAt: new Date() } })
-          .catch(() => {});
-        await sendPushToAgent(card.assignedAgentId, {
-          kind: "message",
-          level: "CRITICAL",
-          title: `${card.fullName} хочет поговорить с вами`,
-          body: "Клиент попросил живого агента — бот отвечает вместо вас, пока вы не свяжетесь сами.",
-          url: `/clients/${card.shortId}`,
-          tag: `agent-attention-${conversation.clientId}`,
-        }).catch((err) => console.error("[push] просьба живого агента:", err instanceof Error ? err.message : err));
-      })();
-    }
+    // Одна дверь с обещанием звонка (lib/agentAttention.ts, 16.11.2026).
+    if (looksLikeWantsHumanAgent(text)) void requestAgentAttention(conversation.clientId!, "wants_human");
 
     // Дальше — никакого отдельного «гейта на закрытый разговор» и никакого
     // отдельного захвата хода: ниже по функции те же debounceAndMerge и
@@ -3440,6 +3077,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   // полно чисел, и бюджет «1 100 000» не должен становиться телефоном.
   const typedPhone =
     draft.stage === "awaiting_phone" ? extractTypedPhone(text) : extractVolunteeredPhone(text);
+  // Режим «только заявки» (13.11.2026): читается один раз на ход, см. lib/leadOnlySettings.ts.
+  const leadOnlyConfig = await loadLeadOnlyConfig();
+  const leadOnlyChannel = leadOnlyConfig.enabled && leadOnlyAppliesTo(channel);
   // ЗАЯВКА СОЗДАЁТСЯ ТОЛЬКО ПО НОМЕРУ, КОТОРЫЙ ЧЕЛОВЕК НАЗВАЛ САМ.
   //
   // До 01.08 здесь был запасной путь: клиент дошёл до стадии телефона, номер не
@@ -3489,7 +3129,10 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       // Заявку принимаем в любое время суток, но НАЗНАЧЕНИЕ агента вне рабочих
       // часов откладываем до утренней волны: ночью её всё равно некому взять, а
       // счётчик времени ответа агенту шёл бы, пока тот спит.
-      return await acceptLead(conversation.id, channel, conversation.name ?? name, phoneForLead, draft, history, {
+      // Режим «только заявки»: тема заявки — из прежних слов клиента (номер сам её не несёт).
+      const draftForLead = leadOnlyChannel ? legacyLeadOnlyDraftForPhone({ config: leadOnlyConfig, history, text: saidWithPhone || text, draft,
+        propertyId: input.sharedPropertyId ?? input.adPropertyId ?? draft.requestedPropertyId ?? null, jobTopic: vacancyTopic }) : draft;
+      return await acceptLead(conversation.id, channel, conversation.name ?? name, phoneForLead, draftForLead, history, {
         deferAssignment: !(await isWithinWorkingHours()),
         whatsappPhone: waIdentity?.waPhone,
         attachments: saved,
@@ -3497,6 +3140,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         // Разбираем ВЕСЬ текст хода (вместе с тем, что лежало в буфере дебаунса):
         // номера столбиком часто приходят двумя-тремя сообщениями подряд.
         extraPhones: extractAllPhones(saidWithPhone || text),
+        // Режим «только заявки»: короткое «номер получил, агент позвонит» вместо реплики модели.
+        ...(leadOnlyChannel ? { fixedReply: leadOnlyPhoneLine({ kind: "given" }, leadOnlyWhen(leadOnlyConfig),
+          // Голый номер языка не несёт: берём язык прежних слов клиента.
+          ((lang) => (lang === "unknown" ? lastClientLanguage(history) : lang))(detectClientLanguage(saidWithPhone || text)) === "ru"
+            ? "ru" : "tg") ?? undefined } : {}),
       });
     } catch (err) {
       console.error("[messenger] acceptLead", err instanceof Error ? err.message : err);
@@ -3591,7 +3239,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
        * докстринг debounceAndMerge), которую раньше делал свой `replyClaimed`
        * прямо в блоке «заявка уже принята» — но полные 25 секунд обычного
        * окна здесь ни к чему: клиент, который уже оставил номер, ждёт ответа
-       * так же быстро, как ждал бы «агент свяжется» раньше. `delayMs: 0` —
+       * так же быстро, как ждал бы «агент свяжется» раньше. 6 с по умолчанию (Settings.botMergeQuickRepeats, владелец 15.11 «Да, 6 секунд можно»; выключен — 0 с) —
        * не ждём НАРОЧНО, `maxWaitMs` небольшой — просто потолок на случай,
        * если несколько вебхуков всё же пришли не совсем одновременно.
        */
@@ -3607,6 +3255,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         accepted: !!conversation.clientId,
         hasMedia: images.length > 0 || saved.length > 0,
         greetingFast,
+        mergeQuickRepeats: !!conversation.clientId && (await quickRepeatMergeEnabled()),
       })
     );
     if (batch === null) return { reply: "", ready: true, accepted: !!conversation.clientId, shouldReply: false };
@@ -3650,6 +3299,76 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * переписке. Meta при этом уже получила 200, повтора не будет.
    */
   await saveIncoming(merged);
+
+  /**
+   * РЕЖИМ «ТОЛЬКО ЗАЯВКИ» (владелец 12–13.11.2026). Продажа, покупка, понравившийся
+   * объект и горячие слова — короткий ответ сервера (ai/leadOnlyMode.ts, та же дверь,
+   * что у ядра) и заявка агенту объекта сразу, без модели. WhatsApp: номер
+   * отправителя и есть номер для звонка. Прочие ходы идут ниже обычным путём, но
+   * без подборки, фото и ссылок.
+   */
+  if (leadOnlyChannel && merged.trim()) {
+    const languageRaw = detectClientLanguage(merged);
+    const leadOnlyLanguage = (languageRaw === "unknown" ? lastClientLanguage(history) : languageRaw) === "ru" ? "ru" as const : "tg" as const;
+    // Объект ЭТОГО сообщения (поделились постом, реклама, ссылка) — отдельно от объекта, оставшегося с прошлых ходов:
+    // старый объект не делает «спасибо» или «где офис?» вопросом об объекте (ревью 13.11, «залипший» объект).
+    let leadOnlyPropertyId: string | null = input.sharedPropertyId ?? input.adPropertyId ?? null;
+    let leadOnlyPropertyFresh = !!leadOnlyPropertyId;
+    if (!leadOnlyPropertyId && propertyAdmission && customerPropertyContextEnabled()) {
+      const context = await resolveCustomerPropertyTurnContext(propertyAdmission, propertyTickets).catch(() => null);
+      if (context?.snapshot.focus.status === "resolved" && context.facts) {
+        leadOnlyPropertyId = context.facts.propertyId;
+        leadOnlyPropertyFresh = propertyAdmission.status === "admitted" && context.snapshot.focus.eventKey === propertyAdmission.ticket.eventKey;
+      }
+    }
+    leadOnlyPropertyId = leadOnlyPropertyId ?? draft.requestedPropertyId ?? (await propertyChatLeadPropertyId(conversation.id)) ??
+      (await conversationAdPropertyId(conversation.id)) ?? null;
+    const plan = await planLegacyLeadOnlyTurn({ config: leadOnlyConfig, channel, subscriberId, linked: !!conversation.clientId,
+      text: merged, history, draft, propertyId: leadOnlyPropertyId, propertyInMessage: leadOnlyPropertyFresh, language: leadOnlyLanguage,
+      jobTopic: vacancyTopic });
+    if (plan) {
+      if (plan.phone && !conversation.clientId) {
+        // Реплика клиента уже в переписке (saveIncoming выше): приём — тихий и без повторной записи.
+        let failure: string | null = null;
+        try {
+          const accepted = await acceptLead(conversation.id, channel, conversation.name ?? name, plan.phone, plan.draft, history, {
+            // Объект известен — его агенту сразу, в любое время (сценарий 2); иначе ночью — утренней волной.
+            deferAssignment: plan.propertyId ? false : !(await isWithinWorkingHours()),
+            ...(plan.whatsappPhone ? { whatsappPhone: plan.whatsappPhone } : {}),
+            attachments: saved, clientText: merged, extraPhones: extractAllPhones(merged), silent: true, fromHistory: true,
+          });
+          if (!accepted.accepted) failure = "приём отказал";
+        } catch (err) {
+          console.error("[messenger] режим «только заявки»: приём заявки", err instanceof Error ? err.message : err);
+          failure = err instanceof Error ? err.message : String(err);
+        }
+        // Результат приёма проверяется: клиенту обещан звонок, заявка обязана существовать (ревью 13.11, №7).
+        const card = await prisma.botConversation.findUnique({ where: { id: conversation.id },
+          select: { client: { select: { kind: true } } } }).catch(() => null);
+        if (!card?.client) {
+          void logSystemError("ai", `[alarm] Режим «только заявки»: заявка не оформлена (диалог ${conversation.id}, ${channel}): ` +
+            `${failure ?? "карточки нет"}. Откройте переписку и заведите карточку руками.`, { dedupKey: `lead-only-no-card:${conversation.id}` });
+          await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: plan.propertyId, reason: "intake_failed",
+            summary: plan.draft.callbackTopic ?? "заявка из переписки" }).catch((err) => console.error("[messenger] передача человеку:", err));
+        } else if (card.client.kind === "OTHER" && plan.promised === "call") {
+          void logSystemError("ai", `[alarm] Режим «только заявки»: бот обещал звонок, а заявка ушла в «Прочие обращения» без агента ` +
+            `(диалог ${conversation.id}). Позвоните клиенту или напишите ему.`, { dedupKey: `lead-only-other-promised:${conversation.id}` });
+          await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: plan.propertyId, reason: "no_agent",
+            summary: plan.draft.callbackTopic ?? "заявка из переписки" }).catch((err) => console.error("[messenger] передача человеку:", err));
+        }
+      } else if (plan.needsHuman) {
+        // «Передаю агенту» без новой заявки (номера нет или карточка уже есть): человек узнаёт сразу.
+        await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: plan.propertyId, reason: "hot",
+          summary: plan.draft.callbackTopic ?? "Клиент готов смотреть" }).catch((err) => console.error("[messenger] горячие слова → агенту:", err));
+      }
+      await appendConversationMessages(conversation.id, [
+        { role: "assistant", content: plan.reply, by: { kind: "bot" }, ...(turnMid ? { replyToMid: turnMid } : {}) },
+      ]);
+      const linkedNow = await prisma.botConversation.findUnique({ where: { id: conversation.id }, select: { clientId: true } })
+        .then((row) => !!row?.clientId).catch(() => !!conversation.clientId);
+      return { reply: plan.reply, ready: true, accepted: linkedNow };
+    }
+  }
 
   if (propertyAdmission && customerPropertyContextEnabled()) {
     const propertyContext = await resolveCustomerPropertyTurnContext(propertyAdmission, propertyTickets);
@@ -3896,7 +3615,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     ...promptHistory,
     { role: "user", content: `${forModel(merged)}${requestedHint}${phoneAsImageHint}${noContactHint}${looksFrustrated(merged) ? FRUSTRATION_HINT : ""}` },
   ];
-  const capabilities = await loadBotCapabilities();
+  const capabilities = await loadBotCapabilities(channel);
   /**
    * Тема разговора, доставшаяся от прошлых ходов (см. ai/topicLock.ts).
    *
@@ -3957,11 +3676,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   const finishQualifyTurn = async (
     result: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>
-  ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer }> => {
+  ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer; agentSignal?: MessengerTurnResult["agentSignal"] }> => {
     // Если уже ждали телефон — оставляем этот этап (модель могла сбросить ready).
     // `merged` — слова самого клиента: по ним код отсекает аренду, не полагаясь
     // на то, что модель прочла запрет в промте (см. ai/rentGuard.ts).
-    const mergedDraft = mergeDraft(draft, result, merged);
+    const mergedDraft = mergeDraft(draft, result, merged, [...history].reverse().find((m) => m.role === "assistant")?.content);
     if (draft.stage === "awaiting_phone") mergedDraft.stage = "awaiting_phone";
     /**
      * НОМЕР УЖЕ ЕСТЬ — СТАДИЯ «ЖДЁМ НОМЕР» НЕ ВОЗВРАЩАЕТСЯ (13.10.2026).
@@ -4251,6 +3970,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         requestedAgent,
         requestedNotice,
         fallbackLanguageWords: [merged, lastClientWords(history)],
+        accountId: account.id,
       },
       {
         regenerate: async (retryDirective) =>
@@ -4295,10 +4015,16 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * протухшая пауза потерянного клиента, которую ход сознательно обошёл,
      * новой не считается.
      */
-    const pauseNow = await prisma.botConversation
-      .findUnique({ where: { id: conversation.id }, select: { pausedUntil: true } })
-      .then((row) => row?.pausedUntil ?? null)
+    const lateRow = await prisma.botConversation
+      .findUnique({ where: { id: conversation.id }, select: { pausedUntil: true, pendingSince: true, pendingMessages: true } })
       .catch(() => null);
+    const pauseNow = lateRow?.pausedUntil ?? null;
+    // Пока бот думал, клиент написал ещё — отвечает следующий ход (messengers/turnSupersede.ts).
+    const newerPending = newerClientMessagePending(lateRow, !!input.skipSaveIncoming);
+    if (newerPending) {
+      guardFired("superseded_by_newer_message");
+      return { reply: "", ready: mergedDraft.stage === "awaiting_phone", shouldReply: false };
+    }
     if (
       pauseNow &&
       pauseNow.getTime() > Date.now() &&
@@ -4314,7 +4040,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     const showcase = await showPropertyToClient(
       channel,
       subscriberId,
-      result.showPropertyNumber,
+      // Режим «только заявки»: объект не показываем, даже если модель попросила (второй слой запрета).
+      capabilities.leadOnly ? undefined : result.showPropertyNumber,
       recentBotText(nextHistory),
       capabilities.photosPerOffer,
       account.token,
@@ -4338,7 +4065,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // Файл-гид — то же, что и после приёма заявки: спрашивают про осмотр и
     // документы чаще всего ДО того, как оставили номер (см. lib/buyerGuide.ts).
     const guide = await sendBuyerGuide({
-      wanted: result.sendGuide === true,
+      wanted: result.sendGuide === true && !capabilities.leadOnly,
       conversationId: conversation.id,
       channel,
       recipientId: subscriberId,
@@ -4376,6 +4103,22 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // Одно значение на весь ход: карточка/фото, гид и сам текст ответа должны
     // появиться в виджете ОДНИМ моментом, а не по очереди со своими случайными
     // задержками — иначе выглядело бы более механически, а не менее.
+    // Режим «только заявки», второй слой запрета: ссылки и подборку из ответа модели вырезает код.
+    // Резать пришлось — ответ заменяется коротким «передаю агенту» (как в ядре), и человек правда зовётся:
+    // остаток вроде «Вот варианты:» без вариантов клиенту не нужен, а обещание без адресата — неправда (ревью 13.11).
+    if (capabilities.leadOnly) {
+      const first = leadOnlyFilterReply(reply), second = reply2 ? leadOnlyFilterReply(reply2) : { text: "", changed: false };
+      if (first.changed || second.changed) {
+        void logSystemError("ai", `Режим «только заявки»: из ответа бота вырезаны ссылка или подборка (диалог ${conversation.id}, ${channel}).`,
+          { dedupKey: `lead-only-filtered:${conversation.id}` });
+        const filteredLanguage = detectClientLanguage(text);
+        const lang = (filteredLanguage === "unknown" ? lastClientLanguage(history) : filteredLanguage) === "ru" ? "ru" as const : "tg" as const;
+        // Звонок обещать можно, только если номер у агента есть: карточка или WhatsApp.
+        reply = leadOnlyEscalateLine(lang, !!conversation.clientId || channel === "WHATSAPP"); reply2 = "";
+        await notifyLeadOnlyHandover({ conversationId: conversation.id, propertyId: null, reason: "filtered",
+          summary: "вопрос клиента, на который бот не ответил сам" }).catch((err) => console.error("[messenger] передача человеку:", err));
+      }
+    }
     const visibleAt = websiteReplyVisibleAt(channel);
     const withDelay = (m: ChatMessage): ChatMessage => (visibleAt ? { ...m, visibleAt } : m);
     const outgoing = [reply, reply2].filter(Boolean).join("\n");
@@ -4440,6 +4183,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       ready: mergedDraft.stage === "awaiting_phone",
       ...(outgoing ? {} : { shouldReply: false }),
       ...(replyVoiceWav ? { replyVoiceWav } : {}),
+      // Обещан звонок клиенту с номером — сигнал агенту шлёт отправитель ПОСЛЕ доставки
+      // (routes/webhooks.ts → lib/agentAttention.ts), а не здесь: ответ ещё может не уйти.
+      ...(outgoing && filtered.promisedCall && conversation.clientId
+        ? { agentSignal: { clientId: conversation.clientId, reason: "call_promised" as const } }
+        : {}),
     };
   };
 

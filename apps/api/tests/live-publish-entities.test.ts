@@ -8,6 +8,7 @@ import {
   publishRequestUpdated,
 } from "../src/lib/livePublish.js";
 import type { LiveEvent } from "@royal-home/shared";
+import { waitFor } from "./helpers/waitFor.js";
 
 /**
  * ТОЧКИ ПУБЛИКАЦИИ СОБЫТИЙ ВТОРОГО ЗАХОДА (13.09.2026): звонок, клиент, объект,
@@ -37,8 +38,12 @@ async function capture(run: () => void): Promise<{
   const off2 = subscribe({ agentId: AGENT, role: "AGENT", deliver: (e) => agent.push(e) });
   const off3 = subscribe({ agentId: OTHER, role: "AGENT", deliver: (e) => stranger.push(e) });
   run();
-  // publish() fire-and-forget: одна вставка в базу, ждём её обычным тиком.
-  await new Promise((r) => setTimeout(r, 200));
+  // publish() fire-and-forget: событие доходит после вставки в базу. Фиксированные 200 мс под
+  // нагрузкой облачного прогона не успевали (ship #141, 11.11.2026: «expected [] to deeply equal
+  // ['client.updated']»). Ждём, пока событие увидит надзор (он адресован всегда), — доставка
+  // остальным идёт тем же проходом; затем один тик, чтобы и «не должен был получить» проверялось честно.
+  await waitFor(() => overseer.length > 0, { timeoutMs: 10_000 });
+  await new Promise((r) => setTimeout(r, 50));
   off1();
   off2();
   off3();

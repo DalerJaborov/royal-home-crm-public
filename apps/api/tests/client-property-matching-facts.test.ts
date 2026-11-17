@@ -24,7 +24,8 @@ describe("client property recommendations: factual evidence", () => {
     expect(exact.match.tier).toBe("exact");
     expect(exact.match.reasons).toContain("В бюджете");
     expect(alternative.match.tier).toBe("alternative");
-    expect(alternative.match.tradeoffs).toContain("2 комнаты вместо 3");
+    expect(alternative.match.tradeoffs).toContain("На 1 комнату меньше (просил 3)");
+    expect(alternative.match.tradeoffs).toContain("На 5% дороже бюджета (+30 000 сомони)");
     expect(alternative.match.tradeoffs.some(value => value.includes("30"))).toBe(true);
     expect(compare({}, { price: 700000 })).toBeNull();
   });

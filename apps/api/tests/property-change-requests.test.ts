@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
-import { waitFor } from "./helpers/waitFor.js";
+import { waitFor, waitForSettled } from "./helpers/waitFor.js";
 
 /**
  * ЗАЯВКИ АГЕНТА НА ИЗМЕНЕНИЕ ОПУБЛИКОВАННОГО ОБЪЕКТА (07.10.2026, решение владельца).
@@ -12,10 +12,10 @@ import { waitFor } from "./helpers/waitFor.js";
  * правильно собирает итог (что сделано / что руками / FAILED).
  */
 
-const { sendPushToAgent, syncPublishedPriceChange, sendBackToMontajer, removeFromSocial, refreshPublishedCaptions } =
+const { sendPushToAgent, publishPropertyPriceDropStory, sendBackToMontajer, removeFromSocial, refreshPublishedCaptions } =
   vi.hoisted(() => ({
     sendPushToAgent: vi.fn(async () => 0),
-    syncPublishedPriceChange: vi.fn(async () => ({ updated: ["FACEBOOK"], failed: [], skipped: null })),
+    publishPropertyPriceDropStory: vi.fn(async () => undefined),
     sendBackToMontajer: vi.fn(async () => ({ ok: true, queued: true, message: "Ролик отправлен монтажёру" })),
     removeFromSocial: vi.fn(async () => ({
       removed: ["FACEBOOK"],
@@ -30,9 +30,9 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/push.js")>()),
   sendPushToAgent,
 }));
-vi.mock("../src/lib/publishedListingSync.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/publishedListingSync.js")>()),
-  syncPublishedPriceChange,
+vi.mock("../src/lib/instagramStories.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/instagramStories.js")>()),
+  publishPropertyPriceDropStory,
 }));
 vi.mock("../src/lib/publishedVideoFix.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/publishedVideoFix.js")>()),
@@ -48,6 +48,7 @@ vi.mock("../src/lib/siteSync.js", async (importOriginal) => ({
 
 const { prisma } = await import("../src/db.js");
 const { app } = await import("../src/app.js");
+const { buildPriceDisplay } = await import("../src/lib/reelsCaptionTemplate.js");
 
 const runId = Date.now();
 const password = "testpass123";
@@ -99,6 +100,23 @@ async function seedProperty(overrides: Record<string, unknown> = {}) {
 const post = (token: string, id: string, body: unknown) =>
   request(app).post(`${api}/${id}/change-requests`).set("Authorization", `Bearer ${token}`).send(body as object);
 
+/**
+ * ЖДУЩАЯ заявка в очереди руководства. REST у хозяина цену, данные карточки и перемонтаж применяет СРАЗУ
+ * (владелец 15.11.2026, canApplyChangeDirectly), поэтому механику «Принять / Отклонить / отозвать» проверяем
+ * на заявке, положенной сервисом подачи (как legacy-заявка или цена объекта в резерве), а не через REST.
+ */
+async function queue(propertyId: string, body: object, authorId = agentId) {
+  const { createPropertyChangeRequest } = await import("../src/lib/propertyChangeRequestService.js");
+  const res = await createPropertyChangeRequest({
+    propertyId,
+    actor: { agentId: authorId, can: () => false },
+    body: body as never,
+  });
+  return res.ok
+    ? { status: 201, body: { request: res.request } }
+    : { status: res.status, body: { error: res.error } };
+}
+
 const decide = (token: string, rid: string, action: "approve" | "reject" | "cancel", body: object = {}) =>
   request(app).post(`${api}/change-requests/${rid}/${action}`).set("Authorization", `Bearer ${token}`).send(body);
 
@@ -126,13 +144,14 @@ beforeAll(async () => {
 
 beforeEach(() => {
   sendPushToAgent.mockClear();
-  syncPublishedPriceChange.mockClear();
+  publishPropertyPriceDropStory.mockClear();
   sendBackToMontajer.mockClear();
   removeFromSocial.mockClear();
   refreshPublishedCaptions.mockClear();
 });
 
 afterAll(async () => {
+  await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: propertyIds.map(id => `site-resync:${id}`) } } });
   await prisma.propertyChangeRequest.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: "property-change-request-" } } });
   await prisma.priceChange.deleteMany({ where: { propertyId: { in: propertyIds } } });
@@ -147,13 +166,13 @@ describe("Подача заявки", () => {
   it("опубликованный объект: 201, заявка в базе, директору ушёл аларм, в журнале запись", async () => {
     const property = await seedProperty();
     const res = await post(agentToken, property.id, {
-      kind: "PRICE_CHANGE",
-      payload: { newPrice: 380000 },
-      comment: "Хозяин снизил",
+      kind: "UNPUBLISH",
+      payload: {},
+      comment: "Хозяин просит снять",
     });
     expect(res.status).toBe(201);
     expect(res.body.request).toMatchObject({
-      kind: "PRICE_CHANGE",
+      kind: "UNPUBLISH",
       status: "PENDING",
       propertyId: property.id,
       author: { id: agentId },
@@ -163,7 +182,6 @@ describe("Подача заявки", () => {
       prisma.pendingDirectorAlert.findFirst({ where: { tag: `property-change-request-${res.body.request.id}` } })
     );
     expect(alert).toMatchObject({ recipientPermission: "properties.delete", kind: "property-change-request" });
-    expect(alert!.body).toContain("→");
 
     const audit = await waitFor(() =>
       prisma.auditLog.findFirst({ where: { entityId: property.id, action: "PROPERTY_CHANGE_REQUEST" } })
@@ -181,12 +199,13 @@ describe("Подача заявки", () => {
   it("вторая ждущая заявка того же вида — 409, другой вид — можно", async () => {
     const property = await seedProperty();
     const body = { kind: "PRICE_CHANGE", payload: { newPrice: 390000 } };
-    expect((await post(agentToken, property.id, body)).status).toBe(201);
-    const dup = await post(agentToken, property.id, body);
+    expect((await queue(property.id, body)).status).toBe(201);
+    const dup = await queue(property.id, body);
     expect(dup.status).toBe(409);
     expect(dup.body.error).toBe("Такая заявка уже отправлена");
     const other = await post(agentToken, property.id, { kind: "OTHER", payload: { text: "Нужно что-то поменять в ролике" } });
     expect(other.status).toBe(201);
+    expect(other.body.request.status).toBe("PENDING");
   });
 
   it("чужой объект — 403; несуществующий — 404", async () => {
@@ -222,9 +241,13 @@ describe("Подача заявки", () => {
 });
 
 describe("«Принять»: цена", () => {
-  it("цена обновилась, PriceChange записан, посты синхронизированы, Instagram — руками, push автору и маркетингу", async () => {
-    const property = await seedProperty({ assignedAgentId: marketingId });
-    const created = await post(agentToken, property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 380000 } });
+  it("сохраняет цену и задания сайта/Facebook, а Instagram помечает для ручной правки", async () => {
+    const property = await seedProperty({
+      assignedAgentId: marketingId,
+      publishedOnSite: true,
+      reelsCaption: `Цена: ${buildPriceDisplay(400000, "TJS")}`,
+    });
+    const created = await queue(property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 380000 } });
     expect(created.status).toBe(201);
 
     const res = await decide(directorToken, created.body.request.id, "approve", { note: "ок" });
@@ -232,7 +255,8 @@ describe("«Принять»: цена", () => {
     expect(res.body.request.status).toBe("APPROVED");
     expect(res.body.request.decidedBy.id).toBe(directorId);
     expect(res.body.request.result.applied.join(" ")).toContain("Цена в карточке");
-    expect(res.body.request.result.applied.join(" ")).toContain("Facebook");
+    expect(res.body.request.result.applied.join(" ")).toContain("Facebook: обновление цены в очереди");
+    expect(res.body.message).toContain("в очереди");
     const manual = res.body.request.result.manual as { channel: string; text: string }[];
     expect(manual.map((m) => m.channel)).toEqual(["INSTAGRAM"]);
 
@@ -243,7 +267,12 @@ describe("«Принять»: цена", () => {
     expect(Number(change!.newPrice)).toBe(380000);
     expect(change!.changedById).toBe(directorId);
 
-    expect(syncPublishedPriceChange).toHaveBeenCalledWith(property.id, 400000, "TJS");
+    const websiteJob = await prisma.backgroundJob.findFirst({ where: { type: "site-resync", dedupeKey: `site-resync:${property.id}` } });
+    expect(websiteJob?.status).toBe("PENDING");
+    const deliveries = await prisma.publicationMetadataSync.findMany({ where: { propertyId: property.id } });
+    expect(deliveries.some(row => row.channel === "FACEBOOK" && row.operation === "CAPTION")).toBe(true);
+    expect(fresh.reelsCaption).toContain(buildPriceDisplay(380000, "TJS"));
+    expect(publishPropertyPriceDropStory).toHaveBeenCalledTimes(1);
 
     const pushedTo = sendPushToAgent.mock.calls.map((c) => c[0]);
     expect(pushedTo).toContain(agentId); // автору — итог
@@ -258,9 +287,35 @@ describe("«Принять»: цена", () => {
     expect(await prisma.priceChange.count({ where: { propertyId: property.id } })).toBe(1);
   });
 
-  it("remake=true: после цены ролик уходит монтажёру, старые посты снимаются", async () => {
+  it("параллельные PATCH без версии сохраняют точную цепочку цен и задания доставки", async () => {
+    const property = await seedProperty({
+      publishedOnSite: true,
+      reelsCaption: `Цена: ${buildPriceDisplay(400000, "TJS")}`,
+    });
+    const patch = (price: number) => request(app).patch(`${api}/${property.id}`)
+      .set("Authorization", `Bearer ${directorToken}`).send({ price });
+    const responses = await Promise.all([patch(390000), patch(380000)]);
+    expect(responses.map(response => response.status)).toEqual([200, 200]);
+
+    const changes = await prisma.priceChange.findMany({ where: { propertyId: property.id } });
+    expect(changes).toHaveLength(2);
+    const first = changes.find(change => Number(change.oldPrice) === 400000);
+    const second = changes.find(change => Number(change.oldPrice) === Number(first?.newPrice));
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const fresh = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
+    expect(Number(fresh.price)).toBe(Number(second!.newPrice));
+    expect(fresh.reelsCaption).toContain(buildPriceDisplay(fresh.price, "TJS"));
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: `site-resync:${property.id}` } })).toBe(1);
+    expect(await prisma.publicationMetadataSync.count({
+      where: { propertyId: property.id, channel: "FACEBOOK", operation: "CAPTION" },
+    })).toBe(2);
+  });
+
+  it("remake=true: после цены ролик уходит монтажёру, старые посты снимаются, когда выйдет новый", async () => {
     const property = await seedProperty();
-    const created = await post(agentToken, property.id, {
+    const created = await queue(property.id, {
       kind: "PRICE_CHANGE",
       payload: { newPrice: 350000, remake: true },
       comment: "Цена в кадре",
@@ -274,14 +329,14 @@ describe("«Принять»: цена", () => {
     expect(args[0]).toBe(property.id);
     expect(args[2]).toBe("CARD_DATA_CHANGED");
     expect(String(args[3])).toContain("Новая цена");
-    expect(args[5]).toEqual({ removeFromSocial: true });
+    expect(args[5]).toEqual({ removeFromSocial: "on-new-video" });
   });
 });
 
 describe("«Принять»: данные, перемонтаж, снятие, другое", () => {
   it("CARD_DATA: поле обновилось, подписи пересобраны, заявка принята", async () => {
     const property = await seedProperty({ reelsCaption: "текст" });
-    const created = await post(agentToken, property.id, { kind: "CARD_DATA", payload: { patch: { floor: 5 } } });
+    const created = await queue(property.id, { kind: "CARD_DATA", payload: { patch: { floor: 5 } } });
     expect(created.status).toBe(201);
     const res = await decide(directorToken, created.body.request.id, "approve");
     expect(res.status).toBe(200);
@@ -293,7 +348,7 @@ describe("«Принять»: данные, перемонтаж, снятие, 
 
   it("REMAKE_VIDEO: sendBackToMontajer получает причину, комментарий и снятие из соцсетей", async () => {
     const property = await seedProperty();
-    const created = await post(agentToken, property.id, {
+    const created = await queue(property.id, {
       kind: "REMAKE_VIDEO",
       payload: { reason: "WRONG_CAPTION", removeFromSocial: true },
       comment: "В кадре старая площадь",
@@ -315,7 +370,7 @@ describe("«Принять»: данные, перемонтаж, снятие, 
   it("REMAKE_VIDEO: отказ перемонтажа — FAILED с текстом отказа, ответ 200, заявка остаётся видимой", async () => {
     sendBackToMontajer.mockResolvedValueOnce({ ok: false, error: "Монтажёр не назначен" } as never);
     const property = await seedProperty();
-    const created = await post(agentToken, property.id, {
+    const created = await queue(property.id, {
       kind: "REMAKE_VIDEO",
       payload: { reason: "POOR_EDIT", removeFromSocial: false },
     });
@@ -351,7 +406,7 @@ describe("«Принять»: данные, перемонтаж, снятие, 
     expect(res.status).toBe(200);
     expect(res.body.request.status).toBe("APPROVED");
     expect(res.body.request.result.applied[0]).toContain("к сведению");
-    expect(syncPublishedPriceChange).not.toHaveBeenCalled();
+    expect(publishPropertyPriceDropStory).not.toHaveBeenCalled();
     expect(sendBackToMontajer).not.toHaveBeenCalled();
     expect(removeFromSocial).not.toHaveBeenCalled();
   });
@@ -360,7 +415,7 @@ describe("«Принять»: данные, перемонтаж, снятие, 
 describe("Отказ, отзыв, права", () => {
   it("reject без причины — 400; с причиной — REJECTED, автору push; повторное решение — 409", async () => {
     const property = await seedProperty();
-    const created = await post(agentToken, property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 390000 } });
+    const created = await queue(property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 390000 } });
     const rid = created.body.request.id as string;
 
     expect((await decide(directorToken, rid, "reject", {})).status).toBe(400);
@@ -379,7 +434,7 @@ describe("Отказ, отзыв, права", () => {
 
   it("cancel: чужой — 403, автор — CANCELLED, после этого «Принять» — 409", async () => {
     const property = await seedProperty();
-    const created = await post(agentToken, property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 390000 } });
+    const created = await queue(property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 390000 } });
     const rid = created.body.request.id as string;
 
     expect((await decide(otherToken, rid, "cancel")).status).toBe(403);
@@ -392,7 +447,7 @@ describe("Отказ, отзыв, права", () => {
 
   it("агент не может ни принять, ни отклонить, ни смотреть общую очередь", async () => {
     const property = await seedProperty();
-    const created = await post(agentToken, property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 390000 } });
+    const created = await queue(property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 390000 } });
     const rid = created.body.request.id as string;
     expect((await decide(agentToken, rid, "approve")).status).toBe(403);
     expect((await decide(agentToken, rid, "reject", { note: "сам себе" })).status).toBe(403);
@@ -410,7 +465,7 @@ describe("Списки", () => {
     for (const kind of ["PRICE_CHANGE", "UNPUBLISH", "OTHER"] as const) {
       const payload =
         kind === "PRICE_CHANGE" ? { newPrice: 390000 } : kind === "UNPUBLISH" ? {} : { text: "Что-то другое в карточке" };
-      expect((await post(agentToken, property.id, { kind, payload })).status).toBe(201);
+      expect((await queue(property.id, { kind, payload })).status).toBe(201);
     }
 
     const page1 = await request(app).get(`${api}/change-requests?limit=2`).set("Authorization", `Bearer ${directorToken}`);
@@ -438,7 +493,7 @@ describe("Списки", () => {
 describe("Корзина", () => {
   it("объект ушёл в Корзину — ждущие заявки закрываются как CANCELLED", async () => {
     const property = await seedProperty();
-    const created = await post(agentToken, property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 390000 } });
+    const created = await queue(property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 390000 } });
     const rid = created.body.request.id as string;
 
     const del = await request(app).delete(`${api}/${property.id}`).set("Authorization", `Bearer ${directorToken}`);
@@ -448,5 +503,104 @@ describe("Корзина", () => {
     expect(row.status).toBe("CANCELLED");
     expect(row.decisionNote).toContain("Корзин");
     expect((await decide(directorToken, rid, "approve")).status).toBe(409);
+  });
+});
+
+describe("Своё — сразу, без заявки (владелец 15.11.2026: «без неё можно менять любые свои данные»)", () => {
+  it("хозяин: цена и данные карточки применяются сразу, заявка принята автором, руководителю в очереди ничего нет", async () => {
+    const property = await seedProperty();
+    const price = await post(agentToken, property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 380000 } });
+    expect(price.status).toBe(201);
+    expect(price.body.applied).toBe(true);
+    expect(price.body.request).toMatchObject({ kind: "PRICE_CHANGE", status: "APPROVED" });
+    const card = await post(agentToken, property.id, { kind: "CARD_DATA", payload: { patch: { floor: 7 } } });
+    expect(card.status).toBe(201);
+    expect(card.body.applied).toBe(true);
+    expect(card.body.request.status).toBe("APPROVED");
+
+    const row = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
+    expect(row.price.toString()).toBe("380000");
+    expect(row.floor).toBe(7);
+    const rows = await prisma.propertyChangeRequest.findMany({ where: { propertyId: property.id } });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.status === "APPROVED" && r.decidedById === agentId)).toBe(true);
+    // Очередь руководства пуста: ждать нечего.
+    const queueRes = await request(app).get(`${api}/change-requests?limit=100`).set("Authorization", `Bearer ${directorToken}`);
+    expect(queueRes.body.items.filter((i: { propertyId: string }) => i.propertyId === property.id)).toHaveLength(0);
+  });
+
+  it("«своё сразу»: директору в очередь пушей заявка не ставится (она уже принята); обычная заявка — ставится", async () => {
+    const property = await seedProperty();
+    const price = await post(agentToken, property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 360000 } });
+    expect(price.body.applied).toBe(true);
+    const queued = await queue(property.id, { kind: "OTHER", payload: { text: "Нужно что-то поменять в ролике" } });
+    const tagOf = (id: string) => `property-change-request-${id}`;
+    // Ждём, пока «отложенная» запись обычной заявки встанет; за это время запись «своей» тоже успела бы.
+    await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: tagOf(queued.body.request.id) } }));
+    expect(await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: tagOf(price.body.request.id) } }))).toBe(0);
+  });
+
+  it("хозяин: перемонтаж своего вышедшего объекта уходит монтажёру сразу", async () => {
+    const property = await seedProperty();
+    const res = await post(agentToken, property.id, { kind: "REMAKE_VIDEO", payload: { reason: "NO_MUSIC", removeFromSocial: false } });
+    expect(res.status).toBe(201);
+    expect(res.body.applied).toBe(true);
+    expect(res.body.request.status).toBe("APPROVED");
+    expect(sendBackToMontajer).toHaveBeenCalledTimes(1);
+  });
+
+  it("перемонтаж со снятием из соцсетей (по умолчанию в форме): агент — заявкой руководителю, посты не тронуты; директор — сразу", async () => {
+    const property = await seedProperty();
+    sendBackToMontajer.mockClear();
+    const res = await post(agentToken, property.id, { kind: "REMAKE_VIDEO", payload: { reason: "NO_MUSIC" } });
+    expect(res.status).toBe(201);
+    expect(res.body.applied).toBeUndefined();
+    expect(res.body.request.status).toBe("PENDING");
+    expect(sendBackToMontajer).not.toHaveBeenCalled();
+
+    const own = await seedProperty();
+    const boss = await post(directorToken, own.id, { kind: "REMAKE_VIDEO", payload: { reason: "NO_MUSIC", removeFromSocial: true } });
+    expect(boss.status).toBe(201);
+    expect(boss.body.applied).toBe(true);
+    expect(sendBackToMontajer).toHaveBeenCalledTimes(1);
+  });
+
+  it("чужой объект — по-прежнему 403, ничего не изменено; руководитель (editForeign) — сразу", async () => {
+    const property = await seedProperty();
+    const foreign = await post(otherToken, property.id, { kind: "CARD_DATA", payload: { patch: { floor: 8 } } });
+    expect(foreign.status).toBe(403);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).floor).toBe(3);
+    const boss = await post(directorToken, property.id, { kind: "CARD_DATA", payload: { patch: { floor: 8 } } });
+    expect(boss.status).toBe(201);
+    expect(boss.body.applied).toBe(true);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).floor).toBe(8);
+  });
+
+  it("цена объекта в резерве, «убрать из соцсетей» и «Другое» — остаются заявкой руководителю", async () => {
+    const reserved = await seedProperty({ status: "RESERVED" });
+    const price = await post(agentToken, reserved.id, { kind: "PRICE_CHANGE", payload: { newPrice: 370000 } });
+    expect(price.status).toBe(201);
+    expect(price.body.applied).toBeUndefined();
+    expect(price.body.request.status).toBe("PENDING");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: reserved.id } })).price.toString()).toBe("400000");
+
+    const property = await seedProperty();
+    for (const body of [{ kind: "UNPUBLISH", payload: {} }, { kind: "OTHER", payload: { text: "Нужно что-то поменять в ролике" } }]) {
+      const res = await post(agentToken, property.id, body);
+      expect(res.status).toBe(201);
+      expect(res.body.request.status).toBe("PENDING");
+    }
+  });
+
+  it("не применилось — заявка FAILED с причиной, у руководства не висит", async () => {
+    const property = await seedProperty();
+    sendBackToMontajer.mockResolvedValueOnce({ ok: false, error: "Объект уже у монтажёра" } as never);
+    const res = await post(agentToken, property.id, { kind: "REMAKE_VIDEO", payload: { reason: "NO_MUSIC", removeFromSocial: false } });
+    // Отказ исполнителя перемонтажа — FAILED с текстом (как и при «Принять» директором), в очереди не остаётся.
+    expect(res.status).toBe(201);
+    expect(res.body.applied).toBe(false);
+    expect(res.body.request.status).toBe("FAILED");
+    const pending = await prisma.propertyChangeRequest.count({ where: { propertyId: property.id, status: "PENDING" } });
+    expect(pending).toBe(0);
   });
 });

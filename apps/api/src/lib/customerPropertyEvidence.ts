@@ -1,6 +1,6 @@
 import { customerPropertyEvidenceSchema, type CustomerPropertyEvidence } from "@royal-home/shared";
 import type { MetaIncoming } from "../messengers/meta.js";
-import { customerPropertyUrl } from "./customerPropertyUrls.js";
+import { customerPropertyShareLink, customerPropertyUrl } from "./customerPropertyUrls.js";
 import { propertyNumberSelectors, schemelessPropertyUrls } from "./customerPropertyReferenceText.js";
 
 export function mergeCustomerPropertyEvidence(groups: readonly (readonly CustomerPropertyEvidence[])[]): CustomerPropertyEvidence[] {
@@ -12,6 +12,9 @@ export function mergeCustomerPropertyEvidence(groups: readonly (readonly Custome
 function urlEvidence(raw: string, origin: CustomerPropertyEvidence["origin"]): CustomerPropertyEvidence {
   const parsed = customerPropertyUrl(raw);
   if ("url" in parsed) return { kind: "url", origin, reference: parsed.url };
+  // An opaque share link is resolved later by one bounded redirect read, not rejected here.
+  const share = customerPropertyShareLink(raw);
+  if (share) return { kind: "url", origin, reference: share };
   // Never persist credentials, arbitrary query tokens, or the raw rejected URL.
   return { kind: "untrusted_reference", origin, reference: parsed.kind === "denied" ? "untrusted_origin" : "unsupported_format" };
 }
@@ -49,7 +52,11 @@ export function customerPropertyEvidenceFromMeta(message: MetaIncoming): Custome
   // WA mediaId is a downloadable file ID, never a published-property ID.
   if (message.attachmentMediaId) evidence.push({ kind: "media", origin: "shared_media", reference: message.attachmentMediaId });
   if (message.replyToMessageId) evidence.push({ kind: "reply", origin: "reply_to", reference: message.replyToMessageId });
-  if (message.replyToStoryUrl) evidence.push(urlEvidence(message.replyToStoryUrl, "story"));
+  // Our own story is identified by its Instagram media id (PropertyStoryPost.mediaId). Its CDN url is
+  // transport data and would only poison the resolution as an untrusted origin, so it is kept only
+  // when Meta sent no id.
+  if (message.replyToStoryId) evidence.push({ kind: "media", origin: "story", reference: message.replyToStoryId });
+  else if (message.replyToStoryUrl) evidence.push(urlEvidence(message.replyToStoryUrl, "story"));
   const attachments = [{ type: message.attachmentType, url: message.attachmentUrl, attachmentMediaId: message.attachmentMediaId },
     ...message.extraAttachments ?? []];
   for (const attachment of attachments) {

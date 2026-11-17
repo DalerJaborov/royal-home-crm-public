@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { customerAgentDecisionSchema, customerAgentSurfaceSchema } from "./customerAgent.js";
+import { customerAgentDecisionSchema, customerAgentSurfaceSchema, customerAgentSayDropReasonSchema, customerAgentSayStatusSchema } from "./customerAgent.js";
 import { customerMutationReceiptSchema } from "./customerMutation.js";
 
 export const BOT_TURN_TRACE_COVERAGE = "meta_website_customer_bot_v1" as const;
@@ -37,7 +37,7 @@ export const traceModelAttemptSchema = z.strictObject({
   schemaIssues: z.array(z.strictObject({ path: z.enum(["reply", "ready", "confident", "lead", "jobApplication", "showing", "topic", "other"]), code: z.enum(["invalid_type", "invalid_value", "too_small", "too_big", "unrecognized_keys", "custom", "other"]) })).max(16),
 });
 export const traceFilterDeltaSchema = z.strictObject({
-  guard: z.enum(["price", "discount", "availability", "media_apology", "reply_chain", "recovery"]),
+  guard: z.enum(["price", "discount", "availability", "media_apology", "reply_chain", "recovery", "place", "renovation"]),
   attemptIndex: count, stage: z.enum(["qualifier_guards", "reply_chain", "recovery"]),
   before: traceTextSchema, after: traceTextSchema, changed: z.boolean(), guardHits: count,
 });
@@ -82,6 +82,8 @@ export const traceCustomerCoreSchema = z.strictObject({
   decisionSource: z.enum(["model", "verified_public_fallback", "receipt_confirmation"]).optional(),
   /** Safe diagnostic code of a held/fallback turn (snake_case reason or error class name); never text or data. */
   causeCode: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{1,47}$/).optional(),
+  /** Grounded free-phrase channel: status and verdict code only. The text itself is never written to the trace. */
+  sayStatus: customerAgentSayStatusSchema.optional(), sayDropReason: customerAgentSayDropReasonSchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.skipReason !== undefined && value.rejectedDecisionKind !== "skip") {
     ctx.addIssue({ code: "custom", path: ["skipReason"], message: "skipReason requires rejectedDecisionKind=skip" });

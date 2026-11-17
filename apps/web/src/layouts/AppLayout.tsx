@@ -6,6 +6,7 @@ import { Sidebar } from "../components/Sidebar";
 import { PullToRefresh } from "../components/PullToRefresh";
 import { Topbar } from "../components/Topbar";
 import { BottomNav } from "../components/BottomNav";
+import { AssistantHost } from "../components/AssistantHost";
 import { OfflineBanner } from "../components/OfflineBanner";
 import { UploadIndicator } from "../components/UploadIndicator";
 import { Toaster } from "../components/ui/Toaster";
@@ -23,6 +24,7 @@ import { useCleanShellSelection } from "../hooks/useCleanShell";
 import { CleanShell } from "../components/clean/CleanShell";
 import { useCleanViewport } from "../hooks/useCleanViewport";
 import { ShellAppearanceRecovery } from "../components/clean/ShellAppearanceRecovery";
+import { useRouteViewportKey } from "../hooks/useRouteViewportKey";
 
 /**
  * СПУТНИКИ ОБОЛОЧКИ — СВОИМ КУСКОМ (10.09.2026, разгрузка входного куска).
@@ -55,6 +57,9 @@ const OwnerQuestionsStrip = lazyWithReload(() =>
   import("../components/OwnerQuestionsBanner").then((m) => ({ default: m.OwnerQuestionsStrip }))
 );
 const CallWindow = lazyWithReload(() => import("../components/CallWindow").then((m) => ({ default: m.CallWindow })));
+const TransferConfirmWindow = lazyWithReload(() =>
+  import("../components/TransferConfirmWindow").then((m) => ({ default: m.TransferConfirmWindow }))
+);
 const IncomingLeadWindow = lazyWithReload(() =>
   import("../components/IncomingLeadWindow").then((m) => ({ default: m.IncomingLeadWindow }))
 );
@@ -86,6 +91,7 @@ export function AppLayout() {
   }, [clean]);
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const viewportKey = useRouteViewportKey(pathname, clean);
   const scrollRef = useRef<HTMLDivElement>(null);
   /**
    * ПЕРЕНЕСЁН ЛИ ЭКРАН НА ТЕМУ «ROYAL HOME 2026».
@@ -268,7 +274,7 @@ export function AppLayout() {
         {/* Clean keeps the viewport/Suspense mounted while a cold route chunk loads.
             The legacy shell retains its established per-route entrance behavior. */}
         <main id="main" tabIndex={-1}
-          key={clean ? "clean-main" : pathname}
+          key={viewportKey}
           data-page-enter
           // px-4 md:px-6 — боковые поля контракта оболочки (06.10.2026: 16 на
           // телефоне, 24 от 820 px). Было px-5 с 10.09 ради полосы, в которой
@@ -320,7 +326,7 @@ export function AppLayout() {
                 раздел, не перезагружая страницу. resetKey сбрасывает ошибку при
                 переходе — верхняя граница этого не умела, потому что стоит выше
                 роутера и о смене маршрута не знает. */}
-            <ErrorBoundary key={clean ? "clean-route" : pathname} resetKey={clean ? pathname : undefined}>
+            <ErrorBoundary resetKey={pathname}>
               {/* Разделы грузятся отдельными файлами (см. App.tsx): без этого при
                   первом заходе в раздел React выбрасывал бы «suspended while
                   rendering» вместо экрана. Заглушка нарочно скромная и только на
@@ -334,6 +340,9 @@ export function AppLayout() {
         </main>
       </div>
       <BottomNav />
+      {/* Панель ИИ-помощника — одна на все входы (удержание «+», кнопка в шапке,
+          Ctrl+/); сам кусок панели грузится по нажатию, см. AssistantPanelLazy. */}
+      <AssistantHost />
       {/* Предложение установить CRM как приложение — на третий заход, только на
           телефоне и только если она ещё не установлена. См. InstallAppHint. */}
       <Suspense fallback={null}>
@@ -360,6 +369,11 @@ export function AppLayout() {
           это дополнительный путь, а не замена (см. IncomingLeadWindow.tsx). */}
       <Suspense fallback={null}>
         <IncomingLeadWindow />
+      </Suspense>
+      {/* Большое окно «Подтвердить передачу?» хозяину карточки — на ПК и телефоне, слой 43:
+          ниже идущего разговора (45) и окна лида (44) (см. TransferConfirmWindow.tsx). */}
+      <Suspense fallback={null}>
+        <TransferConfirmWindow />
       </Suspense>
       {/* «Пробуждение» — заставка-приветствие ИИ. ПЕРЕЕХАЛА в App.tsx (08.09.2026,
           docs/ai-greeting-08-09/reports/P1-splash-v2.md) — здесь она жила внутри

@@ -16,7 +16,8 @@ const FabMenu = lazy(() => import("./FabMenu").then((m) => ({ default: m.FabMenu
 // Панель ассистента — общей обёрткой на все места оболочки (там же разобрано,
 // почему ленивый импорт обязан быть во ВСЕХ них, иначе сборщик оставляет модуль
 // во входном куске).
-import { AssistantPanelLazy } from "./AssistantPanelLazy";
+import { preloadAssistantPanel } from "./AssistantPanelLazy";
+import { useAssistantUi } from "../store/assistantUi";
 import { useSettings } from "../hooks/useSettings";
 // Состав вкладок — из общего реестра разделов (lib/navigation.ts). Раньше он был
 // прошит здесь отдельным списком и расходился с сайдбаром: 2+2 вокруг «+»
@@ -99,7 +100,9 @@ export function BottomNavSurface({ variant }: { variant: BottomNavVariant }) {
   const { bottom } = useNavigation();
   const { left, right } = bottom;
   const [fabOpen, setFabOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
+  // Панель одна на все входы и монтируется в AssistantHost (AppLayout): здесь только
+  // просьба её открыть. Поведение «+» прежнее — удержание открывает сразу с голосом.
+  const openAssistant = useAssistantUi((s) => s.openAssistant);
   const { data: settings } = useSettings();
   // Долгое нажатие (не клик) — «Удержите кнопку — заполню голосом» прототипа.
   // Единственный вход в ассистента на телефоне (14.09.2026, владелец) — тот же
@@ -124,6 +127,9 @@ export function BottomNavSurface({ variant }: { variant: BottomNavVariant }) {
 
   function startLongPress() {
     if (!settings?.aiAssistantEnabled) return;
+    // Кусок панели начинает скачиваться с касания: за 450 мс удержания он обычно
+    // успевает приехать, и шторка открывается без пустого кадра.
+    preloadAssistantPanel();
     longPressFired.current = false;
     setHolding(true);
     longPressTimer.current = setTimeout(() => {
@@ -136,7 +142,7 @@ export function BottomNavSurface({ variant }: { variant: BottomNavVariant }) {
       // Единственный вход в ассистента на телефоне (14.09.2026, владелец):
       // всегда с голосом сразу, без подсказки — второй режим (тап по пункту
       // меню с готовым текстом) убран вместе с самим пунктом в FabMenu.tsx.
-      setAssistantOpen(true);
+      openAssistant({ autoStartVoice: true });
     }, 450);
   }
   function cancelLongPress() {
@@ -214,7 +220,6 @@ export function BottomNavSurface({ variant }: { variant: BottomNavVariant }) {
           <FabMenu open={fabOpen} onClose={() => setFabOpen(false)} />
         </Suspense>
       )}
-      {assistantOpen && <AssistantPanelLazy onClose={() => setAssistantOpen(false)} autoStartVoice />}
     </nav>
   );
 }

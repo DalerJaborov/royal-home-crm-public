@@ -38,6 +38,14 @@ function render(role: string, p: Property) {
 }
 
 describe("PropertyVideoFixCard — старый объект со ссылкой t.me и без сетей", () => {
+  it("закрытый объект не предлагает новую публикацию, сохраняя снятие старых постов", () => {
+    const html = render("ADMIN", { ...legacy, offSite: true, publishedChannels: ["INSTAGRAM"] });
+    expect(html).toContain("новые публикации в соцсетях запрещены");
+    expect(html).not.toContain("Выложить карточку");
+    expect(html).not.toContain("Загрузить и выпустить сразу");
+    expect(html).not.toContain("По расписанию");
+    expect(html).toContain("Убрать из соцсетей");
+  });
   it("руководителю виден полный блок: «Вернуть монтажёру», «Загрузить готовый ролик», ссылка на старый пост", () => {
     const html = render("ADMIN", legacy);
     expect(html).toContain("Ролик и соцсети");

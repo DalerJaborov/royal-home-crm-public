@@ -20,7 +20,7 @@
  */
 
 import { DEFAULT_EVENT_POINTS, type ScoreEventKind } from "@royal-home/shared";
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { royalScoreEnabled } from "./royalScoreSwitch.js";
 import { logSystemError } from "./systemError.js";
 
@@ -94,6 +94,12 @@ function scoreEventData(input: ScoreEventInput) {
 export async function recordScoreEventsAtomic(inputs: ScoreEventInput[]): Promise<void> {
   if (!(await royalScoreEnabled())) return;
   await prisma.$transaction(inputs.map((input) => prisma.royalScoreEvent.create({ data: scoreEventData(input) })));
+}
+
+/** Shares the caller's transaction and propagates write failures. A prior score for this source stays intact. */
+export async function recordScoreEventInTransaction(tx: TxClient, input: ScoreEventInput): Promise<void> {
+  if (!(await royalScoreEnabled(tx))) return;
+  await tx.royalScoreEvent.createMany({ data: [scoreEventData(input)], skipDuplicates: true });
 }
 
 /**
@@ -186,8 +192,8 @@ export const CLIENT_RECOVERED_BONUS_POINTS = DEFAULT_EVENT_POINTS.client_recover
  * Цена события с учётом настроек. null/не заданное поле в Settings —
  * значение по умолчанию (тот же принцип, что и loadKpiWeights в kpi.ts).
  */
-export async function loadEventPoints(): Promise<Record<ScoreEventKind, number>> {
-  const settings = await prisma.settings.findFirst({ select: { royalScoreEventPoints: true } });
+export async function loadEventPoints(db: Pick<TxClient, "settings"> = prisma): Promise<Record<ScoreEventKind, number>> {
+  const settings = await db.settings.findFirst({ select: { royalScoreEventPoints: true } });
   const overrides = settings?.royalScoreEventPoints;
   if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) {
     return DEFAULT_EVENT_POINTS;

@@ -60,3 +60,11 @@ export interface QualifyIncomingCallResult {
   /** Карточка, заведённая этим звонком, удалена как ненужная. */
   clientRemoved?: boolean;
 }
+
+/**
+ * Сколько секунд днём звонит оператор, прежде чем трубку возьмёт консультант
+ * (режим «если оператор не взял»). Константа с 01.11.2026 (значение прода), раньше —
+ * Settings.liveVoiceInboundWaitSeconds. Одно место на сервер (станция получает
+ * его через lib/telephony/failoverSync.ts) и экран (подпись к режиму).
+ */
+export const LIVE_VOICE_INBOUND_WAIT_SECONDS = 30;

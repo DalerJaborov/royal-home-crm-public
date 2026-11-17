@@ -22,7 +22,7 @@ import { logTimelineMany } from "./timeline.js";
 import { describeError } from "./describeError.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "./clientPhone.js";
-import { extractVolunteeredPhone } from "../ai/leadQualifier.js";
+import { extractVolunteeredPhone } from "./shared/phoneText.js";
 import { clientAskedForOperator } from "../ai/operatorHandoff.js";
 import { sendPushToAgent } from "../push.js";
 import {
@@ -572,6 +572,7 @@ export async function closeSettledCallbackRequests(now = new Date()): Promise<{ 
   const calls = await prisma.interaction.findMany({
     where: {
       type: "CALL",
+      archiveReview: false,
       clientId: { in: withClient.map((r) => r.resolvedClientId) },
       createdAt: { gt: earliest },
       // Закрыть просьбу может только звонок живого агента (actorKind=AGENT) —

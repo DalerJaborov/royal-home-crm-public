@@ -71,11 +71,21 @@ export function createReelsAutoBoostRouter(guards: { read: Guard; write: Guard }
     const patch = parsed.data;
     const current = await loadReelsAutoBoostSettings();
     const next = { ...current, ...patch };
+    // Боевой режим тратит реальные деньги Meta: включить его, сменить группу
+    // объявлений или поднять потолки может только директор (аудит прав М4,
+    // 16.11.2026). Пробный режим и «выключить» маркетологу остаются.
+    const touchesLive =
+      (next.enabled && !next.dryRun) &&
+      (patch.enabled !== undefined || patch.dryRun !== undefined || patch.adSetId !== undefined ||
+        patch.maxActive !== undefined || patch.stopLossSpendUsd !== undefined);
     // Боевой режим без группы объявлений ничего не сделает, а владелец решит, что всё работает.
     if (next.enabled && !next.dryRun && !next.adSetId) {
       return res.status(400).json({
         error: "Для боевого режима укажите номер группы объявлений постоянной кампании (создаётся в Ads Manager)",
       });
+    }
+    if (touchesLive && !req.agent?.permissions.has("finance.manage")) {
+      return res.status(403).json({ error: "Боевой режим автопродвижения включает только директор" });
     }
     await prisma.settings.update({
       where: { id: "singleton" },

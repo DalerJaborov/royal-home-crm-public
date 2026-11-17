@@ -154,30 +154,21 @@ describe("createInboundContextsAlarm: в журнал попадает толь�
   });
 });
 
-describe("refreshInboundContexts: отказ базы не выключает приём входящих", () => {
+describe("refreshInboundContexts: список из кода, база не читается (с 01.11.2026)", () => {
   beforeEach(() => {
     vi.mocked(logSystemError).mockClear();
     findUnique.mockReset();
-    updateMany.mockReset();
-    updateMany.mockResolvedValue({ count: 0 });
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    findUnique.mockRejectedValue(new Error("Can't reach database server"));
   });
 
   afterEach(() => {
     setInboundContextsForTest(null);
-    vi.restoreAllMocks();
   });
 
-  it("одна сорвавшаяся попытка: список прежний, журнал пуст, в консоли причина", async () => {
-    setInboundContextsForTest(["from-trunk-sip-out"]);
-    findUnique.mockRejectedValue(new Error("Can't reach database server"));
-
+  it("отказ базы не влияет: настройки не читаются, тревоги нет", async () => {
     await refreshInboundContexts();
 
-    // Список НЕ обнулён: обнуление выключило бы приём входящих.
-    expect(isInboundContext("from-trunk-sip-out")).toBe(true);
+    expect(findUnique).not.toHaveBeenCalled();
     expect(logSystemError).not.toHaveBeenCalled();
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("список входящих контекстов не прочитан"));
   });
 });

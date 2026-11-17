@@ -104,16 +104,17 @@ describe("Perceived media stays in the common customer brain", () => {
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result).toMatchObject({ status: "ready", rounds: 1 });
     if (result.status !== "ready") throw Error("Expected media response");
-    expect(result.text).toContain("кухня"); expect(result.text).not.toContain("недоступно");
+    // 16.11.2026 (audit): the list of what is seen («кухня, окна») is not shown to the customer; a short thank-you is.
+    expect(result.text).toContain("Спасибо, фото получил."); expect(result.text).not.toContain("недоступно");
     expect(JSON.stringify(f.modelTurn.mock.calls[0][0].contents)).toContain("untrustedCustomerMedia");
     expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });
-  it.each(["ru", "tg"] as const)("asks for a new recording only after actual %s speech was unintelligible", async language => {
+  it.each(["ru", "tg"] as const)("asks the business question only after actual %s speech was unintelligible", async language => {
     const f = fixture({ inputText: "", language, requestedFacts: [], mediaPerception: { ...visual, language, subject: "not_visible", visible: [], speech: "unintelligible" } });
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result).toMatchObject({ status: "ready", rounds: 0 });
     if (result.status !== "ready") throw Error("Expected honest media repair");
-    expect(result.text).toContain(language === "ru" ? "голосовое ещё раз" : "овозиро бори дигар");
+    expect(result.text).toContain(language === "ru" ? "покупка или продажа" : "харид ё фурӯши");
     expect(result.text).not.toMatch(/текстом|сотрудник|передал|992/iu);
     expect(f.modelTurn).not.toHaveBeenCalled();
   });
@@ -134,7 +135,8 @@ describe("Customer attachment-only turns", () => {
     const result = await runCustomerAgentTurn({ ...f.frame, attachmentInput: { kinds: [kind] } }, f.ports);
     expect(result).toMatchObject({ status: "ready", question: "clarify_previous", rounds: 0, toolCalls: 0 });
     if (result.status !== "ready") throw Error("Attachment should get a normal clarification");
-    expect(result.text).toContain("?");
+    // The unopenable-file line is a plain request to write the question in text (no question mark by design, 30.10.2026).
+    if (kind !== "unknown") expect(result.text).toContain("?");
     expect(result.text).not.toMatch(/992|сотрудник|передал|записал|увидел|вижу|прослушал|ссылка не открылась/iu);
     expect(f.modelTurn).not.toHaveBeenCalled(); expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });
@@ -293,7 +295,9 @@ describe("CustomerAgentCore private canonical public-read extension", () => {
   it.each(["commission", "rental", "payment", "negotiation"] as const)("%s is a useful actual-source answer without mutation or a phone request", async topic => {
     const knowledge = readCustomerAgentCompanyKnowledge();
     const f = fixture({ requestedFacts: [], tools: [{ name: "get_company_policy", description: "Read approved public company policy" }] });
-    const frame = { ...f.frame, revision: { ...f.frame.revision, knowledgeSourceHash: customerAgentCompanyKnowledgeHash(knowledge) } };
+    // 16.11.2026: the rental refusal answers only a customer who speaks about rent (audit: «Тобеи марказ намешавад» got it).
+    const frame = { ...f.frame, ...(topic === "rental" ? { inputText: "Вы сдаёте квартиры в аренду?" } : {}),
+      revision: { ...f.frame.revision, knowledgeSourceHash: customerAgentCompanyKnowledgeHash(knowledge) } };
     f.modelTurn.mockResolvedValueOnce({ text: "", calls: [{ name: "get_company_policy", args: { topic }, id: "policy-1" }],
       modelParts: [{ functionCall: { name: "get_company_policy", args: { topic }, id: "policy-1" } }] })
       .mockResolvedValueOnce(final({ refs: ["e0"], question: topic === "commission" ? "role" : "none" }));
@@ -354,7 +358,7 @@ describe("CustomerAgentCore draft positive obligations", () => {
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result.status).toBe("ready");
     if (result.status !== "ready") throw new Error("Expected TG response");
-    expect(result.text).toContain("сомонӣ"); expect(result.text).toContain("чанд ҳуҷра");
+    expect(result.text).toContain("сомонӣ"); expect(result.text).toContain("Чанд ҳуҷра");
     expect(result.text.match(/[?？]/gu)).toHaveLength(1);
   });
   it("preserves original model parts/signature and matching call id in order", async () => {
@@ -383,7 +387,7 @@ describe("CustomerAgentCore draft positive obligations", () => {
       .mockResolvedValueOnce(final({ refs: ["e0"] }));
     f.executeAllowedTool.mockResolvedValue({ status: "observed", observation: { kind: "receipt", outcome: "callback_requested" } });
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан." });
+    expect(result).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял." });
     expect(f.executeAllowedTool).toHaveBeenCalledTimes(1);
   });
 });
@@ -613,7 +617,7 @@ describe("A committed write never ends in silence, and the loop recovers from fi
     const f = withCallback(); committed(f);
     f.modelTurn.mockResolvedValueOnce(readFacts("r1", ["price"])).mockResolvedValueOnce(readFacts("r2", ["address"])).mockResolvedValueOnce(callback);
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", rounds: 3, fallbackReason: "receipt_confirmation", fallbackCause: "round_limit",
+    expect(result).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", rounds: 3, fallbackReason: "receipt_confirmation", fallbackCause: "round_limit",
       decision: { kind: "reply" } });
     expect(callsOf(f, "request_callback")).toBe(1);
     expect(f.modelTurn).toHaveBeenCalledTimes(3);
@@ -627,7 +631,7 @@ describe("A committed write never ends in silence, and the loop recovers from fi
     f.modelTurn.mockResolvedValueOnce(callback);
     for (const step of script) f.modelTurn.mockResolvedValueOnce(step);
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", fallbackReason: "receipt_confirmation", fallbackCause: cause });
+    expect(result).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", fallbackReason: "receipt_confirmation", fallbackCause: cause });
     expect(callsOf(f, "request_callback")).toBe(1);
   });
   it("returns only the final validated closed decision metadata when a surface decision is denied", async () => {
@@ -643,7 +647,7 @@ describe("A committed write never ends in silence, and the loop recovers from fi
     const f = withCallback(); committed(f);
     f.modelTurn.mockResolvedValueOnce(callback).mockRejectedValueOnce(new TypeError("provider failed"));
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", rounds: 1,
+    expect(result).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", rounds: 1,
       toolCalls: 1, fallbackReason: "receipt_confirmation", fallbackCause: "TypeError" });
     expect(callsOf(f, "request_callback")).toBe(1);
     expect(f.modelTurn).toHaveBeenCalledTimes(2);
@@ -678,13 +682,13 @@ describe("A committed write never ends in silence, and the loop recovers from fi
   it("write, then an over-long final: confirmed from the receipt (output_limit)", async () => {
     const f = withCallback(); committed(f);
     f.modelTurn.mockResolvedValueOnce(callback).mockResolvedValueOnce(plain("x".repeat(2500)));
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", fallbackCause: "output_limit" });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", fallbackCause: "output_limit" });
   });
   it("a correction round can never repeat the committed write", async () => {
     const f = withCallback(); committed(f);
     f.modelTurn.mockResolvedValueOnce(callback).mockResolvedValueOnce(plain("oops"))
       .mockResolvedValueOnce(toolTurn([{ name: "request_callback", args: { topic: "ещё раз" }, id: "cb2" }]));
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", fallbackCause: "repeated_effect_denied" });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", fallbackCause: "repeated_effect_denied" });
     expect(callsOf(f, "request_callback")).toBe(1);
   });
   it("an unsettled (unknown) write is never turned into a confirmation", async () => {
@@ -781,4 +785,137 @@ it("public comments get no correction round: a malformed final stays one model r
   const unknown = fixture({ surface: "public_comment", requestedFacts: [] });
   unknown.modelTurn.mockResolvedValue(toolTurn([{ name: "delete_client", args: {}, id: "pub-1" }]));
   expect(await runCustomerAgentTurn(unknown.frame, unknown.ports)).toMatchObject({ status: "held", reason: "unavailable_tool", rounds: 1 });
+});
+
+describe("grounded free phrase (say): lifted before the strict parse, shadow by default (24.10)", () => {
+  const PRICE = "Цена объекта №123: 123 456.78 сомони.";
+  const GOOD = "Понял, вас интересует этот объект.";
+  const run = async (change: Record<string, unknown>, frame: Partial<CustomerCoreFrame> = {}) => {
+    const f = fixture(frame);
+    f.modelTurn.mockResolvedValue(final({ refs: ["e0"], ...change }));
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    if (result.status !== "ready") throw Error(`Expected a ready answer, got ${result.status} ${result.status === "held" ? result.reason : ""}`);
+    return { f, result };
+  };
+  it("shadow (the default): a valid phrase is counted as dropped with the code shadow and never sent", async () => {
+    const { result, f } = await run({ social: "acknowledge", say: GOOD });
+    expect(result.text).toBe(`Понял.\n${PRICE}`);
+    expect(result.say).toEqual({ status: "dropped", reason: "shadow" });
+    expect(result.decision).not.toHaveProperty("say");
+    expect(f.modelTurn).toHaveBeenCalledTimes(1);
+  });
+  it("shadow explicitly set behaves the same", async () => {
+    const { result } = await run({ say: GOOD }, { sayMode: "shadow" });
+    expect(result.text).toBe(PRICE); expect(result.say).toEqual({ status: "dropped", reason: "shadow" });
+  });
+  it("live: the phrase replaces «Понял.», and only the validated text reaches the decision", async () => {
+    const { result } = await run({ social: "acknowledge", say: `  ${GOOD}  ` }, { sayMode: "live" });
+    expect(result.text).toBe(`${GOOD}\n${PRICE}`);
+    expect(result.say).toEqual({ status: "used" });
+    expect(result.decision).toMatchObject({ kind: "reply", say: GOOD });
+  });
+  it("live: greeting first, the single template question last", async () => {
+    const { result } = await run({ social: "greet", question: "location", say: "Давайте разберёмся вместе." }, { sayMode: "live" });
+    expect(result.text.split("\n")).toEqual(["Здравствуйте!", "Давайте разберёмся вместе.", PRICE, "Какой район вам подходит?"]);
+    expect(result.question).toBe("location");
+  });
+  it.each([["a number", "Это стоит пять тысяч."], ["a promise", "Мы вам позвоним."], ["a question", "Какой район вам нужен?"], ["too long", "Понял вас. ".repeat(30)],
+    ["not a string", 42], ["an empty string", ""]])("live: a bad phrase (%s) never costs the answer, a round or a correction", async (_name, say) => {
+    const { result, f } = await run({ social: "acknowledge", say }, { sayMode: "live" });
+    expect(result.text).toBe(`Понял.\n${PRICE}`);
+    expect(result.say?.status).toBe("dropped");
+    expect(result.decision).not.toHaveProperty("say");
+    expect(result.rounds).toBe(1);
+    expect(f.modelTurn).toHaveBeenCalledTimes(1);
+  });
+  it("reports the validator's reason code", async () => {
+    expect((await run({ say: "Это стоит пять тысяч." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "number_or_date" });
+    expect((await run({ say: "Мы вам позвоним." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "promise" });
+  });
+  it("Tajik is off in v1: language_disabled, and the Tajik template answer goes out as before", async () => {
+    const { result } = await run({ say: "Ташаккур, ки навиштед." }, { sayMode: "live", language: "tg", inputText: "Нархи объекти 123 чанд?" });
+    expect(result.say).toEqual({ status: "dropped", reason: "language_disabled" });
+    expect(result.text).not.toContain("Ташаккур, ки навиштед");
+  });
+  it("public comments never carry a phrase", async () => {
+    const { result } = await run({ say: GOOD }, { sayMode: "live", surface: "public_comment" });
+    expect(result.say).toEqual({ status: "dropped", reason: "surface_disabled" });
+    expect(result.text).not.toContain("Понял, вас");
+  });
+  it("a phrase beside skip or escalate is ignored without a protocol error", async () => {
+    const f = fixture({ requestedFacts: [] });
+    f.modelTurn.mockResolvedValue({ text: JSON.stringify({ kind: "escalate", reason: "needs_staff", say: GOOD }), calls: [], modelParts: [] });
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "ready", decision: { kind: "escalate" }, rounds: 1 });
+    if (result.status === "ready") expect(result.say ?? { status: "absent" }).toEqual({ status: "absent" });
+  });
+  it("no phrase means absent", async () => {
+    const { result } = await run({ social: "acknowledge" }, { sayMode: "live" });
+    expect(result.say ?? { status: "absent" }).toEqual({ status: "absent" });
+    expect(result.text).toBe(`Понял.\n${PRICE}`);
+  });
+  it("an invalid decision with a phrase is still corrected as a decision problem, the phrase never rescues it", async () => {
+    const f = fixture({ sayMode: "live" });
+    f.modelTurn.mockResolvedValueOnce(final({ refs: ["e0"], kind: "nonsense", say: GOOD })).mockResolvedValueOnce(final({ refs: ["e0"], say: GOOD }));
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "ready", rounds: 2, say: { status: "used" } });
+  });
+  const modelText = (f: ReturnType<typeof fixture>) => f.modelTurn.mock.calls[0][0].contents.flatMap(content => content.parts.map(part => (part as { text?: string }).text ?? "")).join("\n");
+  it("tells the model the reply language: beside the surface with a context, as its own part without one", async () => {
+    const withContext = fixture({ language: "tg", verifiedContext: { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
+    await runCustomerAgentTurn(withContext.frame, withContext.ports);
+    expect(modelText(withContext)).toContain('"replyLanguage":"tg"');
+    const without = fixture({ language: "ru" });
+    await runCustomerAgentTurn(without.frame, without.ports);
+    expect(modelText(without)).toContain('"replyLanguage":"ru"');
+  });
+  it("sends the say rules to the model in the private-message context only, and not in the pinned system prompt", async () => {
+    const dm = fixture({ verifiedContext: { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
+    await runCustomerAgentTurn(dm.frame, dm.ports);
+    expect(modelText(dm)).toContain("sayGuidance");
+    const noContext = fixture();
+    await runCustomerAgentTurn(noContext.frame, noContext.ports);
+    expect(modelText(noContext)).toContain("sayGuidance");
+    const publicTurn = fixture({ surface: "public_comment", verifiedContext: { surface: "public_comment", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
+    await runCustomerAgentTurn(publicTurn.frame, publicTurn.ports);
+    expect(modelText(publicTurn)).not.toContain("sayGuidance");
+  });
+  it("does not ask for a say phrase while its reply language is switched off: Tajik gets no sayGuidance, Russian does", async () => {
+    const dmContext = { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } as const;
+    const tajik = fixture({ language: "tg", verifiedContext: dmContext });
+    await runCustomerAgentTurn(tajik.frame, tajik.ports);
+    expect(modelText(tajik)).toContain('"replyLanguage":"tg"');
+    expect(modelText(tajik)).not.toContain("sayGuidance");
+    const russian = fixture({ language: "ru", verifiedContext: dmContext });
+    await runCustomerAgentTurn(russian.frame, russian.ports);
+    expect(modelText(russian)).toContain("sayGuidance");
+  });
+  it("delivery sealing re-renders the identical text from the stored decision (the print matches)", async () => {
+    const { renderCustomerAgentDecision } = await import("../src/ai/customerAgentRenderer.js");
+    const { result, f } = await run({ social: "greet", question: "location", say: GOOD }, { sayMode: "live" });
+    const again = renderCustomerAgentDecision({ decision: result.decision, evidence: result.evidence, language: "ru", requestedFacts: f.frame.requestedFacts,
+      knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", inputText: f.frame.inputText });
+    expect(again).toBe(result.text);
+    expect(customerAgentDecisionSchema.parse(result.decision)).toMatchObject({ say: GOOD });
+  });
+});
+
+// Review #206 В4 (16.11.2026): the core and the delivery seal render with the same inputs. An ad-button text together with a
+// forwarded post used to give «what are you interested in» in the core and «which object» at the seal → render_changed → silence.
+describe("core text equals the sealed re-render when an attachment comes with the ad button", () => {
+  it.each([[{ kinds: ["share"] }], [undefined]] as const)("attachment %j", async attachmentInput => {
+    const { customerAgentVerifiedContextSchema: schema } = await import("@royal-home/shared");
+    const { renderCustomerAgentDecision } = await import("../src/ai/customerAgentRenderer.js");
+    const verifiedContext = schema.parse({ surface: "dm", revisionId: hash, turns: [], publicState: { language: "unknown", topic: "unknown", openQuestion: "none" } });
+    const f = fixture({ inputText: "Привет! Можно узнать об этом подробнее?", requestedFacts: [], verifiedContext,
+      ...(attachmentInput ? { attachmentInput: attachmentInput as never } : {}) });
+    f.modelTurn.mockResolvedValue(final({ kind: "clarify", question: "property" }));
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    if (result.status !== "ready") return; // an attachment-only branch may hold; the point is no divergence when it answers
+    const sealed = renderCustomerAgentDecision({ decision: result.decision, evidence: result.evidence, inputText: f.frame.inputText,
+      language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", knowledgeSourceHash: hash,
+      verifiedContext, ...(attachmentInput ? { attachmentInput: attachmentInput as never } : {}) });
+    expect(sealed).toBe(result.text);
+    if (!attachmentInput) expect(result.text).toContain("купить, продать недвижимость или работа у нас");
+  });
 });

@@ -1,4 +1,5 @@
 import { prisma } from "../../db.js";
+import { LIVE_VOICE_INBOUND_WAIT_SECONDS } from "@royal-home/shared";
 import { logSystemError } from "../systemError.js";
 import { amiDbGet, amiDbPut, loadAmiCredentials, type AmiCredentials } from "./amiClient.js";
 import { configuredRtpHost } from "./liveVoiceRtpConfig.js";
@@ -154,7 +155,6 @@ export async function loadFailoverConfig(): Promise<FailoverConfig> {
       incomingPrimaryExtension: true,
       liveVoiceEnabled: true,
       liveVoiceInboundMode: true,
-      liveVoiceInboundWaitSeconds: true,
       workHoursStart: true,
       workHoursEnd: true,
     },
@@ -197,7 +197,8 @@ export async function loadFailoverConfig(): Promise<FailoverConfig> {
     nightEnd: settings?.incomingNightEnd ?? "09:00",
     target,
     aiMode: consultant.stationMode,
-    aiSeconds: settings?.liveVoiceInboundWaitSeconds ?? 30,
+    // Константа с 01.11.2026 (packages/shared), колонка не читается.
+    aiSeconds: LIVE_VOICE_INBOUND_WAIT_SECONDS,
     aiDayStart: settings?.workHoursStart ?? "09:30",
     aiDayEnd: settings?.workHoursEnd ?? "18:00",
   };

@@ -24,8 +24,23 @@ const resolveGeminiKey = vi.fn();
 const callGemini = vi.fn();
 const callGeminiTools = vi.fn();
 vi.mock("../src/ai/geminiClient.js", () => ({ resolveGeminiKey, callGemini, callGeminiTools }));
+// Ключи и модели помощник берёт одним кэшированным чтением (ai/assistant/runtime.ts),
+// а не через resolveGeminiKey — подменяем источник.
+vi.mock("../src/ai/geminiSettings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/geminiSettings.js")>()),
+  resolveGeminiRuntime: async () => ({
+    keys: ["fake-gemini-key"],
+    model: "gemini-test",
+    fallbackModels: [],
+    transcribeModels: [],
+    imageModel: "unused",
+    liteModel: "",
+    explicitCaching: false,
+  }),
+}));
 
 const { prisma } = await import("../src/db.js");
+const { waitForCount, waitForSettled } = await import("./helpers/waitFor.js");
 const { runTool, runAssistant } = await import("../src/ai/assistant.js");
 const { dushanbeWallClock } = await import("../src/lib/dushanbeTime.js");
 
@@ -243,6 +258,31 @@ describe("get_finance_summary — только ADMIN/DIRECTOR (finance.view)", (
     expect(after.expensesTJS - before.expensesTJS).toBe(200);
     expect(after.dealsCompleted - before.dealsCompleted).toBe(1);
   });
+
+  it("прибыль помощницы = прибыль экрана «Финансы» на одной базе, с зарплатой из сделок", async () => {
+    // Одна дверь (10.11.2026): своя копия арифметики вычитала строку «Зарплата из сделок»
+    // из доли компании второй раз; экран её не вычитает — доля риелтора уже вне дохода компании.
+    const monthKey = dushanbeWallClock().toISOString().slice(0, 7);
+    const salary = await prisma.expense.create({
+      data: { category: "SALARY", amount: 1500, currency: "TJS", agentId: agentAId, autoKey: `salary:${runId}:${monthKey}`,
+        note: "Зарплата из сделок", month: new Date(`${monthKey}-01T00:00:00.000Z`) },
+    });
+    expenseIds.push(salary.id);
+    const { default: request } = await import("supertest");
+    const { app } = await import("../src/app.js");
+    const { signAccessToken } = await import("../src/auth/jwt.js");
+    const screen = await request(app).get(`/api/v1/expenses/summary?months=1&through=${monthKey}`)
+      .set("Authorization", `Bearer ${signAccessToken({ sub: directorId, role: "DIRECTOR" })}`);
+    expect(screen.status).toBe(200);
+    const shown = screen.body.months[0] as { profit: number; companyRevenue: number; totalExpenses: number; revenue: number };
+    const assistant = (await runTool("get_finance_summary", { month: monthKey }, actorDirector())) as {
+      profitTJS: number; companyRevenueTJS: number; expensesTJS: number; revenueTJS: number;
+    };
+    expect(assistant.profitTJS).toBe(shown.profit);
+    expect(assistant.companyRevenueTJS).toBe(shown.companyRevenue);
+    expect(assistant.expensesTJS).toBe(shown.totalExpenses);
+    expect(assistant.revenueTJS).toBe(shown.revenue);
+  });
 });
 
 describe("get_lead_sources — то же право, что REST /reports/sources (reports.view)", () => {
@@ -274,11 +314,8 @@ describe("AiAssistantAuditLog — одна точка записи на все �
     resolveGeminiKey.mockReset();
     callGemini.mockReset();
     callGeminiTools.mockReset();
-    resolveGeminiKey.mockResolvedValue("fake-gemini-key");
-    // Классификатор (COMPLEX/SIMPLE/OFF_TOPIC) — ходит через callGemini отдельно от
-    // цикла инструментов.
-    callGemini.mockResolvedValue({ tier: "SIMPLE" });
-    // Первый ход: модель просит search_clients. Второй ход (после результата
+    // Классификатора больше нет (31.10.2026, пачка П1 задача 1.3) — callGemini
+    // помощник не зовёт вовсе. Первый ход: модель просит search_clients. Второй ход (после результата
     // инструмента): модель отвечает текстом, инструментов больше не просит.
     callGeminiTools
       .mockResolvedValueOnce({
@@ -289,14 +326,23 @@ describe("AiAssistantAuditLog — одна точка записи на все �
       })
       .mockResolvedValueOnce({ text: "Готово.", calls: [], modelParts: [{ text: "Готово." }], tokens: 5 });
 
-    const before = await prisma.aiAssistantAuditLog.count({ where: { agentId: agentAId } });
+    const countRows = () => prisma.aiAssistantAuditLog.count({ where: { agentId: agentAId } });
+    const before = await waitForSettled(countRows);
     const reply = await runAssistant([{ role: "user", content: "Найди клиентов" }], actorAgent());
     expect(reply).toBe("Готово.");
+    expect(callGemini).not.toHaveBeenCalled();
 
-    const rows = await prisma.aiAssistantAuditLog.findMany({ where: { agentId: agentAId } });
-    expect(rows.length - before).toBe(1);
+    // Журнал пишется «в отрыве» (задача 1.4: не на критическом пути) — ждём строку,
+    // а не читаем сразу. Потом убеждаемся, что лишних не прилетело.
+    await waitForCount(countRows, before + 1);
+    expect((await waitForSettled(countRows)) - before).toBe(1);
+    const rows = await prisma.aiAssistantAuditLog.findMany({ where: { agentId: agentAId }, orderBy: { createdAt: "asc" } });
     const last = rows[rows.length - 1];
     expect(last.tool).toBe("search_clients");
-    expect(last.argsSummary).toContain(String(runId));
+    // Строка поиска в журнале — под маской телефона (ревью П3, п.8): длинный ряд цифр
+    // похож на номер, поэтому виден только хвост; сам вызов при этом опознаётся.
+    expect(last.argsSummary).toContain('"q"');
+    expect(last.argsSummary).toContain(String(runId).slice(-2));
+    expect(last.argsSummary).not.toContain(String(runId));
   });
 });

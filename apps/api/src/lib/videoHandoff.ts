@@ -30,6 +30,7 @@
  * файл плеером вместо загрузки).
  */
 import fs from "node:fs";
+import { clampClipOwnerHours, clipOwnerDueOrNull, isClipOwnerMode } from "./clipOwnerDue.js";
 import { rawVideoPublicationMarks } from "./publishedRawVideoRetention.js";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -71,11 +72,15 @@ import {
 } from "../jobs/tiktokPublishRetryPolicy.js";
 import { nextPublishSlot } from "./publishSchedule.js";
 import { loadOccupiedPublishSlots } from "./publishSlots.js";
-import { updatePublishedMarks } from "./publishedMarks.js";
+import { updatePublishedMarks, type PublishedMarks } from "./publishedMarks.js";
+import { stageLatePublishedPriceCaption } from "./priceCaptionDelivery.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
 import { PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
 import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
+import { dropNarrationMaster, mixFromStoredMaster, planCrmMixOnReceive, storeNarrationMaster } from "./narrationMaster.js";
+import { narrationLineForMontajer } from "./narrationMontajerNote.js";
+import { propertyOwnerAgentId } from "./propertyOwner.js";
 
 /**
  * ЗАДАНИЕ «ПУБЛИКАЦИЯ ПРИНЯТОГО РОЛИКА» (21.09.2026, случай №114) — тип,
@@ -278,7 +283,7 @@ export async function buildMontajerMessageText(
   propertyId: string,
   remake?: RemakeMessageContext | null
 ): Promise<string> {
-  const [facts, property, silentVideos] = await Promise.all([
+  const [facts, property, silentVideos, narrationLine] = await Promise.all([
     propertyFactsForMontajer(propertyId),
     prisma.property.findUnique({
       where: { id: propertyId },
@@ -289,6 +294,8 @@ export async function buildMontajerMessageText(
       select: { filename: true },
       orderBy: { uploadedAt: "asc" },
     }),
+    // Что делать с голосом (12.11.2026): одна строка из lib/narrationMontajerNote.ts.
+    narrationLineForMontajer(propertyId).catch(() => null),
   ]);
   if (!facts) return "";
 
@@ -301,7 +308,7 @@ export async function buildMontajerMessageText(
 
   if (!remake) {
     const queueLine = await queueStatusLine(propertyId);
-    return `${facts}${queueLine}${silentNote ? `\n\n${silentNote}` : ""}`;
+    return `${facts}${queueLine}${narrationLine ? `\n\n${narrationLine}` : ""}${silentNote ? `\n\n${silentNote}` : ""}`;
   }
 
   const lines = [
@@ -315,6 +322,8 @@ export async function buildMontajerMessageText(
       lines.push("", "Что изменилось в карточке:", ...diff.map((d) => `• ${d}`));
     }
   }
+  // Что делать с голосом (12.11.2026): «без озвучки», вклеить mp3 и сдать два файла, или голос кладёт CRM.
+  if (narrationLine) lines.push("", narrationLine);
   lines.push("", facts);
   if (silentNote) lines.push("", silentNote);
   return lines.join("\n");
@@ -609,9 +618,13 @@ async function seatFromQueue(tx: TxClient, propertyId: string): Promise<void> {
  */
 export async function withPropertyLock<T>(propertyId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
   return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${propertyId})::bigint)`;
+    await lockPropertyInTransaction(tx, propertyId);
     return fn(tx);
   });
+}
+
+export async function lockPropertyInTransaction(tx: TxClient, propertyId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${propertyId})::bigint)`;
 }
 
 /**
@@ -643,6 +656,20 @@ async function applyQueueTransition(
   placement: QueuePlacement
 ): Promise<string | null> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${HANDOFF_QUEUE_LOCK_ID}::bigint)`;
+  /**
+   * УДАЛЁННЫЙ ОБЪЕКТ В ОЧЕРЕДЬ НЕ ВСТАЁТ (11.11.2026, хвост объекта №194). Корзина
+   * гасит монтаж (closeTrashedPropertyWorkSatellites → closeVideoHandoff), но
+   * постановка, пришедшая ПОСЛЕ этого (одобрение из открытой вкладки, перемонтаж,
+   * повтор задания), здесь удаление не проверяла и снова ставила объект
+   * QUEUED/SENT_TO_EDITOR — спутник удалённого родителя, которого не гасит уже
+   * никто. Под тем же замком очереди, что и закрытие: либо закрытие увидит нашу
+   * постановку и снимет её, либо мы увидим deletedAt и ничего не тронем.
+   */
+  const alive = await tx.property.findFirst({ where: { id: propertyId, deletedAt: null }, select: { id: true } });
+  if (!alive) {
+    void logSystemError("video-handoff", `Объект ${propertyId} удалён — на монтаж не ставлю`);
+    return null;
+  }
   // Очередь на паузе — одобрение ставит объект в очередь, а не монтажёру
   // (24.09.2026): иначе пауза держала бы только освобождение места, а новое
   // одобрение при свободном месте всё равно уезжало бы сразу.
@@ -1076,7 +1103,7 @@ function isTelegramRateLimitError(err: unknown): boolean {
  * копировался в Blob — api (лимит 768 МБ) убило OOM через 8 секунд после
  * одобрения. Статус остался SENT_TO_EDITOR, ни строки в журнале, монтажёр ничего
  * не получил, а очередь «строго по одному» держала все следующие объекты в QUEUED
- * до ручной отмены утром. Теперь файл идёт потоком (`fs.openAsBlob`), а если
+ * до ручной отмены утром. Теперь локальный Bot API читает файл с диска, а если
  * процесс всё же умрёт посреди отправки — `deliveredAt` останется пустым и сторож
  * lib/videoHandoffRedelivery.ts дошлёт с нарастающей паузой.
  *
@@ -1548,13 +1575,11 @@ async function deliverSourceVideos(
           );
         }
       }
-      // ПОТОКОМ С ДИСКА, не readFile: Buffer 480 МБ + его копия в Blob убили api
-      // по OOM (объект №121, 22.09.2026). openAsBlob читает файл по мере отправки.
-      const file = await fs.openAsBlob(filePath);
+      // Передаём путь: локальный Bot API загрузит файл сам, без multipart в CRM.
       try {
         const sent = await sendDocumentFile(
           chatId,
-          file,
+          { path: filePath },
           montajerFileName(property.shortId, index, total, video.filename),
           head,
           sendTimeoutForBytes(stat.size)
@@ -1714,7 +1739,7 @@ export async function applySucceededPublishResults(
    * бы пять раз уведомить агента и пять раз синхронизировать сайт. Выход
    * делает `finalizePropertyAvailability` ниже, ровно один раз за публикацию.
    */
-  options?: { finalize?: boolean }
+  options?: { finalize?: boolean; publishedPrice?: { price: number; currency: string } }
 ): Promise<{ instagramUrl: string | null; wentAvailable: boolean; blockers: string[] }> {
   if (succeeded.length === 0) return { instagramUrl: null, wentAvailable: false, blockers: [] };
 
@@ -1735,7 +1760,7 @@ export async function applySucceededPublishResults(
   // PUB07): прежнее «прочитать, посчитать, записать целиком» теряло id, который
   // параллельная публикация (другой канал, отложенный контейнер, сверка) сохранила
   // между чтением и записью.
-  await updatePublishedMarks(propertyId, (current) => {
+  const mergeMarks = (current: PublishedMarks) => {
     const newPostIds = { ...current.postIds, ...rawVideoPublicationMarks(current.postIds, succeeded, property.videoHandoffFinalPath) };
     for (const r of succeeded) {
       if (r.postId) newPostIds[r.channel] = r.postId;
@@ -1749,7 +1774,21 @@ export async function applySucceededPublishResults(
       postIds: newPostIds,
       ...(igPermalink ? { data: { instagramUrl: igPermalink } } : {}),
     };
-  });
+  };
+  const publishedPrice = options?.publishedPrice;
+  if (publishedPrice) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
+      const fresh = await tx.property.findUnique({ where: { id: propertyId }, select: { deletedAt: true } });
+      if (!fresh || fresh.deletedAt) return;
+      const marks = await updatePublishedMarks(propertyId, mergeMarks, tx);
+      if (marks.applied) {
+        await stageLatePublishedPriceCaption(tx, propertyId, succeeded.map((result) => result.channel), publishedPrice);
+      }
+    });
+  } else {
+    await updatePublishedMarks(propertyId, mergeMarks);
+  }
   requestPultSnapshot(); // пульт: ролик ушёл в соцсеть
   const updated = await prisma.property.findUniqueOrThrow({
     where: { id: propertyId },
@@ -1899,6 +1938,8 @@ export type ReceiveEditedVideoResult =
       /** Ролик ушёл на проверку модератору (Settings.clipReviewEnabled,
        *  25.09.2026): слота нет, публикация встанет после «Одобрить». */
       clipReviewPending?: boolean;
+      /** Пришёл ролик без голоса: CRM сама наложила озвучку этой версии (11.11.2026). */
+      narrationMixedRevision?: number;
     }
   | { ok: false; error: string };
 
@@ -1980,7 +2021,7 @@ const AUTO_PUBLISH_CHANNELS = ["INSTAGRAM", "FACEBOOK", "TELEGRAM", "YOUTUBE", "
  * каналы, задание — статус объекта), только сказанные человеку сразу, при
  * загрузке, а не пустым пушем «опубликован. Ушло: —» часами позже.
  */
-async function handoffNotPublishingReason(property: { status: string; publishedChannels: string[] | null }): Promise<string | null> {
+async function handoffNotPublishingReason(property: { id: string; status: string; publishedChannels: string[] | null }): Promise<string | null> {
   if (handoffStatusBlockReason(property.status)) {
     return "Объект снят с продажи, продан или забронирован — в сети ролик сам не уйдёт. Файл сохранён: он пригодится, когда объект вернётся в продажу.";
   }
@@ -1990,6 +2031,15 @@ async function handoffNotPublishingReason(property: { status: string; publishedC
   }
   const published = new Set(property.publishedChannels ?? []);
   if (AUTO_PUBLISH_CHANNELS.every((c) => published.has(c))) {
+    // Перемонтаж по новой цене/данным (владелец 30.10.2026): старые посты снимет само
+    // задание публикации перед выходом нового ролика (replaceOldPostsBeforeRemakePublish).
+    // Без этого исключения одобренный перемонтаж отказывал здесь и до снятия не доходил
+    // (01.11.2026, №164: «Одобрено, но в сети ролик сам не уйдёт»).
+    const pendingReplace = await prisma.videoRemakeRequest.findFirst({
+      where: { propertyId: property.id, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null },
+      select: { id: true },
+    });
+    if (pendingReplace) return null;
     return "Объект уже вышел во всех пяти сетях со старым роликом — новый туда сам не уйдёт. Чтобы заменить, сначала «Убрать из соцсетей».";
   }
   return null;
@@ -2054,7 +2104,14 @@ async function finishReceivingVideo(
   // receiveEditedVideo и receiveEditedVideoFromFile — сначала пишут его), но
   // статус объекта ЕЩЁ НЕ ТРОНУТ — отказ здесь не меняет ничего в базе, объект
   // остаётся SENT_TO_EDITOR и монтажёр присылает ролик заново.
-  const check = await checkEditedClip(destPath, propertyId, property.shortId);
+  // РОЛИК БЕЗ ГОЛОСА (11.11.2026): монтажёру по этому объекту ушла озвучка с указанием
+  // «пришлите без голоса» — файл становится мастером, озвучку CRM накладывает сама ниже.
+  // Звуковой дорожки у мастера может не быть вовсе: голос её и даст.
+  const mixPlan = await planCrmMixOnReceive(propertyId).catch((err) => {
+    void logSystemError("video-handoff", `Объект №${property.shortId}: не удалось проверить, накладывает ли CRM озвучку: ${describeError(err)}`);
+    return { mode: "EDITOR_VOICE" as const };
+  });
+  const check = await checkEditedClip(destPath, propertyId, property.shortId, { allowSilent: mixPlan.mode === "CRM_MIX" });
   if (!check.ok) {
     await fs.promises.unlink(destPath).catch(() => {});
     void logSystemError("video-handoff", `Объект №${property.shortId}: ролик от монтажёра отклонён — ${check.error}`);
@@ -2074,15 +2131,56 @@ async function finishReceivingVideo(
     return { ok: false, error: "Прошлый ролик этого объекта прямо сейчас уходит в сети — подождите пару минут и пришлите новый." };
   }
 
+  // НАЛОЖЕНИЕ ОЗВУЧКИ (11.11.2026, lib/narrationMix.ts): присланный файл уходит мастером в
+  // закрытое хранилище, в сети идёт сведённый CRM ролик. Отказ — ролик не принят, объект
+  // ждёт, руководству строка в журнал: ffmpeg не вина монтажёра, но выпускать ролик без
+  // голоса нельзя.
+  let finalPublicPath = publicPath;
+  let finalDiskPath = destPath;
+  let master: { key: string; versionId: string; revision: number } | null = null;
+  if (mixPlan.mode === "CRM_MIX") {
+    let masterKey: string | null = null;
+    const mixedName = `${propertyId}-${Date.now() + 1}.mp4`;
+    const mixedPath = path.join(videoHandoffDir, mixedName);
+    try {
+      masterKey = await storeNarrationMaster(propertyId, destPath);
+      const mixed = await mixFromStoredMaster({ masterKey, voiceKey: mixPlan.version.storageKey, outPath: mixedPath });
+      if (!mixed.ok) throw new Error(mixed.error);
+    } catch (err) {
+      await fs.promises.unlink(destPath).catch(() => {});
+      await fs.promises.unlink(mixedPath).catch(() => {});
+      await dropNarrationMaster(masterKey);
+      const reason = describeError(err);
+      void logSystemError("video-handoff", `Объект №${property.shortId}: озвучка на ролик без голоса не наложена — ${reason}`);
+      return { ok: false, error: /длиннее ролика/u.test(reason)
+        ? `${reason} Пришлите ролик длиннее, без голоса.`
+        : "CRM не смогла наложить озвучку на ролик — руководство уже знает. Ролик не принят, объект ждёт." };
+    }
+    await fs.promises.unlink(destPath).catch(() => {});
+    finalPublicPath = `/uploads/handoff/${mixedName}`;
+    finalDiskPath = mixedPath;
+    master = { key: masterKey, versionId: mixPlan.version.id, revision: mixPlan.version.revision };
+  }
+  const previousMasterKey = property.videoMasterStorageKey;
+  const dropAcceptedFiles = async () => {
+    await fs.promises.unlink(finalDiskPath).catch(() => {});
+    if (master) await dropNarrationMaster(master.key);
+  };
+
   // ПРОВЕРКА ГОТОВОГО РОЛИКА МОДЕРАТОРОМ (25.09.2026, владелец: «ролики от
   // монтажёра пусть проходят модерацию в Telegram»). Включена — ролик принят,
   // но слот публикации не считается и задание не ставится, пока модератор не
   // нажмёт «Одобрить» (lib/clipReview.ts::approveClip → schedulePublishAfterAccept).
-  const clipReviewSettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { clipReviewEnabled: true } });
+  // С 11.11.2026 решения ждёт и ролик, который подтверждает хозяин объекта
+  // (Settings.clipOwnerApproveEnabled, lib/clipReview.ts) — тот же PENDING.
+  const clipReviewSettings = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { clipReviewEnabled: true, clipOwnerApproveEnabled: true, clipOwnerAutoPublishHours: true },
+  });
   // Ролик загрузил из CRM сам модератор (26.10.2026, владелец: «я загружаю ролик сам
   // из CRM, а мне в Telegram приходит модерация — зачем, если я сам добавил») —
   // загрузка и есть его решение: APPROVED на его имя, без рассылки на проверку.
-  const reviewOn = clipReviewSettings?.clipReviewEnabled ?? false;
+  const reviewOn = (clipReviewSettings?.clipReviewEnabled ?? false) || (clipReviewSettings?.clipOwnerApproveEnabled ?? false);
   const selfApprovedById = reviewOn ? (opts.approvedById ?? null) : null;
   const clipReview = reviewOn && !selfApprovedById;
 
@@ -2107,8 +2205,13 @@ async function finishReceivingVideo(
         where: { id: propertyId, deletedAt: null, videoHandoffStatus: "SENT_TO_EDITOR" },
         data: {
           videoHandoffStatus: "RECEIVED",
-          videoHandoffFinalPath: publicPath,
+          videoHandoffFinalPath: finalPublicPath,
           videoHandoffReceivedAt: now,
+          // Ролик с голосом монтажёра отменяет прежний мастер: перемикс из него затёр бы новый монтаж.
+          videoMasterStorageKey: master?.key ?? null,
+          videoMasterNarrationVersionId: master?.versionId ?? null,
+          videoMasterMixError: null,
+          videoMasterMixErrorVersionId: null,
           // Ожидание (ручное или пересылка рядом с держателем места) закрыто приёмом.
           videoHandoffManualSince: null,
           scheduledPublishAt: null,
@@ -2118,6 +2221,10 @@ async function finishReceivingVideo(
           clipReviewDecidedAt: selfApprovedById ? now : null,
           clipReviewDecidedById: selfApprovedById,
           clipReviewComment: null,
+          clipOwnerDueAt:
+            clipReview && clipReviewSettings?.clipOwnerApproveEnabled
+              ? clipOwnerDueOrNull(now, clipReviewSettings.clipOwnerAutoPublishHours)
+              : null,
         },
       });
       if (written.count !== 1) return null;
@@ -2129,14 +2236,15 @@ async function finishReceivingVideo(
   } catch (err) {
     // Контракт «ничего не бросает наружу» (см. докстринг выше): база упала на
     // записи — новый файл не привязан ни к чему, прежний остаётся на месте.
-    await fs.promises.unlink(destPath).catch(() => {});
+    await dropAcceptedFiles();
     void logSystemError("video-handoff", `Объект №${property.shortId}: не удалось записать приём ролика: ${describeError(err)}`);
     return { ok: false, error: "Не получилось записать приём ролика — объект по-прежнему ждёт, пришлите ролик ещё раз." };
   }
   if (!accepted) {
-    await fs.promises.unlink(destPath).catch(() => {});
+    await dropAcceptedFiles();
     return { ok: false, error: "Эта передача уже закрыта — объект её не ждёт." };
   }
+  if (previousMasterKey && previousMasterKey !== master?.key) await dropNarrationMaster(previousMasterKey);
   const oldVideoLeftIn = accepted.oldVideoLeftIn.length > 0 ? accepted.oldVideoLeftIn : undefined;
   requestPultSnapshot(); // пульт: ролик принят, ждёт проверки
 
@@ -2147,7 +2255,7 @@ async function finishReceivingVideo(
   // мусор в uploads/handoff (владелец, 14.09.2026: «мусор копиться»).
   // ПОСЛЕ записи в базу, а не до (24.09.2026): сбой записи иначе оставлял
   // объект со ссылкой на уже удалённый файл.
-  if (property.videoHandoffFinalPath && property.videoHandoffFinalPath !== publicPath) {
+  if (property.videoHandoffFinalPath && property.videoHandoffFinalPath !== finalPublicPath) {
     await fs.promises.unlink(path.join(videoHandoffDir, path.basename(property.videoHandoffFinalPath))).catch(() => {});
     await fs.promises.unlink(legacyHandoffCoverPath(property.videoHandoffFinalPath)).catch(() => {});
   }
@@ -2180,7 +2288,8 @@ async function finishReceivingVideo(
   // Ролик на проверке модератора — то же самое: монтажёр берёт следующий.
   if (property.videoHandoffStatus === "SENT_TO_EDITOR") await releaseQueueIfClear(propertyId);
 
-  const base = { ok: true as const, summary: null, media: check.media ?? undefined, filename: originalFilename, oldVideoLeftIn };
+  const base = { ok: true as const, summary: null, media: check.media ?? undefined, filename: originalFilename, oldVideoLeftIn,
+    ...(master ? { narrationMixedRevision: master.revision } : {}) };
   if (clipReview) {
     // Ждущее задание прошлого ролика ушло бы в свой час мимо проверки.
     await prisma.backgroundJob.deleteMany({ where: { dedupeKey: videoHandoffPublishDedupeKey(propertyId), status: "PENDING" } });
@@ -2260,7 +2369,7 @@ export async function schedulePublishAfterAccept(propertyId: string): Promise<Sc
   try {
     const property = await prisma.property.findUnique({
       where: { id: propertyId },
-      select: { shortId: true, status: true, deletedAt: true, videoHandoffStatus: true, publishedChannels: true },
+      select: { id: true, shortId: true, status: true, deletedAt: true, videoHandoffStatus: true, publishedChannels: true },
     });
     if (!property || property.deletedAt || property.videoHandoffStatus !== "RECEIVED") {
       return { scheduledPublishAt: null, notPublishingReason: closedReason };
@@ -2354,7 +2463,9 @@ export async function schedulePublishAfterAccept(propertyId: string): Promise<Sc
 async function checkEditedClip(
   destPath: string,
   propertyId: string,
-  shortId: number
+  shortId: number,
+  /** Ролик без голоса (11.11.2026): звук даст озвучка CRM, дорожки может не быть. */
+  opts: { allowSilent?: boolean } = {}
 ): Promise<{ ok: true; media: MediaInfo | null } | { ok: false; error: string }> {
   const media = await probeMediaInfo(destPath);
   if (!media) {
@@ -2364,7 +2475,7 @@ async function checkEditedClip(
   if (!media.hasVideo) {
     return { ok: false, error: "Файл не читается как видео." };
   }
-  if (!media.hasAudio) {
+  if (!media.hasAudio && !opts.allowSilent) {
     return { ok: false, error: "В ролике нет звуковой дорожки — в соцсети без звука не публикуем. Наложите музыку/звук и пришлите заново." };
   }
   if (media.durationSec > 0 && media.durationSec < 3) {
@@ -2512,8 +2623,7 @@ export async function blockDuplicateFinalBeforePublish(propertyId: string, short
 }
 
 /** md5 ПОТОКОМ, не readFile целиком: сырые видео и присланные монтажёром
- *  файлы бывают по 100-500 МБ — тот же повод, что у openAsBlob в
- *  deliverSourceVideos (объект №121, OOM от буфера в памяти). null — файл
+ *  файлы бывают по 100-500 МБ (объект №121, OOM от буфера в памяти). null — файл
  *  прочитать не удалось (исходник унесли/переименовали мимо базы), сравнение
  *  просто пропускает этот кандидат, а не роняет приём готового ролика. */
 async function md5OfFile(filePath: string): Promise<string | null> {
@@ -2763,7 +2873,7 @@ export type DiscardFinalVideoResult =
 export async function discardReceivedFinalVideo(propertyId: string): Promise<DiscardFinalVideoResult> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
-    select: { deletedAt: true, videoHandoffFinalPath: true, publishedChannels: true },
+    select: { deletedAt: true, videoHandoffFinalPath: true, publishedChannels: true, videoMasterStorageKey: true },
   });
   if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект не найден или удалён" };
   if (!property.videoHandoffFinalPath) {
@@ -2783,6 +2893,9 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
       data: {
         videoHandoffFinalPath: null,
         videoHandoffReceivedAt: null,
+        // Удалили принятый ролик — его мастер тоже не годится для перемикса (11.11.2026).
+        videoMasterStorageKey: null,
+        videoMasterNarrationVersionId: null,
         scheduledPublishAt: null,
         scheduledPublishReason: null,
         clipReviewStatus: "NONE",
@@ -2797,6 +2910,7 @@ export async function discardReceivedFinalVideo(propertyId: string): Promise<Dis
   });
   await fs.promises.unlink(path.join(videoHandoffDir, path.basename(finalPath))).catch(() => {});
   await fs.promises.unlink(legacyHandoffCoverPath(finalPath)).catch(() => {});
+  await dropNarrationMaster(property.videoMasterStorageKey);
   return { ok: true, publishedChannels: property.publishedChannels };
 }
 
@@ -3121,7 +3235,7 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
   const caption = withPostFooter(applyContactFooter(captionBase, captionAgent), property.shortId);
 
   let updated = await prisma.property.update({
-    where: { id: property.id },
+    where: { id: property.id, version: property.version, reelsCaption: property.reelsCaption, deletedAt: null },
     data: { reelsCaption: caption, postApprovedAt: new Date() },
     include: { district: true, photos: { orderBy: { order: "asc" } } },
   });
@@ -3184,7 +3298,7 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
           result.channel === "INSTAGRAM" ? result.permalink ?? null : null,
           // Выход в продажу — событие всей публикации, а не каждого канала:
           // его делает finalizePropertyAvailability ниже, один раз за заход.
-          { finalize: false }
+          { finalize: false, publishedPrice: { price: Number(property.price), currency: property.currency } }
         );
         // ВЫХОД В ПРОДАЖУ — СРАЗУ ПОСЛЕ INSTAGRAM, А НЕ ПОСЛЕ ПОСЛЕДНЕЙ СЕТИ (05.10.2026,
         // владелец: «статус висит на монтаже, хотя должно идти само»). Условие выхода —
@@ -3269,7 +3383,7 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
         property.id,
         succeeded.map((r) => ({ channel: r.channel, postId: r.postId, secondaryPostId: r.secondaryPostId, permalink: r.permalink })),
         igResult?.permalink ?? null,
-        { finalize: false }
+        { finalize: false, publishedPrice: { price: Number(property.price), currency: property.currency } }
       );
       updated = await prisma.property.findUniqueOrThrow({
         where: { id: property.id },
@@ -3986,6 +4100,11 @@ export interface VideoHandoffCardPropertyFields {
   clipReviewDecidedAt: Date | null;
   clipReviewDecidedById: string | null;
   clipReviewComment: string | null;
+  /** Срок автопубликации при подтверждении хозяином (есть — хозяин решает сам). */
+  clipOwnerDueAt?: Date | null;
+  intakeAgentId?: string | null;
+  assignedAgentId?: string | null;
+  createdById?: string | null;
 }
 
 /**
@@ -3999,7 +4118,10 @@ export async function videoHandoffCardForProperty(property: VideoHandoffCardProp
   if (property.videoHandoffStatus === "NONE") return null;
   const [positions, settings, videos] = await Promise.all([
     videoHandoffQueuePositions(),
-    prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } }),
+    prisma.settings.findUnique({
+      where: { id: "singleton" },
+      select: { videoMontajerAgentId: true, clipOwnerApproveEnabled: true, clipOwnerAutoPublishHours: true },
+    }),
     prisma.propertyVideo.findMany({
       where: { propertyId: property.id },
       orderBy: { uploadedAt: "asc" },
@@ -4052,6 +4174,16 @@ export async function videoHandoffCardForProperty(property: VideoHandoffCardProp
       decidedAt: property.clipReviewDecidedAt?.toISOString() ?? null,
       decidedBy: clipDecidedBy?.fullName ?? null,
       comment: property.clipReviewComment,
+      // Хозяин решает, только пока ролик ждёт и у него стоит срок автопубликации —
+      // тот же признак, что у кнопок в Telegram (lib/clipReview.ts::clipOwnerDeciderId).
+      ownerAgentId:
+        property.clipReviewStatus === "PENDING" &&
+        isClipOwnerMode(
+          { enabled: settings?.clipOwnerApproveEnabled ?? false, hours: clampClipOwnerHours(settings?.clipOwnerAutoPublishHours) },
+          property.clipOwnerDueAt ?? null
+        )
+          ? propertyOwnerAgentId(property)
+          : null,
     },
     videos: videos.map((v) => ({
       id: v.id,

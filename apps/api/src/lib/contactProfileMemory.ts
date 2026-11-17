@@ -35,7 +35,7 @@ import {
   type ContactFacts,
 } from "@royal-home/shared";
 import type { ContactProfileForPrompt, PreviousCategory } from "../ai/contactProfileBlock.js";
-import type { LeadDraft } from "../ai/leadQualifier.js";
+import type { LeadDraft } from "../ai/leadDraft.js";
 import type { SellerFacts } from "../ai/sellerIntake.js";
 import { prisma } from "../db.js";
 import { recordContactFacts, setContactCategory, setContactSelfName } from "./contactProfiles.js";

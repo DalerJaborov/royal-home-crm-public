@@ -154,11 +154,10 @@ export function DistrictsSection() {
   const createDistrict = useCreateDistrict();
   const [name, setName] = useState("");
 
-  async function handleAdd(e: React.FormEvent) {
+  function handleAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
-    await createDistrict.mutateAsync(name.trim());
-    setName("");
+    if (!name.trim() || createDistrict.isPending) return;
+    createDistrict.mutate(name.trim(), { onSuccess: () => setName("") });
   }
 
   return (
@@ -182,10 +181,11 @@ export function DistrictsSection() {
           placeholder="Новый район"
           aria-label="Новый район"
         />
-        <button className="pill ghost" type="submit" disabled={createDistrict.isPending}>
+        <button className="pill ghost" type="submit" disabled={createDistrict.isPending || !name.trim()}>
           Добавить
         </button>
       </form>
+      {createDistrict.error && <p role="alert">{createDistrict.error.message || "Не удалось добавить район. Попробуйте ещё раз."}</p>}
       <div className="quiet" style={{ marginTop: 12 }}>
         <span className="dot" />
         <span className="txt">Район, по которому есть объекты, удалить нельзя: сначала перенесите объекты.</span>

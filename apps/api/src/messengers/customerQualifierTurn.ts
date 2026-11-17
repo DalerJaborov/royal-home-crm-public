@@ -71,7 +71,7 @@ async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial:
     clientTurnText: text, previousBotText: "", language: detectClientLanguage(text),
     draft: { stage: "chatting" }, jobConversation: false, phoneAsksSent: 0,
     phoneKnown: lane.context.knownPhoneSource !== "none", topicState: { ...EMPTY_TOPIC_STATE },
-    fallbackLanguageWords: [text],
+    fallbackLanguageWords: [text], accountId: lane.principal.scope.accountId,
   }, {
     // A regeneration is the same read-only call, with the same original proof.
     regenerate: blockedAction ? undefined : async retryDirective => {

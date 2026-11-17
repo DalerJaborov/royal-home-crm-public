@@ -1,5 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { prisma } from "../../db.js";
+import {
+  CALL_WHISPER_INCOMING_PARTS,
+  CALL_WHISPER_LANGUAGE,
+  CALL_WHISPER_OUTGOING_PARTS,
+  CALL_WHISPER_VOICE,
+} from "../settingsConstants.js";
 import { logSystemError } from "../systemError.js";
 import { describeError } from "../describeError.js";
 import { loadAmiCredentials } from "./amiClient.js";
@@ -106,10 +112,6 @@ export async function loadWhisperSettings(): Promise<WhisperSettings> {
       callWhisperEnabled: true,
       callWhisperIncoming: true,
       callWhisperOutgoing: true,
-      callWhisperIncomingParts: true,
-      callWhisperOutgoingParts: true,
-      callWhisperLanguage: true,
-      callWhisperVoice: true,
       callWhisperAiHint: true,
     },
   });
@@ -117,10 +119,11 @@ export async function loadWhisperSettings(): Promise<WhisperSettings> {
     enabled: settings?.callWhisperEnabled ?? false,
     incoming: settings?.callWhisperIncoming ?? true,
     outgoing: settings?.callWhisperOutgoing ?? false,
-    incomingParts: settings?.callWhisperIncomingParts ?? ["name", "role", "anchor"],
-    outgoingParts: settings?.callWhisperOutgoingParts ?? ["label", "name", "role"],
-    language: settings?.callWhisperLanguage ?? "tg",
-    voice: settings?.callWhisperVoice ?? "Kore",
+    // Состав озвучки, язык и голос — константы с 01.11.2026 (lib/settingsConstants.ts).
+    incomingParts: [...CALL_WHISPER_INCOMING_PARTS],
+    outgoingParts: [...CALL_WHISPER_OUTGOING_PARTS],
+    language: CALL_WHISPER_LANGUAGE,
+    voice: CALL_WHISPER_VOICE,
     aiHint: settings?.callWhisperAiHint ?? false,
   };
 }

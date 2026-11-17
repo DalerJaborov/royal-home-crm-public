@@ -1,4 +1,5 @@
 import { enrollCustomerAgentSubjectTx, readCustomerPublicSourceExecution, type CustomerAgentExecution } from "./customerAgentEnrollment.js";
+import { customerAgentAssignmentSuperseded, customerAgentLaneCutoverOf } from "./customerAgentLegacyCutover.js";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "../generated/prisma/client.js";
 import { decryptSecretSafe } from "../crypto.js";
@@ -235,10 +236,18 @@ export async function commitVerifiedMetaPublicCapture(input: VerifiedMetaCapture
       const prior = await prisma.instagramComment.findUnique({ where: { commentId: item.target.commentId }, select: { id: true } });
       const original = prior ? await readCustomerPublicSourceExecution(prisma, { table: "meta", id: prior.id }, subject) : null;
       if (stamp.legacyOnly && original?.lane === "CORE") throw new PublicCaptureHeld("origin_changed");
+      // Only a genuinely new comment may move a LEGACY thread to the core
+      // (owner 31.10, under CUSTOMER_AGENT_LEGACY_CUTOVER); a redelivery never does.
       const enrolled = original && original.lane !== "LEGACY" ? original
-        : await prisma.$transaction(tx => enrollCustomerAgentSubjectTx(tx, subject, stamp.legacyOnly ? { legacyOnly: true } : {}));
+        : await prisma.$transaction(tx => enrollCustomerAgentSubjectTx(tx, subject,
+          stamp.legacyOnly ? { legacyOnly: true } : !prior ? { legacyCutover: true } : {}));
       if (stamp.legacyOnly && enrolled.lane === "CORE") throw new PublicCaptureHeld("origin_changed");
-      if (enrolled.lane === "HELD" || original?.lane === "LEGACY" && enrolled.lane !== "LEGACY") throw new PublicCaptureHeld("origin_changed");
+      // A redelivered old comment of a thread that was moved since keeps its
+      // original LEGACY pin (already answered or answered by the old engine once);
+      // only an unexplained lane change is refused.
+      const movedThread = original?.lane === "LEGACY" && enrolled.lane === "CORE" && !!enrolled.assignment &&
+        await customerAgentLaneCutoverOf(prisma, enrolled.assignment.id);
+      if (enrolled.lane === "HELD" || original?.lane === "LEGACY" && enrolled.lane !== "LEGACY" && !movedThread) throw new PublicCaptureHeld("origin_changed");
       selections.set(item.target.commentId, original ?? enrolled);
     }
     return await prisma.$transaction(async tx => {
@@ -285,6 +294,12 @@ export async function commitVerifiedMetaPublicCapture(input: VerifiedMetaCapture
         if (!expected) throw new PublicCaptureHeld("installation_changed");
         // Namespace was initialized before this tx; claim/capture never creates/rebinds it.
         if (execution.lane === "LEGACY") {
+          // A fresh legacy row must not land in a thread moved to the core after
+          // its enrollment read (lane cutover holds the LEGACY row FOR UPDATE;
+          // this row's FK waited for it). Provider redelivery re-enrolls it as CORE.
+          if (fresh && execution.assignment && await customerAgentAssignmentSuperseded(tx, execution.assignment.id)) {
+            throw new PublicCaptureHeld("origin_changed");
+          }
           const compatible = await configuration(tx, source.channel, item.target.accountExternalId, true);
           const scope = await scopeFor(tx, source.channel, item.target.accountExternalId);
           if (!compatible || !scope || scope.kind !== "PUBLIC" || scope.messengerAccountId !== compatible.accountId ||

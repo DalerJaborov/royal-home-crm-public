@@ -7,6 +7,8 @@ import { useAuthStore, type SessionAgent } from "../store/auth";
 import { useUiPrefs } from "../store/uiPrefs";
 import { useBranding } from "../hooks/useBranding";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
+import { loginRetryAfterMs } from "../lib/loginRetry";
+import "./Login.css";
 import {
   guessDeviceName,
   isPasskeyCancel,
@@ -107,6 +109,8 @@ export function Login() {
   const [phoneHint, setPhoneHint] = useState<string | null>(null);
   const [telegramAvailable, setTelegramAvailable] = useState(false);
   const [resendAt, setResendAt] = useState<number>(0);
+  const phoneNow = useNow(step === "phone" && resendAt > 0);
+  const phoneWaitSec = Math.max(0, Math.ceil((resendAt - phoneNow) / 1000));
   const [code, setCode] = useState("");
   // Код принят, но у агента включена двухфакторная проверка (приложение).
   const [totpToken, setTotpToken] = useState<string | null>(null);
@@ -118,6 +122,7 @@ export function Login() {
   const canPasskey = passkeysSupported();
 
   const phoneRef = useRef<HTMLInputElement>(null);
+  const requestInFlight = useRef(false);
 
   const branding = useBranding();
   const setSession = useAuthStore((s) => s.setSession);
@@ -187,11 +192,13 @@ export function Login() {
 
   /** Запросить код: первый раз, повторно или в другом канале. */
   async function requestCode(wanted?: "sms" | "telegram") {
+    if (requestInFlight.current || Date.now() < resendAt) return;
     setError(null);
     if (phone.replace(/\D/g, "").length < 9) {
       setError("Введите номер полностью — например, +992900000001");
       return;
     }
+    requestInFlight.current = true;
     setLoading(true);
     try {
       const r = await api<CodeResponse>("/auth/login/code", {
@@ -208,10 +215,15 @@ export function Login() {
       setCode(r.devCode ?? "");
       setStep("code");
     } catch (err) {
-      const wait = (err as { resendAfterSec?: number } | null)?.resendAfterSec;
-      if (wait) setResendAt(Date.now() + wait * 1000);
-      setError(err instanceof Error ? err.message : "Не удалось отправить код");
+      const waitMs = loginRetryAfterMs(err);
+      if (waitMs !== null) {
+        setResendAt(Date.now() + waitMs);
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : "Не удалось отправить код");
+      }
     } finally {
+      requestInFlight.current = false;
       setLoading(false);
     }
   }
@@ -351,14 +363,15 @@ export function Login() {
                 name="phone"
                 autoComplete="username"
                 value={phone}
-                onChange={setPhone}
+                onChange={(value) => { setPhone(value); setResendAt(0); }}
                 required
               />
             </label>
 
             {error && <ErrorNote>{error}</ErrorNote>}
+            {phoneWaitSec > 0 && <p className="login-code-status" role="status" aria-live="off">Новый код можно запросить через {phoneWaitSec} с</p>}
 
-            <button className="pill gold" type="submit" disabled={loading}>
+            <button className="pill gold" type="submit" disabled={loading || phoneWaitSec > 0}>
               {loading ? "Отправляем код…" : "Получить код"}
             </button>
             <div className="steps" aria-hidden>
@@ -405,12 +418,7 @@ function Gerb({ logoUrl, name }: { logoUrl: string | null; name: string }) {
  */
 function ErrorNote({ children }: { children: React.ReactNode }) {
   return (
-    <div className="quiet crit" role="alert" style={{ justifyContent: "center", borderBottom: 0, marginTop: 8 }}>
-      <span className="dot crit" />
-      <span className="txt" style={{ flex: "0 1 auto" }}>
-        {children}
-      </span>
-    </div>
+    <p className="login-error" role="alert">{children}</p>
   );
 }
 
@@ -464,12 +472,10 @@ function CodeStep({
       : deliveryText(channel, fallbackAt, now, hint ?? phoneLabel ?? null);
 
   return (
-    <form className="lgn-card" onSubmit={onSubmit}>
+    <form className="lgn-card login-code-card" onSubmit={onSubmit}>
       {gerb}
       <h1>Код подтверждения</h1>
       <p className="sub">{sub}</p>
-
-      <div className="grav" aria-hidden />
 
       <div className="code" role="group" aria-label={label}>
         <input
@@ -482,7 +488,8 @@ function CodeStep({
           onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
           placeholder="000000"
           aria-label={label}
-          style={{ width: "100%", maxWidth: 300, letterSpacing: ".28em", fontSize: "var(--fs-23)" }}
+          className="login-code-input"
+          aria-invalid={!!error}
           required
         />
       </div>
@@ -493,24 +500,25 @@ function CodeStep({
         {loading ? "Проверяем…" : "Подтвердить"}
       </button>
       {!totp && onResend && (
-        <p className="alt">
-          <button className="lnk" type="button" onClick={onResend} disabled={waitSec > 0 || loading}>
-            {waitSec > 0 ? `Отправить ещё раз через ${waitSec} с` : "Отправить ещё раз"}
-          </button>
-        </p>
+        <div className="login-code-secondary">
+          <p className="login-code-status" role="status" aria-live="off">
+            {waitSec > 0 ? `Новый код можно запросить через ${waitSec} с` : "Код не пришёл? Отправьте ещё раз."}
+          </p>
+          <div className="login-code-actions">
+            <button className="lnk" type="button" onClick={onResend} disabled={waitSec > 0 || loading}>
+              Отправить ещё раз
+            </button>
+            {onTelegram && <button className="lnk" type="button" onClick={onTelegram} disabled={waitSec > 0 || loading}>
+              Через Telegram
+            </button>}
+          </div>
+        </div>
       )}
-      {onTelegram && !totp && (
-        <p className="alt">
-          <button className="lnk" type="button" onClick={onTelegram} disabled={loading}>
-            Прислать в Telegram
-          </button>
-        </p>
-      )}
-      <p className="alt">
-        <button className="lnk" type="button" onClick={onBack}>
+      <div className="login-code-back">
+        <button className="lnk" type="button" onClick={onBack} disabled={loading}>
           {totp ? "Назад ко входу" : "Изменить номер"}
         </button>
-      </p>
+      </div>
     </form>
   );
 }

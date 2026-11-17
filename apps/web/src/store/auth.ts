@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import type { Role, UiPreferences } from "@royal-home/shared";
 import { queryClient } from "../lib/queryClient";
 import { clearPersistedQueryCache } from "../lib/queryPersist";
+import { dropSwApiCache } from "../lib/swApiCache";
 import { clearPendingMapPin } from "../lib/pendingMapPin";
 import { clearRecentSearches } from "../lib/recentSearches";
 import { clearIdleActivity } from "../lib/idleActivity";
@@ -58,23 +59,6 @@ interface AuthState {
   logout: () => void;
 }
 
-/**
- * Кэш API-ответов service worker (sw.ts, NetworkFirst «api-cache») ключуется только
- * адресом — Authorization в ключ не входит, и NetworkFirst отдаёт кэш не только
- * офлайн, но и при ответе дольше 4 секунд. Без чистки следующий вошедший на этом
- * устройстве сотрудник на медленной связи получал бы закэшированные ответы
- * предыдущего (/dashboard с финансами, /clients) в обход системы прав (26.08.2026).
- * Best-effort: caches может отсутствовать (старый браузер, http) — тогда и SW с его
- * кэшем нет.
- */
-function dropSwApiCache(): void {
-  try {
-    void caches?.delete("api-cache");
-  } catch {
-    /* кэша нет — чистить нечего */
-  }
-}
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -92,7 +76,7 @@ export const useAuthStore = create<AuthState>()(
         // agent's session on this browser tab — otherwise a login right after
         // a logout can briefly show the old agent's cached profile/data.
         queryClient.clear();
-        dropSwApiCache();
+        void dropSwApiCache();
         // Персистер (queryPersist.ts, perf/web-instant-11-09): снимок на диске
         // переживает вкладку, поэтому и его надо стереть при смене пользователя,
         // иначе новый агент на этом устройстве может дождаться восстановления
@@ -120,7 +104,7 @@ export const useAuthStore = create<AuthState>()(
         clearDraftsBeforeUpdate();
         clearSessionChatDrafts();
         queryClient.clear();
-        dropSwApiCache();
+        void dropSwApiCache();
         void clearPersistedQueryCache();
         // Точка с долгого тапа на карте живёт во вкладке: без чистки следующий
         // вошедший на этом же устройстве получил бы чужую координату в мастере.

@@ -6,15 +6,25 @@ import type { FunnelStage } from "../hooks/useReports";
 
 const state = vi.hoisted(() => ({ clean: true, mobile: false, role: "DIRECTOR", exportAllowed: true,
   funnel: [] as FunnelStage[], loading: false, error: false,
+  rangeOverride: null as null | [string, string], dateStateIndex: 0,
+  queryEnabled: [] as boolean[],
 }));
+vi.mock("react", async importOriginal => {
+  const original = await importOriginal<typeof import("react")>();
+  return { ...original, useState: ((value: unknown) => {
+    const override = state.rangeOverride && typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      && state.dateStateIndex < 2 ? state.rangeOverride[state.dateStateIndex++] : value;
+    return original.useState(override);
+  }) as typeof original.useState };
+});
 vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean }));
 vi.mock("../hooks/useMobileUx", () => ({ useMobileUx: () => state.mobile }));
 vi.mock("../lib/permissions", () => ({ useCan: () => (permission: string) => permission !== "properties.export" || state.exportAllowed }));
 vi.mock("../store/auth", () => ({ useAuthStore: (select: (value: { agent: { role: string } }) => unknown) => select({ agent: { role: state.role } }) }));
 vi.mock("../hooks/useReports", () => ({
-  useFunnelReport: () => ({ data: { funnel: state.funnel }, isLoading: state.loading, isError: state.error, refetch: vi.fn() }),
-  useAgentsReport: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
-  useSourcesReport: () => ({ data: { sources: [], avgDaysNewToClosed: null }, isLoading: false, isError: false, refetch: vi.fn() }),
+  useFunnelReport: (_range: unknown, enabled: boolean) => { state.queryEnabled.push(enabled); return { data: { funnel: state.funnel }, isLoading: state.loading, isError: state.error, refetch: vi.fn() }; },
+  useAgentsReport: (_range: unknown, enabled: boolean) => { state.queryEnabled.push(enabled); return { data: [], isLoading: false, isError: false, refetch: vi.fn() }; },
+  useSourcesReport: (_range: unknown, enabled: boolean) => { state.queryEnabled.push(enabled); return { data: { sources: [], avgDaysNewToClosed: null }, isLoading: false, isError: false, refetch: vi.fn() }; },
   useHotProperties: () => ({ data: { items: [] }, isLoading: false, isError: false, refetch: vi.fn() }),
   downloadPropertiesExport: vi.fn(),
 }));
@@ -32,6 +42,7 @@ function overview(html: string) {
 }
 beforeEach(() => {
   Object.assign(state, { clean: true, mobile: false, role: "DIRECTOR", exportAllowed: true, loading: false, error: false,
+    rangeOverride: null, dateStateIndex: 0, queryEnabled: [],
     funnel: [
       { key: "deals", label: "Сделки", count: 3, commission: 45600 },
       { key: "showings", label: "Показы", count: 17 },
@@ -41,6 +52,32 @@ beforeEach(() => {
 });
 
 describe("Clean report hierarchy", () => {
+  it.each([true, false])("rejects reversed dates without showing cached or zero metrics (mobile=%s)", mobile => {
+    state.mobile = mobile;
+    state.rangeOverride = ["2026-11-02", "2026-10-30"];
+    const html = render();
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Дата начала не может быть позже даты окончания");
+    expect(html).not.toContain('id="funnel-section"');
+    expect(html).not.toContain("За этот период показов и сделок не было");
+    expect(state.queryEnabled).toEqual([false, false, false]);
+  });
+  it.each([true, false])("does not describe independent period counts as cohort conversion (clean=%s)", clean => {
+    state.clean = clean;
+    state.funnel = [
+      { key: "leads", label: "Лиды", count: 1 },
+      { key: "showings", label: "Показы", count: 2 },
+      { key: "negotiations", label: "Переговоры", count: 5 },
+      { key: "deals", label: "Сделки", count: 3 },
+    ];
+    const html = render();
+    expect(html).toContain("250 %");
+    expect(html).toContain("переговоры / показы за период");
+    expect(html).toContain("Это соотношения событий, а не конверсия одних и тех же клиентов");
+    expect(html).not.toContain("показ доходит до переговоров");
+    expect(html).not.toContain("лид доходит до сделки");
+    expect(html).not.toContain("конверсия за период");
+  });
   it("shows headline metrics by stable stage keys and retains detailed native sections below", () => {
     const html = render(); const summary = overview(html);
     expect(summary).toMatch(/Новые лиды[\s\S]*?<b>41<\/b>/);
@@ -55,7 +92,7 @@ describe("Clean report hierarchy", () => {
     state.funnel = state.funnel.map((row) => ({ ...row, commission: null }));
     const html = render();
     expect(overview(html)).not.toContain("Комиссия");
-    expect(overview(html)).toContain("Лид → сделка");
+    expect(overview(html)).toContain("Сделки / новые лиды");
     expect(html).toContain("Ваши показатели по фактическим записям CRM");
   });
   it.each(["loading", "error"] as const)("does not invent headline numbers during %s", (key) => {

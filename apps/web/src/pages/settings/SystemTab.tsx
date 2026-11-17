@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
-import { Activity, Bot, CheckCircle2, ClipboardList, Compass, Fingerprint, History, KeyRound, OctagonAlert, RotateCw, UploadCloud } from "lucide-react";
+import { Activity, Bot, CheckCircle2, ClipboardList, Compass, FileText, Fingerprint, History, KeyRound, OctagonAlert, RotateCw, UploadCloud } from "lucide-react";
 import { api } from "../../lib/api";
 import { downloadFromApi } from "../../lib/downloadFile";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
@@ -16,6 +16,13 @@ import { Rh2ErrorState } from "../../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../../components/rh2/Rh2EmptyState";
 import { Pagination } from "../../components/Pagination";
 import { createLatestRequest } from "../../lib/latestRequest";
+import {
+  ASSISTANT_DEADLINE_SEC,
+  ASSISTANT_LOG_RETENTION_DAYS,
+  ASSISTANT_MAX_ROUNDS,
+  ASSISTANT_TURN_OUTCOME_LABELS,
+  type AssistantTurnOutcome,
+} from "@royal-home/shared";
 
 /** Вкладка «Данные и система»: импорт из файла, здоровье системы, админка сайта.
  *
@@ -444,6 +451,8 @@ interface AssistantAuditItem {
   tool: string;
   argsSummary: string | null;
   resultCount: number | null;
+  /** Вопрос сотрудника (с 07.11.2026; у старых записей пусто). Телефоны закрыты на сервере. */
+  question?: string | null;
   agent: { id: string; fullName: string };
   client: { id: string; shortId: string; fullName: string } | null;
 }
@@ -483,9 +492,11 @@ export function AssistantAuditSection() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<AssistantAuditPage | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // «Ответы» — ход целиком (итог, шаги), «Обращения к данным» — строка на инструмент.
+  const [view, setView] = useState<"turns" | "tools">("turns");
 
   useEffect(() => {
-    if (!canView) return;
+    if (!canView || view !== "tools") return;
     // Ответ на уже сменённые страницу или фильтр отбрасывается (аудит
     // 02.10.2026): при быстром листании запоздавший старый ответ иначе
     // перезаписывал свежий, и под фильтром «Иванов» стояли строки «Все».
@@ -507,22 +518,35 @@ export function AssistantAuditSection() {
     return () => {
       stale = true;
     };
-  }, [canView, agentId, from, to, page]);
+  }, [canView, agentId, from, to, page, view]);
 
   if (!canView) return null;
 
   return (
-    <SettingsSection icon={Bot} title="Журнал ИИ-ассистента" badge={data ? `${data.total}` : undefined}>
+    <SettingsSection icon={Bot} title="Журнал ИИ-ассистента" badge={view === "tools" && data ? `${data.total}` : undefined}>
       <div className="quiet">
         <span className="dot" />
         <span className="txt">
-          Каждое обращение сотрудника к ИИ-ассистенту CRM: какой инструмент вызван, по какому клиенту и когда.
-          Доступ ассистент получает под правами вызвавшего — это журнал прослеживаемости, а не единственная
-          защита данных.
+          {view === "turns"
+            ? "Каждый ответ помощницы: что спросили и чем закончилось — ответила, частично, не по сути или сбой. Текст ответа не хранится."
+            : "Каждое обращение сотрудника к ИИ-ассистенту CRM: что спросили, какой инструмент вызван, по какому клиенту и когда. Доступ ассистент получает под правами вызвавшего — это журнал прослеживаемости, а не единственная защита данных."}
         </span>
       </div>
 
-      {loadError && (
+      <div className="hscroll" style={{ marginTop: "var(--s3)" }}>
+        <div className="seg" role="tablist" aria-label="Что показать в журнале">
+          {([
+            ["turns", "Ответы"],
+            ["tools", "Обращения к данным"],
+          ] as const).map(([key, label]) => (
+            <button key={key} type="button" role="tab" aria-selected={view === key} onClick={() => setView(key)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view === "tools" && loadError && (
         <div className="quiet crit" role="alert">
           <span className="dot crit" />
           <span className="txt">{loadError}. Пустой список ниже не означает, что обращений не было.</span>
@@ -574,6 +598,10 @@ export function AssistantAuditSection() {
         </label>
       </div>
 
+      {view === "turns" ? (
+        <AssistantTurnsList key={`${agentId}|${from}|${to}`} agentId={agentId} from={from} to={to} />
+      ) : (
+        <>
       <div className="list" style={{ marginTop: "var(--s3)" }}>
         {data && data.items.length === 0 && <div className="state">За выбранный период обращений нет.</div>}
         {data?.items.map((row) => (
@@ -593,6 +621,7 @@ export function AssistantAuditSection() {
                 )}
                 {typeof row.resultCount === "number" && <span className="chip"> {row.resultCount} записей</span>}
               </span>
+              {row.question && <span>Вопрос: «{row.question}»</span>}
               {row.argsSummary && (
                 <span style={{ color: "var(--faint)", fontSize: "var(--fs-12)" }}>{row.argsSummary}</span>
               )}
@@ -609,7 +638,246 @@ export function AssistantAuditSection() {
           <Pagination variant="rh2" page={data.page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} />
         </div>
       )}
+        </>
+      )}
     </SettingsSection>
+  );
+}
+
+interface AssistantTurnItem {
+  id: string;
+  createdAt: string;
+  channel: string;
+  surface: string | null;
+  question: string | null;
+  outcome: AssistantTurnOutcome;
+  reason: string | null;
+  route: string;
+  rounds: number;
+  toolCalls: number;
+  replyChars: number | null;
+  ms: number;
+  agent: { id: string; fullName: string };
+}
+interface AssistantTurnsPage {
+  items: AssistantTurnItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  retentionDays: number;
+}
+
+/** Почему ход не стал обычным ответом — бытовыми словами (код из AiAssistantTurnLog.reason). */
+const TURN_REASON_LABELS: Record<string, string> = {
+  off_topic: "вопрос не про работу",
+  card_evidence: "не смогла подтвердить ссылки",
+  disabled: "помощницу выключили во время ответа",
+  rounds: "не хватило шагов",
+  not_found: "ничего не нашла",
+  deadline: "думала слишком долго",
+  aborted: "окно закрыли до ответа",
+  loop: "ходила по кругу",
+  shutdown: "сервер перезапускался",
+  attempt_limit: "лимит запросов",
+  no_key: "нет ключа ИИ",
+  provider_unavailable: "ИИ недоступен",
+  provider_rejected: "ИИ отказал",
+  stream_interrupted: "связь оборвалась",
+  empty_reply: "пустой ответ",
+  internal: "внутренняя ошибка",
+};
+
+const TURN_SURFACE_LABELS: Record<string, string> = {
+  "crm-private": "CRM",
+  "telegram-private": "Telegram, личка",
+  "telegram-group": "Telegram, группа",
+};
+
+/**
+ * ОТВЕТЫ ПОМОЩНИЦЫ (пачка 2, 07.11.2026, GET /ai/assistant-turns): одна строка на ход —
+ * вопрос, итог, сколько шагов и обращений к данным, длина ответа. Фильтр «Где не справилась»
+ * показывает всё, кроме обычного ответа. Срок хранения меняет тот, у кого есть право настроек.
+ * Одна вёрстка на ПК и телефон: строки `.list/.row` и фильтры `.filters` сами переносятся.
+ */
+function AssistantTurnsList({ agentId, from, to }: { agentId: string; from: string; to: string }) {
+  const can = useCan();
+  const [outcome, setOutcome] = useState<"" | "failed">("");
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState<AssistantTurnsPage | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Смена фильтров сверху пересоздаёт этот блок (key у вызова) — страница снова первая.
+  useEffect(() => {
+    let stale = false;
+    const params = new URLSearchParams({ page: String(page) });
+    if (agentId) params.set("agentId", agentId);
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    if (outcome) params.set("outcome", outcome);
+    api<AssistantTurnsPage>(`/ai/assistant-turns?${params.toString()}`)
+      .then((res) => {
+        if (stale) return;
+        setData(res);
+        setLoadError(null);
+      })
+      .catch((err: unknown) => {
+        if (stale) return;
+        setLoadError(err instanceof Error ? err.message : "Не удалось загрузить ответы помощницы");
+      });
+    return () => {
+      stale = true;
+    };
+  }, [agentId, from, to, outcome, page]);
+
+  return (
+    <>
+      {loadError && (
+        <div className="quiet crit" role="alert">
+          <span className="dot crit" />
+          <span className="txt">{loadError}. Пустой список ниже не означает, что ответов не было.</span>
+        </div>
+      )}
+
+      <div className="filters" style={{ marginTop: "var(--s3)" }}>
+        <label className="field">
+          <span className="lab">Показать</span>
+          <select
+            className="inp"
+            value={outcome}
+            onChange={(e) => {
+              setOutcome(e.target.value === "failed" ? "failed" : "");
+              setPage(1);
+            }}
+          >
+            <option value="">Все ответы</option>
+            <option value="failed">Где не справилась</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="list" style={{ marginTop: "var(--s3)" }}>
+        {data && data.items.length === 0 && <div className="state">За выбранный период ответов нет.</div>}
+        {data?.items.map((row) => (
+          <div className="row" key={row.id}>
+            <Bot className="i" aria-hidden="true" />
+            <div className="t">
+              <b>
+                {ASSISTANT_TURN_OUTCOME_LABELS[row.outcome] ?? row.outcome}
+                {row.reason && <span className="chip"> {TURN_REASON_LABELS[row.reason] ?? row.reason}</span>}
+              </b>
+              <span>
+                {row.agent.fullName} · {new Date(row.createdAt).toLocaleString("ru-RU", { timeZone: "Asia/Dushanbe" })}
+                {" · "}
+                {TURN_SURFACE_LABELS[row.surface ?? ""] ?? (row.channel === "telegram" ? "Telegram" : "CRM")}
+              </span>
+              {row.question && <span>Вопрос: «{row.question}»</span>}
+              <span className="quiet">
+                Шагов: {row.rounds} · обращений к данным: {row.toolCalls}
+                {typeof row.replyChars === "number" ? ` · ответ ${row.replyChars} знаков` : ""} · {Math.round(row.ms / 100) / 10} с
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {data && (
+        <div style={{ marginTop: 12 }}>
+          <Pagination variant="rh2" page={data.page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} />
+        </div>
+      )}
+
+      {data && can("settings.manage") && <AssistantLogRetention fallbackDays={data.retentionDays} />}
+    </>
+  );
+}
+
+type AssistantLimitField = "aiAssistantLogRetentionDays" | "aiAssistantMaxRounds" | "aiAssistantDeadlineSec";
+
+/**
+ * Рубильники помощницы на том же экране, что и журнал (решения владельца 07.11.2026): срок
+ * хранения журнала, шагов на один ответ и срок ответа. Пределы общие с сервером
+ * (@royal-home/shared); подбирать числа — по фактическим шагам и времени в «Ответах» выше.
+ */
+function AssistantLogRetention({ fallbackDays }: { fallbackDays: number }) {
+  const { data: settings } = useSettings();
+  const fields: { field: AssistantLimitField; label: string; hint: string; value: number; limits: { min: number; max: number } }[] = [
+    {
+      field: "aiAssistantLogRetentionDays",
+      label: "Хранить журнал, дней",
+      hint: "Старше этого срока ответы удаляются, а у обращений к данным стирается текст вопроса.",
+      value: settings?.aiAssistantLogRetentionDays ?? fallbackDays,
+      limits: ASSISTANT_LOG_RETENTION_DAYS,
+    },
+    {
+      field: "aiAssistantMaxRounds",
+      label: "Шагов на один ответ",
+      hint: "Сколько раз помощница может заглянуть в данные CRM, прежде чем ответить.",
+      value: settings?.aiAssistantMaxRounds ?? ASSISTANT_MAX_ROUNDS.default,
+      limits: ASSISTANT_MAX_ROUNDS,
+    },
+    {
+      field: "aiAssistantDeadlineSec",
+      label: "Ждать ответа, секунд",
+      hint: "Дольше этого помощница не думает: человек получает то, что она успела найти.",
+      value: settings?.aiAssistantDeadlineSec ?? ASSISTANT_DEADLINE_SEC.default,
+      limits: ASSISTANT_DEADLINE_SEC,
+    },
+  ];
+  return (
+    <>
+      {fields.map((f) => (
+        <AssistantLimitInput key={`${f.field}:${f.value}`} {...f} />
+      ))}
+    </>
+  );
+}
+
+function AssistantLimitInput({
+  field,
+  label,
+  hint,
+  value: saved,
+  limits,
+}: {
+  field: AssistantLimitField;
+  label: string;
+  hint: string;
+  value: number;
+  limits: { min: number; max: number };
+}) {
+  const save = useUpdateSettings();
+  const [value, setValue] = useState(String(saved));
+  const n = Number(value);
+  const valid = Number.isInteger(n) && n >= limits.min && n <= limits.max;
+  const hintId = `${field}-hint`;
+
+  return (
+    <div className="filters" style={{ marginTop: "var(--s3)", alignItems: "flex-end" }}>
+      <label className="field">
+        <span className="lab">{label}</span>
+        <input
+          className="inp"
+          type="number"
+          inputMode="numeric"
+          min={limits.min}
+          max={limits.max}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          aria-describedby={hintId}
+        />
+      </label>
+      <button
+        type="button"
+        className="pill"
+        disabled={!valid || n === saved || save.isPending}
+        onClick={() => save.mutate({ [field]: n })}
+      >
+        Сохранить
+      </button>
+      <span id={hintId} className="quiet">
+        {hint} От {limits.min} до {limits.max}.
+      </span>
+    </div>
   );
 }
 
@@ -885,70 +1153,32 @@ export function ProblemReportsSection() {
 }
 
 /**
- * Сколько живёт подтверждение личности в защищённых разделах.
- *
- * Десять минут придумывались под сценарий «зашёл, поменял ключ, вышел». На
- * разборе настроек и здоровья системы окно истекало посреди работы, и раздел
- * закрывался на полуслове — владелец попросил растянуть (01.08.2026).
- *
- * Подпись говорит, чем платим, а не только что настраиваем: это единственная
- * настройка на экране, которая делает систему МЕНЕЕ защищённой. Потолок 4 часа
- * стоит и на сервере — значением отсюда его не обойти.
+ * ФИНАНСОВЫЙ PDF РАЗ В МЕСЯЦ (14.11.2026). Выключен по умолчанию: включает директор,
+ * когда хочет получать готовый отчёт сам. Подпись — про текущее положение тумблера.
  */
-const STEP_UP_CHOICES = [15, 30, 60, 120, 240] as const;
-
-export function StepUpSection() {
+export function FinancePdfMonthlySection() {
   const { data: settings } = useSettings();
   const save = useUpdateSettings();
-  const [minutes, setMinutes] = useState<number>(60);
-  useServerSyncedFields(
-    settings && {
-      minutes: settings.stepUpMinutes ?? 60,
-    },
-    {
-      minutes: [minutes, setMinutes],
-    }
-  );
-
+  const on = settings?.financePdfMonthlyEnabled ?? false;
   return (
-    <SettingsSection icon={KeyRound} title="Подтверждение личности">
-      <div className="mod">
-        <div className="t">
-          <b>Сколько держать раздел открытым</b>
-          <span>
-            Сколько времени после подтверждения кодом открыты Настройки, ключи и сотрудники. Это последнее, что
-            отделяет открытый ноутбук от ключей WhatsApp, Instagram и Anthropic: чем дольше окно, тем больше
-            времени у того, кто сядет за ваш компьютер. Дольше четырёх часов нельзя. Новый срок начнёт
-            действовать со следующего подтверждения.
-          </span>
-        </div>
-        <div className="acts">
-          <select
-            className="inp"
-            style={{ maxWidth: 160 }}
-            aria-label="Срок подтверждения"
-            value={minutes}
-            onChange={(e) => setMinutes(Number(e.target.value))}
-          >
-            {STEP_UP_CHOICES.map((m) => (
-              <option key={m} value={m}>
-                {m < 60 ? `${m} минут` : `${m / 60} ч`}
-              </option>
-            ))}
-          </select>
-          <button
-            className="pill ghost sm"
-            type="button"
-            onClick={() => save.mutate({ stepUpMinutes: minutes })}
-            disabled={save.isPending || minutes === settings?.stepUpMinutes}
-          >
-            {save.isPending ? "Сохраняем…" : "Сохранить"}
-          </button>
-        </div>
-      </div>
+    <SettingsSection icon={FileText} title="Финансовый отчёт в PDF раз в месяц">
+      <SwitchRow
+        title="Присылать директору в Telegram"
+        on={on}
+        hint={
+          on
+            ? "1-го числа утром директор получает в свой Telegram PDF с деньгами за прошлый месяц: прибыль, расходы, выплаты агентам."
+            : "Не присылается. PDF за любой месяц можно скачать в разделе «Финансы» кнопкой «Скачать PDF»."
+        }
+        onToggle={() => save.mutate({ financePdfMonthlyEnabled: !on })}
+      />
     </SettingsSection>
   );
 }
+
+// «Сколько держать раздел открытым» (stepUpMinutes) убран с экрана 01.11.2026:
+// срок подтверждения личности — константа STEP_UP_MINUTES на сервере
+// (apps/api/src/lib/settingsConstants.ts), значение прода — 4 часа.
 
 /**
  * ВХОД ПО ОТПЕЧАТКУ ИЛИ ЛИЦУ — общий рубильник.

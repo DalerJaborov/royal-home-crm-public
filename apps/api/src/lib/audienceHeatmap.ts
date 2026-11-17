@@ -362,8 +362,8 @@ export async function instagramOnlineDaysCollected(days: number = HEATMAP_DEFAUL
  * файла). Если цифра окажется другой — менять здесь, в одном месте.
  */
 export const PUBLISH_LEAD_HOURS = 1;
-// С 23.09.2026 это значение по умолчанию: своё можно задать в Настройках
-// (Settings.publishScheduleLeadHours) и передать вторым аргументом
+// С 01.11.2026 действующее значение — PUBLISH_SCHEDULE_TUNING.leadHours
+// (lib/settingsConstants.ts), её передают вторым аргументом
 // summarizeHeatmap — см. lib/publishScheduleRules.ts.
 
 /** Сколько «живых часов» показываем — три, чтобы совет не превращался в

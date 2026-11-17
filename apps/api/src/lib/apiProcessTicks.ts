@@ -15,6 +15,8 @@
  * tests/live-voice-ticks-process.test.ts).
  */
 export const API_PROCESS_TICKS = {
+  // stationHealth reads the ARI subscription and pause state owned by index.ts.
+  "telephony-station-health": "*/15 * * * *",
   "live-calls-sweep": "*/5 * * * *",
   // Карта живых звонков (E2/E3 глубокой проверки 02.10.2026) —
   // lib/telephony/callMemoryTicks.ts; выражения там же строкой, сверка — тестом.
@@ -25,6 +27,9 @@ export const API_PROCESS_TICKS = {
   "interview-invite-call": "*/5 * * * *",
   // Уборка осиротевших каналов моста на станции — liveVoiceScenarioTicks.ts.
   "live-voice-orphan-sweep": "*/10 * * * *",
+  // Потолок минут робота (П5, 11.11.2026) — liveVoiceSpend.ts: удержание входящих живёт
+  // в памяти процесса моста, поэтому тик здесь; раз в минуту — перерасход не больше минуты.
+  "live-voice-spend-ceiling": "* * * * *",
 } as const;
 
 export type ApiProcessTickName = keyof typeof API_PROCESS_TICKS;

@@ -34,7 +34,7 @@ const MAX_INPUT_BYTES = 20 * 1024 * 1024;
 
 /** Общий прогон ffmpeg: своя раскладка args и расширение выходного файла на
  *  каждый формат, остальное (временные файлы, таймаут, лог отказа) одинаково. */
-async function runFfmpegTranscode(buffer: Buffer, ext: string, args: (inputPath: string, outputPath: string) => string[]): Promise<Buffer | null> {
+async function runFfmpegTranscode(buffer: Buffer, ext: string, args: (inputPath: string, outputPath: string) => string[], timeoutMs = TIMEOUT_MS): Promise<Buffer | null> {
   if (buffer.length === 0 || buffer.length > MAX_INPUT_BYTES) return null;
 
   const tmpDir = os.tmpdir();
@@ -50,7 +50,7 @@ async function runFfmpegTranscode(buffer: Buffer, ext: string, args: (inputPath:
       const timer = setTimeout(() => {
         proc.kill("SIGKILL");
         reject(new Error("ffmpeg не уложился в таймаут"));
-      }, TIMEOUT_MS);
+      }, timeoutMs);
       let stderr = "";
       proc.stderr.on("data", (chunk) => {
         stderr += chunk.toString();
@@ -77,6 +77,15 @@ async function runFfmpegTranscode(buffer: Buffer, ext: string, args: (inputPath:
     await fs.rm(inputPath, { force: true });
     await fs.rm(outputPath, { force: true });
   }
+}
+
+/** Keep pitch and Opus compatibility when making short bot replies a little faster. */
+export function adjustTelegramVoiceTempo(buffer: Buffer, tempo: number): Promise<Buffer | null> {
+  if (!Number.isFinite(tempo) || tempo < 0.9 || tempo > 1.15) return Promise.resolve(null);
+  return runFfmpegTranscode(buffer, "ogg", (inputPath, outputPath) => [
+    "-nostdin", "-loglevel", "error", "-y", "-i", inputPath, "-vn", "-filter:a", `atempo=${tempo}`,
+    "-c:a", "libopus", "-b:a", "64k", outputPath,
+  ], 1_500);
 }
 
 /**

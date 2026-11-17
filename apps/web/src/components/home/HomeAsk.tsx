@@ -1,9 +1,13 @@
-import { useState, type FormEvent } from "react";
-import { api, ApiError } from "../../lib/api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { renderAssistantContent } from "../assistantContent";
+import { AssistantStreamError, streamAssistant } from "../../lib/assistantStream";
 
 /**
  * Вопрос помощнику на ролевой Главной (макет `.aib-ask`): тот же
- * POST /ai/assistant, что и у панели помощника, сервер режет ответ по роли —
+ * POST /ai/assistant, что и у панели помощника, и тем же клиентом потока
+ * (`streamAssistant`): маршрут отдаёт SSE, а не JSON, и прежний `api()` читал
+ * поток как JSON — вопрос всегда заканчивался «Не удалось получить ответ»
+ * (аудит 31.10.2026, п. 4). Сервер режет ответ по роли —
  * агенту закрыты чужие карточки и разговоры, менеджеру деньги и номера.
  * Подсказки и подпись поля — свои у каждой роли (макет `tpl-home-*`).
  */
@@ -24,6 +28,17 @@ export function HomeAsk({
   const [answer, setAnswer] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const unmountedRef = useRef(false);
+
+  // Ушли с Главной посреди вопроса — запрос обрываем, ответ некому показывать.
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      abortRef.current?.abort();
+    };
+  }, []);
 
   async function ask(q: string) {
     const text = q.trim();
@@ -31,18 +46,20 @@ export function HomeAsk({
     setPending(true);
     setStatus("Думаю…");
     setAnswer(null);
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const res = await api<{ reply: string }>("/ai/assistant", {
-        method: "POST",
-        body: { messages: [{ role: "user", content: text }] },
-      });
-      setAnswer(res.reply);
+      const reply = await streamAssistant([{ role: "user", content: text }], setStatus, { signal: controller.signal });
+      if (unmountedRef.current) return;
+      setAnswer(reply);
       setStatus(null);
     } catch (err) {
-      // 502 (ИИ не ответил) / 409 (модуль выключен) — тихая строка, не alert.
-      setStatus(err instanceof ApiError ? err.message : "Не удалось получить ответ");
+      if (unmountedRef.current) return;
+      // Выключен (403), лимит (429), ИИ не ответил, таймаут — тихая строка, не alert.
+      setStatus(err instanceof AssistantStreamError ? err.message : "Не удалось получить ответ");
     } finally {
-      setPending(false);
+      if (abortRef.current === controller) abortRef.current = null;
+      if (!unmountedRef.current) setPending(false);
     }
   }
 
@@ -105,7 +122,7 @@ export function HomeAsk({
       )}
       {(status || answer) && (
         <div className="aib-ans" role="status" aria-live="polite">
-          {answer ?? status}
+          {answer ? renderAssistantContent(answer, () => undefined) : status}
           {answer && (
             <>
               {" "}

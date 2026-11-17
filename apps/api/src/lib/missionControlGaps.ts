@@ -4,6 +4,7 @@ import { visibleInteractionWhere } from "./investigationPrivacy.js";
 import { canViewInvestigations } from "@royal-home/shared";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
+import { isOpenAiEnabled } from "../ai/openaiClient.js";
 import { dushanbeDayRange, dushanbeStartOfMonth, dushanbeStartOfToday, dushanbeWallClock } from "./dushanbeTime.js";
 import { centsToTjs, loadMoneyContext, roundMoney, toCents } from "./money.js";
 import { activeLeadCounts, loadLeadLimits, slotsTaken } from "./leadLimits.js";
@@ -12,6 +13,8 @@ import { loadCredentials } from "../messengers/meta.js";
 import { HAS_INSTAGRAM_LINK_WHERE, NO_INSTAGRAM_LINK_WHERE } from "./instagramLink.js";
 import { getExtensionStatuses } from "./telephony/extensionPool.js";
 import { RATED_ROLES } from "@royal-home/shared";
+import { TASK_WHERE } from "./tasks.js";
+import { findSilentAfterShowing } from "./silentAfterShowing.js";
 
 /**
  * БЛОКИ ПУЛЬТА, КОТОРЫЕ ПОКАЗЫВАЛИ «НЕТ ДАННЫХ» (владелец 12.09.2026: «почему
@@ -284,7 +287,8 @@ export async function loadChannelsHealth(now: Date = new Date()): Promise<McChan
     items,
     problems,
     healthCheckedAt,
-    openaiOutOfMoney: openaiMoneyErrors > 0,
+    // OpenAI выключен рубильником (14.11.2026) — «кончились деньги» не показываем.
+    openaiOutOfMoney: openaiMoneyErrors > 0 && (await isOpenAiEnabled()),
     connectedCount,
     openErrors,
     autoPublishEnabled: settings?.autoPublishEnabled ?? false,
@@ -791,7 +795,7 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
     // routes/team.ts/lib/kpi.ts.
     prisma.interaction.groupBy({
       by: ["agentId"],
-      where: { ...visibleInteractionWhere(viewerRole), type: "CALL", createdAt: window, actorKind: "AGENT" },
+      where: { ...visibleInteractionWhere(viewerRole), type: "CALL", createdAt: window, actorKind: "AGENT", archiveReview: false },
       _count: { _all: true },
     }),
     prisma.interaction.groupBy({
@@ -872,8 +876,8 @@ export interface McShowingsToday extends McEmptyable {
  * «Показы сегодня» — назначенные на сегодня встречи (`nextActionDate` внутри
  * суток по Душанбе), а не проведённые: карточка на пульте отвечает на вопрос
  * «что у команды сегодня», и вчерашние состоявшиеся показы в ней бесполезны.
- * Отменённые (declinedAt при пустом nextAction) исключены тем же условием, что
- * и в календаре, — COUNTED_SHOWING_WHERE.
+ * Выполненные исключаются явно, как в календаре: nextActionDate сохраняется
+ * для истории и KPI после завершения. Отменённые также не входят в очередь.
  */
 export async function loadShowingsToday(now: Date, viewerRole?: string): Promise<McShowingsToday> {
   const { start, end } = dushanbeDayRange(now);
@@ -881,6 +885,7 @@ export async function loadShowingsToday(now: Date, viewerRole?: string): Promise
     type: "SHOWING",
     ...visibleInteractionWhere(viewerRole),
     taskCancelledAt: null,
+    completedAt: null,
     nextActionDate: { gte: start, lt: end },
     NOT: { nextAction: null, declinedAt: { not: null } },
   } satisfies Prisma.InteractionWhereInput;
@@ -1164,10 +1169,9 @@ async function loadAgentPhones(): Promise<McAgentPhones> {
 
 export async function loadControlGaps(now: Date, viewerRole?: string): Promise<McControlGaps> {
   const overdueWhere = {
+    ...TASK_WHERE,
     ...visibleInteractionWhere(viewerRole),
-    taskCancelledAt: null,
     completedAt: null,
-    nextAction: { not: null },
     nextActionDate: { lt: now },
   } satisfies Prisma.InteractionWhereInput;
 
@@ -1197,15 +1201,7 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
 
   const phones = await loadAgentPhones();
 
-  const silenceCutoff = new Date(now.getTime() - 3 * 86_400_000);
-  const silentAfterShowing = await prisma.client.count({
-    where: {
-      deletedAt: null,
-      status: { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] },
-      lastContactAt: { lt: silenceCutoff },
-      interactions: { some: { ...visibleInteractionWhere(viewerRole), taskCancelledAt: null, type: "SHOWING", createdAt: { gte: silenceCutoff } } },
-    },
-  });
+  const silentAfterShowing = (await findSilentAfterShowing(now, viewerRole)).items.length;
 
   return {
     phones,
@@ -1228,7 +1224,9 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
           ? null
           : agents.length === 0
             ? "Активных агентов нет."
-            : `Ни у кого не выбран предел в ${limits.activeLimit} активных клиентов.`,
+            : limits.activeLimit <= 0
+              ? "Лимит активных клиентов отключён."
+              : `Ни один агент не достиг лимита в ${limits.activeLimit} активных клиентов.`,
     },
     silentAfterShowing: {
       count: silentAfterShowing,

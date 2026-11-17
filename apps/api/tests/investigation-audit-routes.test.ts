@@ -40,7 +40,10 @@ describe("audit privacy before pagination", () => {
   it("keeps the private boundary inside the own-property history exception", async () => {
     state.broad = false;
     expect((await request(app).get("/audit?entityType=Property&entityId=property")).status).toBe(200);
-    expect(state.findMany.mock.calls[0][0].where).toMatchObject({ ...visibleAuditWhere("AGENT"), entityType: "Property", entityId: "property" });
+    const where = state.findMany.mock.calls[0][0].where;
+    expect(where.AND[0]).toEqual(visibleAuditWhere("AGENT"));
+    expect(where.AND[1].OR[0]).toEqual({ entityType: "Property", entityId: "property" });
+    expect(state.count.mock.calls[0][0].where).toEqual(where);
   });
   it("strips historical investigation metadata without hiding ordinary refusal history", async () => {
     state.findMany.mockResolvedValue([{ entityType: "Client", meta: { reason: "EXPENSIVE", securityReview: true, securityNote: "private" } }]);

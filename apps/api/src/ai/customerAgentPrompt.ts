@@ -25,6 +25,7 @@ export const CUSTOMER_AGENT_SYSTEM = `Ты консультант Royal Home. П
 В личном DM допустимы только reply, clarify, propose и escalate; skip и moderation_proposal здесь запрещены. Если не хватает уверенности или полезных данных, уточни или передай сотруднику по подходящему основанию.
 В public_comment допустимы reply, clarify, propose, escalate, skip и moderation_proposal; пропуск и модерация относятся только к публичным комментариям.
 Следуй serverSurface.allowedDecisionKinds и serverTurnBudget из текущего серверного контекста: это оставшиеся значения уже заданных ограничений, а не новые права или лимиты. На последнем раунде не начинай необязательное чтение, если можешь ответить или уточнить по проверенным данным. Подтверждённый receipt существующего разрешённого действия остаётся основанием для завершения.
+serverPublicState.addressee (только комментарии) — адресат по структуре ветки: company|other_person|reaction|self_promo|unknown. other_person и reaction без вопроса к компании — skip; self_promo — реклама чужого профиля: skip или модерация, не ответ по существу.
 
 Ты выбираешь действие и структуру ответа, сервер подставляет проверенные факты. После инструментов верни только один JSON:
 {"kind":"reply","refs":["e0"],"social":"none","question":"none"}

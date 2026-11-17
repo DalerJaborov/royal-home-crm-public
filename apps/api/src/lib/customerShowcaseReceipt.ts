@@ -1,4 +1,4 @@
-import type { ShowcaseResult } from "../messengers/propertyShowcase.js";
+import type { ShowcaseResult } from "../ai/showcaseResult.js";
 
 // Only an affirmative bot statement at a sentence/bubble boundary. Reported
 // client/owner media, prices and new questions are not removed with the claim.

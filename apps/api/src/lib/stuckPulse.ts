@@ -115,6 +115,7 @@ async function clientsBlockedFromInactive(): Promise<StuckPulse["clientsBlockedF
     where: {
       clientId: { in: active.map((c) => c.id) },
       type: "CALL",
+      archiveReview: false,
       OR: [
         { callAttempt: { in: ["TALKED", "NO_ANSWER"] } },
         { recordingDurationSec: { gt: 0 } },

@@ -1,8 +1,11 @@
 import { prisma } from "../db.js";
+import type { ShowcaseResult } from "../ai/showcaseResult.js";
+export type { ShowcaseResult };
+export { recordExposures } from "../lib/propertyExposures.js";
 import { traceResolution } from "../lib/botTurnTrace.js";
 import { DEFAULT_PHOTOS_PER_OFFER } from "../ai/photoOffer.js";
 import type { PropertyCard, StoredAttachment } from "../ai/shared.js";
-import { PROPERTY_TYPE_LABELS } from "../ai/leadQualifier.js";
+import { PROPERTY_TYPE_LABELS } from "../ai/agencyVoice.js";
 import { crmPublicBase, publicUploadUrl } from "../lib/crmPublicUrl.js";
 import { describeError } from "../lib/describeError.js";
 import { messagePhotoPath } from "../lib/messagePhoto.js";
@@ -12,7 +15,6 @@ import { logSystemError } from "../lib/systemError.js";
 import { customerTransportInput, resolveCustomerEndpoint, type CustomerTransportHint, type CustomerTransportReference } from "../lib/customerConversationScope.js";
 import {
   linkConversationPropertyByChannel,
-  linkConversationPropertiesByChannel,
 } from "../lib/propertyVoice/linkConversation.js";
 import { isInstagramLink } from "../lib/instagramLink.js";
 import { photoGapMs, sleep } from "./humanPacing.js";
@@ -73,31 +75,6 @@ export interface SendablePhoto {
   mime: string;
 }
 
-/** Что бот показал клиенту — для записи в переписку CRM. */
-export interface ShowcaseResult {
-  /** Provider evidence, or a locally prepared website card. Missing IDs are not confirmation. */
-  deliveryStatus?: "not_sent" | "sent" | "unknown" | "prepared";
-  /** Доставленные фотографии в виде вложений реплики (lib/messageAttachments.ts).
-   *  У каждого — свой `mid` (см. StoredAttachment): это отдельное сообщение Meta. */
-  attachments: StoredAttachment[];
-  /** Ссылка, ушедшая отдельным сообщением: пост в Instagram или карточка на сайте. */
-  link: string | null;
-  /** `message_id` этого сообщения-ссылки у Meta — нужен эху отличить своё от
-   *  чужого (см. handleOutgoingEcho), как mid у фотографий. */
-  linkMid?: string | null;
-  /**
-   * Гугл-ссылка на карту, ушедшая ОТДЕЛЬНОЙ настоящей геометкой в WhatsApp
-   * (19.08.2026) — только у объектов с геокодированными координатами и только
-   * в WhatsApp (Instagram/Messenger такой тип сообщения не поддерживают).
-   * В переписке CRM хранится ссылкой на карту, а не картой — своего рендера
-   * карты в интерфейсе пока нет, ссылка честнее, чем видимость поддержки.
-   */
-  locationLink?: string | null;
-  locationMid?: string | null;
-  /** Карточка для чата на сайте (23.08.2026) — см. PropertyCard в ai/shared.ts.
-   *  У Meta-каналов вместо неё настоящие фотографии + ссылка выше. */
-  websiteCard?: PropertyCard | null;
-}
 
 const NOTHING: ShowcaseResult = { attachments: [], link: null, deliveryStatus: "not_sent" };
 
@@ -324,50 +301,6 @@ export async function recordExposure(
   }
 }
 
-/**
- * ТО ЖЕ САМОЕ, НО НА ПАЧКУ ОБЪЕКТОВ ОДНИМ ЗАПРОСОМ (22.09.2026, сведение N+1) —
- * `routes/clients/matching.ts::send-properties` зовёт recordExposure по разу
- * на каждый выбранный объект (пусть и через `Promise.all` — всё равно N вставок
- * на одну отправку подборки). Используется ТОЛЬКО там, где отказ записи по
- * одному объекту равнозначен отказу по всей пачке (единая ручная отправка), —
- * recordExposure выше (по одному, каждый со своим try/catch) остаётся для
- * бота, который показывает объекты не разом.
- */
-export async function recordExposures(
-  channel: string,
-  recipientId: string,
-  items: { propertyId: string; shortId: number; kind: "PHOTO" | "LINK" }[],
-  clientId?: string,
-  transport?: CustomerTransportHint
-): Promise<void> {
-  if (items.length === 0) return;
-  try {
-    const endpoint = await resolveCustomerEndpoint(customerTransportInput(channel, recipientId, transport));
-    await prisma.propertyExposure.createMany({
-      data: items.map((it) => ({
-        channel,
-        recipientId,
-        propertyId: it.propertyId,
-        shortId: it.shortId,
-        kind: it.kind,
-        clientId,
-        endpointScopeId: endpoint.endpointScopeId,
-      })),
-    });
-    void linkConversationPropertiesByChannel({
-      channel,
-      recipientId,
-      transport: endpoint,
-      propertyIds: items.map((it) => it.propertyId),
-      source: "EXPOSURE",
-    });
-  } catch (err) {
-    void logSystemError(
-      "meta",
-      `Показы объектов (${items.map((it) => it.shortId).join(", ")}) не записаны в журнал: ${describeError(err)}`
-    );
-  }
-}
 
 /**
  * Привязывает показы этой переписки к появившейся карточке клиента.

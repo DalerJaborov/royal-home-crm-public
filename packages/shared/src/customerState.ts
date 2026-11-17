@@ -42,6 +42,10 @@ export const customerPublicStateSchema = z.object({
   topic: z.enum(["buyer", "seller", "job", "rent", "unknown"]).default("unknown"),
   jobPositionKey: recruitmentPositionKeySchema.optional(),
   openQuestion: z.enum(["property", "price", "address", "builder", "contact", "callback", "none"]).default("none"),
+  /** Public comments only: who the comment talks to, derived by the server from the thread structure
+   * (parent, @mentions, the text), never from a model label. The no-reply skip stays a server decision;
+   * the model is only told, e.g. to tell advertising from a question. */
+  addressee: z.enum(["company", "other_person", "reaction", "self_promo", "unknown"]).optional(),
 }).strict();
 export const customerOwnerModeSchema = z.enum(["BOT", "HUMAN", "OFF", "HOLD"]);
 export const customerEndpointRefSchema = z.object({

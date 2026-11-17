@@ -3,21 +3,33 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
-import { parseNoteSchema, assistantRequestSchema, assistantAuditQuerySchema, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
+import { parseNoteSchema, assistantRequestSchema, assistantAuditQuerySchema, assistantTurnsQuerySchema, ASSISTANT_TURN_FAILED_OUTCOMES, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
 import { can, canAccessAssignedAgent, requireAuth, requirePermission, scopeDealsToOwnAgent, scopeToOwnAgent } from "../auth/middleware.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../lib/clientPhone.js";
 import { callAiText, type ImageInput } from "../ai/client.js";
 import { loadMoneyContext, toTjs } from "../lib/money.js";
-import { dushanbeWallClock } from "../lib/dushanbeTime.js";
+import { dushanbeDateFilter, dushanbeWallClock } from "../lib/dushanbeTime.js";
 import { thumbsDir } from "../upload.js";
 import { scoreClient } from "../ai/scoring.js";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
 import { buildPropertyDraftSuggestion } from "../ai/propertyDraft.js";
-import { isAiAssistantEnabled, runAssistant } from "../ai/assistant.js";
+import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
+import { actorFromAccess } from "../ai/assistant/actor.js";
+import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
+import { loadAssistantLogRetentionDays, logAssistantFastPathTurn, logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import { formatPrice, stripDashes } from "../ai/seoGenerator.js";
 import { TG_PREFIX } from "./conversations.js";
+import type { Request, Response } from "express";
+import {
+  AssistantActionError,
+  cancelAssistantAction,
+  confirmAssistantAction,
+  undoAssistantAction,
+  type AssistantActionActor,
+  type AssistantActionOutcome,
+} from "../lib/assistantActions.js";
 import { agentSpeechLimiter } from "../lib/agentSpeechLimiter.js";
 
 export const aiRouter = Router();
@@ -67,9 +79,9 @@ const aiGenerationLimiter = rateLimit({
  * SSE (план B3, docs/ai-bots-audit-13-09.md): вместо одного JSON-ответа в конце
  * отдаём поток событий `status` (пошаговые статусы раундов/тулов — см.
  * runAssistant/onStatus в ai/assistant.ts) и финальный `done`/`error`. Заголовки —
- * по образцу routes/events.ts:130-137. Полный токен-стриминг Gemini-ответа не
- * делается — `:streamGenerateContent` в проекте не используется нигде, это
- * отдельная и более рискованная задача (частичный JSON тул-коллов).
+ * по образцу routes/events.ts:130-137. С 31.10.2026 (задача 1.6) текст ответа
+ * идёт ещё и событием `token` по мере генерации (`:streamGenerateContent`,
+ * callGeminiToolsStream в ai/geminiClient.ts); `done` по-прежнему несёт весь текст.
  */
 aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
   // Рубильник (Настройки → ИИ). Выключен по умолчанию: разделом пока никто не
@@ -95,41 +107,98 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
-  const sendEvent = (event: "status" | "done" | "error", data: unknown) => {
-    if (res.writableEnded) return;
+  const sendEvent = (event: "status" | "card" | "token" | "confirm" | "done" | "error", data: unknown) => {
+    if (res.writableEnded || res.destroyed) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  /**
+   * КЛИЕНТ УШЁЛ — РАУНДЫ ОСТАНАВЛИВАЮТСЯ (31.10.2026, пачка П1 задача 1.1).
+   * Раньше закрытая панель не значила ничего: сервер дорабатывал все раунды и жёг
+   * квоту Gemini на ответ, который некому показать. Слушаем `res`, а не `req`:
+   * у входящего запроса событие close в Node 16+ приходит, как только прочитано
+   * ТЕЛО (а express.json() читает его ещё до этого обработчика), то есть означало
+   * бы «отменить сразу». У ответа close — это закрытие соединения; если ответ к
+   * этому моменту уже дописан, отменять нечего.
+   */
+  const clientGone = new AbortController();
+  res.on("close", () => {
+    if (!res.writableFinished) clientGone.abort();
+  });
+
+  // Помощник ходит в базу под правами вызвавшего — тот же разбор прав, что у
+  // requireAuth, одной функцией (ai/assistant/actor.ts, задача 2.1).
+  const actor = actorFromAccess(req.agent!.id, req.agent!, "crm-private");
+
   try {
-    const reply = await runAssistant(
+    // Полоса А (ai/assistantFastPath.ts): номер карточки, телефон или ссылка Instagram
+    // целиком — ответ из базы без модели. Сбой быстрого пути не фатален: уходим на обычный.
+    const lastMessage = parsed.data.messages[parsed.data.messages.length - 1];
+    if (lastMessage?.role === "user") {
+      try {
+        const fastStartedAt = Date.now();
+        const fast = await tryAssistantFastPath(lastMessage.content, actor);
+        if (fast) {
+          void logAssistantToolCall({
+            agentId: actor.id,
+            tool: fast.tool,
+            argsSummary: fast.argsSummary,
+            resultCount: fast.cards.length,
+            question: lastMessage.content,
+          });
+          void logAssistantFastPathTurn({
+            agentId: actor.id,
+            channel: "crm",
+            surface: actor.surface,
+            question: lastMessage.content,
+            reply: fast.reply,
+            found: fast.cards.length + (fast.trashed ?? 0),
+            startedAt: fastStartedAt,
+          });
+          for (const card of fast.cards) sendEvent("card", card);
+          sendEvent("done", { reply: fast.reply });
+          return;
+        }
+      } catch (err) {
+        console.error("[ai:assistant:fast-path]", err instanceof Error ? err.message : err);
+      }
+    }
+
+    const outcome = await runAssistantDetailed(
       parsed.data.messages,
+      actor,
       {
-        id: req.agent!.id,
-        role: req.agent!.role,
-        canViewAllClients: req.agent!.can("clients.viewAll"),
-        // Ассистент ходит в базу под правами вызвавшего — включая право на телефон.
-        canViewPhone: req.agent!.can("clients.viewPhone"),
-        // Те же права, что закрывают REST /reports и /expenses — get_lead_sources и
-        // get_finance_summary обязаны отказывать ровно тем же, кому отказывает интерфейс.
-        canViewReports: req.agent!.can("reports.view"),
-        canViewFinance: req.agent!.can("finance.view"),
-        // Сделки — своим правом (deals.viewAll), а не правом на клиентов: на экране
-        // «Сделки» их скоупит именно оно (scopeDealsToOwnAgent).
-        canViewAllDeals: req.agent!.can("deals.viewAll"),
+        onStatus: (message) => sendEvent("status", { message }),
+        // Текст ответа по мере генерации (задача 1.6) — событием `token` до `done`;
+        // `done` всё равно несёт полный текст. Поток включает только клиент, который
+        // его показывает (заголовок X-Assistant-Stream: 1): ответ, который никто не
+        // видит по словам, не должен терять повтор/запасную модель после первого
+        // слова (ревью 31.10.2026).
+        onToken: req.header("x-assistant-stream") === "1" ? (token) => sendEvent("token", token) : undefined,
+        // Инструменты записи объявляются модели только клиенту, который покажет карточку
+        // подтверждения (заголовок X-Assistant-Confirm: 1) — иначе просить «нажмите кнопку» не у кого.
+        confirmUi: req.header("x-assistant-confirm") === "1",
+        onConfirm: (action) => sendEvent("confirm", action),
+        signal: clientGone.signal,
       },
-      { onStatus: (message) => sendEvent("status", { message }) },
     );
-    if (!reply) {
-      sendEvent("error", { error: "ИИ недоступен: проверьте ключ Gemini в Настройках или повторите позже" });
-    } else {
-      sendEvent("done", { reply });
+    if (outcome.ok) {
+      sendEvent("done", { reply: outcome.reply });
+    } else if (outcome.code !== "aborted") {
+      // Код и «повтор поможет» — рядом с текстом (задача 1.2): интерфейс решает по
+      // ним, предлагать ли «Повторить», а не гадает по строке.
+      sendEvent("error", {
+        error: assistantErrorMessage(outcome.code, parsed.data.messages),
+        code: outcome.code,
+        retryable: outcome.retryable,
+      });
     }
   } catch (err) {
     // runAssistant само ловит и логирует свои ошибки (logSystemError) и штатно не
     // бросает наружу — эта ветка на непредвиденный throw, чтобы соединение не
     // зависло без единого события (клиент иначе ждал бы `done` бесконечно).
     console.error("[ai:assistant:sse]", err instanceof Error ? err.message : err);
-    sendEvent("error", { error: "ИИ недоступен, попробуйте позже" });
+    sendEvent("error", { error: assistantErrorMessage("internal", parsed.data.messages), code: "internal", retryable: true });
   } finally {
     res.end();
   }
@@ -183,9 +252,11 @@ aiRouter.get("/assistant-audit", requireAuth, requirePermission("auditLog.view")
   }
   const { page, agentId, from, to } = parsed.data;
 
+  // Сутки — по Душанбе (lib/dushanbeTime.ts), а не по UTC: иначе «за 07.11» терял 00:00–05:00.
+  const createdAt = dushanbeDateFilter(from, to);
   const where = {
     ...(agentId ? { agentId } : {}),
-    ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+    ...(createdAt ? { createdAt } : {}),
   };
 
   const [rows, total] = await Promise.all([
@@ -219,12 +290,68 @@ aiRouter.get("/assistant-audit", requireAuth, requirePermission("auditLog.view")
       tool: r.tool,
       argsSummary: r.argsSummary,
       resultCount: r.resultCount,
+      // Вопрос сотрудника (07.11.2026): уже с маской телефонов — lib/aiAssistantAudit.ts.
+      question: r.question,
       agent: r.agent,
       client: clientById.get(extractClientIdFromArgsSummary(r.argsSummary) ?? "") ?? null,
     })),
     total,
     page,
     pageSize: ASSISTANT_AUDIT_PAGE_SIZE,
+  });
+});
+
+/**
+ * ХОДЫ ПОМОЩНИЦЫ (пачка 2, 07.11.2026, модель AiAssistantTurnLog): одна строка на ответ —
+ * вопрос (маска телефонов), итог, число шагов и инструментов, длина ответа. Текста ответа нет.
+ * Фильтр `outcome=failed` — «где не справилась» (всё, кроме answer). Право — то же, что у
+ * журнала инструментов выше (`auditLog.view`), отдельного права под один блок не заводим.
+ */
+aiRouter.get("/assistant-turns", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
+  const parsed = assistantTurnsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
+  }
+  const { page, agentId, from, to, outcome } = parsed.data;
+  const createdAt = dushanbeDateFilter(from, to);
+  const where = {
+    ...(agentId ? { agentId } : {}),
+    // «Где не справилась» — частично, не по сути, сбой. Ушедший до ответа человек (aborted) —
+    // не неудача помощницы, в этот фильтр не попадает.
+    ...(outcome === "failed" ? { outcome: { in: [...ASSISTANT_TURN_FAILED_OUTCOMES] } } : outcome ? { outcome } : {}),
+    ...(createdAt ? { createdAt } : {}),
+  };
+  const [rows, total, retentionDays] = await Promise.all([
+    prisma.aiAssistantTurnLog.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * ASSISTANT_AUDIT_PAGE_SIZE,
+      take: ASSISTANT_AUDIT_PAGE_SIZE,
+      include: { agent: { select: { id: true, fullName: true } } },
+    }),
+    prisma.aiAssistantTurnLog.count({ where }),
+    loadAssistantLogRetentionDays(),
+  ]);
+  res.json({
+    items: rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      channel: r.channel,
+      surface: r.surface,
+      question: r.question,
+      outcome: r.outcome,
+      reason: r.reason,
+      route: r.route,
+      rounds: r.rounds,
+      toolCalls: r.toolCalls,
+      replyChars: r.replyChars,
+      ms: r.ms,
+      agent: r.agent,
+    })),
+    total,
+    page,
+    pageSize: ASSISTANT_AUDIT_PAGE_SIZE,
+    retentionDays,
   });
 });
 
@@ -881,3 +1008,52 @@ async function computeStalePropertyInsights(ownAgentId: string | undefined) {
     };
   });
 }
+
+/**
+ * ДЕЙСТВИЯ ПОМОЩНИКА С ПОДТВЕРЖДЕНИЕМ (П2, задача 2.3): «Подтвердить», «Отмена»,
+ * «Отменить» по карточке «было → станет». Вся логика — в lib/assistantActions.ts
+ * (ConfirmationBroker); маршрут только собирает актора из req.agent и переводит
+ * ошибку брокера в HTTP. Актор собирается на КАЖДОМ нажатии — права
+ * перечитываются, а не берутся из момента показа превью.
+ *
+ * Тот же рубильник, что у /assistant: выключенный помощник не исполняет и ранее
+ * показанных действий. Лимит — те же числа, что у /assistant, но своим счётчиком:
+ * нажатие «Подтвердить» не должно съедать квоту на сам разговор.
+ */
+const assistantActionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `agent:${req.agent!.id}`,
+  message: { error: "Слишком много запросов к ИИ-ассистенту за час, подождите" },
+});
+const assistantActionParamsSchema = z.object({ id: z.string().uuid() });
+type AssistantActionHandler = (id: string, actor: AssistantActionActor) => Promise<AssistantActionOutcome>;
+
+function assistantActionRoute(handler: AssistantActionHandler) {
+  return async (req: Request<{ id: string }>, res: Response) => {
+    if (!(await isAiAssistantEnabled())) {
+      return res.status(403).json({ error: "ИИ-ассистент выключен в Настройках" });
+    }
+    const params = assistantActionParamsSchema.safeParse(req.params);
+    if (!params.success) {
+      return res.status(400).json({ error: "Неверный идентификатор действия", details: params.error.flatten() });
+    }
+    const agent = req.agent!;
+    const actor: AssistantActionActor = { agentId: agent.id, channel: "crm", can: (permission) => agent.can(permission) };
+    try {
+      const outcome = await handler(params.data.id, actor);
+      return res.json(outcome);
+    } catch (err) {
+      if (err instanceof AssistantActionError) {
+        return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });
+      }
+      throw err;
+    }
+  };
+}
+
+aiRouter.post("/assistant/actions/:id/confirm", requireAuth, assistantActionLimiter, assistantActionRoute(confirmAssistantAction));
+aiRouter.post("/assistant/actions/:id/cancel", requireAuth, assistantActionLimiter, assistantActionRoute(cancelAssistantAction));
+aiRouter.post("/assistant/actions/:id/undo", requireAuth, assistantActionLimiter, assistantActionRoute(undoAssistantAction));

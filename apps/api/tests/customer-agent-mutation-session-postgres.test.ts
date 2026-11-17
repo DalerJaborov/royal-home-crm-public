@@ -38,6 +38,7 @@ const hash = "8".repeat(64), manifest = { coreHash: hash, modelSchemaHash: hash,
 const revisionId = customerAgentManifestId(manifest);
 function settingsSnapshot() { return prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
   botEnabled: true, metaEnabled: true, botInstagramEnabled: true, metaVerifyToken: true, botCanBookShowings: true, botCanHandleVacancies: true,
+  botCanRequestCallback: true, botCanAskOwner: true,
 } }); }
 function phone() { return `+99293${randomInt(1_000_000, 9_999_999)}`; }
 function wait() { return { signal: new AbortController().signal, deadlineAt: Date.now() + 90_000 }; }
@@ -78,7 +79,8 @@ beforeAll(async () => {
   hr = { id: actor.id, token: signAccessToken({ sub: actor.id, role: "MANAGER" }) };
   savedSettings = await settingsSnapshot();
   await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true, botInstagramEnabled: true,
-    metaVerifyToken: encryptSecret("synthetic-mutation-verify-token"), botCanHandleVacancies: true } });
+    metaVerifyToken: encryptSecret("synthetic-mutation-verify-token"), botCanHandleVacancies: true,
+    botCanRequestCallback: true, botCanAskOwner: true } });
   await prisma.customerAgentRevision.upsert({ where: { id: revisionId }, create: { id: revisionId, manifestJson: manifest }, update: {} });
   rollout = await createCustomerRolloutFixture(revisionId);
   await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { contractVersion: "scoped", rolloutMode: "ACTIVE",
@@ -279,6 +281,24 @@ it("the actual legacy showing switch restricts discovery and is rechecked before
   } finally {
     await prisma.settings.update({ where: { id: "singleton" }, data: prior });
     await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: policy.capabilities! } });
+  }
+});
+
+it("callback and owner-question switches: off hides the tool from the model and denies a forged call", async () => {
+  const prior = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanRequestCallback: true, botCanAskOwner: true } });
+  try {
+    const on = await fixture("Перезвоните мне, пожалуйста");
+    expect(on.session.availableToolNames).toContain("request_callback");
+    // ask_owner зависит ещё и от объекта в фокусе (customerActionCapability) — здесь
+    // фокуса нет, поэтому проверяется только то, что выключенный тумблер его не открывает.
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botCanRequestCallback: false, botCanAskOwner: false } });
+    const text = "Перезвоните мне, пожалуйста", off = await fixture(text);
+    expect(off.session.availableToolNames).not.toContain("request_callback");
+    expect(off.session.availableToolNames).not.toContain("ask_owner");
+    expect(await off.session.execute({ name: "request_callback", args: { topic: text } }, wait())).toMatchObject({ status: "denied", reason: "unsupported_mutation" });
+    await zeroEffects(off.inquiryId);
+  } finally {
+    await prisma.settings.update({ where: { id: "singleton" }, data: prior });
   }
 });
 

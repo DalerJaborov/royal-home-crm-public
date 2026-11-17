@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUp, Workflow } from "lucide-react";
 import { useAuthStore } from "../store/auth";
+import { canReadPreparation } from "../lib/preparationAccess";
 import { useCan } from "../lib/permissions";
 import {
   useCancelVideoHandoff,
@@ -46,10 +47,10 @@ import { useCleanShell } from "../hooks/useCleanShell";
  */
 export function Pipeline() {
   const clean = useCleanShell();
-  const can = useCan();
   const role = useAuthStore((s) => s.agent?.role);
   const isEditor = role === "EDITOR";
-  const allowed = can("properties.moderate") || can("properties.aiListing");
+  const canMarketing = useCan()("marketing.access");
+  const allowed = canReadPreparation(role, canMarketing);
 
   if (!allowed) {
     return (
@@ -65,7 +66,7 @@ export function Pipeline() {
               <span className="ic">
                 <Workflow className="i" aria-hidden />
               </span>
-              <p>Этот раздел доступен только маркетингу, монтажу и руководству.</p>
+              <p>Этот раздел доступен маркетингу, монтажёру, директору и администратору.</p>
             </div>
           </div>
         </div>

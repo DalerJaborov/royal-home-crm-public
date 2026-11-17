@@ -15,6 +15,16 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/systemError.js")>()),
   logSystemError }));
 
+// Параметры генерации — константы с 01.11.2026 (lib/settingsConstants.ts): тест
+// подменяет их здесь, а не строкой Settings, которую сервер больше не читает.
+const tuning = vi.hoisted(() => ({
+  imageQuality: "medium", candidates: 1, textMode: "OVERLAY", imageModel: "gpt-image-2.5-sunburst", photoSource: "MODEL",
+}));
+vi.mock("../src/lib/settingsConstants.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/settingsConstants.js")>()),
+  OPENAI_COVER_TUNING: tuning,
+}));
+
 const { prisma } = await import("../src/db.js");
 const { uploadsDir, propertyCoversDir } = await import("../src/upload.js");
 const { encryptSecret } = await import("../src/crypto.js");
@@ -125,11 +135,11 @@ beforeAll(async () => {
   blankPng = await sharp({ create: { width: 1024, height: 1024, channels: 3, background: { r: 60, g: 55, b: 50 } } }).png().toBuffer();
   settingsBefore = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { coverProvider: true, openaiApiKey: true, coverGenerationEnabled: true, openaiCoverDailyLimit: true, openaiCandidates: true, openaiTextMode: true, openaiPhotoSource: true },
+    select: { coverProvider: true, openaiApiKey: true, openaiEnabled: true, coverGenerationEnabled: true, openaiCoverDailyLimit: true, openaiCandidates: true, openaiTextMode: true, openaiPhotoSource: true },
   });
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { openaiApiKey: encryptSecret("sk-test-overlay"), coverProvider: "OPENAI", coverGenerationEnabled: true, openaiCoverDailyLimit: 1000, openaiCandidates: null, openaiTextMode: "OVERLAY", openaiPhotoSource: "MODEL" },
+    data: { openaiApiKey: encryptSecret("sk-test-overlay"), openaiEnabled: true, coverProvider: "OPENAI", coverGenerationEnabled: true, openaiCoverDailyLimit: 1000 },
   });
 });
 
@@ -257,10 +267,10 @@ describe("makePropertyCover: OVERLAY, настоящее фото (по умол
   beforeEach(async () => {
     digitDir = path.join(uploadsDir, "cover-digits");
     await fs.rm(digitDir, { recursive: true, force: true });
-    await prisma.settings.update({ where: { id: "singleton" }, data: { openaiPhotoSource: "ORIGINAL" } });
+    tuning.photoSource = "ORIGINAL";
   });
   afterEach(async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { openaiPhotoSource: "MODEL" } });
+    tuning.photoSource = "MODEL";
     await fs.rm(digitDir, { recursive: true, force: true });
   });
 

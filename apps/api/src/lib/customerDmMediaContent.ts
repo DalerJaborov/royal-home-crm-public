@@ -26,7 +26,8 @@ export async function loadCustomerDmMediaContent(input: {
   principal: CustomerPrincipal; media: CustomerNormalizedIngressInput["media"];
   wait: CustomerAgentAwaitContext; assertCurrent(wait: CustomerAgentAwaitContext): Promise<boolean>;
   preserveAttachments?: boolean;
-}): Promise<{ parts: CustomerAgentMediaPart[]; incomplete: boolean; storedAttachments?: StoredAttachment[] }> {
+}): Promise<{ parts: CustomerAgentMediaPart[]; incomplete: boolean; storedAttachments?: StoredAttachment[];
+  /** A shared publication was FOUND in our own account (whether or not its media could be read). */ publicationFound?: boolean }> {
   const check = async () => {
     input.wait.signal.throwIfAborted();
     if (Date.now() >= input.wait.deadlineAt || !await input.assertCurrent(input.wait)) throw new Error("Original media context changed");
@@ -39,7 +40,7 @@ export async function loadCustomerDmMediaContent(input: {
   } });
   const budget = row ? aiDailyBudgetOf({ ...row, clientId: null }) : null;
   if (!budget || budget.turnsLeft <= 0) throw new Error("Customer media budget unavailable");
-  let incomplete = input.media.length > 3;
+  let incomplete = input.media.length > 3, publicationFound = false;
   const metadataDeadline = Math.min(input.wait.deadlineAt, Date.now() + 12_000);
   const sources: Array<{ source: AttachmentSource; attachmentIndex: number }> = [];
   for (const [index, media] of input.media.slice(0, 3).entries()) {
@@ -81,7 +82,7 @@ export async function loadCustomerDmMediaContent(input: {
         if (sources.length >= 3) { incomplete = true; break; }
         sources.push({ source: item, attachmentIndex: index + 1 });
       }
-      if (!resolved.length) incomplete = true;
+      if (!resolved.length) incomplete = true; else publicationFound = true;
       continue;
     } else if (input.principal.scope.channel === "WHATSAPP" && media.assetRef && /^\d{1,80}$/.test(media.assetRef)) {
       const transport = await loadCustomerTransportForConversation(conversationId);
@@ -106,7 +107,7 @@ export async function loadCustomerDmMediaContent(input: {
     if (sources.length >= 3) { incomplete = true; continue; }
     sources.push({ source, attachmentIndex: index + 1 });
   }
-  if (!sources.length) return { parts: [], incomplete };
+  if (!sources.length) return { parts: [], incomplete, publicationFound };
   // Download in parallel while retaining original attachment order/index. The
   // real detected file kind, not its untrusted declared type, owns daily cost.
   const fetched = await Promise.all(sources.map(async ({ source, attachmentIndex }) => ({ attachmentIndex,
@@ -136,10 +137,10 @@ export async function loadCustomerDmMediaContent(input: {
   }
   // Apply established counters BEFORE paid perception, using detected kinds.
   for (const [kind, count] of reserved) { await check(); await spendAiFiles(conversationId, budget.dayKey, kind, count); }
-  if (!input.preserveAttachments) return { parts, incomplete };
+  if (!input.preserveAttachments) return { parts, incomplete, publicationFound };
   await check();
   const storedAttachments = await storeFetchedAttachments({ images: fetched.flatMap(row => row.fetched.images),
     audios: fetched.flatMap(row => row.fetched.audios), medias: fetched.flatMap(row => row.fetched.medias) });
   await check();
-  return { parts, incomplete, storedAttachments };
+  return { parts, incomplete, storedAttachments, publicationFound };
 }

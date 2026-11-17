@@ -54,3 +54,33 @@ test("fact-only property flag is an independent opt-in for API and worker", () =
     assert.equal(services[name].environment.BOT_TURN_TRACE_ENABLED, "0");
   }
 });
+
+test("backup reporting defaults to no credential and stays out of web/postgres", () => {
+  const services = render();
+  for (const name of ["api", "worker"]) assert.equal(services[name].environment.BACKUP_REPORT_API_KEY, "");
+  for (const name of ["web", "postgres"]) assert.equal(services[name].environment?.BACKUP_REPORT_API_KEY, undefined);
+});
+
+test("backup reporting receives only its explicit separate fixture credential", () => {
+  const key = "test-backup-report-compose-only-0000";
+  const services = render({ BACKUP_REPORT_API_KEY: key });
+  for (const name of ["api", "worker"]) {
+    assert.equal(services[name].environment.BACKUP_REPORT_API_KEY, key);
+    assert.notEqual(services[name].environment.JWT_ACCESS_SECRET, key);
+    assert.equal(services[name].environment.BOT_TURN_TRACE_HMAC_KEY, "");
+  }
+});
+
+test("media execution gates reach API and worker, PREVIEW by default", () => {
+  // Every kind read by apps/api/src/lib/mediaExecution.ts must be wired through
+  // Compose, otherwise LIVE in .env.production silently stays PREVIEW (12.11.2026).
+  const gate = readFileSync(path.join(ROOT, "apps/api/src/lib/mediaExecution.ts"), "utf8");
+  const kinds = [...gate.matchAll(/"([A-Z_]+)"/g)].map((m) => m[1]).filter((k) => /^[A-Z_]+$/.test(k) && k !== "LIVE" && k !== "PREVIEW");
+  assert.ok(kinds.includes("NARRATION"));
+  const defaults = render();
+  const live = render(Object.fromEntries(kinds.map((k) => [`CRM_${k}_EXECUTION_MODE`, "LIVE"])));
+  for (const name of ["api", "worker"]) for (const kind of kinds) {
+    assert.equal(defaults[name].environment[`CRM_${kind}_EXECUTION_MODE`], "PREVIEW", `${name} ${kind}`);
+    assert.equal(live[name].environment[`CRM_${kind}_EXECUTION_MODE`], "LIVE", `${name} ${kind}`);
+  }
+});

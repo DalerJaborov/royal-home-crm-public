@@ -4,7 +4,7 @@ import { withInvestigationPrivacy } from "../lib/investigationOperations.js";
 import { Prisma, type BackgroundJob } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
-import { jobHandlerOf } from "./registry.js";
+import { jobHandlerOf, PermanentJobError } from "./registry.js";
 import { pultModuleOfJob } from "./jobModules.js";
 import { isPultModuleEnabled } from "../lib/pultModules.js";
 import { notifyStuckWorkGivenUp } from "../lib/stuckWork.js";
@@ -158,7 +158,44 @@ export function nextAttemptDelayMs(err: unknown, backoffMs: number): number {
   return err instanceof JobTimedOut ? Math.max(backoffMs, err.timeoutMs) : backoffMs;
 }
 
+function activeLease(job: BackgroundJob) {
+  return { id: job.id, status: "RUNNING" as const, lockedAt: job.lockedAt, lockedBy: job.lockedBy };
+}
+
+/** The active site job may have accepted a newer desired revision during the send. */
+async function writeJobOutcome(
+  job: BackgroundJob,
+  data: Prisma.BackgroundJobUpdateManyMutationInput,
+  coalesceLatest?: boolean,
+): Promise<boolean> {
+  if (!coalesceLatest) {
+    await prisma.backgroundJob.update({ where: { id: job.id }, data });
+    return true;
+  }
+  const lease = activeLease(job);
+  const recorded = await prisma.backgroundJob.updateMany({
+    where: { ...lease, payload: { equals: job.payload as Prisma.InputJsonValue } },
+    data,
+  });
+  if (recorded.count) return true;
+  // Keep the newest payload and its active key. The previous due time has passed.
+  await prisma.backgroundJob.updateMany({
+    where: lease,
+    data: { status: "PENDING", attempts: 0, lastError: null, lockedAt: null, lockedBy: null },
+  });
+  return false;
+}
+
 async function runOne(job: BackgroundJob): Promise<void> {
+  if (jobHandlerOf(job.type)?.coalesceLatest) {
+    // Re-read the desired payload before starting, and never refresh a replaced lease.
+    const [refreshed] = await prisma.backgroundJob.updateManyAndReturn({
+      where: activeLease(job),
+      data: { lockedAt: new Date() },
+    });
+    if (!refreshed) return;
+    job = refreshed;
+  }
   return withInvestigationPrivacy(await isPrivateBackgroundJob(job).catch(() => true), () => runOneInContext(job));
 }
 async function runOneInContext(job: BackgroundJob): Promise<void> {
@@ -174,10 +211,10 @@ async function runOneInContext(job: BackgroundJob): Promise<void> {
   // задание убивало процесс, не доживая до catch. Не запускаем в N+1-й раз.
   if (job.attempts >= job.maxAttempts) {
     const givenUpLastError = job.lastError ?? "процесс умирал на этом задании, не доходя до ошибки";
-    await prisma.backgroundJob.update({
-      where: { id: job.id },
-      data: { status: "GIVEN_UP", lastError: givenUpLastError, lockedAt: null, lockedBy: null, dedupeKey: null },
-    });
+    const recorded = await writeJobOutcome(job, {
+      status: "GIVEN_UP", lastError: givenUpLastError, lockedAt: null, lockedBy: null, dedupeKey: null,
+    }, handler.coalesceLatest);
+    if (!recorded) return;
     await handler
       .onGiveUp(job.payload)
       .catch((e) => console.error(`[jobs] onGiveUp ${job.type}:`, e instanceof Error ? e.message : e));
@@ -194,16 +231,17 @@ async function runOneInContext(job: BackgroundJob): Promise<void> {
   // это не ошибка и не «сделано», onGiveUp не зовём, журнал ошибок не трогаем.
   const module = pultModuleOfJob(job.type);
   if (module && !(await isPultModuleEnabled(module))) {
-    await prisma.backgroundJob.update({
-      where: { id: job.id },
-      data: { status: "SKIPPED", lastError: `module:${module}:off`, lockedAt: null, lockedBy: null, dedupeKey: null },
-    });
+    await writeJobOutcome(job, {
+      status: "SKIPPED", lastError: `module:${module}:off`, lockedAt: null, lockedBy: null, dedupeKey: null,
+    }, handler.coalesceLatest);
     return;
   }
   // Свежий лизинг перед стартом: партия исполняется последовательно, и джоб в
   // хвосте мог прождать дольше STUCK_RUNNING_MIN — без обновления lockedAt его
   // «подобрал» бы следующий тик, пока этот только начинает.
-  await prisma.backgroundJob.update({ where: { id: job.id }, data: { lockedAt: new Date() } }).catch(() => {});
+  if (!handler.coalesceLatest) {
+    await prisma.backgroundJob.update({ where: { id: job.id }, data: { lockedAt: new Date() } }).catch(() => {});
+  }
   try {
     const payload = handler.schema.parse(job.payload);
     const timeoutMs = effectiveJobTimeoutMs(job.type);
@@ -215,20 +253,20 @@ async function runOneInContext(job: BackgroundJob): Promise<void> {
     if (result === timedOut) {
       throw new JobTimedOut(timeoutMs);
     }
-    await prisma.backgroundJob.update({
-      where: { id: job.id },
-      data: { status: "DONE", lastError: null, lockedAt: null, lockedBy: null, dedupeKey: null },
-    });
+    await writeJobOutcome(job, {
+      status: "DONE", lastError: null, lockedAt: null, lockedBy: null, dedupeKey: null,
+    }, handler.coalesceLatest);
   } catch (err) {
     const attempts = job.attempts + 1;
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
-    if (attempts >= job.maxAttempts) {
+    const permanent = err instanceof PermanentJobError;
+    if (permanent || attempts >= job.maxAttempts) {
       // Молчаливых смертей не бывает: сдаёмся громко — обработчику слово
       // (уведомить персонал), затем след в журнале ошибок.
-      await prisma.backgroundJob.update({
-        where: { id: job.id },
-        data: { status: "GIVEN_UP", attempts, lastError: message, lockedAt: null, lockedBy: null, dedupeKey: null },
-      });
+      const recorded = await writeJobOutcome(job, {
+        status: "GIVEN_UP", attempts, lastError: message, lockedAt: null, lockedBy: null, dedupeKey: null,
+      }, handler.coalesceLatest);
+      if (!recorded) return;
       await handler
         .onGiveUp(job.payload)
         .catch((e) => console.error(`[jobs] onGiveUp ${job.type}:`, e instanceof Error ? e.message : e));
@@ -240,17 +278,14 @@ async function runOneInContext(job: BackgroundJob): Promise<void> {
       // здесь, один раз на окончательную сдачу, а не на каждую попытку.
       await notifyStuckWorkGivenUp({ ...job, attempts, lastError: message });
     } else {
-      await prisma.backgroundJob.update({
-        where: { id: job.id },
-        data: {
-          status: "PENDING",
-          attempts,
-          lastError: message,
-          runAt: new Date(Date.now() + nextAttemptDelayMs(err, handler.backoff(attempts))),
-          lockedAt: null,
-          lockedBy: null,
-        },
-      });
+      await writeJobOutcome(job, {
+        status: "PENDING",
+        attempts,
+        lastError: message,
+        runAt: new Date(Date.now() + nextAttemptDelayMs(err, handler.backoff(attempts))),
+        lockedAt: null,
+        lockedBy: null,
+      }, handler.coalesceLatest);
     }
   }
 }

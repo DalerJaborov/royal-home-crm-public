@@ -8,14 +8,12 @@ import type { Tx } from "./changeClientAgent.js";
  * работает — до правки комментарий в схеме прямо говорил, что несуществующий/
  * уволенный id это «agent_not_found» в фоновом коде, а не забота настроек).
  *
- * Пять полей со ссылкой на сотрудника, которых это касается — три из находки
+ * Четыре поля со ссылкой на сотрудника, которых это касается — три из находки
  * М12-в и ещё два той же формы, добавленные разбором класса (25.09.2026,
  * «нашёл баг — ищи весь класс», CLAUDE.md):
  *  - callbackOperatorAgentId — дежурный оператор обратных звонков;
  *  - videoMontajerAgentId — монтажёр;
  *  - incomingDutyAgentIds — дежурные по входящим (список, порядок важен);
- *  - videoModeratorAgentId — модератор видео (пикер в интерфейсе убран
- *    23.09.2026, но поле и колонка в базе остаются);
  *  - liveVoiceTransferAgentId — консультант на телефоне (робозвонок), кому
  *    переводить звонок без агента объекта и своего агента.
  *
@@ -24,24 +22,27 @@ import type { Tx } from "./changeClientAgent.js";
  * системный журнал, только если правда что-то снял — иначе запись
  * появлялась бы на каждое увольнение, даже когда сотрудник ни в одной из этих
  * настроек не стоял.
+ *
+ * Возвращает список снятых полей (11.11.2026): снятый монтажёр — повод для
+ * тревоги «монтажёр не назначен», её поднимает вызывающий ПОСЛЕ коммита
+ * (lib/staffAdmin.ts), иначе тревога прочитала бы ещё старую настройку.
  */
 export async function clearAgentFromSettingsReferences(
   tx: Tx,
   agentId: string,
   agentName: string,
   reason: "deactivate" | "freeze"
-): Promise<void> {
+): Promise<string[]> {
   const settings = await tx.settings.findUnique({
     where: { id: "singleton" },
     select: {
       callbackOperatorAgentId: true,
       videoMontajerAgentId: true,
       incomingDutyAgentIds: true,
-      videoModeratorAgentId: true,
       liveVoiceTransferAgentId: true,
     },
   });
-  if (!settings) return;
+  if (!settings) return [];
 
   const data: Record<string, unknown> = {};
   const cleared: string[] = [];
@@ -53,10 +54,6 @@ export async function clearAgentFromSettingsReferences(
     data.videoMontajerAgentId = null;
     cleared.push("videoMontajerAgentId");
   }
-  if (settings.videoModeratorAgentId === agentId) {
-    data.videoModeratorAgentId = null;
-    cleared.push("videoModeratorAgentId");
-  }
   if (settings.liveVoiceTransferAgentId === agentId) {
     data.liveVoiceTransferAgentId = null;
     cleared.push("liveVoiceTransferAgentId");
@@ -65,7 +62,7 @@ export async function clearAgentFromSettingsReferences(
     data.incomingDutyAgentIds = settings.incomingDutyAgentIds.filter((id) => id !== agentId);
     cleared.push("incomingDutyAgentIds");
   }
-  if (cleared.length === 0) return;
+  if (cleared.length === 0) return cleared;
 
   await tx.settings.update({ where: { id: "singleton" }, data });
   logSystemAudit(
@@ -74,4 +71,5 @@ export async function clearAgentFromSettingsReferences(
     "singleton",
     { agentId, agentName, fields: cleared }
   );
+  return cleared;
 }

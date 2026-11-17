@@ -1,5 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
+// Замок «только русский», амбиент, вдох и тестовый номер — константы с 01.11.2026
+// (lib/settingsConstants.ts). Тест держит прежнюю среду (амбиент выключен) и
+// переключает замок подменой константы, а не полем Settings.
+const voiceTuning = vi.hoisted(() => ({
+  testExtension: "101008890", forceRussianOnly: false, breathEnabled: false, officeAmbienceEnabled: false, officeAmbienceVolume: 0.35,
+}));
+vi.mock("../src/lib/settingsConstants.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/settingsConstants.js")>()),
+  LIVE_VOICE_TUNING: voiceTuning,
+}));
 import {
   buildLiveVoiceSystemPrompt,
   DEFAULT_LIVE_VOICE_PROMPT,
@@ -144,11 +154,12 @@ describe("п. 3: сценарные промты следуют замку из 
     it("замок снят — таджикский голос и forceRussianOnly=false; включён — основной и true", async () => {
       await prisma.settings.update({
         where: { id: "singleton" },
-        data: { liveVoiceForceRussianOnly: false, liveVoiceVoiceName: "Kore", liveVoiceVoiceNameTajik: "Charon" },
+        data: { liveVoiceVoiceName: "Kore", liveVoiceVoiceNameTajik: "Charon" },
       });
+      voiceTuning.forceRussianOnly = false;
       const open = await scenarioVoice();
       expect(open).toMatchObject({ voiceName: "Charon", gender: "male", forceRussianOnly: false });
-      await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceForceRussianOnly: true } });
+      voiceTuning.forceRussianOnly = true;
       const locked = await scenarioVoice();
       expect(locked).toMatchObject({ voiceName: "Kore", gender: "female", forceRussianOnly: true });
     });

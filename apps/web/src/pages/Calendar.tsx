@@ -33,6 +33,8 @@ import { INTERACTION_TYPE_LABELS, showingConfirmationBadge } from "../lib/client
 import type { Interaction } from "../types";
 import { scrollableRegion } from "../lib/a11y";
 import { anchorOutsideGrid, shiftedAnchor, weekDays } from "../lib/calendarWeek";
+import { useAuthStore } from "../store/auth";
+import { useIsReadOnly } from "../lib/permissions";
 
 const WEEKDAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const MONTH_NAMES = [
@@ -138,6 +140,9 @@ function WeekNav({ onPrev, onNext, onToday }: { onPrev: () => void; onNext: () =
 }
 
 export function Calendar() {
+  const role = useAuthStore((s) => s.agent?.role);
+  const readOnly = useIsReadOnly();
+  const canChange = !!role && role !== "SECURITY" && !readOnly;
   const [searchParams, setSearchParams] = useSearchParams();
   const initialSelected = useMemo(() => resolveDateParam(searchParams.get("date")), []); // eslint-disable-line react-hooks/exhaustive-deps
   const typeFilter = resolveTypeParam(searchParams.get("type"));
@@ -291,7 +296,7 @@ export function Calendar() {
 
   // Диалог отмены показа — ОДИН на оба облика: причина обязательна (владелец
   // 16.08.2026), и телефон не имеет права спрашивать её иначе, чем десктоп.
-  const cancelDialog = cancelling && (
+  const cancelDialog = canChange && cancelling && (
     <ConfirmDialog
       title="Отменить показ?"
       description={
@@ -332,6 +337,12 @@ export function Calendar() {
   /** Тихая строка отказа мутации — эталонный .quiet.crit вместо цветной плашки. */
   const mutationNote = (
     <>
+      {complete.isError && (
+        <div className="quiet crit" role="alert">
+          <span className="txt">{complete.error instanceof Error ? complete.error.message : "Не удалось завершить задачу"}</span>
+          <button className="lnk" type="button" onClick={() => complete.reset()}>Понятно</button>
+        </div>
+      )}
       {cancelShowing.isError && (
         <div className="quiet crit" role="alert">
           <span className="dot crit" />
@@ -374,18 +385,19 @@ export function Calendar() {
   /** Общий на оба облика набор обработчиков одной строки задачи. */
   const taskHandlers = (task: Interaction) => ({
     onOpen: () => task.client?.shortId && navigate(`/clients/${task.client.shortId}`),
-    onComplete: () => complete.mutate(task.id),
+    onComplete: canChange ? () => complete.mutate(task.id) : undefined,
     rescheduleValue: rescheduling?.id === task.id ? rescheduling.at : null,
     rescheduleReason: rescheduling?.id === task.id ? rescheduling.reason : "",
     // Поле и отправка — в часах Душанбе, как весь экран (F5, 02.10.2026): раньше
     // оба шага брали пояс устройства, и из Стамбула показ в 16:00 стоял в поле
     // как 14:00, а вписанные 16:00 уезжали клиенту как 18:00.
-    onRescheduleStart: () =>
-      setRescheduling({ id: task.id, at: isoToDushanbeLocal(task.nextActionDate!), reason: "" }),
+    onRescheduleStart: canChange ? () =>
+      setRescheduling({ id: task.id, at: isoToDushanbeLocal(task.nextActionDate!), reason: "" }) : undefined,
     onRescheduleChange: (at: string) => setRescheduling((r) => (r ? { ...r, at } : r)),
     onRescheduleReasonChange: (reason: string) => setRescheduling((r) => (r ? { ...r, reason } : r)),
     onRescheduleClose: () => setRescheduling(null),
     onRescheduleSubmit: (at: string, reason: string) => {
+      if (!canChange) return;
       const iso = dushanbeLocalToIso(at);
       if (!iso) return;
       rescheduleShowing.mutate(
@@ -393,13 +405,13 @@ export function Calendar() {
         { onSuccess: () => setRescheduling(null) }
       );
     },
-    onCancelStart: () => setCancelling(task),
+    onCancelStart: canChange ? () => setCancelling(task) : undefined,
     busy: rescheduleShowing.isPending || cancelShowing.isPending,
   });
 
   /** Кнопка звонка строки — правило «сначала через CRM» живёт в одном компоненте. */
   const taskCall = (task: Interaction): ReactNode =>
-    task.client?.phone ? (
+    canChange && task.client?.phone ? (
       <CallClientButton clientId={task.clientId} phone={task.client.phone} variant="icon" className="call" title="Позвонить через CRM" />
     ) : null;
 
@@ -648,14 +660,14 @@ export function Calendar() {
                 назначить с календаря было нельзя вовсе. Теперь одна, всегда, с
                 подписью, куда она ведёт: своей формы показа у календаря нет,
                 показ заводится из карточки клиента. */}
-            <button
+            {canChange && <button
               className="pill ghost"
               type="button"
               style={{ marginTop: "var(--s3)" }}
               onClick={() => navigate("/clients")}
             >
               Назначить показ — выбрать клиента
-            </button>
+            </button>}
           </div>
 
           {upcomingOther.length > 0 && (
@@ -673,7 +685,7 @@ export function Calendar() {
                     task={task}
                     rightLabel={dushanbeDate(task.nextActionDate!, { day: "numeric", month: "short" })}
                     onOpen={() => task.client?.shortId && navigate(`/clients/${task.client.shortId}`)}
-                    onComplete={() => complete.mutate(task.id)}
+                    onComplete={canChange ? () => complete.mutate(task.id) : undefined}
                     call={taskCall(task)}
                   />
                 ))}
@@ -716,12 +728,12 @@ export function Calendar() {
             {/* Показ в CRM назначается из карточки клиента (AddInteractionModal),
                 своей формы у календаря нет — кнопка ведёт к выбору клиента, как на
                 узком экране. */}
-            <button className="pill" type="button" onClick={() => navigate("/clients")}>
+            {canChange && <button className="pill" type="button" onClick={() => navigate("/clients")}>
               <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
               Назначить показ
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -878,7 +890,7 @@ export function Calendar() {
                       // агент правит встречу, которую сейчас даже не смотрит.
                       timeLabel={dushanbeDate(task.nextActionDate!, { day: "numeric", month: "short" })}
                       onOpen={() => task.client?.shortId && navigate(`/clients/${task.client.shortId}`)}
-                      onComplete={() => complete.mutate(task.id)}
+                      onComplete={canChange ? () => complete.mutate(task.id) : undefined}
                       call={taskCall(task)}
                     />
                   ))}
@@ -894,9 +906,9 @@ export function Calendar() {
                   </svg>
                 </span>
                 <p>На этот день ничего не назначено. Показ назначается из карточки клиента.</p>
-                <button className="pill ghost" type="button" onClick={() => navigate("/clients")}>
+                {canChange && <button className="pill ghost" type="button" onClick={() => navigate("/clients")}>
                   Назначить показ
-                </button>
+                </button>}
               </div>
             )}
           </div>
@@ -950,7 +962,7 @@ function TaskRow({
   timeLabel: string;
   call?: ReactNode;
   onOpen: () => void;
-  onComplete: () => void;
+  onComplete?: () => void;
   /** Значение поля времени, если эту встречу сейчас переносят. null — форма закрыта. */
   rescheduleValue?: string | null;
   /** Причина переноса — обязательна на сервере (владелец 16.08.2026). */
@@ -989,9 +1001,9 @@ function TaskRow({
         </div>
         {confirmation ? <span className={chipTone(confirmation.className)}>{confirmation.label}</span> : null}
         <div className="act">
-          <button className="pill ghost sm" type="button" onClick={onComplete} title="Отметить выполненной">
+          {onComplete && <button className="pill ghost sm" type="button" onClick={onComplete} title="Отметить выполненной">
             Сделано
-          </button>
+          </button>}
           {isShowing && rescheduleValue === null && (
             <>
               <button className="pill ghost sm" type="button" onClick={onRescheduleStart}>

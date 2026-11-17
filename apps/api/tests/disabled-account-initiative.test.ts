@@ -11,8 +11,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
  * Модель и транспорт подменены, остальное настоящее, включая базу.
  */
 const shortAgentReply = vi.hoisted(() => vi.fn(async () => "Салом! Хотели уточнить, актуален ли поиск?"));
-vi.mock("../src/ai/leadQualifier.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/ai/leadQualifier.js")>()),
+vi.mock("../src/ai/shortAgentReply.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/shortAgentReply.js")>()),
   shortAgentReply,
 }));
 const sendBotMessageWithMid = vi.hoisted(() => vi.fn(async () => ({ sent: true, mid: "wamid.test" })));

@@ -107,7 +107,10 @@ function NumberRow({
 export function AgentsSection() {
   const me = useAuthStore((s) => s.agent);
   const iAmDirector = me?.role === "DIRECTOR";
-  const { data: agents, isLoading: agentsLoading, isError: agentsFailed, refetch: refetchAgents } = useAgents();
+  const { data: agents, isLoading: agentsLoading, isError: agentsFailed, refetch: refetchAgents } = useAgents({
+    // Вкладка «Отключённые» — единственное место, где директор видит бывших.
+    includeFormer: true,
+  });
   const createAgent = useCreateAgent();
   const updateAgent = useUpdateAgent();
   const deleteAgent = useDeleteAgent();
