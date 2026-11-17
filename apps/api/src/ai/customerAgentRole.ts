@@ -70,6 +70,7 @@ const BUY_STRONG = [
   re(`${BW}(?:хочу|хотим|планирую|собираюсь|хотел\\p{L}* бы)(?: бы)? (?:купить|купит|приобрести)${EW}`),
   re(`${BW}(?:куплю|покупаю|покупаем|приобрету|мехарам|мехарем|харидорам)${EW}`),
   re(`${BW}харидан мехох\\p{L}*${EW}`),
+  re(`${BW}пул(?:и)?(?: накд)? (?:дорам|дорем)${EW}`),
 ];
 const ASK_OPTIONS = `(?:пешниход (?:кунед|кун|кунетон)|равон (?:кунед|кун)|фиристед|фирист|скинь|скиньте|покажи|покажите|предложите)`;
 const BUY_WEAK = [
@@ -102,6 +103,23 @@ function plain(norm: string, patterns: RegExp | readonly RegExp[]): boolean {
   return false;
 }
 
+/**
+ * «Хона мехоҳам, пул дорам» — «хочу дом, деньги есть» (аудит 14.11.2026): покупатель, а не «у меня есть дом» (OWN_HOUSING).
+ * Не покупатель, если жильё СВОЁ (притяжательное -ам/-амро: «хонаамро», «хонаи худам») или в сообщении слово продажи
+ * («Хонаамро мехоҳам фурӯшам» — «свой дом хочу продать», ревью 14.11).
+ */
+const HOUSING_WISH = re(`${BW}(${HOUSING})${EW}( (?:ман|худам)${EW})? мехо(?:х|ст)\\p{L}*${EW}`);
+const POSSESSIVE_HOUSING = /(?:ам|амро|ем|емро|имро)$/u;
+const SELL_WORD = /фур[уо]ш|фурух|продат|продаю|продам|продаж|сдам|сдаю|сдат|ичора ме/u;
+function housingWish(norm: string): boolean {
+  if (SELL_WORD.test(norm)) return false;
+  for (const match of norm.matchAll(HOUSING_WISH)) {
+    if (POSSESSIVE_HOUSING.test(match[1] ?? "") || match[2]) continue;
+    if (!NEGATED_BEFORE.test(norm.slice(Math.max(0, match.index - 30), match.index))) return true;
+  }
+  return false;
+}
+
 export type CustomerRoleSignals = { buyStrong: boolean; buyWeak: boolean; sell: boolean; landlord: boolean; rent: boolean };
 export function customerRoleSignals(text: string): CustomerRoleSignals {
   const norm = foldCustomerTextForRole(text);
@@ -111,7 +129,7 @@ export function customerRoleSignals(text: string): CustomerRoleSignals {
   const landlord = plain(norm, LANDLORD_TG) ||
     (plain(norm, LANDLORD_ACTIVE) || (plain(norm, LANDLORD_PASSIVE) && !question)) && (RENT_HINT.test(norm) || HOUSING_WORD.test(norm));
   const sell = plain(norm, SELL_ACTIVE) || (passive && !question && !buyerAsk) || plain(norm, SELL_OWN) || plain(norm, SELL_TG) || (!question && !buyerAsk && plain(norm, FOR_SALE_TG)) || (!question && !buyerAsk && plain(norm, ON_SALE)) || plain(norm, OWN_HOUSING);
-  return { buyStrong: buyerAsk || plain(norm, BUY_STRONG), buyWeak: plain(norm, BUY_WEAK), sell, landlord,
+  return { buyStrong: buyerAsk || plain(norm, BUY_STRONG) || housingWish(norm), buyWeak: plain(norm, BUY_WEAK), sell, landlord,
     rent: plain(norm, RENT_TENANT) };
 }
 

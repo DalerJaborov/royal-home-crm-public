@@ -52,6 +52,8 @@ export async function callAiText<T>(params: {
   onBlocked?: (reason: string) => void;
   /** Server-created shared limits/accounting; never parsed from model output. */
   providerOperation?: ProviderOperation;
+  /** Вызывающий бросил ждать: запрос прерывается и повтора нет (см. callGemini). */
+  signal?: AbortSignal;
 }): Promise<T | null> {
   params.providerOperation?.check();
   // Блокировка промта — решение по содержимому, а не по поставщику: повтор
@@ -68,7 +70,7 @@ export async function callAiText<T>(params: {
   });
   params.providerOperation?.check();
   if (primary !== null) return primary;
-  if (blocked) return null;
+  if (blocked || params.signal?.aborted) return null;
 
   /**
    * ПОВТОР У ТОГО ЖЕ ПОСТАВЩИКА, А НЕ ПЕРЕХОД К ЧУЖОМУ.
