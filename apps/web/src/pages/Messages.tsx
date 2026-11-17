@@ -79,6 +79,15 @@ import { callbackRequestConversationIds, CustomerRequestsPanel } from "../compon
 import { buildChatPhotoList, chatPhotoOffsetForMessage } from "../lib/chatPhotos";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanInboxFilters } from "../components/chat/CleanInboxFilters";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalInboxSwitch } from "../components/look/chats/RoyalInboxSwitch";
+import { RoyalInboxFilters } from "../components/look/chats/RoyalInboxFilters";
+import { RoyalDialogRow } from "../components/look/chats/RoyalDialogRow";
+import { RoyalChannelBadge } from "../components/look/chats/RoyalChannelBadge";
+import { RhAvatar } from "../components/look/ui";
+import { RoyalIcon } from "../components/look/RoyalIcon";
+import { chatQuickReplies } from "../lib/chatQuickReplies";
+import { Bot, Flame, Info, MoreHorizontal } from "lucide-react";
 
 /** Сколько последних сообщений рендерим сразу; более ранние — по кнопке сверху,
  *  чтобы диалог на тысячи реплик не подвешивал страницу. История хранится целиком. */
@@ -127,6 +136,10 @@ export function Messages() {
   // делит список и переписку на панели ниже (`hidden md:flex`).
   const narrow = useNarrowScreen();
   const clean = useCleanShell();
+  // «Новый вид» (18.11.2026): только поверх чистой оболочки и только по признаку
+  // с сервера. Меняет разметку, а не данные: те же запросы, права и действия.
+  const royalLook = useRoyalLook();
+  const royal = clean && royalLook;
   // 07.09.2026: раздел открыт и по messages.viewOwn — агент видит его суженным до
   // своих клиентов (сужение делает сервер, routes/conversations.ts).
   const noAccess = !can("messages.view") && !can("messages.viewOwn");
@@ -339,8 +352,9 @@ export function Messages() {
   }
 
   return (
-    <div className={clean ? CLEAN_DESKTOP_INBOX : "rh2 screens"} data-chat-active={selectedId ? "thread" : "list"}>
+    <div className={royal ? "rh2 screens clean-messages ry-chats" : clean ? CLEAN_DESKTOP_INBOX : "rh2 screens"} data-chat-active={selectedId ? "thread" : "list"}>
       <div className="scr">
+        {royal ? <RoyalInboxSwitch title="Чаты" /> : <>
         <div className={clean ? "sr-only" : "pg-h"}>
           <div>
             <h1>Чаты</h1>
@@ -352,6 +366,7 @@ export function Messages() {
         </div>
 
         <div className="clean-inbox-workspaces"><InboxTabs /></div>
+        </>}
 
       {/* Предупреждения сверху (эталон, messages.html, `.quiet.crit`/`.quiet.warn`) —
           шаг 5 переноса, 10.09.2026: GET /conversations теперь отдаёт `alerts`
@@ -424,7 +439,7 @@ export function Messages() {
             <span className="ic">
               <MessageSquare className="i" />
             </span>
-            <p>Пока нет диалогов. Как только клиент напишет боту в Instagram или WhatsApp, переписка появится здесь.</p>
+            <p>{royal ? "Переписок пока нет" : "Пока нет диалогов. Как только клиент напишет боту в Instagram или WhatsApp, переписка появится здесь."}</p>
           </div>
         </div>
       ) : (
@@ -442,6 +457,7 @@ export function Messages() {
         <div className="two" data-conversation-selected={!!selectedId || undefined}>
           <ConversationList
             clean={clean}
+            royal={royal}
             data={feedData}
             isLoading={isLoading}
             error={error}
@@ -461,9 +477,11 @@ export function Messages() {
           {/* key=id — принудительный ремонт при смене диалога: без него состояние ошибки
               неудачной отправки (useReplyToConversation) переживало переключение и
               показывало «не удалось отправить» под совсем другим, ещё не тронутым диалогом. */}
-          {selectedId && <ConversationView key={selectedId} id={selectedId} clean={clean} onBack={closeConversation} onPromoteToClient={(clientId) => selectConversation(inboxClientConversationId(clientId))} />}
+          {selectedId && <ConversationView key={selectedId} id={selectedId} clean={clean} royal={royal} onBack={closeConversation} onPromoteToClient={(clientId) => selectConversation(inboxClientConversationId(clientId))} />}
           {clean && !selectedId && <section className="card clean-conversation clean-conversation-placeholder" aria-label="Переписка">
-            <div className="clean-chat-empty"><MessageSquare className="i" aria-hidden="true" /><h2>Выберите диалог</h2><p>Сообщения, вложения и данные клиента откроются здесь. Черновик сохраняется отдельно для каждого диалога.</p></div>
+            {royal
+              ? <div className="ry-chat-empty"><span className="ry-circle" data-tone="a1" aria-hidden="true"><RoyalIcon name="messages-square" /></span><h2>Выберите переписку</h2></div>
+              : <div className="clean-chat-empty"><MessageSquare className="i" aria-hidden="true" /><h2>Выберите диалог</h2><p>Сообщения, вложения и данные клиента откроются здесь. Черновик сохраняется отдельно для каждого диалога.</p></div>}
           </section>}
         </div>
       )}
@@ -485,6 +503,7 @@ export function Messages() {
 
 function ConversationList({
   clean = false,
+  royal = false,
   data,
   isLoading,
   error,
@@ -502,6 +521,8 @@ function ConversationList({
   onPageChange,
 }: {
   clean?: boolean;
+  /** «Новый вид»: та же выдача и те же фильтры, другая разметка (18.11.2026). */
+  royal?: boolean;
   data: ConversationsPage | undefined;
   isLoading: boolean;
   error?: unknown;
@@ -523,15 +544,21 @@ function ConversationList({
   const showAccounts = accounts.length > 1;
   const noFilter = !channel && !accountId;
   const channels = [...new Set([...(data?.channels ?? []), ...(channel ? [channel] : [])])].sort();
+  // Стабильный обработчик выбора для строк нового вида (memo): ввод в поиск
+  // перерисовывает родителя, но не каждую строку списка (замер — в журнале 18.11.2026).
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  const selectStable = useCallback((id: string) => onSelectRef.current(id), []);
+  const alerts = royal ? data?.alerts : undefined;
 
   return (
     <section className="card" aria-label="Диалоги">
-      <div className="pane-h">
+      {!royal && <div className="pane-h">
         <div className="t">
           <b>{clean ? "Входящие" : "Диалоги"}</b>
           <span>{data?.total != null ? `${data.total} всего` : data?.groupedIncomplete ? "Чатов много" : "загружаем"}</span>
         </div>
-      </div>
+      </div>}
 
       <div className="pane-b">
         <input
@@ -553,6 +580,24 @@ function ConversationList({
             (apps/api/src/routes/conversations.ts, loadSegmentCounts), а не
             выдуманные числа. Отдельная лента `.seg` от фильтра по каналу/аккаунту
             ниже: срезы взаимоисключающие сами по себе, но независимы от канала. */}
+        {royal ? (data && (
+          <RoyalInboxFilters
+            segment={segment}
+            counts={data.counts}
+            onSegmentChange={onSegmentChange}
+            moreActive={segment === "paused" || !!channel || !!accountId}
+          >
+            <button
+              type="button"
+              className="ry-chats-chip"
+              aria-pressed={segment === "paused"}
+              onClick={() => onSegmentChange(segment === "paused" ? "all" : "paused")}
+            >
+              <Bot aria-hidden="true" />Бот на паузе<b className="ry-num">{data.counts?.paused ?? "—"}</b>
+            </button>
+            <CleanInboxFilters open channels={channels} accounts={accounts} channel={channel} accountId={accountId} onChannelChange={onChannelChange} onAccountChange={onAccountChange} />
+          </RoyalInboxFilters>
+        )) : <>
         {data && (
           <div style={{ marginTop: 12 }}>
             <div className={clean ? "seg !flex-wrap [&_button]:!min-h-11 [&_button]:!text-sm" : "seg"} role="tablist" aria-label="Срезы диалогов">
@@ -639,7 +684,37 @@ function ConversationList({
           </div>
         )}
         </>}
+        </>}
       </div>
+
+      {/* «Ждёт человека» и «пауза больше суток» — те же поля ответа списка, что у
+          прежней плашки над инбоксом; в новом виде — двумя тихими строками в
+          колонке списка, со своими действиями («Взять на себя», «Посмотреть»). */}
+      {alerts && (alerts.longestWaitingHuman || alerts.pausedOverDay.count > 0) && (
+        <div className="ry-chats-alerts">
+          {alerts.longestWaitingHuman && (
+            <div className="ry-chats-alert" data-tone="crit">
+              <span className="ry-chats-alert-ic" aria-hidden="true"><Flame /></span>
+              <span className="ry-chats-alert-tx">
+                <b>{alerts.longestWaitingHuman.name ?? "Диалог без имени"}</b> ждёт человека {formatWaiting(alerts.longestWaitingHuman.waitingMinutes)}
+              </span>
+              <button type="button" onClick={() => selectStable(alerts.longestWaitingHuman!.id)}>Взять на себя</button>
+            </div>
+          )}
+          {alerts.pausedOverDay.count > 0 && (
+            <div className="ry-chats-alert" data-tone="warn">
+              <span className="ry-chats-alert-ic" aria-hidden="true"><Bot /></span>
+              <span className="ry-chats-alert-tx">
+                {alerts.pausedOverDay.count === 1
+                  ? "У одного бот на паузе больше суток"
+                  : `У ${alerts.pausedOverDay.count} бот на паузе больше суток`}
+                {alerts.pausedOverDay.names.length > 0 && `: ${alerts.pausedOverDay.names.join(", ")}`}
+              </span>
+              <button type="button" onClick={() => onSegmentChange("paused")}>Посмотреть</button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="pane-scroll">
         {error && conversations.length > 0 ? (
@@ -721,6 +796,16 @@ function ConversationList({
               )}
             </div>
           </div>
+        ) : royal ? (
+          conversations.map((c) => (
+            <RoyalDialogRow
+              key={c.id}
+              conversation={c}
+              selected={selectedId === c.id}
+              showAccount={showAccounts && noFilter}
+              onSelect={selectStable}
+            />
+          ))
         ) : (
           conversations.map((c) => (
             <Rh2DialogRow
@@ -1012,7 +1097,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
   );
 });
 
-export function ConversationView({ id, onBack, clean = false, onPromoteToClient }: { id: string; onBack: () => void; clean?: boolean; onPromoteToClient?: (clientId: string) => void }) {
+export function ConversationView({ id, onBack, clean = false, royal = false, onPromoteToClient }: { id: string; onBack: () => void; clean?: boolean; royal?: boolean; onPromoteToClient?: (clientId: string) => void }) {
   const isClientGroup = id.startsWith("client:");
   const isGroupedEntry = isClientGroup || id.startsWith("td_");
   const groupedQuery = useGroupedConversation(isGroupedEntry ? id : null);
@@ -1094,6 +1179,8 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
   // родного <select>, чтобы шапка не мешала браузерный виджет с круглыми
   // кнопками `.call`. Логика паузы не тронута: тот же pause.mutate внутри.
   const pauseMenu = useDismissableMenu<HTMLButtonElement>();
+  // «Ещё» в шапке нового вида: редкое (поиск, карточка, данные клиента) — в меню.
+  const moreMenu = useDismissableMenu<HTMLButtonElement>();
   const navigate = useNavigate();
   const [text, setText] = useState("");
   useEffect(() => setSelectedReplySource(""), [id]);
@@ -1128,8 +1215,11 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
   const searchButtonRef = useRef<HTMLButtonElement>(null);
   const closeSearch = useCallback(() => {
     closeConversationSearch();
-    searchButtonRef.current?.focus();
-  }, [closeConversationSearch]);
+    // В новом виде кнопка поиска живёт в меню «Ещё» — фокус возвращается на него.
+    (searchButtonRef.current ?? moreMenu.buttonRef.current)?.focus();
+  }, [closeConversationSearch, moreMenu.buttonRef]);
+  // Быстрые ответы — только новый вид, та же лента, что на телефоне (lib/chatQuickReplies.ts).
+  const quickReplies = useMemo(() => (royal ? chatQuickReplies(allMessages) : []), [royal, allMessages]);
   // Ссылки на пузыри сообщений по АБСОЛЮТНОМУ индексу — только для скролла к
   // найденному поиском (см. useConversationSearch ниже); автоскролл к низу
   // ленты (эффект чуть ниже) через них не идёт, ему хватает scrollRef.
@@ -1258,9 +1348,143 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
     <section
       className={clean ? "card clean-conversation" : "card"}
       aria-label={conversation?.name ? `Диалог: ${conversation.name}` : "Диалог"}
-      style={{ display: "flex", flexDirection: "column", maxHeight: "calc(100dvh - 160px)", minHeight: 420 }}
+      style={royal ? undefined : { display: "flex", flexDirection: "column", maxHeight: "calc(100dvh - 160px)", minHeight: 420 }}
     >
-      <div className="pane-h clean-conversation-header">
+      {royal ? <>
+        {/* ШАПКА НОВОГО ВИДА — минимум кнопок (владелец, макет 18.11.2026): кто,
+            канал и состояние бота; справа бот (пауза/вернуть), звонок и «Ещё».
+            Всё прежнее на месте: поиск по переписке, карточка клиента и данные о
+            собеседнике — в «Ещё»; пауза — то же меню вариантов, что и раньше. */}
+        <div className="ry-chat-head">
+          {narrow && (
+            <button
+              type="button"
+              className="ry-round ry-round-ghost"
+              onClick={() => { if (showInfo) setShowInfo(false); else onBack(); }}
+              aria-label={showInfo ? "Назад к переписке" : "Назад к списку чатов"}
+            >
+              <ChevronLeft aria-hidden="true" />
+            </button>
+          )}
+          <button
+            type="button"
+            className="ry-chat-who"
+            onClick={() => setShowInfo((v) => !v)}
+            aria-expanded={showInfo}
+            aria-controls="conversation-contact-details"
+            title="Данные клиента"
+          >
+            <span className="ry-chat-av">
+              <RhAvatar name={conversation?.name ?? "?"} size={44} />
+              <RoyalChannelBadge channel={isGroupedEntry && (!conversation?.channel || conversation.channel === "MULTI") ? "MULTI" : conversation?.channel} />
+            </span>
+            <span className="ry-chat-who-tx">
+              <b>{conversation?.name ?? "…"}</b>
+              <small>
+                {isGroupedEntry && (!conversation?.channel || conversation.channel === "MULTI") ? "Общий чат" : meta?.label}
+                {" · "}
+                <span className="clean-bot-state" data-paused={paused}>{botState.label}</span>
+              </small>
+            </span>
+          </button>
+          {canManageBot && (paused ? (
+            <button
+              type="button"
+              className="ry-round"
+              data-bot="off"
+              aria-pressed={false}
+              onClick={() => resume.mutate()}
+              disabled={resume.isPending}
+              aria-label="Бот на паузе. Вернуть боту"
+              title="Вернуть боту"
+            >
+              <Bot aria-hidden="true" />
+            </button>
+          ) : (
+            <div ref={pauseMenu.boxRef} className="ry-menu-box">
+              <button
+                ref={pauseMenu.buttonRef}
+                type="button"
+                className="ry-round"
+                data-bot="on"
+                aria-pressed={true}
+                onClick={() => pauseMenu.setOpen((v) => !v)}
+                disabled={pause.isPending}
+                aria-haspopup="menu"
+                aria-expanded={pauseMenu.open}
+                aria-label="Бот отвечает. Поставить на паузу"
+                title="Поставить бота на паузу"
+              >
+                <Bot aria-hidden="true" />
+              </button>
+              {pauseMenu.open && (
+                <div role="menu" aria-label="Поставить бота на паузу" className="ry-menu" onClick={() => pauseMenu.setOpen(false)}>
+                  {PAUSE_OPTIONS.map((opt, idx) => (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      role="menuitem"
+                      disabled={pause.isPending}
+                      onClick={() => pause.mutate(pausedUntilIso(PAUSE_OPTIONS[idx].minutesFromNow()))}
+                    >
+                      Пауза: {opt.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={pause.isPending}
+                    onClick={() => {
+                      const minutes = promptCustomPauseMinutes();
+                      if (minutes !== null) pause.mutate(pausedUntilIso(minutes));
+                    }}
+                  >
+                    Пауза: произвольно…
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {conversation?.clientPhone && !readOnly && (
+            <CallClientButton clientId={conversation.clientId} phone={conversation.clientPhone} variant="icon" className="ry-round" />
+          )}
+          <div ref={moreMenu.boxRef} className="ry-menu-box">
+            <button
+              ref={moreMenu.buttonRef}
+              type="button"
+              className="ry-round ry-round-ghost"
+              onClick={() => moreMenu.setOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={moreMenu.open}
+              aria-label="Ещё"
+              title="Ещё"
+            >
+              <MoreHorizontal aria-hidden="true" />
+            </button>
+            {moreMenu.open && (
+              <div role="menu" aria-label="Ещё" className="ry-menu" onClick={() => moreMenu.setOpen(false)}>
+                <button type="button" role="menuitem" onClick={() => (search.isOpen ? closeSearch() : search.open())}>
+                  <Search aria-hidden="true" />{search.isOpen ? "Закрыть поиск" : "Найти в переписке"}
+                </button>
+                <button type="button" role="menuitem" onClick={() => setShowInfo((v) => !v)}>
+                  <Info aria-hidden="true" />{showInfo ? "Скрыть данные клиента" : "Данные клиента"}
+                </button>
+                {conversation?.clientShortId && (
+                  <button type="button" role="menuitem" onClick={() => navigate(`/clients/${conversation.clientShortId}`)}>
+                    <RoyalIcon name="users" size={20} />Карточка клиента
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Щит исходящих остановил бота — та же причина и подсказка, тихой строкой под шапкой. */}
+        {conversation?.shieldPause && (
+          <div className="ry-chat-note" data-tone="warn" title="Пауза снимется сама, как только человек напишет">
+            <Bot aria-hidden="true" />Бот остановлен щитом: {conversation.shieldPause.reasonText}
+          </div>
+        )}
+      </> : <div className="pane-h clean-conversation-header">
         {/* Видна только там, где список и диалог не помещаются рядом: на широком
             экране список диалогов всегда на виду слева, возвращаться некуда. */}
         <button
@@ -1390,7 +1614,7 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
               )}
             </div>
           ))}
-      </div>
+      </div>}
 
       <div className={clean ? "clean-conversation-workspace" : undefined} data-context-open={showInfo || undefined} style={clean ? undefined : { display: "contents" }}>
       {showInfo && conversation && (
@@ -1646,8 +1870,17 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
         </div>
       )}
 
-      {clean && !narrow && <p className="clean-compose-keyboard-hint m-0 px-5 pb-2 text-sm text-gray">Enter — отправить · Shift+Enter — новая строка</p>}
-      <form className="compose" onSubmit={(e) => e.preventDefault()}>
+      {clean && !narrow && !royal && <p className="clean-compose-keyboard-hint m-0 px-5 pb-2 text-sm text-gray">Enter — отправить · Shift+Enter — новая строка</p>}
+      {/* Быстрые ответы — одна полоса над полем, только пока поле пустое; нажатие
+          подставляет фразу, не отправляя (как на телефоне). */}
+      {royal && !text.trim() && quickReplies.length > 0 && !!replyTargetId && (
+        <div className="ry-chat-quick" role="group" aria-label="Быстрые ответы">
+          {quickReplies.map((q) => (
+            <button key={q} type="button" onClick={() => { setText(q); composerRef.current?.focus(); }}>{q}</button>
+          ))}
+        </div>
+      )}
+      <form className={royal ? "compose ry-chat-compose" : "compose"} onSubmit={(e) => e.preventDefault()}>
         {isGroupedEntry && (conversation?.sources?.some((source) => source.canReply) || isClientGroup) && (
           <label className="sr-only" htmlFor="inbox-reply-source">Канал ответа</label>
         )}
@@ -1686,7 +1919,10 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
             }
           }}
           rows={1}
-          placeholder={isGroupedEntry ? (replySource ? `Ответить в ${replySource.channel ?? "выбранный канал"}` : "Сначала выберите канал") : "Ответ клиенту"}
+          placeholder={royal
+            // Короче: поле в строке ввода нового вида узкое на телефоне, а канал виден выше.
+            ? (isGroupedEntry && !replySource ? "Выберите канал" : "Сообщение")
+            : isGroupedEntry ? (replySource ? `Ответить в ${replySource.channel ?? "выбранный канал"}` : "Сначала выберите канал") : "Ответ клиенту"}
           aria-label="Текст ответа"
         />
         <input
@@ -1728,12 +1964,13 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
         />
         <button
           type="button"
-          className="pill"
+          className={royal ? "ry-round ry-chat-send" : "pill"}
           onClick={handleSend}
           disabled={!text.trim() || reply.isPending || !replyTargetId}
           title="Отправить (Enter)"
+          aria-label={royal ? "Отправить" : undefined}
         >
-          Отправить
+          {royal ? <RoyalIcon name="send" /> : "Отправить"}
         </button>
       </form>
 
@@ -1741,8 +1978,8 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
           длительности остаётся тем же селектом, что и был: меняется одежда,
           не поведение отправки. */}
       {!paused && (
-        <div className="suggest">
-          <span className="txt">Ваш ответ ставит бота на паузу на</span>
+        <div className={royal ? "suggest ry-chat-pausepick" : "suggest"}>
+          <span className="txt">{royal ? "Ответ ставит бота на паузу:" : "Ваш ответ ставит бота на паузу на"}</span>
           <select
             className="inp"
             style={{ width: "auto" }}
@@ -1767,7 +2004,7 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
               {customPauseMinutes !== null ? `${customPauseMinutes} мин (произвольно)` : "Произвольно…"}
             </option>
           </select>
-          <span className="txt">он не будет отвечать поверх вас.</span>
+          {!royal && <span className="txt">он не будет отвечать поверх вас.</span>}
         </div>
       )}
       </>}
