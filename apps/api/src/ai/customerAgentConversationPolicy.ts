@@ -3,6 +3,8 @@
  * but a positive allowlist avoids thanking an angry/ambiguous reaction. */
 import {detectCustomerCoreLanguage as detectClientLanguage, customerColloquialTajikLanguage} from './customerDmLanguage.js';
 import {clientOwnWords} from './untrustedContent.js';
+import {foldCustomerTextForRole} from './customerAgentRole.js';
+import {PUBLIC_AGENCY_WHATSAPP, publicAgencyCallReply} from '../lib/publicAgencyContact.js';
 const positiveEmoji = /(?:👍|👏|🙌|🤝|💪|🔥|✨|🌟|⭐|❤|🧡|💛|💚|💙|💜|🤍|🩷|💕|💖|💗|💓|💞|😍|🥰|🤩|😊|💐|🌹)[\uFE0F\u{1F3FB}-\u{1F3FF}]*/gu;
 const appreciation = /^(?:спасибо(?: большое| вам)?|большое спасибо|благодарю|благодарим|(?:очень )?красивая квартира|красиво|очень красиво|красота|класс|супер|круто|отлично|молодцы|рахмат|раҳмат|ташаккур|зур|зӯр|офарин|аҳсан|зебо(?: бдай)?|бисёр зебо|(?:бехтарин|беҳтарин)(?: (?:хона|макон)(?: бдай)?)?)$/u;
 
@@ -140,4 +142,76 @@ export function customerMessengerChannelQuestion(input: string): boolean {
   const request = /(?<!\p{L})(?:можно|можете|сможете|напиш\p{L}*|пиш\p{L}*|свяж\p{L}*|связаться|написать|позвонить|тамос|мумкин\s+аст|метавон\p{L}*|навиштан)(?!\p{L})/iu;
   const negativeIntent = /(?:^|\s)(?:не|нет|без)\s+\p{L}+/iu;
   return ownIntentClauses(input).some(clause => channel.test(clause) && direction.test(clause) && request.test(clause) && !negativeIntent.test(normalizeOwnIntent(clause)));
+}
+
+/**
+ * ПРЯМОЙ ВОПРОС О КОМПАНИИ — ОДНА ДВЕРЬ (18.11.2026, аудит переписок 17.11, класс 1 «не отвечает на прямой вопрос»).
+ *
+ * Живые случаи: «Ватсап?» → «Это точно подскажет наш агент»; «Хози занг занам, мешавад?» → «Мехоҳед корманд ба шумо занг
+ * занад?»; «ракамхоятонро дихед, ман занг занам» → номер не дан; «Куда можно отправить резюме?» → список вакансий без «куда».
+ * Ответ — из фактов компании (lib/publicAgencyContact.ts, решение владельца 18.11.2026), РАНЬШЕ любого своего вопроса, кодом,
+ * а не моделью. Только слова клиента (clientOwnWords, без цитат). Звонки в WhatsApp не включены: о них бот не говорит никогда,
+ * на «можно позвонить по ватсапу?» — номер офиса для звонка.
+ */
+export type CustomerAgencyDirectQuestion = 'whatsapp' | 'call' | 'resume';
+const WHATSAPP_RAW = /(?:whats\s*app|вотсап\p{L}*|ватсап\p{L}*|ватсаб\p{L}*|вотсаб\p{L}*|вацап\p{L}*|воцап\p{L}*|vatsap\p{L}*|watsap\p{L}*)/iu;
+// Folded alphabet (ҳ→х, ӣ→и, ҷ→ч, қ→к, ӯ→у): «доред», «ҳаст», «мешавад», «рақам».
+const WA_ASKS = /(?<!\p{L})(?:доред|дорен|дорин|дорет|дори|хаст|хастед|хаст\p{L}*|есть|имеется|у\s+вас|работает|кор\s+мекунад|мумкин|мешавад|мешава|можно|номер\p{L}*|ракам\p{L}*|кадом|какой|чанд|ин|этот|это)(?!\p{L})/u;
+const NOT_WANTED = /(?<!\p{L})(?:не\s+(?:надо|нужно|нужен|хочу|пишите)|лозим\s+нест|намехохам|нахостам)(?!\p{L})/u;
+const COMPLAINT = /(?<!\p{L})(?:не\s+(?:работает|отвечает|берет|доступен|проходит)|кор\s+намекунад|чавоб\s+намедихад|хомуш)(?!\p{L})/u;
+const CALL_WORD = /(?<!\p{L})(?:(?:по|за|до|пере)?звон\p{L}*|занг)(?!\p{L})/u;
+// «Можно позвонить?», «куда звонить?», «номер офиса?», «телефон агентства?»; «Хози занг занам, мешавад?», «ман занг занам».
+const CALL_ASKED = new RegExp([
+  String.raw`(?:можно|могу|можем|как|куда|разрешите)\s+(?:ли\s+)?(?:вам\s+|к\s+вам\s+|с\s+вами\s+)?(?:по|до|за)звонить`,
+  String.raw`(?:по|до)звонить\s+(?:вам\s+)?(?:можно|сейчас|в\s+офис)`,
+  String.raw`(?:номер|телефон)\p{L}*\s+(?:вашего\s+|вашей\s+)?(?:офиса|агентства|компании|фирмы|для\s+звонк\p{L}*)`,
+  String.raw`(?:ваш|ваши|ваш\p{L}+)\s+(?:номер|телефон)\p{L}*(?!\s+(?:объект|квартир|дом|участк|хона|заявк)\p{L}*)`,
+  String.raw`(?:ракам|номер)\p{L}*\s+(?:офис|идора|дафтар|ширкат)\p{L}*`,
+  String.raw`занг\s+(?:занам|занем|задан|зада\s+метавон\p{L}*)`,
+  String.raw`(?:ракам|номер)(?:хо)?(?:ятон|атон|тон|хотон)\p{L}*`,
+  String.raw`у\s+вас\s+(?:номер|телефон)\p{L}*(?!\s+(?:объект|квартир|дом|участк|хона|заявк)\p{L}*)`,
+  String.raw`какой\s+(?:ваш\s+)?(?:номер\s+телефона|телефон)(?!\s+(?:объект|квартир|дом|участк|хона|заявк)\p{L}*)`,
+].join('|'), 'u');
+const PERMISSION = /(?<!\p{L})(?:можно|могу|можем|разрешите|мумкин|мешавад|мешава|метавонам|метавонем)(?!\p{L})/u;
+const RESUME = /(?<!\p{L})(?:резюме|rezyume|резуме)(?!\p{L})/u;
+const RESUME_WHERE = /(?<!\p{L})(?:куда|кому|где|как|ба\s+кучо|кучо|ба\s+ки|чи\s+тавр|чихел|отправ\p{L}*|присла\p{L}*|присыла\p{L}*|скин\p{L}*|фирист\p{L}*|равон\p{L}*)(?!\p{L})/u;
+/** What the customer's own words ask about the company's channels, office phone or résumé address; null when nothing. */
+export function customerAgencyDirectQuestion(input: string): CustomerAgencyDirectQuestion | null {
+  const raw = customerOwnUnquotedText(input).normalize('NFKC');
+  if (!raw.trim() || raw.length > 400) return null;
+  const folded = foldCustomerTextForRole(raw).replace(/ё/gu, 'е');
+  if (NOT_WANTED.test(folded)) return null;
+  // «Ваш телефон не работает?», «Номертон кор намекунад»: a complaint about a number, not a request for it (customerRequestedAgencyContact).
+  if (COMPLAINT.test(folded)) return null;
+  // The customer gives their OWN number (digits) and asks us to call: a callback, not a question about our phone.
+  if (/\d{6,}/u.test(raw.replace(/[\s()-]/gu, '')) && !CALL_ASKED.test(folded)) return null;
+  const asks = /[?？]/u.test(raw) || WA_ASKS.test(folded);
+  if (WHATSAPP_RAW.test(raw)) {
+    if (CALL_WORD.test(folded)) return 'call';
+    const bare = !raw.replace(WHATSAPP_RAW, ' ').replace(/[\p{P}\p{S}\s]+/gu, '').trim();
+    return bare || asks ? 'whatsapp' : null;
+  }
+  if (RESUME.test(folded) && RESUME_WHERE.test(folded) && (asks || /(?<!\p{L})(?:куда|кучо|кому)(?!\p{L})/u.test(folded))) return 'resume';
+  if (CALL_ASKED.test(folded) && !/(?<!\p{L})(?:мой|моя|мне|ман|манро)\s+(?:номер|ракам)/u.test(folded)) return 'call';
+  return null;
+}
+/** The fact lines that answer a direct question (one door for the core renderer and the lead-only mode). */
+export function customerAgencyDirectAnswer(kind: CustomerAgencyDirectQuestion, input: { language: 'ru' | 'tg'; whatsappChannel: boolean; text: string }): string {
+  const tg = input.language === 'tg';
+  if (kind === 'whatsapp') return input.whatsappChannel
+    ? tg ? 'Бале, шумо ба мо дар WhatsApp менависед.' : 'Да, вы пишете нам в WhatsApp.'
+    : tg ? `Бале, WhatsApp: ${PUBLIC_AGENCY_WHATSAPP.phone}.` : `Да, WhatsApp: ${PUBLIC_AGENCY_WHATSAPP.phone}.`;
+  if (kind === 'resume') return tg ? 'Резюмеро ҳамин ҷо, дар ҳамин чат фиристед.' : 'Резюме можно прислать сюда, в этот чат.';
+  const call = publicAgencyCallReply(input.language);
+  if (!PERMISSION.test(foldCustomerTextForRole(customerOwnUnquotedText(input.text)))) return call;
+  return tg ? `Бале, ${call.charAt(0).toLowerCase()}${call.slice(1)}` : `Да, ${call.charAt(0).toLowerCase()}${call.slice(1)}`;
+}
+/** Every line customerAgencyDirectAnswer can produce: the read-only memory allow-list and the CI wording guard. */
+export function customerAgencyDirectAnswerLines(): string[] {
+  return (['ru', 'tg'] as const).flatMap(language => [true, false].flatMap(whatsappChannel => [
+    customerAgencyDirectAnswer('whatsapp', { language, whatsappChannel, text: '' }),
+    customerAgencyDirectAnswer('resume', { language, whatsappChannel, text: '' }),
+    customerAgencyDirectAnswer('call', { language, whatsappChannel, text: '' }),
+    customerAgencyDirectAnswer('call', { language, whatsappChannel, text: 'разрешите позвонить' }),
+  ])).filter((line, index, all) => all.indexOf(line) === index);
 }

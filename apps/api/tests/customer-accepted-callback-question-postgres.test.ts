@@ -343,7 +343,8 @@ describe("actual accepted callback question → real next signed IN", () => {
       acceptedQuestion: { partId: a.part.id, attemptId: attempt.id, providerMid: attempt.providerMid,
         questionEventKey: a.key, affirmationEventKey: b } } });
     const generation = slot!.generation;
-    const partB = await f.run(b, [[{ functionCall: { name: "request_callback", args: { topic: yes }, id: "callback-yes" } }], decision("none", ["e0"])]);
+    // 18.11.2026 (step 1a, item 3): a short «yes» to OUR callback question is closed by the server, without a model round.
+    const partB = await f.run(b, []);
     expect(decodeCustomerOutboxPayload(partB)).toMatchObject({ kind: "text" });
     const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: prepared.inquiry.id, kind: "callback" } });
     expect(action).toMatchObject({ status: "COMMITTED", generation: BigInt(generation) });
@@ -428,7 +429,8 @@ describe("actual accepted callback question → real next signed IN", () => {
     const number = phone(), b = await f.intake(reply(number)), prepared = await f.beforeClaim(b);
     const slot = customerActionIntentsSchema.parse(prepared.inquiry.actionIntents).callback;
     expect(slot).toMatchObject({ status: "open", consent: { originalEventKey: b, acceptedQuestion: { questionEventKey: a.key, affirmationEventKey: b } } });
-    await f.run(b, [[{ functionCall: { name: "request_callback", args: { topic: "по звонку" }, id: "name-number" } }], decision("none", ["e0"])]);
+    // 18.11.2026 (step 1a, item 3): the server closes our own callback question, without a model round.
+    await f.run(b, []);
     const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: prepared.inquiry.id, kind: "callback" } });
     expect(action).toMatchObject({ status: "COMMITTED" });
     expect(await prisma.callbackRequest.findUniqueOrThrow({ where: { customerActionId: action.id } })).toMatchObject({ phone: number });

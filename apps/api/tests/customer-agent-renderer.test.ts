@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderCustomerAgentDecision, type CustomerAgentEvidence } from "../src/ai/customerAgentRenderer.js";
-import { PUBLIC_AGENCY_CONTACT } from "../src/lib/publicAgencyContact.js";
+import { PUBLIC_AGENCY_CONTACT, PUBLIC_AGENCY_WHATSAPP } from "../src/lib/publicAgencyContact.js";
 
 const facts = { propertyId: "00000000-0000-4000-8000-000000000001", shortId: 123, price: "123456.78", currency: "TJS" as const,
   availability: "AVAILABLE" as const, publicAddress: "Synthetic district, Душанбе", addressPolicy: "district_city_only" as const,
@@ -16,9 +16,14 @@ describe("CustomerAgentRenderer draft verified-segment obligations", () => {
     });
     expect(text).toBe("Здравствуйте!");
   });
-  it.each(["Номер?", "Как с вами связаться?", "Напишите ваш телефон", "Можно номер телефона?", "номер телефона чанд боша", "Рақаматон чанд?", "Номертонро нависед", "Как вам позвонить?", "Ваш WhatsApp?", "Цена и ваш номер?"])("preserves an explicit contact request: %s", inputText => {
+  it.each(["Номер?", "Как с вами связаться?", "Напишите ваш телефон", "Можно номер телефона?", "номер телефона чанд боша", "Рақаматон чанд?", "Номертонро нависед", "Как вам позвонить?", "Цена и ваш номер?"])("preserves an explicit contact request: %s", inputText => {
     expect(render([{ ref: "e0", value: { kind: "agency_contact", contact: { ...PUBLIC_AGENCY_CONTACT } } }], { inputText }))
       .toBe(`Позвоните: ${PUBLIC_AGENCY_CONTACT.phone}.`);
+  });
+  // Owner decision 18.11.2026: the company has WhatsApp; «Ваш WhatsApp?» gets the WhatsApp number, not the office one.
+  it("answers «Ваш WhatsApp?» with the company WhatsApp", () => {
+    expect(render([{ ref: "e0", value: { kind: "agency_contact", contact: { ...PUBLIC_AGENCY_CONTACT } } }], { inputText: "Ваш WhatsApp?" }))
+      .toBe(`Да, WhatsApp: ${PUBLIC_AGENCY_WHATSAPP.phone}.`);
   });
   it("keeps exact decimal currency and only public geography", () => {
     const text = render([{ ref: "e0", value: { kind: "facts", facts, kinds: ["price", "address", "builder"] } }]);

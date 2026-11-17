@@ -34,8 +34,9 @@ const own = (text: string) => clientOwnWords(text ?? "").normalize("NFKC").toLow
 const pick = (family: readonly Pair[], language: Lang, said: (line: string) => boolean) =>
   (family.find(pair => !said(pair[language])) ?? family[family.length - 1])[language];
 
-/** No phone and never asked: the hand-off asks for it. */
-const STAFF_ASK_PHONE: Pair = { ru: "Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил.",
+/** No phone and never asked: the hand-off asks for it. No «агент позвонит» before there is a number to call (18.11.2026: the attack
+ *  stand counted «…чтобы агент вам позвонил» as a promise with nothing behind it, 14 of 73 failures). */
+const STAFF_ASK_PHONE: Pair = { ru: "Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона для связи.",
   tg: "Инро аниқ агенти мо мегӯяд. Рақами телефонатонро нависед, то агенти мо занг занад." };
 /** No phone, already asked once in this chat: the hand-off without a second request. */
 const STAFF_NO_ASK: readonly Pair[] = [
@@ -49,8 +50,10 @@ const STAFF_WITH_PHONE: readonly Pair[] = [
   { ru: "Все подробности расскажет наш агент.", tg: "Агенти мо ҳамаи тафсилотро ба шумо мегӯяд." },
 ];
 /** Nothing in the catalog fits: an agent searches by hand. */
-const SEARCH_ASK_PHONE: Pair = { ru: "Агент подберёт варианты вручную. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил.",
-  tg: "Рақами телефонатонро нависед, то агенти мо занг занад." };
+const SEARCH_ASK_PHONE: Pair = { ru: "Агент подберёт варианты вручную. Напишите, пожалуйста, ваш номер телефона для связи.",
+  // Not the bare phone question (renderer `questions.phone.tg`, the same words before 18.11.2026): a bare phone ask is no hand-off,
+  // and a seller's phone step must not tell a person (customerReplyCallsStaff). Both sentences are vetted (live-agent-phrases 44, 51).
+  tg: "Агенти мо ҳамаи тафсилотро ба шумо мегӯяд. Рақами телефонатонро нависед, то агенти мо занг занад." };
 const SEARCH_NO_ASK: Pair = { ru: "Агент подберёт варианты вручную.", tg: "Агенти мо ҳамаи тафсилотро ба шумо мегӯяд." };
 const SEARCH_WITH_PHONE: Pair = { ru: "Агент подберёт варианты вручную и позвонит вам в рабочее время.",
   tg: "Агенти мо дар вақти корӣ ба шумо занг мезанад." };
@@ -80,14 +83,17 @@ export function customerThanksReply(language: Lang, said: (line: string) => bool
   return pick(THANKS_REPLIES, language, said);
 }
 
+/** The Russian hand-off phone asks before 18.11.2026 (older chats): still a hand-off, a phone ask already made and a known memory line. */
+const RETIRED_PHONE_ASKS = ["Это точно подскажет наш агент. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил.",
+  "Агент подберёт варианты вручную. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил."];
 /** Lines that hand the customer to a person (the turn must signal the responsible person). */
-const STAFF_LINES = new Set([STAFF_ASK_PHONE, ...STAFF_NO_ASK, ...STAFF_WITH_PHONE, SEARCH_ASK_PHONE, SEARCH_NO_ASK, SEARCH_WITH_PHONE, PARTNERSHIP]
-  .flatMap(pair => [pair.ru, pair.tg]));
+const STAFF_LINES = new Set([...[STAFF_ASK_PHONE, ...STAFF_NO_ASK, ...STAFF_WITH_PHONE, SEARCH_ASK_PHONE, SEARCH_NO_ASK, SEARCH_WITH_PHONE, PARTNERSHIP]
+  .flatMap(pair => [pair.ru, pair.tg]), ...RETIRED_PHONE_ASKS]);
 /** Lines that ask for the phone: asked once per conversation. */
-const PHONE_ASK_LINES = new Set([STAFF_ASK_PHONE, SEARCH_ASK_PHONE, PARTNERSHIP_PHONE].flatMap(pair => [pair.ru, pair.tg]));
+const PHONE_ASK_LINES = new Set([...[STAFF_ASK_PHONE, SEARCH_ASK_PHONE, PARTNERSHIP_PHONE].flatMap(pair => [pair.ru, pair.tg]), ...RETIRED_PHONE_ASKS]);
 export function customerStaffFollowUpFixedLines(): string[] {
   return [STAFF_ASK_PHONE, ...STAFF_NO_ASK, ...STAFF_WITH_PHONE, SEARCH_ASK_PHONE, SEARCH_NO_ASK, SEARCH_WITH_PHONE,
-    PARTNERSHIP, PARTNERSHIP_PHONE, ...THANKS_REPLIES].flatMap(pair => [pair.ru, pair.tg]);
+    PARTNERSHIP, PARTNERSHIP_PHONE, ...THANKS_REPLIES].flatMap(pair => [pair.ru, pair.tg]).concat(RETIRED_PHONE_ASKS);
 }
 export function customerPhoneAskLines(): string[] { return [...PHONE_ASK_LINES]; }
 /** The reply told the customer that a person takes over: the turn must actually tell a person (one door). */

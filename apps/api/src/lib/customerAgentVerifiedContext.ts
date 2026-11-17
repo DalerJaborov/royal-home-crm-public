@@ -202,6 +202,11 @@ export type CustomerAgentMemoryResult = { status: "current"; context: CustomerAg
   { status: "held"; reason: "original_context_changed" | "revision_mismatch" | "storage_unavailable" | "context_deadline" };
 /** Actual scoped storage reader. This is not a public/request-facing projection
  * parser and does not mint actors, recover an old event, or approve a tool. */
+const CONTEXT_CHANNELS = ["WHATSAPP", "INSTAGRAM", "FACEBOOK", "TELEGRAM", "WEBSITE"] as const;
+/** Only a known messenger name; anything else leaves the field out (the renderer then treats the channel as unknown). */
+export function customerContextChannel(channel: string | null | undefined): typeof CONTEXT_CHANNELS[number] | undefined {
+  return (CONTEXT_CHANNELS as readonly string[]).includes(channel ?? "") ? channel as typeof CONTEXT_CHANNELS[number] : undefined;
+}
 export async function loadCustomerAgentVerifiedDmContext(input: { principal: unknown; revision: Readonly<CustomerAgentRevision>;
   wait?: { signal?: AbortSignal; deadlineAt: number } }): Promise<CustomerAgentMemoryResult> {
   if (!isCustomerPrincipal(input.principal)) return { status: "held", reason: "original_context_changed" };
@@ -246,8 +251,10 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
       if (!stored) return { status: "held", reason: "revision_mismatch" };
       const revision = decodeCustomerAgentRevision(stored);
       if (!isDeepStrictEqual(revision, requestedRevision.data)) return { status: "held", reason: "revision_mismatch" };
+      // The messenger of this conversation from the verified principal (18.11.2026): «Ватсап?» and the phone ask depend on it.
+      const channel = customerContextChannel(principal.scope.channel);
       const empty = (publicState: unknown): CustomerAgentMemoryResult => ({ status: "current", context: customerAgentVerifiedContextSchema.parse({
-        surface: "dm", revisionId: revision.id, turns: [], publicState: customerPublicStateSchema.parse(publicState) }) });
+        surface: "dm", revisionId: revision.id, turns: [], publicState: customerPublicStateSchema.parse(publicState), ...(channel ? { channel } : {}) }) });
       if (principal.visibility !== "private_dm" || principal.assurance !== "protected_namespace" ||
           currentInput.provenance !== "meta_signature" || !currentInput.verifierCredential) {
         const after = await revalidateCustomerPrincipal(principal);
@@ -353,6 +360,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
         return { status: "held", reason: "original_context_changed" };
       }
       return { status: "current", context: customerAgentVerifiedContextSchema.parse({ surface: "dm", revisionId: revision.id,
+        ...(channel ? { channel } : {}),
         ...(positionKey ? { recruitmentKnown: [...recruitmentKnown] } : {}),
         ...(recruitmentAnswerTo ? { recruitmentAnswerTo } : {}),
         ...(sentLineDigests.length ? { sentLineDigests } : {}),

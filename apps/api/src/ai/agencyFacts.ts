@@ -9,7 +9,7 @@ import {
 } from "../lib/dushanbeTime.js";
 import { SHOWING_HOURS_LAST, SHOWING_HOURS_START } from "../lib/showingBooking.js";
 import { vacancyOfficeAddress } from "./vacancyFacts.js";
-import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
+import { PUBLIC_AGENCY_CONTACT, PUBLIC_AGENCY_WHATSAPP } from "../lib/publicAgencyContact.js";
 import { SERVICE_AREA_COMPANY_LINE } from "../lib/serviceArea.js";
 
 /**
@@ -46,6 +46,10 @@ export const AGENCY_FACTS = {
   /** Другие города не обслуживаем; зона — Душанбе и район Рудаки (lib/serviceArea.ts, 15.11.2026). */
   otherCities: false,
   phone: PUBLIC_AGENCY_CONTACT.phone,
+  /** Каналы компании (решение владельца 18.11.2026): WhatsApp есть, это номер для сообщений; звонков в WhatsApp нет и о них
+   *  бот не говорит никогда. Офис для звонков — `phone`. Источник номеров один: lib/publicAgencyContact.ts. */
+  whatsapp: PUBLIC_AGENCY_WHATSAPP.phone,
+  callsInWhatsapp: false,
   site: "royalhome.tj",
   services: "Продажа и помощь в покупке",
   /** АРЕНДЫ СЕЙЧАС НЕТ (ни сдаём, ни снимаем). */
@@ -73,8 +77,8 @@ export function companyInfoBlock(): string {
 Офис: ${vacancyOfficeAddress()}. Спросят «где вы находитесь», «как к вам добраться» — назови город, улицу с домом, здание, этаж и ориентиры; приезжать в офис нужно, когда договорились с агентом, показы проходят на самих объектах.
 Услуги: ${f.services}.
 Аренда: ${f.rent ? "есть" : "АРЕНДЫ СЕЙЧАС НЕТ (ни сдаём, ни снимаем)"}.
-Контакты: ${f.phone}, сайт ${f.site}.
-Этот номер только для звонков. Не называй его WhatsApp и не предлагай отправлять на него сообщения или файлы. Написать можно в текущем чате или директе; для резюме в Instagram предложи фото страниц или текст, а не несуществующий WhatsApp для файлов.
+Контакты: офис ${f.phone} (только для звонков), WhatsApp ${f.whatsapp} (только сообщения), сайт ${f.site}.
+Номер офиса не называй WhatsApp. Звонки в WhatsApp не предлагай и не упоминай. Написать можно в текущем чате, в директе или в WhatsApp; резюме можно прислать в текущий чат.
 </company_info>
 `;
 }

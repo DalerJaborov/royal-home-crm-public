@@ -25,7 +25,8 @@ describe("legacy seller intake through bounded customer-core progress", () => {
   it("retains fields beyond the short displayed history via the server summary", () => {
     const prior = context({ role: "seller", sellerKnown: ["rooms", "area", "district", "condition", "price"], buyerKnown: [] });
     const text = reply("3 этаж", prior);
-    expect(text).toContain("фото или видео"); expect(text).not.toContain("напишите");
+    // 18.11.2026 (step 1a, item 8): every field is known, so the next step is the phone (no field asked again).
+    expect(text).toBe("Какой номер телефона вы хотите оставить для связи?"); expect(text).not.toMatch(/этаж|район/iu);
     expect(customerAgentRenderedQuestion({ decision: { kind: "clarify", refs: [], social: "none", question: "rooms" },
       evidence: [], surface: "dm", knownPhoneSource: "none", verifiedContext: prior, inputText: "3 этаж" })).toBe("seller_details");
   });

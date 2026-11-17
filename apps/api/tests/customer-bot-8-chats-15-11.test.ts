@@ -110,7 +110,8 @@ describe("class в: only the seller's commission of a named sum (review В1)", (
   it("live case 8: «2 % анар ма 700 000 фрушум» → 2% × 700 000 = 14 000, digits only in Tajik", () => {
     const text = render("Кимат охи 2 % анар ма 700 000 фрушум и як копча пул меша", { evidence: commission,
       decision: { kind: "clarify", question: "seller_details" }, turns: seller })!;
-    expect(text).toBe("2% × 700 000 = 14 000");
+    // 18.11.2026 (step 1a, item 8): the answer first, then the one step of a seller who told the details: the phone.
+    expect(text).toBe("2% × 700 000 = 14 000\nРақами телефонатонро нависед, то агенти мо занг занад.");
   });
   it("Russian seller: the company percent, even when the customer names another", () => {
     expect(render("если продам за 1 200 000 сомони, 3% это сколько?", { language: "ru", evidence: commission, decision: { refs: ["e0"] },
@@ -216,11 +217,12 @@ describe("the service area: «only Dushanbe» only for an object outside (live c
       expect(detectOutsideCoverage(text)).toBeNull();
       expect(detectOutsideCoverage(`Ман аз Кӯлоб ҳастам, хонаам ${text}`)).toBeNull(); // like Dushanbe, it lifts the cut
     });
-  it("a seller from Rudaki is not refused: the questionnaire goes on (live case 1)", () => {
+  it("a seller from Rudaki is not refused: the next step goes on (live case 1)", () => {
     const text = render("Хонаам дар маркази н Рудаки, 2 ҳуҷра", { evidence: scope, decision: { refs: ["e0"], question: "seller_details" },
       turns: [user("Хона дорем фурухтан даркор")] })!;
     expect(text).not.toMatch(/Мутаассифона|шаҳрҳои дигар/u);
-    expect(text).toContain("Хонаатон");
+    // 18.11.2026 (step 1a, item 8): the seller told the rooms, so the step is the phone.
+    expect(text).toContain("Рақами телефонатонро нависед");
   });
 });
 
@@ -230,12 +232,12 @@ describe("an empty search goes to an agent with the phone question, the old «п
     policyHash: "c".repeat(64), cards: [] } as unknown as CustomerAgentObservation }];
   it("nothing fits (live case 7): honest line, the phone asked, no budget question", () => {
     const text = render("Салом ман барои салон помишеня харидани хастам то 30 40 квадрат", { evidence: search(false), decision: { refs: ["e0"], question: "budget" } })!;
-    expect(text).toBe("Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд.\nРақами телефонатонро нависед, то агенти мо занг занад.");
+    expect(text).toBe("Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд.\nАгенти мо ҳамаи тафсилотро ба шумо мегӯяд. Рақами телефонатонро нависед, то агенти мо занг занад.");
     expect(customerReplyCallsStaff(text)).toBe(true);
   });
   it("no new options: no promise of a call without a phone", () => {
     expect(render("боз?", { language: "ru", evidence: search(true), decision: { refs: ["e0"] } }))
-      .toBe("Новых вариантов по этому запросу сейчас нет.\nАгент подберёт варианты вручную. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил.");
+      .toBe("Новых вариантов по этому запросу сейчас нет.\nАгент подберёт варианты вручную. Напишите, пожалуйста, ваш номер телефона для связи.");
     expect(render("боз?", { language: "ru", evidence: search(true), decision: { refs: ["e0"] }, phone: "scoped_contact" }))
       .toBe("Новых вариантов по этому запросу сейчас нет.\nАгент подберёт варианты вручную и позвонит вам в рабочее время.");
   });

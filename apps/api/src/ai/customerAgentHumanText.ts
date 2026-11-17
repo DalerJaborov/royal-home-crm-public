@@ -300,6 +300,51 @@ export function withoutAgreementOpenings(text: string): { text: string; removed:
   return { text: removed.length ? lines.join("\n") : text, removed };
 }
 
+// ── invented claims (18.11.2026) ─────────────────────────────────────────────────────────────────────────────────────
+/**
+ * THE LAST DOOR, SECOND BELT (18.11.2026, audit 17.11 class 6 «выдумки»: «WhatsApp надорем», «мо бо WhatsApp пул намегирем», «имрӯз
+ * баъд аз соати 10:00 занг мезанад», «агенти мо Ноза… ҳозир занг мезанад», a made-up address of house №192). The same door as
+ * withoutAgreementOpenings, one more cut: a SENTENCE is removed when it
+ *  - says the company has no WhatsApp (it has: lib/publicAgencyContact.ts, owner 18.11.2026) or talks about WhatsApp calls (not on);
+ *  - promises a call at a clock hour that no fact of this turn carries;
+ *  - names the agent who will call (a name is a person's promise, never the bot's);
+ *  - states an address / landmark that no fact of this turn carries.
+ * `allowed`: strings of this turn's verified facts (addresses, hours) and the customer's own words; a sentence quoting one is kept.
+ * «Не могу подтвердить» sentences are honest refusals, never claims. Pure: the core, the renderer and the delivery seal agree.
+ */
+const CALL_VERB = new RegExp(`${BW}(?:(?:по|пере)звон${TAIL}|свяж${TAIL}|занг|тамос${TAIL})${EW}`, "iu");
+const CLOCK = /(?<!\d)(?:[01]?\d|2[0-3])[:.][0-5]\d(?!\d)|соат(?:и)?\s+\d|(?:в|после|до|к)\s+\d{1,2}\s*(?:час|ч(?!\p{L}))/iu;
+const NO_WHATSAPP = new RegExp(String.raw`(?:whats\s*app|ватсап${TAIL}|вотсап${TAIL})[^.!?\n]{0,40}${BW}(?:нест|надор${TAIL}|нет|не\s+(?:работ${TAIL}|использ${TAIL}|принима${TAIL})|намегир${TAIL}|намеги${TAIL})${EW}|` +
+  String.raw`${BW}(?:нет|нест|надорем|надорам)${EW}[^.!?\n]{0,15}(?:whats\s*app|ватсап|вотсап)`, "iu");
+const WHATSAPP_CALL = new RegExp(String.raw`(?:whats\s*app|ватсап${TAIL}|вотсап${TAIL})[^.!?\n]{0,30}${BW}(?:(?:по|пере)?звон${TAIL}|занг${TAIL}|видеозвон${TAIL})${EW}|` +
+  String.raw`${BW}(?:(?:по|пере)?звон${TAIL}|занг${TAIL})${EW}[^.!?\n]{0,20}(?:по|дар|ба|в|тавассути)\s+(?:whats\s*app|ватсап|вотсап)`, "iu");
+const AGENT_NAMED = /(?:[Аа]гент\p{L}*|[Мм]енеджер\p{L}*|[Сс]пециалист\p{L}*|[Кк]орманд\p{L}*)(?:\s+(?:мо|наш\p{L}*|ширкат))?\s+(?!(?:Вам|Вас|Вы|Ваш\p{L}*|Шумо|Ба|Бо|Дар|Он|Ӯ|Royal)(?!\p{L}))[А-ЯЁҲҶҚҒӮӢA-Z][а-яёҳҷқғӯӣa-z]{2,}/u;
+const ADDRESS_MARK = /(?:расположени\p{L}*|адрес\p{L}*|ҷойгиршав\p{L}*|чойгиршав\p{L}*|суроға\p{L}*)\s*:|(?<!\p{L})(?:маҳаллаи|махаллаи|возле|рядом\s+с|наздики)\s+\p{L}/iu;
+const HONEST_UNKNOWN = /не\s+могу\s+подтвердить|не\s+подтвержден\p{L}*|тасдиқ\s+карда\s+наметавонам|тасдиқ\s+нашуда\p{L}*/iu;
+function inventedClaim(sentence: string, allowed: readonly string[], timesAndPlaces: boolean): boolean {
+  const carriesFact = () => allowed.some(fact => fact.length >= 4 && sentence.includes(fact));
+  if (NO_WHATSAPP.test(sentence) || WHATSAPP_CALL.test(sentence)) return true;
+  if (HONEST_UNKNOWN.test(sentence)) return false;
+  if (CALL_VERB.test(sentence) && AGENT_NAMED.test(sentence) && !carriesFact()) return true;
+  if (!timesAndPlaces) return false;
+  if (CALL_VERB.test(sentence) && CLOCK.test(sentence) && !carriesFact()) return true;
+  return ADDRESS_MARK.test(sentence) && !carriesFact();
+}
+/** `timesAndPlaces: false` for the lead-only lines, whose call hour comes from the working hours in Settings (leadOnlyCallbackWhen). */
+export function withoutInventedClaims(text: string, allowed: readonly string[] = [], timesAndPlaces = true): { text: string; removed: string[] } {
+  const removed: string[] = [], lines: string[] = [];
+  for (const line of text.split("\n")) {
+    const sentences = line.split(SENTENCE_SPLIT);
+    const kept = sentences.filter(sentence => {
+      if (!inventedClaim(sentence, allowed, timesAndPlaces)) return true;
+      removed.push(sentence.trim()); return false;
+    });
+    if (kept.length === sentences.length) lines.push(line);
+    else if (kept.length) lines.push(kept.join(" "));
+  }
+  return { text: removed.length ? lines.join("\n") : text, removed };
+}
+
 // ── one meaning once (review #211, round 6) ─────────────────────────────────────────────────────────────────────────────
 /** The meaning groups of the vetted phrases: never two of one group in a reply («Понял вас. Поняла вас.», «Раҳмат! Ташаккур!»). */
 export type HumanPhraseGroup = "thanks" | "understood" | "greeting" | "apology";

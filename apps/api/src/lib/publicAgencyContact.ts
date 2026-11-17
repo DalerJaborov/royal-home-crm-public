@@ -1,13 +1,16 @@
-/** Owner decision 14.10.2026: public agency contact is a telephone, not WhatsApp.
- * Transport credentials, sender numbers and routing are configured separately. */
+/** Owner decision 18.11.2026 (via the dispatcher, «правильно»): the office telephone is for calls, and the company DOES have
+ * WhatsApp — the number below, messages only (calls in WhatsApp are not switched on and are never mentioned). Replaces the
+ * 14.10.2026 decision «the public contact is a telephone, not WhatsApp». Transport credentials and routing live elsewhere. */
 const PUBLIC_PHONE = "+992 44 650 14 14";
+export const PUBLIC_AGENCY_WHATSAPP = { phone: "+992 77 777 6001", digits: "992777776001" } as const;
 export const PUBLIC_AGENCY_CONTACT = {
   phone: PUBLIC_PHONE,
   digits: PUBLIC_PHONE.replace(/\D/g, ""),
   channel: "telephone",
 } as const;
 
-/** Historical bot contact is unusable; customer quotes do not revive it. */
+/** The WhatsApp number as a number TO CALL is unusable (calls in WhatsApp are off): a «call us: …» label is corrected to the
+ * office. As the WhatsApp contact it is valid (PUBLIC_AGENCY_WHATSAPP); a customer quoting it is still not a client phone. */
 export function isRetiredPublicAgencyPhone(digits: string): boolean {
   return digits === RETIRED_PHONE_DIGITS || digits === RETIRED_PHONE_DIGITS.slice(-9);
 }
@@ -16,7 +19,7 @@ export function isPublicAgencyPhone(digits: string): boolean {
   return digits === PUBLIC_AGENCY_CONTACT.digits || digits === PUBLIC_AGENCY_CONTACT.digits.slice(-9);
 }
 
-const RETIRED_PHONE_DIGITS = "992777776001";
+const RETIRED_PHONE_DIGITS = PUBLIC_AGENCY_WHATSAPP.digits;
 
 function phonePattern(digits: string): string {
   const separated = (value: string) => value.split("").join("[ \\t()\\-]*");

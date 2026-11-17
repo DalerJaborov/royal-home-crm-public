@@ -24,7 +24,8 @@ import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { looksLikeRentRequest } from "./rentGuard.js";
-import { withoutAgreementOpenings } from "./customerAgentHumanText.js";
+import { withoutAgreementOpenings, withoutInventedClaims } from "./customerAgentHumanText.js";
+import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 
 /** Кто клиент — перечень ответа модели (ai/leadOnlyIntent.ts). Здесь, а не там: тип нужен сценарию, а круга импортов быть не должно. */
 export const LEAD_ONLY_ROLES = ["buyer", "seller", "renter", "landlord", "job", "other"] as const;
@@ -117,11 +118,14 @@ const HOT_PATTERNS: RegExp[] = [
   // «дидан мехоҳем / мехоҳам», «тамошо кардан мехоҳем»
   new RegExp(`${w(`дидан${TAIL}|тамошо(?:\\s+кардан)?`)}\\s+${w(`мехо[ҳх]${TAIL}|мехоҳ${TAIL}`)}`, "iu"),
   // «куҷо биёем / равем / омадан», «кучо бием»
-  new RegExp(`${w("куҷо|кучо")}\\s+${w(`би[ёе]${TAIL}|рав${TAIL}|омад${TAIL}|равем|биём`)}`, "iu"),
+  // «гучо равем» (WA 12.11, a hot buyer of house №192 lost on «где/адрес», audit 17.11 class 5): the colloquial «г».
+  new RegExp(`${w("куҷо|кучо|гуҷо|гучо")}\\s+${w(`би[ёе]${TAIL}|рав${TAIL}|омад${TAIL}|равем|биём`)}`, "iu"),
+  // «рафта бинем» — «съездим посмотрим»
+  new RegExp(`${w("рафта")}\\s+${w(`бин${TAIL}|бубин${TAIL}`)}`, "iu"),
   // «кай омада метавонем», «кай биёем», «кай дидан мумкин»
   new RegExp(`${w("кай")}\\s+(?:${w(`омад${TAIL}|би[ёе]${TAIL}|дид${TAIL}|тамошо${TAIL}`)})`, "iu"),
   // «харидори воқеӣ / аслӣ», «мо харидорем»
-  new RegExp(`${w(`харидор${TAIL}`)}\\s+${w(`во[қк]е${TAIL}|асл${TAIL}|ҳақиқ${TAIL}|хакик${TAIL}`)}`, "iu"),
+  new RegExp(`${w(`харидор${TAIL}`)}\\s+${w(`во[қк]е${TAIL}|асл${TAIL}|ҳақиқ${TAIL}|хакик${TAIL}|ани[қк]${TAIL}`)}`, "iu"),
 ];
 const OFFICE_WORD = new RegExp(w(`офис${TAIL}|дафтар${TAIL}|идора${TAIL}|компани${TAIL}|агентств${TAIL}`), "iu");
 
@@ -392,7 +396,13 @@ export type LeadOnlyPhoneState =
       /** Клиент прямо отказался дать номер: больше не просим, «понял вас» и номер офиса. */
       refused?: boolean };
 
-export const LEAD_ONLY_OFFICE_PHONE_TEXT = "777 070 100";
+/**
+ * Номер офиса для звонка — из одного источника (lib/publicAgencyContact.ts). До 18.11.2026 здесь стоял «777 070 100» — номер
+ * Нозы (найм, @royal-home/shared RECRUITMENT_CONTACT): продавцы и покупатели, отказавшиеся дать номер, получали номер рекрутера.
+ * Решение владельца 18.11.2026: офис для звонков — +992 44 650 14 14. Старый номер в прежних репликах только узнаётся.
+ */
+export const LEAD_ONLY_OFFICE_PHONE_TEXT = PUBLIC_AGENCY_CONTACT.phone;
+const RETIRED_LEAD_ONLY_OFFICE_PHONE_TEXT = "777 070 100";
 
 /**
  * Тексты. Три случая там, где это важно для правды:
@@ -563,6 +573,19 @@ export function leadOnlyPhoneLine(phone: LeadOnlyPhoneState, when: ReturnType<ty
     : `Если удобнее, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`;
 }
 
+/** The bot's last message ends with this mode's own call offer (WhatsApp: «Агент позвонит вам на этот номер, удобно?»). */
+export function leadOnlyCallOfferLast(text: string | undefined): boolean {
+  const last = (text ?? "").trim();
+  if (!last) return false;
+  return (["ru", "tg"] as const).some(language => ([{ kind: "soon" }, { kind: "today_from", from: "" }, { kind: "tomorrow_from", from: "" }] as const)
+    .some(when => {
+      const line = leadOnlyPhoneLine({ kind: "whatsapp" }, when, language);
+      if (!line) return false;
+      const tail = line.slice(line.lastIndexOf(" ", line.length - 2) + 1);
+      return last.endsWith(tail) && /позвонит|занг\s+мезанад/u.test(last.split("\n").at(-1) ?? "");
+    }));
+}
+
 /** «Номер получил» без дословного повтора уже отправленного (старый путь отвечает этим на голый номер). */
 export function leadOnlyGivenLineAvoidingRepeat(when: ReturnType<typeof leadOnlyCallbackWhen>, language: LeadOnlyLanguage,
   sentTexts: readonly string[]): string {
@@ -592,7 +615,7 @@ export function leadOnlyPhoneAskHistory(assistantTexts: readonly string[]): { as
   let asksSoFar = 0, officeAlreadyOffered = false;
   for (const text of assistantTexts) {
     if (asks.some(line => text.includes(line)) || generic.test(text)) asksSoFar++;
-    if (text.includes(LEAD_ONLY_OFFICE_PHONE_TEXT)) officeAlreadyOffered = true;
+    if (text.includes(LEAD_ONLY_OFFICE_PHONE_TEXT) || text.includes(RETIRED_LEAD_ONLY_OFFICE_PHONE_TEXT)) officeAlreadyOffered = true;
   }
   return { asksSoFar, officeAlreadyOffered };
 }
@@ -746,7 +769,8 @@ export function leadOnlyNoAgentLine(when: { ru: string; tg: string }, language: 
  * opening is cut; a reply left empty becomes a neutral thanks. The phrases themselves are clean (CI guard), this is the belt.
  */
 export function leadOnlyOutgoing(text: string, language: LeadOnlyLanguage): string {
-  const cleaned = withoutAgreementOpenings(text).text.trim();
+  // 18.11.2026: and no invented claim — «нет WhatsApp», WhatsApp calls, an agent's name (the call hour here comes from Settings).
+  const cleaned = withoutAgreementOpenings(withoutInventedClaims(text, [], false).text).text.trim();
   return cleaned || SHORT_ACKS[language][1];
 }
 

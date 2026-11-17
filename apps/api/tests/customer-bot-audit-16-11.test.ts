@@ -102,11 +102,12 @@ describe("6. ссылка — не «о каком объекте речь», «
     expect(customerReplyCallsStaff(text)).toBe(true);
   });
   // Review #206 С1: a seller's facts and a buyer's budget are ordinary answers — the next question, never «скажет агент».
-  it("продавец дал данные (c3cf25f7) → следующий вопрос анкеты, не «Фаҳмидам.» и не передача агенту", () => {
+  // 18.11.2026 (brief step 1a, item 8): after a seller's details the next step is the phone, not more questionnaire.
+  it("продавец дал данные (c3cf25f7) → шаг к номеру, не «Фаҳмидам.» и не передача агенту", () => {
     const text = render("Хона 4 хонаги 101кв 6 этаж", { language: "tg", decision: { social: "acknowledge" },
       turns: [user("Мехоҳам хонаамро фурӯшам"), bot("Ассалому алайкум!")] })!;
     expect(text).not.toBe("Фаҳмидам.");
-    expect(text).toMatch(/^Хонаатон/u);
+    expect(text).toBe("Рақами телефонатонро нависед, то агенти мо занг занад.");
     expect(customerReplyCallsStaff(text)).toBe(false);
   });
   it("покупатель «до 50000» на вопрос о бюджете → не передача агенту", () => {

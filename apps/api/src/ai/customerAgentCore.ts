@@ -6,9 +6,11 @@ import { customerAgentApprovedFileStateSchema, customerAgentDecisionSchema, cust
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import { isProviderOperationError, type ProviderOperation } from "./providerContract.js";
 import { renderCustomerAgentDecisionChecked, customerAgentAnswerVerdict, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
+  customerAgentCallbackQuestionLast,
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, isCustomerCompanyInformation } from "./customerAgentPublicProtocol.js";
-import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
+import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction, customerAgencyDirectQuestion } from "./customerAgentConversationPolicy.js";
+import { isCustomerShortCallbackYes } from "./customerAskSignals.js";
 import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestionAsked, customerAgentForeignShareAnswered, customerAgentForeignShareOnly, customerAgentOwnUnlinkedOnly,
   type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerDmForeignShareNoise } from "./customerAgentAbuse.js";
@@ -525,6 +527,29 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       if (text === null) return held("unsupported_decision_evidence");
       await check();
       return { status: "ready", decision, question: "clarify_previous", text, evidence: [], rounds, toolCalls };
+    }
+    // «Ҳо / Бале / Ок» right after the bot's own callback question: the SERVER closes the open question (18.11.2026, audit 17.11: the
+    // model got «Ҳо» as an ordinary turn and printed the bargaining rule). The write still passes the journal's own consent check
+    // (the accepted-question proof and the short-yes vocabulary); denied → the ordinary turn goes on, nothing is said yet.
+    const plainDm = frame.surface === "dm" && !frame.attachmentInput && !perception && !frame.requestedFacts.length && !evidence.length && context?.publicState.topic !== "job";
+    const previousAssistant = context?.turns.at(-1)?.role === "assistant" ? context.turns.at(-1)!.text : undefined;
+    if (plainDm && customerAgentCallbackQuestionLast(previousAssistant) && isCustomerShortCallbackYes(frame.inputText) &&
+        frame.tools.some(tool => tool.name === "request_callback")) {
+      const before = evidence.length;
+      await execute({ name: "request_callback", args: { topic: "Клиент ответил согласием на вопрос бота о звонке" } }, undefined, true);
+      const receipt = evidence.slice(before).find(e => e.value.kind === "receipt" && e.value.outcome === "callback_requested");
+      if (receipt) {
+        const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs: [receipt.ref], social: "none", question: "none" });
+        const text = renderDecision(decision);
+        if (text) return await ready(decision, text);
+      }
+    }
+    // A pure direct question about the company («Ватсап?», «Можно позвонить?», «Куда резюме?») is a fact the server holds: answered
+    // without a model round, before any question of ours (18.11.2026, audit 17.11 class 1).
+    if (plainDm && customerAgencyDirectQuestion(frame.inputText) && frame.inputText.trim().length <= 80) {
+      const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs: [], social: "none", question: "none" });
+      const text = renderDecision(decision);
+      if (text) return await ready(decision, text);
     }
     if (frame.followUp && frame.surface === "dm" && !frame.attachmentInput && !perception && !frame.requestedFacts.length && !evidence.length && context?.publicState.topic !== "job") {
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: frame.followUp });

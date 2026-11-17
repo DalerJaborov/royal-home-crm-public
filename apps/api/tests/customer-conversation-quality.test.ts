@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderCustomerAgentDecision } from "../src/ai/customerAgentRenderer.js";
+import { PUBLIC_AGENCY_WHATSAPP } from "../src/lib/publicAgencyContact.js";
 import { customerAgentCompanyInformationHash } from "../src/ai/customerAgentPublicProtocol.js";
 import { customerFollowRequest, customerRecruitmentLanguagePermissionQuestion,
   customerStandaloneFurnitureQuestion, customerRecruitmentLanguagePermissionRequested,
@@ -208,9 +209,11 @@ describe("customer conversation quality", () => {
       decision: { kind: "reply", refs: [], social: "none", question: "none" }, inputText, language,
       verifiedContext: context("job", []),
     });
-    expect(render(ru, "ru")).toBe("Можем продолжить здесь, в текущем чате.");
-    expect(render(tg, "tg")).toBe("Метавонем ҳамин ҷо, дар ҳамин чат, идома диҳем.");
-    expect(render(ru, "ru")).not.toMatch(/telegram|whatsapp|телеграм|ватсап/iu);
+    // Owner decision 18.11.2026: the company has WhatsApp — its number first, then «we can go on here».
+    expect(render(ru, "ru")).toBe(`Да, WhatsApp: ${PUBLIC_AGENCY_WHATSAPP.phone}.\nМожем продолжить здесь, в текущем чате.`);
+    expect(render(tg, "tg")).toBe(`Бале, WhatsApp: ${PUBLIC_AGENCY_WHATSAPP.phone}.\nМетавонем ҳамин ҷо, дар ҳамин чат, идома диҳем.`);
+    expect(render(ru, "ru")).not.toMatch(/telegram|телеграм/iu);
+    expect(render("Через телеграм можно написать?", "ru")).toBe("Можем продолжить здесь, в текущем чате.");
   });
 
   it("preserves an actual receipt while declining a follow request", () => {
@@ -231,6 +234,7 @@ describe("customer conversation quality", () => {
       verifiedContext: context("job", []),
     });
     expect(result).toContain("Можем продолжить здесь, в текущем чате.");
+    expect(result).toContain(`Да, WhatsApp: ${PUBLIC_AGENCY_WHATSAPP.phone}.`);
     expect(result).toContain("Спасибо, записал.");
   });
 });

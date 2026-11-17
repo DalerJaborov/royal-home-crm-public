@@ -29,6 +29,10 @@ import { LEAD_ONLY_NO_CALL_NOTE, leadOnlyOutgoing, leadOnlyAppliesTo, leadOnlyCa
   leadOnlyNoAgentLine, leadOnlyRecentCallbackTime, leadOnlyReplyAvoidingRepeat, leadOnlyScenario, type LeadOnlyConfig, type LeadOnlyLanguage, type LeadOnlyPhoneState,
   type LeadOnlyScenario } from "../ai/leadOnlyMode.js";
 import { classifyLeadOnlyIntent, leadOnlyIntentOnce, type LeadOnlyIntent } from "../ai/leadOnlyIntent.js";
+import { customerAgencyDirectAnswer, customerAgencyDirectQuestion } from "../ai/customerAgentConversationPolicy.js";
+import { customerAgentCallbackQuestionLast } from "../ai/customerAgentRenderer.js";
+import { isCustomerShortCallbackYes } from "../ai/customerAskSignals.js";
+import { leadOnlyCallOfferLast } from "../ai/leadOnlyMode.js";
 import { customerSearchContinuation, customerSearchIntent } from "../ai/customerAgentSearchIntent.js";
 import { customerRecruitmentRequested } from "../ai/customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
@@ -161,8 +165,15 @@ function storedUserMessages(raw: unknown): Array<{ text: string; at: string | nu
 /** null — ход не про заявку: его отвечает обычное ядро (без подборок, фото и ссылок). */
 export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput, now: Date = new Date()): Promise<CustomerLeadOnlyTurnPlan | null> {
   const plan = await planCustomerLeadOnlyTurnText(input, now);
+  if (!plan) return null;
+  // A direct question about the company (WhatsApp, the office phone) is answered FIRST, in both modes (18.11.2026; one door
+  // ai/customerAgentConversationPolicy.ts). A turn this mode does not take goes to the core, which answers it the same way.
+  const direct = customerAgencyDirectQuestion(input.inputText);
+  const line = direct && direct !== "resume" ? customerAgencyDirectAnswer(direct, { language: input.language,
+    whatsappChannel: input.channel === "WHATSAPP", text: input.inputText }) : null;
+  const text = line && !plan.text.includes(line) ? [line, plan.text].join("\n") : plan.text;
   // The last door of the reply text (ai/leadOnlyMode.ts::leadOnlyOutgoing): no consent opening ever leaves this mode.
-  return plan ? { ...plan, text: leadOnlyOutgoing(plan.text, input.language) } : null;
+  return { ...plan, text: leadOnlyOutgoing(text, input.language) };
 }
 async function planCustomerLeadOnlyTurnText(input: CustomerLeadOnlyTurnInput, now: Date): Promise<CustomerLeadOnlyTurnPlan | null> {
   if (!input.config.enabled || !leadOnlyAppliesTo(input.channel)) return null;
@@ -200,6 +211,11 @@ async function planCustomerLeadOnlyTurnText(input: CustomerLeadOnlyTurnInput, no
   // «Соедините с человеком» (пятое ревью 13.11, №1): передачи сотруднику в режиме нет. Ответ сервера тот же, что у вопроса
   // к сотруднику: без номера — просьба номера, потом номер офиса; с номером — заявка. Тему прежней просьбы номера не стирает.
   if (!scenario && !input.forced && customerAsksForStaff(own)) scenario = "escalate";
+  // «Ҳо / Бале / Ок» to the bot's own call offer («…удобно?», «Мехоҳед корманд ба шумо занг занад?») is consent, closed by the
+  // code (18.11.2026, audit 17.11: «Ҳо» got the bargaining line): the same path as a request to a person — a lead with the number,
+  // else the number asked once.
+  const lastBot = input.sentTexts.at(-1) ?? input.turns.filter(t => t.role === "assistant").at(-1)?.text;
+  if (!scenario && !input.forced && isCustomerShortCallbackYes(own) && (leadOnlyCallOfferLast(lastBot) || customerAgentCallbackQuestionLast(lastBot))) scenario = "escalate";
   // Клиент с карточкой назвал, когда ему звонить: короткое «передам агенту» и пометка агенту, а не ответ модели невпопад.
   if (linked && scenario !== "hot" && !input.forced && !volunteered && leadOnlyCallbackTime(own)) {
     return { text: noAgent ? await noAgentLine(sent) : leadOnlyCallbackNotedLine(input.language, sent), scenario: "callback", remember: null, forget: false,

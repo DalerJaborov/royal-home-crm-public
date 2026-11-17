@@ -99,6 +99,7 @@ import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
 import { isOwnAccountSender, ownAccountPauseUntil } from "../lib/ownAccountGuard.js";
 import { isOutboundBlockedError, noteRealInbound } from "../lib/outboundShield.js";
 import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply } from "../lib/conversationDelivery.js";
+import { noteCustomerDeliveryWindowClosed } from "../lib/customerDeliverySettlement.js";
 import {
   noteFirstContactDelivery,
   noteFirstContactReply,
@@ -1826,6 +1827,8 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         void markMessageDeliveryStatus(s.recipientId, s.mid, s.status, s.accountExternalId);
         // Первое сообщение клиенту (одобренный текст): «не дошло» — пуш сотруднику с причиной.
         void noteFirstContactDelivery(s.mid, s.status, s.errorCode, s.error);
+        // A core reply WhatsApp refused later because the 24-hour window is closed (131047): no resend, a person sees the client once.
+        if (s.status === "failed") void noteCustomerDeliveryWindowClosed({ mid: s.mid, errorCode: s.errorCode, error: s.error }).catch(() => {});
         /**
          * ОТКАЗ ДОСТАВКИ НЕ МОЛЧИТ (правка 22.09.2026).
          *

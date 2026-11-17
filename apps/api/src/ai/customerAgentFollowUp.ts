@@ -53,8 +53,9 @@ export function customerCheaperSearchCall(facts: CustomerPropertyFacts | null | 
   return parsed.success ? parsed.data : null;
 }
 
+// «ҳо / хо» — the Dushanbe «да» (audit 17.11: «Ҳо» after «Мехоҳед корманд ба шумо занг занад?» got the bargaining line).
 const AFFIRMATIONS = new Set(["да", "ага", "угу", "ок", "окей", "ok", "okay", "yes", "хорошо", "ладно", "конечно", "давайте", "да-да",
-  "ҳа", "ха", "бале", "хуб", "хуб-хуб", "майлаш", "албатта", "ҳа-ҳа", "ха-ха", "оре", "ore"]);
+  "ҳа", "ха", "ҳо", "хо", "ho", "xo", "ha", "bale", "бале", "хуб", "хуб-хуб", "майлаш", "албатта", "ҳа-ҳа", "ха-ха", "ҳо-ҳо", "хо-хо", "оре", "ore"]);
 /** Nothing but "yes" (any of the common ru/tg short forms, optional punctuation or emoji). */
 export function customerBareAffirmation(text: string): boolean {
   if (/\p{N}/u.test(text)) return false;

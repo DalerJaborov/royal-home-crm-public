@@ -117,6 +117,9 @@ export const customerAgentVerifiedContextSchema = z.object({
   /** Language of the customer's last decisive words in the wider history (up to 50 inputs, audit 16.11.2026): the
    *  six-turn memory forgot a Tajik dialogue after a dot, a phone or a pack of photos. A fallback, never a request. */
   dialogueLanguage: z.enum(["ru", "tg"]).optional(),
+  /** The messenger of THIS conversation, from the verified principal (never the model or the customer's words): «Ватсап?» in
+   *  WhatsApp is «yes, you are writing to us there», and a WhatsApp sender is never asked for a phone (18.11.2026). */
+  channel: z.enum(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "TELEGRAM", "WEBSITE"]).optional(),
 }).strict();
 export type CustomerAgentVerifiedContext = z.infer<typeof customerAgentVerifiedContextSchema>;
 

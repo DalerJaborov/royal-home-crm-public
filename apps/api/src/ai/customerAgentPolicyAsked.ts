@@ -43,12 +43,20 @@ const ASKING_TERMS = asked(`какие|какая|какой|каковы|как
  * this way, and before the gate the commission was printed). One or two such words and nothing else; inside a longer
  * phrase without a question («мне условия не важны») it stays a description.
  */
-const BARE_TERMS = /^(?:шарт\p{L}*|шароит\p{L}*|услови\p{L}*)(?: (?:шарт\p{L}*|шароит\p{L}*|услови\p{L}*))?$/u;
+// A polite word around it is still the question (rest of the #269 review, 18.11.2026): «Условия, пожалуйста», «Условия пожалуйста»,
+// «Пожалуйста, условия», «Шартҳо, илтимос» (the fold drops the comma).
+const POLITE = "(?:пожалуйста|пожалуста|плиз|пж|please|илтимос|лутфан|бемалол|скажите|подскажите|бигуед)";
+const TERM = "(?:шарт\\p{L}*|шароит\\p{L}*|услови\\p{L}*)";
+const BARE_TERMS = new RegExp(`^(?:${POLITE} )?${TERM}(?: ${TERM})?(?: ${POLITE})?$`, "u");
+/** «Az 2% kam nameshava?», «2% меньше можно?»: a percent with a «less» word is about OUR fee, never the owner's price (audit 17.11). */
+const PERCENT_BARGAIN = new RegExp(`\\d\\s*%[^\\n]{0,40}${BW}(?:кам\\p{L}*|меньше|ниже|скидк\\p{L}*|сниз\\p{L}*|тахфиф\\p{L}*|арзон\\p{L}*)${EW}|` +
+  `${BW}(?:кам\\p{L}*|меньше|скидк\\p{L}*|тахфиф\\p{L}*)${EW}[^\\n]{0,20}\\d\\s*%`, "u");
 const AMENITIES = new RegExp(`(?<!${BW}(?:какие|каковы|какая|какой|чи|кадом|кадоме)\\s+)${BW}(?:все|всеми|всех|хама|хамаи|бо\\s+хама)\\s+(?:услови\\p{L}*|шароит\\p{L}*|шарт\\p{L}*)`, "u");
 
 /** The customer's own words name the agency's fee («комиссия 2% устроит» counts too: the wider reading). */
 export function customerCommissionWordsAsked(text: string): boolean {
-  return COMMISSION_ASKED.test(ownWords(text));
+  const words = ownWords(text);
+  return COMMISSION_ASKED.test(words) || PERCENT_BARGAIN.test(words);
 }
 
 /** The customer ASKS what the agency takes: a fee word or «какие у вас условия?», as a question. One detector for the renderer and the seller guard. */
@@ -86,5 +94,7 @@ export function customerPolicyTermAsked(topic: CustomerAgentCompanyPolicyTopic, 
   if (topic === "rental") return recentTurns ? customerRentalAskedRecently(text, recentTurns) : customerRentalAsked(text);
   if (topic === "commission") return customerCommissionWordsAsked(text) || customerAgencyTermsAsked(text);
   const pattern = POLICY_ASKED[topic];
+  // A percent haggle is about our fee (commission above), never the owner's price.
+  if (topic === "negotiation" && PERCENT_BARGAIN.test(ownWords(text))) return false;
   return !!pattern && pattern.test(ownWords(text));
 }
