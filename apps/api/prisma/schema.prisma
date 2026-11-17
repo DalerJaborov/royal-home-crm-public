@@ -3008,6 +3008,8 @@ model PropertyNarrationVersion {
   /// MANUAL — прежний путь маркетинга; WIZARD / AUTO / AGENT — автоозвучка (11.11.2026).
   source String @default("MANUAL")
   templateId String?
+  /// Концовка (призыв) из списка endings настроек озвучки, выбранная вместе с шаблоном (16.11.2026): текст собирается по кодам.
+  endingId String?
   language String?
   /// Автоозвучка: не раньше этого времени (пауза после последней правки). null — не ставить в очередь.
   generateAfter DateTime?
@@ -11664,6 +11666,34 @@ enum RobotCallStopSource {
   VOICE
   STAFF
   STATION
+}
+
+/// Озвучка свободного текста (16.11.2026): сотрудник присылает текст, выбирает голос, получает mp3.
+/// Строка — запрос, расход (знаки идут в общий дневной потолок озвучки) и защита от двойного платежа.
+model FreeNarration {
+  id                  String    @id @default(uuid())
+  agentId             String
+  /// TELEGRAM | API
+  source              String
+  chatId              String?
+  /// AWAITING_TEXT | AWAITING_VOICE | GENERATING | READY | FAILED | UNKNOWN
+  status              String
+  /// Текст; после срока хранения очищается (lib/freeNarration.ts, purgeFreeNarrations).
+  script              String    @default("")
+  lang                String?
+  voiceId             String?
+  /// Знаки, ушедшие в синтез (цифры словами), ставятся при захвате.
+  chars               Int       @default(0)
+  storageKey          String?
+  errorCode           String?
+  providerRequestId   String?
+  requestKey          String?   @unique
+  generationStartedAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  @@index([agentId, generationStartedAt])
+  @@index([generationStartedAt])
+  @@index([chatId, status])
 }
 
 /// One-brain live check (17.11.2026): the model's words beside the template for one customer turn, kept 72 hours (lib/customerAgentAnswerSamples.ts).
