@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -51,20 +51,40 @@ export function unscopedSelectors(css: string): string[] {
   return bad;
 }
 
-describe("theme-look-royal.css", () => {
+/**
+ * Слои «Нового вида» по разделам (theme-look-royal-<раздел>.css, 18.11.2026)
+ * проверяются тем же сторожем, что и основа: список берётся из папки, поэтому
+ * новый слой попадает под проверку сам, без правки этого теста.
+ */
+const LAYERS = readdirSync(new URL(".", import.meta.url)).filter((name) => /^theme-look-royal(-[a-z0-9-]+)?\.css$/.test(name)).sort();
+
+describe("theme-look-royal*.css", () => {
   const css = readFileSync(new URL("./theme-look-royal.css", import.meta.url), "utf8");
-  it("every rule is scoped to :root[data-ui-look=\"royal\"]", () => {
-    expect(unscopedSelectors(css)).toEqual([]);
+  it("finds the base layer and the section layers", () => {
+    expect(LAYERS).toContain("theme-look-royal.css");
+    expect(LAYERS).toContain("theme-look-royal-objects.css");
+  });
+  it.each(LAYERS)("every rule of %s is scoped to :root[data-ui-look=\"royal\"]", (name) => {
+    expect(unscopedSelectors(readFileSync(new URL(`./${name}`, import.meta.url), "utf8"))).toEqual([]);
   });
   it("the guard really catches an unscoped rule (сторож проверен поломкой)", () => {
-    expect(unscopedSelectors(`${css}\n.clean-tab { color: red; }\n@media (min-width: 1px) { body, :root[data-ui-look="royal"] a { color: red; } }`))
+    expect(unscopedSelectors(`${css}
+.clean-tab { color: red; }
+@media (min-width: 1px) { body, :root[data-ui-look="royal"] a { color: red; } }`))
       .toEqual([".clean-tab", "body"]);
-    const atRules = `\n@font-face { font-family: X; src: url(x.woff2); }\n@layer base { :root[data-ui-look="royal"] a { color: red; } }\n@keyframes spin { to { opacity: 0; } }`;
+    const atRules = `
+@font-face { font-family: X; src: url(x.woff2); }
+@layer base { :root[data-ui-look="royal"] a { color: red; } }
+@keyframes spin { to { opacity: 0; } }`;
     expect(unscopedSelectors(`${css}${atRules}`)).toEqual(["@font-face", "@layer base", "@keyframes spin"]);
   });
-  it("is imported after every other theme layer", () => {
+  it("base first, then section layers, after every other theme layer; each layer imported", () => {
     const index = readFileSync(new URL("./index.css", import.meta.url), "utf8");
     const imports = [...index.matchAll(/@import '\.\/(theme-[^']+\.css)'/g)].map((m) => m[1]);
-    expect(imports.at(-1)).toBe("theme-look-royal.css");
+    const firstLook = imports.indexOf("theme-look-royal.css");
+    expect(firstLook).toBeGreaterThan(-1);
+    const tail = imports.slice(firstLook);
+    expect(tail.every((name) => LAYERS.includes(name))).toBe(true);
+    expect([...tail].sort()).toEqual(LAYERS);
   });
 });

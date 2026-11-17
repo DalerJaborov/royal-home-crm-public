@@ -3,6 +3,8 @@ import type { PropertyRemovalInput } from "@royal-home/shared";
 import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { ChevronDown, LayoutGrid, List, Plus, SlidersHorizontal } from "lucide-react";
 import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalObjectsHead } from "../components/look/objects/RoyalObjectsHead";
 import { CButton } from "../components/clean/ui";
 import { PropertyDraftShortcut } from "../components/PropertyDraftShortcut";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -66,6 +68,8 @@ const BULK_CONFIRM: Record<BulkAction, { title: string; confirmLabel: string; da
 
 export function Properties() {
   const clean = useCleanShell();
+  // «Новый вид» (облик royal) — только поверх чистой оболочки; без признака разметка прежняя.
+  const royal = useRoyalLook() && clean;
   const can = useCan();
   // A12 (владелец 02.10.2026): СБ объекты не заводит — кнопки «Объект» у неё нет.
   const canCreateProperty = useCanCreateProperty();
@@ -515,9 +519,9 @@ export function Properties() {
   </div>;
 
   return (
-    <div className={clean ? "rh2 screens clean-properties-page" : "rh2 screens"}>
+    <div className={clean ? `rh2 screens clean-properties-page${royal ? " ry-objects-page" : ""}` : "rh2 screens"}>
       <div className="scr">
-        {clean ? <div className="clean-property-catalog-header mb-5 flex flex-wrap items-center justify-between gap-4">
+        {royal ? <RoyalObjectsHead total={data?.total} pendingReview={canModerate ? pendingReview?.total : undefined} onShowPending={() => setFilters((f) => ({ ...f, status: "PENDING_REVIEW", page: 1 }))} canCreate={canCreateProperty} onCreate={() => navigate("/properties/new")} /> : clean ? <div className="clean-property-catalog-header mb-5 flex flex-wrap items-center justify-between gap-4">
           <div><h1 className="text-[28px] font-semibold tracking-tight text-ink">Объекты</h1><p className="mt-2 text-[16px] text-gray-500">{data ? `Найдено: ${data.total}` : "Каталог агентства"}<span className="clean-property-catalog-hint"> · фотографии, цена и состояние работы</span></p>{canModerate && !!pendingReview?.total && <button type="button" className="mt-2 text-[14px] text-blue" onClick={() => setFilters((f) => ({ ...f, status: "PENDING_REVIEW", page: 1 }))}>Ждут вашей проверки: {pendingReview.total}</button>}</div>
           {canCreateProperty && <div className="flex flex-wrap items-center gap-2"><PropertyDraftShortcut /><CButton aria-label="Добавить объект" onClick={() => navigate("/properties/new")}><Plus size={18} aria-hidden /><span>Добавить объект</span></CButton></div>}
         </div> : <div className="pg-h">
@@ -725,7 +729,7 @@ export function Properties() {
           )}
 
           {isLoading && !error && clean && view === "cards" && (
-            <div className="clean-property-grid" aria-hidden="true">
+            <div className={royal ? "ry-obj-grid" : "clean-property-grid"} data-view={royal ? "cards" : undefined} aria-hidden="true">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="clean-property-tile-skeleton">
                   <span className="ph" />
@@ -768,7 +772,7 @@ export function Properties() {
           )}
 
           {data && view === "table" && feedItems.length > 0 && (
-            <div className="list">
+            <div className={royal ? "list ry-obj-grid" : "list"} data-view={royal ? "rows" : undefined}>
               {canSelect && !clean && (
                 <label className="chk">
                   <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAllOnPage} />
@@ -780,6 +784,7 @@ export function Properties() {
                   key={p.id}
                   property={p}
                   clean={clean}
+                  royal={royal}
                   myId={currentAgent?.id}
                   selected={selectedIds.has(p.id)}
                   onToggleSelect={canSelect ? toggleSelect : undefined}
@@ -791,9 +796,9 @@ export function Properties() {
           )}
 
           {data && view === "cards" && feedItems.length > 0 && (
-            <div className={clean ? "clean-property-grid" : "pgrid"}>
+            <div className={royal ? "ry-obj-grid" : clean ? "clean-property-grid" : "pgrid"} data-view={royal ? "cards" : undefined}>
               {feedItems.map((p) => (
-                clean ? <PropertyRow key={p.id} property={p} clean cleanVariant="card" myId={currentAgent?.id} selected={selectedIds.has(p.id)} onToggleSelect={canSelect ? toggleSelect : undefined} onTogglePublish={canPublish ? handleRowPublishToggle : undefined} health={health.get(p.id)} /> : <PropertyCard
+                clean ? <PropertyRow key={p.id} property={p} clean royal={royal} cleanVariant="card" myId={currentAgent?.id} selected={selectedIds.has(p.id)} onToggleSelect={canSelect ? toggleSelect : undefined} onTogglePublish={canPublish ? handleRowPublishToggle : undefined} health={health.get(p.id)} /> : <PropertyCard
                   key={p.id}
                   property={p}
                   health={health.get(p.id)}

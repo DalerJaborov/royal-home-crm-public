@@ -133,10 +133,12 @@ function collect(text, file, out) {
 }
 
 function build() {
-  // «Новый вид» (theme-look-royal.css, 18.11.2026) — своя шкала 13+ под
-  // :root[data-ui-look="royal"], подключён ПОСЛЕ typeset; поднимать в нём нечего.
-  const OWN_SCALE = new Set(["theme-look-royal.css"]);
-  const files = readdirSync(WEB).filter((f) => f.endsWith(".css") && f !== OUT && f !== "index.css" && !OWN_SCALE.has(f));
+  // «Новый вид» (theme-look-royal.css и слои разделов theme-look-royal-*.css,
+  // 18.11.2026) — своя шкала 13+ под :root[data-ui-look="royal"], подключены
+  // ПОСЛЕ typeset; поднимать в них нечего. Правило по имени, а не списком: новый
+  // слой раздела не требует правки здесь.
+  const ownScale = (f) => /^theme-look-royal(-[a-z0-9-]+)?\.css$/.test(f);
+  const files = readdirSync(WEB).filter((f) => f.endsWith(".css") && f !== OUT && f !== "index.css" && !ownScale(f));
   const rules = [];
   for (const f of files) collect(readFileSync(join(WEB, f), "utf8"), f, rules);
 
