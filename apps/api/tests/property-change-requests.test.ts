@@ -396,7 +396,7 @@ describe("«Принять»: данные, перемонтаж, снятие, 
     expect(res.body.request.result.manual[0].channel).toBe("INSTAGRAM");
   });
 
-  it("OTHER: ничего не выполняется, итог — «к сведению»", async () => {
+  it("OTHER: ничего не выполняется, и автор слышит честное «делается руками», а не «принято» (17.11.2026)", async () => {
     const property = await seedProperty();
     const created = await post(agentToken, property.id, {
       kind: "OTHER",
@@ -406,6 +406,21 @@ describe("«Принять»: данные, перемонтаж, снятие, 
     expect(res.status).toBe(200);
     expect(res.body.request.status).toBe("APPROVED");
     expect(res.body.request.result.applied[0]).toContain("к сведению");
+    expect(res.body.request.result.applied[0]).toContain("руками");
+    expect(res.body.message).toContain("руками");
+    const toAuthor = sendPushToAgent.mock.calls.find((c) => c[0] === agentId)?.[1] as { title: string; body: string } | undefined;
+    expect(toAuthor?.title).toBe("Заявка принята — делается руками");
+    expect(toAuthor?.body).toContain("руководитель сделает это руками");
+    // REST-схема отбрасывает машинную часть: «Другое» с подложенным statusChange статус не меняет.
+    const forged = await post(agentToken, property.id, {
+      kind: "OTHER",
+      payload: { text: "Подложенная смена статуса через REST", statusChange: { to: "WITHDRAWN" } },
+    });
+    expect(forged.status).toBe(201);
+    expect((await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: forged.body.request.id } })).payload)
+      .not.toHaveProperty("statusChange");
+    await decide(directorToken, forged.body.request.id, "approve");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("AVAILABLE");
     expect(publishPropertyPriceDropStory).not.toHaveBeenCalled();
     expect(sendBackToMontajer).not.toHaveBeenCalled();
     expect(removeFromSocial).not.toHaveBeenCalled();

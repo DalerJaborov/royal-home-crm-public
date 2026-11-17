@@ -25,14 +25,11 @@ import { prisma } from "../../db.js";
 import { buildPropertyDeleteDossiers, presentPropertyDeleteDossier } from "../../lib/propertyDeleteDossier.js";
 import { requireAuth, requirePermission, can } from "../../auth/middleware.js";
 import { logAudit } from "../../lib/audit.js";
-import { findAgentsWithPermission } from "../../lib/recipients.js";
-import { sendPushToAgent, closeLeadPushNotifications } from "../../push.js";
-import { trashProperty } from "../../lib/trashProperty.js";
-import { applySellerRefusal } from "../../lib/sellerRefusalReview.js";
 import { canManageProperty } from "./shared.js";
 import { enqueueDirectorAlert } from "../../lib/directorAlertQueue.js";
+import { approvePropertyDeleteRequest, rejectPropertyDeleteRequest } from "../../lib/managerRequestDecisions.js";
 
-import { publishRequestUpdated, publishPropertyUpdated } from "../../lib/livePublish.js";
+import { publishRequestUpdated } from "../../lib/livePublish.js";
 
 export const deleteRequestsRouter = Router();
 
@@ -244,35 +241,12 @@ deleteRequestsRouter.post(
   }
 );
 
-/** Заявка вместе с объектом — общий пролог решений. */
-async function loadPendingRequest(id: string) {
-  return prisma.propertyDeleteRequest.findUnique({
-    where: { id },
-    include: {
-      property: { select: { id: true, shortId: true, title: true, deletedAt: true } },
-    },
-  });
-}
-
-/**
- * Зеркало closeDeleteRequestForOtherReviewers из routes/clients/deleteRequests.ts —
- * см. комментарий там. Кража невозможна (409-гейт по status!=="PENDING"), это
- * чистка мусорного уведомления у согласующих, которые заявку не решали.
- */
-async function closeDeleteRequestForOtherReviewers(requestId: string): Promise<void> {
-  const recipients = await findAgentsWithPermission("properties.delete");
-  await closeLeadPushNotifications(
-    recipients.map((id) => ({ agentId: id, tag: `property-delete-request-${requestId}` }))
-  );
-}
-
 /**
  * POST /properties/delete-requests/:id/approve — руководство соглашается.
  *
- * Удаление идёт ровно тем же путём, что прямое DELETE /properties/:id — общей
- * функцией trashProperty (проверка сделок, снятие с сайта, deletedAt). Своя
- * копия этой логики здесь однажды забыла бы снять объект с сайта — тот же
- * урок, что и с trashClient.ts.
+ * Тело решения — lib/managerRequestDecisions.ts (17.11.2026): тем же путём одобряет
+ * и Шабнам в режиме директора. Удаление идёт общей функцией trashProperty —
+ * тем же путём, что прямое DELETE /properties/:id.
  */
 deleteRequestsRouter.post(
   "/delete-requests/:id/approve",
@@ -282,114 +256,13 @@ deleteRequestsRouter.post(
     const parsed = propertyDeleteRequestApproveSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Неверные данные" });
 
-    const request = await loadPendingRequest(req.params.id);
-    if (!request) return res.status(404).json({ error: "Заявка не найдена" });
-    if (request.status !== "PENDING") {
-      return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    }
-
-    /**
-     * ОБЪЕКТ УЖЕ В КОРЗИНЕ — ЗАЯВКА ИСПОЛНЕНА, А НЕ СЛОМАНА (07.09.2026).
-     *
-     * Зеркало ветки в routes/clients/deleteRequests.ts. Новые такие заявки
-     * закрывает сам trashProperties, это ветка для уже повисших. Проверяем
-     * deletedAt, а не текст ошибки: 404 у trashProperties означает и «объекта нет
-     * вовсе», и «уже в Корзине», а это разные исходы.
-     */
-    const alreadyTrashed = !!request.property.deletedAt;
-
-    // РЕШЕНИЕ БЕРЁТСЯ АТОМАРНО, ДО УДАЛЕНИЯ (аудит 04.10.2026, CRM-06) — зеркало
-    // routes/clients/deleteRequests.ts: условный переход PENDING → APPROVED, проигравший
-    // получает 409 и ничего не удаляет; отказ trashProperty возвращает заявку в PENDING.
-    const claimed = await prisma.propertyDeleteRequest.updateMany({
-      where: { id: request.id, status: "PENDING" },
-      data: {
-        status: "APPROVED",
-        decidedById: req.agent!.id,
-        decidedAt: new Date(),
-        decisionNote: parsed.data.decisionNote?.trim() || null,
-      },
-    });
-    if (claimed.count === 0) {
-      return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    }
-    const releaseClaim = () =>
-      prisma.propertyDeleteRequest.updateMany({
-        where: { id: request.id, status: "APPROVED", decidedById: req.agent!.id },
-        data: { status: "PENDING", decidedById: null, decidedAt: null, decisionNote: null },
-      });
-
-    let result: Awaited<ReturnType<typeof trashProperty>> | null = null;
-    if (!alreadyTrashed) {
-      try {
-        result = await trashProperty(request.propertyId, req.agent!.id, {
-          removalReason: request.reason as PropertyDeleteRequestReason, removalComment: request.comment ?? undefined, requestId: request.id,
-        });
-      } catch (err) {
-        await releaseClaim().catch(() => undefined);
-        throw err;
-      }
-      if (!result.ok) {
-        // Заявку НЕ закрываем: активная сделка — временное препятствие, руководство
-        // вернётся к ней после снятия сделки, и заводить заявку заново незачем.
-        await releaseClaim();
-        return res.status(result.status).json({ error: result.error });
-      }
-    }
-
-    // Записи об удалении нет, когда удалять было уже нечего: объект уехал в
-    // Корзину раньше и своей записью в журнале уже отмечен.
-    if (result?.ok) {
-      logAudit(req, "TRASH", "Property", result.property.id, {
-        shortId: result.property.shortId,
-        title: result.property.title,
-        publishedOnSite: result.property.publishedOnSite,
-        deleteRequestId: request.id,
-      });
-    }
-
-    /**
-     * СТОРОНА ПРОДАВЦА (владелец 09.09.2026). Объект снят — теперь надо остановить
-     * по продавцу счётчик тишины и пересчитать состояние его карточки, а причину
-     * «продан в обход агентства» отправить в СБ. Без первого агент, честно
-     * оформивший отказ, всё равно получал через три дня «забросил клиента»; без
-     * второго главный антифрод-вход оставался выключенным.
-     */
-    // propertyId берём из самой заявки, а не из result: с 07.09.2026 объект мог
-    // уехать в Корзину раньше (alreadyTrashed выше), и тогда result === null —
-    // но сторону продавца закрыть всё равно надо, заявка-то исполнена.
-    void applySellerRefusal({
-      propertyId: request.propertyId,
-      reason: request.reason,
-      comment: request.comment,
-      requestedById: request.requestedById,
-    }).catch((err) =>
-      console.error("[заявка] сторона продавца:", err instanceof Error ? err.message : err)
-    );
-
-    // Пуш «удалено по вашей заявке» убран (владелец 17.09.2026), зеркало
-    // routes/clients/deleteRequests.ts: карточка пропала у агента из списка ещё
-    // в момент подачи заявки — уведомление об одобрении сообщало бы о том, что
-    // он не видит и так.
-    void closeDeleteRequestForOtherReviewers(request.id).catch((err) =>
-      console.error("[push] закрытие заявки на удаление объекта у остальных согласующих:", err)
-    );
-
-    publishRequestUpdated({
-      requestId: request.id,
-      propertyId: request.propertyId,
-      agentIds: [request.requestedById],
-      stage: "APPROVED",
+    const outcome = await approvePropertyDeleteRequest({
+      requestId: req.params.id,
       actorId: req.agent!.id,
+      decisionNote: parsed.data.decisionNote?.trim() || null,
     });
-    publishPropertyUpdated({ propertyId: request.propertyId, actorId: req.agent!.id, stage: "TRASHED" });
-
-    res.json({
-      ok: true,
-      message: alreadyTrashed
-        ? "Объект уже был в Корзине — заявка закрыта"
-        : "Объект удалён в Корзину",
-    });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ ok: true, message: outcome.message });
   }
 );
 
@@ -398,7 +271,7 @@ deleteRequestsRouter.post(
  *
  * Причина ОБЯЗАТЕЛЬНА (проверяется схемой): «отклонено» без объяснения агенту
  * ничего не говорит — он либо заведёт такую же заявку завтра, либо перестанет
- * заводить их вовсе.
+ * заводить их вовсе. Тело — lib/managerRequestDecisions.ts.
  */
 deleteRequestsRouter.post(
   "/delete-requests/:id/reject",
@@ -410,51 +283,12 @@ deleteRequestsRouter.post(
       return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Напишите, почему заявка отклонена" });
     }
 
-    const request = await loadPendingRequest(req.params.id);
-    if (!request) return res.status(404).json({ error: "Заявка не найдена" });
-    if (request.status !== "PENDING") {
-      return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    }
-
-    // Условный переход PENDING → REJECTED (CRM-06), см. approve выше.
-    const decided = await prisma.propertyDeleteRequest.updateMany({
-      where: { id: request.id, status: "PENDING" },
-      data: {
-        status: "REJECTED",
-        decidedById: req.agent!.id,
-        decidedAt: new Date(),
-        decisionNote: parsed.data.decisionNote,
-      },
-    });
-    if (decided.count === 0) {
-      return res.status(409).json({ error: "По этой заявке уже вынесено решение" });
-    }
-
-    logAudit(req, "DELETE_REQUEST_REJECT", "Property", request.propertyId, {
-      requestId: request.id,
-      shortId: request.property.shortId,
-      title: request.property.title,
+    const outcome = await rejectPropertyDeleteRequest({
+      requestId: req.params.id,
+      actorId: req.agent!.id,
       decisionNote: parsed.data.decisionNote,
     });
-
-    void sendPushToAgent(request.requestedById, {
-      title: "Заявка на удаление отклонена",
-      body: `${request.property.title}: ${parsed.data.decisionNote}`,
-      url: `/properties/${request.property.shortId}`,
-      tag: `property-delete-request-${request.id}`,
-    });
-    void closeDeleteRequestForOtherReviewers(request.id).catch((err) =>
-      console.error("[push] закрытие заявки на удаление объекта у остальных согласующих:", err)
-    );
-
-    publishRequestUpdated({
-      requestId: request.id,
-      propertyId: request.propertyId,
-      agentIds: [request.requestedById],
-      stage: "REJECTED",
-      actorId: req.agent!.id,
-    });
-
-    res.json({ ok: true, message: "Заявка отклонена, агенту отправлено объяснение" });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ ok: true, message: outcome.message });
   }
 );

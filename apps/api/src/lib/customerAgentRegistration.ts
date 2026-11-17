@@ -62,7 +62,7 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       "./customerOutbox.js", "./customerPublicOrigin.js", "./customerPublicModeration.js", "./customerPublicModerationPolicy.js",
       "./customerPublicOutreachMemory.js", "../ai/customerSpamMute.js", "./customerSpamMuteStore.js",
       // Режим «только заявки» (13.11.2026): решает, что ядро ответит и кому уйдёт заявка.
-      "./customerLeadOnlyCore.js", "./leadOnlySettings.js", "../ai/leadOnlyMode.js", "./leadOnlyHandover.js",
+      "./customerLeadOnlyCore.js", "./leadOnlySettings.js", "./leadOnlyConfig.js", "../ai/leadOnlyMode.js", "../ai/leadOnlyIntent.js", "../ai/customerAgentRole.js", "./leadOnlyHandover.js", "./leadOnlyPending.js", "./handoffPromise.js",
       // Метка рекламы решает тему разговора ядра (вакансия, продавец, объект) — 13.11.2026.
       "./adAttribution.js", "../ai/adTemplateOpener.js", "../ai/adTemplatePhrase.js",
       // Один мозг, шаг 3 (16.11.2026): адаптер каналов без своего ядра, голос компании по аккаунту, место объекта в анкете.

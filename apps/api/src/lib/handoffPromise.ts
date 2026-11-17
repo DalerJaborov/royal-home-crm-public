@@ -22,6 +22,15 @@ export function callWhenPhrase(start: string, end: string, at: Date = new Date()
   return { ru: p.ru, tg: p.tg };
 }
 
+/**
+ * Когда с клиентом свяжутся, если агента у заявки нет («Прочие обращения», ночная раздача ещё не прошла): ближайшее
+ * рабочее время компании с её выходными, тем же решением, что у обещания звонка (режим «только заявки», пятое ревью 13.11, №2).
+ */
+export async function contactWhenWithoutAgent(at: Date = new Date()): Promise<CallWhen> {
+  const p = callbackPromise(at, await loadClientHours());
+  return { ru: p.ru, tg: p.tg };
+}
+
 /** Указание модели: кто и когда позвонит. Имя — только того, кому заявка уже ушла. */
 export async function handoffInstruction(clientId: string, at: Date = new Date()): Promise<string> {
   const [hours, client] = await Promise.all([

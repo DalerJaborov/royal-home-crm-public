@@ -93,7 +93,7 @@ describe("otherCityAcceptedReply — честный ответ без обеща
 describe("otherInquiryAcceptedReply — общий нейтральный ответ для ЛЮБОГО kind=OTHER", () => {
   it("русский вариант — нейтральная формулировка владельца, без обещаний", () => {
     const text = otherInquiryAcceptedReply("ru");
-    expect(text).toBe("Записали, спасибо. Если сможем помочь — напишем.");
+    expect(text).toBe("Записали, спасибо. Если сможем помочь, напишем.");
     expect(text).not.toMatch(PROMISE_WORDS);
   });
 

@@ -17,7 +17,11 @@ import {
 import { toCents } from "../../../lib/money.js";
 import { appliedPriceUndoResult } from "../../../lib/assistantPriceUndoJournal.js";
 import { canApplyChangeDirectly } from "../../../lib/propertyAccess.js";
-import { applyOwnChangeRequestNow, approvePropertyChangeRequest } from "../../../routes/properties/changeRequestExecutor.js";
+import {
+  applyOwnChangeRequestNow,
+  approvePropertyChangeRequest,
+  type ApproveOutcome,
+} from "../../../routes/properties/changeRequestExecutor.js";
 import {
   cancelPropertyChangeRequestInTransaction,
   checkPropertyChangeRequest,
@@ -66,7 +70,12 @@ export interface ChangeRequestToolSpec<A extends { ref: string }> {
   directKinds?: readonly PropertyChangeKind[];
   /** Дополнительные поля снимка (например, число открытых сделок). */
   extraSnapshot?: (args: A, property: PropertyRecord, db: TxClient) => Promise<Record<string, unknown>>;
-
+  /**
+   * Машинная часть тела заявки поверх проверенного схемой REST (смена статуса: поле
+   * `statusChange` у «Другое», lib/propertyStatusChange.ts). REST-схема такие поля
+   * отбрасывает, поэтому подать их можно только отсюда.
+   */
+  extraPayload?: (args: A, property: PropertyRecord) => Record<string, unknown>;
 }
 
 interface Snap {
@@ -118,6 +127,24 @@ function duplicateError(kind: PropertyChangeKind, shortId: number): AssistantAct
   return new AssistantActionError(409, "DUPLICATE", message);
 }
 
+/**
+ * ЧЕСТНЫЙ ИТОГ «СВОЁ — СРАЗУ» (17.11.2026, класс «ответила — не сделала»).
+ * `approvePropertyChangeRequest` отдаёт `ok: true` и тогда, когда исполнение упало и заявка
+ * встала в FAILED (`ok` значит «решение записано»). Раньше помощник отвечал «применено» по
+ * одному `ok`. Теперь: ничего не записалось — отказ с причиной (бросает); карточка записалась,
+ * а хвост (перемонтаж, площадки) нет — «изменено, но не всё» с причиной.
+ */
+export function honestAppliedOutcome(
+  applied: Extract<ApproveOutcome, { ok: true }>,
+): { status: "APPLIED" | "PARTIAL"; message: string } {
+  if (applied.request.status === "APPROVED") return { status: "APPLIED", message: applied.message };
+  const reason = applied.request.error ?? applied.message;
+  if (applied.writtenPropertyVersion === undefined) {
+    throw new AssistantActionError(409, "NOT_APPLIED", `Не изменилось: ${reason}`);
+  }
+  return { status: "PARTIAL", message: `В карточке изменено, но не всё выполнилось: ${reason}` };
+}
+
 export function makeChangeRequestExecutor<A extends { ref: string }>(
   spec: ChangeRequestToolSpec<A>
 ): AssistantActionExecutor<A> {
@@ -130,6 +157,11 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
     return property;
   }
 
+  // Объект в резерве (есть сделка) — цену меняет руководство: как и у REST, прямой путь закрыт.
+  const isDirect = (args: A, property: PropertyRecord, actor: AssistantActionActor) =>
+    (spec.directKinds ?? []).includes(kindOf(args)) &&
+    canApplyChangeDirectly({ agentId: actor.agentId, can: actor.can }, property, kindOf(args));
+
   async function checkedBody(args: A, property: PropertyRecord, actor: AssistantActionActor) {
     const body = await spec.buildBody(args, property, actor);
     // Тело проходит ту же схему, что на REST-границе (дефолты, пределы).
@@ -137,15 +169,20 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
     if (!parsedBody.success) {
       throw new AssistantActionError(400, "BAD_ARGS", parsedBody.error.issues[0]?.message ?? "Неверные данные заявки");
     }
-    const checked = checkPropertyChangeRequest(property, changeActor(actor), parsedBody.data);
+    const extra = spec.extraPayload?.(args, property);
+    const finalBody = extra
+      ? ({
+          ...parsedBody.data,
+          payload: { ...(parsedBody.data.payload as Record<string, unknown>), ...extra },
+        } as unknown as CreatePropertyChangeRequestInput)
+      : parsedBody.data;
+    // Свою карточку до публикации помощник правит сразу — тем же исполнителем (17.11.2026).
+    const checked = checkPropertyChangeRequest(property, changeActor(actor), finalBody, {
+      allowUnpublished: isDirect(args, property, actor),
+    });
     if (!checked.ok) throw failureToError(checked);
-    return { body: parsedBody.data, payloadObject: checked.payloadObject };
+    return { body: finalBody, payloadObject: checked.payloadObject };
   }
-
-  // Объект в резерве (есть сделка) — цену меняет руководство: как и у REST, прямой путь закрыт.
-  const isDirect = (args: A, property: PropertyRecord, actor: AssistantActionActor) =>
-    (spec.directKinds ?? []).includes(kindOf(args)) &&
-    canApplyChangeDirectly({ agentId: actor.agentId, can: actor.can }, property, kindOf(args));
 
   async function snapshotForProperty(args: A, property: PropertyRecord, db: TxClient): Promise<Snap> {
     const pending = await db.propertyChangeRequest.findFirst({
@@ -221,6 +258,7 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
         expect: { priceCents: toCents(before.price), currency: before.currency, status: before.status },
         auditSource: { source: "assistant", actionId: ctx.actionId, tool: spec.tool },
         applyDirectly: isDirect(args, property, actor),
+        allowUnpublished: isDirect(args, property, actor),
       });
       if (!created.ok) {
         throw created.code === "DUPLICATE" ? duplicateError(kindOf(args), property.shortId) : failureToError(created);
@@ -229,16 +267,20 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
         // Не применилось — висящую заявку не оставляем (applyOwnChangeRequestNow её отзывает).
         const applied = await applyOwnChangeRequestNow(created.request.id, actor.agentId);
         if (!applied.ok) throw new AssistantActionError(applied.status, "REFUSED", applied.error);
+        // «Принято», но исполнитель упал (FAILED): ok:true — это «решение записано», а не «сделано»
+        // (17.11.2026, класс «ответила — не сделала»). Ничего не записалось — честный отказ с причиной;
+        // карточка записалась, а хвост (перемонтаж, площадки) нет — «изменено, но не всё».
+        const appliedResult = honestAppliedOutcome(applied);
         return {
           result: {
             requestId: created.request.id,
             kind: kindOf(args),
-            status: "APPLIED",
+            status: appliedResult.status,
             applied: true,
             ...(applied.writtenPropertyVersion !== undefined ? { appliedPropertyVersion: applied.writtenPropertyVersion } : {}),
             propertyShortId: property.shortId,
             href: propertyHref(property.shortId),
-            message: applied.message,
+            message: appliedResult.message,
           },
           audit: { entityType: "Property", entityId: property.id },
         };
@@ -314,6 +356,8 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
             propertyVersion: applied.propertyVersion,
             guardPriceUndo: true,
           },
+          // Цену своей карточки до публикации помощник менял сразу — и вернуть её можно так же.
+          allowUnpublished: true,
           assistantUndo: { actionId: ctx.actionId, channel: actor.channel, now: ctx.now, undoUntil: ctx.undoUntil },
           body: {
             kind: "PRICE_CHANGE",
