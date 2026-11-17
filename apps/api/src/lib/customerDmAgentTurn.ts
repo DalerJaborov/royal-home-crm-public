@@ -4,6 +4,7 @@ import { loadCustomerBurst } from "./customerDeferredInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn, safeCauseCode } from "../ai/customerAgentCore.js";
 import { customerAgentSayMode, customerAgentAnswerMode } from "./customerAgentFeaturePolicy.js";
+import { readCustomerAgentBrand } from "./customerAgentBrandRead.js";
 import { recordCustomerAgentSay, recordCustomerAgentAnswer } from "./customerAgentSayStats.js";
 import { recordCustomerAgentAnswerSample } from "./customerAgentAnswerSamples.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
@@ -475,7 +476,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
     // Live words may be switched on for one channel first (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS); the trace records the mode of this turn.
     const answerMode = customerAgentAnswerMode(process.env, planningPrincipal.scope.channel);
+    const brand = await readCustomerAgentBrand(planningPrincipal.scope.accountId);
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
+      ...(brand ? { brand } : {}),
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState, ...(followUp ? { followUp } : {}), ...(preReadCall ? { preReads: [preReadCall] } : {}),
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
@@ -784,7 +787,7 @@ export async function customerReplyRepeatBlocked(principal: CustomerAgentMutatio
 }
 
 /** The follow-up signal of a reply that promised an agent (15.11.2026). Exported for the class test; never throws. */
-export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number): Promise<"agent" | "director" | "skipped"> {
+export async function signalStaffFollowUp(conversationId: string, customerMessageAtMs: number): Promise<"agent" | "director" | "already" | "skipped"> {
   try {
     const { alertClientWaiting } = await import("./clientWaitingAlert.js");
     return await alertClientWaiting({ conversationId, trigger: "follow_up", since: new Date(customerMessageAtMs) });

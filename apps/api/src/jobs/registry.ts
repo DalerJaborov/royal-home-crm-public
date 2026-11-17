@@ -18,6 +18,8 @@ import type { z } from "zod";
 /** A definitive refusal should be visible to staff without sending the same request again. */
 export class PermanentJobError extends Error {}
 
+export interface JobRunContext { attempt: number }
+
 export interface JobHandler<T> {
   type: string;
   /** payload писала прошлая версия кода, читает будущая — это внешние данные. */
@@ -34,8 +36,9 @@ export interface JobHandler<T> {
   timeoutMs?: number;
   /** The producer can update payload while a leased attempt is running. */
   coalesceLatest?: boolean;
-  /** ОБЯЗАН быть идемпотентным: воркер может исполнить дважды (падение между run и DONE). */
-  run(payload: T): Promise<void>;
+  /** ОБЯЗАН быть идемпотентным: воркер может исполнить дважды (падение между run и DONE).
+   *  `context.attempt` — номер этой попытки задания, с 1 (повтор хода бота ограничивает по нему платные вызовы ядра). */
+  run(payload: T, context?: JobRunContext): Promise<void>;
   /** Попытки исчерпаны: видимость для персонала, клиенту — ничего. */
   onGiveUp(payload: T): Promise<void>;
 }

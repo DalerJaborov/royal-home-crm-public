@@ -13,7 +13,8 @@ import { stripUntrusted } from "../ai/untrustedContent.js";
 import { lockCustomerNative } from "./customerNativeLock.js";
 import { recoverAuthenticatedCustomerInput, inspectAuthenticatedCustomerInput, authenticatedInputMatchesFence } from "./customerIngressAuthority.js";
 import { decryptCustomerFinalOrigin } from "./customerOriginPayload.js";
-import { customerAgentIntake } from "../ai/customerAgentIntake.js";
+import { customerAgentIntake, customerIntakeLocation } from "../ai/customerAgentIntake.js";
+import { customerIntakeLocationEnabled } from "./customerAgentFeaturePolicy.js";
 import { deriveOwnBuyerPreferences } from "./customerBuyerPreferences.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { isWithinWorkingHours } from "./workingHours.js";
@@ -95,12 +96,21 @@ export async function createCustomerLeadAfterContactAction(actionId: string): Pr
     if (intake.role === "unknown" && own.some(text => /(?:ваканси|резюме|ҷойи\s+кор|ищу\s+работу)/iu.test(text))) {
       return { status: "denied", reason: "recruitment_intake_separate" };
     }
+    // Where the property is (one brain, step 3; switch CUSTOMER_AGENT_INTAKE_LOCATION, default off = as before).
+    // Never a refusal (review #223 H1): the customer was already told his contact is saved, so a card is ALWAYS created.
+    // Another city of Tajikistan → «Прочие обращения» (the old bot's rule); a seller's property possibly abroad → only a
+    // note for the agent, the kind stays (a word-level guess must not move a real seller out of the agents' queue).
+    const location: ReturnType<typeof customerIntakeLocation> = customerIntakeLocationEnabled() ? customerIntakeLocation(own, intake.role) : {};
+    const zoneNote = location.locationOutsideDushanbe ? `📍 вне зоны (Душанбе и Рудаки): ${location.place ?? "другой город"}`
+      : location.locationDifferentCountry ? `❓ возможно, объект за границей (слова клиента: «${location.place ?? ""}») — уточнить` : "";
     let requirementsNotes = "";
     for (const text of [...own].reverse()) {
-      if (requirementsNotes.length + text.length + 1 <= 4000) requirementsNotes = text + (requirementsNotes ? "\n" + requirementsNotes : "");
+      if (zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000) requirementsNotes = text + (requirementsNotes ? "\n" + requirementsNotes : "");
     }
+    if (zoneNote) requirementsNotes = zoneNote + (requirementsNotes ? "\n" + requirementsNotes : "");
     const baseContext: CustomerIntakeContext = { version: 1,
-      kind: intake.role === "buyer" ? "BUYER" : intake.role === "seller" ? "SELLER" : "OTHER",
+      kind: location.locationOutsideDushanbe ? "OTHER" : intake.role === "buyer" ? "BUYER" : intake.role === "seller" ? "SELLER" : "OTHER",
+      ...(location.locationOutsideDushanbe ? { locationOutsideDushanbe: true as const } : {}),
       deferAssignment: !(await isWithinWorkingHours()) };
     const context: CustomerIntakeContext = { ...(intake.role === "buyer" ? deriveOwnBuyerPreferences(own) : {}), ...baseContext };
     return executeBridge({ fence: snapshot.fence, generation: intent.generation, eventKey: recovered.ticket.eventKey,

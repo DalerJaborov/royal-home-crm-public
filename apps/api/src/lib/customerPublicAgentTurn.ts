@@ -30,6 +30,7 @@ import { readCustomerPublicPublicationSource } from './customerPublicPublication
 import { recruitmentPostCode, recruitmentKeyword } from '@royal-home/shared';
 import { readRecruitmentPositions } from './recruitmentPositions.js';
 import { customerPublicAddresseeLabel, readCustomerPublicAddressee } from './customerPublicAddressee.js';
+import { readCustomerAgentBrand } from './customerAgentBrandRead.js';
 
 export type CustomerPublicAgentDraft =
   | { status: 'moderate'; principal: PublicCommentPrincipal }
@@ -130,7 +131,9 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
         ...(recruitmentPositionKey ? { topic: 'job' as const, jobPositionKey: recruitmentPositionKey } : {}),
         addressee: customerPublicAddresseeLabel(addressee) } };
     const requestedFacts = verifiedContext?.publicState.topic === 'job' ? [] : classifyCustomerPropertyFactIntent(original.text, { hasPropertyContext: !!catalog }) ?? [];
+    const brand = await readCustomerAgentBrand(principal.installation.accountId);
     const result = await runCustomerAgentTurn({ surface: 'public_comment', language, inputText: original.text,
+      ...(brand ? { brand } : {}),
       knownPhoneSource: 'none', requestedFacts, revision, startedAt: origin.originalReceivedAt,
       operation: runtime.operation, tools: customerAgentToolDefinitions(CUSTOMER_AGENT_PUBLIC_TOOLS),
       verifiedContext,

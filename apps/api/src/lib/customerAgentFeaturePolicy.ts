@@ -69,6 +69,12 @@ function logLiveChannelsOnce(value: string, problem: string): void {
   void logSystemError("ai", message, { dedupKey: `customer-agent-live-channels:${key}` }).catch(() => {});
 }
 
+/** One brain, step 3: the lead card of the core learns where the property is from the customer's words (another city of
+ *  Tajikistan → «Прочие обращения»; possibly abroad → a note). Default off = the core's lead routing as before. */
+export function customerIntakeLocationEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  return env.CUSTOMER_AGENT_INTAKE_LOCATION?.trim().toLowerCase() === "on";
+}
+
 /** Existing feature switches restrict implemented customer capabilities; a
  * legacy switch never grants a new tool, transport, identity or staff right. */
 export async function loadCustomerAgentFeaturePolicy(channel?: string) {

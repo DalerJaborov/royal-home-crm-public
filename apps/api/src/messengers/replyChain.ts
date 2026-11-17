@@ -22,9 +22,7 @@ import {
 } from "../ai/replyRepeatGuard.js";
 import { EMPTY_TOPIC_STATE, type TopicState } from "../ai/topicLock.js";
 import { guardFired } from "../ai/guardMetrics.js";
-import { botAskedQuestion, isAckOnlyMessage } from "../ai/ackOnly.js";
-import { shouldStaySilentOnBareShare } from "../ai/bareShareRepeat.js";
-import { photoAlreadyAcknowledged } from "../ai/photoAckGuard.js";
+export { silentTurnReason } from "./silentTurn.js";
 import { ensureRequestedAgentNoticeKept, type RequestedAgentMatch } from "../lib/requestedAgent.js";
 import { logSystemError } from "../lib/systemError.js";
 import { brandForAccount, guardBrandLeak } from "../ai/brandName.js";
@@ -117,40 +115,7 @@ export const FALLBACK_VOICE: FallbackText = {
   ru: "Извините, не получается расслышать голосовое сообщение. Напишите, пожалуйста, текстом.",
 };
 
-/**
- * ХОД, НА КОТОРЫЙ БОТ НЕ ОТВЕЧАЕТ ТЕКСТОМ (владелец 25.09.2026; аудит audit-1,
- * находка 8). Те же три отсечки, что в messengers/conversation.ts, — общими
- * функциями стражей, а не копией:
- *  - «Ок» / «Рахмат» после нашей реплики БЕЗ вопроса — только реакция
- *    (ai/ackOnly.ts): на «Ок» бот писал «Саломат бошед! Агар савол бошад, нависед»;
- *  - третья голая пересылка подряд — молчим (ai/bareShareRepeat.ts);
- *  - ещё фото без слов, а «фото получили» уже сказано — молчим (ai/photoAckGuard.ts).
- * Каналы без своей ветки на эти случаи (Telegram, Direct Messages) зовут это ДО
- * хода модели. Реплика клиента к этому моменту уже в переписке, агент её видит.
- */
-export function silentTurnReason(input: {
-  /** Слова клиента этого хода (склеенная пачка). */
-  text: string;
-  /** В ходе было вложение (фото, файл, голос) — тогда это не «ок». */
-  hasMedia: boolean;
-  /** Переписка ДО этого хода. */
-  history: ChatMessage[];
-}): "ack_only" | "bare_share_repeat" | "photo_ack_repeat" | null {
-  const lastBot = [...input.history].reverse().find((m) => m.role === "assistant");
-  if (!input.hasMedia && lastBot && isAckOnlyMessage(input.text) && !botAskedQuestion(lastBot.content)) {
-    guardFired("ack_only");
-    return "ack_only";
-  }
-  if (!input.hasMedia && shouldStaySilentOnBareShare(input.text, input.history)) {
-    guardFired("bare_share_repeat");
-    return "bare_share_repeat";
-  }
-  if (photoAlreadyAcknowledged(input.text, lastBot)) {
-    guardFired("photo_ack_repeat");
-    return "photo_ack_repeat";
-  }
-  return null;
-}
+// silentTurnReason lives in messengers/silentTurn.ts (no channel imports: the staff alert reads it without an import cycle).
 
 /**
  * КЛИЕНТ УЖЕ НАПИСАЛ СВОЙ НОМЕР В ЭТОМ РАЗГОВОРЕ (03.10.2026, живые сбои в
@@ -235,6 +200,15 @@ export interface BotReplyFilterResult {
 }
 
 export type EmptyReplyCause = "guards" | "repeat";
+
+/**
+ * The brain DECIDED to send nothing (one brain, step 3: intended silence such as «спасибо», or a person was called).
+ * Not a failed model: no «sorry for the delay» fallback, no regeneration, no neutral line. One shape for every channel.
+ */
+export function intendedSilenceReply(): FinalBotReply {
+  return { bubbles: [], finalBubbles: [], modelSaidNothing: true, guardsAteReply: false, silencedBy: null,
+    phoneAsksSoFar: 0, stopAskingPhone: false, recovery: "none" };
+}
 
 /**
  * Порядок — ровно тот, что был в messengers/conversation.ts::finishQualifyTurn
@@ -418,12 +392,14 @@ export const NEUTRAL_REPLIES = {
   /** «Салом», «Алло», «?» — человек проверяет, на связи ли мы. */
   presence: {
     ru: "Да, я на связи. Напишите, пожалуйста, что вас интересует.",
-    tg: "Бале, ман дар тамосам. Лутфан нависед, ки чӣ шуморо шавқманд мекунад.",
+    // Без «лутфан»: слово из запрещённого списка ядра (#211) и разговорника — звучит книжно.
+    tg: "Бале, ман дар тамосам. Нависед, чӣ шуморо шавқманд мекунад?",
   },
   /** Вопрос, на который ответ съели фильтры. */
   question: {
     ru: "Понял ваш вопрос. Уточните, пожалуйста, чуть подробнее — так отвечу точнее.",
-    tg: "Саволатонро фаҳмидам. Лутфан каме муфассалтар нависед — то дақиқтар ҷавоб диҳам.",
+    // Без «лутфан» и «муфассал» (запрещённый список ядра, #211).
+    tg: "Саволатонро фаҳмидам. Каме дақиқтар нависед, то аниқ ҷавоб диҳам.",
   },
   /** Сообщение-утверждение: ответ на анкету, «после двух часов», подробности. */
   statement: {
@@ -511,6 +487,23 @@ export interface BotReplyRecovery {
 export interface FinalBotReply extends BotReplyFilterResult {
   /** Чем закрыт ход: как есть, вторым ответом модели, заготовкой или (петля) ничем. */
   recovery: "none" | "regenerated" | "neutral" | "silent_loop";
+}
+
+/**
+ * ОТВЕТ ЯДРА НЕ ПРАВЯТ СТАРЫЕ СТОРОЖА (один мозг, ревью #223 M4, 17.11.2026). Текст ядра уже проверен сервером по
+ * принципу «целиком или шаблон»: стражи этого файла (обрезка вопросов, вторая просьба номера, нейтральная заготовка)
+ * его больше не трогают. Остаётся только защита доставки — щит повтора уже отправленного. Щит сработал — не уходит
+ * ничего (ядро само не повторяется; заготовок-подмен нет).
+ * Просить номер или нет, решило ядро (сервер сам вставляет просьбу в текст): `stopAskingPhone: true` запрещает каналу
+ * дописать вторым сообщением свою phoneReminder (ревью #223 N4: «Ташаккур, дархости шумо қабул шуд.» + «…рақаматонро
+ * нависед»). Этот флаг читают только окончания хода Telegram-бота и лички канала — других значений у него нет.
+ */
+export async function verifiedCoreReply(text: string, shieldBlocked?: BotReplyRecovery["shieldBlocked"]): Promise<FinalBotReply> {
+  const bubbles = text.trim() ? [text.trim()] : [];
+  const base: BotReplyFilterResult = { bubbles, finalBubbles: bubbles, modelSaidNothing: bubbles.length === 0, guardsAteReply: false,
+    silencedBy: null, phoneAsksSoFar: 0, stopAskingPhone: true };
+  const shielded = await withoutShieldRepeats(base, shieldBlocked);
+  return { ...shielded, silencedBy: null, recovery: "none" };
 }
 
 /** Пузыри, которые щит не выпустит, снимаем ДО записи в переписку — иначе в CRM реплика, которой клиент не видел. */

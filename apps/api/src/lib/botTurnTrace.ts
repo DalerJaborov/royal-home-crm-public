@@ -11,8 +11,8 @@ const context = new AsyncLocalStorage<Context>();
 const outgoingScope = new AsyncLocalStorage<number>();
 let warned = false;
 const channels = new Set(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE"]);
-/** Channels traced ONLY for the one-brain shadow record: their legacy turns stay untraced. */
-const shadowChannels = new Set([...channels, "TELEGRAM", "YOUTUBE"]);
+/** Channels traced ONLY for the one-brain records (shadow, core channel adapter): their legacy turns stay untraced. */
+const shadowChannels = new Set([...channels, "TELEGRAM", "TELEGRAM_DIRECT", "YOUTUBE"]);
 function runtimeConfig(): TraceConfig {
   return { enabled: /^(1|true)$/.test(process.env.BOT_TURN_TRACE_ENABLED ?? ""), secret: process.env.BOT_TURN_TRACE_HMAC_KEY ?? "", text: process.env.BOT_TURN_TRACE_TEXT_ENABLED === "1" };
 }
@@ -56,7 +56,7 @@ export function traceCheckpoint(): void {
 export async function withBotTurnTrace<T>(input: TraceStart, run: () => Promise<T>, config = runtimeConfig()): Promise<T> {
   const parent = context.getStore();
   if ((parent && !parent.closed && !parent.dropped && !input.managed) || !config.enabled ||
-      !(channels.has(input.channel) || input.managed?.phase === "shadow" && shadowChannels.has(input.channel))) return run();
+      !(channels.has(input.channel) || (input.managed?.phase === "shadow" || input.managed?.phase === "channel") && shadowChannels.has(input.channel))) return run();
   if (config.secret.length < 32) { alarm(); return run(); }
   // Managed model/decision/delivery additions are ALWAYS metadata-only, even
   // when legacy free-text diagnostics were explicitly enabled by an operator.
@@ -227,7 +227,8 @@ export function traceCustomerCoreResult(result: { status: "ready" | "held"; deci
   /** The answer mode this turn ran in (CUSTOMER_AGENT_ANSWER_MODE narrowed by CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS). */
   answerMode?: "off" | "shadow" | "live" }): void {
   observe(ctx => {
-    if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning" && ctx.payload.managed.phase !== "shadow") return;
+    if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning" && ctx.payload.managed.phase !== "shadow" &&
+      ctx.payload.managed.phase !== "channel") return;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ status: result.status,
       ...(result.say ? { sayStatus: result.say.status, ...(result.say.status === "dropped" ? { sayDropReason: result.say.reason } : {}) } : {}),
       ...(result.answer ? { answerStatus: result.answer.status, ...(result.answer.status === "dropped" ? { answerDropReason: result.answer.reason } : {}) } : {}),
@@ -257,7 +258,7 @@ export function traceLegacyShadow(value: TraceLegacyShadow): void {
 /** PLANNED is local persistence only; this never appends an outgoing receipt. */
 export function traceCustomerCoreDisposition(status: "planned" | "unchanged" | "held", reason?: unknown, cause?: string): void {
   observe(ctx => {
-    if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning") return;
+    if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning" && ctx.payload.managed.phase !== "channel") return;
     const previous = ctx.payload.customerCore;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ ...previous, status,
       rounds: previous?.rounds ?? 0, toolCalls: previous?.toolCalls ?? 0, receiptOutcomes: previous?.receiptOutcomes ?? [],

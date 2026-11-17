@@ -50,7 +50,7 @@ export const telegramReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
   backoff: aiReplyRetryBackoffMs,
   // Ход бота: окно модели до 75 с плюс подготовка — минуты общего срока мало.
   timeoutMs: BOT_TURN_JOB_TIMEOUT_MS,
-  async run(payload) {
+  async run(payload, context) {
     const conversation = await prisma.telegramConversation.findUnique({
       where: { id: payload.conversationId },
       select: {
@@ -97,7 +97,9 @@ export const telegramReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       // память бота работала бы «в основном режиме, но не при повторе».
       contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
       phoneKnown,
-    }, null); // retry of an already-shadowed turn
+    }, { channel: "TELEGRAM", repeat: "retry", // a repeat of an already-shadowed turn (the core runs again in `core` mode)
+      // the live turn was run 1: the core stops paying after its 3rd run of this turn (review #223 R1)
+      ...(context ? { attempt: context.attempt + 1 } : {}) });
     // Модель всё ещё лежит — исключение отдаёт задание очереди на следующую
     // ступень лесенки (см. aiReplyRetryPolicy.ts).
     if (!result) throw new Error("ИИ всё ещё недоступен");

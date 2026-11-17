@@ -35,7 +35,7 @@ import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, quickRepeat
 import { claimUnreadablePhoneAsk } from "./phoneRetryClaim.js";
 import { CLIENT_KIND_LABELS, CLIENT_SOURCES, formatClientCode, type ClientSource } from "@royal-home/shared";
 import { clientSelfStatedName, normalizeClientName } from "../ai/replyGuards.js";
-import { FALLBACK_VOICE, finalizeBotReply, inClientLanguage, lastClientWords, phoneSaidInDialog, recentBotText } from "./replyChain.js";
+import { FALLBACK_VOICE, finalizeBotReply, inClientLanguage, intendedSilenceReply, verifiedCoreReply, lastClientWords, phoneSaidInDialog, recentBotText } from "./replyChain.js";
 import { repeatBlockedTexts } from "../lib/outboundShield.js";
 import { reconcileCustomerShowcaseReply } from "../lib/customerShowcaseReceipt.js";
 import {
@@ -3929,7 +3929,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * первого ответа. Щит исходящих спрашиваем заранее — его блок на транспорте
      * оставлял в CRM реплику, которой клиент не видел.
      */
-    const filtered = await finalizeBotReply(
+    const filtered = result.silent ? intendedSilenceReply()
+      : result.verified ? await verifiedCoreReply(result.reply.join(" "), (bubbles) => repeatBlockedTexts(channel, subscriberId, bubbles, undefined, input.customerTransport))
+      : await finalizeBotReply(
       {
         reply: result.reply,
         conversationId: conversation.id,
@@ -3956,7 +3958,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       {
         regenerate: async (retryDirective) =>
           // A regeneration of the same turn: the shadow already ran for it.
-          (await runLegacyQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }, null))?.reply ?? null,
+          (await runLegacyQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }, { channel, repeat: "regeneration" }))?.reply ?? null,
         shieldBlocked: (bubbles) => repeatBlockedTexts(channel, subscriberId, bubbles, undefined, input.customerTransport),
       }
     );
@@ -4181,8 +4183,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   if (!input.retryOfPaidTurn) await spendAiTurns(conversation.id, budget.dayKey);
   // One brain, step 2: the per-channel shadow (lib/customerAgentChannelSwitch.ts). A paid retry repeats an already-shadowed turn.
-  const result = await runLegacyQualifyTurn(nextHistory, draft, qualifyOptions, input.retryOfPaidTurn ? null
-    : { channel, traceAccount: input.accountExternalId ?? null, eventId: input.skipSaveIncoming ? null : input.messageId ?? null });
+  const result = await runLegacyQualifyTurn(nextHistory, draft, qualifyOptions, { channel, traceAccount: input.accountExternalId ?? null,
+    eventId: input.skipSaveIncoming ? null : input.messageId ?? null,
+    ...(input.retryOfPaidTurn ? { repeat: "retry" as const, ...(input.retryAttempt ? { attempt: input.retryAttempt } : {}) } : {}) });
 
   if (!result) {
     /**

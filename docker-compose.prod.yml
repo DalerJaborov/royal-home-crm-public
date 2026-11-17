@@ -163,6 +163,9 @@ services:
       # shadow. Empty or only unknown names = live NOWHERE (an error is logged).
       # Rollback = the mode back to empty (or off).
       CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "${CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS:-}"
+      # The model's words beside the template, 72 h, for the owner to read before live
+      # (lib/customerAgentAnswerSamples.ts, #240). Empty = writes (shadow and live); off = no writes.
+      CUSTOMER_AGENT_ANSWER_SAMPLES: "${CUSTOMER_AGENT_ANSWER_SAMPLES:-}"
       # Customer core switches (31.10.2026). Without these lines a value in
       # .env.production never reaches the container. Both are off by default:
       # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`
@@ -173,6 +176,16 @@ services:
       # per channel (meta_dm, arvan, website, youtube, telegram | all). Empty = off.
       CUSTOMER_AGENT_CHANNEL_SHADOW: "${CUSTOMER_AGENT_CHANNEL_SHADOW:-}"
       CUSTOMER_AGENT_SHADOW_DAILY_CAP: "${CUSTOMER_AGENT_SHADOW_DAILY_CAP:-}"
+      # One brain, step 3 (16–17.11.2026). All empty = today's behaviour. CHANNEL_CORE: the core answers instead of the old
+      # bot on telegram,website,youtube (never Meta keys). BRAND_NAME/BRAND_VOICE=on: the account's company name / owner's
+      # voice text in the core's turn. INTAKE_LOCATION=on: the core's lead card learns the property's city.
+      # TELEGRAM_DIRECT_BOT_REPLY=off: no model reply in Telegram channel direct messages, a person is told.
+      # Guard: tests/env-reaches-container.test.ts (a switch read by the code must be on this list).
+      CUSTOMER_AGENT_CHANNEL_CORE: "${CUSTOMER_AGENT_CHANNEL_CORE:-}"
+      CUSTOMER_AGENT_BRAND_NAME: "${CUSTOMER_AGENT_BRAND_NAME:-}"
+      CUSTOMER_AGENT_BRAND_VOICE: "${CUSTOMER_AGENT_BRAND_VOICE:-}"
+      CUSTOMER_AGENT_INTAKE_LOCATION: "${CUSTOMER_AGENT_INTAKE_LOCATION:-}"
+      TELEGRAM_DIRECT_BOT_REPLY: "${TELEGRAM_DIRECT_BOT_REPLY:-}"
       # Сбор объявлений Somon/Paydo по расписанию (lib/market/nightly.ts, cron.ts). Без этой
       # строки значение из .env.production в контейнер не попадало: на 11.11.2026 каталог был
       # пуст, хотя переключатель описан в журнале 02.11. По умолчанию выключен.
@@ -290,6 +303,8 @@ services:
       # чтобы сменить модель правкой .env.production без выката кода.
       GEMINI_TTS_MODELS: ${GEMINI_TTS_MODELS:-}
       GEMINI_WHISPER_TTS_MODELS: ${GEMINI_WHISPER_TTS_MODELS:-}
+      # Порог тревоги «мало денег на СМС» (TJS; пусто = 50 из кода, lib/balanceWatch.ts).
+      SMS_LOW_BALANCE_TJS: ${SMS_LOW_BALANCE_TJS:-}
       # Прямая интеграция с Meta (WhatsApp, Instagram). Окружение сюда передаётся
       # поимённым списком — дописать переменную только в .env.production мало,
       # контейнер её не увидит (на этом мы уже обожглись с Telegram).

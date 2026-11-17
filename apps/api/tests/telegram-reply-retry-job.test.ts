@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, afterEach, vi } from "vitest";
 
 /**
  * Задания telegram-reply-retry / telegram-dm-reply-retry (13.09.2026, тот же
@@ -40,6 +40,7 @@ vi.mock("../src/lib/recipients.js", () => ({ findAgentsWithPermission: async () 
 import { prisma } from "../src/db.js";
 import { telegramReplyRetryJob } from "../src/jobs/telegramReplyRetry.js";
 import { telegramDirectReplyRetryJob } from "../src/jobs/telegramDirectReplyRetry.js";
+import { customerAgentHandoverLine } from "../src/ai/customerAgentRenderer.js";
 
 beforeEach(() => {
   finishTelegramQualifyTurn.mockClear();
@@ -167,5 +168,54 @@ describe("задание telegram-dm-reply-retry (Direct Messages)", () => {
     expect(after?.pausedUntil ?? null).toBeNull();
     expect(sendPushToAgent).not.toHaveBeenCalled();
     await prisma.telegramDirectConversation.delete({ where: { id: c.id } });
+  });
+});
+
+/**
+ * Ревью #223 R1 (17.11.2026): в режиме ядра повтор хода — не больше трёх прогонов. Задание передаёт номер своей попытки
+ * (раннер: context.attempt), дверь считает прогон = попытка + 1 (живой ход был первым). После третьего — сотрудник и строка
+ * «передал сотруднику», модель больше не зовётся. Пустой env — старый бот и его лесенка, как раньше.
+ */
+describe("ревью #223 R1: потолок повторов ядра в заданиях Telegram", () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("ядро, попытка задания 3 (прогон 4) → без вызова модели: строка передачи уходит тем же finishTelegramQualifyTurn, пуш сотруднику", async () => {
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram");
+    const c = await prisma.telegramConversation.create({
+      data: { chatId: `retry-tg-cap-${Date.now()}`, messages: [{ role: "user", content: "Нархаш чанд?" }], leadDraft: { stage: "chatting" } },
+    });
+    await expect(telegramReplyRetryJob.run({ conversationId: c.id }, { attempt: 3 })).resolves.toBeUndefined();
+    expect(runQualifyTurn).not.toHaveBeenCalled();
+    expect(finishTelegramQualifyTurn).toHaveBeenCalledOnce();
+    const turn = (finishTelegramQualifyTurn.mock.calls[0] as unknown as [{ turn: { reply: string[]; verified?: boolean } }])[0].turn;
+    expect(turn).toMatchObject({ reply: [customerAgentHandoverLine("tg")], verified: true });
+    expect(sendPushToAgent).toHaveBeenCalledOnce();
+    await prisma.processedMessage.deleteMany({ where: { channel: "channel-staff-alert", messageId: { startsWith: `tg:${c.id}:` } } });
+    await prisma.telegramConversation.delete({ where: { id: c.id } });
+  });
+
+  it("личка канала (ядро telegram_direct), попытка 3 → строка передачи через finishTelegramDirectQualifyTurn", async () => {
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "telegram_direct");
+    const c = await prisma.telegramDirectConversation.create({
+      data: { chatId: `retry-dm-cap-${Date.now()}`, topicId: "45", messages: [{ role: "user", content: "Сколько стоит?" }] },
+    });
+    await expect(telegramDirectReplyRetryJob.run({ conversationId: c.id }, { attempt: 3 })).resolves.toBeUndefined();
+    expect(runQualifyTurn).not.toHaveBeenCalled();
+    const turn = (finishTelegramDirectQualifyTurn.mock.calls[0] as unknown as [{ turn: { reply: string[] } }])[0].turn;
+    expect(turn.reply).toEqual([customerAgentHandoverLine("ru")]);
+    await prisma.processedMessage.deleteMany({ where: { channel: "channel-staff-alert", messageId: { startsWith: `td:${c.id}:` } } });
+    await prisma.telegramDirectConversation.delete({ where: { id: c.id } });
+  });
+
+  it("пустой env: попытка задания 9 → старый бот, как раньше (лесенка 46 ступеней не тронута)", async () => {
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_CORE", "");
+    const c = await prisma.telegramConversation.create({
+      data: { chatId: `retry-tg-legacy-${Date.now()}`, messages: [{ role: "user", content: "вопрос" }] },
+    });
+    runQualifyTurn.mockResolvedValueOnce(null);
+    await expect(telegramReplyRetryJob.run({ conversationId: c.id }, { attempt: 9 })).rejects.toThrow(/недоступен/);
+    expect(runQualifyTurn).toHaveBeenCalledOnce();
+    expect(finishTelegramQualifyTurn).not.toHaveBeenCalled();
+    await prisma.telegramConversation.delete({ where: { id: c.id } });
   });
 });
