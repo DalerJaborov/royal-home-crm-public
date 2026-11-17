@@ -19,7 +19,10 @@ const { BUILTIN_ASSISTANT_TOOL_NAMES, pluginDeclarations } = await import("../sr
 const { getAssistantActionExecutor } = await import("../src/lib/assistantActions.js");
 const { actorFromAccess } = await import("../src/ai/assistant/actor.js");
 
-const plugins = listAssistantToolPlugins();
+// set_group_quiet объявляется только при прямом обращении в общей группе (actor.groupChat) — проверка ниже отдельно.
+const GROUP_ONLY = new Set(["set_group_quiet"]);
+const allPlugins = listAssistantToolPlugins();
+const plugins = allPlugins.filter((p) => !GROUP_ONLY.has(p.name));
 const writePlugins = plugins.filter((p) => p.level !== "A");
 /** Все права директора; feature flags проверяются отдельно от прав и каналов. */
 const fullActor = actorFromAccess("registry-test-director", {
@@ -171,5 +174,15 @@ describe("реестр инструментов помощника", () => {
       if (plugin.parameters) expect(d.parameters).toEqual(plugin.parameters);
       else expect("parameters" in d).toBe(false);
     }
+  });
+
+  it("set_group_quiet — только прямое обращение в общей группе, описание как у плагина", () => {
+    const plugin = allPlugins.find((p) => p.name === "set_group_quiet")!;
+    expect(plugin).toBeDefined();
+    const group = { ...fullActor, surface: "telegram-group" as const, groupChat: { chatId: "-100test", registeredAt: 0 } };
+    const declared = pluginDeclarations(group, false, "telegram").find((d) => d.name === "set_group_quiet");
+    expect(declared?.description).toBe(plugin.description);
+    expect(pluginDeclarations(fullActor, true, "crm").some((d) => d.name === "set_group_quiet")).toBe(false);
+    expect(pluginDeclarations({ ...fullActor, surface: "telegram-group" }, true, "telegram").some((d) => d.name === "set_group_quiet")).toBe(false);
   });
 });
