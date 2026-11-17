@@ -7894,7 +7894,7 @@
     },
     {
      "k": "do",
-     "t": "const issued = await issueLoginCode(agent, parsed.data.channel);",
+     "t": "const issued = await issueLoginCode(agent, parsed.data.channel, { purpose: \"step-up\", excludePushEndpoint: pa…",
      "a": [
       "зовёт issueLoginCode()"
      ],
@@ -44188,7 +44188,8 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен"
+    "вход выполнен",
+    "requireElevation"
    ],
    "handlerRef": null,
    "tree": [
@@ -44197,6 +44198,14 @@
      "t": "const { code, deepLink } = await createTelegramLinkCode(req.agent!.id);",
      "a": [
       "зовёт createTelegramLinkCode()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"TELEGRAM_LINK_CODE_ISSUED\", \"Agent\", req.agent!.id);",
+     "a": [
+      "зовёт logAudit()"
      ],
      "c": []
     },
@@ -44938,7 +44947,7 @@
     },
     {
      "k": "do",
-     "t": "const errorGroups = groupErrorLogEntries(actionableRows).slice(0, 30);",
+     "t": "const allErrorGroups = groupErrorLogEntries(actionableRows);",
      "a": [
       "зовёт groupErrorLogEntries()"
      ],

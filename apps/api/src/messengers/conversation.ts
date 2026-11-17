@@ -1004,9 +1004,12 @@ export async function acceptLead(
     channel: "chat" as const,
   };
   let decision = classifyInbound(classificationInput);
-  const unresolvedKind = decision.kind === "OTHER" && decision.otherReason !== undefined && [
+  // intentUnknown — то же «намерения нет», только с 17.11.2026 оно уже не «прочее»,
+  // а покупатель с пометкой (services/leads/intakePolicy.ts): объект, о котором шла
+  // речь, по-прежнему разрешает его в обычного покупателя без пометки.
+  const unresolvedKind = decision.intentUnknown === true || (decision.kind === "OTHER" && decision.otherReason !== undefined && [
     OtherReason.LOW_CONFIDENCE, OtherReason.NO_INTENT, OtherReason.OTHER_INTENT, OtherReason.AD_NO_WORDS,
-  ].includes(decision.otherReason);
+  ].includes(decision.otherReason));
   const handledUnknownBuyer = !!handledPropertyId && unresolvedKind
     && (!draft.intent || draft.intent === "other" || draft.intent === "buy")
     && (!draft.whoIsThis || draft.whoIsThis === "UNKNOWN" || draft.whoIsThis === "BUYER")

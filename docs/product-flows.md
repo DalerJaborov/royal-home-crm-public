@@ -1802,7 +1802,7 @@
 - если !agent || !agent.isActive
   - return res.status(401).json({ error: "Не авторизован" });
     · ответ 401 — «Не авторизован»
-- const issued = await issueLoginCode(agent, parsed.data.channel);
+- const issued = await issueLoginCode(agent, parsed.data.channel, { purpose: "step-up", excludePushEndpoint: pa…
   · зовёт issueLoginCode()
 - если !issued.ok
   - если issued.retryAfterSec !== undefined
@@ -9878,10 +9878,12 @@
 
 ### POST /api/v1/me/telegram-link
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
 
 - const { code, deepLink } = await createTelegramLinkCode(req.agent!.id);
   · зовёт createTelegramLinkCode()
+- logAudit(req, "TELEGRAM_LINK_CODE_ISSUED", "Agent", req.agent!.id);
+  · зовёт logAudit()
 - res.json({ code, deepLink });
   · ответ 200
 
@@ -10118,7 +10120,7 @@
     · ответ 401 — «Нужен служебный токен»
 - const [numbers, errorRows, stuck] = await Promise.all([ loadMorningNumbers(), visibleErrorLogs().findMany({ w…
   · зовёт loadMorningNumbers()
-- const errorGroups = groupErrorLogEntries(actionableRows).slice(0, 30);
+- const allErrorGroups = groupErrorLogEntries(actionableRows);
   · зовёт groupErrorLogEntries()
 - res.json({ tasksToday: numbers.tasksToday, leadsYesterday: numbers.leadsYesterday, dealsYesterday: numbers.de…
   · ответ 200

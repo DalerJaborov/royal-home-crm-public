@@ -36935,7 +36935,8 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен"
+    "вход выполнен",
+    "requireElevation"
    ],
    "screens": [
     "/profile"
