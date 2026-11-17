@@ -145,10 +145,10 @@ describe("complete_property_editing: не готов — карточки нет
   });
 
   it("мало фото и чужая ссылка называются обе", async () => {
-    const property = await seed({ instagramUrl: "https://example.com/video" }, 2);
+    const property = await seed({ instagramUrl: "https://example.com/video" }, 0);
     const error = await refusalOf(ownerId, AGENT_PERMS, { ref: String(property.shortId) });
     expect(error.code).toBe("NOT_READY_FOR_SALE");
-    expect(error.message).toMatch(new RegExp(`фото меньше минимума \\(2 из ${MIN_PROPERTY_PHOTOS}\\)`));
+    expect(error.message).toMatch(new RegExp(`фото меньше минимума \\(0 из ${MIN_PROPERTY_PHOTOS}\\)`));
     expect(error.message).toMatch(/ссылка не на Instagram/);
   });
 
@@ -305,7 +305,7 @@ describe("get_property_work_status: причина, почему объект н
       videoHandoffFinalPath: "/private/final.mp4",
     });
     const readiness = await readinessOf(property.shortId);
-    expect(readiness).toMatchObject({ inSale: false, stage: "Монтаж", readyForSale: false });
+    expect(readiness).toMatchObject({ inSale: false, stage: "На монтаже", readyForSale: false });
     expect(readiness!.video).toMatch(/готовый ролик принят \(11 дн\. назад\)/);
     expect(readiness!.blockers.map((b) => b.problem).join(" ")).toMatch(/нет ссылки на видео-обзор в Instagram/);
     expect(readiness!.nextStep).toMatch(/не предлагай/);
