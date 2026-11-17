@@ -129,7 +129,7 @@ export const PERMISSIONS = [
     id: "insights.view",
     label: "Инсайты от ИИ",
     group: "sections",
-    hint: "Двухнедельные диджесты находок по звонкам, штрафам и потерям клиентов",
+    hint: "Двухнедельные диджесты находок по звонкам и обходам CRM",
   },
 
   {
@@ -465,12 +465,9 @@ export const PERMISSIONS = [
     label: "Менять пароль админки сайта",
     group: "admin",
   },
-  {
-    id: "score.clientLossOverride",
-    label: "Переопределять вину агента в потере клиента",
-    group: "admin",
-    hint: "Royal Score: заменить автоматическую отметку agent_fault/no_fault вручную",
-  },
+  // «score.clientLossOverride» (переопределять вину агента в потере клиента) удалено
+  // 16.11.2026 вместе со штрафом client_lost_agent_fault — переопределять стало нечего.
+  // Сохранённые у сотрудников id неизвестного права отбрасываются при чтении.
 ] as const satisfies readonly PermissionDef[];
 
 export type PermissionId = (typeof PERMISSIONS)[number]["id"];

@@ -854,41 +854,6 @@ export function useSecurityReview(clientId: string) {
 }
 
 /**
- * Событие «клиент потерян по вине/без вины агента» для карточки клиента, если
- * оно есть (08.09.2026, см. серверный комментарий у GET /royal-score-events/by-client).
- *
- * enabled управляется снаружи: право `score.clientLossOverride` есть у директора
- * и админа (обычная ASSIGNABLE-галочка с 14.09.2026), агенту дёргать этот запрос
- * незачем, а клиент может быть не потерян вовсе — тогда событие всегда null, и
- * спрашивать не о чем.
- */
-export interface ClientLossEvent {
-  id: string;
-  currentKind: "client_lost_agent_fault" | "client_lost_no_fault";
-  overridden: boolean;
-  overriddenAt: string | null;
-}
-
-export function useClientLossEvent(clientId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ["royal-score-events", "by-client", clientId],
-    queryFn: () => api<{ event: ClientLossEvent | null }>(`/royal-score-events/by-client/${clientId}`),
-    enabled,
-  });
-}
-
-export function useOverrideClientLossEvent(eventId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { override: "client_lost_agent_fault" | "client_lost_no_fault"; comment?: string }) =>
-      api<{ ok: boolean }>(`/royal-score-events/${eventId}/override`, { method: "PATCH", body }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["royal-score-events"] });
-    },
-  });
-}
-
-/**
  * ПРЕДЛОЖЕНИЯ РЕАКТИВАЦИИ (разбор 31.08.2026, п.12) — «мои», ждущие решения.
  *
  * Отдельный список, а не фильтр по useClients: пока предложение висит,

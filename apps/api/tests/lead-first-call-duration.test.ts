@@ -34,13 +34,13 @@ describe("Решение по первому звонку", () => {
   it("П-2: любая попытка (дозвонился или нет) закрывает обязанность — лид остаётся, штрафа нет", () => {
     expect(decideFirstCall({ telephonyOn: true, stationBlind: false, attempted: false, tried: true })).toEqual({
       keepLead: true,
-      penalize: false,
+      missed: false,
     });
   });
 
   it("не сделал ни одной попытки — штраф, лид уходит дальше", () => {
     const v = decideFirstCall({ telephonyOn: true, stationBlind: false, attempted: false, tried: false });
-    expect(v).toEqual({ keepLead: false, penalize: true });
+    expect(v).toEqual({ keepLead: false, missed: true });
   });
 
   it("без АТС: записанная попытка (звонок в хронологии) спасает от штрафа и передачи", () => {
@@ -51,22 +51,22 @@ describe("Решение по первому звонку", () => {
     // считается.
     expect(decideFirstCall({ telephonyOn: false, stationBlind: false, attempted: true, tried: false })).toEqual({
       keepLead: true,
-      penalize: false,
+      missed: false,
     });
     expect(decideFirstCall({ telephonyOn: false, stationBlind: false, attempted: false, tried: false })).toEqual({
       keepLead: false,
-      penalize: true,
+      missed: true,
     });
   });
 
   it("станция ослепла (stationBlind) — как без АТС: смотрим только на attempted", () => {
     expect(decideFirstCall({ telephonyOn: true, stationBlind: true, attempted: true, tried: false })).toEqual({
       keepLead: true,
-      penalize: false,
+      missed: false,
     });
     expect(decideFirstCall({ telephonyOn: true, stationBlind: true, attempted: false, tried: false })).toEqual({
       keepLead: false,
-      penalize: true,
+      missed: true,
     });
   });
 });

@@ -43,8 +43,7 @@ export function MobileInsights() {
               строкой сразу под шапкой — раньше он был виден только на ПК. */}
           <div className="quiet">
             <span className="txt">
-              Источники: звонков {selected.coverage.calls}, отобрано {selected.coverage.analyzed}, штрафов{" "}
-              {selected.coverage.penalties}.
+              Источники: звонков {selected.coverage.calls}, отобрано {selected.coverage.analyzed}.
             </span>
             <DigestStatusBadge status={selected.status} />
           </div>

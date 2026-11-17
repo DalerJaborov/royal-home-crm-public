@@ -28,12 +28,13 @@ import {
   CATEGORY_OF,
   ROYAL_SCORE_CATEGORIES,
   loadEventPoints,
-  SCORE_OVERRIDE_PREFIX,
   SCORE_OVERRIDE_REVERT_PREFIX,
+  type ActiveScoreEventKind,
   type RoyalScoreCategoryKey,
   type ScoreEventKind,
 } from "./scoreJournal.js";
 import { MIN_PROPERTY_PHOTOS, loadPipelineDeadlines, stageState } from "./propertyPipeline.js";
+import { noContactWhere } from "./noContact.js";
 import { isInstagramLink } from "./instagramLink.js";
 import { computeDemandCounts } from "../routes/matching.js";
 
@@ -46,8 +47,8 @@ import { computeDemandCounts } from "../routes/matching.js";
  *
  * ЗДЕСЬ ПОЧТИ НИЧЕГО НЕ СЧИТАЕТСЯ ЗАНОВО. Все четыре раздела собраны из того, что
  * CRM уже пишет по ходу работы: разборы оборванных переписок (lostConversations.ts),
- * журнал Royal Score (scoreJournal.ts — он и есть летопись просрочек, отказов и
- * сорванных первых звонков), журнал входящих, разбор разговоров (CallAnalysis),
+ * журнал Royal Score (scoreJournal.ts — с 16.11.2026 только плюсовые баллы,
+ * штрафов в нём больше нет), журнал входящих, разбор разговоров (CallAnalysis),
  * конвейер подготовки объектов и счётчик спроса. Своя арифметика поверх этих
  * источников означала бы, что отчёт и экраны CRM показывают разные числа про одну
  * и ту же неделю — так уже расходились Отчёты с Финансами.
@@ -183,14 +184,13 @@ function assembleSection(input: {
 
 /* ────────────────────────── 1. Где теряются клиенты ────────────────────────── */
 
-/** Виды событий журнала, означающие сорванный первый звонок (второй — устаревший
- *  синоним, но в старых записях он ещё встречается и терять его нельзя). */
-const MISSED_FIRST_CALL: ScoreEventKind[] = ["call_15min_missed", "lead_missed"];
-const CLIENT_LOST: ScoreEventKind[] = ["client_lost_agent_fault", "client_lost_no_fault"];
-/** Не строка переопределения (sourceId может быть null — NOT по nullable-полю его бы потерял). */
-const NOT_OVERRIDE_ROW = {
-  OR: [{ sourceId: null }, { NOT: { sourceId: { startsWith: SCORE_OVERRIDE_PREFIX } } }],
-};
+/**
+ * «Первый звонок не сделан вовремя» и «клиенты потеряны» этот раздел раньше
+ * считал по ШТРАФАМ журнала Royal Score (call_15min_missed, client_lost_*).
+ * Автоматические штрафы сняты (владелец 16.11.2026) — новых строк не будет, и
+ * показатели навсегда стояли бы на нуле с «лучше, чем на прошлой неделе».
+ * Убраны вместе со штрафами, а не оставлены пустыми.
+ */
 
 async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
   const cur = within(ctx.current);
@@ -201,14 +201,10 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
     botLostPrev,
     unaccepted,
     unacceptedPrev,
-    missedCalls,
-    missedCallsPrev,
     refusals,
     refusalsPrev,
     escalated,
     escalatedPrev,
-    lost,
-    lostPrev,
     refusalRows,
     escalatedClients,
   ] = await Promise.all([
@@ -222,18 +218,12 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
     // раздачи волной в 10:00 (см. dashboard.ts team-live, тот же баг был там).
     prisma.client.count({ where: { createdAt: cur, acceptedAt: null, assignedAgentId: { not: null }, deletedAt: null, kind: { not: "OTHER" } } }),
     prisma.client.count({ where: { createdAt: prev, acceptedAt: null, assignedAgentId: { not: null }, deletedAt: null, kind: { not: "OTHER" } } }),
-    prisma.royalScoreEvent.count({ where: { kind: { in: MISSED_FIRST_CALL }, at: cur } }),
-    prisma.royalScoreEvent.count({ where: { kind: { in: MISSED_FIRST_CALL }, at: prev } }),
     // Отказы берём из журнала действий: у Client.refusalReason нет времени, и по
     // нему нельзя сказать, в каком периоде отказ случился.
     prisma.auditLog.count({ where: { action: "CLIENT_REFUSE", createdAt: cur } }),
     prisma.auditLog.count({ where: { action: "CLIENT_REFUSE", createdAt: prev } }),
     prisma.client.count({ where: { escalatedAt: cur, deletedAt: null } }),
     prisma.client.count({ where: { escalatedAt: prev, deletedAt: null } }),
-    // Строки переопределения директором (отмена + новый вид) — поправка той же
-    // потери, а не ещё две: без фильтра один клиент считался трижды (C3, 02.10.2026).
-    prisma.royalScoreEvent.count({ where: { kind: { in: CLIENT_LOST }, at: cur, ...NOT_OVERRIDE_ROW } }),
-    prisma.royalScoreEvent.count({ where: { kind: { in: CLIENT_LOST }, at: prev, ...NOT_OVERRIDE_ROW } }),
     prisma.auditLog.findMany({
       where: { action: "CLIENT_REFUSE", createdAt: cur },
       select: { meta: true },
@@ -273,11 +263,8 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
       "Человек написал, поговорил и ушёл, не оставив номер"),
     metric("unaccepted", "Лиды так и не приняты агентом", unaccepted, unacceptedPrev, "/clients",
       "Карточка заведена, но работа по ней не начиналась"),
-    metric("missedCalls", "Первый звонок не сделан вовремя", missedCalls, missedCallsPrev, null,
-      "Лид принят, но за отведённые минуты агент не позвонил"),
     metric("refusals", "Отказы клиентов", refusals, refusalsPrev, null),
     metric("escalated", "Переданы руководству (никто не взял)", escalated, escalatedPrev, "/lost-clients"),
-    metric("lost", "Клиенты потеряны окончательно", lost, lostPrev, "/lost-clients"),
   ];
 
   return assembleSection({
@@ -302,34 +289,27 @@ async function buildClientsSection(ctx: BuildContext): Promise<ProblemSection> {
 
 /* ─────────────────────── 2. Кто из агентов проседает ─────────────────────── */
 
-/** Просрочки и отказы агента — то, из чего складывается «проседает». */
-const AGENT_FAIL_KINDS: Record<string, ScoreEventKind[]> = {
-  windows: ["mandatory_window_overdue"],
-  tasks: ["task_overdue", "showing_missed", "meeting_overdue"],
-  declines: ["lead_declined_2", "lead_declined_3", "lead_declined_4plus"],
-  missedCalls: MISSED_FIRST_CALL,
-};
+/**
+ * Раньше «проседает» складывалось ещё из штрафов журнала (просроченные окна,
+ * сорванные задачи и показы, отказы от лидов, сорванный первый звонок). Штрафы
+ * сняты 16.11.2026 — эти четыре показателя ушли вместе с ними. Осталось то, что
+ * считается по самим карточкам: клиенты без единого касания за период.
+ */
 
 async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
   const cur = within(ctx.current);
-  const prev = within(ctx.previous);
 
-  const [events, eventsPrev, stale, points, agents, prevReport, overrideReverts] = await Promise.all([
+  const [events, stale, points, agents, prevReport, overrideReverts] = await Promise.all([
     // groupBy, а не выборка строк: событий за месяц тысячи, и тянуть их в память
     // ради подсчёта нельзя. Один запрос на всю команду вместо запроса на агента.
     prisma.royalScoreEvent.groupBy({ by: ["agentId", "kind"], where: { at: cur }, _count: { _all: true } }),
-    prisma.royalScoreEvent.groupBy({ by: ["agentId", "kind"], where: { at: prev }, _count: { _all: true } }),
-    // Клиенты без движения: в работе у агента, а последнего касания не было за
-    // весь период. Именно это владелец и называет «потерей контакта».
+    // «Без контакта» — одно правило на всю CRM (packages/shared clientNoContact.ts,
+    // серверная дверь lib/noContact.ts), то же число, что в «Контроле руководителя»
+    // и «Команде». Раньше здесь было своё правило по lastContactAt, который двигает
+    // любая заметка агента, — отчёт и экраны считали бы «потерю контакта» по-разному.
     prisma.client.groupBy({
       by: ["assignedAgentId"],
-      where: {
-        deletedAt: null,
-        assignedAgentId: { not: null },
-        acceptedAt: { not: null },
-        status: { in: ["NEW", "CONTACTED", "HOT"] },
-        lastContactAt: { lt: ctx.current.from },
-      },
+      where: noContactWhere(),
       _count: { _all: true },
     }),
     loadEventPoints(),
@@ -361,31 +341,18 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
     const saved = prevReport?.metrics as {
       sections?: { key?: string; metrics?: { key?: string; value?: number }[] }[];
     } | null;
-    const m = saved?.sections?.find((s) => s.key === "agents")?.metrics?.find((mm) => mm.key === "stale");
+    const m = saved?.sections?.find((s) => s.key === "agents")?.metrics?.find((mm) => mm.key === "noContact");
     return typeof m?.value === "number" ? m.value : null;
   })();
 
   const nameById = new Map(agents.map((a) => [a.id, a.fullName]));
 
-  /** Сколько раз событие каждого вида случилось у каждого агента. */
-  function countBy(rows: typeof events, kinds: ScoreEventKind[]): Map<string, number> {
-    const out = new Map<string, number>();
-    for (const row of rows) {
-      if (!kinds.includes(row.kind as ScoreEventKind)) continue;
-      out.set(row.agentId, (out.get(row.agentId) ?? 0) + row._count._all);
-    }
-    return out;
-  }
   function total(map: Map<string, number>): number {
     let sum = 0;
     for (const v of map.values()) sum += v;
     return sum;
   }
 
-  const windows = countBy(events, AGENT_FAIL_KINDS.windows);
-  const tasks = countBy(events, AGENT_FAIL_KINDS.tasks);
-  const declines = countBy(events, AGENT_FAIL_KINDS.declines);
-  const missed = countBy(events, AGENT_FAIL_KINDS.missedCalls);
   const staleByAgent = new Map(stale.map((s) => [s.assignedAgentId!, s._count._all]));
 
   /**
@@ -399,7 +366,7 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
   const worstCategory = new Map<string, { category: RoyalScoreCategoryKey; sum: number }>();
   const byAgentCategory = new Map<string, Map<RoyalScoreCategoryKey, number>>();
   for (const row of events) {
-    const category = CATEGORY_OF[row.kind as ScoreEventKind];
+    const category = CATEGORY_OF[row.kind as ActiveScoreEventKind];
     if (!category) continue;
     const sums = byAgentCategory.get(row.agentId) ?? new Map<RoyalScoreCategoryKey, number>();
     sums.set(category, (sums.get(category) ?? 0) + (points[row.kind as ScoreEventKind] ?? 0) * row._count._all);
@@ -408,7 +375,7 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
   // Отмена гасит исходное событие (scoreEventPoints в scoreJournal.ts): выше она
   // прибавлена по цене вида, а должна вычитать её — поправка на две цены.
   for (const row of overrideReverts) {
-    const category = CATEGORY_OF[row.kind as ScoreEventKind];
+    const category = CATEGORY_OF[row.kind as ActiveScoreEventKind];
     const sums = byAgentCategory.get(row.agentId);
     if (!category || !sums) continue;
     sums.set(category, (sums.get(category) ?? 0) - 2 * (points[row.kind as ScoreEventKind] ?? 0) * row._count._all);
@@ -425,12 +392,7 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
   // зависит от цен в Настройках, а «шесть просроченных окон» не зависит ни от чего.
   const ranked = [...nameById.keys()]
     .map((agentId) => {
-      const failures =
-        (windows.get(agentId) ?? 0) +
-        (tasks.get(agentId) ?? 0) +
-        (declines.get(agentId) ?? 0) +
-        (missed.get(agentId) ?? 0) +
-        (staleByAgent.get(agentId) ?? 0);
+      const failures = staleByAgent.get(agentId) ?? 0;
       return { agentId, failures };
     })
     .filter((a) => a.failures > 0)
@@ -439,11 +401,7 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
 
   const links: ProblemLink[] = ranked.map(({ agentId }) => {
     const parts = [
-      windows.get(agentId) ? `просрочено окон: ${windows.get(agentId)}` : null,
-      tasks.get(agentId) ? `сорвано задач и показов: ${tasks.get(agentId)}` : null,
-      declines.get(agentId) ? `отказов от лидов: ${declines.get(agentId)}` : null,
-      missed.get(agentId) ? `не позвонил вовремя: ${missed.get(agentId)}` : null,
-      staleByAgent.get(agentId) ? `клиентов без движения: ${staleByAgent.get(agentId)}` : null,
+      staleByAgent.get(agentId) ? `без контакта больше суток: ${staleByAgent.get(agentId)}` : null,
     ].filter(Boolean);
     const category = worstCategory.get(agentId);
     if (category) {
@@ -458,19 +416,15 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
   });
 
   const metrics = [
-    metric("windows", "Обязательные окна просрочены", total(windows), total(countBy(eventsPrev, AGENT_FAIL_KINDS.windows)), null,
-      "Итог разговора, встречи или объекта так и не записан"),
-    metric("tasks", "Задачи, показы и встречи сорваны", total(tasks), total(countBy(eventsPrev, AGENT_FAIL_KINDS.tasks)), "/calendar"),
-    metric("declines", "Отказы агентов от лидов", total(declines), total(countBy(eventsPrev, AGENT_FAIL_KINDS.declines)), null,
-      "Считаются со второго подряд — первый отказ штрафом не считается"),
-    metric("missedCalls", "Первый звонок не сделан вовремя", total(missed), total(countBy(eventsPrev, AGENT_FAIL_KINDS.missedCalls)), null),
+    // Ключ новый (было "stale" по другому правилу): прошлое значение сравнивается
+    // только с отчётом, посчитанным по этому же правилу, иначе тренд врал бы.
     metric(
-      "stale",
-      "Клиенты без единого касания за период",
+      "noContact",
+      "Клиенты без контакта больше суток",
       total(staleByAgent),
       prevStale,
       "/clients",
-      "Карточка в работе, а связи с человеком нет — это и есть потеря контакта"
+      "Ни разговора по телефону, ни сообщения от клиента — это и есть потеря контакта"
     ),
   ];
 
@@ -482,9 +436,9 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
     ago: ctx.ago,
     headline: (worst, trend) => {
       const first = ranked[0];
-      if (!first) return "У команды за период нет ни просрочек, ни брошенных клиентов.";
+      if (!first) return "У команды нет клиентов без контакта больше суток.";
       const name = nameById.get(first.agentId) ?? "Агент";
-      return `${name} — больше всего нарушений за период (${first.failures}). Чаще всего проседает: ${
+      return `${name} — больше всего клиентов без контакта (${first.failures}). Чаще всего проседает: ${
         worst?.label.toLowerCase() ?? "—"
       }. Всего ${trend || "сравнить не с чем"}.`;
     },

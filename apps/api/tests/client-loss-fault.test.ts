@@ -3,12 +3,15 @@ import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
-import { classifyClientLossFault } from "../src/lib/clientLossFault.js";
-import { DEFAULT_EVENT_POINTS } from "../src/lib/scoreJournal.js";
+import { classifyClientLossFaultBatch } from "../src/lib/clientLossFault.js";
 
-/** Royal Score: классификация вины агента при потере клиента (docs/spec-compliance,
- *  Этап 1) — автоматика по просрочкам + ручное переопределение под правом
- *  score.clientLossOverride. */
+/** Одиночная версия удалена 16.11.2026 (жила ради штрафа за потерю клиента) —
+ *  кабинет СБ зовёт пакетную, ею и проверяем то же правило. */
+const classifyClientLossFault = async (clientId: string, now?: Date) =>
+  (await classifyClientLossFaultBatch([clientId], now)).get(clientId);
+
+/** Классификация вины агента при потере клиента (кабинет СБ) — по просрочкам.
+ *  Штраф Royal Score и ручное переопределение сняты 16.11.2026. */
 
 const runId = Date.now();
 const password = "testpass123";
@@ -74,7 +77,6 @@ describe("classifyClientLossFault", () => {
   });
 
   it("classifyClientLossFaultBatch видит то же самое, что и одиночная версия", async () => {
-    const { classifyClientLossFaultBatch } = await import("../src/lib/clientLossFault.js");
     const guiltyClient = await makeClient("Батч — виновен");
     const overdue = await prisma.interaction.create({
       data: {
@@ -111,58 +113,5 @@ describe("classifyClientLossFault", () => {
   });
 });
 
-describe("Ручное переопределение вины (PATCH /royal-score-events/:id/override)", () => {
-  it("директор переопределяет client_lost_no_fault -> client_lost_agent_fault", async () => {
-    const event = await prisma.royalScoreEvent.create({
-      data: { agentId, kind: "client_lost_no_fault", delta: 0, reason: "тест" },
-    });
-    const res = await request(app)
-      .patch(`/api/v1/royal-score-events/${event.id}/override`)
-      .set("Authorization", `Bearer ${directorToken}`)
-      .send({ override: "client_lost_agent_fault", comment: "на самом деле не дозвонился" });
-    expect(res.status).toBe(200);
-
-    const revert = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `override-revert-${event.id}` } });
-    const apply = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `override-apply-${event.id}` } });
-    expect(revert?.delta).toBe(0);
-    expect(apply?.kind).toBe("client_lost_agent_fault");
-    expect(apply?.delta).toBe(DEFAULT_EVENT_POINTS.client_lost_agent_fault);
-
-    // Исходная запись не тронута — журнал не редактируется, только дозаписывается.
-    const original = await prisma.royalScoreEvent.findUnique({ where: { id: event.id } });
-    expect(original?.kind).toBe("client_lost_no_fault");
-  });
-
-  it("агент без права score.clientLossOverride получает 403", async () => {
-    const event = await prisma.royalScoreEvent.create({
-      data: { agentId, kind: "client_lost_no_fault", delta: 0, reason: "тест 2" },
-    });
-    const res = await request(app)
-      .patch(`/api/v1/royal-score-events/${event.id}/override`)
-      .set("Authorization", `Bearer ${agentToken}`)
-      .send({ override: "client_lost_agent_fault" });
-    expect(res.status).toBe(403);
-  });
-
-  it("нельзя переопределить событие другого вида (например deal_closed)", async () => {
-    const event = await prisma.royalScoreEvent.create({
-      data: { agentId, kind: "deal_closed", delta: 10, reason: "тест 3" },
-    });
-    const res = await request(app)
-      .patch(`/api/v1/royal-score-events/${event.id}/override`)
-      .set("Authorization", `Bearer ${directorToken}`)
-      .send({ override: "client_lost_agent_fault" });
-    expect(res.status).toBe(409);
-  });
-
-  it("повторное переопределение тем же видом отклоняется", async () => {
-    const event = await prisma.royalScoreEvent.create({
-      data: { agentId, kind: "client_lost_agent_fault", delta: -5, reason: "тест 4" },
-    });
-    const res = await request(app)
-      .patch(`/api/v1/royal-score-events/${event.id}/override`)
-      .set("Authorization", `Bearer ${directorToken}`)
-      .send({ override: "client_lost_agent_fault" });
-    expect(res.status).toBe(409);
-  });
-});
+// «Ручное переопределение вины» (PATCH /royal-score-events/:id/override) удалено
+// 16.11.2026 вместе со штрафом client_lost_agent_fault — переопределять стало нечего.

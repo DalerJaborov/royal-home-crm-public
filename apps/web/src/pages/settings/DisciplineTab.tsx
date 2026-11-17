@@ -9,7 +9,7 @@ import { SwitchRow } from "../../components/Switch";
  *
  * Решение владельца 01.08.2026 звучит буквально: «любое число правится в
  * Настройках, ничего не остаётся в коде». Обязательные окна, пауза «не принимаю
- * лиды» и штраф за бездействие принесли с собой одиннадцать новых чисел — и без
+ * лиды» и (до 16.11.2026) штраф за бездействие принесли с собой одиннадцать новых чисел — и без
  * этого экрана они хоть и лежали в базе, но правились только разработчиком, то есть
  * фактически оставались в коде.
  *
@@ -34,8 +34,6 @@ export function DisciplineSection() {
     settings && {
       agentPauseMaxHours: String(settings.agentPauseMaxHours ?? 48),
       agentPauseCooldownHours: String(settings.agentPauseCooldownHours ?? 24),
-      inactivityWarnAfterDays: String(settings.inactivityWarnAfterDays ?? 3),
-      inactivityPenaltyAfterDays: String(settings.inactivityPenaltyAfterDays ?? 5),
       dealStaleSellerDays: String(settings.dealStaleSellerDays ?? 10),
       dealStaleBuyerDays: String(settings.dealStaleBuyerDays ?? 21),
       lostReturnAcceptMinutes: String(settings.lostReturnAcceptMinutes ?? 120),
@@ -58,15 +56,13 @@ export function DisciplineSection() {
     e.preventDefault();
     /* Форма наполняется только внутри `if (settings)`. Без ответа сервера все
        поля пусты, и `Number("")`/`Number(undefined)` уехали бы в базу нулями и
-       NaN — то есть сроки обязательных окон и штрафы за бездействие
+       NaN — то есть сроки паузы и застоя
        переписались бы мусором (аудит 22.08.2026, раунд 6). */
     if (!settings) return;
     setSaved(false);
     await updateForm.mutateAsync({
       agentPauseMaxHours: Number(form.agentPauseMaxHours),
       agentPauseCooldownHours: Number(form.agentPauseCooldownHours),
-      inactivityWarnAfterDays: Number(form.inactivityWarnAfterDays),
-      inactivityPenaltyAfterDays: Number(form.inactivityPenaltyAfterDays),
       dealStaleSellerDays: Number(form.dealStaleSellerDays),
       dealStaleBuyerDays: Number(form.dealStaleBuyerDays),
       lostReturnAcceptMinutes: Number(form.lostReturnAcceptMinutes),
@@ -79,8 +75,6 @@ export function DisciplineSection() {
     setSaved(true);
   }
 
-  const warn = Number(form.inactivityWarnAfterDays);
-  const penalty = Number(form.inactivityPenaltyAfterDays);
   const sellerWarn = Number(form.sellerPropertyMissingWarnDays);
   const sellerCritical = Number(form.sellerPropertyMissingCriticalDays);
 
@@ -117,46 +111,9 @@ export function DisciplineSection() {
         </div>
       </section>
 
-      <section className="card">
-        <div className="sec-h stack">
-          <h2>Бездействие по клиенту</h2>
-          <span className="note">
-            Сначала предупреждение, и только потом штраф: наказывать за то, о чём не предупредили, нельзя.
-            Действием считается любая запись в хронологии клиента, а не открытие карточки. Сколько баллов
-            снимает штраф — в таблице баллов: «Сотрудники» → Royal Score, строка «Штраф за бездействие после
-            предупреждения»
-          </span>
-        </div>
-        <div className="fgrid">
-          <Field
-            label="Предупредить через, дней"
-            value={form.inactivityWarnAfterDays}
-            min={1}
-            max={60}
-            onChange={(v) => set("inactivityWarnAfterDays", v)}
-          />
-          <Field
-            label="Штраф через, дней"
-            value={form.inactivityPenaltyAfterDays}
-            min={1}
-            max={90}
-            onChange={(v) => set("inactivityPenaltyAfterDays", v)}
-            /* Условный рендер, а не hidden: на элементе сетки hidden не срабатывает. */
-            bad={penalty > 0 && warn > 0 && penalty <= warn}
-            hint={
-              penalty > 0 && warn > 0 && penalty <= warn
-                ? "Штраф наступает не позже предупреждения — тогда предупреждать уже некогда. Поставьте срок штрафа больше срока предупреждения."
-                : undefined
-            }
-          />
-          {/* «Цена штрафа, баллов» убрана с экрана 02.10.2026 (решение владельца «да, по
-              советам», глубокая проверка C11): счёт агента снимает цену из таблицы баллов
-              Royal Score, а это поле ни на что не влияло — директор ставил 10, счёт падал
-              на 3. Поле Settings.inactivityPenaltyPoints остаётся в базе, экран его не
-              показывает и не отправляет. */}
-        </div>
-      </section>
-
+      {/* «Бездействие по клиенту» (предупреждение, потом штраф) убрано 16.11.2026
+          вместе с автоматическими штрафами Royal Score — решение владельца. Поля
+          Settings.inactivity* остаются в базе, их больше никто не читает. */}
       <section className="card">
         <div className="sec-h stack">
           <h2>Застой сделки</h2>

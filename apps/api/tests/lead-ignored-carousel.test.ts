@@ -3,13 +3,13 @@ import { waitForSettled } from "./helpers/waitFor.js";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
 import { reassignStaleLeads } from "../src/leads.js";
-import { DEFAULT_EVENT_POINTS } from "../src/lib/scoreJournal.js";
 
 /**
  * «Пуш пришёл, он ничего не сделал» (голосовое владельца 12.08.2026) — лид, не
  * принятый и не отклонённый за отведённое время, уходит следующему агенту сам
- * (carousel уже так работал), но теперь ещё и списывает баллы (lead_ignored),
- * отдельно от lead_declined_* — там агент хотя бы явно нажал «Отклонить».
+ * (carousel уже так работал). До 16.11.2026 он ещё и списывал баллы
+ * (lead_ignored); автоматические штрафы владелец снял — карусель осталась, баллы
+ * больше не трогаются.
  */
 
 const runId = Date.now();
@@ -63,15 +63,14 @@ afterAll(async () => {
 });
 
 describe("Лид не принят и не отклонён вовремя", () => {
-  it("списывает lead_ignored тому, кто промолчал", async () => {
+  it("уходит дальше, а баллов промолчавшему не списывает (штраф снят 16.11.2026)", async () => {
     const lead = await makeUnacceptedLead(20);
     await reassignStaleLeads();
 
-    const event = await prisma.royalScoreEvent.findFirst({
-      where: { agentId: agentAId, kind: "lead_ignored", sourceId: { startsWith: `lead-ignored-${lead.id}-` } },
-    });
-    expect(event).not.toBeNull();
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.lead_ignored);
+    const events = await waitForSettled(() =>
+      prisma.royalScoreEvent.count({ where: { agentId: agentAId, sourceId: { startsWith: `lead-ignored-${lead.id}-` } } })
+    );
+    expect(events).toBe(0);
 
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).not.toBe(agentAId);
@@ -86,7 +85,7 @@ describe("Лид не принят и не отклонён вовремя", () 
 
   it("карточка со старым assignedAt (2 дня) не попадает в карусель — окно кандидатов (17.09.2026)", async () => {
     /**
-     * Тот же класс, что и у penalizeMissedFirstCalls (17.09.2026): ручная правка
+     * Тот же класс, что и у handleMissedFirstCalls (17.09.2026): ручная правка
      * assignedAt на старой непринятой карточке не должна снова делать её «свежим»
      * кандидатом карусели reassignStaleLeads.
      */
