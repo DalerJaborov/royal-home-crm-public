@@ -75,8 +75,8 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks(); mocks.model.mockReset(); decisions.length = 0;
   mocks.model.mockImplementation(async (params: { endpoint?: string }) => (/-comment$/.test(params.endpoint ?? "") ? (decisions.shift() ?? null) : null));
-  mocks.graph.mockImplementation(async (_url: string, _token: string, body?: Record<string, unknown>) =>
-    body && ("hide" in body || "is_hidden" in body) ? { success: true } : { id: `${tag}-public-${mocks.graph.mock.calls.length}` });
+  mocks.graph.mockImplementation(async (_url: string, _token: string, body?: Record<string, unknown>, method?: string) =>
+    method === "DELETE" || (body && ("hide" in body || "is_hidden" in body)) ? { success: true } : { id: `${tag}-public-${mocks.graph.mock.calls.length}` });
   mocks.privateReply.mockImplementation(async (...args: unknown[]) => {
     const observe = args[6] as ((v: { messageId: string; recipientId: string | null }) => void) | undefined;
     observe?.({ messageId: `${tag}-dm`, recipientId: null });
