@@ -1,4 +1,4 @@
-export const FINANCE_WORKSPACES = ["expenses", "recurring", "calendar", "table", "overview", "payouts"] as const;
+export const FINANCE_WORKSPACES = ["expenses", "recurring", "calendar", "table", "overview", "payouts", "founders"] as const;
 export type FinanceWorkspace = typeof FINANCE_WORKSPACES[number];
 
 export function financeWorkspace(value: string | null): FinanceWorkspace {

@@ -39,7 +39,9 @@ describe("правило «уже учтено автоматически»", ()
     for (const note of ["Комиссии банка", "Канцтовары для бухгалтерии", "Вода для кулера"]) {
       expect(manualExpenseAutoKinds({ category: "OTHER", note, amount: 100 })).toEqual([]);
     }
-    expect(findAutoExpenseOverlap({ category: "OTHER", note: "Оплата Claude API", amount: 20, currency: "USD" }, autos, RATE)?.kind).toBe("ai");
+    // Названный поставщик ИИ — настоящий счёт (17.11.2026): с оценкой не спорит, оценка Claude за месяц
+    // снимается сама (splitAiEstimate); спрашиваем только безымянное «Оплата ИИ».
+    expect(findAutoExpenseOverlap({ category: "OTHER", note: "Оплата Claude API", amount: 20, currency: "USD" }, autos, RATE)).toBeNull();
   });
 
   it("доля по сделкам: тот же сотрудник — пересечение, другой — нет", () => {

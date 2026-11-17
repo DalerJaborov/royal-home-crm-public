@@ -8,7 +8,8 @@ import { Rh2Inline } from "../rh2/Rh2Scope";
 import type { FinanceWorkspace } from "../../lib/financeWorkspace";
 import type { ClaudeExpense } from "../../lib/claudeFinanceApi";
 import { ClaudeExpenseFeed } from "./ClaudeExpenseFeed";
-import { ClaudeExpenseSheet } from "./ClaudeExpenseSheet";
+import { ClaudeExpenseSheet, type ClaudeSubscriptionPreset } from "./ClaudeExpenseSheet";
+import { ClaudeFounders } from "./ClaudeFounders";
 import { ClaudeSubscriptions } from "./ClaudeSubscriptions";
 import { ClaudePaymentCalendar } from "./ClaudePaymentCalendar";
 import { ClaudeExpenseTable } from "./ClaudeExpenseTable";
@@ -17,7 +18,7 @@ import { ClaudeCategorySettings } from "./ClaudeCategorySettings";
 const TABS: { key: FinanceWorkspace; label: string }[] = [
   { key: "expenses", label: "Расходы" }, { key: "recurring", label: "Подписки" },
   { key: "calendar", label: "Календарь" }, { key: "table", label: "Таблица" },
-  { key: "overview", label: "Обзор и прогноз" }, { key: "payouts", label: "Выплаты" },
+  { key: "overview", label: "Обзор и прогноз" }, { key: "payouts", label: "Выплаты" }, { key: "founders", label: "Учредители" },
 ];
 function monthName(month: string) {
   return new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric", timeZone: "Asia/Dushanbe" })
@@ -44,7 +45,7 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef<HTMLDetailsElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
-  const [sheet, setSheet] = useState<{ expense: ClaudeExpense | null; initialDate?: string; initialRecurring?: boolean } | null>(null);
+  const [sheet, setSheet] = useState<{ expense: ClaudeExpense | null; initialDate?: string; initialRecurring?: boolean; preset?: ClaudeSubscriptionPreset } | null>(null);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   useEffect(() => {
     if (!mobile) return;
@@ -77,6 +78,7 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
     };
   }, [mobile, toolsOpen, categoriesOpen, sheet]);
   const add = (initialDate?: string, initialRecurring = false) => { if (writable) setSheet({ expense: null, initialDate, initialRecurring }); };
+  const addPreset = (preset: ClaudeSubscriptionPreset) => { if (writable) setSheet({ expense: null, initialRecurring: true, preset }); };
   const edit = (expense: ClaudeExpense) => setSheet({ expense });
   const monthControls = <div className="cef-month-controls">
     <button type="button" className="cef-icon-btn" aria-label="Предыдущий месяц" disabled={month <= "1900-01"} onClick={() => onMonthChange(moveMonth(month, -1))}><ChevronLeft /></button>
@@ -112,13 +114,14 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
     {exportError && <p className="cef-error" role="alert">{exportError}</p>}
     <section className="cef-panel" role="tabpanel" id={`finance-panel-${workspace}`} aria-labelledby={`finance-tab-${workspace}`}>
       {workspace === "expenses" && <ClaudeExpenseFeed month={month} canManage={writable} onAdd={() => add()} onEdit={edit} />}
-      {workspace === "recurring" && <ClaudeSubscriptions month={month} canManage={writable} onAdd={() => add(undefined, true)} />}
+      {workspace === "recurring" && <ClaudeSubscriptions month={month} canManage={writable} onAdd={() => add(undefined, true)} onAddPreset={addPreset} />}
       {workspace === "calendar" && <ClaudePaymentCalendar month={month} onMonthChange={onMonthChange} canManage={writable} onAdd={add} onEdit={edit} />}
       {workspace === "table" && <ClaudeExpenseTable month={month} canManage={writable} onAdd={() => add()} onEdit={edit} />}
       {workspace === "overview" && <Rh2Inline className="cef-overview">{overview}</Rh2Inline>}
       {workspace === "payouts" && <Rh2Inline className="cef-overview">{payouts}</Rh2Inline>}
+      {workspace === "founders" && <ClaudeFounders month={month} canManage={writable} />}
     </section>
-    {sheet && <ClaudeExpenseSheet key={sheet.expense?.id ?? `new:${sheet.initialDate ?? "today"}:${sheet.initialRecurring}`} month={month} canManage={writable} editing={sheet.expense} initialDate={sheet.initialDate} initialRecurring={sheet.initialRecurring} onClose={() => setSheet(null)} />}
+    {sheet && <ClaudeExpenseSheet key={sheet.expense?.id ?? `new:${sheet.initialDate ?? "today"}:${sheet.initialRecurring}:${sheet.preset?.vendor ?? ""}`} month={month} canManage={writable} editing={sheet.expense} initialDate={sheet.initialDate} initialRecurring={sheet.initialRecurring} initialPreset={sheet.preset} onClose={() => setSheet(null)} />}
     {categoriesOpen && <ClaudeCategorySettings month={month} canManage={writable} onClose={() => setCategoriesOpen(false)} />}
   </div>;
 }
