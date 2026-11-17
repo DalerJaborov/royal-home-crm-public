@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4062**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4064**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -27507,6 +27507,11 @@
     - return { status: "held", reason: "historical_payload_unavailable" };
       · дословно из кода
   - если selected?.intakeAgentRevisionId
+    - если await isCustomerIngressTicketChannelOff(eventKey)
+      - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${CU…
+        · обращается к базе своим SQL
+      - void reportUnansweredCustomerTurn(eventKey, CUSTOMER_CHANNEL_OFF_REASON);
+        · зовёт reportUnansweredCustomerTurn()
     - const result = await runCustomerDmAgentTurn(eventKey);
       · зовёт runCustomerDmAgentTurn()
     - если result.status === "held"
@@ -29563,6 +29568,9 @@
   · зовёт botAbilitiesOf()
 - const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…
   · зовёт runLegacyQualifyTurn()
+  - если await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…
+    - return channelOffTurn(history, options, source);
+      · дословно из кода
   - const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);
     · зовёт customerAgentLegacyChannelKey()
   - если key && customerAgentChannelMode(key) === "core"

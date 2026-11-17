@@ -25,6 +25,7 @@ import { leadOnlyMarketSummary, leadOnlyOtherInquiryReply, leadOnlyPropertyAsked
 import { leadOnlyPendingOf, type LeadOnlyPending } from "../lib/leadOnlyPending.js";
 import { customerAsksForStaff } from "../lib/customerMutationIntent.js";
 import { contactWhenWithoutAgent } from "../lib/handoffPromise.js";
+import { isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
 
 export interface LegacyLeadOnlyPlan {
   reply: string;
@@ -91,6 +92,9 @@ function callbackTimeOf(own: string, history: readonly ChatMessage[], now: Date)
 
 type LegacyLeadOnlyTurnInput = Parameters<typeof planLegacyLeadOnlyTurnText>[0];
 export async function planLegacyLeadOnlyTurn(input: LegacyLeadOnlyTurnInput): Promise<LegacyLeadOnlyPlan | null> {
+  // Аварийный рубильник CUSTOMER_AGENT_CHANNEL_OFF: ни разбора намерения моделью, ни ответа режима — ход идёт дальше к
+  // двери старого пути (ai/legacyQualifyDoor.ts), и там клиент получает строку передачи, сотрудник — сигнал.
+  if (await isCustomerAgentTurnOff({ channel: input.channel, conversationId: input.conversationId })) return null;
   const plan = await planLegacyLeadOnlyTurnText(input);
   // The last door of the reply text (ai/leadOnlyMode.ts::leadOnlyOutgoing): no consent opening ever leaves this mode.
   return plan ? { ...plan, reply: leadOnlyOutgoing(plan.reply, input.language), staffFollowUp: input.linked && input.cardAgent === false } : null;

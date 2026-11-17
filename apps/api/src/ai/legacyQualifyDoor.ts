@@ -26,6 +26,8 @@ import { channelOwnWords, runChannelCoreTurn, type ChannelCoreIntake, type Chann
 import { customerAgentHandoverLine } from "./customerAgentRenderer.js";
 import { alertChannelStaff } from "../lib/channelStaffAlert.js";
 import { logSystemError } from "../lib/systemError.js";
+import { handOverChannelOffTurn, isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
+import { resolveCustomerDmLanguage } from "./customerDmLanguage.js";
 
 // Helpers of the old bot that callers still need. Re-exported here so that the old module has exactly one importer;
 // step 3b moves each of them to its own module and this list disappears.
@@ -95,6 +97,10 @@ export function channelCoreQualifyResult(outcome: Extract<ChannelCoreOutcome, { 
 
 export async function runLegacyQualifyTurn(history: ChatMessage[], draft: LeadDraft, options: QualifyTurnOptions,
   source: ChannelTurnSource): Promise<QualifyResult | null> {
+  // Emergency kill switch (CUSTOMER_AGENT_CHANNEL_OFF) comes first: it wins over legacy, shadow and core alike.
+  // The account decides the `arvan` key (brand accounts); empty switch = no read at all.
+  if (await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId,
+    conversationId: options.conversationId })) return channelOffTurn(history, options, source);
   const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);
   // Meta keys are never `core` here (their door is rolloutConfig): the switch refuses them.
   if (key && customerAgentChannelMode(key) === "core") {
@@ -111,6 +117,23 @@ export async function runLegacyQualifyTurn(history: ChatMessage[], draft: LeadDr
     } catch { /* the shadow never costs the customer the old reply */ }
   }
   return result;
+}
+
+/**
+ * A turn on a channel switched off by CUSTOMER_AGENT_CHANNEL_OFF (lib/customerAgentChannelOff.ts): no model at all. The
+ * customer hears the core's handover line once per episode, a person gets the «client is waiting» signal once per episode;
+ * later messages of the same episode are recorded silently. The result is never null: null makes the channels queue their
+ * AI-retry job, and a retry would come back here anyway.
+ */
+async function channelOffTurn(history: ChatMessage[], options: QualifyTurnOptions, source: ChannelTurnSource): Promise<QualifyResult | null> {
+  // A guard asking for another wording of a reply this door never wrote: its own fallback applies, no model.
+  if (source.repeat === "regeneration") return null;
+  const own = history.filter(item => item.role === "user").map(item => channelOwnWords(typeof item.content === "string" ? item.content : ""));
+  const language = resolveCustomerDmLanguage(own[own.length - 1] ?? "", own.slice(0, -1));
+  const verdict = await handOverChannelOffTurn({ channel: options.channel ?? source.channel, conversationId: options.conversationId,
+    handoverLines: [customerAgentHandoverLine("ru"), customerAgentHandoverLine("tg")] });
+  if (verdict === "silent") return { reply: [], ready: false, lead: null, silent: "intended" };
+  return { reply: [customerAgentHandoverLine(language)], ready: false, lead: null, verified: true };
 }
 
 async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOptions, source: ChannelTurnSource,

@@ -99,6 +99,14 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     errorSources: ["ai"],
   },
   {
+    key: "bot-channel-off",
+    title: "Аварийное выключение бота по каналам",
+    what: "Бот молчит на выбранных каналах (или только на аккаунтах «Арвана», ключ arvan) и не вызывает ИИ: клиенту одна строка «передал сотруднику», сотруднику — сигнал «клиент ждёт ответа». Пусто — бот работает как обычно.",
+    group: "bot",
+    env: ["CUSTOMER_AGENT_CHANNEL_OFF"],
+    errorSources: ["ai"],
+  },
+  {
     key: "bot-photos",
     title: "Фото объектов в чате",
     what: "Бот присылает клиенту фотографии объекта прямо в переписке.",

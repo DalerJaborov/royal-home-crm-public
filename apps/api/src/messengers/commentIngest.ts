@@ -6,6 +6,7 @@ import { isOwnAccountSender } from "../lib/ownAccountGuard.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { isBotEnabledForChannel } from "./botChannels.js";
+import { isCustomerAgentChannelOff } from "../lib/customerAgentChannelOff.js";
 import { loadBotCapabilities } from "./botCapabilities.js";
 import { isMetaChannelEnabled } from "./meta.js";
 import { enqueueComments, noteCommentsOff, type IncomingComment } from "./commentsQueue.js";
@@ -105,6 +106,12 @@ export function parseIncomingComments(body: unknown): IncomingComment[] {
  *  Комментарии — тот же Instagram, что и директ: выключив бота в Instagram,
  *  владелец не должен обнаружить, что под постами он всё ещё говорит. */
 export async function isCommentsBotEnabled(channel: MessengerChannel = "INSTAGRAM"): Promise<boolean> {
+  // Аварийный рубильник CUSTOMER_AGENT_CHANNEL_OFF (lib/customerAgentChannelOff.ts): под постами выключенного канала
+  // бот тоже молчит; комментарии сохраняются, как при выключенном канале в Настройках.
+  if (isCustomerAgentChannelOff(channel)) {
+    await noteCommentsOff(channel, "бот на этом канале выключен аварийным рубильником CUSTOMER_AGENT_CHANNEL_OFF");
+    return false;
+  }
   // Отдельный ползунок «отвечать на комментарии» (Настройки → Бот → «Что бот
   // умеет»): под постами бот говорит на людях, и выключать это хочется отдельно
   // от личной переписки, не трогая Instagram целиком.
