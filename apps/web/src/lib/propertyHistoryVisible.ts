@@ -11,6 +11,11 @@ import type { PermissionId } from "@royal-home/shared";
  */
 export function canViewPropertyHistory(can: (permission: PermissionId) => boolean, isResponsible: boolean): boolean {
   return (
-    can("auditLog.view") || can("properties.viewOwners") || can("properties.editForeign") || isResponsible
+    can("auditLog.view") ||
+    can("properties.viewOwners") ||
+    can("properties.editForeign") ||
+    // РОП (модерация объектов) — сервер (routes/auditLog.ts) пускает его с 16.11, экран отказывал (владелец 17.11.2026).
+    can("properties.moderate") ||
+    isResponsible
   );
 }

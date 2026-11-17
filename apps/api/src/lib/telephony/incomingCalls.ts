@@ -749,15 +749,6 @@ async function findArchiveReviewerForCallback(entry: LiveIncoming, matchedDelete
   }
 }
 
-/** Причины отказа перевода звонившему, после которых перезвон из Корзины идёт путём незнакомого номера. */
-const ARCHIVE_CALLBACK_PERSON_REASONS: ReadonlySet<string> = new Set([
-  "agent_busy",
-  "agent_offline",
-  "agent_frozen",
-  "agent_inactive",
-  "no_extension",
-]);
-
 /** Попытка увести звонок ответственному агенту. Отдельная функция — ради поля routing. */
 async function routeIncoming(entry: LiveIncoming): Promise<void> {
   if (!entry.channelName) return;
@@ -779,6 +770,7 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
   if (outcome.routed && entry.archiveReviewerId) {
     entry.archiveRoutedAt = new Date();
     entry.archiveRingSeconds = archiveCallbackRingSeconds((await loadIncomingSettings()).routeRingSeconds);
+    // Оператору такой звонок больше не уходит (17.11.2026): мост после перевода — это звонивший.
   }
   /**
    * ЗВОНИТЬ ВООБЩЕ НЕКОМУ (не "не получилось", а "нет ответственного") — пробуем
@@ -789,11 +781,9 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
    * карточек) сюда НЕ попадают нарочно — см. заголовки kpiQueueRouting.ts и
    * dutyRosterRouting.ts.
    */
-  // Перезвон из Корзины (17.11.2026): звонивший не принял звонок по причинам «человека» (занят, заморожен,
-  // нет аппарата…) — для остальных это по-прежнему незнакомый номер, то есть те же режимы KPI/дежурного.
-  const archiveCallbackRefused =
-    !outcome.routed && !!entry.archiveReviewerId && ARCHIVE_CALLBACK_PERSON_REASONS.has(outcome.reason);
-  if (!outcome.routed && (outcome.reason === "no_client" || outcome.reason === "no_agent" || archiveCallbackRefused)) {
+  // Перезвон из Корзины в KPI/дежурного не уходит (владелец 17.11.2026: «только РОПу») — ниже его держит
+  // holdKnownClientAwayFromOperator: мобильный РОПа, потом автоответчик.
+  if (!outcome.routed && !entry.archiveReviewerId && (outcome.reason === "no_client" || outcome.reason === "no_agent")) {
     const params = { channelName: entry.channelName, phone: entry.phone, recordId: entry.recordId, isAnswered };
     const kpi = await routeUnknownCallByKpiQueue(params);
     // Перевод по KPI удался — дежурного не зовём: его запись в журнале стёрла бы
@@ -836,6 +826,7 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
       phone: entry.phone,
       clientId: entry.clientId,
       recordId: entry.recordId,
+      archiveReviewerId: entry.archiveReviewerId,
       isAnswered,
     },
     outcome.reason

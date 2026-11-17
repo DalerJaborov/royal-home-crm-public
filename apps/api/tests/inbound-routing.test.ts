@@ -428,22 +428,22 @@ describe("перевод входящего на ответственного", 
       await prisma.agent.update({ where: { id: agentB }, data: { frozenAt: null } });
     });
 
-    it("уходит звонившему: короткий звонок (15 с даже при 150 в настройках) и запасной путь «очередь операторов», карточка не оживает", async () => {
+    it("уходит звонившему: полное время перевода и автоответчик, НЕ очередь операторов (владелец 17.11), карточка не оживает", async () => {
       await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 150 } });
       const result = await route(`ch-archive-cb-${runId}`, { clientId: null, archiveReviewerId: agentB });
       expect(result).toEqual({ decision: "routed", routedToId: agentB });
       expect(varSent("RH_ROUTE_TARGET")).toBe(ext.second);
-      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("15");
-      expect(varSent("RH_ROUTE_FALLBACK")).toBe("queue");
+      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("150");
+      expect(varSent("RH_ROUTE_FALLBACK")).toBe("voicemail");
       const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
       expect(card.deletedAt).not.toBeNull();
       expect(card.assignedAgentId).toBe(agentA);
     });
 
-    it("«без ограничения» (0) в настройках не делает звонок бесконечным: тоже 15 с", async () => {
+    it("«без ограничения» (0) — как у своего агента: звонит, пока клиент не положит трубку", async () => {
       await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 0 } });
       await route(`ch-archive-cb0-${runId}`, { clientId: null, archiveReviewerId: agentB });
-      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("15");
+      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("0");
     });
 
     it("настройка короче 15 с (10) уважается", async () => {
@@ -468,24 +468,22 @@ describe("перевод входящего на ответственного", 
       expect(redirects()).toEqual([]);
     });
 
-    it("звонивший занят — без ожидания и парковки, звонок остаётся оператору", async () => {
+    it("звонивший занят — клиент ждёт ЕГО в зале ожидания (как свой агент), освободился — перевод ему", async () => {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 2 } });
       trackCall({ channelId: `archive-busy-${runId}`, agentId: agentB, clientId, clientShortId: 1, clientName: "Другой", dialingTo: agentMobile });
-      const started = Date.now();
-      const result = await route(`ch-archive-cb3-${runId}`, { clientId: null, archiveReviewerId: agentB });
-      expect(result.decision).toBe("agent_busy");
-      expect(redirects()).toEqual([]);
-      expect(amiSent.filter((a) => a.fields.Context === WAIT_CONTEXT)).toEqual([]);
-      expect(Date.now() - started).toBeLessThan(1500);
+      const donePromise = route(`ch-archive-cb3-${runId}`, { clientId: null, archiveReviewerId: agentB });
+      setTimeout(() => resetCalls(), 200);
+      const result = await donePromise;
+      expect(result).toEqual({ decision: "routed", routedToId: agentB });
+      expect(redirects().some((r) => r.fields.Context === WAIT_CONTEXT)).toBe(true);
     });
 
-    it("аппарат звонившего не на связи (режим «только внутренний») — звонок остаётся оператору, без ожидания и парковки", async () => {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { asteriskAgentDialMode: "extension", incomingRouteRingSeconds: 150 } });
+    it("аппарат звонившего не на связи — оператору не отдаём: ждём его, как своего агента", async () => {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { asteriskAgentDialMode: "extension", incomingRouteRingSeconds: 1 } });
       setEndpoints([{ technology: "SIP", resource: ext.second, state: "offline" }]);
-      const started = Date.now();
       const result = await route(`ch-archive-cb4-${runId}`, { clientId: null, archiveReviewerId: agentB });
       expect(result.decision).toBe("agent_offline");
-      expect(redirects()).toEqual([]);
-      expect(Date.now() - started).toBeLessThan(1500);
+      expect(redirects().some((r) => r.fields.Context === WAIT_CONTEXT)).toBe(true);
     });
   });
 
