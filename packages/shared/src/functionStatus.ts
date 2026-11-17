@@ -245,7 +245,7 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     title: "Сбор объявлений с Somon и Paydo",
     what: "CRM сама собирает объявления рынка и сопоставляет их с нашими объектами.",
     group: "market",
-    env: ["MARKET_CRAWL_ENABLED"],
+    env: ["MARKET_CRAWL_ENABLED", "MARKET_SOMON_CRAWL_SCHEDULE"],
     cron: ["market-weekly-crawl", "market-paydo-daily", "market-paydo-incremental", "market-somon-incremental", "market-own-match"],
   },
   // ─── ИИ и ключи ───

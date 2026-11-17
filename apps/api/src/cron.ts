@@ -39,6 +39,7 @@ import { calculateDailyKpiForAllAgents } from "./kpi.js";
 import { isWithinWorkingHours } from "./lib/workingHours.js";
 import { refreshUsdToTjsRateFromAlif } from "./lib/exchangeRate.js";
 import { logSystemError, type SystemErrorSource } from "./lib/systemError.js";
+import { somonCrawlSchedule } from "./lib/market/somonCrawlSchedule.js";
 import { dushanbeWallClock, DUSHANBE_OFFSET_MS } from "./lib/dushanbeTime.js";
 import { runDailyStoriesTick } from "./lib/dailyStories.js";
 import { prisma } from "./db.js";
@@ -1866,19 +1867,25 @@ export function startCronJobs() {
   );
 
   /**
-   * ПОЛНЫЙ ОБХОД SOMON (владелец 02.11.2026): квартиры и дома в Душанбе. С 17.11.2026 КАЖДУЮ НОЧЬ в 02:45
-   * (имя тика осталось прежним, «weekly»: по нему живут отметка крона и карта продукта): подбор под клиентов
-   * берёт только то, что сбор видел за 3 суток (Настройки, marketBuyerFreshDays), а раз в неделю дома и
-   * глубокие страницы квартир не обновлялись по шесть дней. Около 180 страниц через общий бюджет fetchSomon
+   * ПОЛНЫЙ ОБХОД SOMON (владелец 02.11.2026): квартиры и дома в Душанбе. Частота — MARKET_SOMON_CRAWL_SCHEDULE
+   * (lib/market/somonCrawlSchedule.ts): по умолчанию раз в неделю (воскресенье 02:45), `nightly` — каждую ночь
+   * в 02:45 (17.11.2026: владелец частоту не выбрал, поведение прода по умолчанию не меняется). Имя тика прежнее,
+   * «weekly»: по нему живут отметка крона и карта продукта. Подбор под клиентов берёт только то, что сбор видел
+   * за 3 суток (Настройки, marketBuyerFreshDays). Около 180 страниц через общий бюджет fetchSomon
    * (темп ≥ 10 с, уступает парсеру лидов) — примерно час. Paydo в 02:30 (около 10 минут) идёт раньше:
    * замок обходов общий, и ночной Paydo в 03:00 при долгом Somon пропускался бы.
    * Порог «исчезло» прежний (264 ч, marketStore.ts) — ночные обходы его только страхуют.
    * Неполный обход (оборван, «собрано мало» против счётчика сайта или прежнего каталога) — НЕ успех тика:
    * отметка крона краснеет, исчезнувшие не ставятся. По умолчанию ВЫКЛЮЧЕН: MARKET_CRAWL_ENABLED=1.
    */
+  const somonSchedule = somonCrawlSchedule();
+  if (somonSchedule.invalid !== undefined) {
+    void logSystemError("cron", `MARKET_SOMON_CRAWL_SCHEDULE «${somonSchedule.invalid}» не распознано (нужно weekly или nightly): полный обход Somon идёт раз в неделю`,
+      { dedupKey: `somon-crawl-schedule-invalid:${somonSchedule.invalid}` });
+  }
   scheduleTracked(
     "market-weekly-crawl",
-    "45 2 * * *",
+    somonSchedule.cron,
     async () => {
       if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
       try {

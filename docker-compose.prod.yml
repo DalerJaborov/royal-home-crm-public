@@ -194,6 +194,9 @@ services:
       # строки значение из .env.production в контейнер не попадало: на 11.11.2026 каталог был
       # пуст, хотя переключатель описан в журнале 02.11. По умолчанию выключен.
       MARKET_CRAWL_ENABLED: "${MARKET_CRAWL_ENABLED:-0}"
+      # Частота полного обхода Somon (17.11.2026, lib/market/somonCrawlSchedule.ts): пусто/weekly — раз в
+      # неделю (воскресенье 02:45), nightly — каждую ночь. Читается при старте: менять — пересоздать api/worker.
+      MARKET_SOMON_CRAWL_SCHEDULE: "${MARKET_SOMON_CRAWL_SCHEDULE:-}"
       # Озвучка роликов и отчёт собственнику (lib/mediaExecution.ts): LIVE — по-настоящему
       # звать ElevenLabs и слать mp3 монтажёру, иначе PREVIEW. Без этих строк значение из
       # .env.production в контейнер не попадало (12.11.2026, тот же класс, что MARKET_CRAWL).

@@ -102342,7 +102342,6 @@
   },
   {
    "id": "market-weekly-crawl",
-   "when": "45 2 * * *",
    "tree": [
     {
      "k": "if",

@@ -71180,7 +71180,6 @@
   },
   {
    "id": "market-weekly-crawl",
-   "when": "45 2 * * *",
    "label": "market-weekly-crawl",
    "tree": [
     {

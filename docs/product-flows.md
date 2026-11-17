@@ -22927,7 +22927,7 @@
       - tick.failure = `${label}: ${reason}`.slice(0, 500);
         · дословно из кода
 
-### market-weekly-crawl — 45 2 * * *
+### market-weekly-crawl — undefined
 
 - если process.env.MARKET_CRAWL_ENABLED !== "1"
   - return;
