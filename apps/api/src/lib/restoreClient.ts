@@ -82,7 +82,7 @@ export async function restoreClientFromTrash(clientId: string, actorId: string):
     }
     // Часы ночного переноса в Корзину — заново с момента восстановления
     // (23.09.2026). Карточку, которую перенос убрал сам (Потерянный/Неактивный
-    // старше срока), он в ту же ночь уносил обратно: lostAt и inactiveSince
+    // старше срока), он в ту же ночь уносил обратно: lostAt
     // оставались прежними. Статус не трогаем — это решение человека, а не кнопки.
     const now = new Date();
     await tx.client.update({
@@ -92,7 +92,6 @@ export async function restoreClientFromTrash(clientId: string, actorId: string):
         deletedById: null,
         ...(ownerGone ? {} : queueData),
         ...(client.status === "LOST" ? { lostAt: now } : {}),
-        ...(client.workStatus === "INACTIVE" && client.inactiveSince ? { inactiveSince: now, inactivePingCount: 0 } : {}),
       },
     });
     if (ownerGone || restoredAgentId) {

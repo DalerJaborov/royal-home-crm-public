@@ -1,4 +1,6 @@
+import { lastRealContactTime, noContactCutoff } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { TALKED_CALL_WHERE } from "./noContact.js";
 import type { CustomerTransportReference } from "./customerConversationScope.js";
 
 /**
@@ -12,19 +14,39 @@ export type DeliveryTarget =
   | { kind: "bot"; id: string; channel: string; subscriberId: string; accountId?: string | null; transport?: CustomerTransportReference }
   | { kind: "telegram"; id: string; subscriberId: string };
 
+/** Сколько суток без разговора по телефону — агент клиента «забросил» для паузы бота. */
+export const ABANDONED_AFTER_DAYS = 7;
+
 /**
  * Постоянная пауза (см. OPERATOR_REPLY_PAUSE_MS в conversationDelivery.ts) держит
- * бота молчащим, только пока агент реально ведёт клиента. Если карточка ушла в
- * ClientStatus.LOST/ARCHIVED (лид признан потерянным) или в WorkStatus.INACTIVE
- * (агент клиента фактически забросил, слот активных лидов освобождён) — новое
- * обращение того же клиента не должно упираться в старую тишину: см.
+ * бота молчащим, только пока агент реально ведёт клиента. Если клиента забросили —
+ * новое обращение не должно упираться в старую тишину: см.
  * messengers/conversation.ts, где на этот признак проверяется isPaused перед
  * тем, как решить, отвечает ли бот (уточнение владельца 18.08.2026).
+ *
+ * С 16.11.2026 «забросили» считается ОБЩИМ правилом «без контакта»
+ * (packages/shared/src/clientNoContact.ts) с порогом {@link ABANDONED_AFTER_DAYS}
+ * (без единого разговора — от создания карточки),
+ * а не статусами LOST/«Неактивный» — их больше нет. Учитывается только разговор
+ * по телефону: сообщения самого клиента здесь не в счёт, ведь клиент как раз
+ * пишет в паузу, которую никто не читает. Архив (владелец его не трогал) — та же
+ * закрытая карточка, пауза по ней тоже снимается.
  */
-export async function isClientLostOrAbandoned(clientId: string): Promise<boolean> {
-  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { status: true, workStatus: true } });
+export async function isClientLostOrAbandoned(clientId: string, now: Date = new Date()): Promise<boolean> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: {
+      status: true,
+      createdAt: true,
+      interactions: { where: TALKED_CALL_WHERE, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+    },
+  });
   if (!client) return false;
-  return client.status === "LOST" || client.status === "ARCHIVED" || client.workStatus === "INACTIVE";
+  if (client.status === "ARCHIVED") return true;
+  // Отсчёт — от последнего разговора, а если его не было — от создания карточки:
+  // свежую заявку, до которой ещё не дозвонились, «заброшенной» не считаем.
+  const since = lastRealContactTime({ createdAt: client.createdAt, lastTalkedCallAt: client.interactions[0]?.createdAt }) ?? client.createdAt;
+  return since.getTime() < noContactCutoff(now, ABANDONED_AFTER_DAYS).getTime();
 }
 
 /**

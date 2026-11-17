@@ -10,7 +10,6 @@ import {
   clientUpdateSchema,
   clientDisplayName,
   CLIENT_KIND_LABELS,
-  CLIENT_STATUS_LABELS,
   isClientCardFilled,
   INTERACTION_TYPES,
   SALES_AGENT_ROLES,
@@ -1248,13 +1247,16 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
    * не принимает — это та же промежуточная остановка, а интерфейс статус через
    * PATCH не шлёт вовсе (ни форма, ни хронология), так что штатные пути не задеты.
    */
-  const requestedKind = parsed.data.kind ?? existing.kind;
-  if (parsed.data.status && parsed.data.status !== existing.status && !can(req, "clients.assign")) {
-    return res.status(403).json({
-      error:
-        existing.kind === "SELLER" || requestedKind === "SELLER"
-          ? "Состояние продавца ставит CRM автоматически (закрытие сделки, «Итог объекта» и т.п.) — агенту менять статус вручную нельзя"
-          : "Состояние покупателя ставит CRM. Агенту доступны «Неактивный», «Передача» и «Завершить сделку»",
+  /**
+   * СТАТУС КЛИЕНТА ВРУЧНУЮ НЕ МЕНЯЕТСЯ НИКЕМ (владелец 17.11.2026: статусы клиента
+   * не показываются и не ставятся). Колонка осталась только для внутренних нужд
+   * (закрытая сделка, Архив) — их ставит сама CRM. Раньше руководитель мог
+   * прислать status в PATCH; теперь это отказ для всех, чтобы статус не вернулся
+   * обходным путём.
+   */
+  if (parsed.data.status && parsed.data.status !== existing.status) {
+    return res.status(400).json({
+      error: "Статус клиента вручную не меняется: в CRM его больше нет. Работу с клиентом ведите действиями карточки",
     });
   }
 
@@ -1303,7 +1305,7 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
         clientId: existing.id,
         actor: { kind: "agent", agentId: req.agent!.id },
         type: "STATUS_CHANGE",
-        notes: `Статус изменён с «${CLIENT_STATUS_LABELS[existing.status]}» на «${CLIENT_STATUS_LABELS[data.status]}»`,
+        notes: "Статус изменён",
         tx,
       });
     }

@@ -256,7 +256,7 @@ describe("«Сделка закрыта» продавцу агент не ст�
       .patch(`/api/v1/clients/${seller.id}`)
       .set("Authorization", `Bearer ${agentToken}`)
       .send({ status: "DEAL_CLOSED" });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
 
     const after = await prisma.client.findUnique({ where: { id: seller.id } });
     expect(after?.status).toBe("NEW");
@@ -270,22 +270,22 @@ describe("«Сделка закрыта» продавцу агент не ст�
       .patch(`/api/v1/clients/${seller.id}`)
       .set("Authorization", `Bearer ${agentToken}`)
       .send({ status: "HOT" });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
 
     const after = await prisma.client.findUnique({ where: { id: seller.id } });
     expect(after?.status).toBe("NEW");
   });
 
-  it("15.09.2026: руководство (clients.assign) по-прежнему может поправить статус продавца вручную — escape hatch не тронут", async () => {
+  it("17.11.2026: руководство статус продавца вручную тоже не меняет — статусов клиента больше нет", async () => {
     const seller = await makeSeller();
 
     const res = await request(app)
       .patch(`/api/v1/clients/${seller.id}`)
       .set("Authorization", `Bearer ${token}`)
       .send({ status: "HOT" });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
 
     const after = await prisma.client.findUnique({ where: { id: seller.id } });
-    expect(after?.status).toBe("HOT");
+    expect(after?.status).not.toBe("HOT");
   });
 });

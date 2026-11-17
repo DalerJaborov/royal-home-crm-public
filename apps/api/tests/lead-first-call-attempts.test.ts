@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
-import { collectFirstCallFacts, penalizeMissedFirstCalls } from "../src/leads.js";
+import { collectFirstCallFacts, handleMissedFirstCalls } from "../src/leads.js";
+import { missedFirstCallMarks } from "./helpers/missedFirstCall.js";
 
 /**
  * Что закрывает обязанность первого звонка (23.09.2026, проверка раздачи,
@@ -54,8 +55,8 @@ async function seedCall(clientId: string, minutesAgo: number, callAttempt: strin
 const tried = async (lead: { id: string; assignedAgentId: string | null; acceptedAt: Date | null }) =>
   !!(await collectFirstCallFacts([lead], 30, 15)).get(lead.id)?.tried;
 
-const penalized = (clientId: string) =>
-  prisma.royalScoreEvent.count({ where: { sourceId: { startsWith: `call-missed-${clientId}-` } } });
+/** Крон признал срыв первого звонка (до 16.11.2026 — строка штрафа, теперь запись в хронологии). */
+const penalized = missedFirstCallMarks;
 
 beforeAll(async () => {
   const passwordHash = await bcrypt.hash("testpass123", 10);
@@ -94,7 +95,7 @@ describe("пункт 11: сообщение из CRM — попытка связ
 
   it("крон не штрафует агента, который написал клиенту", async () => {
     const lead = await seedLead("Написал, не звонил", 20, 18);
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
     expect(await penalized(lead.id)).toBe(0);
   });
 });
@@ -127,7 +128,7 @@ describe("пункт 12: звонок, не дошедший до клиента
   it("крон штрафует, если был только несостоявшийся звонок", async () => {
     const lead = await seedLead("Только не снял", 20);
     await seedCall(lead.id, 18, "AGENT_NO_PICKUP");
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
     expect(await penalized(lead.id)).toBe(1);
   });
 });

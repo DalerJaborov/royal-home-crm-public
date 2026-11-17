@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   CLIENT_SOURCES,
-  CLIENT_STATUSES,
   clientKindLabel,
   formatClientCode,
   formatClientName,
@@ -55,7 +54,6 @@ const argsSchema = z.object({
   q: z.string().trim().max(200).optional(),
   agentName: z.string().trim().max(100).optional(),
   districtName: z.string().trim().max(100).optional(),
-  status: z.enum(CLIENT_STATUSES).optional(),
   source: z.enum(CLIENT_SOURCES).optional(),
   hot: z.boolean().optional(),
   kind: z.enum(["BUYER", "SELLER"]).optional(),
@@ -74,7 +72,6 @@ const parameters = {
     },
     agentName: { type: "string", description: "Имя или фамилия агента, за которым закреплены клиенты («Сайфуллоев»); «мои клиенты» — передай «me»" },
     districtName: { type: "string", description: "Район, который клиент ищет («Сино», «Шоҳмансур»)" },
-    status: { type: "string", enum: [...CLIENT_STATUSES] },
     source: { type: "string", enum: [...CLIENT_SOURCES] },
     hot: { type: "boolean", description: "true — только горячие клиенты" },
     kind: { type: "string", enum: ["BUYER", "SELLER"], description: "BUYER — покупатели, SELLER — продавцы (собственники)" },
@@ -164,7 +161,7 @@ export const findClientsTool: AssistantReadToolPlugin = {
     const scope = trashScope === "none" || (phoneQuery && !trashContacts) ? "live" : wantedScope;
     const where: Prisma.ClientWhereInput = {
       ...(scope === "live" ? { deletedAt: null } : scope === "trash" ? { deletedAt: { not: null } } : {}),
-      ...clientFieldFilters({ kind: args.kind, status: args.status, source: args.source, districtId, hot: args.hot }),
+      ...clientFieldFilters({ kind: args.kind, source: args.source, districtId, hot: args.hot }),
     };
     const and: Prisma.ClientWhereInput[] = [];
     // Не руководство: из Корзины — только карточки, закреплённые за самим спросившим.
@@ -242,7 +239,6 @@ export const findClientsTool: AssistantReadToolPlugin = {
           // Имя — с ролью (как на экранах) и без номера внутри; всё присланное — в границах «данные».
           name: safeField(clientNamePhoneSafe(formatClientName(c), contacts)),
           kind: clientKindLabel(c),
-          status: c.status,
           source: c.source,
           phone: c.deletedAt !== null && !trashContacts ? null : clientPhoneFor(c.phone, contacts && c.acceptedAt !== null),
           pendingAcceptance: c.acceptedAt === null,

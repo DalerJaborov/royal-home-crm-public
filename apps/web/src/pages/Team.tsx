@@ -11,21 +11,12 @@ import { ROLE_LABELS } from "../lib/roles";
 import type { Role } from "@royal-home/shared";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { formatMoney, pluralizeRu, relativeTime } from "../lib/format";
-import { CLIENT_STATUS_LABELS } from "../lib/clientFormat";
-import type { ClientStatus } from "@royal-home/shared";
 import { initials, presenceOf } from "../lib/theme2026Person";
 import { avatarTone } from "../lib/avatarTone";
 import { scrollableRegion } from "../lib/a11y";
 import { useSyncFiltersToUrl } from "../hooks/useUrlFilters";
-import { loadState } from "../lib/teamLoad";
 import { TeamTabs } from "../components/SectionTabs";
 import { useCleanShell } from "../hooks/useCleanShell";
-
-/** Статусы, которые показывает мини-разбивка «по этапам» на строке агента
- *  (экран «Команда по этапам», антифрод, мозговой штурм владельца 20-21.08.2026):
- *  только живая нагрузка, LOST/DEAL_CLOSED/ARCHIVED здесь не нужны, это уже не
- *  портфель, за которым нужно следить руководству. */
-const STAGE_BADGE_STATUSES: ClientStatus[] = ["NEW", "CONTACTED", "HOT", "COLD", "UNRESPONSIVE"];
 
 /** Достижения месяца: по одному значку на номинацию, только среди активных с ненулевым результатом.
  *  Комиссия приходит null у смотрящего без finance.view (ночная проверка 24.09.2026, №159/М4) —
@@ -82,50 +73,26 @@ export function Team() {
 }
 
 /** Шторка «Фильтры» (макет `#sh-team-filters`): роль и состояние сотрудника. */
-type TeamState = "all" | "online" | "frozen" | "limit";
+type TeamState = "all" | "online" | "frozen";
 
 /** Роли в порядке сегмента макета; показываются только те, что есть в команде. */
 const SHEET_ROLES: Role[] = ["AGENT", "MANAGER", "MARKETING", "EDITOR", "SECURITY"];
-
-/**
- * Нагрузка агента относительно лимита из Настроек (тот же счётчик, что
- * останавливает раздачу, см. lib/leadLimits.ts на сервере). «Близко» = остался
- * один слот: в макете 5 из 6 подсвечено жёлтым, 6 из 6 красным.
- */
-
 
 /** Активные агенты, которым раздача может дать лид (замороженный не получает ничего). */
 function takingAgents(team: TeamMember[]): TeamMember[] {
   return team.filter((m) => m.role === "AGENT" && m.isActive && !m.frozen);
 }
 
-/** Полоса «5 из 6» (макет `.loadbar[.near|.full]`). Без лимита — только число. */
+/**
+ * Нагрузка агента — просто число покупателей в работе. Лимита активных лидов
+ * больше нет (владелец 16.11.2026: «лимитов заявок больше нет и не будет»),
+ * поэтому и полосы «5 из 6» нет: число ничего не останавливает.
+ */
 function LoadBar({ member, compact = false }: { member: TeamMember; compact?: boolean }) {
-  const state = loadState(member);
-  if (state === "nolimit") {
-    return compact ? null : (
-      <span className="loadbar">
-        <span className="n">{member.activeLoad}, без лимита</span>
-      </span>
-    );
-  }
-  const v = Math.min(1, member.activeLoad / member.leadLimit);
+  if (compact) return null;
   return (
-    <span
-      className={`loadbar${state === "near" ? " near" : state === "full" ? " full" : ""}`}
-      style={compact ? { maxWidth: 96, minWidth: 72 } : undefined}
-      // aria-label на span допустим только с ролью (axe aria-prohibited-attr).
-      role="img"
-      aria-label={`Нагрузка ${member.activeLoad} из ${member.leadLimit}`}
-    >
-      <span className="bar">
-        <i style={{ "--v": v } as CSSProperties} />
-      </span>
-      {!compact && (
-        <span className="n">
-          {member.activeLoad} из {member.leadLimit}
-        </span>
-      )}
+    <span className="loadbar">
+      <span className="n">{member.activeLoad}</span>
     </span>
   );
 }
@@ -206,26 +173,16 @@ function TeamDesktop() {
     if (roleFilter) list = list.filter((m) => m.role === roleFilter);
     if (stateFilter === "online") list = list.filter((m) => m.online);
     else if (stateFilter === "frozen") list = list.filter((m) => m.frozen);
-    else if (stateFilter === "limit") list = list.filter((m) => loadState(m) === "full");
     return list;
   }, [team, filter, roleFilter, stateFilter]);
   const online = (team ?? []).filter((m) => m.online).length;
   const frozenMembers = (team ?? []).filter((m) => m.frozen);
   const rolesPresent = SHEET_ROLES.filter((r) => (team ?? []).some((m) => m.role === r));
-  /**
-   * Карточка «Нагрузка» (макет): сколько агентов берут работу, сколько у
-   * последнего слота, сколько упёрлись в лимит. Считаются только активные и
-   * не замороженные агенты: замороженный лиды не получает независимо от
-   * портфеля, он в «Решить сейчас».
-   */
+  /** Карточка «Нагрузка»: сколько агентов берут работу и сколько у них клиентов. */
   const load = useMemo(() => {
     const agents = takingAgents(team ?? []);
-    const limit = agents[0]?.leadLimit ?? 0;
-    const free = agents.filter((m) => loadState(m) === "free").length;
-    const near = agents.filter((m) => loadState(m) === "near").length;
-    const full = agents.filter((m) => loadState(m) === "full").length;
     const total = agents.reduce((n, m) => n + m.activeLoad, 0);
-    return { agents: agents.length, limit, free, near, full, total };
+    return { agents: agents.length, total };
   }, [team]);
 
   if (!isSupervisor) {
@@ -335,49 +292,24 @@ function TeamDesktop() {
               aria-pressed={showStages}
               onClick={() => setShowStages((v) => !v)}
             >
-              По стадиям клиентов
+              Показы и сделки
             </button>
           </div>
         </div>
 
         <TeamTabs />
 
-        {/* Нагрузка по лимиту лидов (макет `.prog.split`). Без лимита в Настройках
-            полосу строить не из чего: честная строка вместо выдуманной шкалы. */}
+        {/* Нагрузка — одной строкой: лимита нет (16.11.2026), шкалу строить не из чего. */}
         {(team?.length ?? 0) > 0 && (
           <div className="card tight">
             <div className="sec-h">
               <h2>Нагрузка</h2>
-              <span className="note">
-                {load.limit > 0 ? `Лимит ${load.limit} активных клиентов на агента` : "Лимит лидов выключен в настройках"}
-              </span>
             </div>
-            {load.limit > 0 && load.agents > 0 ? (
-              <>
-                <div className="prog split" aria-hidden="true">
-                  {load.free > 0 && <i style={{ "--v": load.free, background: "var(--ok)" } as CSSProperties} />}
-                  {load.near > 0 && <i style={{ "--v": load.near, background: "var(--warn-dot)" } as CSSProperties} />}
-                  {load.full > 0 && <i style={{ "--v": load.full, background: "var(--crit)" } as CSSProperties} />}
-                </div>
-                <div className="prog-legend">
-                  <span>
-                    <b>{load.free}</b>берут работу
-                  </span>
-                  <span>
-                    <b>{load.near}</b>близко к лимиту
-                  </span>
-                  <span>
-                    <b>{load.full}</b>у лимита, лиды не идут
-                  </span>
-                </div>
-              </>
-            ) : (
-              <p className="state">
-                {load.agents === 0
-                  ? "Активных агентов нет, раздавать лиды некому."
-                  : `Раздача идёт без предела: у ${load.agents} ${pluralizeRu(load.agents, ["агента", "агентов", "агентов"])} в работе ${load.total} ${pluralizeRu(load.total, ["клиент", "клиента", "клиентов"])}.`}
-              </p>
-            )}
+            <p className="state">
+              {load.agents === 0
+                ? "Активных агентов нет, раздавать лиды некому."
+                : `У ${load.agents} ${pluralizeRu(load.agents, ["агента", "агентов", "агентов"])} в работе ${load.total} ${pluralizeRu(load.total, ["клиент", "клиента", "клиентов"])}.`}
+            </p>
           </div>
         )}
 
@@ -670,9 +602,7 @@ function TeamDesktop() {
                                   : m.lastSeenAt
                                     ? `, был(а) ${relativeTime(m.lastSeenAt)}`
                                     : ""}
-                            {m.role === "AGENT" && m.leadLimit > 0
-                              ? `, портфель ${m.activeLoad} из ${m.leadLimit}${loadState(m) === "full" ? ", лиды не идут" : ""}`
-                              : ""}
+                            {m.role === "AGENT" ? `, в работе ${m.activeLoad}` : ""}
                           </span>
                           {/* Месячные показатели (макет `.tbl` не знает узкого экрана):
                               те же цифры, что в колонках десктопной таблицы, чипами. */}
@@ -762,7 +692,6 @@ function TeamDesktop() {
                 ["all", "Все"],
                 ["online", "В сети"],
                 ["frozen", "Заморожены"],
-                ["limit", "У лимита"],
               ] as const
             ).map(([key, label]) => (
               <button key={key} type="button" aria-selected={stateFilter === key} onClick={() => setStateFilter(key)}>
@@ -782,7 +711,7 @@ function TeamDesktop() {
 }
 
 /**
- * «По стадиям клиентов» (кнопка шапки, макет: `GET /team/stages`): у кого сколько
+ * «Показы и сделки» (кнопка шапки, `GET /team/stages`; до 17.11.2026 — «По стадиям клиентов»): у кого сколько
  * клиентов на каком статусе, показов назначено и сделок в работе. Антифрод-
  * экран из штурма владельца 20-21.08.2026, раньше жил только значками на строке.
  */
@@ -797,28 +726,24 @@ function StagesMatrix({
 }) {
   const byId = new Map((stages?.agents ?? []).map((a) => [a.id, a]));
   const agents = team.filter((m) => m.role === "AGENT");
-  const statuses = stages?.statuses ?? [];
+  // Колонок по статусам клиента больше нет (владелец 17.11.2026: статусы клиента
+  // не показываются нигде) — остались показы и сделки прямо сейчас.
   return (
     <div className="card tight" style={{ marginTop: 12 }}>
       <div className="sec-h">
-        <h2>По стадиям клиентов</h2>
-        <span className="note">Портфель каждого агента прямо сейчас, не за месяц</span>
+        <h2>Показы и сделки</h2>
+        <span className="note">У каждого агента прямо сейчас, не за месяц</span>
       </div>
       {!stages ? (
-        <p className="state">Считаем портфели по стадиям</p>
+        <p className="state">Считаем показы и сделки</p>
       ) : agents.length === 0 ? (
-        <p className="state">Агентов в команде нет, раскладывать по стадиям некого.</p>
+        <p className="state">Агентов в команде нет.</p>
       ) : (
-        <div className="tbl-wrap" {...scrollableRegion("Агенты по стадиям")}>
+        <div className="tbl-wrap" {...scrollableRegion("Показы и сделки агентов")}>
           <table className="tbl">
             <thead>
               <tr>
                 <th scope="col">Агент</th>
-                {statuses.map((s) => (
-                  <th scope="col" className="num" key={s}>
-                    {CLIENT_STATUS_LABELS[s]}
-                  </th>
-                ))}
                 <th scope="col" className="num">Показы</th>
                 <th scope="col" className="num">Сделки</th>
               </tr>
@@ -833,11 +758,6 @@ function StagesMatrix({
                         {m.fullName}
                       </button>
                     </td>
-                    {statuses.map((s) => (
-                      <td className="num" key={s}>
-                        {row?.byStatus[s] ?? 0}
-                      </td>
-                    ))}
                     <td className="num">{row?.showingsScheduled ?? 0}</td>
                     <td className="num">{row?.dealsInProgress ?? 0}</td>
                   </tr>
@@ -866,15 +786,15 @@ function TeamChips({
   achievements: ReturnType<typeof achievementsOf> | null;
   stages: TeamStagesAgent | undefined;
 }) {
-  const statusChips = stages ? STAGE_BADGE_STATUSES.filter((s) => (stages.byStatus[s] ?? 0) > 0) : [];
+  // Значки статусов («Горячий: 3», «Холодный: 5») сняты 16.11.2026 вместе со
+  // статусами-папками: на строке агента остаются показы и сделки.
   const hasAchievement =
     achievements !== null &&
     (achievements.commission === member.id ||
       achievements.deals === member.id ||
       achievements.showings === member.id ||
       achievements.speed === member.id);
-  const hasStages =
-    statusChips.length > 0 || (stages?.showingsScheduled ?? 0) > 0 || (stages?.dealsInProgress ?? 0) > 0;
+  const hasStages = (stages?.showingsScheduled ?? 0) > 0 || (stages?.dealsInProgress ?? 0) > 0;
   if (!hasAchievement && !hasStages) return null;
 
   return (
@@ -883,11 +803,6 @@ function TeamChips({
       {achievements?.deals === member.id && <span className="chip ok">Больше всех сделок</span>}
       {achievements?.showings === member.id && <span className="chip ok">Больше всех показов</span>}
       {achievements?.speed === member.id && <span className="chip">Быстрее всех берёт лиды</span>}
-      {statusChips.map((s) => (
-        <span className="chip mute" key={s}>
-          {CLIENT_STATUS_LABELS[s]}: {stages?.byStatus[s]}
-        </span>
-      ))}
       {(stages?.showingsScheduled ?? 0) > 0 && (
         <span className="chip mute">Показов назначено: {stages?.showingsScheduled}</span>
       )}

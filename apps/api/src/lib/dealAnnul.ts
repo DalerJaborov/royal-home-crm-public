@@ -160,7 +160,7 @@ export async function annulDeal(params: {
       }
     }
     if (otherClientDeals === 0) {
-      await tx.client.updateMany({ where: { id: existing.clientId, status: "DEAL_CLOSED" }, data: { status: "HOT" } });
+      await tx.client.updateMany({ where: { id: existing.clientId, status: "DEAL_CLOSED" }, data: { status: "CONTACTED" } });
     }
 
     await logTimeline({
