@@ -154,12 +154,25 @@ services:
       BOT_TURN_TRACE_TEXT_ENABLED: "${BOT_TURN_TRACE_TEXT_ENABLED:-0}"
       # P03 fact-only replies. Mixed CRM actions stay on the legacy path.
       BOT_PROPERTY_CONTEXT_ENABLED: "${BOT_PROPERTY_CONTEXT_ENABLED:-0}"
+      # One brain, step 1 (16.11.2026, review #211): the model's own words around the
+      # template facts. Its own switch, never CUSTOMER_AGENT_SAY_MODE. Empty = shadow
+      # (verified and counted, never sent); live only by the exact word «live»; off.
+      CUSTOMER_AGENT_ANSWER_MODE: "${CUSTOMER_AGENT_ANSWER_MODE:-}"
+      # With the mode «live»: a comma list of core channels (WHATSAPP, INSTAGRAM,
+      # FACEBOOK, WEBSITE) that go live, or the explicit word ALL; the others stay
+      # shadow. Empty or only unknown names = live NOWHERE (an error is logged).
+      # Rollback = the mode back to empty (or off).
+      CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "${CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS:-}"
       # Customer core switches (31.10.2026). Without these lines a value in
       # .env.production never reaches the container. Both are off by default:
       # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`
       # free phrase mode (shadow|live, PR #44; live only after the shadow week).
       CUSTOMER_AGENT_LEGACY_CUTOVER: "${CUSTOMER_AGENT_LEGACY_CUTOVER:-off}"
       CUSTOMER_AGENT_SAY_MODE: "${CUSTOMER_AGENT_SAY_MODE:-}"
+      # One brain, step 2 (16.11.2026): shadow comparison of the old bot with the core,
+      # per channel (meta_dm, arvan, website, youtube, telegram | all). Empty = off.
+      CUSTOMER_AGENT_CHANNEL_SHADOW: "${CUSTOMER_AGENT_CHANNEL_SHADOW:-}"
+      CUSTOMER_AGENT_SHADOW_DAILY_CAP: "${CUSTOMER_AGENT_SHADOW_DAILY_CAP:-}"
       # Сбор объявлений Somon/Paydo по расписанию (lib/market/nightly.ts, cron.ts). Без этой
       # строки значение из .env.production в контейнер не попадало: на 11.11.2026 каталог был
       # пуст, хотя переключатель описан в журнале 02.11. По умолчанию выключен.

@@ -20,6 +20,7 @@ import {
   SystemHealthSection,
   SiteAdminSection,
 } from "../../pages/settings/SystemTab";
+import { FunctionStatusEntry } from "../../pages/settings/FunctionStatus";
 import { PultModulesSection } from "../../pages/settings/PultModulesSection";
 import { RestorePointsSection } from "../../pages/settings/RestorePointsSection";
 import { SmsSection } from "../../pages/settings/SmsSection";
@@ -48,7 +49,7 @@ export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSetti
     case "agency/locations": return <><DistrictsSection /><LandmarksSection /></>;
     case "money/commission": return <CommissionSection part="commission" />;
     case "money/currency": return <ExchangeRateSection />;
-    case "leads/intake": return <LeadsTab limitsTask />;
+    case "leads/intake": return <LeadsTab />;
     case "leads/distribution": return <><LeadDistributionSection /><SomonRecipientsSection /></>;
     case "leads/deadlines": return <><CommissionSection part="operations" /><DisciplineSection /></>;
     case "matching/matching": return <MatchingTab />;
@@ -65,7 +66,7 @@ export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSetti
     case "bot/learning": return <BotTab area="learning" />;
     case "bot/models": return <BotTab area="models" />;
     case "bot/rollout": return agentRole === "DIRECTOR" || agentRole === "ADMIN" ? <CustomerAgentRolloutSection /> : null;
-    case "system/monitoring": return <><SystemHealthSection /><AssistantAuditSection /><StuckConversationsSection /><ProblemReportsSection /><FinancePdfMonthlySection /></>;
+    case "system/monitoring": return <><FunctionStatusEntry /><SystemHealthSection /><AssistantAuditSection /><StuckConversationsSection /><ProblemReportsSection /><FinancePdfMonthlySection /></>;
     case "system/workspace": return <><UiShellRolloutSection /><PultModulesSection /></>;
     case "system/security": return <PasskeyToggleSection />;
     case "system/data": return <><RestorePointsSection /><ImportSection /></>;
@@ -142,6 +143,7 @@ export function SettingsTabContent({ tab, agentRole }: { tab: SettingsTabId; age
   return (
     <>
       <SettingsGroupLabel>Мониторинг</SettingsGroupLabel>
+      <FunctionStatusEntry />
       <SystemHealthSection />
       <AssistantAuditSection />
       <PultModulesSection />

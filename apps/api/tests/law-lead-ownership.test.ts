@@ -236,9 +236,11 @@ describe("Закон о владении клиентом — интеграци
       expect(computeHiddenReason(base, role)).toBeNull();
       expect(computeHiddenReason({ ...base, deletedAt: new Date() }, role)?.kind).toBe("trashed");
       expect(computeHiddenReason({ ...base, kind: "OTHER" }, role)?.kind).toBe("other");
-      expect(computeHiddenReason({ ...base, workStatus: "INACTIVE" }, role)?.kind).toBe("inactive");
-      expect(computeHiddenReason({ ...base, status: "LOST" }, role)?.kind).toBe("lost");
-      expect(computeHiddenReason({ ...base, workStatus: "DEFERRED", deferredUntil: new Date() }, role)?.kind).toBe("deferred");
+      // «Неактивный», «Потерян», «Отложен» больше не прячут карточку (владелец 16.11.2026):
+      // старые значения в базе остаются до шага с колонками, но причиной скрытия не служат.
+      expect(computeHiddenReason({ ...base, workStatus: "INACTIVE" }, role)).toBeNull();
+      expect(computeHiddenReason({ ...base, status: "LOST" }, role)).toBeNull();
+      expect(computeHiddenReason({ ...base, workStatus: "DEFERRED", deferredUntil: new Date() }, role)).toBeNull();
     }
     expect(computeHiddenReason(base, "ADMIN")?.kind).toBe("securityReview");
   });
@@ -265,20 +267,18 @@ describe("Закон о владении клиентом — интеграци
   });
 
   /**
-   * П-6 (пачка А2). Содержательная интеграционная проверка — releaseCandidates
-   * в lib/leadAccept.ts (исключает клиентов с контактом из списка «отдать») и
-   * tests/lead-active-limit.test.ts / tests/lead-over-limit.test.ts. Здесь —
-   * source-проверка, что режим "random" (система сама выбирает жертву) больше
-   * нигде не читается в самой функции приёма.
+   * П-6 (пачка А2, пересмотрено 16.11.2026). Лимитов заявок больше нет и не будет
+   * (владелец 16.11.2026), поэтому «портфель полон» не бывает: приём заявки не
+   * выбирает, кого «отдать», ни случайно, ни по списку. Source-проверка, что в
+   * функции приёма не осталось ни режима random, ни списка «отдать», ни лимита.
    */
-  it("П-6: портфель полон — система не выбирает жертву сама, режим random не используется в приёме", () => {
+  it("П-6: лимитов нет — приём заявки никого не отбирает у агента", () => {
     const src = fs.readFileSync(
       path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../src/lib/leadAccept.ts"),
       "utf-8"
     );
     expect(src).not.toMatch(/releaseMode/);
-    expect(src).toMatch(/firstContactAt:\s*null/);
-    expect(src).toMatch(/lastAgentAttemptAt:\s*null/);
+    expect(src).not.toMatch(/releaseCandidates|maxActiveLeads|leadLimit/i);
   });
 
   /**

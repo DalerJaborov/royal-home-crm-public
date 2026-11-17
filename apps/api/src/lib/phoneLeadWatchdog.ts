@@ -392,7 +392,10 @@ const ALERT_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
  */
 export function watchdogLeadDraft(row: Pick<PhoneWithoutLead, "draft" | "coreTopic" | "history">): LeadDraft {
   const draft = ((row.draft as LeadDraft | null) ?? { stage: "chatting" }) as LeadDraft;
-  if (draft.intent || row.coreTopic === null) return draft;
+  // Старый путь (coreTopic === null) тоже читает слова клиента, если модель намерение
+  // не записала (17.11.2026: пары «оформлена сторожем» → «намерение не определено»
+  // шли из обоих путей). Разбор слов — один, ai/customerAgentRole.ts.
+  if (draft.intent) return draft;
   // Аренда — тем же отказом приёма, что у старого пути (заявки на аренду не берём, владелец 21.08.2026).
   const fromTopic = row.coreTopic === "buyer" ? "buy" : row.coreTopic === "seller" ? "sell" : row.coreTopic === "rent" ? "rent" : null;
   if (fromTopic) return { ...draft, intent: fromTopic, confident: true };

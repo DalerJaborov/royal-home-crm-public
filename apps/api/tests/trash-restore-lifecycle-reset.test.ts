@@ -78,9 +78,6 @@ async function trashedLostClient(phone: string) {
       status: "LOST",
       lostAt: longAgo(),
       workStatus: "INACTIVE",
-      inactiveLevel: "RED",
-      inactiveSince: longAgo(),
-      inactivePingCount: 9,
       deletedAt: new Date(Date.now() - 20 * DAY),
     },
   });
@@ -100,10 +97,6 @@ describe("Возврат из Корзины сбрасывает часы св�
     expect(after.deletedAt).toBeNull();
     expect(after.status).not.toBe("LOST");
     expect(after.lostAt).toBeNull();
-    // Светофор выбирает только inactiveLevel/inactiveSince не null, перенос — старый inactiveSince.
-    expect(after.inactiveSince).toBeNull();
-    expect(after.inactiveLevel).toBeNull();
-    expect(after.inactivePingCount).toBe(0);
   });
 
   it("клиент из Корзины, с которым раньше говорили, отдан по очереди — у агента срок принять, а не вечное ожидание (23.09.2026, №21)", async () => {
@@ -137,6 +130,5 @@ describe("Возврат из Корзины сбрасывает часы св�
     expect(after.deletedAt).toBeNull();
     const weekAgo = Date.now() - 7 * DAY;
     expect(after.lostAt!.getTime()).toBeGreaterThan(weekAgo);
-    expect(after.inactiveSince!.getTime()).toBeGreaterThan(weekAgo);
   });
 });

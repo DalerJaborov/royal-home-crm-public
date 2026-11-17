@@ -52,12 +52,6 @@ const monthIdx = (ym: string) => Math.max(0, Math.min(11, Number(ym.slice(5, 7))
 const monthTitle = (ym: string) => `${MONTH_NOM[monthIdx(ym)]} ${ym.slice(0, 4)}`;
 const num = (n: number) => n.toLocaleString("ru-RU");
 
-/** Сколько клиенты в среднем ждут на стадии: «5 ч», «3 дн.». */
-function waitLabel(hours: number): string {
-  if (hours < 24) return `${Math.max(1, hours)} ч`;
-  return `${Math.round(hours / 24)} дн.`;
-}
-
 interface Block {
   key: string;
   title: string;
@@ -162,26 +156,8 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
     });
   }
 
-  // Где застревают клиенты: стадии, отсортированные по долгому ожиданию.
-  const stalled = ins?.stalledStages ?? [];
-  if (stalled.length > 0) {
-    const max = Math.max(1, ...stalled.map((s) => s.avgAgeHours));
-    blocks.push({
-      key: "stalled",
-      title: "Где застревают клиенты",
-      note: "сколько в среднем ждут",
-      body: (
-        <Rh2Bars
-          items={stalled.map((s) => ({
-            key: s.status,
-            name: `${s.label} · ${num(s.count)}`,
-            share: s.avgAgeHours / max,
-            value: waitLabel(s.avgAgeHours),
-          }))}
-        />
-      ),
-    });
-  }
+  // «Где застревают клиенты» по статусам снято 17.11.2026: статусы клиента не
+  // показываются нигде (владелец).
 
   // Нагрузка: у кого сколько клиентов в работе.
   const workload = ins?.workload ?? [];

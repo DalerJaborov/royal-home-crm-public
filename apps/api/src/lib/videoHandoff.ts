@@ -51,7 +51,9 @@ import {
   withPostFooter,
   applyContactFooter,
   priceInTjsOnly,
+  buildPriceDisplay,
 } from "./reelsCaptionTemplate.js";
+import { replaceCaptionPriceLines } from "./captionPriceLine.js";
 import { makePropertyCover } from "./video/coverOpenAi.js";
 import { loadMoneyContext } from "./money.js";
 import { videoHandoffDir } from "../upload.js";
@@ -3232,7 +3234,19 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
    */
   // Концовка с агентом по объекту (владелец 25.09.2026) — идемпотентна, как и подвал.
   const captionAgent = property.intakeAgent ?? property.assignedAgent ?? property.createdBy ?? null;
-  const caption = withPostFooter(applyContactFooter(captionBase, captionAgent), property.shortId);
+  // ЦЕНА В ПОДПИСИ = ЦЕНА НА ОБЛОЖКЕ (объект 164, 15.11.2026). Обложку ниже рисуют
+  // из текущей цены карточки, а подпись — сохранённый текст, который мог отстать:
+  // цену правили, а старой суммы в тексте дословно не нашлось (курс дня, когда
+  // писали подпись, ручная правка). Пост тогда выходил с новой ценой на картинке и
+  // старой в описании. Строку цены переписываем здесь, в последний момент.
+  const currentPrice = buildPriceDisplay(property.price, property.currency, money);
+  const priceSynced = captionBase.includes(currentPrice)
+    ? captionBase
+    : replaceCaptionPriceLines(captionBase, currentPrice).text;
+  if (priceSynced !== captionBase) {
+    console.info(`[публикация] объект ${property.shortId}: цена в подписи отставала от карточки, исправлена перед публикацией`);
+  }
+  const caption = withPostFooter(applyContactFooter(priceSynced, captionAgent), property.shortId);
 
   let updated = await prisma.property.update({
     where: { id: property.id, version: property.version, reelsCaption: property.reelsCaption, deletedAt: null },

@@ -55,7 +55,7 @@ import {
   topicStateOf,
   topicStateUpdate,
 } from "../ai/topicLock.js";
-import { mergeDraft, runQualifyTurn } from "../ai/leadQualifier.js";
+import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
@@ -149,7 +149,6 @@ import {
 } from "./propertyShowcase.js";
 import { ensureConversationScenario } from "../ai/salesScenarios.js";
 import { runClientAutopilotInBackground } from "../lib/clientAutopilot.js";
-import { checkClientInactiveSignal } from "../lib/clientInactiveTextDetector.js";
 import { botAbilitiesOf, loadBotCapabilities } from "./botCapabilities.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "../jobs/aiReplyRetryPolicy.js";
@@ -1005,9 +1004,12 @@ export async function acceptLead(
     channel: "chat" as const,
   };
   let decision = classifyInbound(classificationInput);
-  const unresolvedKind = decision.kind === "OTHER" && decision.otherReason !== undefined && [
+  // intentUnknown — то же «намерения нет», только с 17.11.2026 оно уже не «прочее»,
+  // а покупатель с пометкой (services/leads/intakePolicy.ts): объект, о котором шла
+  // речь, по-прежнему разрешает его в обычного покупателя без пометки.
+  const unresolvedKind = decision.intentUnknown === true || (decision.kind === "OTHER" && decision.otherReason !== undefined && [
     OtherReason.LOW_CONFIDENCE, OtherReason.NO_INTENT, OtherReason.OTHER_INTENT, OtherReason.AD_NO_WORDS,
-  ].includes(decision.otherReason);
+  ].includes(decision.otherReason));
   const handledUnknownBuyer = !!handledPropertyId && unresolvedKind
     && (!draft.intent || draft.intent === "other" || draft.intent === "buy")
     && (!draft.whoIsThis || draft.whoIsThis === "UNKNOWN" || draft.whoIsThis === "BUYER")
@@ -2362,27 +2364,6 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    */
   const historyText = text || (saved.length > 0 ? (saved.some((a) => a.kind === "audio") ? "[🎤]" : "[📎]") : "");
 
-  /**
-   * ДЕТЕКТОР НЕАКТИВНОСТИ ПО ПЕРЕПИСКЕ (план 19-plan-03-09-evening.md, раздел B) —
-   * финальная реплика уже принятого клиента на признаки одной из причин паузы или
-   * на конкретную дату связи. Фоново, ответ бота не задерживает.
-   *
-   * ПОЧЕМУ ЗДЕСЬ, А НЕ В ВЕТКЕ «заявка принята» НИЖЕ. Изначально вызов стоял
-   * внутри `if (conversation.clientId)` рядом с автопилотом — то есть на пути,
-   * где бот ещё и ОТВЕЧАЕТ. Клиент на реальной паузе (агент ответил вручную или
-   * созвонился — см. isPaused выше) выходит раньше этого места, а детектор
-   * должен видеть его реплику независимо от того, отвечает ли сейчас бот, —
-   * поэтому вызов на общем пути: сюда доходят и пауза оператора, и выключенный
-   * рубильник канала, и отсечка «не по теме». Место выбрано после разбора
-   * вложений: в text здесь уже вклеена расшифровка голосового, а её терять
-   * нельзя — половина реплик приходит голосом.
-   *
-   * Рядом с ним живёт детектор явного отказа (checkExplicitRefusal, раздел D) —
-   * он поднят на самый верх хода по той же причине; оба висят на одной и той же
-   * финальной реплике клиента и оба фоновые (гонку между ними разбирает сам
-   * lib/clientInactiveTextDetector.ts, перепроверкой карточки после ответа ИИ).
-   */
-  if (conversation.clientId && text) void checkClientInactiveSignal(conversation.clientId, text);
 
   /** Что saveIncoming записал последним — по нему ниже узнаём свою реплику в
    *  свежей истории (см. «история для промта — после окна склейки»). */
@@ -3675,7 +3656,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * чем-то другим, всё равно не теряется.
    */
   const finishQualifyTurn = async (
-    result: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>
+    result: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>
   ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer; agentSignal?: MessengerTurnResult["agentSignal"] }> => {
     // Если уже ждали телефон — оставляем этот этап (модель могла сбросить ready).
     // `merged` — слова самого клиента: по ним код отсекает аренду, не полагаясь
@@ -3974,7 +3955,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       },
       {
         regenerate: async (retryDirective) =>
-          (await runQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }))?.reply ?? null,
+          // A regeneration of the same turn: the shadow already ran for it.
+          (await runLegacyQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }, null))?.reply ?? null,
         shieldBlocked: (bubbles) => repeatBlockedTexts(channel, subscriberId, bubbles, undefined, input.customerTransport),
       }
     );
@@ -4198,7 +4180,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * второй раз платить не должен. Списываем ДО вызова: деньги стоит попытка.
    */
   if (!input.retryOfPaidTurn) await spendAiTurns(conversation.id, budget.dayKey);
-  const result = await runQualifyTurn(nextHistory, draft, qualifyOptions);
+  // One brain, step 2: the per-channel shadow (lib/customerAgentChannelSwitch.ts). A paid retry repeats an already-shadowed turn.
+  const result = await runLegacyQualifyTurn(nextHistory, draft, qualifyOptions, input.retryOfPaidTurn ? null
+    : { channel, traceAccount: input.accountExternalId ?? null, eventId: input.skipSaveIncoming ? null : input.messageId ?? null });
 
   if (!result) {
     /**

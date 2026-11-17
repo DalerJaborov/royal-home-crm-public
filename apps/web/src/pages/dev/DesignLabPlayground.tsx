@@ -449,7 +449,7 @@ function ClientsScreen() {
             />
           ))}
         </List>
-        <div className="quiet"><span className="dot" />Не на виду: 3 карточки</div>
+        <div className="quiet"><span className="dot" />В корзине: 3 карточки</div>
       </Card>
     </>
   );

@@ -25,7 +25,7 @@ import { fetchTelegramAlbumAttachments, telegramUnsupportedMark } from "../teleg
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { stripUntrusted, wrapUntrusted } from "../ai/untrustedContent.js";
 import type { ChatMessage, ImageInput, StoredAttachment } from "../ai/client.js";
-import { mergeDraft, runQualifyTurn } from "../ai/leadQualifier.js";
+import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractTypedPhone, extractVolunteeredPhone, normalizeDigits } from "../lib/shared/phoneText.js";
 import { lastClientLanguage } from "../ai/shortAgentReply.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
@@ -247,7 +247,7 @@ export async function finishTelegramDirectQualifyTurn(params: {
   draft: LeadDraft;
   history: ChatMessage[];
   text: string;
-  turn: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>;
+  turn: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>;
   capabilities?: Awaited<ReturnType<typeof loadBotCapabilities>>;
   /** Клиент в ЭТОМ ходе прислал голосовое — условие для голосового ответа
    *  (см. телеграм-личку telegram/bot.ts, тот же приём). Повтор из
@@ -869,7 +869,7 @@ export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage):
   // ниже в модуле), чтобы её же вызывал персистентный повтор
   // jobs/telegramDirectReplyRetry.ts. См. докстринг там же.
   const capabilities = await loadBotCapabilities();
-  const finishTurn = (turn: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>): Promise<void> =>
+  const finishTurn = (turn: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>): Promise<void> =>
     finishTelegramDirectQualifyTurn({
       conversation,
       chatId,
@@ -885,12 +885,12 @@ export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage):
 
   const abilities = botAbilitiesOf(capabilities);
   if (peerBudget) await spendAiTurns(peerBudget.row.id, peerBudget.budget.dayKey, 1, "peer");
-  const result = await runQualifyTurn(nextHistory, draft, {
+  const result = await runLegacyQualifyTurn(nextHistory, draft, {
     images,
     abilities,
     conversationId: conversation.id,
     contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
-  });
+  }, { channel: "TELEGRAM" });
 
   if (!result) {
     // Персистентный повтор (13.09.2026, тот же чертёж Б2, что у личных чатов и

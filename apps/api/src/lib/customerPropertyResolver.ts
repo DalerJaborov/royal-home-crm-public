@@ -59,6 +59,19 @@ async function resolveOnce(
       else if (item.kind === "reply") ids = await registry.reply(item.reference, scope);
       else ids = await registry.selector(item.reference);
       ids = unique(ids);
+      // The caption «Объект №N» of the SAME shared publication (customerPropertyEvidenceFromMeta). A publication
+      // missing from our registry (agent's own account, repost) is identified by it; a registry match that names
+      // a different object is a conflict, never a silent choice of either.
+      if ((item.kind === "media" || item.kind === "url") && item.origin === "shared_media" && item.secondaryReference?.startsWith("short:")) {
+        const captioned = unique(await registry.selector(item.secondaryReference));
+        if (captioned.length > 8) return result("ambiguous", captioned, "conflict");
+        if (!ids.length) ids = captioned;
+        else if (captioned.length) {
+          const common = ids.filter((id) => captioned.includes(id));
+          if (!common.length) return result("ambiguous", [...ids, ...captioned], "conflict");
+          ids = common;
+        }
+      }
       // An unidentified explicit reference cannot be silently ignored in favour of A.
       if (!ids.length) return result("missing", [], item.kind === "reply" ? "untrusted_reply" : "not_found");
       if (ids.length > 8) return result("ambiguous", ids, "conflict");

@@ -1,6 +1,6 @@
-import type { ClientSort, ClientStatus } from "@royal-home/shared";
+import type { ClientSort } from "@royal-home/shared";
 
-export { CLIENT_STATUS_LABELS, CLIENT_SOURCE_LABELS } from "@royal-home/shared";
+export { CLIENT_SOURCE_LABELS } from "@royal-home/shared";
 
 /**
  * Порядок выдачи списка клиентов — одна корзина подписей на десктоп
@@ -11,7 +11,7 @@ export { CLIENT_STATUS_LABELS, CLIENT_SOURCE_LABELS } from "@royal-home/shared";
  */
 export const DEFAULT_CLIENT_SORT: ClientSort = "created_desc";
 
-type ClientSortField = "name" | "status" | "score" | "budget" | "source" | "created" | "contact" | "agent" | "attention";
+type ClientSortField = "name" | "score" | "budget" | "source" | "created" | "contact" | "agent" | "attention";
 
 /** «created_desc» → ["created", "desc"]. Направление всегда последним куском,
  *  поэтому режем по последнему подчёркиванию, а не по первому. */
@@ -22,7 +22,6 @@ function parseClientSort(sort: ClientSort): [ClientSortField, "asc" | "desc"] {
 
 const CLIENT_SORT_COLUMN_LABELS: Record<ClientSortField, string> = {
   name: "Клиент / телефон",
-  status: "Статус",
   score: "Скор",
   budget: "Бюджет",
   source: "Источник",
@@ -56,17 +55,8 @@ export function clientSortOptionsFor(current: ClientSort): { value: ClientSort; 
   ];
 }
 
-export const CLIENT_STATUS_CLASSES: Record<ClientStatus, string> = {
-  NEW: "text-blue bg-blue/10",
-  CONTACTED: "text-violet bg-violet-bg",
-  HOT: "text-red bg-red-bg",
-  COLD: "text-gray-500 bg-line-soft",
-  UNRESPONSIVE: "text-amber bg-amber-bg",
-  /* Красно-серый: это не «горячий» и не «в работе» — карточка выпала из оборота. */
-  LOST: "text-red bg-line-soft",
-  DEAL_CLOSED: "text-green bg-green-bg",
-  ARCHIVED: "text-gray-400 bg-line-soft",
-};
+// Цвета и подписи статусов клиента сняты 17.11.2026: статусы клиента не
+// показываются нигде (владелец). Сторож — apps/api/tests/no-client-status-folders.test.ts.
 
 /**
  * Человекочитаемый номер клиента/объекта — ТЗ «Путь покупателя», п. 2: «Каждому
@@ -196,32 +186,6 @@ export function showingConfirmationBadge(interaction: {
   return { label: "Ждём подтверждения", className: "text-amber bg-amber-bg" };
 }
 
-/**
- * Плашка статуса в теме «Royal Home 2026»: модификатор прототипного `.chip`
- * (docs/pult/theme-2026/screens/_components.css). Второй словарь подписей не
- * заводим, подписи те же CLIENT_STATUS_LABELS, здесь только вид.
- *
- * Красный `chip crit` в прототипе закреплён за «надо сделать», а не за
- * состоянием клиента (договор §3), поэтому «Горячий» рисуется обычной плашкой с
- * золотой точкой, ровно как в screens/clients.html.
- */
-export const CLIENT_STATUS_CHIP: Record<ClientStatus, string> = {
-  NEW: "",
-  CONTACTED: "",
-  HOT: "",
-  COLD: "mute",
-  UNRESPONSIVE: "warn",
-  LOST: "mute",
-  DEAL_CLOSED: "ok",
-  ARCHIVED: "mute",
-};
-
-/** Точка внутри плашки: ключ есть, значит точка рисуется; значение, её модификатор. */
-export const CLIENT_STATUS_CHIP_DOT: Partial<Record<ClientStatus, string>> = {
-  HOT: "gold",
-  LOST: "",
-  ARCHIVED: "",
-};
 
 /**
  * ОТОБРАЖАЕМОЕ ИМЯ КЛИЕНТА — ВТОРОЙ РУБЕЖ (17.09.2026, жалоба «Позвонить: @•••••»

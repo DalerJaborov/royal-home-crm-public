@@ -15,7 +15,6 @@ export interface MatchingClient {
   fullName: string;
   status: string;
   workStatus?: "ACTIVE" | "INACTIVE" | "DEFERRED";
-  inactiveLevel?: "GREEN" | "YELLOW" | "RED" | null;
   /** Насколько подходит и почему — та же модель, что у объектов под клиента
    *  (lib/clientPropertyMatching.ts::matchClientProperty). Процента нет: это не
    *  вероятность сделки, а уровень и причины (решение владельца 10.11.2026). */

@@ -12,12 +12,16 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { readCapped } from "../safeFetch.js";
 
 const API = "https://api.paydo.tj";
 const USER_AGENT = "Mozilla/5.0 (compatible; RoyalHomeBot/1.0; +https://royalhome.tj)";
 export const PAYDO_DELAY_MS = 700;
 const TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;
+/** Потолок ответа Paydo — как у Somon (lib/somonLeads/sourceClient.ts): страница
+ *  выдачи весит десятки КБ, всё больше 4 МБ — не выдача, а чужие данные в память. */
+export const PAYDO_MAX_BYTES = 4 * 1024 * 1024;
 
 /** Сайт попросил остановиться (429/403) — обход нужно прекратить. */
 export class PaydoBlockedError extends Error {
@@ -57,12 +61,19 @@ export class PaydoClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      return await fetch(`${API}${path}`, {
+      const res = await fetch(`${API}${path}`, {
         method: "POST",
         headers,
         body: JSON.stringify(init.body),
         signal: controller.signal,
+        // Хост постоянный; перенаправление на чужой адрес — не Paydo (аудит 17.11.2026, S3).
+        redirect: "error",
       });
+      // Тело читается здесь же, под тем же сроком и с потолком: раньше срок
+      // снимался сразу после заголовков, а `res.json()` читал сколько угодно.
+      const { body, truncated } = await readCapped(res, PAYDO_MAX_BYTES);
+      if (truncated) throw new Error(`Paydo: слишком большой ответ (больше ${PAYDO_MAX_BYTES} байт)`);
+      return new Response(body.byteLength ? new Uint8Array(body) : null, { status: res.status, headers: res.headers });
     } finally {
       clearTimeout(timer);
     }

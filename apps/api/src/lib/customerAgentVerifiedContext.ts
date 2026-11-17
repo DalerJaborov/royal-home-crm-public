@@ -22,6 +22,7 @@ import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentIn
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
 import { customerAgentIntake } from "../ai/customerAgentIntake.js";
+import { customerAgentMemoryText } from "../ai/customerAgentAnswer.js";
 import { readRecruitmentAnsweredFactTx } from "./recruitmentAnsweredFact.js";
 import { readOwnedCustomerIntakeContinuity } from "./customerOwnedIntakeContinuity.js";
 import { readApprovedCustomerWordRevisions } from "./customerAgentRevisionAdvance.js";
@@ -308,8 +309,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
               }
             }
           }
-          const allowed = safePublicLines(evidence, revision);
-          const text = payload.text.split("\n").map(line => line.trim()).filter(line => allowed.has(line)).join("\n");
+          const text = customerAgentMemoryText(payload.text, safePublicLines(evidence, revision));
           if (text) {
             candidates.push({ role: "assistant", text, observedAt: part.acceptedAt.getTime(), stableKey: `out:${part.id}` });
             // The bot's reply to each ticket (parts arrive newest first, so an earlier part goes in front): the intake reads a bare

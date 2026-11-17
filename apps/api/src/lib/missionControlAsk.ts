@@ -1,6 +1,7 @@
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { visibleCronWhere, visibleSystemErrorWhere } from "./investigationOperations.js";
 import { prisma } from "../db.js";
+import { noContactWhere } from "./noContact.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { countVisibleBackgroundJobs } from "./backgroundJobPrivacy.js";
 import { loadMoneyContext, roundMoney, toTjs } from "./money.js";
@@ -116,7 +117,8 @@ export async function buildAskContext(seesMoney: boolean, now: Date = new Date()
     }),
     prisma.client.groupBy({
       by: ["assignedAgentId"],
-      where: { assignedAgentId: { in: ids }, firstContactAt: null, ...ACTIVE_NOT_TERMINAL },
+      // «Без контакта» — одно правило на всю CRM (lib/noContact.ts).
+      where: { AND: [noContactWhere(now), { assignedAgentId: { in: ids } }] },
       _count: { _all: true },
     }),
     prisma.deal.groupBy({
