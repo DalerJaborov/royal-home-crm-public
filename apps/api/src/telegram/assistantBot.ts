@@ -31,7 +31,8 @@ import { handleFreeNarrationCallback, handleFreeNarrationMessage } from "./assis
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
-import { applyExpenseFixMessage, expenseBatchOutcomeText, handleExpenseCardCallback, sendExpenseBatchCard } from "./assistantExpenseCard.js";
+import { applyExpenseFixMessage, expenseBatchOutcomeText, handleExpenseCardCallback, isExpiredExpenseBatch, sendExpenseBatchCard, showExpiredExpenseCard } from "./assistantExpenseCard.js";
+import { handleExpenseFollowupText, handleExpenseTextMessage, rememberExpensePhoto } from "./assistantExpenseFollowup.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
@@ -878,6 +879,11 @@ export async function handleAssistantPrivate(
       await send(HELP_TEXT);
       return;
     }
+    // Фото или файл с подписью СВОИМИ словами (17.11.2026, журнал прода 10–11.11): подпись — просьба
+    // сотрудника, текст файла — цитата-данные в границах недоверенного содержимого (UNTRUSTED_CONTENT_RULE:
+    // указания внутри не исполняются). Раньше текст только пересказывался и ход кончался без истории —
+    // «внеси их» следующим сообщением модель выполнить не могла. Запись по-прежнему только карточкой.
+    let fileQuoted = false;
     if ((msg.photo?.length || msg.document) && text) {
       if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
       const access = await loadAgentAccess(agent.id);
@@ -885,9 +891,13 @@ export async function handleAssistantPrivate(
       void sendChatAction(chatId).catch(() => {});
       const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet });
       const extracted = access.permissions.has("clients.viewPhone") ? media.text : maskAssistantContacts(media.text);
-      // File text is quoted evidence, never a request that may authorize CRM writes.
-      for (let offset = 0; offset < extracted.length; offset += 3500) await send(extracted.slice(offset, offset + 3500));
-      return;
+      if (media.error || isForwarded) {
+        // Пересланный файл — чужие слова и в подписи: только пересказ, как прежде.
+        for (let offset = 0; offset < extracted.length; offset += 3500) await send(extracted.slice(offset, offset + 3500));
+        return;
+      }
+      text = `${text.slice(0, 400)}\n${wrapUntrusted("document", extracted, 3400)}`;
+      fileQuoted = true;
     }
     if (fromVoice) {
       const voice = await transcribeVoice(msg, agent.id, moneyWallet);
@@ -905,6 +915,9 @@ export async function handleAssistantPrivate(
       // Голое фото/видео/файл без слов: молча «👀» (цель назовут следующим сообщением), без текста.
       const bare = msg.photo?.length || msg.video || msg.document || msg.video_note || msg.animation;
       if (bare && msg.message_id) {
+        // Фото без слов у того, кто ведёт расходы, помнится 30 минут: «мана акс, ворид кун» следом
+        // разберёт его как расходы (assistantExpenseFollowup.ts), а не уйдёт модели без фото.
+        if (msg.photo?.length) await rememberExpensePhoto(msg, agent.id).catch(() => false);
         await setMessageReaction(chatId, msg.message_id, "👀");
         return;
       }
@@ -912,15 +925,24 @@ export async function handleAssistantPrivate(
       return;
     }
     // Ответ на «Править → строка N» в карточке расходов: поправка строки, а не новая просьба.
-    if (!forwardedEvidence && await applyExpenseFixMessage(chatId, agent.id, text, msg.message_id)) return;
-    const more = !forwardedEvidence && propertyPageRequest(text);
+    // Свои слова человека (не пересланное и не подпись с цитатой файла) — для разборов кодом ниже.
+    const ownWords = !forwardedEvidence && !fileQuoted;
+    if (ownWords && await applyExpenseFixMessage(chatId, agent.id, text, msg.message_id)) return;
+    const more = ownWords && propertyPageRequest(text);
     if (more && await replyWithMoreProperties(cardScope, more, text)) return;
     // «Не присылай мне такое», «что у меня выключено», «включи обратно уведомления …» —
     // личные отключения. ПОСЛЕ карточек (правка строки расходов, «ещё варианты»): рабочий
     // ответ на карточку важнее; разбор узкий и чужую фразу пропускает дальше (staffNotice.ts).
-    if (!forwardedEvidence && await handleNoticePreferenceText(msg, agent, text)) return;
+    if (ownWords && await handleNoticePreferenceText(msg, agent, text)) return;
     const previous = await loadHistory(chatId, agent.id);
-    if (!forwardedEvidence && isVoiceReplayRequest(text)) {
+    // Расходы списком в этом сообщении — одна карточка кодом; «вот фото / внеси эти / повтори карточку»
+    // без данных — запомненные фото, карточка за сутки или одна фраза, чего не хватает (17.11.2026).
+    if (ownWords && await handleExpenseTextMessage({ chatId, agentId: agent.id, text, messageId: msg.message_id })) return;
+    if (ownWords && await handleExpenseFollowupText({
+      chatId, agentId: agent.id, text, messageId: msg.message_id,
+      previousUserText: previous.slice().reverse().find((m) => m.role === "user")?.content,
+    })) return;
+    if (ownWords && isVoiceReplayRequest(text)) {
       if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
       if (!(await loadAgentAccess(agent.id))?.isActive) { await send("Ваша учётка отключена."); return; }
       const lastReply = previous.slice().reverse().find(message => message.role === "assistant")?.content;
@@ -1814,6 +1836,13 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       return true;
     };
     const actor = actionActorOf(clicker.id, access, callbackChat?.type === "private");
+
+    // «Записать» под пачкой расходов, у которой вышло время: честно «ничего не записала» на языке
+    // карточки и «Показать снова» с теми же строками (17.11.2026: 10–11.11 две карточки истекли молча).
+    if (verb === "ok" && chatId && messageId && isExpiredExpenseBatch(actions)) {
+      await answerCallbackQuery(query.id, await showExpiredExpenseCard(chatId, messageId, actions[0]!, bundleId));
+      return true;
+    }
 
     if (verb === "no") {
       const executed = await serializeBundle(bundleId, async () => {
