@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { customerAgentAnswerVerdict, customerAgentSentQuestion, renderCustomerAgentDecision } from "../src/ai/customerAgentRenderer.js";
 import { readCustomerAgentCompanyKnowledge } from "../src/lib/customerAgentPublicReads.js";
 import { customerAgentCompanyKnowledgeHash } from "../src/ai/customerAgentPublicProtocol.js";
@@ -156,11 +156,30 @@ describe("п.3 «Какие все условия?» is the seller asking the ag
 
 describe("live on one channel first (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS, 17.11.2026)", () => {
   const ALL = ["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE"] as const;
-  it("live and no list: live on every channel (as before)", () => {
-    for (const env of [{ CUSTOMER_AGENT_ANSWER_MODE: "live" }, { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: " , " }]) {
-      for (const channel of ALL) expect(customerAgentAnswerMode(env, channel)).toBe("live");
-      expect(customerAgentAnswerMode(env)).toBe("live");
+  it("live and no list (or only unknown names): live NOWHERE, an error is logged; every channel only with the explicit ALL", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const env of [{ CUSTOMER_AGENT_ANSWER_MODE: "live" }, { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: " , " },
+      { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "telegram, whatsap" }]) {
+      for (const channel of ALL) expect(customerAgentAnswerMode(env, channel)).toBe("shadow");
+      expect(customerAgentAnswerMode(env)).toBe("shadow");
     }
+    expect(errors.mock.calls.some(call => String(call[0]).includes("live is OFF on every channel"))).toBe(true);
+    for (const value of ["ALL", " all ", "all,FACEBOOK"]) {
+      const env = { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: value };
+      for (const channel of ALL) expect(customerAgentAnswerMode(env, channel)).toBe("live");
+    }
+    errors.mockRestore();
+  });
+  it("an unknown name in a list is ignored and logged once", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "FACEBOOK, faceboook" };
+    expect(customerAgentAnswerMode(env, "FACEBOOK")).toBe("live");
+    expect(customerAgentAnswerMode(env, "INSTAGRAM")).toBe("shadow");
+    expect(customerAgentAnswerMode(env, "WHATSAPP")).toBe("shadow");
+    const hits = errors.mock.calls.filter(call => String(call[0]).includes("FACEBOOK"));
+    expect(hits).toHaveLength(1);
+    expect(String(hits[0][0])).toContain("FACEBOOOK");
+    errors.mockRestore();
   });
   it("live and a list: live only on the listed channels, shadow on the others", () => {
     const env = { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: " whatsapp, Website ,WHATSAPP" };
