@@ -30,7 +30,9 @@ import type { ClientLanguage } from "./clientLanguage.js";
 import { createCardLinkEvidence } from "./assistant/cardLinkEvidence.js";
 import { loadMoneyContext, priceCeilingFilter, roundMoney, toTjs } from "../lib/money.js";
 import {
+  dushanbeDateString,
   dushanbeDateTimeString,
+  dushanbeDayRange,
   dushanbeInputToDate,
   dushanbeStartOfMonth,
   dushanbeWallClock,
@@ -342,13 +344,21 @@ const TOOLS: AssistantTool[] = [
   {
     name: "get_company_stats",
     description:
-      "Сводка за текущий месяц: воронка, сделки, комиссия, лиды по источникам. Для роли AGENT — только его собственные показатели, для руководства — по всей компании.",
-    // Аргументов нет — и схему для такой функции Gemini обязан НЕ получать вовсе.
-    // `{ type: "object", properties: {} }` (форма, доставшаяся от Anthropic) он
-    // отвергает с 400 «properties: should be non-empty for OBJECT type», а
-    // инструменты уходят одним массивом на каждый запрос — то есть падал КАЖДЫЙ
-    // вызов ассистента, ещё до первого хода, и выглядело это как «проверьте ключ».
-    parameters: undefined,
+      "Сводка за период: новые обращения (лиды), показы, сделки, комиссия, лиды по источникам. " +
+      "Без дат — текущий месяц с 1-го числа по сегодня. На «сегодня», «вчера», конкретное число, неделю или любой " +
+      "отрезок передай from и to (один день — одна и та же дата в обоих). В ответе называй ровно тот период, " +
+      "что вернулся в поле period: цифру за месяц нельзя выдавать за сегодняшнюю. " +
+      "Для роли AGENT — только его собственные показатели, для руководства — по всей компании.",
+    // Схема с непустыми properties: пустую `{ type: "object", properties: {} }` Gemini
+    // отвергает с 400 «properties: should be non-empty for OBJECT type», а инструменты
+    // уходят одним массивом на каждый запрос — падал КАЖДЫЙ вызов ассистента.
+    parameters: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Первый день периода, YYYY-MM-DD по Душанбе. Необязательно." },
+        to: { type: "string", description: "Последний день периода включительно, YYYY-MM-DD. Без него период — один день from." },
+      },
+    },
   },
   {
     name: "create_task",
@@ -426,12 +436,15 @@ const TOOLS: AssistantTool[] = [
   {
     name: "get_lead_sources",
     description:
-      "Разбивка лидов по каналам (WhatsApp, Instagram, сайт, звонок, рекомендации и т.д.) за месяц. " +
+      "Разбивка лидов по каналам (WhatsApp, Instagram, сайт, звонок, рекомендации и т.д.) за месяц " +
+      "или за любой отрезок дат: на «сегодня», «вчера», конкретное число передай from и to (один день — одна дата в обоих). " +
       "Раздел «Источники лидов» доступен только руководству — рядовому агенту функция вернёт отказ.",
     parameters: {
       type: "object",
       properties: {
         month: { type: "string", description: "Месяц в формате YYYY-MM, по умолчанию текущий" },
+        from: { type: "string", description: "Первый день периода, YYYY-MM-DD по Душанбе. Сильнее month." },
+        to: { type: "string", description: "Последний день периода включительно, YYYY-MM-DD. Без него период — один день from." },
       },
     },
   },
@@ -482,6 +495,44 @@ function resolveMonthKey(monthStr: unknown): string {
  */
 function dushanbeMonthRange(monthKey: string): { from: Date; to: Date } {
   return dushanbeMonthRangeShared(monthKey);
+}
+
+const STATS_DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** Самый длинный отрезок сводки: год с запасом — дальше это уже не «сводка», а выгрузка. */
+const STATS_MAX_DAYS = 400;
+
+export type StatsPeriod = { from: Date; to: Date; label: string };
+
+/**
+ * Отрезок «с дня по день» для сводок помощницы, целыми сутками по Душанбе.
+ * null — дат не передали (вызывающий берёт свой период по умолчанию).
+ *
+ * 17.11.2026: на «сколько обращений сегодня» помощница отдавала цифру за весь
+ * месяц и называла её сегодняшней, а на «за 17.11» отвечала, что по дням считать
+ * не умеет: у сводки не было периода вовсе. `label` возвращается модели, чтобы
+ * она называла ровно тот отрезок, за который посчитано.
+ */
+export function resolveStatsPeriod(rawFrom: unknown, rawTo: unknown): StatsPeriod | { error: string } | null {
+  const fromDay = typeof rawFrom === "string" ? rawFrom.trim().slice(0, 10) : "";
+  const toDay = typeof rawTo === "string" ? rawTo.trim().slice(0, 10) : "";
+  if (!fromDay && !toDay) return null;
+  const first = fromDay || toDay;
+  const last = toDay || fromDay;
+  if (!STATS_DAY.test(first) || !STATS_DAY.test(last)) return { error: "Дата периода — в виде ГГГГ-ММ-ДД" };
+  const start = dushanbeInputToDate(first);
+  const end = dushanbeInputToDate(last);
+  // Date.UTC молча переносит 31 февраля в март — такую дату считаем ошибкой, а не другим днём.
+  if (
+    Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) ||
+    dushanbeDateString(start) !== first || dushanbeDateString(end) !== last
+  ) {
+    return { error: "Такой даты нет в календаре" };
+  }
+  if (start > end) return { error: "Начало периода позже конца" };
+  const from = dushanbeDayRange(start).start;
+  const to = dushanbeDayRange(end).end;
+  if ((to.getTime() - from.getTime()) / 86_400_000 > STATS_MAX_DAYS) return { error: "Период слишком длинный: не больше года" };
+  return { from, to, label: first === last ? first : `${first} — ${last}` };
 }
 
 /** Экспортирован ради точечных тестов (apps/api/tests/ai-assistant-tools.test.ts):
@@ -697,12 +748,15 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     // Контейнер живёт в UTC, компания — в Душанбе (UTC+5). Через new Date() первые
     // пять часов каждого первого числа ассистент считал «этот месяц» ещё прошлым
     // месяцем и отдавал директору вчерашние цифры как сегодняшние.
-    const startOfMonth = dushanbeStartOfMonth();
+    const period = resolveStatsPeriod(input.from, input.to);
+    if (period && "error" in period) return { error: period.error };
+    const today = dushanbeDateString();
+    const within = period ? { gte: period.from, lt: period.to } : { gte: dushanbeStartOfMonth() };
     // Изоляция как в /reports (ADMIN/MANAGER): агент видит только СВОЮ статистику —
     // своих клиентов, свои показы и комиссию по своим сделкам, не цифры всей компании.
     const clientScope = ownScope ? { assignedAgentId: ownScope } : {};
     const [newLeads, showings, deals, bySource, money] = await Promise.all([
-      prisma.client.count({ where: { createdAt: { gte: startOfMonth }, deletedAt: null, ...clientScope } }),
+      prisma.client.count({ where: { createdAt: within, deletedAt: null, ...clientScope } }),
       // client: { deletedAt: null } + COUNTED_SHOWING_WHERE (27.08.2026): без них
       // счётчик показов дважды завышал цифру директору — и клиентами из Корзины,
       // и отменёнными показами, — тогда как соседние счётчики того же ответа
@@ -711,25 +765,28 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
         where: {
           type: "SHOWING",
           ...COUNTED_SHOWING_WHERE,
-          createdAt: { gte: startOfMonth },
+          createdAt: within,
           client: { deletedAt: null },
           ...(ownScope ? { agentId: ownScope } : {}),
         },
       }),
       prisma.deal.findMany({
-        where: { stage: "COMPLETED", closedAt: { gte: startOfMonth }, ...(ownScope ? { agentId: ownScope } : {}) },
+        where: { stage: "COMPLETED", closedAt: within, ...(ownScope ? { agentId: ownScope } : {}) },
         select: { commissionAmount: true, currency: true },
       }),
       prisma.client.groupBy({
         by: ["source"],
-        where: { createdAt: { gte: startOfMonth }, deletedAt: null, ...clientScope },
+        where: { createdAt: within, deletedAt: null, ...clientScope },
         _count: { _all: true },
       }),
       loadMoneyContext(),
     ]);
     return {
       scope: ownScope ? "только ваши показатели" : "вся компания",
-      month: dushanbeWallClock().toISOString().slice(0, 7),
+      // Что именно посчитано — словами, чтобы модель не назвала месяц «сегодня».
+      period: period ? period.label : `текущий месяц: ${today.slice(0, 8)}01 — ${today}`,
+      today,
+      ...(period ? {} : { month: today.slice(0, 7) }),
       newLeads,
       showings,
       dealsCompleted: deals.length,
@@ -958,8 +1015,10 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     // (reportsRouter.use(requirePermission("reports.view")) в routes/reports.ts).
     if (!actor.canViewReports) return { error: "Доступ только для руководства" };
 
+    const period = resolveStatsPeriod(input.from, input.to);
+    if (period && "error" in period) return { error: period.error };
     const monthKey = resolveMonthKey(input.month);
-    const { from, to } = dushanbeMonthRange(monthKey);
+    const { from, to } = period ?? dushanbeMonthRange(monthKey);
 
     // Та же агрегация, что и в reports.ts (/sources): строка на пару «источник + статус»,
     // не строка на клиента — та же экономия памяти при большой базе.
@@ -976,7 +1035,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       bySource.set(row.source, entry);
     }
     return {
-      month: monthKey,
+      ...(period ? { period: period.label } : { month: monthKey }),
       sources: [...bySource.entries()]
         .map(([source, v]) => ({ source, total: v.total, closed: v.closed }))
         .sort((a, b) => b.total - a.total),
