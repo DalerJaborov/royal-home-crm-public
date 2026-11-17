@@ -194,6 +194,10 @@ services:
       # звать ElevenLabs и слать mp3 монтажёру, иначе PREVIEW. Без этих строк значение из
       # .env.production в контейнер не попадало (12.11.2026, тот же класс, что MARKET_CRAWL).
       CRM_NARRATION_EXECUTION_MODE: "${CRM_NARRATION_EXECUTION_MODE:-PREVIEW}"
+      # Сервис «убрать старый голос из ролика» (16.11.2026, сервис voice-separator ниже). Нужен и api
+      # (кнопка «Одобрить» решает, пойдёт ли объект к машине), и worker (сам вызов). Пусто —
+      # возможности нет, новая озвучка на вышедший ролик уходит монтажёру, как раньше.
+      VOICE_SEPARATOR_URL: ${VOICE_SEPARATOR_URL:-http://voice-separator:8090}
       CRM_OWNER_REPORT_EXECUTION_MODE: "${CRM_OWNER_REPORT_EXECUTION_MODE:-PREVIEW}"
       # connection_limit ЯВНО (аудит №4, 27.08): по умолчанию Prisma берёт
       # пул примерно в 5 соединений на процесс. Журнал переходов (db.ts) читает
@@ -437,6 +441,36 @@ services:
     networks:
       - default
       - royalhome-shared
+
+  # «УБРАТЬ СТАРЫЙ ГОЛОС ИЗ РОЛИКА» (16.11.2026, решение владельца: новая цена → новая озвучка на
+  # вышедший ролик без монтажёра). Python: модель MDX Kim_Vocal_2 отделяет голос от музыки,
+  # faster-whisper проверяет, что речи в музыке не осталось. Зовёт только worker
+  # (lib/voiceSeparator.ts) по внутренней сети; порт наружу не открыт, тома не нужны — звук
+  # приходит телом запроса. Модели скачаны при сборке образа (apps/voice-separator/Dockerfile),
+  # в работе интернет ему не нужен. Один запрос за раз (очередь), процессор не весь: api, база
+  # и робот-звонарь работают рядом. Упал или не собрался — worker не страдает, объект уходит
+  # монтажёру. Образ (~1,8 ГБ, ~15 мин) выкат НЕ собирает — один раз руками (ops/deploy.sh, шаг 3.1):
+  #   docker compose --env-file .env.production -f docker-compose.prod.yml build voice-separator
+  voice-separator:
+    build:
+      context: apps/voice-separator
+      dockerfile: Dockerfile
+    image: royalhome-voice-separator
+    restart: unless-stopped
+    logging: *default-logging
+    <<: *default-security
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g
+    pids_limit: 256
+    # Модели в памяти (~1 ГБ) + разбор 10-минутного звука; прод — 31 ГБ.
+    mem_limit: 4g
+    # Половина ядер: отделение голоса — минуты процессора, остальным сервисам хватает.
+    cpus: 6
+    environment:
+      OMP_NUM_THREADS: "6"
+    networks:
+      - default
 
   web:
     build:
