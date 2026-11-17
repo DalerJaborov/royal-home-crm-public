@@ -65,9 +65,8 @@ beforeAll(async () => {
       phone: `+99299${String(runId).slice(-7)}`,
       kind: "BUYER",
       source: "WEBSITE",
-      status: "LOST",
-      workStatus: "ACTIVE",
-      escalatedAt: new Date(),
+      // «Потеря» = оформленный отказ (16.11.2026): отметка отказа, не статус LOST.
+      assignmentRefusedAt: new Date(),
       refusalReason: "EXPENSIVE",
       assignedAgentId: agentId,
     },

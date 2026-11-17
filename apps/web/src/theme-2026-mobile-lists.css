@@ -152,9 +152,22 @@ html[data-theme="royal-home-2026-night"] .rh2 .mh {
   font-size: 15px;
   line-height: 1.25;
 }
-/* Имя внутри строки может соседствовать с чипом — сжимается именно оно. */
+/* Имя внутри строки может соседствовать с чипом. ИМЯ ВАЖНЕЕ ЧИПА (16.11.2026,
+   кадры ревью: на узком телефоне у директора от имени оставалось 2-3 буквы, а
+   чип «Ждёт принятия»/причина скрытия и время справа забирали всё место).
+   Имя держит минимум ~9 знаков и сжимается последним; чип сжимается первым,
+   с многоточием. */
 .rh2 .mh .list .row .n > .nm {
+  flex: 1 1 auto;
+  min-width: min(9ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rh2 .mh .list .row .n > .chip {
+  flex: 0 100 auto;
   min-width: 0;
+  max-width: 50%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

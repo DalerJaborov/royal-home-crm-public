@@ -28,7 +28,6 @@ interface RoyalScoreView {
   companyRank: number;
   totalCompanyAgents: number;
   activeClients: number;
-  freeSlots: number | null;
   history: { date: string; score: number }[];
   /** Динамика счёта; null у периода — истории ещё не набралось. */
   dynamics: { day: number | null; week: number | null; month: number | null };
@@ -136,13 +135,6 @@ export function RoyalScoreCard() {
         <div className="tile">
           <span className="hd">Клиентов в работе</span>
           <b>{data.activeClients}</b>
-          <small>
-            {data.freeSlots === null
-              ? "лимит не задан"
-              : data.freeSlots === 0
-                ? "мест нет, новые лиды не придут"
-                : `свободно мест: ${data.freeSlots}`}
-          </small>
         </div>
         <div className="tile">
           <span className="hd">Динамика</span>

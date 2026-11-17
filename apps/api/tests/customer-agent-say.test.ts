@@ -266,7 +266,9 @@ describe("mode and daily statistics", () => {
     const [source, message, context] = vi.mocked(logSystemError).mock.calls[0]!;
     expect(source).toBe("ai");
     expect(message).toContain("44%"); expect(message).toContain("promise 3"); expect(message).toContain("contact 1");
-    expect(context).toEqual({ dedupKey: "customer-agent-say:2026-10-24" });
+    // Prod log 13–16.11.2026: the day key alone kept the default 10-minute window, so a row every 10 minutes (47 in four days).
+    // The window must cover the day, and the quality line must not wake the director with a push every new day.
+    expect(context).toEqual({ dedupKey: "customer-agent-say:2026-10-24", dedupWindowMs: 24 * 60 * 60_000, silent: true });
     expect(String(message)).not.toMatch(/Понял|Спасибо/);
   });
   it("tells the owner how many phrases were switched off on purpose, beside (not inside) the percentage", async () => {

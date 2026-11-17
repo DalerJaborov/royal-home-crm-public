@@ -166,9 +166,16 @@ meRouter.patch("/montage-copies", requireAuth, async (req, res) => {
  * заводит одноразовый код и, если известно имя бота, готовую ссылку t.me/<бот>?start=<код>.
  * Сама привязка происходит, когда сотрудник переходит по ссылке (или пишет код
  * боту вручную) — обрабатывает telegram/bot.ts::handleAgentTelegramMessage.
+ *
+ * requireElevation (аудит безопасности 17.11.2026, S2): Telegram — канал кода
+ * входа (routes/auth.ts, «Прислать в Telegram»). Кто на 15 минут сел за чужую
+ * открытую вкладку, привязывал свой чат и дальше входил в учётку с любого
+ * устройства. Тот же замок, что у 2FA и ключей устройства ниже; о самой
+ * привязке владельцу учётки приходит сообщение (lib/telegramAgentLink.ts).
  */
-meRouter.post("/telegram-link", requireAuth, async (req, res) => {
+meRouter.post("/telegram-link", requireAuth, requireElevation, async (req, res) => {
   const { code, deepLink } = await createTelegramLinkCode(req.agent!.id);
+  logAudit(req, "TELEGRAM_LINK_CODE_ISSUED", "Agent", req.agent!.id);
   res.json({ code, deepLink });
 });
 

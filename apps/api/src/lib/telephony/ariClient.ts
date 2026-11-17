@@ -1,3 +1,4 @@
+import { FOREIGN_PHONE_CALL_ERROR, isForeignPhone } from "@royal-home/shared";
 import { decryptSecretSafe } from "../../crypto.js";
 import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
@@ -178,6 +179,9 @@ export interface OriginateCallResult {
    *  сопоставления событий Stasis/Hangup с этим конкретным звонком. */
   channelId?: string;
   error?: string;
+  /** Номер иностранный — станция его не наберёт, звонок не заводился вовсе
+   *  (isForeignPhone в packages/shared/tajikPhone.ts). Это не сбой станции. */
+  notDialable?: boolean;
 }
 
 /**
@@ -394,6 +398,18 @@ export async function originateCall(
     whisper?: { fileName: string; context: string; exten: string };
   }
 ): Promise<OriginateCallResult> {
+  /**
+   * ПОСЛЕДНИЙ СТОРОЖ: ИНОСТРАННЫЙ НОМЕР НА СТАНЦИЮ НЕ УХОДИТ (17.11.2026).
+   * Исходящий маршрут FreePBX отдаёт транку цифры как есть (`SIP/out/79…`), без
+   * международного выхода; оператор отвечает NO ANSWER за 0 секунд, а CRM писала
+   * «клиент не ответил» — 53 таких «недозвона» за всё время, ни одного гудка.
+   * Вызывающие проверяют номер сами (stationDialRefusal), но эта функция — общая
+   * дверь всех исходящих (карточка, ручной набор, перезвон, вакансии), и новый
+   * путь без своей проверки не должен снова писать ложный недозвон.
+   */
+  if (isForeignPhone(targetPhoneNumber)) {
+    return { ok: false, notDialable: true, error: FOREIGN_PHONE_CALL_ERROR };
+  }
   const auth = Buffer.from(`${creds.username}:${creds.password}`).toString("base64");
   // На мобильный агента звоним через Local-канал в тот же штатный контекст, а не
   // через `SIP/имя-транка/номер`: имя транка тогда пришлось бы держать в настройках

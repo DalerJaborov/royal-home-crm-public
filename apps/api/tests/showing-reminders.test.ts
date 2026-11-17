@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { waitForSettled } from "./helpers/waitFor.js";
+import { waitFor, waitForSettled } from "./helpers/waitFor.js";
 
 const sendPushToAgent = vi.fn(async () => 1);
 vi.mock("../src/push.js", async (importOriginal) => ({
@@ -20,10 +20,9 @@ vi.mock("../src/lib/workingHours.js", () => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { sendHourBeforeReminders, notifyMissedShowings, notifyOverdueTasks, notifySupervisorsOfOverdue } = await import(
+const { sendHourBeforeReminders, notifySupervisorsOfOverdue } = await import(
   "../src/lib/meetingReminders.js"
 );
-const { DEFAULT_EVENT_POINTS } = await import("../src/lib/scoreJournal.js");
 
 /** Ступени напоминаний: показ покупателя — за день, за 2 часа и за 40 минут
  *  (решение владельца 03.08 — объединили письменную спецификацию «день + час» с
@@ -277,20 +276,9 @@ describe("Напоминание перезвонить после недозв�
 
 describe("Непроведённый показ", () => {
   it("через два часа после назначенного времени уходит руководству", async () => {
+    // Агентская сторона (notifyMissedShowings — штраф showing_missed) удалена
+    // 16.11.2026 вместе с автоматическими штрафами; руководству — сборщиком ниже.
     const task = await makeTask("SHOWING", -150);
-    expect(await notifyMissedShowings(NOW)).toBe(1);
-    const after = await prisma.interaction.findUnique({ where: { id: task.id } });
-    expect(after?.noShowNotifiedAt).not.toBeNull();
-
-    // Самому агенту пуш и запись в ленту убраны (решение владельца 02.10.2026).
-    const agentCalls = sendPushToAgent.mock.calls as unknown as [string | string[], Record<string, string>][];
-    const agentCall = agentCalls.find(
-      ([to, p]) => (Array.isArray(to) ? to.includes(agentId) : to === agentId) && p.tag?.endsWith("-agent")
-    );
-    expect(agentCall, "агенту «Показ не отмечен» больше не шлём").toBeUndefined();
-
-    // Руководству — отдельным сборщиком (07.09.2026, часы алармов), не отсюда.
-    sendPushToAgent.mockClear();
     /**
      * РУКОВОДСТВУ — В КОЛОКОЛЬЧИК, БЕЗ ЗВОНКА ТЕЛЕФОНА (владелец 20.09.2026:
      * «эскалация убрать, то есть прямо таки пуш не нужно»). Проверяем оба
@@ -312,36 +300,24 @@ describe("Непроведённый показ", () => {
   });
 
   it("второй раз о том же показе не сообщает", async () => {
-    expect(await notifyMissedShowings(NOW)).toBe(0);
+    expect(await notifySupervisorsOfOverdue(NOW)).toBe(0);
   });
 
   it("отмеченный выполненным показ руководство не беспокоит", async () => {
     const task = await makeTask("SHOWING", -150);
     await prisma.interaction.update({ where: { id: task.id }, data: { completedAt: new Date() } });
-    expect(await notifyMissedShowings(NOW)).toBe(0);
+    expect(await notifySupervisorsOfOverdue(NOW)).toBe(0);
   });
 
   it("показ, время которого ещё не прошло, не считается сорванным", async () => {
     await makeTask("SHOWING", -30);
-    expect(await notifyMissedShowings(NOW)).toBe(0);
+    expect(await notifySupervisorsOfOverdue(NOW)).toBe(0);
   });
 });
 
 describe("Просроченные встречи и задачи, никогда не закрытые", () => {
-  it("просроченная встреча — штраф meeting_overdue, руководству сводки нет", async () => {
+  it("просроченная встреча — руководству сводки в ленте нет, отметка ставится", async () => {
     const task = await makeTask("MEETING", -150);
-    expect(await notifyOverdueTasks(NOW)).toBeGreaterThan(0);
-    const after = await prisma.interaction.findUnique({ where: { id: task.id } });
-    expect(after?.noShowNotifiedAt).not.toBeNull();
-    const event = await prisma.royalScoreEvent.findFirst({ where: { agentId, sourceId: task.id } });
-    expect(event?.kind).toBe("meeting_overdue");
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.meeting_overdue);
-
-    // Самому агенту пуш и запись в ленту убраны (решение владельца 02.10.2026).
-    const agentCall = (sendPushToAgent.mock.calls as unknown as [string | string[], Record<string, string>][]).find(
-      ([to, p]) => (Array.isArray(to) ? to.includes(agentId) : to === agentId) && p.tag?.endsWith("-agent")
-    );
-    expect(agentCall, "агенту «Встреча просрочена» больше не шлём").toBeUndefined();
 
     /**
      * ОДИН PUSH ЗА ТИК, А НЕ ПО ОДНОМУ НА КАЖДУЮ ПРОСРОЧКУ (правка 30.08.2026,
@@ -374,12 +350,8 @@ describe("Просроченные встречи и задачи, никогд�
     expect(afterSupervisor?.supervisorNotifiedAt).not.toBeNull();
   });
 
-  it("просроченная обычная задача — task_overdue", async () => {
+  it("просроченная обычная задача — та же сводка руководству", async () => {
     const task = await makeTask("CALL", -150);
-    expect(await notifyOverdueTasks(NOW)).toBeGreaterThan(0);
-    const event = await prisma.royalScoreEvent.findFirst({ where: { agentId, sourceId: task.id } });
-    expect(event?.kind).toBe("task_overdue");
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.task_overdue);
 
     // Та же сводка одним push, что и у встречи выше (коммит 312891c2), теперь
     // отдельным сборщиком notifySupervisorsOfOverdue (07.09.2026).
@@ -399,33 +371,24 @@ describe("Просроченные встречи и задачи, никогд�
     expect(afterSupervisor?.supervisorNotifiedAt).not.toBeNull();
   });
 
-  it("показ сюда не попадает — своя ветка выше", async () => {
-    await makeTask("SHOWING", -150);
-    await notifyMissedShowings(NOW); // разбирает показ первым, помечает noShowNotifiedAt
-    sendPushToAgent.mockClear();
-    expect(await notifyOverdueTasks(NOW)).toBe(0);
+  it("закрыли поздно — баллов нет ни плюсом, ни минусом (штраф снят 16.11.2026)", async () => {
+    const task = await makeTask("CALL", -150);
+    // Срок — в настоящем прошлом: completeInteractionTask сверяет с реальным «сейчас».
+    await prisma.interaction.update({ where: { id: task.id }, data: { nextActionDate: new Date(Date.now() - 2 * 3600_000) } });
+    const { completeInteractionTask } = await import("../src/lib/taskCompletion.js");
+    const row = await prisma.interaction.findUniqueOrThrow({ where: { id: task.id } });
+    const { changed } = await completeInteractionTask(row);
+    expect(changed).toBe(true);
+    const events = await waitForSettled(() => prisma.royalScoreEvent.count({ where: { sourceId: task.id } }));
+    expect(events).toBe(0);
   });
 
-  it("если запись потом всё же закрыли поздно — второй раз баллы не начисляются", async () => {
-    const task = await makeTask("CALL", -150);
-    await notifyOverdueTasks(NOW);
-    const before = await waitForSettled(() => prisma.royalScoreEvent.count({ where: { agentId, sourceId: task.id } }));
-    // Агент наконец закрывает задачу — тот же путь, что и обычное позднее закрытие
-    // (routes/interactions.ts), с тем же sourceId. Уникальность (kind, sourceId)
-    // не даёт начислить task_overdue второй раз.
-    const { recordScoreEvent, loadEventPoints } = await import("../src/lib/scoreJournal.js");
-    const points = await loadEventPoints();
-    await recordScoreEvent({ agentId, kind: "task_overdue", delta: points.task_overdue, reason: "Закрыто с опозданием", sourceId: task.id });
-    const after = await waitForSettled(() => prisma.royalScoreEvent.count({ where: { agentId, sourceId: task.id } }));
-    expect(after).toBe(before);
-  });
-
-  it("второй тик по уже сообщённой записи не штрафует второй раз", async () => {
-    const task = await makeTask("CALL", -150);
-    await notifyOverdueTasks(NOW);
-    const before = await waitForSettled(() => prisma.royalScoreEvent.count({ where: { agentId, sourceId: task.id } }));
-    expect(await notifyOverdueTasks(NOW)).toBe(0);
-    const after = await waitForSettled(() => prisma.royalScoreEvent.count({ where: { agentId, sourceId: task.id } }));
-    expect(after).toBe(before);
+  it("закрыли вовремя — плюс за задачу остаётся", async () => {
+    const task = await makeTask("CALL", 60);
+    const { completeInteractionTask } = await import("../src/lib/taskCompletion.js");
+    const row = await prisma.interaction.findUniqueOrThrow({ where: { id: task.id } });
+    await completeInteractionTask(row);
+    const event = await waitFor(() => prisma.royalScoreEvent.findFirst({ where: { sourceId: task.id } }));
+    expect(event?.kind).toBe("task_on_time");
   });
 });

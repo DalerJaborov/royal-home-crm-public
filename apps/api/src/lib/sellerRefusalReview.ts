@@ -1,7 +1,9 @@
+import { PROPERTY_DELETE_REQUEST_REASON_LABELS, type PropertyDeleteRequestReason } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { recomputeSellerCardState } from "./sellerCardState.js";
 import { logTimeline } from "./timeline.js";
+import { fileEndOfWorkDeleteRequest } from "./clientDeleteRequest.js";
 
 /**
  * ОТКАЗ ПРОДАВЦА, ОФОРМЛЕННЫЙ ЧЕРЕЗ СНЯТИЕ ОБЪЕКТА (владелец 09.09.2026).
@@ -65,7 +67,18 @@ export async function applySellerRefusal(input: SellerRefusalInput): Promise<voi
     );
   }
 
-  await recomputeSellerCardState({ sellerClientId: seller.id, lostReason: input.reason });
+  const verdict = await recomputeSellerCardState({ sellerClientId: seller.id, lostReason: input.reason });
+
+  // Отказ продавца, после которого объектов в работе не осталось и сделок не было, —
+  // конец работы по карточке. «Потерянных» больше нет (владелец 16.11.2026), поэтому,
+  // как и отказ покупателя (lib/clientRefuse.ts), руководителю уходит заявка на
+  // удаление: в Корзину карточку убирает человек, а не автоматика. «Продан в обход»
+  // остаётся у агента: по нему идёт проверка СБ.
+  if (verdict?.next === "LOST" && !SECURITY_REVIEW_REASONS.has(input.reason)) {
+    await fileEndOfWorkDeleteRequest(seller, input.requestedById,
+      `Продавец снял последний объект №${property.shortId} «${property.title}» (причина: ${PROPERTY_DELETE_REQUEST_REASON_LABELS[input.reason as PropertyDeleteRequestReason] ?? input.reason}). Объектов в работе и сделок нет — работа по карточке завершена.` +
+        (input.comment?.trim() ? ` Комментарий: ${input.comment.trim()}` : ""));
+  }
 }
 
 async function escalateToSecurity(

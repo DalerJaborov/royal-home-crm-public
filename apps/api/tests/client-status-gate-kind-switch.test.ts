@@ -71,23 +71,24 @@ describe("PATCH /clients/:id, статус без права clients.assign", ()
     const step1 = await patch(c.id, ownerToken, { kind: "OTHER" });
     expect(step1.status).toBe(200);
     const step2 = await patch(c.id, ownerToken, { kind: "BUYER", status: "DEAL_CLOSED" });
-    expect(step2.status).toBe(403);
+    expect(step2.status).toBe(400);
     const step3 = await patch(c.id, ownerToken, { status: "DEAL_CLOSED" });
-    expect(step3.status).toBe(403);
+    expect(step3.status).toBe(400);
     const after = await prisma.client.findUnique({ where: { id: c.id }, select: { status: true } });
     expect(after!.status).toBe("NEW");
   });
 
   it("прямая смена статуса покупателю по-прежнему закрыта, а смена типа без статуса открыта", async () => {
     const c = await mkClient(agentIds[0], "2");
-    expect((await patch(c.id, ownerToken, { status: "HOT" })).status).toBe(403);
+    expect((await patch(c.id, ownerToken, { status: "HOT" })).status).toBe(400);
     expect((await patch(c.id, ownerToken, { kind: "SELLER" })).status).toBe(200);
   });
 
-  it("руководитель с clients.assign статус ставит", async () => {
+  // 17.11.2026: статус клиента вручную не меняет никто — и руководитель тоже.
+  it("руководитель статус тоже не ставит (17.11.2026)", async () => {
     const c = await mkClient(agentIds[0], "3");
     const res = await patch(c.id, supervisorToken, { status: "HOT" });
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe("HOT");
+    expect(res.status).toBe(400);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: c.id } })).status).not.toBe("HOT");
   });
 });

@@ -1,23 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { waitForSettled } from "./helpers/waitFor.js";
 import bcrypt from "bcrypt";
 import request from "supertest";
 
-// notifyMissedShowings теперь гейтится рабочими часами (01.09.2026) — тест не
-// должен плавать в зависимости от того, в какое время суток его запустили.
-vi.mock("../src/lib/workingHours.js", () => ({ isWithinWorkingHours: async () => true }));
-
 const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
-const { remindIncompleteCards } = await import("../src/lib/cardReminders.js");
-const { notifyMissedShowings } = await import("../src/lib/meetingReminders.js");
 const { DEFAULT_EVENT_POINTS } = await import("../src/lib/scoreJournal.js");
 
 /**
  * Писатели Royal Score, подключённые к реальным действиям (Этап 1, план после
  * фундамента движка): показ/встреча/задача при закрытии, объект при создании,
- * незаполненная карточка при эскалации руководству, пропущенный показ, обязательное
- * окно «с первого раза». Полный список пока НЕ подключённых событий (нужны новые
+ * (до 16.11.2026 ещё и штрафы — незаполненная карточка, пропущенный показ; сняты). Полный список пока НЕ подключённых событий (нужны новые
  * фичи — кнопки одобрения фото/видео, «Отклонить» лид и т.д.) — в
  * docs/spec-compliance-03-08-2026.md.
  */
@@ -121,13 +114,12 @@ describe("Закрытие задачи через /interactions/:id/complete", 
     expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.showing_done);
   });
 
-  it("показ, закрытый с опозданием — showing_missed, а не showing_done", async () => {
+  it("показ, закрытый с опозданием — ни showing_done, ни штрафа (штраф снят 16.11.2026)", async () => {
     const task = await makeTask("SHOWING", -30); // время уже прошло
-    await request(app).patch(`/api/v1/interactions/${task.id}/complete`).set("Authorization", `Bearer ${agentToken}`);
-    const missed = await waitForEvent(task.id, "showing_missed");
-    expect(missed).not.toBeNull();
-    const done = await prisma.royalScoreEvent.findFirst({ where: { sourceId: task.id, kind: "showing_done" } });
-    expect(done).toBeNull();
+    const res = await request(app).patch(`/api/v1/interactions/${task.id}/complete`).set("Authorization", `Bearer ${agentToken}`);
+    expect(res.status).toBe(200);
+    const events = await waitForSettled(() => prisma.royalScoreEvent.count({ where: { sourceId: task.id } }));
+    expect(events).toBe(0);
   });
 
   it("встреча, закрытая вовремя — meeting_done", async () => {
@@ -138,14 +130,14 @@ describe("Закрытие задачи через /interactions/:id/complete", 
     expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.meeting_done);
   });
 
-  it("обычная задача вовремя — task_on_time; просроченная — task_overdue", async () => {
+  it("обычная задача вовремя — task_on_time; просроченная — без баллов", async () => {
     const onTime = await makeTask("CALL", 60);
     await request(app).patch(`/api/v1/interactions/${onTime.id}/complete`).set("Authorization", `Bearer ${agentToken}`);
     expect(await waitForEvent(onTime.id, "task_on_time")).not.toBeNull();
 
     const late = await makeTask("CALL", -30);
     await request(app).patch(`/api/v1/interactions/${late.id}/complete`).set("Authorization", `Bearer ${agentToken}`);
-    expect(await waitForEvent(late.id, "task_overdue")).not.toBeNull();
+    expect(await waitForSettled(() => prisma.royalScoreEvent.count({ where: { sourceId: late.id } }))).toBe(0);
   });
 
   it("повторное закрытие уже выполненной задачи не начисляет баллы второй раз", async () => {
@@ -219,41 +211,6 @@ describe("Создание объекта", () => {
   });
 });
 
-describe("Незаполненная карточка — эскалация руководству", () => {
-  it("на 12-часовой эскалации начисляется card_not_filled", async () => {
-    const c = await prisma.client.create({
-      data: {
-        fullName: `Пустая карточка ${runId}`,
-        phone: `+99288${runId.toString().slice(-7)}`,
-        source: "PHONE_CALL",
-        assignedAgentId: agentId,
-        acceptedAt: new Date(Date.now() - 13 * 60 * 60 * 1000),
-        // Отсчёт идёт от последней работы с клиентом, а не только от принятия
-        // (см. lib/cardReminders.ts): у карточки, которую тринадцать часов не
-        // трогали, последний контакт — это и есть момент принятия. Без этой
-        // строки в поле встаёт значение по умолчанию «сейчас», и эскалации
-        // правильно не происходит — карточку только что вели.
-        lastContactAt: new Date(Date.now() - 13 * 60 * 60 * 1000),
-      },
-    });
-    extraClientIds.push(c.id);
-    await remindIncompleteCards();
-    const event = await waitForEvent(c.id, "card_not_filled");
-    expect(event).not.toBeNull();
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.card_not_filled);
-  });
-});
-
-describe("Показ, ни разу не отмеченный выполненным", () => {
-  it("через 2 часа после назначенного времени начисляется showing_missed", async () => {
-    // В 02:30 UTC относительные -150 минут дают 00:00 — признак «дата без часа».
-    // Фиксируем настоящий час показа и тот же момент проверки, не часы машины.
-    const now = new Date("2026-09-15T12:30:00Z");
-    const task = await makeTask("SHOWING", -150, now.getTime());
-    await notifyMissedShowings(now);
-    const event = await waitForEvent(task.id, "showing_missed");
-    expect(event).not.toBeNull();
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.showing_missed);
-  });
-});
-
+// «Незаполненная карточка» (card_not_filled, lib/cardReminders.ts) и «показ, ни
+// разу не отмеченный» (showing_missed, notifyMissedShowings) удалены 16.11.2026
+// вместе с автоматическими штрафами Royal Score — решение владельца.

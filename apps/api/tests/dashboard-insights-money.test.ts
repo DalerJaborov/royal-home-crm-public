@@ -55,7 +55,8 @@ describe("GET /dashboard/insights — прогноз плана под finance.v
     const res = await insights(managerToken);
     expect(res.status).toBe(200);
     expect(res.body.planForecast).toBeNull();
-    expect(Array.isArray(res.body.stalledStages)).toBe(true);
+    // «Где застревают клиенты» по статусам снято 17.11.2026 — поля больше нет.
+    expect(res.body.stalledStages).toBeUndefined();
     expect(Array.isArray(res.body.workload)).toBe(true);
     expect("weakLink" in res.body).toBe(true);
   });
