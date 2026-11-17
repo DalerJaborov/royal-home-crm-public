@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { TG_PREFIX, TG_DIRECT_PREFIX } from "./conversationId.js";
-import { silentTurnReason } from "../messengers/replyChain.js";
+import { silentTurnReason } from "../messengers/silentTurn.js";
 import type { ChatMessage } from "../ai/client.js";
 import { sendPushToAgent } from "../push.js";
 import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
@@ -111,7 +111,9 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
  *  сбой, очередь сдалась); silence — сторож увидел молчание через 30 минут. */
 /** follow_up — бот ответил клиенту «это скажет агент» / «агент позвонит» (15.11.2026): обещание правдиво, только
  *  если ответственный узнал. Эпизод — эта реплика клиента (`since`), а не окно в 6 ч: каждое обещание доходит. */
-export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up";
+/** handover — канал без своего ядра (сайт): бот не ответил по существу и сказал клиенту, что передал сообщение
+ *  сотруднику (lib/channelStaffAlert.ts); `why` — готовая фраза с причиной. */
+export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up" | "handover";
 
 /** A person (an agent in the CRM or staff from the messenger app) answered in the chat after `since`. Pure. */
 export function humanRepliedSince(messages: unknown, since: Date): boolean {
@@ -123,7 +125,13 @@ export function humanRepliedSince(messages: unknown, since: Date): boolean {
     return (kind === "agent" || kind === "manual") && new Date(m.at).getTime() > since.getTime();
   });
 }
-export type ClientWaitingOutcome = "agent" | "director" | "skipped";
+/**
+ * `already` — this silence episode was claimed before (the watchdog, the core, an earlier tick): a person has been told, and a
+ * caller that answers the customer with «передал сотруднику» may do so (review #223 R1-2). If that earlier sender then fails,
+ * IT writes the per-chat error log below (review 0e463b02 N4). `skipped` — nobody was told. `excluded` — this chat gets no
+ * staff signal by design: the customer opted out, the client is in the trash, or the chat is gone (review 0e463b02 N5).
+ */
+export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped" | "excluded";
 
 const CHANNEL_NAME: Record<string, string> = {
   INSTAGRAM: "Instagram",
@@ -164,14 +172,20 @@ interface WaitingChat {
 const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } | null } | null | undefined) =>
   client?.assignedAgent?.isActive ? client.assignedAgent.id : null;
 
-async function loadWaitingChat(source: WaitingChatSource, id: string): Promise<WaitingChat | null> {
+/**
+ * Opting out means «the bot does not write first» (messengers/conversation.ts): it silences the bot's own nudges (`silence`,
+ * `follow_up`), never a person when the customer is the one waiting (`handover`, `failed`, `escalate`; review N2–N5 #2).
+ */
+const OPT_OUT_SILENCES: ReadonlySet<ClientWaitingTrigger> = new Set(["silence", "follow_up"]);
+
+async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger): Promise<WaitingChat | null> {
   const client = { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } as const;
   if (source === "bot") {
     const chat = await prisma.botConversation.findUnique({
       where: { id },
       select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, silenceAlertFor: true, clientId: true, client },
     });
-    if (!chat || chat.optedOutAt || chat.client?.deletedAt) return null;
+    if (!chat || chat.optedOutAt && OPT_OUT_SILENCES.has(trigger) || chat.client?.deletedAt) return null;
     const previous = chat.silenceAlertFor;
     return {
       openId: chat.id,
@@ -230,15 +244,15 @@ export async function alertClientWaiting(input: {
   /** По умолчанию — `BotConversation` (Meta и чат сайта). */
   source?: WaitingChatSource;
   trigger: ClientWaitingTrigger;
-  /** Для failed: почему бот не ответил, простыми словами (без служебных кодов). */
+  /** Для failed и handover: почему бот не ответил, простыми словами (без служебных кодов). */
   why?: string;
   /** Для follow_up: время реплики клиента, на которую бот пообещал агента (ключ эпизода). */
   since?: Date;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
-  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId);
-  if (!chat) return "skipped";
+  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger);
+  if (!chat) return "excluded";
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
@@ -253,8 +267,8 @@ export async function alertClientWaiting(input: {
     if (!called || called.getTime() <= chat.lastAlertAt.getTime()) return "skipped";
   }
 
-  // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба.
-  if (!(await chat.claim(since))) return "skipped";
+  // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба. Проигравший — «уже сказали» (R1-2).
+  if (!(await chat.claim(since))) return "already";
 
   const name = chat.name;
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
@@ -264,6 +278,10 @@ export async function alertClientWaiting(input: {
       ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
       : input.trigger === "escalate"
       ? `${name}: бот решил, что нужен сотрудник, и не ответил. ${chat.replyHint}`
+      : input.trigger === "handover"
+      // Клиент уже услышал «передал сотруднику» (ревью #223 N8): не «бот не ответил», а «ответьте вы».
+      ? `${name}: ${input.why ?? "бот передал разговор сотруднику: ответьте клиенту сами."}` +
+        (chat.replyHint === "Ответьте клиенту." ? "" : ` ${chat.replyHint}`)
       : input.trigger === "failed"
         // Правда о причине (ревью 193-3, 15.11): бот сломался, а не «решил».
         ? `${name}: ${input.why ?? "бот не смог подготовить ответ"} — клиент без ответа. ${chat.replyHint}`
@@ -293,10 +311,14 @@ export async function alertClientWaiting(input: {
   } catch (err) {
     // Сигнал не ушёл — снимаем метку эпизода, следующий тик попробует снова.
     await chat.release(since).catch(() => {});
+    // A caller that lost the mark to this send was told `already` and may have answered the customer «передал сотруднику»;
+    // that line closes the episode, so no later tick retries (review 0e463b02 N4). This entry is then the only signal: one
+    // per chat: its own key, so every such chat is a «new problem» push, not a quiet repeat of one channel-wide entry.
     void logSystemError(
       "api",
-      `Сигнал «клиент ждёт ответа» не отправлен: ${err instanceof Error ? err.message : String(err)}`,
-      { dedupKey: "client-waiting-alert-failed" }
+      `Сигнал «клиент ждёт ответа» не отправлен (переписка ${chat.openId}): ${err instanceof Error ? err.message : String(err)}. ` +
+        `Клиенту могли уже ответить «передал сотруднику» — откройте переписку и ответьте сами.`,
+      { dedupKey: `client-waiting-alert-failed:${chat.openId}`, url }
     );
     return "skipped";
   }
@@ -378,7 +400,7 @@ async function sweepTelegramConversations(now: Date): Promise<{ checked: number;
       const called = d.clientId ? lastCall.get(d.clientId) : undefined;
       if (called && called.getTime() > d.since.getTime()) continue;
       const outcome = await alertClientWaiting({ conversationId: d.id, source: d.source, trigger: "silence", now });
-      if (outcome !== "skipped") alerted++;
+      if (outcome === "agent" || outcome === "director") alerted++;
     } catch (err) {
       reportCronRowError("Сторож «клиент ждёт ответа» (Telegram)", d.id, err);
     }
@@ -465,7 +487,7 @@ async function sweepBotConversations(now: Date): Promise<{ checked: number; aler
       const called = d.clientId ? lastCall.get(d.clientId) : undefined;
       if (called && called.getTime() > d.episode.since.getTime()) continue;
       const outcome = await alertClientWaiting({ conversationId: d.id, trigger: "silence", now });
-      if (outcome !== "skipped") alerted++;
+      if (outcome === "agent" || outcome === "director") alerted++;
     } catch (err) {
       reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
     }

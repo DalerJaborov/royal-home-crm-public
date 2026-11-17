@@ -23,7 +23,7 @@
  * убрана, номера уже в поле — скрипт просто не найдёт работы.
  */
 import { prisma } from "../src/db.js";
-import { normalizeDigits } from "../src/ai/leadQualifier.js";
+import { normalizeDigits } from "../src/lib/shared/phoneText.js";
 import { pickFreeExtraPhones } from "../src/lib/clientPhones.js";
 
 /**

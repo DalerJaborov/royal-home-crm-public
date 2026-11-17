@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { lazyWithReload } from "../lib/lazyWithReload";
 
 /**
  * ПАНЕЛЬ ИИ-АССИСТЕНТА, ЗАГРУЖАЕМАЯ ПО НАЖАТИЮ.
@@ -38,7 +39,9 @@ export function preloadAssistantPanel(): void {
   });
 }
 
-const AssistantPanel = lazy(() => preloaded ?? (preloaded = loadPanel()));
+// lazyWithReload (17.11.2026, аудит F2-6): кусок со старым хешем после выката —
+// перезагрузка под новую сборку, а не «Что-то пошло не так» на весь экран.
+const AssistantPanel = lazyWithReload(() => preloaded ?? (preloaded = loadPanel()));
 
 export function AssistantPanelLazy(props: {
   onClose: () => void;

@@ -19,7 +19,7 @@
  * каждая, кроме «уже записано», уходит в журнал ошибок через logSystemError.
  */
 
-import { DEFAULT_EVENT_POINTS, type ScoreEventKind } from "@royal-home/shared";
+import { DEFAULT_EVENT_POINTS, EDITABLE_SCORE_EVENT_KEYS, minScoreEventPoints, type ActiveScoreEventKind, type ScoreEventKind } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { royalScoreEnabled } from "./royalScoreSwitch.js";
 import { logSystemError } from "./systemError.js";
@@ -39,13 +39,18 @@ import { logSystemError } from "./systemError.js";
  * сохранение формы стирало ему ранее заданную цену. Так молча выпали
  * `lead_ignored` и `client_recovered_bonus`.
  */
-export type { ScoreEventKind };
+export type { ActiveScoreEventKind, ScoreEventKind };
 export { DEFAULT_EVENT_POINTS };
 
 
 export interface ScoreEventInput {
   agentId: string;
-  kind: ScoreEventKind;
+  /**
+   * Только начисляемые виды (решение владельца 16.11.2026 — автоматические
+   * штрафы сняты). Снятый вид сюда не пролезет на уровне типов: вернуть штраф
+   * можно только осознанно, через каталог в @royal-home/shared.
+   */
+  kind: ActiveScoreEventKind;
   /** Изменение в баллах, как его видит человек. Ноль допустим: бывают события без
    *  цены, но с объяснением («карточка ушла на проверку»). */
   delta: number;
@@ -70,7 +75,7 @@ export interface ScoreEventInput {
 /** Ошибка уникального ограничения Prisma — «такое событие уже записано». */
 const UNIQUE_VIOLATION = "P2002";
 
-function scoreEventData(input: ScoreEventInput) {
+function scoreEventData(input: Omit<ScoreEventInput, "kind"> & { kind: ScoreEventKind }) {
   return {
     agentId: input.agentId,
     kind: input.kind,
@@ -91,7 +96,9 @@ function scoreEventData(input: ScoreEventInput) {
  * а директор видел «ok». В отличие от recordScoreEvent ошибку НЕ глотает —
  * решать, что ответить, должен вызывающий. Рубильник выключен — не пишет ничего.
  */
-export async function recordScoreEventsAtomic(inputs: ScoreEventInput[]): Promise<void> {
+export async function recordScoreEventsAtomic(
+  inputs: (Omit<ScoreEventInput, "kind"> & { kind: ScoreEventKind })[]
+): Promise<void> {
   if (!(await royalScoreEnabled())) return;
   await prisma.$transaction(inputs.map((input) => prisma.royalScoreEvent.create({ data: scoreEventData(input) })));
 }
@@ -114,7 +121,7 @@ export async function recordScoreEventInTransaction(tx: TxClient, input: ScoreEv
  */
 export async function recordScoreEvent(input: ScoreEventInput): Promise<void> {
   // Рубильник выключен — событие не пишется вовсе, не только не влияет на счёт.
-  // Одна точка на все начисления: сюда идут и cardReminders.ts, и deals.ts, и
+  // Одна точка на все начисления: сюда идут и deals.ts, и
   // properties/*, и interactions.ts, и ручная корректировка directора
   // (royalScoreEvents.ts) — другого пути записи в журнал нет.
   if (!(await royalScoreEnabled())) return;
@@ -155,6 +162,9 @@ export interface ScoreEventView {
   initiator: string | null;
 }
 
+/** Что видно агенту в журнале: начисляемые виды, кроме служебной «проверки СБ». */
+const VISIBLE_JOURNAL_KINDS: string[] = EDITABLE_SCORE_EVENT_KEYS.filter((k) => k !== "security_review");
+
 /**
  * Последние события агента.
  *
@@ -164,7 +174,10 @@ export interface ScoreEventView {
  */
 export async function loadScoreEvents(agentId: string, limit = 50): Promise<ScoreEventView[]> {
   const rows = await prisma.royalScoreEvent.findMany({
-    where: { agentId, kind: { not: "security_review" } },
+    // Только начисляемые виды: строки снятых штрафов (16.11.2026) на счёт уже не
+    // влияют (цена 0), а в списке показывали бы прежние «−5» — агент читал бы
+    // минус, которого в счёте нет.
+    where: { agentId, kind: { in: VISIBLE_JOURNAL_KINDS } },
     orderBy: { at: "desc" },
     take: Math.min(Math.max(1, limit), 200),
     include: { initiator: { select: { fullName: true } } },
@@ -199,10 +212,15 @@ export async function loadEventPoints(db: Pick<TxClient, "settings"> = prisma): 
     return DEFAULT_EVENT_POINTS;
   }
   const merged = { ...DEFAULT_EVENT_POINTS };
-  for (const key of Object.keys(merged) as ScoreEventKind[]) {
+  // Только начисляемые виды берут цену из Настроек. У снятых штрафов (16.11.2026)
+  // в старом Settings.royalScoreEventPoints могла остаться −5 — она больше не
+  // действует ни на новые, ни на уже записанные в окне строки: цена каталога 0.
+  for (const key of EDITABLE_SCORE_EVENT_KEYS) {
     const value = (overrides as Record<string, unknown>)[key];
     if (typeof value === "number" && Number.isFinite(value)) {
-      merged[key] = value;
+      // Отрицательная цена из старых Настроек у начисляемого вида — тоже штраф;
+      // действует только нижняя граница общего правила (минус — у компенсаций).
+      merged[key] = Math.max(minScoreEventPoints(key), value);
     }
   }
   return merged;
@@ -308,40 +326,21 @@ export const ROYAL_SCORE_CATEGORIES: { key: RoyalScoreCategoryKey; label: string
  *  вопрос не только счёта агента: разбор проблемных мест (lib/problemReport.ts)
  *  считает просевшие категории ЗА ОТЧЁТНЫЙ ПЕРИОД, а не за скользящее окно, и
  *  вторая копия этой таблицы разошлась бы с этой при первом же новом виде события. */
-export const CATEGORY_OF: Partial<Record<ScoreEventKind, RoyalScoreCategoryKey>> = {
+export const CATEGORY_OF: Partial<Record<ActiveScoreEventKind, RoyalScoreCategoryKey>> = {
   deal_closed: "sales",
-  client_lost_agent_fault: "sales",
-  client_lost_no_fault: "sales",
   client_recovered_bonus: "sales",
   deal_closed_reversed: "sales",
   client_recovered_bonus_reversed: "sales",
   lead_accepted: "speed",
-  lead_declined_1: "speed",
-  lead_declined_2: "speed",
-  lead_declined_3: "speed",
-  lead_declined_4plus: "speed",
-  call_15min_missed: "speed",
   call_on_time: "speed",
   card_filled: "crm",
-  card_not_filled: "crm",
-  mandatory_window_on_time: "crm",
-  mandatory_window_overdue: "crm",
   security_review: "crm",
   property_added: "properties",
-  property_reworked: "properties",
-  property_rework_fixed: "properties",
   photos_approved_first_try: "properties",
   video_approved_first_try: "properties",
-  photos_overdue: "properties",
-  video_overdue: "properties",
   showing_done: "tasks",
-  showing_missed: "tasks",
   meeting_done: "tasks",
-  meeting_overdue: "tasks",
   task_on_time: "tasks",
-  task_overdue: "tasks",
-  inactivity_penalty: "discipline",
-  inactivity_warning: "discipline",
   client_revived_from_red: "discipline",
   client_revived_from_yellow: "discipline",
 };
@@ -352,40 +351,20 @@ export const CATEGORY_OF: Partial<Record<ScoreEventKind, RoyalScoreCategoryKey>>
  * за что какой минус и плюс»). Один текст на весь проект: и здесь, и на
  * фронте показывается ровно это, а не отдельно придуманная копия.
  */
-export const EVENT_LABELS: Partial<Record<ScoreEventKind, string>> = {
+export const EVENT_LABELS: Partial<Record<ActiveScoreEventKind, string>> = {
   lead_accepted: "Принял лид",
-  lead_declined_1: "Отказ от лида, 1-й подряд — без штрафа",
-  lead_declined_2: "Отказ от лида, 2-й подряд",
-  lead_declined_3: "Отказ от лида, 3-й подряд",
-  lead_declined_4plus: "Отказ от лида, 4-й и далее подряд",
-  lead_ignored: "Лид не принят и не отклонён — ушёл сам",
-  call_15min_missed: "Не позвонил за 15 минут после приёма лида",
   call_on_time: "Позвонил вовремя",
-  mandatory_window_on_time: "Обязательное окно заполнено вовремя",
-  mandatory_window_overdue: "Обязательное окно просрочено",
   card_filled: "Карточка клиента полностью заполнена",
-  card_not_filled: "Карточка не заполнена",
   showing_done: "Показ проведён, итог заполнен",
-  showing_missed: "Показ пропущен без предупреждения",
   meeting_done: "Встреча с продавцом проведена",
-  meeting_overdue: "Встреча просрочена",
   task_on_time: "Задача выполнена вовремя",
-  task_overdue: "Задача просрочена",
   property_added: "Объект добавлен в CRM",
-  property_reworked: "Объект отправлен на доработку",
-  property_rework_fixed: "Доработка объекта исправлена",
   photos_approved_first_try: "Фото приняты с первого раза",
   video_approved_first_try: "Видео принято с первого раза",
-  photos_overdue: "Фото просрочены",
-  video_overdue: "Видео просрочено",
   deal_closed: "Сделка закрыта",
-  client_lost_agent_fault: "Клиент потерян по вине агента",
-  client_lost_no_fault: "Клиент потерян не по вине агента",
   client_recovered_bonus: "Возвращён ранее потерянный клиент — сверх баллов за саму сделку",
   deal_closed_reversed: "Сделка аннулирована после закрытия (комиссия обнулена)",
   client_recovered_bonus_reversed: "Надбавка за возвращённого клиента отменена вместе со сделкой",
-  inactivity_penalty: "Слив в неактивные без предупреждения",
-  inactivity_warning: "Предупреждение: клиент близок к сливу без действий",
   security_review: "Карточка ушла на проверку СБ",
   client_revived_from_red: "Дозвонился и вывел клиента из красного",
   client_revived_from_yellow: "Дозвонился и вывел клиента из жёлтого",
@@ -406,7 +385,7 @@ export interface EventPointsGuideRow {
 
 export async function buildEventPointsGuide(): Promise<EventPointsGuideRow[]> {
   const points = await loadEventPoints();
-  return (Object.keys(CATEGORY_OF) as ScoreEventKind[]).filter((kind) => kind !== "security_review").map((kind) => ({
+  return (Object.keys(CATEGORY_OF) as ActiveScoreEventKind[]).filter((kind) => kind !== "security_review").map((kind) => ({
     kind,
     label: EVENT_LABELS[kind] ?? kind,
     category: CATEGORY_OF[kind]!,
@@ -438,7 +417,7 @@ export async function computeRoyalScoreBreakdown(
 
   const sums = emptyBreakdown();
   for (const e of events) {
-    const category = CATEGORY_OF[e.kind as ScoreEventKind];
+    const category = CATEGORY_OF[e.kind as ActiveScoreEventKind];
     if (!category) continue;
     sums[category] += scoreEventPoints(e, points);
   }
@@ -481,7 +460,7 @@ export async function computeRoyalScoreBreakdownBatch(
 
   for (const agentId of agentIds) result.set(agentId, emptyBreakdown());
   for (const e of events) {
-    const category = CATEGORY_OF[e.kind as ScoreEventKind];
+    const category = CATEGORY_OF[e.kind as ActiveScoreEventKind];
     if (!category) continue;
     const sums = result.get(e.agentId);
     if (!sums) continue;

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { fallbackDeadline, type DeliveryChannel } from "../lib/codeDelivery";
 import { loginRetryAfterMs } from "../lib/loginRetry";
+import { currentPushEndpoint } from "../lib/pushEndpoint";
 
 /**
  * Подтверждение личности кодом (СМС, запасной канал — Telegram), когда у
@@ -17,7 +18,8 @@ export type StepUpMethod = "totp" | "code";
 
 interface SendCodeResponse {
   channel: DeliveryChannel;
-  /** Для channel "push": через сколько секунд сервер сам пришлёт СМС. */
+  /** Для channel "push" (только у кого нет ни таджикского номера, ни Telegram,
+   *  и только на другое его устройство): через сколько секунд сервер пришлёт СМС. */
   fallbackAfterSec?: number;
   phoneHint: string;
   resendAfterSec?: number;
@@ -56,9 +58,12 @@ export function useStepUpCode(onDevCode?: (code: string) => void) {
       inFlight.current = true;
       setState((s) => ({ ...s, sending: true, sendError: null }));
       try {
+        // Адрес подписки этого браузера: код подтверждения сюда пушем не придёт
+        // (кто сел за чужую открытую вкладку, не должен увидеть его здесь же).
+        const pushEndpoint = channel ? undefined : await currentPushEndpoint();
         const r = await api<SendCodeResponse>("/auth/step-up/send-code", {
           method: "POST",
-          body: channel ? { channel } : {},
+          body: { ...(channel ? { channel } : {}), ...(pushEndpoint ? { pushEndpoint } : {}) },
         });
         resendDeadline.current = Date.now() + (r.resendAfterSec ?? 60) * 1000;
         setState({

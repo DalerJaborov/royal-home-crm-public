@@ -29,6 +29,7 @@ import { budgetSortKey, computeHiddenReason, presentClient } from "./shared.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
 import { dushanbeStartOfToday } from "../../lib/dushanbeTime.js";
 import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
+import { CLIENT_PROFILE_HIDDEN, CLIENT_TRANSFERRED_HIDDEN, decideClientCardAccess } from "../../lib/clientCardAccess.js";
 import { noContactWhere } from "../../lib/noContact.js";
 
 export const listRouter = Router();
@@ -453,21 +454,17 @@ listRouter.get("/", requireAuth, async (req, res) => {
        * не для руководителя со `scopeToOwnAgent` пустым, который смотрит общий
        * список: ему решение «принимать или нет» не принадлежит, прятать нечего.
        */
-      const gateUntilAccepted = !!ownAgentId && ownAgentId === c.assignedAgentId && !c.acceptedAt;
-      const gated = gateUntilAccepted
-        ? {
-            ...c,
-            budgetMin: null,
-            budgetMax: null,
-            requirementsNotes: null,
-            desiredDistrictId: null,
-            desiredDistrict: null,
-            desiredRooms: null,
-            desiredType: null,
-            aiInsight: null,
-            aiInsightAt: null,
-          }
-        : c;
+      // Решение и набор закрытых полей — из одной двери lib/clientCardAccess.ts.
+      // «Все мои» отдаёт и карточки, которые у агента забрали (lastAgentId): им —
+      // то же, что в самой карточке, только имя и причина (аудит 17.11.2026, S1).
+      const rowAccess = decideClientCardAccess(ownAgentId, c, false);
+      const gateUntilAccepted = rowAccess === "nameOnly" || rowAccess === "transferred";
+      const gated =
+        rowAccess === "transferred"
+          ? { ...c, ...CLIENT_PROFILE_HIDDEN, ...CLIENT_TRANSFERRED_HIDDEN }
+          : gateUntilAccepted
+            ? { ...c, ...CLIENT_PROFILE_HIDDEN }
+            : c;
       const presented = presentClient(
         gated,
         canSeePhone && !gateUntilAccepted,
@@ -482,11 +479,13 @@ listRouter.get("/", requireAuth, async (req, res) => {
         // Имя считаем из УЖЕ показанной карточки (presented): сырое имя несло
         // «Входящий +992…» и источник клиента мимо clients.viewPhone/viewOrigin
         // (аудит Codex 04.10.2026, ACCESS-01).
-        displayName: clientDisplayName(presented, { propertyAddress: sellerAddresses.get(c.id) ?? null }),
+        displayName: clientDisplayName(presented, {
+          propertyAddress: rowAccess === "transferred" ? null : (sellerAddresses.get(c.id) ?? null),
+        }),
         // Ближайший шаг — свободный текст из хронологии: до приёма лида хронология
         // закрыта (гейт выше), без права на номер номер в тексте шага маскируется.
         nextStep: nextStepFor(c.id, gateUntilAccepted, canSeePhone),
-        leadReason: leadReasons.get(c.id) ?? null,
+        leadReason: rowAccess === "transferred" ? null : (leadReasons.get(c.id) ?? null),
         unread: unreadByClient.get(c.id) ?? false,
         // «Все мои» — единственный срез, где карточка может быть в Корзине,
         // OTHER, LOST и т.д. одновременно с показом в списке держателя; та же

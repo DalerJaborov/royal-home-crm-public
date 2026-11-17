@@ -35,7 +35,7 @@ import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, quickRepeat
 import { claimUnreadablePhoneAsk } from "./phoneRetryClaim.js";
 import { CLIENT_KIND_LABELS, CLIENT_SOURCES, formatClientCode, type ClientSource } from "@royal-home/shared";
 import { clientSelfStatedName, normalizeClientName } from "../ai/replyGuards.js";
-import { FALLBACK_VOICE, finalizeBotReply, inClientLanguage, lastClientWords, phoneSaidInDialog, recentBotText } from "./replyChain.js";
+import { FALLBACK_VOICE, finalizeBotReply, inClientLanguage, intendedSilenceReply, verifiedCoreReply, lastClientWords, phoneSaidInDialog, recentBotText } from "./replyChain.js";
 import { repeatBlockedTexts } from "../lib/outboundShield.js";
 import { reconcileCustomerShowcaseReply } from "../lib/customerShowcaseReceipt.js";
 import {
@@ -55,7 +55,7 @@ import {
   topicStateOf,
   topicStateUpdate,
 } from "../ai/topicLock.js";
-import { mergeDraft, runQualifyTurn } from "../ai/leadQualifier.js";
+import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
@@ -1004,9 +1004,12 @@ export async function acceptLead(
     channel: "chat" as const,
   };
   let decision = classifyInbound(classificationInput);
-  const unresolvedKind = decision.kind === "OTHER" && decision.otherReason !== undefined && [
+  // intentUnknown — то же «намерения нет», только с 17.11.2026 оно уже не «прочее»,
+  // а покупатель с пометкой (services/leads/intakePolicy.ts): объект, о котором шла
+  // речь, по-прежнему разрешает его в обычного покупателя без пометки.
+  const unresolvedKind = decision.intentUnknown === true || (decision.kind === "OTHER" && decision.otherReason !== undefined && [
     OtherReason.LOW_CONFIDENCE, OtherReason.NO_INTENT, OtherReason.OTHER_INTENT, OtherReason.AD_NO_WORDS,
-  ].includes(decision.otherReason);
+  ].includes(decision.otherReason));
   const handledUnknownBuyer = !!handledPropertyId && unresolvedKind
     && (!draft.intent || draft.intent === "other" || draft.intent === "buy")
     && (!draft.whoIsThis || draft.whoIsThis === "UNKNOWN" || draft.whoIsThis === "BUYER")
@@ -3653,7 +3656,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * чем-то другим, всё равно не теряется.
    */
   const finishQualifyTurn = async (
-    result: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>
+    result: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>
   ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer; agentSignal?: MessengerTurnResult["agentSignal"] }> => {
     // Если уже ждали телефон — оставляем этот этап (модель могла сбросить ready).
     // `merged` — слова самого клиента: по ним код отсекает аренду, не полагаясь
@@ -3926,7 +3929,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * первого ответа. Щит исходящих спрашиваем заранее — его блок на транспорте
      * оставлял в CRM реплику, которой клиент не видел.
      */
-    const filtered = await finalizeBotReply(
+    const filtered = result.silent ? intendedSilenceReply()
+      : result.verified ? await verifiedCoreReply(result.reply.join(" "), (bubbles) => repeatBlockedTexts(channel, subscriberId, bubbles, undefined, input.customerTransport))
+      : await finalizeBotReply(
       {
         reply: result.reply,
         conversationId: conversation.id,
@@ -3952,7 +3957,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       },
       {
         regenerate: async (retryDirective) =>
-          (await runQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }))?.reply ?? null,
+          // A regeneration of the same turn: the shadow already ran for it.
+          (await runLegacyQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }, { channel, repeat: "regeneration" }))?.reply ?? null,
         shieldBlocked: (bubbles) => repeatBlockedTexts(channel, subscriberId, bubbles, undefined, input.customerTransport),
       }
     );
@@ -4176,7 +4182,10 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * второй раз платить не должен. Списываем ДО вызова: деньги стоит попытка.
    */
   if (!input.retryOfPaidTurn) await spendAiTurns(conversation.id, budget.dayKey);
-  const result = await runQualifyTurn(nextHistory, draft, qualifyOptions);
+  // One brain, step 2: the per-channel shadow (lib/customerAgentChannelSwitch.ts). A paid retry repeats an already-shadowed turn.
+  const result = await runLegacyQualifyTurn(nextHistory, draft, qualifyOptions, { channel, traceAccount: input.accountExternalId ?? null,
+    eventId: input.skipSaveIncoming ? null : input.messageId ?? null,
+    ...(input.retryOfPaidTurn ? { repeat: "retry" as const, ...(input.retryAttempt ? { attempt: input.retryAttempt } : {}) } : {}) });
 
   if (!result) {
     /**

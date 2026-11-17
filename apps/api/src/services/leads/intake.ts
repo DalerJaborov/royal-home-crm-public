@@ -19,6 +19,7 @@ import { noticeAbsentAgentReturn } from "../../lib/absentAgentNotice.js";
 import { fuzzySimilarClientNotes } from "../../lib/fuzzySearch.js";
 import { findFuzzyDuplicateCandidate, openDuplicateReview } from "../../lib/duplicateReview.js";
 import { assignAgentForLead, recordAssignReason, recordAssignReasonTx, type LeadAssignment } from "./assignment.js";
+import { INTENT_UNKNOWN_NOTE } from "./intentUnknown.js";
 import { findStaffPhone, staffPhoneError, loadStaffPhoneChecker, StaffPhoneLeadError } from "../../lib/staffPhoneGuard.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { logSystemAudit } from "../../lib/audit.js";
@@ -1375,6 +1376,19 @@ async function finishCustomerLeadPolicyTx(tx: TxClient, clientId: string, action
   return true;
 }
 
+/** Руководству с правом назначать агентов: заявка без понятного типа ушла в раздачу. */
+export async function notifyIntentUnknownLead(client: Pick<Client, "id" | "shortId" | "fullName">): Promise<void> {
+  const supervisors = await findAgentsWithPermission("clients.assign");
+  if (supervisors.length === 0) return;
+  await sendPushToAgents(supervisors, {
+    kind: "lead",
+    title: "❓ Заявка: тип не определён",
+    body: `${client.fullName} — оставил(а) номер, но не ясно, покупает или продаёт. Карточка в общей раздаче, агент уточнит первым звонком`,
+    url: `/clients/${client.shortId}`,
+    tag: `lead-intent-unknown-${client.id}`,
+  });
+}
+
 async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Client): Promise<{ clientId: string; created: boolean }> {
   /**
    * НОМЕР СОТРУДНИКА — КАРТОЧКУ ИЗ КАНАЛА НЕ ЗАВОДИМ (см. lib/staffPhoneGuard.ts,
@@ -1490,6 +1504,15 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
   const created = ownedPending ?? await prisma.client.create({ data: channelLeadCreateData(input, newLeadKind, extraPhones, true) });
   if (input.requirementsNotes) {
     notifySupervisorsOfHighSimilarityInBackground(created.id, created.fullName, input.requirementsNotes);
+  }
+  /**
+   * ТИП НЕ ОПРЕДЕЛЁН — СИГНАЛ РУКОВОДСТВУ (17.11.2026). Карточка идёт в общую
+   * раздачу как покупатель с пометкой (services/leads/intakePolicy.ts,
+   * INTENT_UNKNOWN_NOTE), а тот, кто назначает агентов, узнаёт о ней сразу:
+   * раньше такие заявки молча лежали в «Прочих» без агента.
+   */
+  if (input.requirementsNotes?.includes(INTENT_UNKNOWN_NOTE)) {
+    notifyIntentUnknownLead(created).catch((err) => console.error("[push] заявка без типа:", err));
   }
 
   // null — режим "Вручную" в Настройках, отложенное назначение (ночь) или прямо

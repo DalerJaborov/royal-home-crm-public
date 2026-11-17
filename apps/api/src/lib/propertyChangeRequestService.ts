@@ -22,7 +22,7 @@ import {
   type PropertyChangeRequestDto,
 } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
-import { prisma, type TxClient } from "../db.js";
+import { prisma, type PropertyRecord, type TxClient } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { findAgentsWithPermission } from "./recipients.js";
@@ -69,7 +69,7 @@ export interface ChangeRequestExpectation {
   propertyVersion?: number;
 }
 
-type PropertyRow = Prisma.PropertyGetPayload<Record<string, never>>;
+type PropertyRow = PropertyRecord;
 
 /**
  * ПРОВЕРКИ ЗАЯВКИ БЕЗ ЗАПИСИ: чьё это дело, опубликован ли объект, допустим ли вид.

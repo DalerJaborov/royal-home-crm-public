@@ -1,9 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { waitForSettled } from "./helpers/waitFor.js";
 import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
-import { DEFAULT_EVENT_POINTS } from "../src/lib/scoreJournal.js";
 
 /**
  * «Отклонить» лид (спецификация 01.08.2026, часть 1 и часть 3): рядом с «Принять»
@@ -77,19 +77,18 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-/** Балл за отказ №n именно от этого лида (sourceId — на выдачу лида, см. recordDeclineScore). */
-async function waitForEvent(n: number, clientId: string): Promise<{ delta: number; kind: string } | null> {
-  const prefix = `decline-${agentAId}-${n}-${clientId}-`;
-  for (let i = 0; i < 50; i++) {
-    const found = await prisma.royalScoreEvent.findFirst({ where: { agentId: agentAId, sourceId: { startsWith: prefix } } });
-    if (found) return found;
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  return null;
+/**
+ * Баллы за отказы подряд (lead_declined_*) сняты 16.11.2026 вместе с остальными
+ * автоматическими штрафами Royal Score — решение владельца. Счётчик отказов подряд
+ * и передача лида дальше остались. Проверяем, что в журнал по отказу НЕ пишется
+ * ничего: ждём, пока фоновые записи осядут, и смотрим на ноль.
+ */
+async function declineEvents(): Promise<number> {
+  return waitForSettled(() => prisma.royalScoreEvent.count({ where: { agentId: agentAId, sourceId: { startsWith: `decline-${agentAId}-` } } }));
 }
 
 describe("Отклонить лид", () => {
-  it("первый отказ подряд — без штрафа, лид уходит другому агенту", async () => {
+  it("первый отказ подряд — лид уходит другому агенту, баллы не списываются", async () => {
     const lead = await makeLead("Первый отказ", agentAId);
     const res = await request(app).post(`/api/v1/clients/${lead.id}/decline`).set("Authorization", `Bearer ${agentAToken}`);
     expect(res.status).toBe(200);
@@ -99,36 +98,27 @@ describe("Отклонить лид", () => {
     // проверяется. Важно только, что лид ушёл ОТ отклонившего — не завис на нём.
     expect(res.body.reassignedTo).toBeTruthy();
     expect(res.body.reassignedTo).not.toBe(agentAId);
-
-    const event = await waitForEvent(1, lead.id);
-    expect(event).not.toBeNull();
-    expect(event?.kind).toBe("lead_declined_1");
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.lead_declined_1);
+    expect(await declineEvents()).toBe(0);
 
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(res.body.reassignedTo);
     expect(after?.assignedAgentId).not.toBe(agentAId);
   });
 
-  it("второй отказ подряд — штраф −1", async () => {
+  it("второй отказ подряд — счётчик 2, штрафа нет (снят 16.11.2026)", async () => {
     const lead1 = await makeLead("Второй отказ 1", agentAId);
     await request(app).post(`/api/v1/clients/${lead1.id}/decline`).set("Authorization", `Bearer ${agentAToken}`);
-    await waitForEvent(1, lead1.id);
 
     const lead2 = await makeLead("Второй отказ 2", agentAId);
     const res = await request(app).post(`/api/v1/clients/${lead2.id}/decline`).set("Authorization", `Bearer ${agentAToken}`);
     expect(res.status).toBe(200);
     expect(res.body.declineCount).toBe(2);
-
-    const event = await waitForEvent(2, lead2.id);
-    expect(event?.kind).toBe("lead_declined_2");
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.lead_declined_2);
+    expect(await declineEvents()).toBe(0);
   });
 
   it("успешное принятие лида обнуляет счётчик отказов", async () => {
     const lead1 = await makeLead("Перед сбросом", agentAId);
     await request(app).post(`/api/v1/clients/${lead1.id}/decline`).set("Authorization", `Bearer ${agentAToken}`);
-    expect(await waitForEvent(1, lead1.id)).not.toBeNull();
 
     const accepted = await makeLead("Принимается", agentAId);
     const acceptRes = await request(app)
@@ -145,35 +135,6 @@ describe("Отклонить лид", () => {
       .post(`/api/v1/clients/${leadAfterReset.id}/decline`)
       .set("Authorization", `Bearer ${agentAToken}`);
     expect(res.body.declineCount).toBe(1);
-    // Штраф новой серии пишется, а не теряется дедупом прошлой серии
-    // (23.09.2026, пункт 13: sourceId был `decline-<агент>-<n>`).
-    const second = await waitForEvent(1, leadAfterReset.id);
-    expect(second?.kind).toBe("lead_declined_1");
-  });
-
-  it("вторая серия отказов после сброса штрафуется снова (аудит 23.09.2026, №50)", async () => {
-    // Серия 1: два отказа подряд.
-    const a1 = await makeLead("Серия 1-1", agentAId);
-    await request(app).post(`/api/v1/clients/${a1.id}/decline`).set("Authorization", `Bearer ${agentAToken}`);
-    const a2 = await makeLead("Серия 1-2", agentAId);
-    await request(app).post(`/api/v1/clients/${a2.id}/decline`).set("Authorization", `Bearer ${agentAToken}`);
-    expect(await waitForEvent(2, a2.id)).not.toBeNull();
-
-    // Сброс, как после принятого лида.
-    await prisma.agent.update({ where: { id: agentAId }, data: { consecutiveLeadDeclines: 0 } });
-
-    // Серия 2: снова два отказа — второй обязан дать свой штраф.
-    const b1 = await makeLead("Серия 2-1", agentAId);
-    await request(app).post(`/api/v1/clients/${b1.id}/decline`).set("Authorization", `Bearer ${agentAToken}`);
-    const b2 = await makeLead("Серия 2-2", agentAId);
-    const res = await request(app).post(`/api/v1/clients/${b2.id}/decline`).set("Authorization", `Bearer ${agentAToken}`);
-    expect(res.body.declineCount).toBe(2);
-    const event = await waitForEvent(2, b2.id);
-    expect(event?.kind).toBe("lead_declined_2");
-    const penalties = await prisma.royalScoreEvent.count({
-      where: { agentId: agentAId, kind: "lead_declined_2", OR: [{ sourceId: { startsWith: `decline-${agentAId}-2-${a2.id}-` } }, { sourceId: { startsWith: `decline-${agentAId}-2-${b2.id}-` } }] },
-    });
-    expect(penalties).toBe(2);
   });
 
   it("нельзя отклонить чужой лид — 409 «уже у другого», не 403", async () => {

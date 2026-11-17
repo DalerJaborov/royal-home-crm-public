@@ -3,6 +3,7 @@ import { z } from "zod";
 import { expenseListQuerySchema, isAiEstimateVendor, EXPENSE_CATEGORY_LABELS, EXPENSE_METHOD_LABELS, type ExpenseSortKey, type ExpenseUpcomingItem } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { logSystemError } from "./systemError.js";
+import { expensePeriodWhere } from "./expenseAccounting.js";
 import { warnManualOverlapsForAuto } from "./expenseAutoOverlap.js";
 import { upsertAiExpenses } from "./ads/adExpenseSync.js";
 import { expenseCentsToTjs, fromCents, loadMoneyContext, NO_USD_RATE_TEXT, usdRateForWrite, type MoneyContext } from "./money.js";
@@ -77,8 +78,12 @@ export function expenseWhere(query: z.infer<typeof expenseListQuerySchema>): Pri
         ...(query.recurringId ? { recurringId: query.recurringId } : {}),
         ...(query.rootCategory ? { category: query.rootCategory } : {}), ...(query.paymentMethod ? { paymentMethod: query.paymentMethod } : {}),
         ...(query.counterparty ? { counterparty: { contains: query.counterparty, mode: "insensitive" } } : {}),
-        ...(query.from || query.to ? { paymentDate: { ...(query.from ? { gte: expenseDay(query.from) } : {}), ...(query.to ? { lte: expenseDay(query.to) } : {}) } } : {}),
-        ...(query.q ? { OR: [{ note: { contains: query.q, mode: "insensitive" } }, { counterparty: { contains: query.q, mode: "insensitive" } }] } : {}) };
+        // Период — по дню оплаты, а месячные строки без дня (реклама, ИИ, доля по сделкам) — по месяцу
+        // учёта, если период накрывает месяц целиком (lib/expenseAccounting.ts, аудит денег 17.11).
+        AND: [
+            ...(query.from || query.to ? [expensePeriodWhere(query.from, query.to)] : []),
+            ...(query.q ? [{ OR: [{ note: { contains: query.q, mode: "insensitive" as const } }, { counterparty: { contains: query.q, mode: "insensitive" as const } }] }] : []),
+        ] };
 }
 /** Sort lightweight descriptors across the complete filtered set, then fetch only a page's receipts/full records. */
 export async function orderedExpenseIds(where:Prisma.ExpenseWhereInput, sortBy:ExpenseSortKey,direction:"asc"|"desc",context?:MoneyContext) {

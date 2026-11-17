@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import type { ClientPropertyMatchEvidence, ClientPropertyMatchSummary, ClientKind, ClientSort, RobotCallStopState, SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
 import { api, ApiError } from "../lib/api";
+import { sendToClient } from "../lib/clientSend";
+import { useSendIntent } from "./useSendIntent";
 import { keepWhilePaging, keepWhilePagingAt, keepWhilePagingIndexed } from "../lib/keepWhilePaging";
 import { OfflineQueuedError } from "../lib/offlineQueue";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
@@ -575,14 +577,12 @@ export async function downloadClientConversation(shortId: number, format: "json"
  *  агент вступает в переписку, и отвечать поверх него ИИ не должен. */
 export function useSendClientMessage(clientId: string, conversationId?: string) {
   const qc = useQueryClient();
+  const intent = useSendIntent();
   return useMutation({
     // conversationId — диалог выбранной вкладки канала (без него сервер берёт самый
     // живой и мог ответить в Instagram, когда агент выбрал Telegram, WEB-PAGES01).
     mutationFn: (text: string) =>
-      api<{ ok: boolean; masked: boolean }>(`/clients/${clientId}/message`, {
-        method: "POST",
-        body: { text, conversationId },
-      }),
+      sendToClient<{ ok: boolean; masked: boolean }>(intent, `/clients/${clientId}/message`, { text, conversationId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["client"] }),
   });
 }
@@ -592,12 +592,13 @@ export function useSendClientMessage(clientId: string, conversationId?: string) 
  *  отправкой (lib/conversationDelivery.ts, deliverVoiceToConversation). */
 export function useSendClientVoiceMessage(clientId: string, conversationId?: string) {
   const qc = useQueryClient();
+  const intent = useSendIntent();
   return useMutation({
     mutationFn: (blob: Blob) => {
       const form = new FormData();
       form.append("audio", blob, audioFileNameFor(blob.type));
       if (conversationId) form.append("conversationId", conversationId);
-      return api<{ ok: boolean }>(`/clients/${clientId}/message-voice`, { method: "POST", body: form });
+      return sendToClient<{ ok: boolean }>(intent, `/clients/${clientId}/message-voice`, form);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["client"] }),
   });
@@ -719,6 +720,7 @@ export interface SendPropertiesResult {
 
 export function useSendProperties(clientId: string) {
   const qc = useQueryClient();
+  const intent = useSendIntent();
   return useMutation({
     /**
      * `conversationId` — диалог, открытый у агента (из чата). Без него сервер
@@ -726,10 +728,7 @@ export function useSendProperties(clientId: string) {
      * (готовый текст и ссылки) — см. `sendFallbackOf` в components/match/SendFallback.
      */
     mutationFn: (input: { propertyIds: string[]; conversationId?: string; prepareOnly?: boolean; previewFingerprint?: string }) =>
-      api<SendPropertiesResult>(`/clients/${clientId}/send-properties`, {
-        method: "POST",
-        body: input,
-      }),
+      sendToClient<SendPropertiesResult>(intent, `/clients/${clientId}/send-properties`, input),
     // silent: отправка — не сохранение, и вызывающий (MatchPanel) уже
     // отчитывается сам и подробнее: плашкой со счётчиком и предупреждением про
     // маску телефона. Общий тост «Сохранено» вставал поверх неё вторым
@@ -849,41 +848,6 @@ export function useSecurityReview(clientId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client"] });
       qc.invalidateQueries({ queryKey: ["clients"] });
-    },
-  });
-}
-
-/**
- * Событие «клиент потерян по вине/без вины агента» для карточки клиента, если
- * оно есть (08.09.2026, см. серверный комментарий у GET /royal-score-events/by-client).
- *
- * enabled управляется снаружи: право `score.clientLossOverride` есть у директора
- * и админа (обычная ASSIGNABLE-галочка с 14.09.2026), агенту дёргать этот запрос
- * незачем, а клиент может быть не потерян вовсе — тогда событие всегда null, и
- * спрашивать не о чем.
- */
-export interface ClientLossEvent {
-  id: string;
-  currentKind: "client_lost_agent_fault" | "client_lost_no_fault";
-  overridden: boolean;
-  overriddenAt: string | null;
-}
-
-export function useClientLossEvent(clientId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ["royal-score-events", "by-client", clientId],
-    queryFn: () => api<{ event: ClientLossEvent | null }>(`/royal-score-events/by-client/${clientId}`),
-    enabled,
-  });
-}
-
-export function useOverrideClientLossEvent(eventId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { override: "client_lost_agent_fault" | "client_lost_no_fault"; comment?: string }) =>
-      api<{ ok: boolean }>(`/royal-score-events/${eventId}/override`, { method: "PATCH", body }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["royal-score-events"] });
     },
   });
 }

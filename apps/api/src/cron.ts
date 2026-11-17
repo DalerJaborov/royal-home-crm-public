@@ -11,7 +11,7 @@ import { expireExpensePhotoDrafts } from "./lib/telegramExpenseReceipts.js";
 import { enqueueBackgroundJob } from "./jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "./jobs/aiReplyRetryPolicy.js";
 import { scoreAllActiveClients } from "./ai/scoring.js";
-import { staleLeadCircleOpen, reassignStaleLeads, reassignStaleReturns, assignPendingLeads, penalizeMissedFirstCalls, remindDueFirstCalls, assignHeldLead, remindEscalatedLeads } from "./leads.js";
+import { staleLeadCircleOpen, reassignStaleLeads, reassignStaleReturns, assignPendingLeads, handleMissedFirstCalls, remindDueFirstCalls, assignHeldLead, remindEscalatedLeads } from "./leads.js";
 import { escalateSellerPropertyMissing } from "./lib/sellerPropertyMissingAntifraud.js";
 import { runSellerNoPropertyAlarmTick } from "./lib/sellerNoPropertyAlarm.js";
 import { runSellerWorkStalledAlarmTick } from "./lib/sellerWorkStalledAlarm.js";
@@ -54,15 +54,12 @@ import { insightDigestPeriod, isInsightMeetingDay } from "./lib/insightDigestPer
 import { scheduleRepostsTick } from "./lib/socialReposts.js";
 import { runSocialDigestsTick } from "./lib/socialDigests.js";
 import {
-  notifyMissedShowings,
-  notifyOverdueTasks,
   notifySupervisorsOfOverdue,
   notifyUnconfirmedShowings,
   sendHourBeforeReminders,
   sendShowingConfirmationRequests,
   sendTomorrowDigest,
 } from "./lib/meetingReminders.js";
-import { remindIncompleteCards } from "./lib/cardReminders.js";
 import { refreshPropertyStatusesByTime } from "./lib/propertyAutoStatus.js";
 import { runNightlyGeoMatchSweepTick } from "./lib/geoMatchSweep.js";
 import { runContactLinkSweepTick } from "./lib/contactLinkSweep.js";
@@ -123,7 +120,6 @@ import { notifyStaleOwnerQuestions } from "./lib/ownerQuestionAnswer.js";
 import { notifyOverdueMaterials, notifyStuckMaterials } from "./lib/propertyPipeline.js";
 import { releaseExpiredReservations } from "./lib/dealReservation.js";
 import { expireStaleReactivationOffers, runReactivationOfferReminders } from "./lib/reactivationOffers.js";
-import { runInactivityCheck } from "./lib/inactivityPenalty.js";
 import { runBuyerNoCallAlarmTick, runRefusedHighScoreAlarmTick } from "./lib/buyerNoCallAlarm.js";
 import { runPhoneLeadWatchdogTick } from "./lib/phoneLeadWatchdog.js";
 import { sweepExpiredDuplicateReviews, runDuplicateFuzzyScanTick, remindDuplicateReviewsNearingExpiry } from "./lib/duplicateReview.js";
@@ -135,7 +131,7 @@ import { watchStaleSync } from "./lib/ads/adReconcile.js";
 import { refreshMetaAdsTokenIfDue } from "./lib/ads/metaAdsToken.js";
 import { refreshMetaUserTokensIfDue } from "./lib/metaUserTokenRefresh.js";
 import { recentMonths, upsertAiExpenses } from "./lib/ads/adExpenseSync.js";
-import { alertExpenseOverrun, processRecurringExpenses, upsertSalaryExpenses } from "./lib/financeAutomation.js";
+import { alertExpenseOverrun, freezeClosedAutoExpenseRates, processRecurringExpenses, upsertSalaryExpenses } from "./lib/financeAutomation.js";
 import { formatAdsDigestLine } from "./lib/ads/adsDigest.js";
 import { checkAdAccountAlerts, checkAdAlerts, checkAdDisapprovedAlerts } from "./lib/ads/adAlerts.js";
 import { autoResolveDuplicateErrors } from "./lib/autoResolveDuplicateErrors.js";
@@ -589,6 +585,11 @@ export function startCronJobs() {
     const { runSomonMonitorTick } = await import("./lib/somonLeads/monitor.js");
     await runSomonMonitorTick();
   });
+  // Сторож тишины (17.11.2026): монитор включён, а заявок агентам нет сутки (на паузе — трое) → журнал ошибок.
+  scheduleTracked("somon-owner-leads-silence", "47 * * * *", async () => {
+    const { checkSomonOwnerLeadsSilence } = await import("./lib/somonLeads/silenceAlarm.js");
+    await checkSomonOwnerLeadsSilence();
+  });
   scheduleTracked("owner-exposure-verification-preview", "15 * * * *", async () => {
     const { runExposureOwnerPreviewTick } = await import("./lib/ownerVerificationSources.js");
     await runExposureOwnerPreviewTick();
@@ -703,24 +704,11 @@ export function startCronJobs() {
       } catch (err) {
         reportCronTickError("Ошибка напоминаний о встречах", err);
       }
-      try {
-        const notified = await notifyMissedShowings();
-        if (notified) console.log(`[cron] Непроведённых показов, о которых сообщили: ${notified}`);
-      } catch (err) {
-        reportCronTickError("Ошибка контроля показов", err);
-      }
-      try {
-        const notified = await notifyOverdueTasks();
-        if (notified) console.log(`[cron] Просроченных встреч/задач, о которых сообщили: ${notified}`);
-      } catch (err) {
-        reportCronTickError("Ошибка контроля просроченных встреч/задач", err);
-      }
-      try {
-        const { reminded, escalated } = await remindIncompleteCards();
-        if (reminded || escalated) console.log(`[cron] Незаполненные карточки: ${reminded} агентам, ${escalated} руководству`);
-      } catch (err) {
-        reportCronTickError("Ошибка контроля карточек", err);
-      }
+      // notifyMissedShowings/notifyOverdueTasks и remindIncompleteCards
+      // (lib/cardReminders.ts) удалены 16.11.2026: после снятия штрафов Royal
+      // Score (showing_missed, meeting_overdue, task_overdue, card_not_filled)
+      // они только ставили отметки, которые никто не читал. Пуши агенту и
+      // руководителю из них убраны ещё 02.10.2026.
       /* Заведение и контроль обязательных окон итогов убраны 14.09.2026 вместе с самим
          механизмом (решение владельца). Опрос-звонок после показа (lib/showingSurvey.ts,
          антифрод) заменён 17.09.2026 на робозвонок «показ -> тишина» (lib/postShowingCall.ts,
@@ -1666,25 +1654,10 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" }
   );
 
-  /** Бездействие по принятым клиентам: сначала предупреждение, потом штраф.
-   *  Раз в сутки утром, а не чаще: это разговор с человеком о его работе, и
-   *  повторять его каждый час — не контроль, а травля. 09:20, когда рабочий день
-   *  уже начался и предупреждение можно отработать сегодня же. */
-  scheduleTracked(
-    "inactivity-check",
-    "20 9 * * *",
-    async () => {
-      try {
-        const { warned, penalized } = await runInactivityCheck();
-        if (warned || penalized) {
-          console.log(`[cron] Бездействие: предупреждений ${warned}, штрафов ${penalized}`);
-        }
-      } catch (err) {
-        reportCronTickError("Ошибка проверки бездействия", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
-  );
+  /* «inactivity-check» (предупреждение, потом штраф за бездействие по клиенту)
+     удалён 16.11.2026 вместе с lib/inactivityPenalty.ts: автоматические штрафы
+     Royal Score сняты владельцем, а предупреждение было лишь нулевой строкой
+     журнала перед штрафом. */
 
   /** Ночной AI-скоринг клиентов (7.2) — каждый день в 02:00 по Душанбе.
    *  timezone здесь обязателен и раньше единственный из всех джобов его не имел:
@@ -2252,10 +2225,10 @@ export function startCronJobs() {
       reportCronTickError("Ошибка назначения накопленных лидов", err);
     }
     try {
-      const { penalized } = await penalizeMissedFirstCalls();
-      if (penalized > 0) console.log(`[cron] Первый звонок сорван, лид снят: ${penalized}`);
+      const { handled } = await handleMissedFirstCalls();
+      if (handled > 0) console.log(`[cron] Первый звонок сорван: ${handled}`);
     } catch (err) {
-      reportCronTickError("Ошибка штрафа за сорванный звонок", err);
+      reportCronTickError("Ошибка разбора сорванного первого звонка", err);
     }
     try {
       // Пуш агенту за 5 минут до срока (задание 17.09.2026) — тот же тик, что и
@@ -3242,6 +3215,11 @@ export function startCronJobs() {
       await step("Зарплатные строки не обновлены", "api", async () => {
         const salaries = await upsertSalaryExpenses();
         if (salaries) console.log(`[cron] Зарплатных строк обновлено: ${salaries}`);
+      });
+      // Курс закрытого месяца у строк рекламы и ИИ — один раз, когда месяц вышел из окна пересчёта.
+      await step("Курс закрытого месяца не закреплён", "api", async () => {
+        const frozen = await freezeClosedAutoExpenseRates();
+        if (frozen) console.log(`[cron] Курс закреплён у ${frozen} строк закрытого месяца`);
       });
       // Прогноз перерасхода и сигналы рекламы — НЕ здесь (04.09.2026): оба
       // толкают пуш директору/маркетингу, а этот тик — 01:20 ночи. Считаются

@@ -101,6 +101,27 @@ describe("реестр функций и расчёт состояния", () =>
     expect(item("bot-say-mode", input({ env: { CUSTOMER_AGENT_SAY_MODE: "live" } })).state).toBe("working");
   });
 
+  it("новое ядро на сайте и в Telegram: пусто — старый бот, тень — проверка, ядро — работает", () => {
+    expect(item("bot-channel-core", input({ env: {} })).state).toBe("off");
+    const shadow = item("bot-channel-core", input({ env: { CUSTOMER_AGENT_CHANNEL_SHADOW: "website,telegram" } }));
+    expect(shadow.state).toBe("preview");
+    expect(shadow.reason).toContain("сайт");
+    const core = item("bot-channel-core", input({ env: { CUSTOMER_AGENT_CHANNEL_CORE: "website", CUSTOMER_AGENT_CHANNEL_SHADOW: "all" } }));
+    expect(core.state).toBe("working");
+    expect(core.reason).toContain("сайт");
+    expect(core.reason).toContain("Telegram-бот");
+    expect(item("bot-channel-core", input({ env: { CUSTOMER_AGENT_CHANNEL_CORE: "faceboook" } })).state).toBe("off");
+  });
+
+  it("ответ своими словами: live считается по списку каналов, пустой список — только проверка", () => {
+    expect(item("bot-answer-mode", input({ env: {} })).state).toBe("preview");
+    expect(item("bot-answer-mode", input({ env: { CUSTOMER_AGENT_ANSWER_MODE: "off" } })).state).toBe("off");
+    expect(item("bot-answer-mode", input({ env: { CUSTOMER_AGENT_ANSWER_MODE: "live" } })).state).toBe("preview");
+    const fb = item("bot-answer-mode", input({ env: { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "facebook" } }));
+    expect(fb.state).toBe("working");
+    expect(fb.reason).toContain("FACEBOOK");
+  });
+
   it("сторож пауз бота: выключен тумблером — внимание", () => {
     const off = item("bot-pause-watch", input({}, { botPauseWatchEnabled: false }));
     expect(off.state).toBe("off");

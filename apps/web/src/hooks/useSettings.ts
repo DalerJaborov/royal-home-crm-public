@@ -142,10 +142,6 @@ export interface Settings {
   // из типа 28.09.2026: ни экран, ни сервер их не читают. Колонки в БД остались.
   /** Резерв объекта на сделке — сколько рабочих дней держим, прежде чем вернуть в продажу. */
   dealReservationBusinessDays: number;
-  /** Штраф за бездействие: сроки предупреждения и штрафа, цена штрафа в баллах. */
-  inactivityWarnAfterDays: number;
-  inactivityPenaltyAfterDays: number;
-  inactivityPenaltyPoints: number;
   /** «Застой сделки» (владелец 30.08.2026): продавец без единого объекта в CRM,
    *  или покупатель без единой сделки, дольше стольких дней — сигнал владельцу и
    *  задача агенту (см. lib/dealStalePipeline.ts). */
@@ -282,6 +278,8 @@ export interface Settings {
   metaAdAccountId: string | null;
   /** Номер приложения Meta — нужен для обмена маркера на 60-дневный. */
   metaAppId: string | null;
+  /** Номер конфигурации входа через Facebook (не секрет). */
+  metaLoginConfigId: string | null;
   metaAdsSyncedAt: string | null;
   /** Секрет в адресе push-подписки Pub/Sub для бюджетных оповещений Google Cloud.
    *  Значение наружу не отдаётся (аудит №4) — только признак «задан». */

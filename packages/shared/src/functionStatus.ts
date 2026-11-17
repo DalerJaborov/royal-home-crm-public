@@ -83,6 +83,22 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     errorSources: ["ai"],
   },
   {
+    key: "bot-answer-mode",
+    title: "Ответ бота своими словами",
+    what: "Бот пишет клиенту весь ответ своими словами вокруг проверенных фактов, а не только готовым шаблоном.",
+    group: "bot",
+    env: ["CUSTOMER_AGENT_ANSWER_MODE", "CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS"],
+    errorSources: ["ai"],
+  },
+  {
+    key: "bot-channel-core",
+    title: "Новый бот на сайте и в Telegram",
+    what: "Какой бот отвечает клиентам на сайте, в Telegram-боте и в YouTube: старый или новое ядро («один мозг»); тень — новое ядро только проверяется рядом со старым.",
+    group: "bot",
+    env: ["CUSTOMER_AGENT_CHANNEL_CORE", "CUSTOMER_AGENT_CHANNEL_SHADOW"],
+    errorSources: ["ai"],
+  },
+  {
     key: "bot-photos",
     title: "Фото объектов в чате",
     what: "Бот присылает клиенту фотографии объекта прямо в переписке.",
@@ -221,7 +237,7 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     title: "Telegram-сообщения по заявкам с Somon и Paydo",
     what: "Агентам приходят сообщения в Telegram о новых заявках с площадок.",
     group: "alerts",
-    cron: ["somon-owner-leads"],
+    cron: ["somon-owner-leads", "somon-owner-leads-silence"],
   },
   // ─── Рынок и площадки ───
   {

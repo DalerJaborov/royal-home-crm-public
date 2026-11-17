@@ -238,6 +238,36 @@ describe("Номер от клиента не теряется", () => {
     expect(card?.clientId).toBeTruthy();
     expect(card?.client?.kind).toBe("BUYER");
   });
+
+  // Журнал прода 13–16.11.2026: «xonai furushi dorum» (таджикский латиницей) — продавец
+  // ушёл в «прочее обращение: намерение не определено» без агента.
+  it("продавец таджикским латиницей: карточка продавца, а не «Прочее»", async () => {
+    const id = await seed({
+      messages: [{ role: "user", content: `xonai furushi dorum, nomeram ${phone()}`, at: new Date().toISOString() }],
+      coreTopic: "unknown",
+    });
+
+    await runPhoneLeadWatchdogTick();
+
+    const card = await cardOf(id);
+    expect(card?.clientId).toBeTruthy();
+    expect(card?.client?.kind).toBe("SELLER");
+  });
+
+  it("намерение не понять вовсе: карточка в общей раздаче с пометкой «уточнить», а не «Прочее» без агента", async () => {
+    const id = await seed({
+      messages: [{ role: "user", content: `2 хучрага хона, ошёна 5, ремонтош нав. ${phone()}`, at: new Date().toISOString() }],
+      coreTopic: "unknown",
+    });
+
+    await runPhoneLeadWatchdogTick();
+
+    const card = await cardOf(id);
+    expect(card?.clientId).toBeTruthy();
+    expect(card?.client?.kind).toBe("BUYER");
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: card!.clientId! }, select: { requirementsNotes: true } });
+    expect(client.requirementsNotes).toContain("ТИП ОБРАЩЕНИЯ НЕ ОПРЕДЕЛЁН");
+  });
 });
 
 describe("Разовый добор потерянных номеров (scripts/phone-leads-backfill-14-11.ts)", () => {

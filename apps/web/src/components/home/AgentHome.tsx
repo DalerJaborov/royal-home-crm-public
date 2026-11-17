@@ -56,11 +56,11 @@ export function AgentHome() {
     sort: "contact_asc",
   });
   // Тот же серверный фильтр и ключ кэша, что у IncomingLeadWindow: общий список, не второй.
-  const { data: pendingPage, isLoading: pendingLoading } = useClients({ pageSize: 20, pendingAcceptance: true });
+  const { data: pendingPage, isLoading: pendingLoading, isError: pendingError, refetch: refetchPending } = useClients({ pageSize: 20, pendingAcceptance: true });
   // «Без контакта» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
   const { data: noContactPage } = useClients({ pageSize: 20, noContact: true });
-  const { data: offers, isLoading: offersLoading } = useReactivationOffers();
-  const { data: duplicates, isLoading: duplicatesLoading } = useDuplicateReviews();
+  const { data: offers, isLoading: offersLoading, isError: offersError, refetch: refetchOffers } = useReactivationOffers();
+  const { data: duplicates, isLoading: duplicatesLoading, isError: duplicatesError, refetch: refetchDuplicates } = useDuplicateReviews();
 
   const [askOpen, setAskOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -129,6 +129,19 @@ export function AgentHome() {
   );
 
   const focusLoading = isLoading || pendingLoading || offersLoading || duplicatesLoading;
+  /**
+   * «Все дела сделаны» — только когда ВСЕ источники очереди ответили (17.11.2026,
+   * аудит F2-2). Отказ списка ждущих заявок при живой сводке давал пустую очередь,
+   * и экран честно-зелёным говорил «всё сделано», хотя заявки ждали принятия.
+   */
+  const focusError = isError || pendingError || offersError || duplicatesError;
+  const retryFocus = () => {
+    if (isError) void refetch();
+    if (pendingError) void refetchPending();
+    if (offersError) void refetchOffers();
+    if (duplicatesError) void refetchDuplicates();
+  };
+  const summaryError = !data && isError;
   const nextShowing = showings.find((s) => Date.parse(s.nextActionDate!) > Date.now());
 
   return (
@@ -159,11 +172,17 @@ export function AgentHome() {
                 <Skeleton kind="row" />
                 <Skeleton kind="line" width="70%" />
               </Card>
-            ) : isError ? (
+            ) : focusError ? (
               <Card tight aria-label="Сначала это">
                 <Rh2ErrorState
-                  message={error instanceof Error ? error.message : "Сводка не загрузилась, проверьте соединение."}
-                  onRetry={() => void refetch()}
+                  message={
+                    isError
+                      ? error instanceof Error
+                        ? error.message
+                        : "Сводка не загрузилась, проверьте соединение."
+                      : "Не загрузились новые заявки, проверьте соединение."
+                  }
+                  onRetry={retryFocus}
                 />
               </Card>
             ) : (
@@ -184,6 +203,11 @@ export function AgentHome() {
 
         <div className="rh-home-side">
           <div className="rh-home-o2">
+            {summaryError ? (
+              <Card tight aria-label="Показатели дня">
+                <Rh2ErrorState message="Сводка не загрузилась, проверьте соединение." onRetry={() => void refetch()} />
+              </Card>
+            ) : (
             <Tiles>
               {data ? (
                 <>
@@ -199,11 +223,14 @@ export function AgentHome() {
                 </>
               )}
             </Tiles>
+            )}
           </div>
 
           <div className="rh-home-o3">
             <Card tight title="Сегодня" aria-label="Сегодня" data-testid="agent-today">
-              {!data ? (
+              {summaryError ? (
+                <Rh2ErrorState message="Показы не загрузились, проверьте соединение." onRetry={() => void refetch()} />
+              ) : !data ? (
                 <Skeleton kind="line" width="60%" />
               ) : showings.length === 0 ? (
                 <p className="quiet">

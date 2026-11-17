@@ -144,6 +144,7 @@ import { findAgentsWithPermission } from "../lib/recipients.js";
 import { requestAgentAttention } from "../lib/agentAttention.js";
 import { sendPushToAgents } from "../push.js";
 import { ensureMetaAdKnown } from "../lib/ads/syncMetaAds.js";
+import { maskPhonesInFreeText } from "../lib/clientPhone.js";
 
 export const webhooksRouter = Router();
 
@@ -377,7 +378,8 @@ webhooksRouter.post("/website-lead", leadWebhookLimiter, async (req, res) => {
     void logSystemError(
       "ai",
       `Заявка с сайта заведена как «прочее обращение»: ${decision.reason}. Агенту не назначается. ` +
-        `Комментарий: «${(data.comment ?? "").replace(/\s+/g, " ").slice(0, 160)}»`
+        // Свободный текст клиента — с маской номеров и короче (аудит 17.11.2026, S3).
+        `Комментарий: «${maskPhonesInFreeText((data.comment ?? "").replace(/\s+/g, " ")).slice(0, 60)}»`
     );
   }
 
@@ -2166,7 +2168,10 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       const attachments: AttachmentSource[] = [];
       if (DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")) {
         if (msg.channel === "WHATSAPP") {
-          const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId) : null;
+          // Ключ номера-получателя: файл чужого аккаунта WhatsApp Business ключ
+          // Настроек не видит (см. whatsAppMediaSource). account.id = null — основной
+          // номер из Настроек.
+          const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account.id ? (account.token ?? null) : undefined) : null;
           if (source) attachments.push({ ...source, declaredKind: msg.attachmentType });
         } else if (msg.attachmentUrl) {
           // "ig_reel" — единственный тип с двойным смыслом (см. комментарий у

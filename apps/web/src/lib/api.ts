@@ -1,6 +1,7 @@
 import { useAuthStore } from "../store/auth";
 import { getOrCreateDeviceId } from "./deviceId";
 import { ApiError } from "./apiError";
+import { withFieldHint } from "./validationHint";
 import { httpStatusMessage } from "./httpStatusMessage";
 import { noteServerBuild } from "./appVersion";
 // Общий выход (снимает push-подписку устройства). Импорт односторонний: signOut
@@ -533,7 +534,9 @@ export async function api<T>(
           const ownWords = message && !message.startsWith("Слишком много запросов") ? message : null;
           throw new ApiError(ownWords ?? retryAfterMessage(retryAfterMs, method), 429, data, retryAfterMs);
         }
-        throw new ApiError(message || httpStatusMessage(res.status), res.status, data);
+        const base = message || httpStatusMessage(res.status);
+        // 400 проверки данных — с названием поля (lib/validationHint.ts, аудит F3-4).
+        throw new ApiError(res.status === 400 ? withFieldHint(base, data) : base, res.status, data);
       }
 
       if (res.status === 204) return undefined as T;

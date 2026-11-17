@@ -1,9 +1,9 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 765,
-  "forks": 4080,
-  "mounts": 87,
+  "endpoints": 766,
+  "forks": 4051,
+  "mounts": 86,
   "cron": 137,
   "jobs": 33,
   "hidden": 0
@@ -798,6 +798,21 @@
      "a": [],
      "c": [
       {
+       "k": "if",
+       "t": "dropMetaLoginState(state) === \"assets\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.redirect(back({ metaLogin: \"error\", message: \"Вход отменён — в окне Facebook не дали доступ.\" }));",
+         "a": [
+          "ответ 302"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "return res.redirect(back({ ads: \"cancelled\", reason: denied }));",
        "a": [
@@ -814,9 +829,48 @@
      "c": [
       {
        "k": "do",
-       "t": "await completeConnect(code, state);",
+       "t": "const login = await consumeMetaLoginCode(code, state);",
        "a": [
-        "зовёт completeConnect()"
+        "зовёт consumeMetaLoginCode()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "login.purpose === \"assets\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const sessionId = openMetaLoginSession(login.agentId, login.token);",
+         "a": [
+          "зовёт openMetaLoginSession()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "logAgentAudit(login.agentId, \"CONNECT_CALLBACK\", \"MetaLogin\", \"assets\", { ok: true });",
+         "a": [
+          "зовёт logAgentAudit()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return res.redirect(back({ metaLogin: sessionId }));",
+         "a": [
+          "ответ 302"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await saveAdsLoginToken(login.token);",
+       "a": [
+        "зовёт saveAdsLoginToken()"
        ],
        "c": []
       },
@@ -835,6 +889,21 @@
      "t": "если сорвалось",
      "a": [],
      "c": [
+      {
+       "k": "if",
+       "t": "purpose === \"assets\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.redirect(back({ metaLogin: \"error\", message: isLogin ? (err as Error).message : \"Не удалось войти …",
+         "a": [
+          "ответ 302"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "do",
        "t": "res.redirect(back({ ads: \"error\", message }));",
@@ -7894,7 +7963,7 @@
     },
     {
      "k": "do",
-     "t": "const issued = await issueLoginCode(agent, parsed.data.channel);",
+     "t": "const issued = await issueLoginCode(agent, parsed.data.channel, { purpose: \"step-up\", excludePushEndpoint: pa…",
      "a": [
       "зовёт issueLoginCode()"
      ],
@@ -12522,9 +12591,9 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.status(400).json({ error: \"Номер не таджикский — станция не сможет его набрать\" });",
+         "t": "return res.status(400).json({ error: stationDialRefusal(requestedPhone), code: \"not_dialable\" });",
          "a": [
-          "ответ 400 — «Номер не таджикский — станция не сможет его набрать»"
+          "ответ 400"
          ],
          "c": []
         }
@@ -12592,7 +12661,7 @@
       },
       {
        "k": "do",
-       "t": "return res.status(result.status).json({ error: result.error });",
+       "t": "return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });",
        "a": [
         "ответ (код зависит от условия)"
        ],
@@ -12730,14 +12799,6 @@
     },
     {
      "k": "do",
-     "t": "const ownAgentId = scopeToOwnAgent(req);",
-     "a": [
-      "зовёт scopeToOwnAgent()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
      "t": "const client = await prisma.client.findUnique({ where: { shortId }, select: { id: true, shortId: true, fullNa…",
      "a": [
       "читает в базе: client"
@@ -12760,30 +12821,31 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const access = await resolveClientCardAccess(req, client);",
+     "a": [
+      "зовёт resolveClientCardAccess()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
-     "t": "ownAgentId && client.assignedAgentId !== ownAgentId",
+     "t": "access === \"denied\"",
      "a": [],
      "c": [
       {
-       "k": "if",
-       "t": "!hasDeal && !wasMine",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-         "a": [
-          "ответ 403 — «Недостаточно прав»"
-         ],
-         "c": []
-        }
-       ]
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
       }
      ]
     },
     {
      "k": "if",
-     "t": "ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "t": "access === \"nameOnly\"",
      "a": [],
      "c": [
       {
@@ -12791,6 +12853,21 @@
        "t": "return res.status(403).json({ error: \"Лид ещё не принят — переписка не открыта\" });",
        "a": [
         "ответ 403 — «Лид ещё не принят — переписка не открыта»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "access === \"transferred\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Клиент передан другому агенту — переписка закрыта\" });",
+       "a": [
+        "ответ 403 — «Клиент передан другому агенту — переписка закрыта»"
        ],
        "c": []
       }
@@ -15379,45 +15456,30 @@
     },
     {
      "k": "do",
-     "t": "const ownAgentId = scopeToOwnAgent(req);",
+     "t": "const access = await resolveClientCardAccess(req, { ...client, id: id.data });",
      "a": [
-      "зовёт scopeToOwnAgent()"
+      "зовёт resolveClientCardAccess()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId",
+     "t": "access === \"denied\"",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const hasDeal = ownAgentId && await prisma.deal.count({ where: { clientId: id.data, agentId: ownAgentId } });",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
        "a": [
-        "считает в базе: deal"
+        "ответ 403 — «Недостаточно прав»"
        ],
        "c": []
-      },
-      {
-       "k": "if",
-       "t": "!hasDeal",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-         "a": [
-          "ответ 403 — «Недостаточно прав»"
-         ],
-         "c": []
-        }
-       ]
       }
      ]
     },
     {
      "k": "if",
-     "t": "ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "t": "access === \"nameOnly\"",
      "a": [],
      "c": [
       {
@@ -15425,6 +15487,21 @@
        "t": "return res.status(403).json({ error: \"Сначала примите лид\" });",
        "a": [
         "ответ 403 — «Сначала примите лид»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "access === \"transferred\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ items: [], total: 0, page: query.data.page, pageSize } satisfies ClientPropertyActivity);",
+       "a": [
+        "ответ 200"
        ],
        "c": []
       }
@@ -16074,7 +16151,7 @@
     },
     {
      "k": "if",
-     "t": "!isHolder && !can(req, \"clients.viewAll\")",
+     "t": "decideClientCardAccess(scopeToOwnAgent(req), { ...client, acceptedAt: null }, false) === \"denied\"",
      "a": [],
      "c": [
       {
@@ -17547,14 +17624,6 @@
     },
     {
      "k": "do",
-     "t": "const ownAgentId = scopeToOwnAgent(req);",
-     "a": [
-      "зовёт scopeToOwnAgent()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
      "t": "const client = await prisma.client.findUnique({ where: cardWhere, select: { id: true, deletedAt: true, assign…",
      "a": [
       "читает в базе: client"
@@ -17577,38 +17646,31 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const access = await resolveClientCardAccess(req, client);",
+     "a": [
+      "зовёт resolveClientCardAccess()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
-     "t": "ownAgentId && client.assignedAgentId !== ownAgentId",
+     "t": "access === \"denied\"",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const hasDeal = (await prisma.deal.count({ where: { clientId: client.id, agentId: ownAgentId } })) > 0;",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
        "a": [
-        "считает в базе: deal"
+        "ответ 403 — «Недостаточно прав»"
        ],
        "c": []
-      },
-      {
-       "k": "if",
-       "t": "!hasDeal && client.lastAgentId !== ownAgentId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-         "a": [
-          "ответ 403 — «Недостаточно прав»"
-         ],
-         "c": []
-        }
-       ]
       }
      ]
     },
     {
      "k": "if",
-     "t": "ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "t": "access !== \"full\"",
      "a": [],
      "c": [
       {
@@ -18233,39 +18295,25 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const access = await resolveClientCardAccess(req, client);",
+     "a": [
+      "зовёт resolveClientCardAccess()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
-     "t": "ownAgentId && client.assignedAgentId !== ownAgentId",
+     "t": "access === \"denied\"",
      "a": [],
      "c": [
       {
-       "k": "if",
-       "t": "!hasDeal && !wasMine",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
-         "a": [
-          "ответ 403 — «Недостаточно прав»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!hasDeal && wasMine",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "transferAccess = await loadTransferAccess(client.id, ownAgentId);",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
       }
      ]
     },
@@ -18427,7 +18475,7 @@
     },
     {
      "k": "do",
-     "t": "const sellerPropertyAddress = client.kind === \"SELLER\" ? await loadSellerPropertyAddress(client.id) : null;",
+     "t": "const sellerPropertyAddress = client.kind === \"SELLER\" && access !== \"transferred\" ? await loadSellerProperty…",
      "a": [
       "зовёт loadSellerPropertyAddress()"
      ],
@@ -19366,6 +19414,21 @@
        "t": "return res.status(400).json({ error: \"Слишком короткий номер\" });",
        "a": [
         "ответ 400 — «Слишком короткий номер»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "isForeignPhone(digits)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(422).json({ error: FOREIGN_PHONE_CALL_ERROR, code: \"not_dialable\" });",
+       "a": [
+        "ответ 422"
        ],
        "c": []
       }
@@ -20985,6 +21048,14 @@
       "ответ 200"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "const rowAccess = decideClientCardAccess(ownAgentId, c, false);",
+       "a": [
+        "зовёт decideClientCardAccess()"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "const presented = presentClient( gated, canSeePhone && !gateUntilAccepted, can(req, \"clients.viewOrigin\"), in…",
@@ -39756,7 +39827,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(await findSegments(parsed.data));",
+     "t": "res.json(await findSegmentsCached(parsed.data));",
      "a": [
       "ответ 200"
      ],
@@ -44173,7 +44244,8 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен"
+    "вход выполнен",
+    "requireElevation"
    ],
    "handlerRef": null,
    "tree": [
@@ -44182,6 +44254,14 @@
      "t": "const { code, deepLink } = await createTelegramLinkCode(req.agent!.id);",
      "a": [
       "зовёт createTelegramLinkCode()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"TELEGRAM_LINK_CODE_ISSUED\", \"Agent\", req.agent!.id);",
+     "a": [
+      "зовёт logAudit()"
      ],
      "c": []
     },
@@ -44923,7 +45003,7 @@
     },
     {
      "k": "do",
-     "t": "const errorGroups = groupErrorLogEntries(actionableRows).slice(0, 30);",
+     "t": "const allErrorGroups = groupErrorLogEntries(actionableRows);",
      "a": [
       "зовёт groupErrorLogEntries()"
      ],
@@ -50004,21 +50084,6 @@
       },
       {
        "k": "if",
-       "t": "outcome.status === \"UNCHANGED\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Текст и голос такие же, как в текущей озвучке.\" });",
-         "a": [
-          "ответ 409 — «Текст и голос такие же, как в текущей озвучке.»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
        "t": "outcome.status !== \"QUEUED\"",
        "a": [],
        "c": [
@@ -52382,29 +52447,6 @@
         "меняет в базе: property"
        ],
        "c": []
-      },
-      {
-       "k": "if",
-       "t": "responsibleId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const points = await loadEventPoints();",
-         "a": [
-          "зовёт loadEventPoints()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "recordScoreEvent({ agentId: responsibleId, kind: \"property_rework_fixed\", delta: points.property_rework_fixed…",
-         "a": [
-          "зовёт recordScoreEvent()"
-         ],
-         "c": []
-        }
-       ]
       },
       {
        "k": "if",
@@ -61880,7 +61922,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices…",
+     "t": "const view: NarrationOptionsView = { templates: config.templates ?? [], voices: config.voices.map((v)",
      "a": [
       "зовёт narrationAutoEnabled()"
      ],
@@ -61996,21 +62038,6 @@
      ]
     },
     {
-     "k": "if",
-     "t": "unreadable",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Сохранённые настройки озвучки не читаются, поэтому сохранение остановле…",
-       "a": [
-        "ответ 409 — «Сохранённые настройки озвучки не читаются, поэтому сохранение…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "do",
      "t": "const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…",
      "a": [
@@ -62063,28 +62090,6 @@
          "t": "return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });",
          "a": [
           "ответ 400 — «Шаблон «${template.name}»: ${problem}»"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const ending of parsed.data.endings ?? []",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "problem",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: `Концовка «${ending.text.slice(0, 40)}…»: ${problem}` });",
-         "a": [
-          "ответ 400 — «Концовка «${ending.text.slice(0, 40)}…»: ${problem}»"
          ],
          "c": []
         }
@@ -64863,6 +64868,14 @@
     },
     {
      "k": "do",
+     "t": "const live = can(req, \"finance.view\") ? await liveMonthlyMoneyMap(reports.map((r)",
+     "a": [
+      "зовёт liveMonthlyMoneyMap()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "res.json(await Promise.all(reports.map((r)",
      "a": [
       "ответ 200"
@@ -65483,274 +65496,6 @@
     {
      "k": "do",
      "t": "res.json({ channels, totalWaiting: channels.reduce((sum, c)",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "PATCH",
-   "path": "/:id/override",
-   "mount": "/api/v1/royal-score-events",
-   "full": "/api/v1/royal-score-events/:id/override",
-   "file": "apps/api/src/routes/royalScoreEvents.ts",
-   "router": "royalScoreEventsRouter",
-   "top": "apps/api/src/routes/royalScoreEvents.ts::royalScoreEventsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: score.clientLossOverride"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const parsed = overrideSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой overrideSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Некорректные данные\", details: parsed.error.flatten() });",
-       "a": [
-        "ответ 400 — «Некорректные данные»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const event = await prisma.royalScoreEvent.findUnique({ where: { id: req.params.id } });",
-     "a": [
-      "читает в базе: royalScoreEvent"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!event",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Событие не найдено\" });",
-       "a": [
-        "ответ 404 — «Событие не найдено»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!OVERRIDABLE_KINDS.includes(event.kind as (typeof OVERRIDABLE_KINDS)[number])",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Переопределить можно только client_lost_agent_fault/client_lost_no_faul…",
-       "a": [
-        "ответ 409 — «Переопределить можно только…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const existingCorrection = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `override-apply-${even…",
-     "a": [
-      "читает в базе: royalScoreEvent"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "existingCorrection",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "existingCorrection.kind === parsed.data.override",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Событие уже такого вида\" });",
-         "a": [
-          "ответ 409 — «Событие уже такого вида»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Это событие уже переопределяли — второй раз нельзя\" });",
-       "a": [
-        "ответ 409 — «Это событие уже переопределяли — второй раз нельзя»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "event.kind === parsed.data.override",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Событие уже такого вида\" });",
-       "a": [
-        "ответ 409 — «Событие уже такого вида»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const points = await loadEventPoints();",
-     "a": [
-      "зовёт loadEventPoints()"
-     ],
-     "c": []
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await recordScoreEventsAtomic([ { agentId: event.agentId, kind: event.kind as ScoreEventKind, delta: -event.d…",
-       "a": [
-        "зовёт recordScoreEventsAtomic()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "(err as { code?: string }).code === \"P2002\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Это событие уже переопределяли — второй раз нельзя\" });",
-         "a": [
-          "ответ 409 — «Это событие уже переопределяли — второй раз нельзя»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "void logSystemError(\"api\", `Royal Score: переопределение события ${event.id} не записано — ${message}`, { sta…",
-       "a": [
-        "запись в журнал ошибок"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return res.status(500).json({ error: \"Не удалось сохранить корректировку баллов — ничего не изменилось, попро…",
-       "a": [
-        "ответ 500 — «Не удалось сохранить корректировку баллов — ничего не изменилось,…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"ROYAL_SCORE_EVENT_OVERRIDE\", \"RoyalScoreEvent\", event.id, { from: event.kind, to: newKind, age…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ok: true });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/by-client/:clientId",
-   "mount": "/api/v1/royal-score-events",
-   "full": "/api/v1/royal-score-events/by-client/:clientId",
-   "file": "apps/api/src/routes/royalScoreEvents.ts",
-   "router": "royalScoreEventsRouter",
-   "top": "apps/api/src/routes/royalScoreEvents.ts::royalScoreEventsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: score.clientLossOverride"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const original = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `client-lost-${req.params.client…",
-     "a": [
-      "читает в базе: royalScoreEvent"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!original",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.json({ event: null });",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const correction = await prisma.royalScoreEvent.findFirst({ where: { sourceId: `override-apply-${original.id}…",
-     "a": [
-      "читает в базе: royalScoreEvent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ event: { id: original.id, currentKind: (correction?.kind ?? original.kind) as (typeof OVERRIDABLE_…",
      "a": [
       "ответ 200"
      ],
@@ -71878,6 +71623,277 @@
   },
   {
    "method": "POST",
+   "path": "/login/:id/connect",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/login/:id/connect",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!params.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Вход не найден — войдите через Facebook заново\" });",
+       "a": [
+        "ответ 404 — «Вход не найден — войдите через Facebook заново»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const body = metaLoginConnectInputSchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой metaLoginConnectInputSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный выбор\" });",
+       "a": [
+        "ответ 400 — «Некорректный выбор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await connectMetaLoginAssets(params.data.id, req.agent!.id, body.data);",
+       "a": [
+        "зовёт connectMetaLoginAssets()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!result",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Вход не найден или устарел — войдите через Facebook заново\" });",
+         "a": [
+          "ответ 404 — «Вход не найден или устарел — войдите через Facebook заново»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "res.json(result);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/login/:id",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/login/:id",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!params.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Вход не найден — войдите через Facebook заново\" });",
+       "a": [
+        "ответ 404 — «Вход не найден — войдите через Facebook заново»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const assets = await metaLoginAssets(params.data.id, req.agent!.id);",
+       "a": [
+        "зовёт metaLoginAssets()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!assets",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Вход не найден или устарел — войдите через Facebook заново\" });",
+         "a": [
+          "ответ 404 — «Вход не найден или устарел — войдите через Facebook заново»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "res.json(assets);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(err);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/login",
+   "mount": "/api/v1/settings/meta-eternal",
+   "full": "/api/v1/settings/meta-eternal/login",
+   "file": "apps/api/src/routes/settingsMetaEternal.ts",
+   "router": "settingsMetaEternalRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const url = await buildMetaLoginUrl(req.agent!.id, \"assets\");",
+       "a": [
+        "зовёт buildMetaLoginUrl()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"CONNECT_START\", \"MetaLogin\", \"assets\", {});",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ url });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "err instanceof MetaLoginError",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: err.message });",
+         "a": [
+          "ответ 400"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/pages/:pageId/connect",
    "mount": "/api/v1/settings/meta-eternal",
    "full": "/api/v1/settings/meta-eternal/pages/:pageId/connect",
@@ -71939,62 +71955,22 @@
       },
       {
        "k": "do",
-       "t": "const existing = await prisma.messengerAccount.findFirst({ where: { channel: \"FACEBOOK\", externalId: pageId }…",
+       "t": "const done = await connectFacebookPage({ pageId, pageName: page.pageName, pageToken: page.token, igId: page.i…",
        "a": [
-        "читает в базе: messengerAccount"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const twin = page.igId ? await prisma.messengerAccount.findFirst({ where: { channel: \"INSTAGRAM\", externalId:…",
-       "a": [
-        "читает в базе: messengerAccount"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const accountId = await saveAccount({ id: existing?.id, channel: \"FACEBOOK\", externalId: pageId, title: page.…",
-       "a": [
-        "зовёт saveAccount()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "resetAccountsCache();",
-       "a": [
-        "зовёт resetAccountsCache()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "logAudit(req, \"SETTINGS_UPDATE\", \"MessengerAccount\", accountId, { channel: \"FACEBOOK\", pageId, connected: exi…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const sub = await subscribePageMessaging(pageId);",
-       "a": [
-        "зовёт subscribePageMessaging()"
+        "зовёт connectFacebookPage()"
        ],
        "c": []
       },
       {
        "k": "if",
-       "t": "sub.ok",
+       "t": "!done.ok",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "logAudit(req, \"SETTINGS_UPDATE\", \"FacebookPageSubscription\", pageId, { fields: sub.fields });",
+         "t": "return res.status(done.status).json({ error: done.error });",
          "a": [
-          "зовёт logAudit()"
+          "ответ (код зависит от условия)"
          ],
          "c": []
         }
@@ -72002,7 +71978,7 @@
       },
       {
        "k": "do",
-       "t": "res.json({ ok: true, accountId, pageName: page.pageName, subscribed: sub.ok, ...(sub.ok ? { fields: sub.field…",
+       "t": "res.json({ ok: true, accountId: done.accountId, pageName: page.pageName, subscribed: sub.ok, ...(sub.ok ? { f…",
        "a": [
         "ответ 200"
        ],
@@ -73742,7 +73718,7 @@
       },
       {
        "k": "do",
-       "t": "const [pending, uncertain, review] = await Promise.all([ prisma.somonSeenAdvert.count({ where: { status: \"PEN…",
+       "t": "const [pending, sellerUnknown, uncertain, review] = await Promise.all([ prisma.somonSeenAdvert.count({ where:…",
        "a": [
         "считает в базе: somonSeenAdvert",
         "считает в базе: somonDelivery",
@@ -74472,36 +74448,6 @@
          "t": "return res.status(400).json({ error: \"Конец окна публикаций должен быть позже начала\" });",
          "a": [
           "ответ 400 — «Конец окна публикаций должен быть позже начала»"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "pair.inactivityWarnAfterDays !== undefined || pair.inactivityPenaltyAfterDays !== undefined",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const currentDays = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { inactivityWarnAf…",
-       "a": [
-        "читает в базе: settings"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "penaltyDays <= warnDays",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Штраф должен наступать позже предупреждения — иначе предупреждать неког…",
-         "a": [
-          "ответ 400 — «Штраф должен наступать позже предупреждения — иначе предупреждать…»"
          ],
          "c": []
         }
@@ -83063,7 +83009,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "if (msg.channel === \"WHATSAPP\") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId) : null;…",
+                   "t": "if (msg.channel === \"WHATSAPP\") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…",
                    "a": [
                     "дословно из кода"
                    ],
@@ -87420,6 +87366,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -89199,11 +89153,33 @@
         },
         {
          "k": "do",
-         "t": "const liveIds = clientIds.length ? new Set( (await prisma.client.findMany({ where: { id: { in: clientIds }, d…",
+         "t": "const livePhones = clientIds.length ? new Map( ( await prisma.client.findMany({ where: { id: { in: clientIds …",
          "a": [
           "читает в базе: client"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "const oldest = candidates.find((c)",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "c.clientId && !livePhones.has(c.clientId)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return false;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
         },
         {
          "k": "if",
@@ -93604,6 +93580,14 @@
          ],
          "c": [
           {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -93803,6 +93787,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -94810,178 +94802,6 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка сторожа пульса\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
-   "id": "inactivity-check",
-   "when": "20 9 * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const { warned, penalized } = await runInactivityCheck();",
-       "a": [
-        "зовёт runInactivityCheck()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const rules = await loadInactivityRules();",
-         "a": [
-          "зовёт loadInactivityRules()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const penaltyDelta = (await loadEventPoints()).inactivity_penalty;",
-         "a": [
-          "зовёт loadEventPoints()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const clients = await prisma.client.findMany({ where: { deletedAt: null, assignedAgentId: { not: null }, acce…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const client of clients",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "lastTouch <= penaltyCutoff",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const alreadyWarned = await prisma.royalScoreEvent.findUnique({ where: { kind_sourceId_agentId: { kind: \"inac…",
-             "a": [
-              "читает в базе: royalScoreEvent"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "!alreadyWarned",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "recordScoreEvent({ agentId, kind: \"inactivity_warning\", delta: 0, reason: `Предупреждение: по клиенту №${clie…",
-               "a": [
-                "зовёт recordScoreEvent()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "recordScoreEvent({ agentId, kind: \"inactivity_penalty\", delta: penaltyDelta, reason: `Клиент №${client.shortI…",
-             "a": [
-              "зовёт recordScoreEvent()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "lastTouch <= warnCutoff",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "recordScoreEvent({ agentId, kind: \"inactivity_warning\", delta: 0, reason: `Предупреждение: по клиенту №${clie…",
-             "a": [
-              "зовёт recordScoreEvent()"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "runInactivityCheck() — apps/api/src/lib/inactivityPenalty.ts"
-      },
-      {
-       "k": "if",
-       "t": "warned || penalized",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Бездействие: предупреждений ${warned}, штрафов ${penalized}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка проверки бездействия\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -96050,6 +95870,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -96668,6 +96496,14 @@
          ],
          "c": [
           {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -96842,6 +96678,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -98188,9 +98032,9 @@
      "c": [
       {
        "k": "do",
-       "t": "const { penalized } = await penalizeMissedFirstCalls();",
+       "t": "const { handled } = await handleMissedFirstCalls();",
        "a": [
-        "зовёт penalizeMissedFirstCalls()"
+        "зовёт handleMissedFirstCalls()"
        ],
        "c": [
         {
@@ -98232,21 +98076,13 @@
          "c": [
           {
            "k": "do",
-           "t": "return { penalized: 0 };",
+           "t": "return { handled: 0 };",
            "a": [
             "дословно из кода"
            ],
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "const points = await loadEventPoints();",
-         "a": [
-          "зовёт loadEventPoints()"
-         ],
-         "c": []
         },
         {
          "k": "do",
@@ -98325,22 +98161,7 @@
           },
           {
            "k": "if",
-           "t": "verdict.keepLead",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "!verdict.penalize",
+           "t": "verdict.keepLead || !verdict.missed",
            "a": [],
            "c": [
             {
@@ -98363,30 +98184,15 @@
           },
           {
            "k": "do",
-           "t": "const already = await prisma.royalScoreEvent.findFirst({ where: { sourceId }, select: { id: true } });",
+           "t": "const alreadyNoted = await prisma.interaction.findFirst({ where: { clientId: client.id, actorKind: \"SYSTEM\", …",
            "a": [
-            "читает в базе: royalScoreEvent"
+            "читает в базе: interaction"
            ],
            "c": []
           },
           {
            "k": "if",
-           "t": "!already",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await recordScoreEvent({ agentId, kind: \"call_15min_missed\", delta: points.call_15min_missed, reason: `Не поз…",
-             "a": [
-              "зовёт recordScoreEvent()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "elseif",
-           "t": "!reassignOnMissedCall || ownLeadKept",
+           "t": "alreadyNoted && (!reassignOnMissedCall || ownLeadKept)",
            "a": [],
            "c": [
             {
@@ -98573,16 +98379,16 @@
          ]
         }
        ],
-       "from": "penalizeMissedFirstCalls() — apps/api/src/services/leads/firstCall.ts"
+       "from": "handleMissedFirstCalls() — apps/api/src/services/leads/firstCall.ts"
       },
       {
        "k": "if",
-       "t": "penalized > 0",
+       "t": "handled > 0",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "console.log(`[cron] Первый звонок сорван, лид снят: ${penalized}`);",
+         "t": "console.log(`[cron] Первый звонок сорван: ${handled}`);",
          "a": [
           "пишет строку в журнал сервера"
          ],
@@ -98599,7 +98405,7 @@
      "c": [
       {
        "k": "do",
-       "t": "reportCronTickError(\"Ошибка штрафа за сорванный звонок\", err);",
+       "t": "reportCronTickError(\"Ошибка разбора сорванного первого звонка\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
@@ -99083,14 +98889,6 @@
           },
           {
            "k": "do",
-           "t": "const points = await loadEventPoints();",
-           "a": [
-            "зовёт loadEventPoints()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
            "t": "const availableAgentsCount = await prisma.agent.count({ where: acceptingLeadsWhere() });",
            "a": [
             "считает в базе: agent"
@@ -99170,81 +98968,6 @@
              "t": "await escalateInsteadOfTransfer({ clientId: lead.id, mechanism, reason: \"клиент уже был на связи (контакт сос…",
              "a": [
               "зовёт escalateInsteadOfTransfer()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const calendarOf = (agentId: string)",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "!cal",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "calendars.set(agentId, (cal = loadDaysOffCalendar(agentId)));",
-               "a": [
-                "зовёт loadDaysOffCalendar()"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const penalizeIgnored = async (lead: (typeof stale)[number])",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const expiredWhileStopped = !isWithinDushanbeWindow(hours.start, hours.end, deadline) && deadline < dushanbeP…",
-             "a": [
-              "зовёт isWithinDushanbeWindow()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "expiredWhileStopped",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "return;",
-               "a": [
-                "дальше не идёт, ничего не меняя"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
-             "t": "isDayOff(deadline, await calendarOf(lead.assignedAgentId!))",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "return;",
-               "a": [
-                "дальше не идёт, ничего не меняя"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "return recordScoreEvent({ agentId: lead.assignedAgentId!, kind: \"lead_ignored\", delta: points.lead_ignored, r…",
-             "a": [
-              "зовёт recordScoreEvent()"
              ],
              "c": []
             }
@@ -99361,14 +99084,6 @@
                  "t": "contacted === \"escalated\"",
                  "a": [],
                  "c": [
-                  {
-                   "k": "do",
-                   "t": "await penalizeIgnored(lead);",
-                   "a": [
-                    "дословно из кода"
-                   ],
-                   "c": []
-                  },
                   {
                    "k": "do",
                    "t": "escalated++;",
@@ -102428,428 +102143,150 @@
        "c": [
         {
          "k": "do",
-         "t": "const notified = await notifyMissedShowings();",
-         "a": [
-          "зовёт notifyMissedShowings()"
-         ],
-         "c": [
-          {
-           "k": "if",
-           "t": "!(await isWithinWorkingHours(now))",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const missed = await prisma.interaction.findMany({ where: { ...TASK_WHERE, type: \"SHOWING\", completedAt: null…",
-           "a": [
-            "читает в базе: interaction"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "missed.length === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const points = await loadEventPoints();",
-           "a": [
-            "зовёт loadEventPoints()"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const task of missed",
-           "a": [],
-           "c": [
-            {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
-             "c": [
-              {
-               "k": "if",
-               "t": "!task.nextActionDate || !hasExactTime(task.nextActionDate)",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "if",
-               "t": "!ownerId",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "do",
-               "t": "await recordScoreEvent({ agentId: ownerId, kind: \"showing_missed\", delta: points.showing_missed, reason: \"Пок…",
-               "a": [
-                "зовёт recordScoreEvent()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "await prisma.interaction.update({ where: { id: task.id }, data: { noShowNotifiedAt: new Date() } });",
-               "a": [
-                "меняет в базе: interaction"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "reportCronRowError(\"Неотмеченный показ — руководителю\", task.id, err);",
-               "a": [
-                "зовёт reportCronRowError()"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          }
-         ],
-         "from": "notifyMissedShowings() — apps/api/src/lib/meetingReminders.ts"
-        },
-        {
-         "k": "if",
-         "t": "notified",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "console.log(`[cron] Непроведённых показов, о которых сообщили: ${notified}`);",
-           "a": [
-            "пишет строку в журнал сервера"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "reportCronTickError(\"Ошибка контроля показов\", err);",
-         "a": [
-          "зовёт reportCronTickError()"
-         ],
-         "c": [
-          {
-           "k": "do",
-           "t": "const reason = markCronTickFailed(label, err);",
-           "a": [
-            "зовёт markCronTickFailed()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ],
-         "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-        }
-       ]
-      },
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const notified = await notifyOverdueTasks();",
-         "a": [
-          "зовёт notifyOverdueTasks()"
-         ],
-         "c": [
-          {
-           "k": "if",
-           "t": "!(await isWithinWorkingHours(now))",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const overdue = await prisma.interaction.findMany({ where: { ...TASK_WHERE, type: { not: \"SHOWING\" }, complet…",
-           "a": [
-            "читает в базе: interaction"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "overdue.length === 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const points = await loadEventPoints();",
-           "a": [
-            "зовёт loadEventPoints()"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const task of overdue",
-           "a": [],
-           "c": [
-            {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
-             "c": [
-              {
-               "k": "if",
-               "t": "!task.nextActionDate || !hasExactTime(task.nextActionDate)",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "if",
-               "t": "!ownerId",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "continue;",
-                 "a": [
-                  "переходит к следующему"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "do",
-               "t": "await recordScoreEvent({ agentId: ownerId, kind, delta: points[kind], reason: isMeeting ? \"Встреча просрочена…",
-               "a": [
-                "зовёт recordScoreEvent()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "await prisma.interaction.update({ where: { id: task.id }, data: { noShowNotifiedAt: now } });",
-               "a": [
-                "меняет в базе: interaction"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "reportCronRowError(\"Просроченная задача — руководителю\", task.id, err);",
-               "a": [
-                "зовёт reportCronRowError()"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          }
-         ],
-         "from": "notifyOverdueTasks() — apps/api/src/lib/meetingReminders.ts"
-        },
-        {
-         "k": "if",
-         "t": "notified",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "console.log(`[cron] Просроченных встреч/задач, о которых сообщили: ${notified}`);",
-           "a": [
-            "пишет строку в журнал сервера"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "reportCronTickError(\"Ошибка контроля просроченных встреч/задач\", err);",
-         "a": [
-          "зовёт reportCronTickError()"
-         ],
-         "c": [
-          {
-           "k": "do",
-           "t": "const reason = markCronTickFailed(label, err);",
-           "a": [
-            "зовёт markCronTickFailed()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ],
-         "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-        }
-       ]
-      },
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const { reminded, escalated } = await remindIncompleteCards();",
-         "a": [
-          "зовёт remindIncompleteCards()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "reminded || escalated",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "console.log(`[cron] Незаполненные карточки: ${reminded} агентам, ${escalated} руководству`);",
-           "a": [
-            "пишет строку в журнал сервера"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "reportCronTickError(\"Ошибка контроля карточек\", err);",
-         "a": [
-          "зовёт reportCronTickError()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
          "t": "const notified = await notifyStaleOwnerQuestions();",
          "a": [
           "зовёт notifyStaleOwnerQuestions()"
          ],
-         "c": []
+         "c": [
+          {
+           "k": "do",
+           "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { ownerQuestionAutoRe…",
+           "a": [
+            "читает в базе: settings"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const stale = await prisma.ownerQuestion.findMany({ where: { customerActionId: null, answeredAt: null, autoRe…",
+           "a": [
+            "читает в базе: ownerQuestion"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const question of stale",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const target: DeliveryTarget | null = question.clientId ? await findClientDeliveryTarget(question.clientId) :…",
+               "a": [
+                "зовёт findClientDeliveryTarget()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!target",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "await isTargetPausedForBot(target)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "const text = await shortAgentReply( history, \"Клиент задал вопрос, на который бот честно ответил «уточню у со…",
+               "a": [
+                "зовёт shortAgentReply()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!text",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "const result = await deliverToConversation(target, text, undefined, { sender: { kind: \"bot\" } });",
+               "a": [
+                "зовёт deliverToConversation()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!result.ok",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "await prisma.ownerQuestion.update({ where: { id: question.id }, data: { autoRepliedAt: new Date() } });",
+               "a": [
+                "меняет в базе: ownerQuestion"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"ai\", `Автоответ на просроченный вопрос собственнику не отправлен: ${describeError(err)}`…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ],
+         "from": "notifyStaleOwnerQuestions() — apps/api/src/lib/ownerQuestionAnswer.ts"
         },
         {
          "k": "if",
@@ -102879,7 +102316,25 @@
          "a": [
           "зовёт reportCronTickError()"
          ],
-         "c": []
+         "c": [
+          {
+           "k": "do",
+           "t": "const reason = markCronTickFailed(label, err);",
+           "a": [
+            "зовёт markCronTickFailed()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ],
+         "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
         }
        ]
       }
@@ -106485,22 +105940,6 @@
          ]
         },
         {
-         "k": "do",
-         "t": "const alreadyScored = await prisma.royalScoreEvent.findMany({ where: { kind: { in: [\"photos_overdue\", \"video_…",
-         "a": [
-          "читает в базе: royalScoreEvent"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const points = await loadEventPoints();",
-         "a": [
-          "зовёт loadEventPoints()"
-         ],
-         "c": []
-        },
-        {
          "k": "loop",
          "t": "для каждого: const property of properties",
          "a": [],
@@ -106565,21 +106004,6 @@
             },
             {
              "k": "if",
-             "t": "!responsibleId",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "if",
              "t": "property.status === \"EDITING\"",
              "a": [],
              "c": [
@@ -106610,7 +106034,7 @@
             },
             {
              "k": "if",
-             "t": "alreadyScoredIds.has(property.id)",
+             "t": "stageState(property.status, property.stageEnteredAt, deadlines, ruleSince).overdue",
              "a": [],
              "c": [
               {
@@ -106624,21 +106048,13 @@
              ]
             },
             {
-             "k": "do",
-             "t": "recordScoreEvent({ agentId: responsibleId, kind, delta: points[kind], reason: kind === \"photos_overdue\" ? \"Фо…",
-             "a": [
-              "зовёт recordScoreEvent()"
-             ],
-             "c": []
-            },
-            {
              "k": "if",
-             "t": "await shouldAlert(materialsTag, ALERT_MIN_INTERVAL_MS, now)",
+             "t": "await shouldAlert(materialsTag, sinceStageMs, now)",
              "a": [],
              "c": [
               {
                "k": "do",
-               "t": "await enqueueDirectorAlert({ title: kind === \"photos_overdue\" ? \"❗ Фото объекта просрочены\" : \"❗ Видео объект…",
+               "t": "await enqueueDirectorAlert({ title: photos ? \"❗ Фото объекта просрочены\" : \"❗ Видео объекта просрочено\", body…",
                "a": [
                 "зовёт enqueueDirectorAlert()"
                ],
@@ -109599,6 +109015,14 @@
            ],
            "c": [
             {
+             "k": "do",
+             "t": "message = maskPhoneNumbersInText(String(message));",
+             "a": [
+              "зовёт maskPhoneNumbersInText()"
+             ],
+             "c": []
+            },
+            {
              "k": "if",
              "t": "isPrivateOperation()",
              "a": [],
@@ -109765,6 +109189,14 @@
           "запись в журнал ошибок"
          ],
          "c": [
+          {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
           {
            "k": "if",
            "t": "isPrivateOperation()",
@@ -110975,6 +110407,21 @@
              ]
             },
             {
+             "k": "if",
+             "t": "data.ads.some(a => a.sellerId === null)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await logSystemError(\"cron\", \"Somon: в выдаче нет ID автора у части объявлений; счёт объявлений продавца неиз…",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "const result = await recordBaselinePage(n, data.last, data.ads.map(a",
              "a": [
@@ -111070,6 +110517,21 @@
                 {
                  "k": "do",
                  "t": "await logSystemError(\"cron\", \"Somon: часть ссылок объявлений не удалось обработать\", { dedupKey: \"somon-inval…",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "data.ads.some(a => a.sellerId === null)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await logSystemError(\"cron\", \"Somon: в выдаче нет ID автора у части объявлений; счёт объявлений продавца неиз…",
                  "a": [
                   "запись в журнал ошибок"
                  ],
@@ -111204,7 +110666,7 @@
           },
           {
            "k": "if",
-           "t": "pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000",
+           "t": "pendingDelayed(pending[0], new Date())",
            "a": [],
            "c": [
             {
@@ -111286,6 +110748,72 @@
           "зовёт cleanupSomonReceipts()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "state = await prisma.somonMonitor.findUnique({ where: { id: \"singleton\" } });",
+         "a": [
+          "читает в базе: somonMonitor"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "n > 1 && ((error instanceof SomonSourceUnavailable && error.status === 404) || error instanceof SomonEmptyLis…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "data = null;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "else",
+             "t": "иначе",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw error;",
+               "a": [
+                "пробрасывает ошибку дальше"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await rekeySellerPage(n, data ? data.last : n, data ? data.ads.map(a",
+           "a": [
+            "зовёт rekeySellerPage()"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },
@@ -111321,6 +110849,95 @@
       }
      ],
      "from": "runSomonMonitorTick() — apps/api/src/lib/somonLeads/monitor.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "somon-owner-leads-silence",
+   "when": "47 * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await checkSomonOwnerLeadsSilence();",
+     "a": [
+      "зовёт checkSomonOwnerLeadsSilence()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const state = await prisma.somonMonitor.findUnique({ where: { id: \"singleton\" }, select: { enabled: true, act…",
+       "a": [
+        "читает в базе: somonMonitor"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!state?.enabled",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const [portalPaused, last, recipients] = await Promise.all([ isTelegramPortalAlertsPaused(), prisma.somonDeli…",
+       "a": [
+        "читает в базе: somonDelivery",
+        "читает в базе: somonRecipient"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const [firstObserved, observedCount] = await Promise.all([ prisma.somonSeenAdvert.findFirst({ where: observed…",
+       "a": [
+        "читает в базе: somonSeenAdvert",
+        "считает в базе: somonSeenAdvert"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const eligibleRecipients = recipients.length ? await prisma.agent.count({ where: { id: { in: recipients.map(r",
+       "a": [
+        "считает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const alarm = decideSomonSilenceAlarm({ enabled: state.enabled, portalPaused, sourceStopped: state.sourceStop…",
+       "a": [
+        "зовёт decideSomonSilenceAlarm()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "alarm",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logSystemError(\"cron\", alarm.message, { dedupKey: alarm.dedupKey, dedupWindowMs: DAY_MS });",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "checkSomonOwnerLeadsSilence() — apps/api/src/lib/somonLeads/silenceAlarm.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -113906,6 +113523,21 @@
              ]
             },
             {
+             "k": "if",
+             "t": "isFacebookLoginToken(igToken)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
              "t": "await prisma.messengerAccount.update({ where: { id: row.id }, data: { token: encryptSecret(newToken), tokenRe…",
              "a": [
@@ -114682,6 +114314,36 @@
         {
          "k": "do",
          "t": "console.log(`[cron] Зарплатных строк обновлено: ${salaries}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await step(\"Курс закрытого месяца не закреплён\", \"api\", async ()",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const frozen = await freezeClosedAutoExpenseRates();",
+       "a": [
+        "зовёт freezeClosedAutoExpenseRates()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "frozen",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Курс закреплён у ${frozen} строк закрытого месяца`);",
          "a": [
           "пишет строку в журнал сервера"
          ],
@@ -116382,6 +116044,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -118172,6 +117842,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -118582,6 +118260,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -119442,6 +119128,14 @@
          ],
          "c": [
           {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -119738,6 +119432,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -119981,6 +119683,14 @@
       "запись в журнал ошибок"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "message = maskPhoneNumbersInText(String(message));",
+       "a": [
+        "зовёт maskPhoneNumbersInText()"
+       ],
+       "c": []
+      },
       {
        "k": "if",
        "t": "isPrivateOperation()",
@@ -120950,6 +120660,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -121425,6 +121143,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -121681,6 +121407,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -121982,6 +121716,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -122342,6 +122084,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -122803,13 +122553,21 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const location: ReturnType<typeof customerIntakeLocation> = customerIntakeLocationEnabled() ? customerIntakeL…",
+         "a": [
+          "зовёт customerIntakeLocationEnabled()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: const text of [...own].reverse()",
          "a": [],
          "c": [
           {
            "k": "if",
-           "t": "requirementsNotes.length + text.length + 1 <= 4000",
+           "t": "zoneNote.length + requirementsNotes.length + text.length + 2 <= 4000",
            "a": [],
            "c": [
             {
@@ -122825,8 +122583,23 @@
          ]
         },
         {
+         "k": "if",
+         "t": "zoneNote",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "requirementsNotes = zoneNote + (requirementsNotes ? \"\\n\" + requirementsNotes : \"\");",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
-         "t": "const baseContext: CustomerIntakeContext = { version: 1, kind: intake.role === \"buyer\" ? \"BUYER\" : intake.rol…",
+         "t": "const baseContext: CustomerIntakeContext = { version: 1, kind: location.locationOutsideDushanbe ? \"OTHER\" : i…",
          "a": [
           "зовёт isWithinWorkingHours()"
          ],
@@ -122892,6 +122665,14 @@
           "запись в журнал ошибок"
          ],
          "c": [
+          {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
           {
            "k": "if",
            "t": "isPrivateOperation()",
@@ -123074,6 +122855,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -123462,6 +123251,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -124049,6 +123846,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -124359,6 +124164,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -124770,6 +124583,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -124934,6 +124755,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -125293,6 +125122,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -125878,6 +125715,14 @@
          ],
          "c": [
           {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -126393,6 +126238,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -126995,6 +126848,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -127219,6 +127080,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -127430,6 +127299,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -127976,6 +127853,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -128347,6 +128232,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -128657,6 +128550,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -129252,6 +129153,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -129579,6 +129488,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -130243,6 +130160,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -130595,6 +130520,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -130852,6 +130785,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -131462,6 +131403,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -131774,6 +131723,177 @@
      ]
     },
     {
+     "k": "if",
+     "t": "!telegramDirectBotReplyEnabled()",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await alertChannelStaff({ channel: \"TELEGRAM_DIRECT\", conversationId: conversation.id, text: typeof lastUser?…",
+       "a": [
+        "зовёт alertChannelStaff()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!input.conversationId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"skipped\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "input.channel !== \"TELEGRAM\" && input.channel !== \"TELEGRAM_DIRECT\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const outcome = await alertClientWaiting(HANDED_OVER.has(input.why) ? { conversationId: input.conversationId,…",
+             "a": [
+              "зовёт alertClientWaiting()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const chat = direct ? await prisma.telegramDirectConversation.findUnique({ where: { id: input.conversationId …",
+           "a": [
+            "читает в базе: telegramDirectConversation",
+            "читает в базе: telegramConversation"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!chat || chat.client?.deletedAt",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"excluded\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const recipients = owner ? [owner] : await findAgentsWithPermission(\"messages.view\");",
+           "a": [
+            "зовёт findAgentsWithPermission()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!recipients.length",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telegram\", `Клиент в Telegram ждёт ответа, а уведомить некого (чат ${chat.id}).`, { dedu…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const claimed = await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdA…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "claimed !== 1",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"already\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const raw = clientOwnWords(input.text ?? \"\").replace(/\\s+/gu, \" \").trim() || \"[голосовое или вложение без тек…",
+           "a": [
+            "зовёт clientOwnWords()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);",
+           "a": [
+            "зовёт scrubMentionedClientPhonesInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await sendPushToAgents(recipients, { kind: \"message\", title: `Ответьте вручную: ${name}`, body: `«${excerpt}»…",
+           "a": [
+            "push-уведомление"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"ai\", `Уведомление «клиент ждёт человека» не отправлено (чат ${input.conversationId ?? \"б…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "alertChannelStaff() — apps/api/src/lib/channelStaffAlert.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const phoneKnown = await clientPhoneKnownOrDeleted(conversation.clientId);",
      "a": [
@@ -131940,385 +132060,11 @@
     },
     {
      "k": "do",
-     "t": "const result = await runQualifyTurn(history, draft, { images: [], abilities, conversationId: conversation.id,…",
+     "t": "const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…",
      "a": [
-      "зовёт runQualifyTurn()"
+      "зовёт runLegacyQualifyTurn()"
      ],
-     "c": [
-      {
-       "k": "do",
-       "t": "const memory = selectQualifierPromptMemory(history, draft, options);",
-       "a": [
-        "зовёт selectQualifierPromptMemory()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const effectiveWhoIsThis = resolveEffectiveWhoIsThis(draft, memory.contactProfile, options.abilities.promptEc…",
-       "a": [
-        "зовёт resolveEffectiveWhoIsThis()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const { abilities, showcase } = abilitiesForIntent( options.abilities, options.showcase ?? NO_SHOWCASE, draft…",
-       "a": [
-        "зовёт abilitiesForIntent()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const sellerFacts: SellerFacts | null = draft.intent === \"sell\" ? { ...collectSellerFacts(history), ...(draft…",
-       "a": [
-        "зовёт collectSellerFacts()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;",
-       "a": [
-        "зовёт readCustomerOpenVacancies()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…",
-       "a": [
-        "зовёт selectedRecruitmentPosition()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === \"job\" && abilities.vacancies && optio…",
-       "a": [
-        "читает в базе: jobApplication"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const jobIntakeBlock = draft.intent === \"job\" && abilities.vacancies && recruitmentRole?.key === \"real-estate…",
-       "a": [
-        "зовёт jobApplicationIntakeBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const selfName = clientSelfStatedName(history);",
-       "a": [
-        "зовёт clientSelfStatedName()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const [botPersona, baseGeography, sellerRules, folkGeography] = await Promise.all([ resolveBotPersona(options…",
-       "a": [
-        "зовёт resolveBotPersona()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const systemStable = buildStableSystem({ botPersona, baseGeography, sellerRules, folkGeography, canSendGuide:…",
-       "a": [
-        "зовёт buildStableSystem()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…",
-       "a": [
-        "зовёт nowBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable: brandize(systemStable, …",
-       "a": [
-        "зовёт brandize()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "rawResult == null",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return null;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "traceModelValidation(rawResult, parsedResult.success ? [] : parsedResult.error.issues);",
-       "a": [
-        "зовёт traceModelValidation()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!parsedResult.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void logSystemError(\"ai\", `submit_reply: invalid result (${issues})`);",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "result?.reply?.length",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? \"\\n\" + J…",
-         "a": [
-          "зовёт guardPrices()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "guarded.invented.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", guarded.keptDespiteViolation ? `Бот назвал цену, которой нет в данных (${guarded.i…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "guarded.currencyMismatch.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", `[щит цены, наблюдение] В ответе бота сумма (${guarded.currencyMismatch.join(\", \")…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = guarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : guarded.…",
-         "a": [
-          "зовёт priceGuardFallbackReply()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"price\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const discountGuarded = guardDiscounts(result.reply);",
-         "a": [
-          "зовёт guardDiscounts()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "discountGuarded.invented.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", discountGuarded.keptDespiteViolation ? `Бот назвал размер скидки (${discountGuarde…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = discountGuarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : …",
-         "a": [
-          "зовёт priceGuardFallbackReply()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"discount\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "draft.intent !== \"sell\" && draft.intent !== \"job\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…",
-           "a": [
-            "зовёт applyObjectFactGuards()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "facts.streets.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.afterPlace.join(\"\\n\"), \"place\");",
-             "a": [
-              "зовёт traceFilterDelta()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "facts.renovationRemoved > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.reply.join(\"\\n\"), \"renovation\");",
-             "a": [
-              "зовёт traceFilterDelta()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "void logSystemError(\"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "what.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void logSystemError( \"ai\", `Бот назвал вне подборки: ${what.join(\"; \")} — этого нет ни в подборке объектов, н…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…",
-         "a": [
-          "зовёт applyAvailabilityGuard()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"availability\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "result.reply = stripRepeatedMediaApology(result.reply, history);",
-         "a": [
-          "зовёт stripRepeatedMediaApology()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"media_apology\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "result && sellerFacts && topicSettings.enabled",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "(result as { openQuestion?: string }).openQuestion = \"\";",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "return result ? { ...result, showPropertyNumber: parsePhotoOffer(result.showPropertyNumber), askOwner: abilit…",
-       "a": [
-        "зовёт parsePhotoOffer()"
-       ],
-       "c": []
-      }
-     ],
-     "from": "runQualifyTurn() — apps/api/src/ai/leadQualifier.ts"
+     "c": []
     },
     {
      "k": "if",
@@ -132400,6 +132146,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -132779,366 +132533,32 @@
     },
     {
      "k": "do",
-     "t": "const result = await runQualifyTurn(history, draft, { images: [], abilities, conversationId: conversation.id,…",
+     "t": "const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…",
      "a": [
-      "зовёт runQualifyTurn()"
+      "зовёт runLegacyQualifyTurn()"
      ],
      "c": [
       {
        "k": "do",
-       "t": "const memory = selectQualifierPromptMemory(history, draft, options);",
+       "t": "const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);",
        "a": [
-        "зовёт selectQualifierPromptMemory()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const effectiveWhoIsThis = resolveEffectiveWhoIsThis(draft, memory.contactProfile, options.abilities.promptEc…",
-       "a": [
-        "зовёт resolveEffectiveWhoIsThis()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const { abilities, showcase } = abilitiesForIntent( options.abilities, options.showcase ?? NO_SHOWCASE, draft…",
-       "a": [
-        "зовёт abilitiesForIntent()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const sellerFacts: SellerFacts | null = draft.intent === \"sell\" ? { ...collectSellerFacts(history), ...(draft…",
-       "a": [
-        "зовёт collectSellerFacts()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;",
-       "a": [
-        "зовёт readCustomerOpenVacancies()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…",
-       "a": [
-        "зовёт selectedRecruitmentPosition()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === \"job\" && abilities.vacancies && optio…",
-       "a": [
-        "читает в базе: jobApplication"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const jobIntakeBlock = draft.intent === \"job\" && abilities.vacancies && recruitmentRole?.key === \"real-estate…",
-       "a": [
-        "зовёт jobApplicationIntakeBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const selfName = clientSelfStatedName(history);",
-       "a": [
-        "зовёт clientSelfStatedName()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const [botPersona, baseGeography, sellerRules, folkGeography] = await Promise.all([ resolveBotPersona(options…",
-       "a": [
-        "зовёт resolveBotPersona()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const systemStable = buildStableSystem({ botPersona, baseGeography, sellerRules, folkGeography, canSendGuide:…",
-       "a": [
-        "зовёт buildStableSystem()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…",
-       "a": [
-        "зовёт nowBlock()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable: brandize(systemStable, …",
-       "a": [
-        "зовёт brandize()"
+        "зовёт customerAgentLegacyChannelKey()"
        ],
        "c": []
       },
       {
        "k": "if",
-       "t": "rawResult == null",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return null;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "traceModelValidation(rawResult, parsedResult.success ? [] : parsedResult.error.issues);",
-       "a": [
-        "зовёт traceModelValidation()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!parsedResult.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void logSystemError(\"ai\", `submit_reply: invalid result (${issues})`);",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "result?.reply?.length",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? \"\\n\" + J…",
-         "a": [
-          "зовёт guardPrices()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "guarded.invented.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", guarded.keptDespiteViolation ? `Бот назвал цену, которой нет в данных (${guarded.i…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "guarded.currencyMismatch.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", `[щит цены, наблюдение] В ответе бота сумма (${guarded.currencyMismatch.join(\", \")…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = guarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : guarded.…",
-         "a": [
-          "зовёт priceGuardFallbackReply()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"price\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const discountGuarded = guardDiscounts(result.reply);",
-         "a": [
-          "зовёт guardDiscounts()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "discountGuarded.invented.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError( \"ai\", discountGuarded.keptDespiteViolation ? `Бот назвал размер скидки (${discountGuarde…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = discountGuarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : …",
-         "a": [
-          "зовёт priceGuardFallbackReply()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"discount\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "draft.intent !== \"sell\" && draft.intent !== \"job\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…",
-           "a": [
-            "зовёт applyObjectFactGuards()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "facts.streets.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.afterPlace.join(\"\\n\"), \"place\");",
-             "a": [
-              "зовёт traceFilterDelta()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "facts.renovationRemoved > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, facts.reply.join(\"\\n\"), \"renovation\");",
-             "a": [
-              "зовёт traceFilterDelta()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "void logSystemError(\"ai\", \"Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "what.length > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void logSystemError( \"ai\", `Бот назвал вне подборки: ${what.join(\"; \")} — этого нет ни в подборке объектов, н…",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…",
-         "a": [
-          "зовёт applyAvailabilityGuard()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"availability\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "result.reply = stripRepeatedMediaApology(result.reply, history);",
-         "a": [
-          "зовёт stripRepeatedMediaApology()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "traceFilterDelta(\"qualifier_guards\", traceBefore, result.reply.join(\"\\n\"), \"media_apology\");",
-         "a": [
-          "зовёт traceFilterDelta()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "result && sellerFacts && topicSettings.enabled",
+       "t": "key && customerAgentChannelMode(key) === \"core\"",
        "a": [],
        "c": [
         {
          "k": "if",
-         "t": "typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)",
+         "t": "source.repeat === \"regeneration\"",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "(result as { openQuestion?: string }).openQuestion = \"\";",
+           "t": "return null;",
            "a": [
             "дословно из кода"
            ],
@@ -133150,14 +132570,42 @@
       },
       {
        "k": "do",
-       "t": "return result ? { ...result, showPropertyNumber: parsePhotoOffer(result.showPropertyNumber), askOwner: abilit…",
+       "t": "const result = await runQualifyTurn(history, draft, options);",
        "a": [
-        "зовёт parsePhotoOffer()"
+        "зовёт runQualifyTurn()"
        ],
        "c": []
+      },
+      {
+       "k": "if",
+       "t": "!source.repeat",
+       "a": [],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "scheduleLegacyCoreShadow({ channel: source.channel, accountId: options.accountId ?? null, traceAccount: sourc…",
+           "a": [
+            "зовёт scheduleLegacyCoreShadow()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ],
-     "from": "runQualifyTurn() — apps/api/src/ai/leadQualifier.ts"
+     "from": "runLegacyQualifyTurn() — apps/api/src/ai/legacyQualifyDoor.ts"
     },
     {
      "k": "if",
@@ -133247,6 +132695,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -133453,6 +132909,14 @@
           "запись в журнал ошибок"
          ],
          "c": [
+          {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
           {
            "k": "if",
            "t": "isPrivateOperation()",
@@ -133704,6 +133168,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -135091,6 +134563,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -135314,6 +134794,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -135636,6 +135124,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
@@ -136171,6 +135667,14 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "isPrivateOperation()",
