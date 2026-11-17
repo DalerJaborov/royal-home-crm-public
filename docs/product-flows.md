@@ -23438,6 +23438,13 @@
       - void logSystemError("telegram", `Озвучка: напоминания об одобрении не ушли: ${err instanceof Error ? err.mess…
         · запись в журнал ошибок
 
+### narration-auto-master — * * * * *
+
+- await runMachineMastersTick();
+  · зовёт runMachineMastersTick()
+  - return runMachineMasters(machineMasterDeps, now);
+    · зовёт runMachineMasters()
+
 ### narration-version-delivery — * * * * *
 
 - await executeQueuedNarrationDeliveries();

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
+import { russianSpeechNumbers } from "./russianSpeechNumbers.js";
+import { numberToWords, russianGenitive, russianOrdinal } from "./spokenNumber.js";
 
 /**
  * ОЗВУЧКА РОЛИКА ОБЪЕКТА — ОДИН ИСТОЧНИК ПРАВИЛ ТЕКСТА (11.11.2026).
@@ -109,6 +111,10 @@ const narrationConfigBase = z.object({
   /** Рубильник (12.11.2026): озвучка к роликам, которые уже стоят в монтаже, на одобрение владельцу.
    *  По умолчанию ВЫКЛЮЧЕН и сам с автоозвучкой не включается (решение владельца — завтра). */
   backfillMontageQueue: z.boolean().optional(),
+  /** Рубильник (16.11.2026, решение владельца «старый голос убирает ИИ, монтажёр не нужен»): у вышедшего
+   *  ролика нет версии без голоса, а озвучка поменялась — CRM сама отделяет старый голос от музыки
+   *  (сервис voice-separator) и накладывает новый. По умолчанию ВКЛЮЧЁН; false — как раньше, монтажёру. */
+  autoSeparateVoice: z.boolean().optional(),
   /** Словарь произношения: «слово → как читать» (alias; phoneme — если модель его понимает). Правит
    *  владелец; синхронизация с ElevenLabs — только для моделей из NARRATION_PRONUNCIATION_MODELS. */
   pronunciationRules: z.array(z.object({
@@ -179,6 +185,11 @@ export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): bo
   return config.mixByCrm === true;
 }
 
+/** Старый голос из вышедшего ролика убирает CRM (16.11.2026): включено, пока руководство не выключило. */
+export function narrationAutoSeparate(config: Pick<NarrationConfig, "autoSeparateVoice">): boolean {
+  return config.autoSeparateVoice !== false;
+}
+
 /**
  * ФРАЗА ОБРАЗЦА ГОЛОСА (11.11.2026, владелец): агент слушает несколько голосов одной и той же
  * фразой и выбирает. Одна константа на язык шаблона; поменяли текст — образцы готовятся заново
@@ -236,7 +247,7 @@ export function suggestedNarration(facts: NarrationFacts): string {
 }
 
 /** Слова, которые владелец может ставить в шаблон; квадратные скобки — «если есть». */
-export const NARRATION_PLACEHOLDERS = ["вид", "комнаты", "площадь", "этаж", "этаж_пор", "этажей", "район", "цена"] as const;
+export const NARRATION_PLACEHOLDERS = ["вид", "комнаты", "площадь", "сотки", "этаж", "этаж_пор", "этажей", "район", "цена"] as const;
 
 /** Русское «доллар / доллара / долларов» по числу. */
 function rubPlural(n: number, one: string, few: string, many: string): string {
@@ -245,13 +256,13 @@ function rubPlural(n: number, one: string, few: string, many: string): string {
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
   return many;
 }
-/** Цена для озвучки: словами по-таджикски, цифрами по-русски, валюта из карточки; нет цены — «договорная». */
+/** Цена для озвучки: словами на обоих языках (17.11.2026: «цифры всегда буквами»), валюта из карточки; нет цены — «договорная». */
 export function narrationPriceWords(price: string | null | undefined, currency: string | null | undefined, lang: NarrationLang): string {
   const value = Math.round(Number(price));
   if (!price || !Number.isFinite(value) || value <= 0) return lang === "tg" ? "бо мувофиқа" : "договорная";
   const usd = currency === "USD";
   if (lang === "tg") return `${tajikCardinal(value)} ${usd ? "доллар" : "сомонӣ"}`;
-  return `${value} ${usd ? rubPlural(value, "доллар", "доллара", "долларов") : "сомони"}`;
+  return `${numberToWords(value, "ru")} ${usd ? rubPlural(value, "доллар", "доллара", "долларов") : "сомони"}`;
 }
 const TYPE_WORDS: Record<NarrationLang, Record<string, string>> = {
   tg: { APARTMENT: "квартира", HOUSE: "ҳавлӣ", LAND: "замин", COMMERCIAL: "ҷои тиҷоратӣ" },
@@ -261,8 +272,27 @@ const TYPE_WORDS: Record<NarrationLang, Record<string, string>> = {
 function spokenNumber(value: number | null, lang: NarrationLang, ordinal = false): string {
   if (value === null || !Number.isFinite(value) || value <= 0) return "";
   const whole = Math.round(value);
-  if (lang === "ru") return String(whole);
+  // Русский тоже словами (17.11.2026, владелец: «цифры всегда буквами, ИИ не справляется»).
+  if (lang === "ru") return ordinal ? russianOrdinal(whole) : numberToWords(whole, "ru");
   return ordinal ? tajikOrdinal(whole) : tajikCardinal(whole);
+}
+
+/**
+ * {сотки} (владелец 17.11.2026: участок называем в сотках, а не в метрах). Только у участка:
+ * его площадь в карточке считается из соток (1 сотка = 100 м², `propertyWizardDraft`), поэтому
+ * факты озвучки не меняются и старые версии не становятся «устаревшими». Значение уже с единицей:
+ * целые сотки — «шаш сотиқ» / «6 соток»; дробные (650 м²) сказать сотками без ошибки нельзя,
+ * тогда метры — «шашсаду панҷоҳ метри мураббаъ». Не участок или нет площади — пусто, и фраза
+ * в квадратных скобках выпадает.
+ */
+export function narrationLandAreaWords(type: string, areaSqm: number | null, lang: NarrationLang): string {
+  if (type !== "LAND" || areaSqm === null || !Number.isFinite(areaSqm) || areaSqm <= 0) return "";
+  const whole = Math.round(areaSqm);
+  if (whole % 100 === 0) {
+    const sotki = whole / 100;
+    return lang === "tg" ? `${tajikCardinal(sotki)} сотиқ` : `${numberToWords(sotki, "ru", { feminine: true })} ${rubPlural(sotki, "сотка", "сотки", "соток")}`;
+  }
+  return lang === "tg" ? `${tajikCardinal(whole)} метри мураббаъ` : `${numberToWords(whole, "ru")} ${rubPlural(whole, "квадратный метр", "квадратных метра", "квадратных метров")}`;
 }
 
 function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<string, string> {
@@ -271,9 +301,11 @@ function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<s
     вид: TYPE_WORDS[lang][facts.type] ?? (lang === "tg" ? "объект" : "объект"),
     комнаты: spokenNumber(facts.rooms, lang),
     площадь: spokenNumber(Number.isFinite(area) ? area : null, lang),
+    сотки: narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang),
     этаж: spokenNumber(facts.floor, lang),
     этаж_пор: spokenNumber(facts.floor, lang, true),
-    этажей: spokenNumber(facts.totalFloors, lang),
+    // По-русски этажность стоит после «из»: «пятый этаж из девяти».
+    этажей: lang === "ru" && facts.totalFloors && facts.totalFloors > 0 ? russianGenitive(facts.totalFloors) : spokenNumber(facts.totalFloors, lang),
     район: facts.district?.trim() ?? "",
     // Цена есть всегда: без неё — «договорная», поэтому фрагмент с {цена} не выпадает.
     цена: narrationPriceWords(facts.price, facts.currency, lang),
@@ -301,7 +333,10 @@ export function narrationTemplateStructureError(text: string): string | null {
 }
 /** Новые правила владельца 16.11.2026: цифры, «Direct», «брон». Применяются только к новым и изменённым текстам. */
 export function narrationTemplateRulesError(text: string, lang?: NarrationLang): string | null {
-  if (lang !== "ru" && /\p{Nd}/u.test(text.replace(/\{[^{}]*\}/gu, ""))) return "В таджикском тексте цифры не пишем: числа только словами, например «се», а не «3». Цифры из объекта подставляют слова в фигурных скобках";
+  // 17.11.2026: и в русском (владелец: «цифры всегда буквами, ИИ не справляется»).
+  if (/\p{Nd}/u.test(text.replace(/\{[^{}]*\}/gu, ""))) return lang === "ru"
+    ? "Цифры в тексте не пишем: числа только словами, например «три», а не «3». Цифры из объекта подставляют слова в фигурных скобках"
+    : "В таджикском тексте цифры не пишем: числа только словами, например «се», а не «3». Цифры из объекта подставляют слова в фигурных скобках";
   if (/direct/iu.test(text)) return "Слово Direct пишем по-русски: «Директ». Латиницей озвучка прочтёт его неверно";
   if (/брон/iu.test(text)) return "Слово «брон» в текстах озвучки не используем: замените, например, на «вақт интихоб кунед»";
   return null;
@@ -494,6 +529,7 @@ export function pickNarrationVoice(config: Pick<NarrationConfig, "voices" | "def
  * (дата, дробь) — текст остаётся как есть, агент услышит и поправит.
  */
 export function narrationSpeechText(script: string, lang: NarrationLang | null | undefined): string {
+  if (lang === "ru") return russianSpeechNumbers(script) ?? script;
   if (lang !== "tg") return script;
   return tajikSpeechNumbers(script) ?? script;
 }
@@ -562,7 +598,9 @@ export type PropertyNarrationView = {
   samples?: NarrationVoiceSampleRef[];
   /** Озвучку на этот ролик накладывает CRM (есть ролик без голоса от монтажёра); ошибка наложения — для руководства. */
   /** problem (14.11.2026): последняя озвучка не легла на вышедший ролик — VOICE_LONGER (ушла монтажёру удлинить ролик) или FAILED. */
-  mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null };
+  mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null;
+    /** Одна строка агенту простыми словами (16.11.2026): CRM убирает старый голос, подогнала длину и т.п. */
+    note?: string | null };
 };
 /** Настройки CRM → «Озвучка роликов» (14.11.2026): вся техника, которую агент в карточке не видит. */
 export type NarrationSettingsView = {
