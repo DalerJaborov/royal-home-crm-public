@@ -1,6 +1,8 @@
 /**
- * ПОЛНЫЕ ОБХОДЫ РЫНКА: Somon раз в неделю (HTML, через общую дверь `fetchSomon`) и Paydo
- * каждую ночь (JSON API, только чтение; с 03.11.2026 отдельно от Somon, см. `runPaydoFullCrawl`).
+ * ПОЛНЫЕ ОБХОДЫ РЫНКА: Somon и Paydo каждую ночь (Somon — HTML через общую дверь `fetchSomon`, Paydo — JSON API,
+ * только чтение). Somon с 17.11.2026 тоже ночной, а не недельный: подбор под клиентов берёт только то, что сбор
+ * видел за последние 3 суток (Настройки, marketBuyerFreshDays), а недельный обход оставлял дома и глубокие
+ * страницы квартир «не виденными» по шесть дней.
  * Новое на Paydo между ночными обходами добирает `paydoIncremental.ts` (раз в 10 минут).
  *
  * Только квартиры и дома в Душанбе (владелец 02.11.2026). Между обходами каталог
@@ -30,7 +32,7 @@ import { isWithinDushanbeWindow } from "../dushanbeTime.js";
 import { logSystemError } from "../systemError.js";
 import { DISAPPEAR_AFTER_HOURS, markDisappeared, PAYDO_DISAPPEAR_AFTER_HOURS, saveListings } from "./marketStore.js";
 import { crawlPaydoSection, PAYDO_SECTIONS } from "./paydoCrawler.js";
-import { PaydoBlockedError, PaydoClient } from "./paydoClient.js";
+import { PaydoBlockedError, PaydoClient, paydoFailureText } from "./paydoClient.js";
 import { PAYDO_SOURCE } from "./paydoParser.js";
 import { crawlSection, SECTIONS, type CrawlStop } from "./somonCrawler.js";
 import { marketCatalogWhere } from "./somonRubrics.js";
@@ -172,13 +174,13 @@ async function crawlSomon(shouldStop: () => boolean, options: FullCrawlOptions):
   return stats;
 }
 
-async function crawlPaydoFull(shouldStop: () => boolean, lock: CrawlLock): Promise<SourceStats> {
+async function crawlPaydoFull(shouldStop: () => boolean, lock: CrawlLock, options: Pick<FullCrawlOptions, "pause"> = {}): Promise<SourceStats> {
   const stats: SourceStats = { saved: 0, pages: 0, complete: true, disappeared: 0 };
   if (shouldStop()) return { ...stats, complete: false, stopReason: lock.isLost() ? "lock_lost" : "deadline" };
   const previous = await previousScopeCount(PAYDO_SOURCE);
   const seen = new Set<string>();
   try {
-    const client = new PaydoClient();
+    const client = new PaydoClient(options.pause);
     for (const section of PAYDO_SECTIONS) {
       const result = await crawlPaydoSection(client, section, {
         onPage: async (listings) => {
@@ -196,7 +198,8 @@ async function crawlPaydoFull(shouldStop: () => boolean, lock: CrawlLock): Promi
       if (!result.complete || result.pagesFetched === 0) {
         stats.complete = false;
         stats.stopReason = "paydo_failed";
-        const why = result.pagesFetched === 0 ? "не отдал ни одной страницы" : `оборван на стр. ${result.pagesFetched + 1} (${result.stopReason ?? "неизвестно"})`;
+        const cause = result.stopReason === "page_failed" ? `, ${paydoFailureText(client.lastFailure)}` : "";
+        const why = result.pagesFetched === 0 ? `не отдал ни одной страницы${cause ? ` (${cause.slice(2)})` : ""}` : `оборван на стр. ${result.pagesFetched + 1} (${result.stopReason ?? "неизвестно"}${cause})`;
         await logSystemError("api", `Полный обход Paydo: «${section.label}» ${why}; исчезнувшие не помечены`, { dedupKey: "market-paydo-failed" });
         break;
       }
@@ -245,14 +248,14 @@ export async function runMarketFullCrawl(options: FullCrawlOptions = {}): Promis
  * 72 ч и страховкой «подозрительно мало» (60 %). null — замок занят (идёт Somon-обход, инкремент или
  * ручной скрипт) или такой же обход уже идёт здесь: тик тихо пропускается.
  */
-export async function runPaydoFullCrawl(options: Pick<FullCrawlOptions, "maxRuntimeMs"> = {}): Promise<SourceStats | null> {
+export async function runPaydoFullCrawl(options: Pick<FullCrawlOptions, "maxRuntimeMs" | "pause"> = {}): Promise<SourceStats | null> {
   if (paydoRunning) return null;
   paydoRunning = true;
   try {
     const maxRuntime = options.maxRuntimeMs ?? MAX_RUNTIME_MS;
     const locked = await withMarketCrawlLock(async (lock) => {
       const deadline = Date.now() + maxRuntime;
-      return crawlPaydoFull(() => lock.isLost() || Date.now() >= deadline, lock);
+      return crawlPaydoFull(() => lock.isLost() || Date.now() >= deadline, lock, options);
     }, maxRuntime);
     return locked ? locked.value : null;
   } finally {
