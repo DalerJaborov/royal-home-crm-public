@@ -1,6 +1,6 @@
 import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedContext.js";
 import { hasNewerCustomerInboxInput, NEWER_INPUT_PENDING } from "./customerNewerInboxInput.js";
-import { loadDeferredCustomerInput } from "./customerDeferredInput.js";
+import { loadCustomerBurst } from "./customerDeferredInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn, safeCauseCode } from "../ai/customerAgentCore.js";
 import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
@@ -24,7 +24,9 @@ import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { createCustomerOutboxPartsTx } from "./customerOutbox.js";
 import type { CustomerDeliveryPayload } from "./customerDeliveryContracts.js";
 import { createCustomerAgentMutationSession, type CustomerAgentMutationSession } from "./customerAgentMutationSession.js";
-import { enrichCustomerAgentMediaFocus, enrichCustomerAgentSelectionFocus, enrichCustomerAgentLinkFocus, createCustomerAgentLinkReads } from "./customerAgentMediaFocus.js";
+import { enrichCustomerAgentMediaFocus, enrichCustomerAgentSelectionFocus, enrichCustomerAgentLinkFocus, createCustomerAgentLinkReads,
+  enrichCustomerAgentBurstFocus, safeAnalyzeCustomerBurstReferences, customerBurstFocusFresh } from "./customerAgentMediaFocus.js";
+import { customerPropertyVideoPlan, readCustomerPropertyVideoAnswer } from "./customerPropertyVideoAnswer.js";
 import { issueCustomerHandoverAckTx, planCustomerHandoverAckTx } from "./customerHandoverAck.js";
 import { readDmCustomerAgentDataWitness, sealDmCustomerAgentDeliveryEvidence,
   type CustomerAgentDataReadWitness } from "./customerAgentDeliveryEvidence.js";
@@ -123,6 +125,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   let runtime: Extract<Awaited<ReturnType<typeof openPinnedCustomerAgentRuntime>>, { status: "ready" }>["runtime"] | undefined;
   try {
     let text = lane.context.history[0]?.content ?? "";
+    // The customer's own typed words of this message, before any media transcript is appended (review #225 H1).
+    const ownText = text;
     let language: "tg" | "ru" = resolveCustomerDmLanguage(text);
     let planningPrincipal = lane.principal;
     let activeMutations: CustomerAgentMutationSession | undefined;
@@ -171,7 +175,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // customer asks NOW (chronological, before the current words). Their raw
     // inputs are not re-accepted: this is conversational meaning only, like the
     // media transcript below.
-    const carried = await loadDeferredCustomerInput(planningPrincipal);
+    // The set-aside inputs of this burst, read once: their words for the model, their media/captions for the object.
+    const burst = await loadCustomerBurst(planningPrincipal);
+    const carried = burst.carried;
     const fullInput = () => carried ? [carried, text].filter(part => part.trim()).join("\n") : text;
     // A dialogue marked "spammer" (two like-exchange / foreign-reel turns within a week): the input is already stored for the
     // operator; no media download, no perception, no model, no reply. Real interest in the customer's own words lifts the mark.
@@ -248,6 +254,22 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (remembered.status !== "current") { await releaseHeldClaim(claim, remembered.reason); return remembered; }
       }
     }
+    // The object of THIS burst from captions and pictures (16–17.11.2026): the caption «Объект №N» of a shared post, or
+    // the number on the customer's own pictures set aside for these words. Only next to our own mark and only when the
+    // fields it prints match the CRM card (lib/customerCaptionReference.ts). A failure before the write leaves it to the model:
+    // null here = the marks/cards could not be read — no burst focus and no server video answer, the turn goes the usual way.
+    const burstReferences = await safeAnalyzeCustomerBurstReferences(burst, { eventKey: lane.ticket.eventKey, order: lane.ticket.order,
+      media: prepared.media.length > 0 && !mediaReferenceResolved, evidence: lane.ticket.evidence, captions: prepared.captions });
+    if (!mediaReferenceResolved && burstReferences) {
+      const fromBurst = await enrichCustomerAgentBurstFocus({ principal: planningPrincipal, claim, ticket: lane.ticket, linkReads, references: burstReferences });
+      if (fromBurst.status === "held") { await releaseHeldClaim(claim, fromBurst.reason); return fromBurst; }
+      if (fromBurst.status === "updated") {
+        planningPrincipal = fromBurst.principal; focus = fromBurst.focus;
+        remembered = await loadCustomerAgentVerifiedDmContext({ principal: planningPrincipal,
+          revision: claim.pin.revision, wait: { signal: runtime.operation.signal, deadlineAt: runtime.operation.deadlineAt } });
+        if (remembered.status !== "current") { await releaseHeldClaim(claim, remembered.reason); return remembered; }
+      }
+    }
     const selected = await enrichCustomerAgentSelectionFocus({ principal: planningPrincipal, claim, ticket: lane.ticket, linkReads });
     if (selected.status === "held") { await releaseHeldClaim(claim, selected.reason); return selected; }
     if (selected.status === "updated") {
@@ -310,6 +332,31 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     if (leadOnly.enabled) {
       const plan = await leadOnlyTurn();
       if (plan) return await planLeadOnly(plan);
+    }
+    // «Видео этой квартиры есть?» (lib/customerPropertyVideoAnswer.ts): decided from the customer's OWN words of this burst
+    // only, about an object THIS burst pointed at (never an older focus), answered from the CRM — the published reel or
+    // the card's clip, else an honest «the agent will send it» that also reaches the agent through the one follow-up door.
+    // A fact question in the same words (price, address…) is answered in the same reply; anything else goes to the model.
+    const videoPlan = customerPropertyVideoPlan([...burst.inputs.map(input => input.ownText), ownText].filter(part => part.trim()).join("\n"));
+    const videoFocus = focus?.snapshot.focus;
+    if (!leadOnly.enabled && videoPlan && burstReferences && videoFocus?.status === "resolved" && videoFocus.propertyId &&
+        remembered.context.publicState.topic !== "job" && customerBurstFocusFresh(videoFocus, burstReferences)) {
+      const video = await readCustomerPropertyVideoAnswer(videoFocus.propertyId, videoPlan.tajik ? "tg" : language, planningPrincipal.scope.channel, videoPlan.facts);
+      if (video && await current(linkWait)) {
+        const property = managedCustomerPropertyReply({ id: planningPrincipal.scope.conversationId, channel: planningPrincipal.scope.channel,
+          subscriberId: planningPrincipal.scope.peer, accountId: planningPrincipal.scope.accountId, endpointScopeId: planningPrincipal.scope.endpointScopeId },
+          focus, video.text, { status: "admitted", ticket: lane.ticket }).delivery;
+        const partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
+          parts: [{ payload: { kind: "text" as const, text: video.text }, property }] }));
+        if (video.agentPromised) {
+          // «Агент пришлёт» is true only if someone learns about it; a signal that did not go out is visible in the journal.
+          void signalStaffFollowUp(lane.ticket.conversationId, claim.pin.receivedAt).then(outcome => {
+            if (outcome === "skipped") void logSystemError("ai", "Бот пообещал клиенту видео от агента, но новый сигнал агенту не ушёл (уже был или некому). Откройте переписку.",
+              { dedupKey: `customer-video-promise-skipped:${lane.ticket.conversationId}`, quietPult: true });
+          });
+        }
+        return { status: "planned", partIds };
+      }
     }
     const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(fullInput(), { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
       (!text.trim() && prepared.attachmentInput && (prepared.attachmentPropertyReference || mediaReferenceResolved) && focus?.snapshot.focus.status === "resolved"

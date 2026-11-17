@@ -21,6 +21,19 @@ export const WEAK_PROPERTY_NUMBER_SOURCE =
   `${BW}(?:номер(?:а|у|ом)?|рақам(?:и)?(?:\\s+объект\\p{L}*)?|id|ид|айди)\\s*[:№#]?\\s*([1-9]\\d{0,5})(?!\\d|[ \\-]\\d)${EW}`;
 /** The CRM object code as the customer copies it ("ОБ-000088", "ob-88"): the dash is required, so "об этом 5 этаже" is not a number. */
 export const OBJECT_CODE_NUMBER_SOURCE = `${BW}(?:об|ob)\\s*[-–—]\\s*0*([1-9]\\d{0,8})(?!\\d)`;
+/**
+ * «Объект №178» in the caption of a published post or reel (our reels-caption template ends with it), or in
+ * the readable text of a screenshot of such a post. Only the explicit word «объект/объекти» followed by №/#:
+ * a lone «№12» on a photo is just as often a house or apartment number. Exactly one distinct number,
+ * otherwise null — a caption naming two objects identifies neither. The CRM check is the resolver's.
+ */
+const CAPTION_PROPERTY_NUMBER_SOURCE = `${BW}объект(?:и|а|у|е)?\\s*[№#]\\s*([1-9]\\d{0,8})(?!\\d)`;
+export function captionPropertyNumber(text: string | undefined | null): string | null {
+  if (!text) return null;
+  const numbers = new Set([...text.matchAll(new RegExp(CAPTION_PROPERTY_NUMBER_SOURCE, "giu"))].map(match => match[1]));
+  return numbers.size === 1 ? [...numbers][0] : null;
+}
+
 export function propertyNumberSelectors(text: string): string[] {
   const numbers = new Set<string>();
   for (const source of [STRONG_PROPERTY_NUMBER_SOURCE, WEAK_PROPERTY_NUMBER_SOURCE, OBJECT_CODE_NUMBER_SOURCE]) {
