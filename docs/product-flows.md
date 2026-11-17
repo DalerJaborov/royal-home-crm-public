@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4064**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2483**; вместе с задачами по расписанию и фоновыми заданиями — **4066**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -17906,8 +17906,12 @@
     - если expected !== `"${versionOf(raw)}"`
       - throw new ShellConflict();
         · ошибка ShellConflict
-    - если config.agentIds.length
-      - const agents = await tx.agent.findMany({ where: { id: { in: config.agentIds }, isActive: true }, select: { id…
+    - если keepStoredLook
+      - если stored
+        - config.royalLookAgentIds = stored;
+          · дословно из кода
+    - если selectedIds.length
+      - const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: tr…
         · читает в базе: agent
       - если missing.length
         - throw new InvalidShellAgents(missing);
@@ -17950,7 +17954,7 @@
 
 `apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен
 
-- res.json({ enabled: isUiShellEnabled(await storedConfig(), req.agent!) });
+- res.json(body);
   · ответ 200
 
 ## /api/v1/upload-sessions

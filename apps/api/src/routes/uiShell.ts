@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, randomUUID } from "node:crypto";
-import { isUiShellEnabled, parseUiShellRollout, uiShellRolloutSchema, storedUiShellRolloutSchema } from "@royal-home/shared";
+import { isUiShellEnabled, parseUiShellRollout, uiLookFor, uiShellRolloutSchema, storedUiShellRolloutSchema, type UiShellEffective, type UiShellRollout } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
@@ -39,7 +39,11 @@ class InvalidShellAgents extends Error {
 }
 
 uiShellRouter.get("/", async (req, res) => {
-  res.json({ enabled: isUiShellEnabled(await storedConfig(), req.agent!) });
+  const raw = await storedConfig();
+  const look = uiLookFor(raw, req.agent!);
+  // `look` only for the listed employee: everyone else gets the unchanged `{ enabled }`.
+  const body: UiShellEffective = { enabled: isUiShellEnabled(raw, req.agent!), ...(look ? { look } : {}) };
+  res.json(body);
 });
 
 uiShellRouter.get("/config", requireShellAdministrator, requirePermission("settings.manage"), async (_req, res) => {
@@ -54,11 +58,14 @@ uiShellRouter.put("/config", requireShellAdministrator, requirePermission("setti
   if (!parsed.success) {
     return res.status(400).json({ error: "Некорректные настройки оболочки", issues: parsed.error.issues });
   }
-  const config = {
+  const config: UiShellRollout = {
     ...parsed.data,
     agentIds: [...new Set(parsed.data.agentIds)],
     roles: [...new Set(parsed.data.roles)],
+    ...(parsed.data.royalLookAgentIds ? { royalLookAgentIds: [...new Set(parsed.data.royalLookAgentIds)] } : {}),
   };
+  // An older client that does not know the «Новый вид» list must not erase it.
+  const keepStoredLook = parsed.data.royalLookAgentIds === undefined;
   const expected = req.get("If-Match");
   if (!expected) return res.status(428).json({ error: "Обновите настройки перед сохранением.", code: "UI_SHELL_VERSION_REQUIRED" });
   try {
@@ -66,10 +73,15 @@ uiShellRouter.put("/config", requireShellAdministrator, requirePermission("setti
       const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { uiShellRollout: true } });
       const raw = settings?.uiShellRollout;
       if (expected !== `"${versionOf(raw)}"`) throw new ShellConflict();
-      if (config.agentIds.length) {
-        const agents = await tx.agent.findMany({ where: { id: { in: config.agentIds }, isActive: true }, select: { id: true } });
+      if (keepStoredLook) {
+        const stored = parseUiShellRollout(raw).royalLookAgentIds;
+        if (stored) config.royalLookAgentIds = stored;
+      }
+      const selectedIds = [...new Set([...config.agentIds, ...(keepStoredLook ? [] : config.royalLookAgentIds ?? [])])];
+      if (selectedIds.length) {
+        const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: true } });
         const knownIds = new Set(agents.map((agent) => agent.id));
-        const missing = config.agentIds.filter((id) => !knownIds.has(id));
+        const missing = selectedIds.filter((id) => !knownIds.has(id));
         if (missing.length) throw new InvalidShellAgents(missing);
       }
       const revision = randomUUID();

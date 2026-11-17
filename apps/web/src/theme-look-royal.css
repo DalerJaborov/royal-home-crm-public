@@ -1,0 +1,454 @@
+/* «НОВЫЙ ВИД» (облик royal) — 18.11.2026.
+ *
+ * Обычный, НЕ генерируемый файл. Подключён последним из тематических
+ * (index.css), и КАЖДОЕ правило стоит под :root[data-ui-look="royal"]: без этого
+ * атрибута не меняется ни один пиксель. Атрибут ставит AppLayout только по
+ * ответу сервера (/ui-shell → look: "royal") и только поверх чистой оболочки.
+ *
+ * Слой поверх Clean, а не третья обёртка: оболочка та же (CleanShell,
+ * Topbar, BottomNav), здесь меняется только её оформление. Новая разметка —
+ * только у главной (pages/TodayRoyal.tsx) и общих деталей (components/look/).
+ *
+ * Токены — с приставкой --rh-ui-*: у старой темы свои --rh-* и .rh2{--card},
+ * совпадение имён перебило бы значения внутри старых обёрток. Классы новых
+ * деталей — ry-* (имена rh-row/rh-tile/rh-btn заняты старой темой).
+ *
+ * Значения — итоговые из принятого макета (docs/design/oblik-2026-11-17):
+ * палитра «Королевский синий», плитка лайм, круг 48 / значок 24, меню 26.
+ * Тёмная тема — на существующей ночной теме CRM (royal-home-2026-night).
+ */
+
+:root[data-ui-look="royal"] {
+  --rh-ui-bg: #f4f5f8;
+  --rh-ui-card: #ffffff;
+  --rh-ui-raised: #e9eaee;
+  --rh-ui-text: #0e0f12;
+  --rh-ui-hint: #5a6070;
+  --rh-ui-sep: rgba(14, 15, 18, .08);
+  --rh-ui-ring: rgba(14, 15, 18, .06);
+  --rh-ui-press: rgba(90, 96, 112, .13);
+  --rh-ui-hover: rgba(90, 96, 112, .06);
+  --rh-ui-shadow: 0 1px 2px rgba(20, 24, 40, .04), 0 10px 28px -14px rgba(20, 24, 40, .14);
+  --rh-ui-primary: #2c66f2;
+  --rh-ui-primary-fg: #ffffff;
+  --rh-ui-primary-hover: #2459d6;
+  --rh-ui-primary-ink: #2459d6;
+  --rh-ui-primary-soft: #e5ecfd;
+  --rh-ui-primary-soft-fg: #1f4fc4;
+  /* Подложка мини-карточек на синем: темнее плиты, белый текст держит 4,5:1+. */
+  --rh-ui-hero-mini: #1d4fc9;
+  --rh-ui-tile: #d7f25c;
+  --rh-ui-tile-fg: #14180a;
+  --rh-ui-ink-tile: #0e0f12;
+  --rh-ui-ink-tile-fg: #ffffff;
+  --rh-ui-ink-tile-num: #d7f25c;
+  --rh-ui-ink-tile-ring: transparent;
+  /* Смысл: срочно — сплошной красный круг с белым пламенем (тёмный), внимание —
+     светлый янтарный с «!», норма — светлый зелёный. Разная яркость + значок. */
+  --rh-ui-crit: #b3261e;
+  --rh-ui-crit-fg: #ffffff;
+  --rh-ui-crit-text: #ad2116;
+  --rh-ui-warn-soft: #ffefc7;
+  --rh-ui-warn: #7a4300;
+  --rh-ui-ok-soft: #e2f0e8;
+  --rh-ui-ok: #0d6c35;
+  --rh-ui-info-soft: #e5ecfd;
+  --rh-ui-info: #1f4fc4;
+  --rh-ui-badge: #c8281e;
+  --rh-ui-on-color: #ffffff;
+  --rh-ui-cap-ring: rgba(255, 255, 255, .06);
+  /* Пастель за пунктами — без бежевого и розового (не путать со смыслом). */
+  --rh-ui-a0: #e3e9f6; --rh-ui-a0f: #1f3a8a;
+  --rh-ui-a1: #dcf0ee; --rh-ui-a1f: #0d5550;
+  --rh-ui-a2: #dcefe5; --rh-ui-a2f: #0f5a3a;
+  --rh-ui-a3: #e8eafb; --rh-ui-a3f: #2f3a9e;
+  --rh-ui-a4: #ece6f7; --rh-ui-a4f: #4a2f8f;
+  --rh-ui-a5: #dff0f4; --rh-ui-a5f: #0f5568;
+  /* Меню */
+  --rh-ui-side-w: 248px;
+  --rh-ui-side-pill: #0e0f12;
+  --rh-ui-side-pill-fg: #ffffff;
+  --rh-ui-cap-bg: rgba(14, 15, 18, .92);
+  --rh-ui-cap-solid: #0e0f12;
+  --rh-ui-cap-fg: rgba(255, 255, 255, .78);
+  --rh-ui-cap-pill: #f4f5f8;
+  --rh-ui-cap-pill-fg: #0e0f12;
+  --rh-ui-cap-shadow: 0 18px 36px -12px rgba(14, 15, 18, .5);
+  /* Форма: одно скругление карточек 24, плитки 28 */
+  --rh-ui-r-card: 24px;
+  --rh-ui-r-tile: 28px;
+  --rh-ui-row-h: 60px;
+  --rh-ui-font-num: "Onest", ui-sans-serif, system-ui, sans-serif;
+  /* Страницы Clean берут фон из --c-page: тот же фон, что у рамки. */
+  --c-page: var(--rh-ui-bg);
+  --clean-field: var(--rh-ui-bg);
+}
+
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] {
+  --rh-ui-bg: #0e1014;
+  --rh-ui-card: #161a21;
+  --rh-ui-raised: #1d222b;
+  --rh-ui-text: #eceef3;
+  --rh-ui-hint: #a3aabb;
+  --rh-ui-sep: rgba(255, 255, 255, .08);
+  --rh-ui-ring: rgba(255, 255, 255, .07);
+  --rh-ui-press: rgba(255, 255, 255, .08);
+  --rh-ui-hover: rgba(255, 255, 255, .04);
+  --rh-ui-shadow: inset 0 1px 0 rgba(255, 255, 255, .03), 0 10px 24px -16px rgba(0, 0, 0, .7);
+  --rh-ui-primary: #3b74f5;
+  --rh-ui-primary-hover: #2c66f2;
+  --rh-ui-primary-ink: #9db8ff;
+  --rh-ui-primary-soft: rgba(59, 116, 245, .18);
+  --rh-ui-primary-soft-fg: #b9ccff;
+  --rh-ui-hero-mini: #1f4fc4;
+  /* Чёрная плитка остаётся тёмной (графит) с лаймовой цифрой, не белеет. */
+  --rh-ui-ink-tile: #1d222b;
+  --rh-ui-ink-tile-ring: rgba(255, 255, 255, .08);
+  --rh-ui-crit: #d13b30;
+  --rh-ui-crit-text: #ff8f86;
+  --rh-ui-warn-soft: rgba(242, 180, 90, .16);
+  --rh-ui-warn: #f2b45a;
+  --rh-ui-ok-soft: rgba(95, 208, 138, .14);
+  --rh-ui-ok: #5fd08a;
+  --rh-ui-info-soft: rgba(110, 150, 255, .16);
+  --rh-ui-info: #9db8ff;
+  /* Приглушённые круги без бурых пятен: ~20% цвета значка на карточке. */
+  --rh-ui-a0: rgba(120, 150, 255, .18); --rh-ui-a0f: #b4c6ff;
+  --rh-ui-a1: rgba(80, 200, 190, .16); --rh-ui-a1f: #8fe0d6;
+  --rh-ui-a2: rgba(95, 208, 138, .16); --rh-ui-a2f: #8edbb5;
+  --rh-ui-a3: rgba(130, 140, 255, .18); --rh-ui-a3f: #c0c6ff;
+  --rh-ui-a4: rgba(170, 140, 255, .18); --rh-ui-a4f: #c7bcff;
+  --rh-ui-a5: rgba(90, 190, 220, .16); --rh-ui-a5f: #8ed6e8;
+  --rh-ui-side-pill: #eceef3;
+  --rh-ui-side-pill-fg: #0e1014;
+  --rh-ui-cap-bg: #1b1f27;
+  --rh-ui-cap-solid: #1b1f27;
+  --rh-ui-cap-fg: #a3aabb;
+  --rh-ui-cap-pill: #eceef3;
+  --rh-ui-cap-pill-fg: #0e1014;
+  --rh-ui-cap-shadow: 0 18px 36px -12px rgba(0, 0, 0, .7);
+}
+
+/* ============================== оболочка ============================== */
+
+:root[data-ui-look="royal"] body { background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .app-shell.clean-shell { padding: 0; background: var(--rh-ui-bg); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .clean-shell .app-main-col { max-width: 1280px; margin-inline: 0; }
+
+/* ---- ПК: вкладки встают боковым меню, остальная шапка справа ---- */
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-frame {
+  max-width: none; min-height: 100dvh; margin: 0; border: 0; border-radius: 0; box-shadow: none;
+  background: var(--rh-ui-bg);
+  padding: 0 32px 0 calc(var(--rh-ui-side-w) + 32px);
+}
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-header {
+  flex-wrap: nowrap; justify-content: flex-end; gap: 12px; padding: 20px 0 4px; margin: 0;
+  max-width: 1280px; background: transparent; border: 0; box-shadow: none; border-radius: 0;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-brand {
+  position: fixed; z-index: 33; top: 20px; left: 16px; width: calc(var(--rh-ui-side-w) - 32px);
+  height: 48px; padding: 0 12px; gap: 12px; font-size: 18px; font-weight: 700; letter-spacing: -.025em;
+  color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-brand > span {
+  width: 36px; height: 36px; border: 0; border-radius: 999px; background: var(--rh-ui-primary); color: var(--rh-ui-on-color);
+}
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tabs {
+  position: fixed; z-index: 32; top: 84px; bottom: 0; left: 0; width: var(--rh-ui-side-w);
+  flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; max-width: none;
+  padding: 0 16px 24px; border-radius: 0; background: transparent;
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+}
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab {
+  position: relative; justify-content: flex-start; gap: 12px; height: auto; min-height: 48px; padding: 0 14px;
+  border-radius: 999px; color: var(--rh-ui-hint); font-size: 15px; font-weight: 600; white-space: nowrap;
+}
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab[aria-current="page"] {
+  background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg);
+}
+:root[data-ui-look="royal"] .clean-shell .ry-nav-glyph { display: grid; place-items: center; width: 26px; height: 26px; flex: none; }
+:root[data-ui-look="royal"] .clean-shell .ry-nav-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab .clean-nav-count {
+  display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
+  background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: 13px; font-weight: 700; opacity: 1;
+}
+:root[data-ui-look="royal"] .clean-shell .ry-side-sep { display: block; height: 1px; flex: none; margin: 10px 14px; background: var(--rh-ui-sep); }
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-header-tools { margin-left: 0; }
+:root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-existing-topbar { flex: 0 1 auto; }
+
+/* Меньше 1200 по ширине — меню сворачивается до значков (подпись — в title и для экранного чтеца). */
+@media (max-width: 1199.98px) {
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) { --rh-ui-side-w: 80px; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-frame { padding-left: calc(var(--rh-ui-side-w) + 24px); padding-right: 24px; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-brand { left: 12px; width: 56px; padding: 0 10px; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-brand b { display: none; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tabs { padding: 0 12px 24px; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab { justify-content: center; padding: 0; width: 56px; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .ry-nav-label {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-tab .clean-nav-count {
+    position: absolute; top: 4px; right: 2px; min-width: 18px; height: 18px; padding: 0 4px; font-size: 13px;
+  }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .ry-side-sep { margin: 10px 8px; }
+}
+
+/* ---- Телефон: прежняя шапка на общем фоне, нижнее меню — капсула ---- */
+:root[data-ui-look="royal"][data-mobile-ux] .clean-shell,
+:root[data-ui-look="royal"][data-mobile-ux] .clean-frame,
+:root[data-ui-look="royal"][data-mobile-ux] .clean-header { background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"][data-mobile-ux] .clean-shell .app-main-col {
+  padding-bottom: calc(64px + 14px + 24px + env(safe-area-inset-bottom, 0px));
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] {
+  left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  max-width: 440px; margin: 0 auto; padding: 4px 6px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-cap-solid); color: var(--rh-ui-cap-fg);
+  box-shadow: var(--rh-ui-cap-shadow), 0 0 0 1px var(--rh-ui-cap-ring);
+  /* Без анимации: нажал — сразу переключилось. */
+  transition: none;
+}
+/* Лёгкое стекло только на самой капсуле, подложка не прозрачнее 90% и без
+   «насыщенности», чтобы цветные блоки под ней не превращались в кляксы. */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] {
+    background: var(--rh-ui-cap-bg);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] { background: var(--rh-ui-cap-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { height: 60px; padding: 0; gap: 2px; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab {
+  min-height: 52px; gap: 3px; border-radius: 999px; color: var(--rh-ui-cap-fg); transition: none;
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab[aria-current="page"] {
+  background: var(--rh-ui-cap-pill); color: var(--rh-ui-cap-pill-fg);
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab [data-tab-icon] { display: grid; place-items: center; width: 28px; height: 26px; background: transparent; box-shadow: none; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-icon] svg { width: 24px; height: 24px; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-label] { font-size: 13px; font-weight: 600; line-height: 1.1; color: inherit; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-badge] {
+  min-width: 18px; height: 18px; top: -4px; right: -8px; border-radius: 999px; background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: 13px; line-height: 18px;
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-fab] {
+  width: 48px; height: 48px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
+}
+
+/* ============================ общие детали ============================ */
+
+:root[data-ui-look="royal"] .ry-num { font-family: var(--rh-ui-font-num); font-variant-numeric: tabular-nums; letter-spacing: -.035em; font-weight: 700; }
+
+:root[data-ui-look="royal"] .ry-circle {
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 999px;
+  background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+}
+:root[data-ui-look="royal"] .ry-circle[data-size="44"] { width: 44px; height: 44px; }
+:root[data-ui-look="royal"] .ry-circle[data-size="60"] { width: 60px; height: 60px; }
+:root[data-ui-look="royal"] .ry-circle svg { width: 24px; height: 24px; }
+:root[data-ui-look="royal"] .ry-circle[data-size="60"] svg { width: 28px; height: 28px; }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a1"] { background: var(--rh-ui-a1); color: var(--rh-ui-a1f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a2"] { background: var(--rh-ui-a2); color: var(--rh-ui-a2f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a3"] { background: var(--rh-ui-a3); color: var(--rh-ui-a3f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a4"] { background: var(--rh-ui-a4); color: var(--rh-ui-a4f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a5"] { background: var(--rh-ui-a5); color: var(--rh-ui-a5f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="info"] { background: var(--rh-ui-info-soft); color: var(--rh-ui-info); }
+/* Каналы — в родных цветах: один зелёный WhatsApp, звонки — белая трубка на тёмно-зелёном. */
+:root[data-ui-look="royal"] .ry-circle[data-brand="whatsapp"] { background: #25d366; color: #ffffff; }
+:root[data-ui-look="royal"] .ry-circle[data-brand="telegram"] { background: #2aabee; color: #ffffff; }
+:root[data-ui-look="royal"] .ry-circle[data-brand="instagram"] { background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285aeb 90%); color: #ffffff; }
+:root[data-ui-look="royal"] .ry-circle[data-brand="site"] { background: #2c66f2; color: #ffffff; }
+:root[data-ui-look="royal"] .ry-circle[data-brand="calls"] { background: #0f8a4b; color: #ffffff; }
+
+:root[data-ui-look="royal"] .ry-avatar {
+  display: grid; place-items: center; flex: none; overflow: hidden; width: 48px; height: 48px; border-radius: 32%;
+  background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-size: 17px; font-weight: 700; letter-spacing: -.02em;
+}
+:root[data-ui-look="royal"] .ry-avatar[data-size="44"] { width: 44px; height: 44px; }
+:root[data-ui-look="royal"] .ry-avatar[data-size="64"] { width: 64px; height: 64px; font-size: 22px; }
+:root[data-ui-look="royal"] .ry-avatar img { width: 100%; height: 100%; object-fit: cover; }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a1"] { background: var(--rh-ui-a1); color: var(--rh-ui-a1f); }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a2"] { background: var(--rh-ui-a2); color: var(--rh-ui-a2f); }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a3"] { background: var(--rh-ui-a3); color: var(--rh-ui-a3f); }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a4"] { background: var(--rh-ui-a4); color: var(--rh-ui-a4f); }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a5"] { background: var(--rh-ui-a5); color: var(--rh-ui-a5f); }
+
+/* Группа строк: белая карточка, строки склеены тонкой линией. */
+:root[data-ui-look="royal"] .ry-group {
+  overflow: hidden; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--rh-ui-row-h); padding: 8px 16px;
+  color: var(--rh-ui-text); text-decoration: none; text-align: left; background: transparent; border: 0;
+}
+:root[data-ui-look="royal"] .ry-group > .ry-row + .ry-row { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-row-link { cursor: pointer; transition: background-color 160ms cubic-bezier(.23, 1, .32, 1); }
+:root[data-ui-look="royal"] .ry-row-link:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-row-link:active { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-row-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 2px; }
+:root[data-ui-look="royal"] .ry-row-title {
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  font-size: 17px; font-weight: 600; line-height: 1.25;
+}
+:root[data-ui-look="royal"] .ry-row-sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; line-height: 1.3; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-row-sub[data-tone="crit"] { color: var(--rh-ui-crit-text); font-weight: 700; }
+:root[data-ui-look="royal"] .ry-row-sub[data-tone="warn"] { color: var(--rh-ui-warn); font-weight: 600; }
+:root[data-ui-look="royal"] .ry-row-sub[data-tone="ok"] { color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-row-right { display: flex; align-items: center; gap: 8px; flex: none; }
+:root[data-ui-look="royal"] .ry-row-time { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-row-time[data-tone="crit"] { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .ry-count { font-size: 22px; }
+
+:root[data-ui-look="royal"] .ry-section { display: grid; gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+:root[data-ui-look="royal"] .ry-section-head h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-section-link {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; font-size: 15px; font-weight: 600;
+  color: var(--rh-ui-primary-ink); text-decoration: none;
+}
+
+/* Кнопки: таблетка, высота 48; одна синяя на экран. */
+:root[data-ui-look="royal"] .ry-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 20px;
+  border: 0; border-radius: 999px; font: inherit; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer;
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
+  transition: transform 90ms cubic-bezier(.23, 1, .32, 1), background-color 160ms;
+}
+:root[data-ui-look="royal"] .ry-btn:active { transform: scale(.97); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="primary"] { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="primary"]:hover { background: var(--rh-ui-primary-hover); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="dark"] { background: var(--rh-ui-text); color: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="gray"] { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-btn:disabled { opacity: .5; cursor: default; }
+
+/* Переключатель 56×34, бегунок 28; «вкл» — синий. */
+:root[data-ui-look="royal"] .ry-switch {
+  position: relative; flex: none; width: 56px; height: 34px; padding: 3px; border: 0; border-radius: 999px;
+  background: #c5c9d3; cursor: pointer; transition: background-color 160ms;
+}
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .ry-switch { background: #3b4251; }
+:root[data-ui-look="royal"] .ry-switch[aria-checked="true"] { background: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] .ry-switch-knob {
+  display: block; width: 28px; height: 28px; border-radius: 999px; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+  transition: transform 240ms cubic-bezier(.32, .72, 0, 1);
+}
+:root[data-ui-look="royal"] .ry-switch[aria-checked="true"] .ry-switch-knob { transform: translateX(22px); }
+
+/* Плитки: лайм, чёрная (цифра лаймом), белая. */
+:root[data-ui-look="royal"] .ry-tile {
+  display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-width: 0; min-height: 104px;
+  padding: 16px; border-radius: var(--rh-ui-r-tile); text-decoration: none; color: var(--rh-ui-text);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  transition: transform 90ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] a.ry-tile:active { transform: scale(.98); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="brand"] { background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-tile[data-variant="ink"] { background: var(--rh-ui-ink-tile); color: var(--rh-ui-ink-tile-fg); box-shadow: inset 0 0 0 1px var(--rh-ui-ink-tile-ring); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="ink"] .ry-tile-value { color: var(--rh-ui-ink-tile-num); }
+:root[data-ui-look="royal"] .ry-tile-label { position: relative; display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; line-height: 1.2; }
+:root[data-ui-look="royal"] .ry-tile-label svg { flex: none; }
+:root[data-ui-look="royal"] .ry-tile-value { font-size: 48px; line-height: 1; }
+:root[data-ui-look="royal"] .ry-tile-value small { margin-left: 4px; font-size: .5em; letter-spacing: 0; }
+:root[data-ui-look="royal"] .ry-tile-alert { width: 12px; height: 12px; flex: none; margin-left: auto; border-radius: 999px; background: var(--rh-ui-crit); box-shadow: 0 0 0 2px #fff; }
+
+/* Состояния блоков: коротко и безлично. */
+:root[data-ui-look="royal"] .ry-state {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 8px 8px 8px 20px;
+  border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  font-size: 16px; font-weight: 600; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-skeleton { display: grid; gap: 8px; }
+:root[data-ui-look="royal"] .ry-skeleton span { display: block; height: 60px; border-radius: var(--rh-ui-r-card); background: var(--rh-ui-raised); }
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-ui-look="royal"] .ry-skeleton span { animation: ry-pulse 1.4s ease-in-out infinite; }
+}
+@keyframes ry-pulse { 50% { opacity: .55; } }
+
+/* =============================== главная =============================== */
+
+:root[data-ui-look="royal"] .ry-today { container: ry-today / inline-size; display: grid; gap: 20px; min-width: 0; color: var(--rh-ui-text); font-family: var(--font-sans, "Onest", system-ui, sans-serif); }
+:root[data-ui-look="royal"] .ry-hello { display: grid; gap: 2px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-hello-line { margin: 0; font-size: 16px; font-weight: 500; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-hello-date { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.028em; line-height: 1.12; text-wrap: balance; }
+:root[data-ui-look="royal"] .ry-blocks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; }
+
+/* Полоса сверху: деньги и плитки. Телефон — плита во всю ширину, плитки по две. */
+:root[data-ui-look="royal"] .ry-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-strip > .ry-hero { grid-column: 1 / -1; }
+:root[data-ui-look="royal"] .ry-hero {
+  display: grid; gap: 10px; min-width: 0; padding: 18px 20px; border-radius: var(--rh-ui-r-tile);
+  background: var(--rh-ui-primary); color: #ffffff; text-decoration: none;
+}
+:root[data-ui-look="royal"] .ry-hero-skeleton { min-height: 168px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .ry-hero-label { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: #ffffff; }
+:root[data-ui-look="royal"] .ry-hero-value { font-size: 40px; line-height: 1; color: #ffffff; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-hero-bar { position: relative; display: block; height: 10px; border-radius: 999px; background: var(--rh-ui-hero-mini); }
+:root[data-ui-look="royal"] .ry-hero-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--rh-ui-tile); }
+:root[data-ui-look="royal"] .ry-hero-pace { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1px; border-radius: 2px; background: #ffffff; }
+:root[data-ui-look="royal"] .ry-hero-minis { display: flex; flex-wrap: wrap; gap: 8px; }
+:root[data-ui-look="royal"] .ry-hero-minis > span {
+  display: inline-flex; align-items: baseline; gap: 6px; min-height: 36px; padding: 6px 12px; border-radius: 999px;
+  background: var(--rh-ui-hero-mini); color: #ffffff; font-size: 15px; font-weight: 600;
+}
+:root[data-ui-look="royal"] .ry-hero-minis b { font-size: 17px; }
+
+:root[data-ui-look="royal"] .ry-decisions { display: grid; gap: 8px; min-width: 0; }
+/* Решения — прежние строки пульта (CleanDecisionRow, все их действия), в оформлении нового вида:
+   название и подпись сверху, кнопки отдельной строкой, чтобы в колонке не сжималось название. */
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision {
+  grid-template-columns: 48px minmax(0, 1fr); gap: 8px 12px; padding: 12px 16px; border: 0;
+  border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision > :first-child { width: 48px; height: 48px; border-radius: 999px; }
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-title { font-size: 17px; line-height: 1.25; }
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-description { font-size: 15px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions { grid-column: 1 / -1; justify-content: flex-start; }
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions :is(button, a) { min-height: 44px; border-radius: 999px; }
+
+:root[data-ui-look="royal"] .ry-team {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px;
+  border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-team-person {
+  display: grid; justify-items: center; gap: 4px; min-width: 0; padding: 8px 4px; border-radius: 20px;
+  color: var(--rh-ui-text); text-decoration: none; text-align: center;
+}
+:root[data-ui-look="royal"] .ry-team-person:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-team-person b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; }
+:root[data-ui-look="royal"] .ry-team-status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-team-status[data-tone="warn"] { color: var(--rh-ui-warn); }
+
+:root[data-ui-look="royal"] .ry-bar-row .ry-row-text { gap: 8px; }
+:root[data-ui-look="royal"] .ry-bar { display: block; height: 8px; border-radius: 999px; background: var(--rh-ui-raised); overflow: hidden; }
+:root[data-ui-look="royal"] .ry-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--rh-ui-primary); }
+
+:root[data-ui-look="royal"] .ry-full { display: grid; gap: 16px; justify-items: start; min-width: 0; }
+:root[data-ui-look="royal"] .ry-full-body { width: 100%; min-width: 0; }
+
+/* ПК (по ширине самой главной, а не окна): одна полоса из плит и две колонки. */
+@container ry-today (min-width: 720px) {
+  :root[data-ui-look="royal"] .ry-hello-date { font-size: 32px; }
+  :root[data-ui-look="royal"] .ry-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] .ry-strip > .ry-hero { grid-column: span 2; }
+  :root[data-ui-look="royal"] .ry-blocks { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; row-gap: 28px; align-items: start; }
+  :root[data-ui-look="royal"] .ry-blocks > .ry-strip, :root[data-ui-look="royal"] .ry-blocks > .ry-full, :root[data-ui-look="royal"] .ry-blocks > .ry-section:not(.ry-col-a):not(.ry-col-b) { grid-column: 1 / -1; }
+  :root[data-ui-look="royal"] .ry-team { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+@container ry-today (min-width: 1040px) {
+  /* Одна полоса: плита денег шире, плитки делят остаток, сколько бы их ни пришло. */
+  :root[data-ui-look="royal"] .ry-strip { display: flex; }
+  :root[data-ui-look="royal"] .ry-strip > * { flex: 1 1 0; }
+  :root[data-ui-look="royal"] .ry-strip > .ry-hero { flex: 2.2 1 0; }
+  :root[data-ui-look="royal"] .ry-tile { min-height: 168px; }
+  :root[data-ui-look="royal"] .ry-hero { min-height: 168px; }
+  :root[data-ui-look="royal"] .ry-blocks .ry-col-b .ry-team { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

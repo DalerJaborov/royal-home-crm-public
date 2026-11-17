@@ -161,10 +161,10 @@
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 1 | да (4 мест) | `apps/api/src/routes/dealAnnul.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 10 | да (8 мест) | `apps/api/src/routes/dashboard.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 5 | да (8 мест) | `apps/api/src/routes/dashboardMissionControl.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (8 мест) | `apps/api/src/routes/pultModules.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (8 мест) | `apps/api/src/routes/briefing.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 10 | да (9 мест) | `apps/api/src/routes/dashboard.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 5 | да (9 мест) | `apps/api/src/routes/dashboardMissionControl.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (9 мест) | `apps/api/src/routes/pultModules.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (9 мест) | `apps/api/src/routes/briefing.ts` |
 | `/api/v1/calendar` | Календарь задач и показов | 1 | да (1 мест) | `apps/api/src/routes/calendar.ts` |
 | `/api/v1/interactions` | Звонки, показы, встречи — всё, что агент отмечает | 10 | да (4 мест) | `apps/api/src/routes/interactions.ts` |
 | `/api/v1/calls` | Журнал звонков и расшифровки | 6 | да (1 мест) | `apps/api/src/routes/calls.ts` |
