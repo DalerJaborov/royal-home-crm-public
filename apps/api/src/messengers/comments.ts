@@ -55,7 +55,7 @@ import { MANDATORY_BOT_RULES, propertyGeographyBlock } from "../ai/dushanbeGeogr
 import { folkGeographyBlock } from "../ai/folkPlaces.js";
 import { AGENCY_COMPANY_INFO } from "../ai/agencyVoice.js";
 import { extractAllPhones, extractVolunteeredPhone } from "../lib/shared/phoneText.js";
-import { captureCommentPhoneIntoConversation, COMMENT_HISTORY_PREFIX } from "./commentPhoneLead.js";
+import { captureCommentPhoneIntoConversation, COMMENT_HISTORY_PREFIX, createLeadFromCommentPhone } from "./commentPhoneLead.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
 import { commentDecisionProviderSchema, type ClientSource, type CommentDecision } from "@royal-home/shared";
@@ -1303,6 +1303,14 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     }
     if (lane === "managed") {
       const draft = await prepareCustomerPublicAgentDraft({ table: "meta", id: row.id });
+      /**
+       * НОМЕР В КОММЕНТАРИИ И НА ЯДРЕ (17.11.2026, rolloutMode ACTIVE даёт lane "managed"). Ядро диалогов Meta
+       * для автора не заводит намеренно, поэтому — прямой приём без диалога (commentPhoneLead.ts), идемпотентный
+       * по номеру; модерацию (спам/агентство) не трогаем: там номер конкурента.
+       */
+      if (draft.status !== "moderate" && draft.status !== "moderation_proposal") {
+        await createLeadFromCommentPhone({ ...row, channel: row.channel as "INSTAGRAM" | "FACEBOOK" | "YOUTUBE" });
+      }
       if (draft.status === "moderate") {
         const outcome = await executeCustomerPublicModeration(draft.principal);
         return outcome === "held" ? "skipped" : outcome;

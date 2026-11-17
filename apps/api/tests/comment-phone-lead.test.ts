@@ -153,3 +153,19 @@ describe("createLeadFromCommentPhone (обсуждение Telegram-канала
     expect(mocks.log).toHaveBeenCalledWith("ai", expect.stringContaining("[alarm]"));
   });
 });
+
+describe("номер самой компании не клиент", () => {
+  it("комментарий цитирует публичный номер агентства — заявки нет (диалог и без диалога)", async () => {
+    const ours = "Звоните нам: +992 44 650 14 14";
+    expect((await captureCommentPhoneIntoConversation(row(ours), "conv-1")).outcome).toBe("no_phone");
+    expect(mocks.findConversation).not.toHaveBeenCalled();
+    expect(await createLeadFromCommentPhone({ ...row(ours), channel: "TELEGRAM" })).toBe("no_phone");
+    expect(mocks.acceptLead).not.toHaveBeenCalled();
+    expect(mocks.createLead).not.toHaveBeenCalled();
+  });
+
+  it("свой номер рядом с номером компании: берётся клиентский", async () => {
+    await captureCommentPhoneIntoConversation(row("Ваш 446501414, мой 900000001"), "conv-1");
+    expect(mocks.acceptLead.mock.calls[0]![3]).toBe("+992900000001");
+  });
+});
