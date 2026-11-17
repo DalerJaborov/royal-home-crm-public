@@ -15,15 +15,15 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
 }));
 
 import { SomonSourceUnavailable } from "../src/lib/somonLeads/sourceClient.js";
-import { crawlSection, parseSomonPage, saveSomonPageHtml, SECTIONS, somonPageRubricId } from "../src/lib/market/somonCrawler.js";
+import { crawlSection, expectedLastPage, parseSomonPage, saveSomonPageHtml, SECTIONS, sectionCoverageOk, somonListingMeta, somonPageRubricId } from "../src/lib/market/somonCrawler.js";
 import { RUBRIC_FOREIGN, RUBRIC_HOUSES, somonListPageHtml } from "./helpers/somonPage.js";
 
 const APARTMENTS = SECTIONS[0];
 const HOUSES = SECTIONS[1];
 
 /** Страница списка квартир Somon: объявления своей рубрики + ссылки пагинации до `links`. */
-function pageHtml(ids: number[], links: number): string {
-  return somonListPageHtml(ids.map((id) => ({ id, title: "2-комн. квартира, 3 этаж, 50 м², Сино" })), { links });
+function pageHtml(ids: number[], links: number, meta: { count?: number; totalPages?: number } = {}): string {
+  return somonListPageHtml(ids.map((id) => ({ id, title: "2-комн. квартира, 3 этаж, 50 м², Сино" })), { links, ...meta });
 }
 const ok = (html: string) => new Response(html);
 const blocked = (status: number) => new SomonSourceUnavailable("http", status);
@@ -34,6 +34,46 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.stopped.mockResolvedValue(false);
   mocks.logError.mockResolvedValue(undefined);
+});
+
+describe("конец раздела — по счётчику сайта, а не только по ссылкам (17.11.2026)", () => {
+  it("ссылки пагинации обрезаны (только на первую страницу), а счётчик говорит «3 страницы»: обход идёт до третьей", async () => {
+    mocks.fetchSomon.mockImplementation(async (path: string) => {
+      const n = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
+      return ok(pageHtml([n * 10 + 1, n * 10 + 2], 1, { count: 6, totalPages: 3 }));
+    });
+    const result = await crawlSection(APARTMENTS, { pause });
+    expect(result).toMatchObject({ complete: true, pagesFetched: 3, expectedCount: 6, uniqueSeen: 6 });
+  });
+
+  it("полная страница без ссылок и без счётчика — не «раздел из одной страницы», а неполный обход с записью в журнал", async () => {
+    mocks.fetchSomon.mockResolvedValue(ok(pageHtml([1, 2], 0)));
+    const onPage = vi.fn(async () => {});
+    const result = await crawlSection(APARTMENTS, { pause, onPage });
+    expect(result.complete).toBe(false);
+    expect(result.stopReason).toBe("no_pagination");
+    expect(onPage).not.toHaveBeenCalled();
+    expect(mocks.logError).toHaveBeenCalledWith("api", expect.stringContaining("no_pagination"), expect.anything());
+  });
+
+  it("дочитали до конца, но собрали меньше 80% счётчика сайта: не успех, причина too_small и числа в журнале", async () => {
+    // Сайт говорит «10 объявлений, 5 страниц», а каждая страница отдаёт одни и те же два (повторы VIP).
+    mocks.fetchSomon.mockImplementation(async () => ok(pageHtml([1, 2], 5, { count: 10, totalPages: 5 })));
+    const result = await crawlSection(APARTMENTS, { pause });
+    expect(result).toMatchObject({ complete: false, stopReason: "too_small", pagesFetched: 5, uniqueSeen: 2, expectedCount: 10 });
+    const [, message] = mocks.logError.mock.calls.at(-1) as [string, string];
+    expect(message).toContain("собрано 2 объявлений при 10");
+  });
+
+  it("разметка живой страницы 17.11: счётчики читаются из метаданных списка", () => {
+    const payload = `"next_page":"?location=1&rubric=216&page=27&count=9050&page_size=60","listing_type":"line","count":9050,"count_str":"9 050","total_pages":151,"title":"x","adverts":[]`;
+    expect(somonListingMeta(payload)).toEqual({ count: 9050, totalPages: 151, pageSize: 60 });
+    expect(somonListingMeta(`"next_page":"?cursor=1&page_size=60","adverts":[]`)).toEqual({ count: null, totalPages: null, pageSize: 60 });
+    expect(expectedLastPage("<a href=\"?page=2\">2</a>", { count: 9050, totalPages: null, pageSize: 60 })).toBe(151);
+    expect(sectionCoverageOk(7300, 9050)).toBe(true);
+    expect(sectionCoverageOk(1493, 9050)).toBe(false);
+    expect(sectionCoverageOk(0, null)).toBe(true);
+  });
 });
 
 describe("обход Somon идёт только через общую дверь fetchSomon", () => {

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2518**; вместе с задачами по расписанию и фоновыми заданиями — **4091**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2518**; вместе с задачами по расписанию и фоновыми заданиями — **4095**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -23006,13 +23006,13 @@
       - tick.failure = `${label}: ${reason}`.slice(0, 500);
         · дословно из кода
 
-### market-paydo-daily — 0 3 * * *
+### market-paydo-daily — 30 2 * * *
 
 - если process.env.MARKET_CRAWL_ENABLED !== "1"
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
-  - await runPaydoFullCrawl();
+  - const result = await runPaydoFullCrawl();
     · зовёт runPaydoFullCrawl()
     - если paydoRunning
       - return null;
@@ -23023,6 +23023,14 @@
     - в любом случае
       - paydoRunning = false;
         · дословно из кода
+  - если result && !result.complete
+    - markCronTickFailed("Полный обход Paydo неполный", new Error(`причина ${result.stopReason ?? "неизвестна"}, ст…
+      · зовёт markCronTickFailed()
+      - console.error(`[cron] ${label}:`, reason);
+        · пишет строку в журнал сервера
+      - если tick
+        - tick.failure = `${label}: ${reason}`.slice(0, 500);
+          · дословно из кода
 - если сорвалось
   - markCronTickFailed("Ошибка ночного обхода Paydo", err);
     · зовёт markCronTickFailed()
@@ -23104,13 +23112,13 @@
       - tick.failure = `${label}: ${reason}`.slice(0, 500);
         · дословно из кода
 
-### market-weekly-crawl — 30 2 * * 0
+### market-weekly-crawl — 45 2 * * *
 
 - если process.env.MARKET_CRAWL_ENABLED !== "1"
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
-  - await runMarketFullCrawl();
+  - const result = await runMarketFullCrawl();
     · зовёт runMarketFullCrawl()
     - если somonRunning
       - return null;
@@ -23121,6 +23129,14 @@
     - в любом случае
       - somonRunning = false;
         · дословно из кода
+  - если result && !result.somon.complete
+    - markCronTickFailed("Полный обход Somon неполный", new Error(`причина ${result.somon.stopReason ?? "неизвестна…
+      · зовёт markCronTickFailed()
+      - console.error(`[cron] ${label}:`, reason);
+        · пишет строку в журнал сервера
+      - если tick
+        - tick.failure = `${label}: ${reason}`.slice(0, 500);
+          · дословно из кода
 - если сорвалось
   - markCronTickFailed("Ошибка недельного обхода рынка", err);
     · зовёт markCronTickFailed()

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4091,
+  "forks": 4095,
   "mounts": 87,
   "cron": 140,
   "jobs": 33,
@@ -102696,7 +102696,7 @@
   },
   {
    "id": "market-paydo-daily",
-   "when": "0 3 * * *",
+   "when": "30 2 * * *",
    "tree": [
     {
      "k": "if",
@@ -102720,7 +102720,7 @@
      "c": [
       {
        "k": "do",
-       "t": "await runPaydoFullCrawl();",
+       "t": "const result = await runPaydoFullCrawl();",
        "a": [
         "зовёт runPaydoFullCrawl()"
        ],
@@ -102772,6 +102772,46 @@
         }
        ],
        "from": "runPaydoFullCrawl() — apps/api/src/lib/market/nightly.ts"
+      },
+      {
+       "k": "if",
+       "t": "result && !result.complete",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "markCronTickFailed(\"Полный обход Paydo неполный\", new Error(`причина ${result.stopReason ?? \"неизвестна\"}, ст…",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[cron] ${label}:`, reason);",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "tick",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ],
+         "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
+        }
+       ]
       }
      ]
     },
@@ -103172,7 +103212,7 @@
   },
   {
    "id": "market-weekly-crawl",
-   "when": "30 2 * * 0",
+   "when": "45 2 * * *",
    "tree": [
     {
      "k": "if",
@@ -103196,7 +103236,7 @@
      "c": [
       {
        "k": "do",
-       "t": "await runMarketFullCrawl();",
+       "t": "const result = await runMarketFullCrawl();",
        "a": [
         "зовёт runMarketFullCrawl()"
        ],
@@ -103248,6 +103288,46 @@
         }
        ],
        "from": "runMarketFullCrawl() — apps/api/src/lib/market/nightly.ts"
+      },
+      {
+       "k": "if",
+       "t": "result && !result.somon.complete",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "markCronTickFailed(\"Полный обход Somon неполный\", new Error(`причина ${result.somon.stopReason ?? \"неизвестна…",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[cron] ${label}:`, reason);",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "tick",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ],
+         "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
+        }
+       ]
       }
      ]
     },
