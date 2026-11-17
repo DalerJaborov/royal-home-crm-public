@@ -5,6 +5,7 @@ import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn, safeCauseCode } from "../ai/customerAgentCore.js";
 import { customerAgentSayMode, customerAgentAnswerMode } from "./customerAgentFeaturePolicy.js";
 import { recordCustomerAgentSay, recordCustomerAgentAnswer } from "./customerAgentSayStats.js";
+import { recordCustomerAgentAnswerSample } from "./customerAgentAnswerSamples.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
 import { customerSearchContinuation, customerSearchIntent, customerSearchIntentWithKnownNeeds, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
@@ -522,6 +523,13 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     });
     traceCustomerCoreResult({ ...result, answerMode });
     if (result.status === "ready") { recordCustomerAgentSay(result.say); recordCustomerAgentAnswer(result.answer); }
+    // The model's words beside the template, 72 h, for the owner to read before live (17.11.2026). Detached: never awaited,
+    // a failed write goes to the error journal inside and the turn goes on.
+    if (result.status === "ready" && result.answerSample && result.answer && result.answer.status !== "absent") {
+      void recordCustomerAgentAnswerSample({ channel: planningPrincipal.scope.channel, conversationId: lane.ticket.conversationId,
+        eventKey: claim.eventKey, answerMode, status: result.answer.status, reason: result.answer.status === "dropped" ? result.answer.reason : null,
+        customerText: fullInput(), modelText: result.answerSample.modelText, templateText: result.answerSample.templateText }).catch(() => {});
+    }
     // Count a spam turn (a foreign reel / like-exchange words with nothing asked) toward the mute. Never allowed to break the turn.
     if ((result.status === "ready" || result.status === "held" && result.reason === "foreign_share_no_reply") &&
         customerSpamTurn({ inputText: fullInput(), attachmentInput })) {

@@ -109,11 +109,18 @@ export interface CustomerCorePorts {
 export type CustomerCoreSay = { status: "absent" } | { status: "used" } | { status: "dropped"; reason: CustomerAgentSayDropReason };
 export type CustomerCoreAnswer = { status: "absent" } | { status: "used" } | { status: "dropped"; reason: CustomerAgentAnswerDropReason };
 export type CustomerAgentAnswerMode = "off" | "shadow" | "live";
+/** `modelText`: the composed reply when the check passed, else the model's raw parts. `templateText`: what the template says. */
+export type CustomerCoreAnswerSample = { modelText: string; templateText: string };
 export type CustomerCoreResult =
   | { status: "ready"; decision: CustomerAgentDecision; question: CustomerAgentRenderedQuestion; text: string; evidence: readonly CustomerAgentEvidence[]; rounds: number; toolCalls: number;
       say?: CustomerCoreSay;
       /** What became of the model's whole reply (`answer`); never the text itself. */
       answer?: CustomerCoreAnswer;
+      /**
+       * The model's words and the template beside them, for the 72-hour sample table only (lib/customerAgentAnswerSamples.ts,
+       * 17.11.2026: the owner reads real pairs before live). Never traced, never counted, never sent anywhere else.
+       */
+      answerSample?: CustomerCoreAnswerSample;
       /** Server-built answer instead of the model's: verified public refs after a malformed public final, or the committed receipt(s). */
       fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string }
   | { status: "held"; reason: string; evidence: readonly CustomerAgentEvidence[]; unknownToolCalls: readonly CustomerUnknownToolCall[]; rounds: number; toolCalls: number;
@@ -124,6 +131,19 @@ export type CustomerCoreResult =
       skipReason?: Extract<CustomerAgentDecision, { kind: "skip" }>["reason"] };
 
 function clone<T>(value: T): T { return structuredClone(value); }
+/** The model's words for the sample table: the composed reply when the check passed, else its raw parts (lead / ask / close). */
+function answerSampleModelText(verdict: { ok: boolean; text?: string } | null | undefined, raw: unknown): string | null {
+  try {
+    if (verdict?.ok && typeof verdict.text === "string") return verdict.text;
+    if (typeof raw === "string") return raw;
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      const parts = raw as Record<string, unknown>;
+      const own = ["lead", "ask", "close"].map(key => parts[key]).filter((part): part is string => typeof part === "string" && !!part.trim());
+      return own.length ? own.join("\n") : JSON.stringify(raw);
+    }
+    return raw === undefined ? null : JSON.stringify(raw);
+  } catch { return null; }
+}
 /** Splits the optional `say` off a raw model decision object. Anything that is not a plain object is returned untouched for the strict parse to judge. */
 /** Per-turn server facts about the surface. The `say` rules ride here (private messages only), not in the pinned system prompt: see CUSTOMER_AGENT_SAY_GUIDANCE.
  *  They are left out while the reply language is switched off for `say` (Tajik in v1): the validator would drop the phrase anyway, so asking for it only spends output tokens. */
@@ -380,7 +400,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     // The same inputs as the delivery seal renders with (review #206 В4): an attachment changes the opening question.
     attachmentInput: frame.attachmentInput, mediaPerception: perception, approvedFileState });
   const renderDecision = (decision: CustomerAgentDecision) => renderCustomerAgentText(renderInput(decision));
-  const ready = async (d: CustomerAgentDecision, text: string, extra: { fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string; say?: CustomerCoreSay; answer?: CustomerCoreAnswer } = {}): Promise<CustomerCoreResult> => {
+  const ready = async (d: CustomerAgentDecision, text: string, extra: { fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string; say?: CustomerCoreSay; answer?: CustomerCoreAnswer; answerSample?: CustomerCoreAnswerSample } = {}): Promise<CustomerCoreResult> => {
     await check();
     // decision is a validated MODEL suggestion, not canonical state. Expose
     // the effective rendered question separately, so a removed phone ask
@@ -672,6 +692,8 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       // evidence, all or nothing. Shadow (the default) only counts the verdict; live attaches the verified parts, and the renderer and the
       // delivery seal compose the identical text from the same inputs. A dropped answer never changes the decision or costs a round.
       let answer: CustomerCoreAnswer = { status: "absent" };
+      let sampleModelText: string | null = null;
+      const beforeAnswer = planned;
       const answerMode = frame.answerMode ?? "shadow";
       if (answerMode !== "off" && modelAnswer !== undefined && (planned.kind === "reply" || planned.kind === "clarify" || planned.kind === "propose")) {
         // customerAgentAnswerVerdict never throws (a verifier bug is the `error` verdict); this try is the second belt for the turn.
@@ -681,6 +703,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
           candidate = parts ? { ...planned, answer: parts } as CustomerAgentDecision : null;
           verdict = candidate ? customerAgentAnswerVerdict(renderInput(candidate)) : { ok: false, reason: "length" };
         } catch { verdict = { ok: false, reason: "error" }; }
+        sampleModelText = answerSampleModelText(verdict, modelAnswer);
         if (!verdict || !verdict.ok) answer = { status: "dropped", reason: verdict?.reason ?? "not_eligible" };
         else if (answerMode !== "live") answer = { status: "dropped", reason: "shadow" };
         else { answer = { status: "used" }; planned = candidate!; }
@@ -689,7 +712,15 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       if (text === null) return await confirmCommitted("unsupported_decision_evidence");
       // Seller guard repairs win over shape repairs; trace cause codes must not contain ":" (botTurnTrace drops them).
       const cause = sellerRepair ? sellerRepair.cause.replace(/:/g, "_") : fallbackCause;
-      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), ...(cause ? { fallbackCause: cause } : {}), say, answer });
+      // The template beside the model's words: the sent text, or (live, words used) the same decision without them. Never throws.
+      let answerSample: CustomerCoreAnswerSample | undefined;
+      if (sampleModelText !== null) {
+        let templateText: string | null = text;
+        if (answer.status === "used") { try { templateText = renderDecision(beforeAnswer); } catch { templateText = null; } }
+        answerSample = { modelText: sampleModelText, templateText: templateText ?? "" };
+      }
+      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), ...(cause ? { fallbackCause: cause } : {}), say, answer,
+        ...(answerSample ? { answerSample } : {}) });
     }
     return await confirmCommitted("round_limit");
   } catch (error) {
