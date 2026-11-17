@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **763**. Развилок в самих путях: **2472**; вместе с задачами по расписанию и фоновыми заданиями — **4031**. Модулей: **86**.
+Путей: **763**. Развилок в самих путях: **2472**; вместе с задачами по расписанию и фоновыми заданиями — **4033**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -24662,6 +24662,29 @@
         · дальше не идёт, ничего не меняя
     - throw error;
       · пробрасывает ошибку дальше
+
+### somon-owner-leads-silence — 47 * * * *
+
+- await checkSomonOwnerLeadsSilence();
+  · зовёт checkSomonOwnerLeadsSilence()
+  - const state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" }, select: { enabled: true, act…
+    · читает в базе: somonMonitor
+  - если !state?.enabled
+    - return null;
+      · дословно из кода
+  - const [portalPaused, last, recipients] = await Promise.all([ isTelegramPortalAlertsPaused(), prisma.somonDeli…
+    · читает в базе: somonDelivery
+    · читает в базе: somonRecipient
+  - const [firstObserved, observedCount] = await Promise.all([ prisma.somonSeenAdvert.findFirst({ where: observed…
+    · читает в базе: somonSeenAdvert
+    · считает в базе: somonSeenAdvert
+  - const eligibleRecipients = recipients.length ? await prisma.agent.count({ where: { id: { in: recipients.map(r
+    · считает в базе: agent
+  - const alarm = decideSomonSilenceAlarm({ enabled: state.enabled, portalPaused, sourceStopped: state.sourceStop…
+    · зовёт decideSomonSilenceAlarm()
+  - если alarm
+    - await logSystemError("cron", alarm.message, { dedupKey: alarm.dedupKey, dedupWindowMs: DAY_MS });
+      · запись в журнал ошибок
 
 ### staff-notice-cleanup — 40 3 * * *
 

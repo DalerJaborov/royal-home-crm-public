@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 763,
-  "forks": 4031,
+  "forks": 4033,
   "mounts": 86,
-  "cron": 136,
+  "cron": 137,
   "jobs": 33,
   "hidden": 0
  },
@@ -110549,6 +110549,95 @@
       }
      ],
      "from": "runSomonMonitorTick() — apps/api/src/lib/somonLeads/monitor.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "somon-owner-leads-silence",
+   "when": "47 * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await checkSomonOwnerLeadsSilence();",
+     "a": [
+      "зовёт checkSomonOwnerLeadsSilence()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const state = await prisma.somonMonitor.findUnique({ where: { id: \"singleton\" }, select: { enabled: true, act…",
+       "a": [
+        "читает в базе: somonMonitor"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!state?.enabled",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const [portalPaused, last, recipients] = await Promise.all([ isTelegramPortalAlertsPaused(), prisma.somonDeli…",
+       "a": [
+        "читает в базе: somonDelivery",
+        "читает в базе: somonRecipient"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const [firstObserved, observedCount] = await Promise.all([ prisma.somonSeenAdvert.findFirst({ where: observed…",
+       "a": [
+        "читает в базе: somonSeenAdvert",
+        "считает в базе: somonSeenAdvert"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const eligibleRecipients = recipients.length ? await prisma.agent.count({ where: { id: { in: recipients.map(r",
+       "a": [
+        "считает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const alarm = decideSomonSilenceAlarm({ enabled: state.enabled, portalPaused, sourceStopped: state.sourceStop…",
+       "a": [
+        "зовёт decideSomonSilenceAlarm()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "alarm",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logSystemError(\"cron\", alarm.message, { dedupKey: alarm.dedupKey, dedupWindowMs: DAY_MS });",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "checkSomonOwnerLeadsSilence() — apps/api/src/lib/somonLeads/silenceAlarm.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
