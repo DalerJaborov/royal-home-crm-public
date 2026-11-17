@@ -3,9 +3,8 @@ import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { buyerBudgetForComparison, findBuyerMarketSummary, percentVs } from "../src/lib/market/buyerMarket.js";
-import { buildBuyerWants } from "../src/lib/market/buyerMatch.js";
+import { buildBuyerWants, DEFAULT_MARKET_BUYER_RULES } from "../src/lib/market/buyerMatch.js";
 import { buildMarketIndex, lookupMarketSegment, type SegmentRow } from "../src/lib/market/segments.js";
-import { DEFAULT_MATCH_POLICY } from "../src/lib/matchPolicy.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 import { makeAgent, medianOf, seedMarketListings, segmentListingSpec } from "./helpers/marketFixtures.js";
 
@@ -133,7 +132,7 @@ describe("чистые части строки рынка", () => {
       { currency: "TJS", budgetMin: null, budgetMax: 500_000, desiredDistrictId: null, desiredRooms: 2 },
       { name: `Нет-такого-${runId}`, city: "Душанбе" },
       { usdToTjs: 11 } as never,
-      DEFAULT_MATCH_POLICY
+      DEFAULT_MARKET_BUYER_RULES
     );
     expect(await findBuyerMarketSummary(wants)).toMatchObject({ status: "insufficient", count: 0, medianPriceTjs: null });
   });

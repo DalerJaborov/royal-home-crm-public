@@ -87,6 +87,7 @@ import { securityRouter } from "./routes/security.js";
 import { manualDataCorrectionsRouter } from "./routes/manualDataCorrections.js";
 import { marketingRouter } from "./routes/marketing.js";
 import { socialVideosRouter } from "./routes/socialVideos.js";
+import { uploadSessionsRouter } from "./routes/uploadSessions.js";
 import { adsRouter, adsCallbackRouter } from "./routes/ads.js";
 import { tiktokRouter, tiktokCallbackRouter } from "./routes/tiktok.js";
 import { threadsRouter, threadsCallbackRouter } from "./routes/threads.js";
@@ -763,6 +764,8 @@ app.use("/api/v1/maintenance/data-corrections", manualDataCorrectionsRouter);
 app.use("/api/v1/marketing", marketingRouter);
 // Свободные ролики в соцсети (12.10.2026): промо-ролик без объекта, кросспостинг по выбору.
 app.use("/api/v1/social-videos", socialVideosRouter);
+// Общие сессии загрузки частями (17.11.2026): старт и части; сборку делает маршрут назначения.
+app.use("/api/v1/upload-sessions", uploadSessionsRouter);
 // Возврат из Facebook — до общего роутера рекламы: у него requireAuth, а сюда
 // человека приводит сам Facebook, без маркера доступа CRM (см. adsCallbackRouter).
 // Бюджетные оповещения Google Cloud приходят от Pub/Sub — без входа в CRM,
@@ -973,14 +976,22 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   // как отправил заявленный объём (реальный обрыв связи), или тело пришло
   // целиком, а порвал его кто-то посередине (прокси/таймаут) — это и есть ответ
   // на вопрос «где именно рвётся».
-  if (err instanceof Error && /unexpected end of form/i.test(err.message)) {
+  //
+  // «Request aborted» (17.11.2026, журнал прода после #254) — тот же обрыв, но
+  // замеченный раньше: multer сам слушает `req.on("aborted")` и бросает обычный
+  // Error с этим текстом. Ловился общим «[unhandled]» и будил директора пушем
+  // «новая проблема». Это эксплуатационный шум (человек закрыл вкладку или
+  // пропала связь), поэтому та же ветка и без пуша (`silent`). Обрыв ЧАСТИ при
+  // загрузке частями сюда не попадает: там express.raw, его `request.aborted`
+  // отвечает 400 выше без записи.
+  if (err instanceof Error && /unexpected end of form|^request aborted$/i.test(err.message)) {
     const propertyId = typeof _req.params?.id === "string" ? _req.params.id : null;
     void logSystemError(
       "api",
-      `Обрыв загрузки фото (Unexpected end of form): объект ${propertyId ?? "?"}, ` +
+      `Обрыв загрузки файла (${err.message}): объект ${propertyId ?? "?"}, ` +
         `Content-Length ${_req.headers["content-length"] ?? "?"}, получено байт ${_req.socket.bytesRead}, ` +
         `UA ${String(_req.headers["user-agent"] ?? "?").slice(0, 200)}`,
-      { url: _req.originalUrl.split("?")[0], dedupKey: `upload-abort:${propertyId ?? "unknown"}` }
+      { url: _req.originalUrl.split("?")[0], dedupKey: `upload-abort:${propertyId ?? "unknown"}`, silent: true }
     );
     // retryable — очередь на клиенте (uploadQueue.ts) и так считает 5xx
     // повторяемым сама по коду ответа, но явное поле в теле дешёвое и снимает

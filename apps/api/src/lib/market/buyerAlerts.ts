@@ -16,9 +16,15 @@
  *    давних объявлений за «новые». Объявление, признанное нашим объектом (ownMatches), не считается.
  *  · ОДИН РАЗ НА ПАРУ клиент+объявление: уникальный ключ BuyerMarketAlert (clientId, listingId). Тот же
  *    объект на второй площадке или перевыложенный (dedupeListings, isDuplicateListing) повторного пуша не даёт.
- *  · Не больше BUYER_ALERT_MAX_PUSHES_PER_DAY пушей на АГЕНТА за сутки ПО ДУШАНБЕ (lib/dushanbeTime.ts):
- *    агент с десятью покупателями не получает тридцать пушей. В одном пуше до BUYER_ALERT_PER_PUSH ближайших
- *    объявлений; те, что не влезли, ждут следующего прогона, пока не закрылось окно «нового».
+ *  · Не больше N пушей на АГЕНТА за сутки ПО ДУШАНБЕ (lib/dushanbeTime.ts; N — Настройки, marketBuyerAlertsPerDay,
+ *    по умолчанию 3): агент с десятью покупателями не получает тридцать пушей. В одном пуше до BUYER_ALERT_PER_PUSH
+ *    ближайших объявлений; те, что не влезли, ждут следующего прогона, пока не закрылось окно «нового».
+ *  · ОДНО ОБЪЯВЛЕНИЕ — ОДНО УВЕДОМЛЕНИЕ АГЕНТУ (17.11.2026): объявление, подошедшее двум покупателям одного агента,
+ *    приходит ему один раз (пара агент+объявление проверяется по истории и внутри прогона).
+ *  · ТОЛЬКО В РАБОЧИЕ ЧАСЫ (Настройки → workHoursStart/End, по Душанбе, lib/dushanbeTime.ts): ночью прогон молчит,
+ *    найденное за ночь уходит утром, пока не закрылось 24-часовое окно «нового».
+ *  · Отбор — узкий подбор buyerMatch.ts (район, комнаты, ±N% бюджета, свежесть сбора, только собственники):
+ *    те же пороги, что у блока в карточке.
  *  · При первом включении рубильника всплеска за прошлые сутки нет: «новыми» считаются только объявления,
  *    впервые увиденные ПОСЛЕ включения (Settings.marketBuyerAlertsEnabledAt; первый прогон после включения лишь
  *    ставит эту отметку). Выключили рубильник: отметка сбрасывается, следующее включение снова считает с нуля.
@@ -35,12 +41,12 @@ import { formatClientCode, isMarketRealtorListing } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { sendPushToAgent } from "../../push.js";
 import { currentBuyerMatchingCriteria } from "../clientPropertyMatching.js";
-import { dushanbeStartOfToday } from "../dushanbeTime.js";
+import { dushanbeStartOfToday, isWithinDushanbeWindow } from "../dushanbeTime.js";
 import { loadMatchPolicy, waitingBuyerWhere } from "../matchPolicy.js";
 import { loadMoneyContext } from "../money.js";
 import { logSystemError } from "../systemError.js";
 import {
-  buildBuyerWants, buyerDistance, hasBuyerCriteria, listingFitsBuyer, type BuyerRow, type BuyerWants,
+  buildBuyerWants, hasBuyerCriteria, listingFitsBuyer, loadMarketBuyerRules, marketBuyerScore, type BuyerRow, type BuyerWants,
 } from "./buyerMatch.js";
 import { loadOwnersFilter } from "./ownerFilter.js";
 import { plausibleSaleWhere } from "./plausible.js";
@@ -51,6 +57,7 @@ import { marketCatalogWhere } from "./somonRubrics.js";
 export const BUYER_ALERT_LOOKBACK_MS = 24 * 3600_000;
 /** Объявление, опубликованное на самой площадке раньше окна больше чем на столько, «новым» не считается. */
 const PUBLISHED_SLACK_MS = 2 * 24 * 3600_000;
+/** Значение по умолчанию; действующее — Настройки (marketBuyerAlertsPerDay). */
 export const BUYER_ALERT_MAX_PUSHES_PER_DAY = 3;
 export const BUYER_ALERT_PER_PUSH = 3;
 export const BUYER_ALERT_BUYER_LIMIT = 1500;
@@ -86,6 +93,11 @@ export interface BuyerAlertPlanInput {
   previousByClient: ReadonlyMap<string, readonly AlertListing[]>;
   /** Сколько пушей агент получил с начала суток по Душанбе (по всем его клиентам). */
   pushesTodayByAgent: ReadonlyMap<string, number>;
+  /** Пары «агент|объявление», о которых агент уже слышал (по любому своему клиенту). */
+  alreadyToldAgent?: ReadonlySet<string>;
+  /** Предел пушей на агента за сутки (Настройки); по умолчанию BUYER_ALERT_MAX_PUSHES_PER_DAY. */
+  maxPushesPerDay?: number;
+  now?: number;
 }
 
 /** Чистая часть: кому что отправить. Без БД, без времени — тестируется отдельно. */
@@ -93,19 +105,25 @@ export function planBuyerAlerts(input: BuyerAlertPlanInput): BuyerAlertPlanItem[
   const plan: BuyerAlertPlanItem[] = [];
   // Счёт ведём и внутри прогона: два покупателя одного агента не дают вместе больше предела.
   const used = new Map(input.pushesTodayByAgent);
+  const max = input.maxPushesPerDay ?? BUYER_ALERT_MAX_PUSHES_PER_DAY;
+  const now = input.now ?? Date.now();
+  // Агент уже слышал об объявлении (по другому своему клиенту или раньше в этом прогоне) — второй раз не говорим.
+  const told = new Set(input.alreadyToldAgent ?? []);
   for (const buyer of input.buyers) {
-    if ((used.get(buyer.agentId) ?? 0) >= BUYER_ALERT_MAX_PUSHES_PER_DAY) continue;
+    if ((used.get(buyer.agentId) ?? 0) >= max) continue;
     if (!hasBuyerCriteria(buyer.wants) || buyer.wants.districtName == null) continue;
     const previous = input.previousByClient.get(buyer.clientId) ?? [];
     const fitting = input.listings
-      .filter((l) => !input.alreadyAlerted.has(`${buyer.clientId}|${l.id}`) && listingFitsBuyer(l, buyer.wants))
-      .map((l) => ({ l, d: buyerDistance(l, buyer.wants) }))
+      .filter((l) => !input.alreadyAlerted.has(`${buyer.clientId}|${l.id}`) && !told.has(`${buyer.agentId}|${l.id}`) && listingFitsBuyer(l, buyer.wants, now))
+      .map((l) => ({ l, d: marketBuyerScore(l, buyer.wants, now) }))
       .sort((a, b) => a.d - b.d)
       .map((x) => x.l);
     // Ближайшие первыми; повтор одного объекта (две площадки, перевыкладка) остаётся одним, а двойник уже отправленного отпадает.
     const fresh = dedupeListings(fitting).filter((l) => !previous.some((p) => isDuplicateListing(l, p)));
     if (fresh.length === 0) continue;
-    plan.push({ buyer, listings: fresh.slice(0, BUYER_ALERT_PER_PUSH) });
+    const chosen = fresh.slice(0, BUYER_ALERT_PER_PUSH);
+    plan.push({ buyer, listings: chosen });
+    for (const l of chosen) told.add(`${buyer.agentId}|${l.id}`);
     used.set(buyer.agentId, (used.get(buyer.agentId) ?? 0) + 1);
   }
   return plan;
@@ -140,6 +158,8 @@ export function buyerAlertText(buyer: Pick<AlertBuyer, "shortId" | "kind">, list
 
 export interface BuyerAlertStats {
   enabled: boolean;
+  /** Вне рабочих часов прогон молчит (найденное уйдёт утром). */
+  outsideWorkHours: boolean;
   buyers: number;
   listings: number;
   pushed: number;
@@ -152,13 +172,13 @@ let running = false;
 const LISTING_SELECT = {
   id: true, source: true, sourceUrl: true, title: true, propertyType: true, priceTjs: true, pricePerSqmTjs: true, areaSqm: true,
   rooms: true, floor: true, totalFloors: true, districtName: true, city: true, repair: true, firstSeenAt: true, publishedAt: true, sellerId: true,
-  isAgency: true,
+  isAgency: true, lastSeenAt: true,
 } as const;
 
 function toAlertListing(r: {
   id: string; source: string; sourceUrl: string; title: string; propertyType: string; priceTjs: unknown; pricePerSqmTjs: unknown;
   areaSqm: unknown; rooms: number | null; floor: number | null; totalFloors: number | null; districtName: string | null; city: string | null;
-  repair: string | null; firstSeenAt: Date; publishedAt: Date | null; sellerId: string | null; isAgency: boolean;
+  repair: string | null; firstSeenAt: Date; publishedAt: Date | null; sellerId: string | null; isAgency: boolean; lastSeenAt: Date;
 }): AlertListing {
   return {
     ...r,
@@ -173,13 +193,13 @@ function toAlertListing(r: {
  * запуске: пара занимается уникальным ключом до отправки, второй прогон её не увидит свободной.
  */
 export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<BuyerAlertStats> {
-  const stats: BuyerAlertStats = { enabled: false, buyers: 0, listings: 0, pushed: 0, alertsRecorded: 0, failed: 0 };
+  const stats: BuyerAlertStats = { enabled: false, outsideWorkHours: false, buyers: 0, listings: 0, pushed: 0, alertsRecorded: 0, failed: 0 };
   if (running) return stats;
   running = true;
   try {
     const settings = await prisma.settings.findUnique({
       where: { id: "singleton" },
-      select: { marketBuyerAlertsEnabled: true, marketBuyerAlertsEnabledAt: true },
+      select: { marketBuyerAlertsEnabled: true, marketBuyerAlertsEnabledAt: true, workHoursStart: true, workHoursEnd: true },
     });
     if (!settings?.marketBuyerAlertsEnabled) {
       // Выключили: сбрасываем отметку, чтобы следующее включение снова не слало прошлое.
@@ -192,6 +212,11 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
     if (!settings.marketBuyerAlertsEnabledAt) {
       // Первый прогон после включения: только ставим отметку. «Новое» считается от неё, прошлых суток не будет.
       await prisma.settings.updateMany({ where: { id: "singleton", marketBuyerAlertsEnabledAt: null }, data: { marketBuyerAlertsEnabledAt: now } });
+      return stats;
+    }
+    // Ночью агента не беспокоим: окно «нового» — сутки, поэтому найденное за ночь уйдёт первым утренним прогоном.
+    if (!isWithinDushanbeWindow(settings.workHoursStart, settings.workHoursEnd, now)) {
+      stats.outsideWorkHours = true;
       return stats;
     }
 
@@ -219,7 +244,7 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
     stats.listings = listings.length;
     if (listings.length === 0) return stats;
 
-    const policy = await loadMatchPolicy();
+    const [policy, rules] = await Promise.all([loadMatchPolicy(), loadMarketBuyerRules()]);
     const clients = await prisma.client.findMany({
       where: { ...waitingBuyerWhere(policy, now), assignedAgentId: { not: null }, acceptedAt: { not: null } },
       select: {
@@ -243,7 +268,7 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
     const buyers: AlertBuyer[] = clients.flatMap((c) => {
       if (!c.assignedAgentId) return [];
       const criteria = currentBuyerMatchingCriteria(c);
-      const wants = buildBuyerWants(criteria, criteria.desiredDistrictId ? districtById.get(criteria.desiredDistrictId) ?? null : null, money, policy);
+      const wants = buildBuyerWants(criteria, criteria.desiredDistrictId ? districtById.get(criteria.desiredDistrictId) ?? null : null, money, rules);
       return hasBuyerCriteria(wants) ? [{ clientId: c.id, shortId: c.shortId, kind: c.kind, agentId: c.assignedAgentId, wants }] : [];
     });
     stats.buyers = buyers.length;
@@ -253,7 +278,8 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
     const clientIds = buyers.map((b) => b.clientId);
     const dayStart = dushanbeStartOfToday(now);
     const duplicateSince = new Date(now.getTime() - DUPLICATE_LOOKBACK_DAYS * 24 * 3600_000);
-    const [pairs, recent, todayByAgent] = await Promise.all([
+    const agentIds = [...new Set(buyers.map((b) => b.agentId))];
+    const [pairs, recent, todayByAgent, toldAgent] = await Promise.all([
       prisma.buyerMarketAlert.findMany({
         where: { clientId: { in: clientIds }, listingId: { in: listings.map((l) => l.id) } },
         select: { clientId: true, listingId: true },
@@ -264,8 +290,13 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
       }),
       // Предел на агента считается по ВСЕМ его пушам за сутки, а не только по покупателям этого прогона.
       prisma.buyerMarketAlert.findMany({
-        where: { agentId: { in: [...new Set(buyers.map((b) => b.agentId))] }, notifiedAt: { gte: dayStart } },
+        where: { agentId: { in: agentIds }, notifiedAt: { gte: dayStart } },
         select: { agentId: true, clientId: true, notifiedAt: true },
+      }),
+      // Одно объявление — одно уведомление агенту: о чём агент уже слышал по любому своему клиенту.
+      prisma.buyerMarketAlert.findMany({
+        where: { agentId: { in: agentIds }, listingId: { in: listings.map((l) => l.id) } },
+        select: { agentId: true, listingId: true },
       }),
     ]);
     const previousByClient = new Map<string, AlertListing[]>();
@@ -282,6 +313,9 @@ export async function runBuyerMarketAlerts(now: Date = new Date()): Promise<Buye
       alreadyAlerted: new Set(pairs.map((p) => `${p.clientId}|${p.listingId}`)),
       previousByClient,
       pushesTodayByAgent: new Map([...pushKeysByAgent].map(([id, keys]) => [id, keys.size])),
+      alreadyToldAgent: new Set(toldAgent.map((r) => `${r.agentId}|${r.listingId}`)),
+      maxPushesPerDay: rules.alertsPerDay,
+      now: now.getTime(),
     });
 
     for (const item of plan) {

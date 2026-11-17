@@ -408,7 +408,7 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
   if (!canAccessAssignedAgent(req, client.assignedAgentId)) return res.status(403).json({ error: "Недостаточно прав" });
   const empty = (status: MarketBuyerListingsResponse["status"], criteria: string[] = [], budgetMaxTjs: number | null = null): MarketBuyerListingsResponse =>
-    ({ status, criteria, total: 0, totalIsLowerBound: false, budgetMaxTjs, market: null, ownersOnly: null, listings: [] });
+    ({ status, criteria, total: 0, totalIsLowerBound: false, budgetMaxTjs, market: null, ownersOnly: null, offset: 0, freshDays: 0, clientDistrictMissing: false, listings: [] });
   const ownAgentId = scopeToOwnAgent(req);
   if (ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt) return res.json(empty("pending_acceptance"));
   if (!confirmedClientIntents(client).buys) return res.json(empty("not_buyer"));
@@ -419,7 +419,7 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
   // Список и строка рынка независимы: считаем вместе (два запроса к каталогу, без повторов на клиента).
   // Медиана рынка считается по ВСЕМ объявлениям (агентства в ней нужны); фильтр «только собственники» только для списка.
   const [{ total, totalIsLowerBound, listings, ownersOnly }, market] = await Promise.all([
-    loadOwnersFilter().then((realtors) => findBuyerListings(wants, parsed.data.limit, realtors)),
+    loadOwnersFilter().then((realtors) => findBuyerListings(wants, parsed.data.limit, realtors, parsed.data.offset)),
     findBuyerMarketSummary(wants),
   ]);
   const seesPhone = can(req, "clients.viewPhone");
@@ -431,6 +431,9 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
     budgetMaxTjs: wants.budgetMaxTjs,
     market,
     ownersOnly,
+    offset: parsed.data.offset,
+    freshDays: wants.rules.freshDays,
+    clientDistrictMissing: wants.districtName == null,
     listings: listings.map(l => ({ ...l, title: phoneSafeText(l.title, seesPhone) })),
   };
   return res.json(body);

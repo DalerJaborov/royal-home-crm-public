@@ -96,7 +96,8 @@ it("keeps a grouped amount together at a voice split boundary", async () => {
   const beforeAmount = "Хорошо, обсудим условия ".padEnd(176, "а");
   const input = beforeAmount + " 810 000 сомони за объект.";
   expect(await f.replay(input)).toBe(true);
-  expect(f.spoken).toEqual([input]);
+  // 17.11.2026: русская речь тоже без цифр — сумма целиком словами, в одной части.
+  expect(f.spoken).toEqual([input.replace("810 000", "восемьсот десять тысяч")]);
 });
 
 it("leaves a numeric paragraph written if Tajik number expansion makes it too long", async () => {
@@ -123,6 +124,8 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     "./assistantPropertyDraft.js": { handleTelegramPropertyDraft: async () => false },
     // «Править текст» озвучки (11.11.2026): ожидания нет — сообщение идёт дальше обычным путём.
     "./assistantNarration.js": { handleNarrationTextReply: async () => false },
+    // «Озвучь текст» (16.11.2026): просьбы нет — сообщение идёт дальше обычным путём.
+    "./assistantFreeNarration.js": { handleFreeNarrationMessage: async () => false },
     // Ролик от сотрудника (12.11.2026): ожидания «к какому объекту» нет, видео нет.
     "./staffClip.js": { handleStaffClipText: async () => false, handleStaffClipMessage: async () => false },
     // «Не присылай мне такое» (11.11.2026): фраза не про это — сообщение идёт дальше.

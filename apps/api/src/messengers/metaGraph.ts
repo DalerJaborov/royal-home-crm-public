@@ -14,9 +14,35 @@ export const GRAPH_VERSION = "v23.0";
  * нужна. IG_PROXY_URL/IG_PROXY_KEY оставлены на случай, если понадобится развести.
  */
 const GRAPH_INSTAGRAM_ORIGIN = "https://graph.instagram.com";
+const GRAPH_FACEBOOK_ORIGIN = "https://graph.facebook.com";
+
+/**
+ * МАРКЕР FACEBOOK LOGIN (начинается на `EAA`) — одна проверка на всю CRM
+ * (13.11.2026, «Войти через Facebook»).
+ *
+ * У аккаунта Instagram в CRM маркер бывает двух видов:
+ *  - вход через Instagram (`IGAA…`) — ходит на graph.instagram.com;
+ *  - маркер Страницы Facebook (`EAA…`), к которой привязан этот Instagram, —
+ *    такой аккаунт подключён кнопкой «Войти через Facebook» и может говорить
+ *    ТОЛЬКО через Страницу на graph.facebook.com. graph.instagram.com такой
+ *    маркер не принимает вовсе («Cannot parse access token», живой случай
+ *    20.09.2026 — см. lib/secretFormat.ts).
+ * Это свойство самого маркера, а не того, как его завели, поэтому решается по
+ * началу строки здесь, в одном месте, а не флажком в базе.
+ */
+export function isFacebookLoginToken(token: string | null | undefined): boolean {
+  return typeof token === "string" && /^EAA/.test(token.trim());
+}
 
 function instagramProxyBase(): string | undefined {
   return process.env.IG_PROXY_URL || process.env.GEMINI_PROXY_URL || undefined;
+}
+
+/** Путь адреса Instagram (graph.instagram.com или прокси), иначе null. */
+function instagramPathOf(url: string, proxy: string | undefined): string | null {
+  if (url.startsWith(GRAPH_INSTAGRAM_ORIGIN)) return url.slice(GRAPH_INSTAGRAM_ORIGIN.length);
+  if (proxy && url.startsWith(proxy)) return url.slice(proxy.length);
+  return null;
 }
 
 export function instagramApiUrl(path: string): string {
@@ -45,6 +71,17 @@ export function instagramApiUrl(path: string): string {
  */
 export function instagramRequest(url: string, token: string): { url: string; headers: Record<string, string> } {
   const proxy = instagramProxyBase();
+  // Маркер Страницы у аккаунта Instagram (13.11.2026): graph.instagram.com его
+  // не примет, а те же объекты Instagram (публикация, медиа, комментарий) по тому
+  // же пути читаются на graph.facebook.com маркером Страницы. Адреса `/me…` НЕ
+  // переносим: там `/me` маркера Страницы — это Страница, а не Instagram, и ответ
+  // был бы чужим объектом (их обходят вызывающие: instagramTokenIdentity и др.).
+  if (isFacebookLoginToken(token)) {
+    const path = instagramPathOf(url, proxy);
+    if (path !== null && !/^\/v\d+\.\d+\/me(?:[/?]|$)/.test(path) && !/^\/me(?:[/?]|$)/.test(path)) {
+      return { url: `${GRAPH_FACEBOOK_ORIGIN}${path}`, headers: { Authorization: `Bearer ${token}` } };
+    }
+  }
   if (!proxy) return { url, headers: { Authorization: `Bearer ${token}` } };
   const target = url.startsWith(proxy)
     ? url

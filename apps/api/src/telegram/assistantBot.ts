@@ -27,6 +27,7 @@ import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
+import { handleFreeNarrationCallback, handleFreeNarrationMessage } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
@@ -163,12 +164,27 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "get_company_stats",
   "get_finance_summary",
   "get_lead_sources",
+  // «Мозг компании» (17.11.2026, tools/brainReadTools.ts): сводки по компании, людям,
+  // звонкам и сбоям — только в личке, как get_company_stats. Список буквами; сверку с
+  // реестром держит tests/ai-assistant-brain-read-tools.test.ts.
+  "get_day_snapshot",
+  "get_unworked",
+  "get_my_day",
+  "get_missed_calls",
+  "get_team_load",
+  "get_stuck_work",
   "get_client_last_call",
   "create_task",
   "reschedule_task",
   "add_client_note",
+  // Выход объекта из монтажа в продажу, «Готово» (17.11.2026): публикует на сайт и уведомляет агента — только в личке.
+  "complete_property_editing",
+  // Смена статуса объекта (17.11.2026): теперь меняется сразу (снять с продажи, продано) и закрывает показы и посты — только в личке.
+  "change_property_status",
   // Удаление клиента (15.11.2026): карточка клиента и подтверждение — только в личке.
   "delete_client",
+  // Возврат клиента из Корзины (17.11.2026): та же карточка клиента — только личка.
+  "restore_client",
   // Сотрудники и права — только личка (владелец 10.11.2026): в группе ни читать, ни менять.
   ...STAFF_TOOL_NAMES,
   // Личная настройка уведомлений (14.11.2026): только в личке; в группе — вторая стена к allowed().
@@ -181,6 +197,10 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "list_expense_archive", "list_expense_categories", "add_expenses", "update_expense", "delete_expense", "restore_expense",
   "pay_expense", "undo_expense_payment", "create_recurring_expense", "update_recurring_expense", "delete_recurring_expense",
   "recurring_expense_payment", "create_expense_category", "update_expense_category", "get_expense_history",
+  // «Режим директора» (17.11.2026, ai/assistant/tools/directorTools.ts): заявки, журнал ошибок, здоровье,
+  // рубильники — только в личке. Буквами (не импортом): сверку с DIRECTOR_TOOL_NAMES держит
+  // tests/ai-assistant-director-tools.test.ts.
+  "list_pending_requests", "decide_request", "get_error_log", "resolve_error", "get_system_health", "list_switches", "set_switch",
 ]);
 
 /** Для теста-сторожа: что закрыто в общей группе. */
@@ -836,6 +856,8 @@ export async function handleAssistantPrivate(
     if (msg.document && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
     // «Править текст» озвучки (15 минут после кнопки) — раньше мастера объекта и общего ответа.
     if (!isForwarded && await handleNarrationTextReply(msg, agent)) return;
+    // «Озвучь текст» (16.11.2026): дословная озвучка текста сотрудника выбранным голосом — telegram/assistantFreeNarration.ts.
+    if (await handleFreeNarrationMessage(msg, agent, isForwarded)) return;
     // Ответ «к какому объекту ролик» (30 минут после вопроса) — telegram/staffClip.ts.
     if (!isForwarded && await handleStaffClipText(msg, agent)) return;
     if (!isForwarded && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
@@ -1720,6 +1742,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
   if (await handleTelegramPropertyDraftCallback(query)) return true;
   if (await handlePropertyOfferCallback(query)) return true;
   if (await handleNarrationCallback(query)) return true;
+  if (await handleFreeNarrationCallback(query)) return true;
   if (await handleStaffClipCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);
@@ -1910,6 +1933,13 @@ type BundleOutcome =
   | { kind: "replay" }
   | { kind: "done"; failed: boolean; lines: string[]; priceResult?: string; undoable: boolean };
 
+/** Текст «изменено, но не всё» из итога действия (changeRequestTool.ts::honestAppliedOutcome). */
+export function partialResultNote(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const value = result as { status?: unknown; message?: unknown };
+  return value.status === "PARTIAL" && typeof value.message === "string" && value.message.trim() ? value.message.trim() : undefined;
+}
+
 export function renderGroupPriceResult(action: AssistantActionView, tajik = false): string | undefined {
   if (action.tool !== "change_property_price" || typeof action.preview.becomes.Цена !== "string"
     || !action.result || typeof action.result !== "object") return undefined;
@@ -1949,6 +1979,9 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
       if (!replay) ranAny = true;
       if (!replay && ids.length === 1) priceResult = renderGroupPriceResult(action, tajikPrice);
       lines.push(`${replay ? "↺" : "•"} ${action.preview.title}`);
+      // «Изменено, но не всё» (заявка FAILED после записи, 17.11.2026) — не прятать за «Готово».
+      const partial = partialResultNote(action.result);
+      if (partial) lines.push(`⚠️ ${partial}`);
       if (action.undoUntil && UNDO_IN_TELEGRAM.has(action.tool)) undoable = true;
     } catch (err) {
       if (err instanceof AssistantActionError && err.code === "IN_PROGRESS") return { kind: "busy" };

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { NARRATION_TAJIK_MODELS, type NarrationConfig, type NarrationSettingsView, type NarrationTemplate } from "@royal-home/shared";
+import { NARRATION_PROPERTY_TYPES, NARRATION_PROPERTY_TYPE_LABELS, NARRATION_TAJIK_MODELS, type NarrationConfig, type NarrationEnding, type NarrationPropertyType, type NarrationSettingsView, type NarrationTemplate } from "@royal-home/shared";
 import { api } from "../../lib/api";
 
 /**
@@ -22,9 +22,10 @@ export function NarrationSettingsPanel() {
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [modelId, setModelId] = useState<string | null>(null), [voicesText, setVoicesText] = useState<string | null>(null);
   const [autoGenerate, setAutoGenerate] = useState<boolean | null>(null), [mixByCrm, setMixByCrm] = useState<boolean | null>(null);
-  const [backfill, setBackfill] = useState<boolean | null>(null), [monthlyPreview, setMonthlyPreview] = useState<boolean | null>(null);
-  const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string }>({});
-  const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null);
+  const [autoSeparate, setAutoSeparate] = useState<boolean | null>(null);
+  const [backfill, setBackfill] = useState<boolean | null>(null), [monthlyPreview, setMonthlyPreview] = useState<boolean | null>(null), [freeEnabled, setFreeEnabled] = useState<boolean | null>(null);
+  const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string; freePerson?: string; freeMax?: string; freeShare?: string }>({});
+  const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null), [endingsDraft, setEndingsDraft] = useState<NarrationEnding[] | null>(null);
   const [rulesDraft, setRulesDraft] = useState<Rule[] | null>(null);
 
   async function run(action: () => Promise<void>) {
@@ -40,6 +41,7 @@ export function NarrationSettingsPanel() {
   const readOnly = !data.canConfigure;
   const model = modelId ?? config.modelId;
   const templates = templatesDraft ?? config.templates ?? [];
+  const endings = endingsDraft ?? config.endings ?? [];
   const rules = rulesDraft ?? config.pronunciationRules ?? [];
 
   return (
@@ -76,7 +78,8 @@ export function NarrationSettingsPanel() {
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Как работает</legend>
         <Check checked={autoGenerate ?? !!config.autoGenerate} onChange={setAutoGenerate}>Автоозвучка: аудио готовится само после создания объекта и после правки его данных, агент слушает и одобряет</Check>
-        <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос накладывает CRM: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает mp3 сам и присылает ещё тот же ролик без голоса</Check>
+        <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос накладывает CRM: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает mp3 сам</Check>
+        <Check checked={autoSeparate ?? config.autoSeparateVoice !== false} onChange={setAutoSeparate}>Новая цена у вышедшего ролика: CRM сама убирает из него старый голос и кладёт новую озвучку, монтажёр сдаёт один готовый файл. Не получилось — ролик уходит монтажёру. Выключено: монтажёра просят присылать ещё ролик без голоса</Check>
         <Check checked={backfill ?? config.backfillMontageQueue === true} onChange={setBackfill}>Озвучка к роликам, которые уже в монтаже: готовить по шаблону и голосу по умолчанию, одобряет владелец</Check>
         <Check checked={monthlyPreview ?? !!config.ownerReportPreviewEnabled} onChange={setMonthlyPreview}>Готовить черновик каждого месяца для уже согласованных отчётов собственнику. SMS не отправлять</Check>
       </fieldset>
@@ -91,23 +94,57 @@ export function NarrationSettingsPanel() {
       </fieldset>
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
+        <legend className="text-sm font-semibold">Озвучка текста в помощнике</legend>
+        <Check checked={freeEnabled ?? config.freeNarrationEnabled !== false} onChange={setFreeEnabled}>Сотрудники могут прислать Шабнам любой текст, выбрать голос и получить аудиофайл. Читается слово в слово</Check>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <label className="block text-sm">Озвучек на человека в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freePerson ?? String(config.freeNarrationPerPersonDaily ?? 5)} onChange={(e) => setLimitsText({ ...limitsText, freePerson: e.target.value })} /></label>
+          <label className="block text-sm">Символов в одном тексте<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freeMax ?? String(config.freeNarrationMaxChars ?? 1500)} onChange={(e) => setLimitsText({ ...limitsText, freeMax: e.target.value })} /></label>
+          <label className="block text-sm">Доля от дневного предела, %<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freeShare ?? String(config.freeNarrationBudgetPercent ?? 30)} onChange={(e) => setLimitsText({ ...limitsText, freeShare: e.target.value })} /></label>
+        </div>
+        <p className="text-sm text-[var(--muted)]">Доля нужна, чтобы чужие тексты не съели озвучку роликов: больше этой части дневного предела на них не тратится.</p>
+      </fieldset>
+
+      <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Шаблоны текста</legend>
         <p className="text-sm text-[var(--muted)]">
-          Агент выбирает голос, и текст ставится сам из шаблона этого языка. Несколько шаблонов на язык: у агента появляется кнопка «Другой вариант»,
-          а каждый новый объект получает следующий вариант, чтобы ролики не звучали одинаково.
-          Слова в фигурных скобках подставляются из объекта: {"{вид} {комнаты} {площадь} {этаж} {этаж_пор} {этажей} {район} {цена}"}. Квадратные скобки: «если есть».
+          Агент выбирает голос, и текст ставится сам: случайный шаблон этого языка, подходящий типу объекта, и случайная концовка. Новый объект
+          не получает тот же шаблон и ту же концовку, что прошлый. У агента есть кнопка «Другой вариант», а выбранный им шаблон остаётся.
+          Тип «ничего не отмечено» значит: подходит любому объекту. «Только вручную»: шаблон сам не выбирается и концовку не получает, его берут руками.
+          Слова в фигурных скобках подставляются из объекта: {"{вид} {комнаты} {площадь} {сотки} {этаж} {этаж_пор} {этажей} {район} {цена}"}. {"{сотки}"}: площадь участка в сотках (дробная — в метрах), у других объектов пусто. Квадратные скобки: «если есть».
+          Цифры в тексте писать нельзя ни по-таджикски, ни по-русски (числа только словами), «Директ» пишем по-русски, слово «брон» нельзя.
         </p>
-        {templates.map((t, i) => <div key={t.id} className="space-y-1 rounded border p-2">
+        {templates.map((t, i) => <details key={t.id} className="space-y-1 rounded border p-2"><summary className="cursor-pointer text-sm font-medium">{t.name}{t.manualOnly ? " (вручную)" : ""} · {t.lang === "tg" ? "тоҷикӣ" : "рус."}</summary>
           <div className="flex flex-wrap gap-2">
-            <input aria-label="Название шаблона" className="min-w-0 flex-1 rounded border p-2 text-sm" value={t.name} onChange={(e) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+            <input aria-label="Название шаблона" className="min-w-0 flex-1 basis-full rounded border p-2 text-sm sm:basis-0" value={t.name} onChange={(e) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
             <select aria-label="Язык шаблона" className="rounded border p-2 text-sm" value={t.lang} onChange={(e) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, lang: e.target.value as "tg" | "ru" } : x))}>
               <option value="tg">по-таджикски</option><option value="ru">по-русски</option>
             </select>
             <button type="button" className="pill sm" onClick={() => setTemplatesDraft(templates.filter((_, j) => j !== i))}>Убрать</button>
           </div>
+          <TypeChecks label="Подходит для" value={t.propertyTypes} onChange={(next) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, propertyTypes: next } : x))} />
+          <Check checked={t.manualOnly === true} onChange={(next) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, manualOnly: next || undefined } : x))}>Только вручную</Check>
           <textarea aria-label="Текст шаблона" rows={4} className="w-full rounded border p-2 text-sm" value={t.text} onChange={(e) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, text: e.target.value } : x))} />
-        </div>)}
+        </details>)}
         <button type="button" className="pill sm" onClick={() => setTemplatesDraft([...templates, { id: `t-${Date.now().toString(36)}`, name: "Новый шаблон", lang: "tg", text: "{вид} барои фурӯш. Масоҳаташ {площадь} метри мураббаъ." }])}>Добавить шаблон</button>
+      </fieldset>
+
+      <fieldset className="space-y-2" disabled={readOnly || busy}>
+        <legend className="text-sm font-semibold">Концовки</legend>
+        <p className="text-sm text-[var(--muted)]">
+          Призыв в конце ролика: после основной части шаблона ставится одна случайная концовка нужного языка и типа объекта, не равная прошлой.
+          Те же правила текста, что у шаблонов.
+        </p>
+        {endings.map((e, i) => <details key={e.id} className="space-y-1 rounded border p-2"><summary className="cursor-pointer text-sm font-medium">{e.text.slice(0, 50)}…</summary>
+          <div className="flex flex-wrap gap-2">
+            <select aria-label="Язык концовки" className="rounded border p-2 text-sm" value={e.lang} onChange={(ev) => setEndingsDraft(endings.map((x, j) => j === i ? { ...x, lang: ev.target.value as "tg" | "ru" } : x))}>
+              <option value="tg">по-таджикски</option><option value="ru">по-русски</option>
+            </select>
+            <button type="button" className="pill sm" onClick={() => setEndingsDraft(endings.filter((_, j) => j !== i))}>Убрать</button>
+          </div>
+          <TypeChecks label="Подходит для" value={e.propertyTypes} onChange={(next) => setEndingsDraft(endings.map((x, j) => j === i ? { ...x, propertyTypes: next } : x))} />
+          <textarea aria-label="Текст концовки" rows={3} className="w-full rounded border p-2 text-sm" value={e.text} onChange={(ev) => setEndingsDraft(endings.map((x, j) => j === i ? { ...x, text: ev.target.value } : x))} />
+        </details>)}
+        <button type="button" className="pill sm" onClick={() => setEndingsDraft([...endings, { id: `e-${Date.now().toString(36)}`, lang: "tg", text: "Ба мо дар Директ нависед ё занг занед." }])}>Добавить концовку</button>
       </fieldset>
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
@@ -131,12 +168,17 @@ export function NarrationSettingsPanel() {
         });
         const number = (text: string | undefined, fallback: number | undefined) => text === undefined ? fallback : Math.max(0, Math.round(Number(text) || 0));
         const patch: Partial<NarrationConfig> = { modelId: model, voices, ownerReportPreviewEnabled: monthlyPreview ?? !!config.ownerReportPreviewEnabled,
-          autoGenerate: autoGenerate ?? !!config.autoGenerate, mixByCrm: mixByCrm ?? config.mixByCrm === true, backfillMontageQueue: backfill ?? config.backfillMontageQueue === true,
+          autoGenerate: autoGenerate ?? !!config.autoGenerate, mixByCrm: mixByCrm ?? config.mixByCrm === true, backfillMontageQueue: backfill ?? config.backfillMontageQueue === true, autoSeparateVoice: autoSeparate ?? config.autoSeparateVoice !== false,
           ...(rulesDraft ? { pronunciationRules: rulesDraft.filter((r) => r.word.trim() && (r.alias?.trim() || r.phoneme?.trim())) } : {}),
           dailyCharLimit: number(limitsText.chars, config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, config.dailyGenerationLimit),
-          debounceMinutes: number(limitsText.pause, config.debounceMinutes), ...(templatesDraft ? { templates: templatesDraft } : {}) };
+          debounceMinutes: number(limitsText.pause, config.debounceMinutes),
+          freeNarrationEnabled: freeEnabled ?? config.freeNarrationEnabled !== false,
+          freeNarrationPerPersonDaily: Math.min(100, Math.max(1, number(limitsText.freePerson, config.freeNarrationPerPersonDaily ?? 5) ?? 5)),
+          freeNarrationMaxChars: Math.min(5000, Math.max(50, number(limitsText.freeMax, config.freeNarrationMaxChars ?? 1500) ?? 1500)),
+          freeNarrationBudgetPercent: Math.min(100, Math.max(1, number(limitsText.freeShare, config.freeNarrationBudgetPercent ?? 30) ?? 30)),
+          ...(templatesDraft ? { templates: templatesDraft } : {}), ...(endingsDraft ? { endings: endingsDraft } : {}) };
         const saved = await api<{ message?: string }>("/properties/narration-settings", { method: "PUT", body: patch });
-        setRulesDraft(null); setTemplatesDraft(null); setVoicesText(null); setLimitsText({});
+        setRulesDraft(null); setTemplatesDraft(null); setEndingsDraft(null); setVoicesText(null); setLimitsText({}); setFreeEnabled(null);
         setMessage(saved.message ?? "Настройки озвучки сохранены.");
       })}>Сохранить настройки озвучки</button>}
       {message && <p className="text-sm" role="status">{message}</p>}
@@ -145,7 +187,21 @@ export function NarrationSettingsPanel() {
 }
 
 function Check({ checked, onChange, children }: { checked: boolean; onChange: (next: boolean) => void; children: ReactNode }) {
-  return <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1 h-4 w-4 shrink-0" checked={checked} onChange={(e) => onChange(e.target.checked)} /><span>{children}</span></label>;
+  return <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5 h-6 w-6 shrink-0" checked={checked} onChange={(e) => onChange(e.target.checked)} /><span>{children}</span></label>;
+}
+
+/** Галочки типов объекта у шаблона или концовки; пусто = подходит всем. */
+function TypeChecks({ label, value, onChange }: { label: string; value: NarrationPropertyType[] | undefined; onChange: (next: NarrationPropertyType[] | undefined) => void }) {
+  const chosen = value ?? [];
+  return <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" role="group" aria-label={label}>
+    <span className="text-[var(--muted)]">{label}:</span>
+    {NARRATION_PROPERTY_TYPES.map((type) => <label key={type} className="flex items-center gap-1.5">
+      <input type="checkbox" className="h-6 w-6" checked={chosen.includes(type)}
+        onChange={(e) => { const next = NARRATION_PROPERTY_TYPES.filter((x) => (x === type ? e.target.checked : chosen.includes(x))); onChange(next.length ? next : undefined); }} />
+      {NARRATION_PROPERTY_TYPE_LABELS[type]}
+    </label>)}
+    {!chosen.length && <span className="text-[var(--muted)]">(любой объект)</span>}
+  </div>;
 }
 
 function voiceLines(config: NarrationConfig): string {

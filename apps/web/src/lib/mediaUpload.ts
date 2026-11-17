@@ -1,11 +1,5 @@
-import { useAuthStore } from "../store/auth";
-import { getOrCreateDeviceId } from "./deviceId";
-import { ApiError } from "./apiError";
-import { httpStatusMessage } from "./httpStatusMessage";
-
-/** Столько тишины в канале считаем обрывом — тот же порог, что у обеих
- *  очередей загрузки (`lib/uploadQueue.ts`). */
-const STALL_MS = 60_000;
+import { CONVERSATION_MEDIA_MAX_BYTES } from "@royal-home/shared";
+import { uploadToPurpose, type ChunkedSessionHolder } from "./chunkedUpload";
 
 /**
  * Пределы ИСХОДЯЩЕГО ФОТО по каналу (18.08.2026) — зеркало OUTGOING_MEDIA_LIMITS
@@ -27,10 +21,11 @@ export const OUTGOING_IMAGE_LIMIT_MB: Record<string, number> = {
   FACEBOOK: 25,
 };
 
-/** Верхний предохранитель выбора файла на фронте — 1 ГБ, НЕ лимит Meta (тот
- *  выбирает файл/ссылку на бэкенде). Ловит только явно случайный выбор не того
- *  файла, отдельного смысла у числа больше нет. */
-export const MAX_MEDIA_PICK_MB = 1024;
+/** Верхний предохранитель выбора файла — НЕ лимит Meta (тот выбирает файл/ссылку на
+ *  бэкенде). До 17.11.2026 здесь стоял 1 ГБ, а сервер принимал 300 МБ: экран пропускал
+ *  файл, который сервер всё равно отклонял. Теперь число одно — CONVERSATION_MEDIA_MAX_BYTES
+ *  в packages/shared, им же сервер проверяет старт загрузки. */
+export const MAX_MEDIA_PICK_MB = Math.round(CONVERSATION_MEDIA_MAX_BYTES / (1024 * 1024));
 
 /** Проверяет выбранный файл фото/видео ДО загрузки — тот же расчёт, что раньше
  *  жил только в Messages.tsx (см. комментарий у OUTGOING_IMAGE_LIMIT_MB выше).
@@ -54,96 +49,65 @@ export function validateOutgoingMediaPick(file: File, channel: string | undefine
 }
 
 /**
- * Загрузка фото/видео в переписку С ПРОГРЕССОМ (18.08.2026).
+ * Загрузка фото/видео в переписку С ПРОГРЕССОМ (18.08.2026), ЧАСТЯМИ с 17.11.2026.
  *
- * Отдельно от lib/api.ts: `fetch` не отдаёт прогресс ОТПРАВКИ тела запроса ни в
- * одном стабильном кросс-браузерном API (ReadableStream-body есть только за
- * флагом в части браузеров) — только XMLHttpRequest умеет `upload.onprogress`
- * везде. Ради одного индикатора тащить сюда axios как зависимость не стали —
- * XHR тот же fetch по правам (Authorization, credentials), только с прогрессом.
+ * Одним запросом ролик объекта 100-300 МБ не доходил до сервера: Cloudflare и прокси режут
+ * тело больше ~100 МБ (413 «Файл слишком большой» ещё до API). Теперь файл едет частями по
+ * 8 МБ (общий помощник lib/chunkedUpload.ts, назначение `conversation-media`), каждая часть
+ * при сбое повторяется, а сервер на сборке доставляет файл клиенту тем же путём, что и
+ * прежний одиночный маршрут (routes/conversations.ts, deliverReplyMedia).
+ *
+ * Ключ повтора уходит на шаге сборки: «Повторить» после обрыва не шлёт клиенту файл второй
+ * раз — сервер отдаёт ответ первой сборки (lib/idempotency.ts).
  */
+export const MEDIA_DELIVERY_WAIT_MS = 120_000;
+
+/**
+ * Состояние отправки между попытками и отмена (ревью #254). По `localId` пузыря: сессия
+ * частей (повтор докачивает её, а не грузит файл заново) и рычаг отмены — «Отменить»
+ * обрывает идущую часть, не шлёт оставшиеся и не зовёт сборку, то есть файл клиенту не уйдёт.
+ * Модульная таблица, а не состояние компонента: пузырь живёт в общем сторе и переживает
+ * переключение диалогов, а с ним и загрузка.
+ */
+const inFlight = new Map<string, { session: ChunkedSessionHolder; controller: AbortController }>();
+
+/** Отменить отправку пузыря. Сессию забываем: следующий раз — с чистого листа. */
+export function cancelConversationMediaUpload(localId: string): void {
+  const entry = inFlight.get(localId);
+  entry?.controller.abort();
+  inFlight.delete(localId);
+}
+
+/** Успех — забыть состояние пузыря. */
+function forget(localId: string) {
+  inFlight.delete(localId);
+}
+
 export function uploadConversationMedia(
   conversationId: string,
   file: File,
   caption: string | undefined,
   onProgress: (percent: number) => void,
   /** Ключ повтора (17.11.2026, аудит F2-4): «Повторить» после обрыва не шлёт клиенту файл второй раз. */
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  /** id пузыря: по нему повтор находит прошлую сессию, а «Отменить» — эту отправку. */
+  localId?: string
 ): Promise<{ ok: boolean; pausedUntil: string }> {
-  return new Promise((resolve, reject) => {
-    const form = new FormData();
-    form.append("media", file, file.name);
-    if (caption) form.append("caption", caption);
-
-    const xhr = new XMLHttpRequest();
-    /**
-     * СТОРОЖ ПО ТИШИНЕ (21.09.2026, тот же разбор, что и у двух очередей
-     * загрузки — `lib/uploadQueue.ts` и `lib/draftUploads.ts`).
-     *
-     * `onabort` здесь был с самого начала, а вот потолка ожидания нет: без
-     * явного `xhr.timeout` XHR ждёт ответа бесконечно. Молча заглохший запрос
-     * (сервер принял байты и замолчал, туннель оборвался без события) оставлял
-     * обещание висеть навсегда — в переписке это вечная полоса отправки, из
-     * которой нельзя выйти иначе как перезагрузкой страницы.
-     *
-     * Потолок по ДВИЖЕНИЮ БАЙТ, а не по общему времени: видео из переписки на
-     * мобильном канале едет минутами и честный долгий запрос убивать нельзя.
-     */
-    let settled = false;
-    let stallTimer: ReturnType<typeof setTimeout> | null = null;
-    const done = () => {
-      settled = true;
-      if (stallTimer) clearTimeout(stallTimer);
-    };
-    const beat = () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      stallTimer = setTimeout(() => {
-        if (settled) return;
-        // abort() поднимет onabort, он и отклонит обещание.
-        xhr.abort();
-      }, STALL_MS);
-    };
-    xhr.open("POST", `/api/v1/conversations/${conversationId}/reply-media`);
-    xhr.withCredentials = true;
-    const token = useAuthStore.getState().accessToken;
-    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-    xhr.setRequestHeader("X-Device-Id", getOrCreateDeviceId());
-    if (idempotencyKey) xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
-
-    xhr.upload.onprogress = (e) => {
-      beat();
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    // Тело ушло целиком — дальше ждём сервер (sharp/ffmpeg по вложению), и это
-    // тоже движение: сторож отсчитывает тишину заново.
-    xhr.upload.onload = beat;
-
-    xhr.onload = () => {
-      done();
-      let data: unknown;
-      try {
-        data = xhr.responseText ? JSON.parse(xhr.responseText) : undefined;
-      } catch {
-        data = undefined;
-      }
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(data as { ok: boolean; pausedUntil: string });
-        return;
-      }
-      const message = (data as { error?: string } | undefined)?.error || httpStatusMessage(xhr.status);
-      reject(new ApiError(message, xhr.status, data));
-    };
-
-    xhr.onerror = () => {
-      done();
-      reject(new Error("Сеть недоступна — файл не отправлен"));
-    };
-    xhr.onabort = () => {
-      done();
-      reject(new Error("Связь пропала — файл не отправлен"));
-    };
-
-    beat();
-    xhr.send(form);
+  const previous = localId ? inFlight.get(localId) : undefined;
+  const entry = { session: previous?.session ?? {}, controller: new AbortController() };
+  if (localId) inFlight.set(localId, entry);
+  return uploadToPurpose<{ ok: boolean; pausedUntil: string }>("conversation-media", file, {
+    // id сессии — в теле: ключ повтора привязан к адресу, а повтор открывает новую сессию.
+    completeUrl: () => `/api/v1/conversations/${conversationId}/reply-media/upload-sessions/complete`,
+    completeBody: (sessionId) => (caption ? { sessionId, caption } : { sessionId }),
+    completeHeaders: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+    completeWaitMs: MEDIA_DELIVERY_WAIT_MS,
+    completeWaitMessage: "Сервер долго отправляет файл. Проверьте переписку: файл мог уйти — тогда повторять не нужно.",
+    onProgress,
+    signal: entry.controller.signal,
+    session: entry.session,
+  }).then((result) => {
+    if (localId) forget(localId);
+    return result;
   });
 }

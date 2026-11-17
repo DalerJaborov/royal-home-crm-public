@@ -17,6 +17,8 @@ import { customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFe
 import { readCustomerAgentBrand } from "./customerAgentBrandRead.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { withBotTurnTrace, traceCustomerCoreResult, traceCustomerCoreDisposition, type TraceConfig } from "./botTurnTrace.js";
+import { loadLeadOnlyConfig } from "./leadOnlyConfig.js";
+import { leadOnlyAppliesTo } from "../ai/leadOnlyMode.js";
 
 /**
  * THE CORE CHANNEL ADAPTER — one brain, step 3 (owner 16.11.2026).
@@ -55,6 +57,7 @@ export interface ChannelCoreTurn {
   /**
    * Which run of THIS customer turn this is: 1 = the live turn (default), n = the (n-1)-th repeat of the channel's AI-retry
    * (the job's own attempt + 1; YouTube: the comment row's attempt). Live mode only: see CHANNEL_CORE_MAX_ATTEMPTS.
+   * A fallback: the stored message's own run count (claimChannelCoreRun) wins whenever it is known (review 0e463b02 N2).
    */
   attempt?: number;
 }
@@ -80,7 +83,7 @@ export type ChannelCoreStaffReason = "escalate" | "action_needs_staff" | "unread
 
 /**
  * HELD REASONS WORTH A REPEAT (review #223 N3 + R1, 17.11.2026). The channels' AI-retry ladder would play a turn again for up
- * to ~13 hours (jobs/aiReplyRetryPolicy.ts, 46 attempts, each a paid model call); on the core it is cut to
+ * to ~13 hours (jobs/aiReplyRetryPolicy.ts, 46 attempts, each a full core run); on the core it is cut to
  * CHANNEL_CORE_MAX_ATTEMPTS. Only a failure that a later, fresh run can escape is repeated: the deadline ran out, the runtime
  * or the pinned revision is not available right now, the adapter threw, or the turn failed (`turn_unavailable`, or
  * `operation_stopped` when the provider operation stopped too — review #223 R1-1) with a TRANSIENT cause — provider 408/429/5xx, network, timeout (customerCoreFailureTransient). `turn_unavailable` is EVERY
@@ -107,6 +110,11 @@ const CAUSE_DECIDES: ReadonlySet<string> = new Set(["turn_unavailable", "operati
  * At most this many runs of ONE customer turn on the core (owner 17.11.2026, review #223 R1): the live turn and two repeats.
  * After the last one a person is told at once and the customer hears the handover line; a run past the limit (a job that
  * failed after the model answered, a re-queued retry) never calls the model again.
+ *
+ * A RUN IS NOT ONE PAID CALL (review 0e463b02 N3). One run is one provider operation: up to `maxAttempts: 4` paid generate
+ * requests (tool rounds, `maxRounds: 3`, and the provider's own retries share them; customerAgentProviderConfig.ts). The next
+ * run opens a new operation with 4 new attempts, and repeats are not charged to the chat's daily budget (`retryOfPaidTurn`).
+ * Worst case per customer message: 3 runs × 4 = 12 paid generate requests, about $0.39 at `maxOperationUsd` (an estimate).
  */
 export const CHANNEL_CORE_MAX_ATTEMPTS = 3;
 
@@ -115,7 +123,7 @@ export const CHANNEL_CORE_MAX_ATTEMPTS = 3;
  *
  * The retry jobs count their own attempts, and a job's count dies with the job: the website's stuck-chat cron
  * (cron.ts `health-automation`, every 30 minutes) queues a NEW `ai-reply-retry` for a chat that is still unanswered, and the
- * manual «Повторить зависшим» button starts from 1 as well — up to ~94 paid core calls a day on one message. The count lives
+ * manual «Повторить зависшим» button starts from 1 as well — up to ~94 core runs a day on one message. The count lives
  * on the customer's message instead: one `ProcessedMessage` row per run (`channel-core-run`, key = channel + conversation +
  * the stored message's time and content digest + run number), claimed atomically (ON CONFLICT DO NOTHING), so two concurrent
  * runs never share a number and no job, cron tick or button can start the count again. Rows age out with the table's 3-day
@@ -161,6 +169,18 @@ export async function claimChannelCoreRun(turn: Pick<ChannelCoreTurn, "channel" 
 }
 
 export const CUSTOMER_AGENT_CHANNEL_CORE_TOOLS = ["get_agency_contact", "get_company_policy", "search_public_properties", "get_company_information", "get_open_vacancies"] as const;
+/**
+ * Pure: the tools of one channel turn. Lead-only mode on this channel (WhatsApp/Instagram/Facebook, owner 12–13.11.2026: no
+ * picks, photos or links) takes the search away, the same as the DM core does (lib/customerDmAgentTurn.ts): nothing to pick
+ * from, nothing to show. Today such channels reach this adapter only in shadow; the rule holds for any future live use too.
+ */
+export function channelCoreToolNames(leadOnly: boolean): readonly (typeof CUSTOMER_AGENT_CHANNEL_CORE_TOOLS)[number][] {
+  return leadOnly ? CUSTOMER_AGENT_CHANNEL_CORE_TOOLS.filter(name => name !== "search_public_properties") : CUSTOMER_AGENT_CHANNEL_CORE_TOOLS;
+}
+/** Lead-only mode applies to this channel right now. A settings failure reads as "off" (loadLeadOnlyConfig). */
+export async function channelCoreLeadOnly(channel: string): Promise<boolean> {
+  return leadOnlyAppliesTo(channel) && (await loadLeadOnlyConfig()).enabled;
+}
 const MAX_DEADLINE_MS = 60_000;
 
 /** Markers the channels write instead of a file they did not read («[📷]», «[🎤 не расслышал]», «[📎 …]»): not words. */
@@ -235,10 +255,14 @@ function channelCoreRetriesExhausted(history: ChannelCoreTurn["history"]): Chann
 export async function runChannelCoreTurn(turn: ChannelCoreTurn, options: ChannelCoreRunOptions): Promise<ChannelCoreOutcome> {
   if (options.mode === "shadow") return runChannelCoreTurnOnce(turn, options);
   const asked = Number.isSafeInteger(turn.attempt) && (turn.attempt as number) >= 1 ? turn.attempt as number : 1;
-  // Past the limit: no model call at all — this turn's repeats are spent (a re-queued job, a job that failed after the core).
-  if (asked > CHANNEL_CORE_MAX_ATTEMPTS) return channelCoreRetriesExhausted(turn.history);
-  // The message's own count wins over a job's count that started again (review #223 R1-2): never more than MAX runs per message.
-  const attempt = Math.max(asked, await claimChannelCoreRun(turn) ?? 1);
+  // The count of the customer message this run answers decides, not the job's own number (review 0e463b02 N2). A retry job is
+  // one per CONVERSATION (its dedupeKey): after the customer wrote again it plays the NEWER message's turn (a failed live turn
+  // of that message has no job of its own — the enqueue folds into this one), and its attempt number counts the OLDER message.
+  // Taking max(job, message) spent the new message's runs: it could reach its last run, or none at all, on its first try.
+  // The job's number bounds the runs only when the message's count is unknown (no conversation, a database error).
+  const counted = await claimChannelCoreRun(turn);
+  const attempt = counted ?? asked;
+  // Past the limit: no model call at all — this message's runs are spent (a re-queued job, a job that failed after the core).
   if (attempt > CHANNEL_CORE_MAX_ATTEMPTS) {
     console.error(`[one-brain] ${turn.channel}: this customer message already had ${CHANNEL_CORE_MAX_ATTEMPTS} core runs — a person answers`);
     return channelCoreRetriesExhausted(turn.history);
@@ -291,20 +315,21 @@ async function runChannelCoreTurnOnce(turn: ChannelCoreTurn, options: ChannelCor
         const linkPreference = turn.channel === "WEBSITE" ? "site" as const : "social" as const;
         const knownPhoneSource = turn.phoneKnown ? "scoped_contact" as const
           : extractTypedPhone(inputText) || extractVolunteeredPhone(inputText) ? "current_input" as const : "none" as const;
+        const toolNames = channelCoreToolNames(await channelCoreLeadOnly(turn.channel));
         const result = await runCustomerAgentTurn({ surface, language, inputText, knownPhoneSource, requestedFacts: [], revision, startedAt,
-          operation: runtime.operation, tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_CHANNEL_CORE_TOOLS]),
+          operation: runtime.operation, tools: customerAgentToolDefinitions([...toolNames]),
           ...(context.success ? { verifiedContext: context.data } : {}), ...(brand ? { brand } : {}),
           sayMode: options.mode === "shadow" ? "shadow" : customerAgentSayMode(),
           // Same answer switch as Meta DMs (#211): in shadow the model's own words are only counted.
           answerMode: options.mode === "shadow" ? (customerAgentAnswerMode() === "off" ? "off" : "shadow") : customerAgentAnswerMode() }, {
           assertCurrent: async () => true,
           modelTurn: input => runtime.modelTurn(input),
-          executeAllowedTool: call => channelCoreTool(call, { knowledgeSourceHash: revision.knowledgeSourceHash, linkPreference, brandName }),
+          executeAllowedTool: call => channelCoreTool(call, { knowledgeSourceHash: revision.knowledgeSourceHash, linkPreference, brandName, toolNames }),
           requestStop: () => runtime.stop(),
           observeLateToolResult: () => {}, // Read-only tools: nothing to replay.
         });
         traceCustomerCoreResult(result);
-        options.afterCore?.(result, { historyTurns: context.success ? context.data.turns.length : 0, toolsOffered: CUSTOMER_AGENT_CHANNEL_CORE_TOOLS.length });
+        options.afterCore?.(result, { historyTurns: context.success ? context.data.turns.length : 0, toolsOffered: toolNames.length });
         const outcome = channelCoreOutcome(result, intake, surface, language);
         // HELD stays HELD in the trace whether it is repeated or handed to a person (the reason tells which).
         if (result.status !== "ready") traceCustomerCoreDisposition("held", result.reason, result.cause);
@@ -322,10 +347,11 @@ async function runChannelCoreTurnOnce(turn: ChannelCoreTurn, options: ChannelCor
 }
 
 /** Public reads only, from the same internal data service the live adapters use. Every write is denied. */
-async function channelCoreTool(call: CustomerAgentToolCall, options: { knowledgeSourceHash: string; linkPreference: "site" | "social"; brandName: string | null }): Promise<CustomerAgentToolResult> {
+async function channelCoreTool(call: CustomerAgentToolCall, options: { knowledgeSourceHash: string; linkPreference: "site" | "social"; brandName: string | null;
+  toolNames: readonly string[] }): Promise<CustomerAgentToolResult> {
   if (call.name === "get_agency_contact") return { status: "observed", observation: {
     kind: "agency_contact", contact: { phone: PUBLIC_AGENCY_CONTACT.phone, digits: PUBLIC_AGENCY_CONTACT.digits, channel: "telephone" } } };
-  if (!(CUSTOMER_AGENT_CHANNEL_CORE_TOOLS as readonly string[]).includes(call.name)) return { status: "denied", reason: "channel_read_only" };
+  if (!options.toolNames.includes(call.name)) return { status: "denied", reason: "channel_read_only" };
   const read = await readCustomerAgentPublicData(call, { knowledgeSourceHash: options.knowledgeSourceHash,
     linkPreference: options.linkPreference, brandName: options.brandName });
   return read.status === "observed" ? { status: "observed", observation: read.observation } : read;

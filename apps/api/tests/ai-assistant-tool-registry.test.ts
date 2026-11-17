@@ -60,8 +60,12 @@ describe("реестр инструментов помощника", () => {
       "get_property_work_status",
       "list_my_tasks",
       "change_client_agent",
+      "delete_client",
+      "restore_client",
+      "transfer_property",
       "change_property_price",
       "change_property_status",
+      "complete_property_editing",
       "request_property_change",
       "send_to_remake",
       "book_showing",
@@ -69,6 +73,21 @@ describe("реестр инструментов помощника", () => {
       "cancel_showing",
       "add_client_note",
       "index_company_knowledge",
+      // «Мозг компании» (17.11.2026, tools/brainReadTools.ts).
+      "get_day_snapshot",
+      "get_unworked",
+      "get_my_day",
+      "get_missed_calls",
+      "get_team_load",
+      "get_stuck_work",
+      // «Режим директора» (17.11.2026, tools/directorTools.ts).
+      "list_pending_requests",
+      "decide_request",
+      "get_error_log",
+      "resolve_error",
+      "get_system_health",
+      "list_switches",
+      "set_switch",
     ]) {
       expect(names).toContain(name);
     }

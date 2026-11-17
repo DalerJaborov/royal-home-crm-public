@@ -10,6 +10,7 @@ import {
 import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { customerAgentAnswerLiveChannels, customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
+import { customerAgentCoreChannels, customerAgentShadowChannels } from "./customerAgentChannelSwitch.js";
 import { customerPropertyMediaExecutionMode } from "./customerPropertyMedia.js";
 import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
@@ -154,6 +155,17 @@ const EVALUATORS: Record<string, Evaluator> = {
       state: "preview",
       reason: "Бот пишет ответ своими словами только для проверки, клиенту уходит готовый шаблон. Чтобы включить, на сервере нужно CUSTOMER_AGENT_ANSWER_MODE=live.",
     };
+  },
+
+  // «Один мозг», шаг 3а (#223): сайт, Telegram-бот, YouTube — старый бот, тень нового ядра или само ядро. По умолчанию — старый бот.
+  "bot-channel-core": ({ env }) => {
+    const names: Record<string, string> = { telegram: "Telegram-бот", telegram_direct: "личный Telegram", website: "сайт", youtube: "YouTube" };
+    const label = (set: ReadonlySet<string>) => [...set].map(key => names[key] ?? key).join(", ");
+    const core = customerAgentCoreChannels(env.CUSTOMER_AGENT_CHANNEL_CORE);
+    const shadow = [...customerAgentShadowChannels(env.CUSTOMER_AGENT_CHANNEL_SHADOW)].filter(key => !core.has(key));
+    if (core.size) return { state: "working", reason: `Новое ядро отвечает клиентам: ${label(core)} (CUSTOMER_AGENT_CHANNEL_CORE).${shadow.length ? ` Только проверка рядом со старым ботом: ${label(new Set(shadow))}.` : ""}` };
+    if (shadow.length) return { state: "preview", reason: `Отвечает старый бот; новое ядро только проверяется рядом с ним: ${label(new Set(shadow))} (CUSTOMER_AGENT_CHANNEL_SHADOW). Клиенту его ответы не уходят.` };
+    return { state: "off", reason: "На сайте, в Telegram и YouTube отвечает старый бот. Новое ядро там выключено (CUSTOMER_AGENT_CHANNEL_CORE и CUSTOMER_AGENT_CHANNEL_SHADOW пусты)." };
   },
 
   "bot-photos": ({ settings }) => {
@@ -305,7 +317,7 @@ const EVALUATORS: Record<string, Evaluator> = {
   // Читается тем же путём, что lib/telegramPortalPause.ts: по умолчанию — пауза.
   "telegram-portal-pause": ({ settings }) =>
     settings.telegramPortalAlertsPaused
-      ? { state: "off", reason: "На паузе: сообщения в Telegram по заявкам с Somon и Paydo не отправляются (в CRM заявки видны). Снять паузу можно только на сервере, кнопки в Настройках нет.", attention: true }
+      ? { state: "off", reason: "На паузе: заявки собственников с Somon не разбираются и агентам не уходят — ни в Telegram, ни в CRM (сбор рынка при этом идёт). Снять паузу можно только на сервере, кнопки в Настройках нет.", attention: true }
       : { state: "working", reason: "Сообщения в Telegram по заявкам с площадок отправляются." },
 
   "market-crawl": ({ env }) =>

@@ -60,12 +60,26 @@ describe("намерение не определено — общая разда
     expect(classifyInbound({ clientText: "Салом", channel: "comment" }).kind).toBe("BUYER");
   });
 
-  it("явные отсечки остаются «прочими»: работа, аренда, услуги, «модель не уверена»", () => {
+  it("явные отсечки остаются «прочими»: работа, аренда, услуги, другой город", () => {
     expect(classifyInbound({ intent: "job", clientText: "увидела вакансию", channel: "chat" }).kind).toBe("OTHER");
     expect(classifyInbound({ intent: "rent", clientText: "сниму квартиру", channel: "chat" }).kind).toBe("OTHER");
     expect(classifyInbound({ intent: "other", clientText: "делаю ремонт квартир", channel: "chat" }).kind).toBe("OTHER");
-    const lowConfidence = classifyInbound({ intent: "buy", confident: false, clientText: "здравствуйте", channel: "chat" });
-    expect(lowConfidence.intentUnknown).toBeUndefined();
+    expect(classifyInbound({ intent: "buy", clientText: "ищу квартиру в Худжанде", channel: "chat" }).kind).toBe("OTHER");
+  });
+
+  // 17.11.2026, решение по продукту: человек с номером в переписке никогда не остаётся без агента. Все виды «бот не понял»
+  // идут в общую раздачу с пометкой — живой случай «прочее обращение» без агента: «Хами хонара видеоша дорен» (ПО-839).
+  it("«модель не уверена» и «реклама без слов» — тоже общая раздача с пометкой; уверенное «прочее» модели — нет", () => {
+    expect(classifyInbound({ intent: "other", clientText: "Салом", channel: "chat" }).kind).toBe("OTHER");
+    for (const input of [
+      { intent: "buy" as const, confident: false, clientText: "здравствуйте" },
+      { clientText: "Привет! Можно узнать об этом подробнее?", fromAd: true },
+    ]) {
+      const decision = classifyInbound({ ...input, channel: "chat" });
+      expect(decision.kind).toBe("BUYER");
+      expect(decision.intentUnknown).toBe(true);
+      expect(decision.label).toBe(INTENT_UNKNOWN_NOTE);
+    }
   });
 
   it("звонок без намерения правило не меняет (там своя анкета)", () => {

@@ -961,9 +961,9 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 129,
+      "endpoints": 133,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 36
+      "usedBy": 35
     },
     {
       "mount": "/api/v1/transfer-requests",
@@ -1129,7 +1129,7 @@
       "mount": "/api/v1/settings",
       "router": "settingsRouter",
       "file": "apps/api/src/routes/settings.ts",
-      "endpoints": 58,
+      "endpoints": 61,
       "label": "Настройки CRM и точки возврата",
       "usedBy": 11
     },
@@ -1233,9 +1233,17 @@
       "mount": "/api/v1/social-videos",
       "router": "socialVideosRouter",
       "file": "apps/api/src/routes/socialVideos.ts",
-      "endpoints": 21,
+      "endpoints": 24,
       "label": null,
       "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/upload-sessions",
+      "router": "uploadSessionsRouter",
+      "file": "apps/api/src/routes/uploadSessions.ts",
+      "endpoints": 3,
+      "label": null,
+      "usedBy": 0
     },
     {
       "mount": "/api/v1/webhooks",
@@ -1361,7 +1369,7 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 11,
+      "endpoints": 12,
       "label": "Переписка по всем каналам",
       "usedBy": 3
     },
@@ -1655,6 +1663,11 @@
       "label": "Просит у кандидатов на вакансию телефон, как откроется окно Meta"
     },
     {
+      "id": "chunked-uploads-cleanup",
+      "expr": "17 * * * *",
+      "label": "Убирает брошенные загрузки файлов частями (ролики, файлы в переписку)"
+    },
+    {
       "id": "client-follow-ups",
       "expr": "*/10 * * * *",
       "label": "Напоминания клиентам, переставшим отвечать в переписке"
@@ -1772,6 +1785,11 @@
     {
       "id": "finance-pdf-monthly",
       "expr": "10 9 1-3 * *",
+      "label": null
+    },
+    {
+      "id": "free-narration-purge",
+      "expr": "*/30 * * * *",
       "label": null
     },
     {
@@ -1935,6 +1953,11 @@
       "label": null
     },
     {
+      "id": "narration-auto-master",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
       "id": "narration-version-delivery",
       "expr": "* * * * *",
       "label": null
@@ -2067,6 +2090,11 @@
     {
       "id": "somon-owner-leads",
       "expr": "* * * * *",
+      "label": null
+    },
+    {
+      "id": "somon-owner-leads-silence",
+      "expr": "47 * * * *",
       "label": null
     },
     {
@@ -2318,7 +2346,7 @@
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
       "keys": 9,
-      "files": 14
+      "files": 16
     },
     {
       "name": "Бюджет Google Cloud",

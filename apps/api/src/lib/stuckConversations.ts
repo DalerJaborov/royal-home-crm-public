@@ -178,7 +178,7 @@ function stuckWhere(): Prisma.Sql {
  * её в BotConversation.messages второй раз (см. conversation.ts).
  */
 export function retryStuckConversation(row: StuckRow, source: "ai_retry" | "manual_retry" = "manual_retry",
-  /** Which run of this customer turn (the live turn was 1): bounds the core's paid repeats (review #223 R1). */
+  /** Which run of this customer turn (the live turn was 1): a fallback bound on the core's runs (CHANNEL_CORE_MAX_ATTEMPTS). */
   attempt?: number): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   return withBotTurnTrace({ channel: row.channel, peer: row.subscriberId, conversation: row.id, event: null, source, text: row.lastText,
     knownContacts: row.name ? [row.name] : [] }, async () => {

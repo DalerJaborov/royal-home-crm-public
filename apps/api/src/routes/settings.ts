@@ -1,6 +1,6 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, canViewInvestigations } from "@royal-home/shared";
+import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, canViewInvestigations } from "@royal-home/shared";
 import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
@@ -737,6 +737,11 @@ const settingsUpdateSchema = z.object({
   marketBuyerAlertsEnabled: z.boolean().optional(),
   /** Подбор покупателю с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
   marketOwnersOnly: z.boolean().optional(),
+  /** Узкий подбор с площадок (17.11.2026, lib/market/buyerMatch.ts loadMarketBuyerRules): границы — общие с экраном. */
+  marketBuyerFreshDays: z.number().int().min(MARKET_BUYER_RULE_LIMITS.freshDays.min).max(MARKET_BUYER_RULE_LIMITS.freshDays.max).optional(),
+  marketBuyerBudgetTolerancePct: z.number().int().min(MARKET_BUYER_RULE_LIMITS.budgetTolerancePct.min).max(MARKET_BUYER_RULE_LIMITS.budgetTolerancePct.max).optional(),
+  marketBuyerRoomsTolerance: z.number().int().min(MARKET_BUYER_RULE_LIMITS.roomsTolerance.min).max(MARKET_BUYER_RULE_LIMITS.roomsTolerance.max).optional(),
+  marketBuyerAlertsPerDay: z.number().int().min(MARKET_BUYER_RULE_LIMITS.alertsPerDay.min).max(MARKET_BUYER_RULE_LIMITS.alertsPerDay.max).optional(),
   /** 0 = без срока. */
   matchRequirementTtlDays: z.number().int().min(0).max(365).optional(),
   matchBudgetTolerancePct: z.number().int().min(0).max(50).optional(),
@@ -872,6 +877,8 @@ const settingsUpdateSchema = z.object({
   metaAppSecret: secretField(500),
   /** Номер приложения Meta — нужен, чтобы обменять маркер рекламы на 60-дневный. */
   metaAppId: z.string().trim().max(100).optional(),
+  /** Номер конфигурации входа через Facebook (13.11.2026, lib/metaLogin.ts) — только цифры; пусто — без конфигурации. */
+  metaLoginConfigId: z.string().trim().regex(/^\d{0,30}$/, "Номер конфигурации — только цифры").optional(),
   metaVerifyToken: secretField(500),
   metaWaToken: secretField(1000),
   metaWaPhoneId: z.string().trim().max(100).optional(),
@@ -890,7 +897,9 @@ const settingsUpdateSchema = z.object({
   /** Рекламный кабинет (Marketing API): рубильник, маркер с ads_read и номер кабинета. */
   metaAdsEnabled: z.boolean().optional(),
   metaAdsToken: secretField(1000),
-  metaAdAccountId: z.string().trim().max(100).optional(),
+  // 1000, а не 100: вход через Facebook дописывает кабинеты списком (13.11.2026),
+  // и после пятого кабинета поле перестало бы сохраняться на экране.
+  metaAdAccountId: z.string().trim().max(1000).optional(),
   /** Секрет для приёма бюджетных оповещений Google Cloud (не ключ доступа — просто
    *  строка в адресе подписки Pub/Sub, поэтому не шифруется). Пустая строка —
    *  «секрет не задан», а не короткий секрет, и должна проходить как раньше.
@@ -1135,6 +1144,8 @@ const settingsUpdateSchema = z.object({
    *  пишет голосовую почту (не возвращает в очередь, решение владельца 29.08.2026,
    *  см. lib/telephony/inboundRouting.ts). */
   incomingRouteToAssignedAgent: z.boolean().optional(),
+  /** Рубильник перезвона клиента из Корзины звонившему РОПу (17.11.2026), по умолчанию выключен. */
+  incomingArchiveCallbackEnabled: z.boolean().optional(),
   /** Сколько секунд станция звонит агенту, прежде чем перейти на голосовую почту.
    *  Нижняя граница пяти секунд — защита: меньше трубку не берут, и такой перевод
    *  стоил бы клиенту лишнего гудка без единого шанса на ответ. Верхняя — 300
@@ -2804,7 +2815,7 @@ settingsRouter.post(
       return res.status(400).json({ error: "Неизвестный канал" });
     }
     let externalId = body.externalId?.trim();
-    let instagramIdentity: { username: string; messagingId?: string } | undefined;
+    let instagramIdentity: { username: string; messagingId?: string; pageId?: string } | undefined;
     const title = body.title?.trim();
     if (!title) return res.status(400).json({ error: "Укажите название аккаунта" });
 
@@ -2834,7 +2845,9 @@ settingsRouter.post(
       if (!identity.username?.trim()) {
         return res.status(400).json({ error: "Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан входом через Instagram, и попробуйте снова" });
       }
-      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId };
+      // Маркер Страницы (EAA…) вместо маркера Instagram: такой аккаунт говорит
+      // только через эту Страницу — запоминаем её вместе с маркером (13.11.2026).
+      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId, pageId: identity.pageId };
     }
     // Правка одного поля (промт, «сделать основным», выключить) не обязана
     // пересылать всю запись: недостающее берём из той, что уже есть.

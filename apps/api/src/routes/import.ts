@@ -1,5 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
+import { guardedUpload } from "../upload.js";
+import { PROXY_SINGLE_REQUEST_MAX_BYTES } from "@royal-home/shared";
 import type { ZodIssue, z } from "zod";
 import {
   clientCreateSchema,
@@ -49,7 +51,9 @@ importRouter.use(requireAuth, requirePermission("import.run"));
 // число файлов по 5 МБ каждый — предел на файл превращается в отсутствие предела
 // на запрос, а хранилище здесь memoryStorage (аудит лимитов 21.08.2026).
 // Импорт всегда одним файлом: разбор ниже читает req.file, не req.files.
-const csvUpload = multer({
+const csvUpload = guardedUpload({
+  name: "csvUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
 });

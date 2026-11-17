@@ -1,6 +1,7 @@
 import { prisma } from "../db.js";
 import { sendPushToAgent } from "../push.js";
 import { propertyInterestChatAgentIds } from "./ownBotConversationScope.js";
+import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
 
@@ -10,11 +11,13 @@ import { describeError } from "./describeError.js";
 export async function notifyPropertyChatMessage(conversationId: string): Promise<void> {
   try {
     const row = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: {
-      client: { select: { assignedAgentId: true } }, messages: true,
+      channel: true, clientId: true, client: { select: { assignedAgentId: true } }, messages: true,
     } });
     // Assigned clients have the existing clientMessageAlert path, including
     // acceptance reminders; do not send them a second notification here.
     if (!row || row.client?.assignedAgentId || !Array.isArray(row.messages) || row.messages.length === 0) return;
+    // Режим «только заявки»: пока клиент не оставил номер (карточки нет), хозяина объекта не будим (13.11.2026).
+    if (!row.clientId && await leadOnlyQuietBeforeLead(row.channel)) return;
     const recipients = await propertyInterestChatAgentIds(conversationId);
     await Promise.all(recipients.map(agentId => sendPushToAgent(agentId, {
       kind: "message", title: "Новое сообщение по вашему объекту",

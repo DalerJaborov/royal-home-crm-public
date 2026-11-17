@@ -55,7 +55,7 @@ beforeAll(async () => {
   const buyer = await prisma.client.create({
     data: {
       fullName: `Покупатель собственники ${runId}`, phone: `+992997${runId.slice(-7)}`, source: "PHONE_CALL", kind: "BUYER", assignedAgentId: agent.id,
-      acceptedAt: new Date(), currency: "TJS", budgetMax: 600_000, desiredDistrictId: districtId, desiredRooms: 2,
+      acceptedAt: new Date(), currency: "TJS", budgetMin: 450_000, budgetMax: 520_000, desiredDistrictId: districtId, desiredRooms: 2,
     },
   });
   buyerId = buyer.id;

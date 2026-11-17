@@ -82,6 +82,11 @@ export interface Settings {
   marketBuyerAlertsEnabled: boolean;
   /** Подбор с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
   marketOwnersOnly: boolean;
+  /** Узкий подбор с площадок (17.11.2026): свежесть сбора (суток), ±% бюджета, разница в комнатах, пушей агенту в сутки. */
+  marketBuyerFreshDays: number;
+  marketBuyerBudgetTolerancePct: number;
+  marketBuyerRoomsTolerance: number;
+  marketBuyerAlertsPerDay: number;
   /** Срок жизни пожелания покупателя от последнего касания, дней; 0 — без срока. */
   matchRequirementTtlDays: number;
   /** Допуск по бюджету клиента, % сверх названной суммы. */
@@ -278,6 +283,8 @@ export interface Settings {
   metaAdAccountId: string | null;
   /** Номер приложения Meta — нужен для обмена маркера на 60-дневный. */
   metaAppId: string | null;
+  /** Номер конфигурации входа через Facebook (не секрет). */
+  metaLoginConfigId: string | null;
   metaAdsSyncedAt: string | null;
   /** Секрет в адресе push-подписки Pub/Sub для бюджетных оповещений Google Cloud.
    *  Значение наружу не отдаётся (аудит №4) — только признак «задан». */
@@ -511,6 +518,8 @@ export interface Settings {
    *  если тот не взял — в общую очередь операторов (решение владельца 16.08.2026).
    *  Возврат в очередь исполняет сама АТС, а не CRM. */
   incomingRouteToAssignedAgent: boolean;
+  /** Перезвон клиента из Корзины тому, кто ему звонил для разбора (17.11.2026). */
+  incomingArchiveCallbackEnabled: boolean;
   /** Сколько секунд станция звонит агенту, прежде чем вернуть звонок в очередь. */
   incomingRouteRingSeconds: number;
   /** ПОДСКАЗКА АГЕНТУ О ЗВОНЯЩЕМ: станция играет её агенту в ухо перед соединением,

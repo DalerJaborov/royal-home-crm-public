@@ -45,7 +45,7 @@ const { videoHandoffDir } = await import("../src/upload.js");
 const runId = Date.now();
 const phone = `+99293${runId.toString().slice(-7)}`;
 const tmp = path.join(os.tmpdir(), `narration-mix-${runId}`);
-const media = { silent: path.join(tmp, "silent.mp4"), music: path.join(tmp, "music.mp4"), voice: path.join(tmp, "voice.mp3"), longVoice: path.join(tmp, "long.mp3") };
+const media = { silent: path.join(tmp, "silent.mp4"), music: path.join(tmp, "music.mp4"), voice: path.join(tmp, "voice.mp3"), longVoice: path.join(tmp, "long.mp3"), hugeVoice: path.join(tmp, "huge.mp3") };
 let districtId: string;
 let agentId: string;
 let configBefore: unknown = null;
@@ -100,6 +100,8 @@ beforeAll(async () => {
   ff(["-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=6", "-f", "lavfi", "-i", "sine=frequency=300:duration=6", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", media.music]);
   ff(["-f", "lavfi", "-i", "sine=frequency=800:duration=3", "-c:a", "libmp3lame", media.voice]);
   ff(["-f", "lavfi", "-i", "sine=frequency=500:duration=9", "-c:a", "libmp3lame", media.longVoice]);
+  // 15 с на ролик 6 с: не спасают ни ускорение на 15 %, ни стоп-кадр 3 с (подгонка длины 16.11.2026).
+  ff(["-f", "lavfi", "-i", "sine=frequency=500:duration=15", "-c:a", "libmp3lame", media.hugeVoice]);
   districtId = (await prisma.district.create({ data: { name: `Озвучка CRM-${runId}` } })).id;
   agentId = (await prisma.agent.create({ data: { fullName: "Агент озвучки", phone, role: "AGENT", passwordHash: await bcrypt.hash("testpass123", 4) } })).id;
   // С 12.11.2026 по умолчанию голос вклеивает монтажёр: этот файл проверяет порядок «голос кладёт
@@ -216,7 +218,7 @@ describe.skipIf(!ffmpegReady)("CRM сама накладывает озвучк�
     await toldMontajer(p.id, v1.id);
     expect((await receiveEditedVideoFromFile(p.id, await copyToTmp(media.silent), "bez-golosa.mp4")).ok).toBe(true);
     const before = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
-    const v2 = await seedVersion(p.id, 2, media.longVoice);
+    const v2 = await seedVersion(p.id, 2, media.hugeVoice);
 
     expect(await remixFromMaster(p.id)).toBe("FAILED");
     const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });

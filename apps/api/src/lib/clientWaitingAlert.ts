@@ -11,6 +11,7 @@ import { fetchLastCallContactByClient, loadBotPauseWatchSettings } from "./botPa
 import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
+import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
 
 /**
  * «КЛИЕНТ НАПИСАЛ — ЕМУ НИКТО НЕ ОТВЕТИЛ» (14.11.2026, аудит скрытых механизмов №4).
@@ -127,9 +128,11 @@ export function humanRepliedSince(messages: unknown, since: Date): boolean {
 }
 /**
  * `already` — this silence episode was claimed before (the watchdog, the core, an earlier tick): a person has been told, and a
- * caller that answers the customer with «передал сотруднику» may do so (review #223 R1-2). `skipped` — nobody was told.
+ * caller that answers the customer with «передал сотруднику» may do so (review #223 R1-2). If that earlier sender then fails,
+ * IT writes the per-chat error log below (review 0e463b02 N4). `skipped` — nobody was told. `excluded` — this chat gets no
+ * staff signal by design: the customer opted out, the client is in the trash, or the chat is gone (review 0e463b02 N5).
  */
-export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped";
+export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped" | "excluded";
 
 const CHANNEL_NAME: Record<string, string> = {
   INSTAGRAM: "Instagram",
@@ -170,14 +173,28 @@ interface WaitingChat {
 const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } | null } | null | undefined) =>
   client?.assignedAgent?.isActive ? client.assignedAgent.id : null;
 
-async function loadWaitingChat(source: WaitingChatSource, id: string): Promise<WaitingChat | null> {
+/**
+ * Opting out means «the bot does not write first» (messengers/conversation.ts): it silences the bot's own nudges (`silence`,
+ * `follow_up`), never a person when the customer is the one waiting (`handover`, `failed`, `escalate`; review N2–N5 #2).
+ */
+const OPT_OUT_SILENCES: ReadonlySet<ClientWaitingTrigger> = new Set(["silence", "follow_up"]);
+/**
+ * Lead-only mode (owner 13.11.2026: «никаких уведомлений не надо никому высылать пока он не станет лидом»): before a card
+ * the bot's own «the agent will tell» / «a person is needed» signals are not sent. The mode answers such turns itself (a phone
+ * ask, or a lead on a WhatsApp number). Failures (`failed`) and the 30-minute watchdog (`silence`) stay: those are faults, not
+ * leads. A vacancy chat keeps the recruiter's path (`jobTopic`).
+ */
+const LEAD_ONLY_QUIET: ReadonlySet<ClientWaitingTrigger> = new Set(["follow_up", "escalate"]);
+
+async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger, jobTopic = false): Promise<WaitingChat | null> {
   const client = { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } as const;
   if (source === "bot") {
     const chat = await prisma.botConversation.findUnique({
       where: { id },
       select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, silenceAlertFor: true, clientId: true, client },
     });
-    if (!chat || chat.optedOutAt || chat.client?.deletedAt) return null;
+    if (!chat || chat.optedOutAt && OPT_OUT_SILENCES.has(trigger) || chat.client?.deletedAt) return null;
+    if (!chat.clientId && !jobTopic && LEAD_ONLY_QUIET.has(trigger) && await leadOnlyQuietBeforeLead(chat.channel)) return null;
     const previous = chat.silenceAlertFor;
     return {
       openId: chat.id,
@@ -240,11 +257,13 @@ export async function alertClientWaiting(input: {
   why?: string;
   /** Для follow_up: время реплики клиента, на которую бот пообещал агента (ключ эпизода). */
   since?: Date;
+  /** Разговор о вакансии: режим «только заявки» его сигналы не глушит (ведёт рекрутер). */
+  jobTopic?: boolean;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
-  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId);
-  if (!chat) return "skipped";
+  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger, input.jobTopic === true);
+  if (!chat) return "excluded";
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
@@ -303,10 +322,14 @@ export async function alertClientWaiting(input: {
   } catch (err) {
     // Сигнал не ушёл — снимаем метку эпизода, следующий тик попробует снова.
     await chat.release(since).catch(() => {});
+    // A caller that lost the mark to this send was told `already` and may have answered the customer «передал сотруднику»;
+    // that line closes the episode, so no later tick retries (review 0e463b02 N4). This entry is then the only signal: one
+    // per chat: its own key, so every such chat is a «new problem» push, not a quiet repeat of one channel-wide entry.
     void logSystemError(
       "api",
-      `Сигнал «клиент ждёт ответа» не отправлен: ${err instanceof Error ? err.message : String(err)}`,
-      { dedupKey: "client-waiting-alert-failed" }
+      `Сигнал «клиент ждёт ответа» не отправлен (переписка ${chat.openId}): ${err instanceof Error ? err.message : String(err)}. ` +
+        `Клиенту могли уже ответить «передал сотруднику» — откройте переписку и ответьте сами.`,
+      { dedupKey: `client-waiting-alert-failed:${chat.openId}`, url }
     );
     return "skipped";
   }

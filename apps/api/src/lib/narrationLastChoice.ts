@@ -7,25 +7,30 @@ import { prisma } from "../db.js";
  * CRM, карточка и Шабнам ставят их заранее с подписью «последний раз выбран». Голос или шаблон
  * убрали из настроек — он просто не отдаётся, и действует общий по умолчанию.
  */
-export type NarrationLastChoice = { voiceId?: string; templateId?: string };
+export type NarrationLastChoice = { voiceId?: string; templateId?: string; endingId?: string; usedTemplateId?: string; usedEndingId?: string };
 
 export async function rememberNarrationChoice(agentId: string, choice: NarrationLastChoice): Promise<void> {
-  if (!agentId || agentId === "system" || (!choice.voiceId && !choice.templateId)) return;
+  if (!agentId || agentId === "system" || (!choice.voiceId && !choice.templateId && !choice.endingId && !choice.usedTemplateId && !choice.usedEndingId)) return;
   const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { narrationLastChoice: true } });
   if (!agent) return;
   const previous = (agent.narrationLastChoice && typeof agent.narrationLastChoice === "object" && !Array.isArray(agent.narrationLastChoice) ? agent.narrationLastChoice : {}) as NarrationLastChoice;
-  const next: NarrationLastChoice = { ...previous, ...(choice.voiceId ? { voiceId: choice.voiceId } : {}), ...(choice.templateId ? { templateId: choice.templateId } : {}) };
-  if (next.voiceId === previous.voiceId && next.templateId === previous.templateId) return;
+  const next: NarrationLastChoice = { ...previous, ...(choice.voiceId ? { voiceId: choice.voiceId } : {}), ...(choice.templateId ? { templateId: choice.templateId } : {}), ...(choice.endingId ? { endingId: choice.endingId } : {}),
+    ...(choice.usedTemplateId ? { usedTemplateId: choice.usedTemplateId } : {}), ...(choice.usedEndingId ? { usedEndingId: choice.usedEndingId } : {}) };
+  if (next.voiceId === previous.voiceId && next.templateId === previous.templateId && next.endingId === previous.endingId
+    && next.usedTemplateId === previous.usedTemplateId && next.usedEndingId === previous.usedEndingId) return;
   await prisma.agent.update({ where: { id: agentId }, data: { narrationLastChoice: next } });
 }
 
 /** Последний выбор, если голос и шаблон всё ещё есть в настройках; иначе пусто (общий по умолчанию). */
-export async function narrationLastChoiceFor(agentId: string | null | undefined, config: Pick<NarrationConfig, "voices" | "templates">): Promise<NarrationLastChoice> {
+export async function narrationLastChoiceFor(agentId: string | null | undefined, config: Pick<NarrationConfig, "voices" | "templates" | "endings">): Promise<NarrationLastChoice> {
   if (!agentId || agentId === "system") return {};
   const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { narrationLastChoice: true } });
   const raw = (agent?.narrationLastChoice && typeof agent.narrationLastChoice === "object" && !Array.isArray(agent.narrationLastChoice) ? agent.narrationLastChoice : {}) as NarrationLastChoice;
   return {
     ...(raw.voiceId && config.voices.some((v) => v.id === raw.voiceId) ? { voiceId: raw.voiceId } : {}),
     ...(raw.templateId && (config.templates ?? []).some((t) => t.id === raw.templateId) ? { templateId: raw.templateId } : {}),
+    ...(raw.endingId && (config.endings ?? []).some((e) => e.id === raw.endingId) ? { endingId: raw.endingId } : {}),
+    ...(raw.usedTemplateId && (config.templates ?? []).some((t) => t.id === raw.usedTemplateId) ? { usedTemplateId: raw.usedTemplateId } : {}),
+    ...(raw.usedEndingId && (config.endings ?? []).some((e) => e.id === raw.usedEndingId) ? { usedEndingId: raw.usedEndingId } : {}),
   };
 }

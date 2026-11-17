@@ -238,8 +238,18 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
             для тех, кто ещё не завёл аккаунты списком. */}
         <MessengerAccounts />
 
-        {/* Вечные ключи (12.11.2026): какой канал уже работает ключом компании. */}
+        {/* Вечные ключи (12.11.2026): какой канал уже работает ключом компании.
+            Сверху — «Войти через Facebook» (13.11.2026). */}
         <MetaEternalKeys />
+
+        <PlainSetting
+          title="Номер конфигурации входа (config_id)"
+          description="Необязательно. Из Meta: приложение → «Вход через Facebook для бизнеса» → «Конфигурации». Пусто — кнопка «Войти через Facebook» просит нужные разрешения списком, а ключ получается личный. Чтобы WhatsApp не замолчал после смены пароля, в конфигурации выберите ключ системного пользователя и отметьте те же разрешения."
+          placeholder="1234567890123456"
+          value={settings?.metaLoginConfigId ?? ""}
+          pending={updateSettings.isPending}
+          onSave={(v) => updateSettings.mutate({ metaLoginConfigId: v })}
+        />
 
         <SecretKeyEditor
           title="Маркер Instagram"
@@ -3368,6 +3378,16 @@ function RouteToAgentSetting() {
           flex его перебивает — блок остался бы видимым (грабля этого проекта). */}
       {on && (
         <>
+          <SwitchRow
+            title="Перезвон клиента из Корзины — тому, кто ему звонил"
+            on={settings?.incomingArchiveCallbackEnabled ?? false}
+            hint={
+              settings?.incomingArchiveCallbackEnabled
+                ? "Клиент, которому РОП звонила из Корзины, перезвонил в течение 3 суток: звонок идёт только ей. Занята — клиент ждёт; не взяла — её мобильный, потом автоответчик и пуш ей. Оператору не уходит."
+                : "Такой звонок идёт оператору, как у незнакомого номера."
+            }
+            onToggle={() => updateSettings.mutate({ incomingArchiveCallbackEnabled: !(settings?.incomingArchiveCallbackEnabled ?? false) })}
+          />
           <RingSecondsSetting
             key={seconds}
             value={seconds}

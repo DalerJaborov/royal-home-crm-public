@@ -2462,6 +2462,17 @@ model Property {
   /// CRM прямо сейчас накладывает новую озвучку на этот ролик (ffmpeg до 9 минут): второй тик
   /// не запускает вторую копию; метка старше 15 минут считается брошенной (12.11.2026).
   videoMasterMixingAt            DateTime?
+  /// Откуда мастер (16.11.2026): EDITOR — монтажёр прислал ролик без голоса; MACHINE — CRM сама
+  /// отделила старый голос от музыки вышедшего ролика (lib/narrationAutoMaster.ts). null — старые записи (монтажёр).
+  videoMasterSource              String?
+  /// Отделить голос от этого готового ролика не получилось (текст для руководства) — для этого же
+  /// файла повтора нет, объект ушёл монтажёру. Новый готовый ролик — новая попытка.
+  videoMasterAutoError           String?
+  videoMasterAutoErrorFinalPath  String?
+  /// Временные сбои сервиса (не ответил, перезапускался при выкате) на этом готовом ролике: после
+  /// трёх подряд — отказ и монтажёру; до того — повтор не раньше videoMasterAutoRetryAt.
+  videoMasterAutoAttempts        Int       @default(0)
+  videoMasterAutoRetryAt         DateTime?
   /// МОМЕНТ, КОГДА ГОТОВЫЙ РОЛИК РЕАЛЬНО ПОЛУЧЕН (21.09.2026, случай №114 — ролик
   /// принят, файл лёг на диск, но рестарт контейнеров посреди публикации оборвал
   /// её молча, publishedChannels остался пуст, объект завис в EDITING навсегда).
@@ -3008,6 +3019,8 @@ model PropertyNarrationVersion {
   /// MANUAL — прежний путь маркетинга; WIZARD / AUTO / AGENT — автоозвучка (11.11.2026).
   source String @default("MANUAL")
   templateId String?
+  /// Концовка (призыв) из списка endings настроек озвучки, выбранная вместе с шаблоном (16.11.2026): текст собирается по кодам.
+  endingId String?
   language String?
   /// Автоозвучка: не раньше этого времени (пауза после последней правки). null — не ставить в очередь.
   generateAfter DateTime?
@@ -3023,6 +3036,11 @@ model PropertyNarrationVersion {
   approvalEscalatedAt DateTime?
   /// Монтажёру одной строкой «озвучка задерживается» (кончились кредиты), один раз на версию.
   editorDelayNotifiedAt DateTime?
+  /// Голос длиннее ролика (16.11.2026): эта версия — тот же объект короче, другим шаблоном, вместо
+  /// версии shortenedFromId. Одна перегенерация на версию: укороченную ещё раз не укорачивают.
+  shortenedFromId String?
+  /// Что CRM сделала с длиной при наложении (агенту одной строкой): «голос ускорен на 8%» и т.п.
+  mixNote String?
   deliveries PropertyNarrationDelivery[]
   @@unique([propertyId, revision])
   @@index([status, generateAfter])
@@ -4623,6 +4641,13 @@ model BotConversation {
   /// Не связь Prisma, а просто id: объект могут удалить, и падать из-за этого
   /// подсказке модели незачем (читатель проверяет deletedAt сам).
   adPropertyId       String?
+  /// РЕЖИМ «ТОЛЬКО ЗАЯВКИ»: О ЧЁМ БОТ ПОПРОСИЛ НОМЕР (13.11.2026, второе ревью).
+  /// Клиент прислал пост объекта, бот попросил номер, следующим сообщением
+  /// пришёл один номер: без этой памяти тема и объект терялись, и заявка уходила
+  /// в общую очередь вместо агента объекта. Пишут оба маршрута бота одной дверью
+  /// lib/leadOnlyPending.ts: {version, scenario, propertyId, askedAt}. Только JSON
+  /// с id объекта, без слов и номера клиента; срок жизни 7 дней (читатель проверяет).
+  leadOnlyPending    Json?
   /// НАКРУТКА ПОВТОРНОЙ ПЕРЕСЫЛКОЙ НЕРАСПОЗНАННОГО ВИДЕО (30.08.2026, живой лид
   /// «Муродали») — метка ставится один раз, когда бот дошёл до
   /// MAX_UNRESOLVED_SHARE_REPLIES (messengers/conversation.ts), и остаётся
@@ -6150,6 +6175,11 @@ model Settings {
   /// требует пары «приложение + секрет» (см. lib/ads/metaAdsToken.ts). Для
   /// переписки не используется: там маркеры выдаются иначе.
   metaAppId                         String?
+  /// Номер конфигурации входа через Facebook (Facebook Login for Business →
+  /// «Конфигурации», 13.11.2026). Не секрет. Задан — кнопка «Войти через
+  /// Facebook» в Настройках → Каналы открывает окно с этим набором прав и
+  /// ресурсов (config_id); пусто — окно со списком прав из lib/tokenScopes.ts.
+  metaLoginConfigId                 String?
   metaVerifyToken                   String?
   metaWaToken                       String?
   /// Идентификатор номера-отправителя в WhatsApp. Не секрет — хранится как есть.
@@ -7268,6 +7298,15 @@ model Settings {
   marketBuyerAlertsEnabledAt        DateTime?
   /// Подбор покупателю с площадок только от собственников: без агентств и продавцов с 3+ объявлениями. По умолчанию ВКЛ.
   marketOwnersOnly                  Boolean   @default(true)
+  /// УЗКИЙ ПОДБОР С ПЛОЩАДОК (17.11.2026, lib/market/buyerMatch.ts loadMarketBuyerRules). Объявление, которое сбор
+  /// не видел дольше стольких суток, под клиентов не предлагается и в пуш не идёт.
+  marketBuyerFreshDays              Int       @default(3)
+  /// Цена объявления в пределах ±N% бюджета клиента (свой допуск, не общий matchBudgetTolerancePct наших объектов).
+  marketBuyerBudgetTolerancePct     Int       @default(10)
+  /// Разница в комнатах с запросом клиента: 0 — ровно столько, сколько он просит.
+  marketBuyerRoomsTolerance         Int       @default(0)
+  /// Не больше стольких пушей «объявление под вашего покупателя» агенту за сутки по Душанбе.
+  marketBuyerAlertsPerDay           Int       @default(3)
   /// ЯВНОЕ КЭШИРОВАНИЕ СИСТЕМНОГО ПРОМТА GEMINI (30.08.2026). Неявный кэш Google
   /// (по умолчанию, без этого тумблера) срабатывает где-то в половине случаев —
   /// задокументированное поведение самого Google, не наша недоработка. Явный кэш
@@ -7810,6 +7849,10 @@ model Settings {
   /// звонить, пока клиент сам не положит трубку, на голосовую почту не перейдёт
   /// вовсе (см. lib/telephony/incomingSettings.ts, dial timeout на станции).
   incomingRouteRingSeconds     Int      @default(150)
+  /// ПЕРЕЗВОН КЛИЕНТА ИЗ КОРЗИНЫ — ТОМУ, КТО ЕМУ ЗВОНИЛ ДЛЯ РАЗБОРА (17.11.2026).
+  /// Рубильник: выключено по умолчанию, правило меняет маршрут живых звонков. Включает владелец
+  /// после проверки на станции; выключено — такой звонок идёт к оператору, как у незнакомого номера.
+  incomingArchiveCallbackEnabled Boolean @default(false)
   /// РЕЖИМ МАРШРУТИЗАЦИИ НЕЗНАКОМЫХ ЗВОНКОВ (владелец 20.08.2026) — заготовка на
   /// будущее, а не переключатель поведения станции. Сейчас на линии реально
   /// действует только "assigned_then_forward" (клиента с ответственным уводит
@@ -11652,6 +11695,34 @@ enum RobotCallStopSource {
   VOICE
   STAFF
   STATION
+}
+
+/// Озвучка свободного текста (16.11.2026): сотрудник присылает текст, выбирает голос, получает mp3.
+/// Строка — запрос, расход (знаки идут в общий дневной потолок озвучки) и защита от двойного платежа.
+model FreeNarration {
+  id                  String    @id @default(uuid())
+  agentId             String
+  /// TELEGRAM | API
+  source              String
+  chatId              String?
+  /// AWAITING_TEXT | AWAITING_VOICE | GENERATING | READY | FAILED | UNKNOWN
+  status              String
+  /// Текст; после срока хранения очищается (lib/freeNarration.ts, purgeFreeNarrations).
+  script              String    @default("")
+  lang                String?
+  voiceId             String?
+  /// Знаки, ушедшие в синтез (цифры словами), ставятся при захвате.
+  chars               Int       @default(0)
+  storageKey          String?
+  errorCode           String?
+  providerRequestId   String?
+  requestKey          String?   @unique
+  generationStartedAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  @@index([agentId, generationStartedAt])
+  @@index([generationStartedAt])
+  @@index([chatId, status])
 }
 
 /// One-brain live check (17.11.2026): the model's words beside the template for one customer turn, kept 72 hours (lib/customerAgentAnswerSamples.ts).

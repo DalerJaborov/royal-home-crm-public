@@ -7,7 +7,10 @@ import { prisma } from "../db.js";
 import { findPostShowingCallFeedRow, listPostShowingCallFeed } from "../lib/postShowingCallFeed.js";
 import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
-import { TASK_WHERE } from "../lib/tasks.js";
+import { overdueTasksWhere } from "../lib/tasks.js";
+// Условие переехало в lib/tasks.ts (17.11.2026, одна дверь с помощницей Шабнам);
+// вывоз отсюда оставлен для прежних импортов.
+export { overdueTasksWhere } from "../lib/tasks.js";
 import { BUYERS_IN_WORK_WHERE } from "../lib/agentLoad.js";
 import { noContactWhere, TALKED_CALL_WHERE } from "../lib/noContact.js";
 import { findSilentAfterShowing } from "../lib/silentAfterShowing.js";
@@ -92,10 +95,7 @@ function maskInteractionRow<
 // раздел «Проблемы»): те же условия, что красят строки в «Контроле руководителя»,
 // только сузены на agentId этого сотрудника — второй копии логики не заводим (тот
 // же приём, что уже применён к findSilentAfterShowing/findEndlessNegotiations/
-// findAgentLossSeries ниже).
-export function overdueTasksWhere(now: Date): Prisma.InteractionWhereInput {
-  return { ...TASK_WHERE, completedAt: null, nextActionDate: { lt: now } };
-}
+// findAgentLossSeries ниже). Просроченные задачи — overdueTasksWhere из lib/tasks.ts.
 
 // «Горячий клиент без контакта» (скоринг + lastContactAt) удалён 16.11.2026: владелец
 // оставил ОДИН счётчик «Без контакта» с одним правилом — lib/noContact.ts

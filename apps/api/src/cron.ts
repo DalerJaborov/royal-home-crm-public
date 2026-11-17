@@ -111,6 +111,7 @@ import { adoptReferencedVoiceNotes, cleanupPrivateFiles } from "./lib/privateFil
 import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
 import { cleanupStalePropertyVideos } from "./lib/propertyVideoCleanup.js";
 import { cleanupStaleVideoUploadSessions } from "./lib/videoUploadCleanup.js";
+import { sweepStaleChunkedUploads } from "./lib/chunkedUploadSessions.js";
 import { cleanupExpiredPropertyDrafts } from "./routes/properties/draftAttach.js";
 import { cleanupExpiredOutgoingMedia } from "./lib/outgoingMediaCleanup.js";
 import { cleanupTelegramBotApiVolume } from "./lib/telegramBotApiCleanup.js";
@@ -585,6 +586,11 @@ export function startCronJobs() {
     const { runSomonMonitorTick } = await import("./lib/somonLeads/monitor.js");
     await runSomonMonitorTick();
   });
+  // Сторож тишины (17.11.2026): монитор включён, а заявок агентам нет сутки (на паузе — трое) → журнал ошибок.
+  scheduleTracked("somon-owner-leads-silence", "47 * * * *", async () => {
+    const { checkSomonOwnerLeadsSilence } = await import("./lib/somonLeads/silenceAlarm.js");
+    await checkSomonOwnerLeadsSilence();
+  });
   scheduleTracked("owner-exposure-verification-preview", "15 * * * *", async () => {
     const { runExposureOwnerPreviewTick } = await import("./lib/ownerVerificationSources.js");
     await runExposureOwnerPreviewTick();
@@ -598,12 +604,25 @@ export function startCronJobs() {
     const { executeQueuedNarrationDeliveries } = await import("./lib/narrationDelivery.js");
     await executeQueuedNarrationDeliveries();
   });
+  // Озвучка свободного текста (16.11.2026): файлы и тексты старше суток, зависшие генерации.
+  scheduleTracked("free-narration-purge", "*/30 * * * *", async () => {
+    const { purgeFreeNarrations } = await import("./lib/freeNarration.js");
+    await purgeFreeNarrations();
+  });
   // Автоозвучка (11.11.2026): черновик по фактам → генерация → одно сообщение агенту → монтажёру.
   scheduleTracked("narration-auto-flow", "* * * * *", async () => {
     const { runNarrationAutoFlow } = await import("./lib/narrationAutoFlow.js");
     const { notifyNarrationApproval, remindPendingNarrationApprovals } = await import("./telegram/assistantNarration.js");
     await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApprovals });
   }, undefined, undefined, { timeoutMs: 170_000 });
+  // Новая озвучка на вышедший ролик без монтажёра (16.11.2026): CRM сама убирает старый голос
+  // (сервис voice-separator) и накладывает новый. Один объект за тик — это минуты процессора;
+  // отдельной задачей, чтобы не держать черновики и одобрения озвучки (narration-auto-flow).
+  scheduleTracked("narration-auto-master", "* * * * *", async () => {
+    const { runMachineMastersTick } = await import("./lib/narrationAutoFlow.js");
+    await runMachineMastersTick();
+    // Звук + отделение (до 15 мин) + мастер + перемикс: с запасом; замок объекта живёт 40 мин.
+  }, undefined, undefined, { timeoutMs: 30 * 60_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {
     const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");
     await runSellerControlTick();
@@ -1471,6 +1490,19 @@ export function startCronJobs() {
     },
     { timezone: "Asia/Dushanbe" }
   );
+
+  /** Брошенные загрузки частями без записи в базе (общие сессии — ролик карточки, файл в
+   *  переписку, свободный ролик; lib/chunkedUploadSessions.ts). Сессия без новой части два
+   *  часа — брошена: части по 8 МБ лежат на диске, и без уборки копились бы до следующего
+   *  старта загрузки. Каждый час, в 17 минут. */
+  scheduleTracked("chunked-uploads-cleanup", "17 * * * *", async () => {
+    try {
+      const removed = await sweepStaleChunkedUploads();
+      if (removed) console.log(`[cron] Уборка брошенных загрузок частями: сессий ${removed}`);
+    } catch (err) {
+      reportCronTickError("Ошибка уборки брошенных загрузок частями", err);
+    }
+  });
 
   /** Просроченные черновики нового объекта (срок жизни 7 суток, см.
    *  routes/properties/draftAttach.ts) — 03:56 по Душанбе, сразу за брошенными

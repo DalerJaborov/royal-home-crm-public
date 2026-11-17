@@ -98,6 +98,57 @@ export async function createLocalUploadSession(sessionId: string): Promise<void>
   await fs.promises.mkdir(dir, { recursive: true });
 }
 
+/** Папка сессии на диске (null — id не нашего формата). Для замка сборки общих сессий
+ *  частями (lib/chunkedUploadSessions.ts); части и склейку по-прежнему ведут функции ниже. */
+export function localUploadSessionDir(sessionId: string): string | null {
+  return resolveSessionDir(sessionId);
+}
+
+/** Служебный файл сессии без записи в базе (свободный ролик в соцсети, 17.11.2026):
+ *  кто открыл, план частей, имя файла. Имя не совпадает с `part-N`, склейку не задевает. */
+const SESSION_META = "meta.json";
+
+export async function writeLocalUploadSessionMeta(sessionId: string, meta: unknown): Promise<void> {
+  const dir = resolveSessionDir(sessionId);
+  if (!dir) throw new Error(`Недопустимый id сессии: ${sessionId}`);
+  await fs.promises.writeFile(path.join(dir, SESSION_META), JSON.stringify(meta));
+}
+
+/** null — нет такой сессии (или id не нашего формата). */
+export async function readLocalUploadSessionMeta(sessionId: string): Promise<unknown> {
+  const dir = resolveSessionDir(sessionId);
+  if (!dir) return null;
+  try {
+    return JSON.parse(await fs.promises.readFile(path.join(dir, SESSION_META), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Номера частей, уже лежащих на диске. */
+export async function listLocalUploadParts(sessionId: string): Promise<number[]> {
+  const dir = resolveSessionDir(sessionId);
+  if (!dir) return [];
+  try {
+    return (await fs.promises.readdir(dir))
+      .map((name) => /^part-(\d+)$/.exec(name)?.[1])
+      .filter((n): n is string => !!n)
+      .map(Number)
+      .sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
+/** Все id сессий на диске — для уборки брошенных сессий без записи в базе. */
+export async function listLocalUploadSessionIds(): Promise<string[]> {
+  try {
+    return (await fs.promises.readdir(sessionsDir)).filter((name) => SESSION_ID_RE.test(name));
+  } catch {
+    return [];
+  }
+}
+
 export async function writeLocalUploadPart(sessionId: string, partNumber: number, body: Buffer): Promise<void> {
   const dir = resolveSessionDir(sessionId);
   if (!dir) throw new Error(`Недопустимый id сессии: ${sessionId}`);

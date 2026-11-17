@@ -18,6 +18,7 @@ import {
 import { hasLiveCall } from "./callTracker.js";
 import { loadIncomingSettings } from "./incomingSettings.js";
 import { findPhoneOwners } from "../clientPhones.js";
+import { agentMayCallArchived } from "../archiveReviewCall.js";
 import { whisperFileForCall } from "./whisperSync.js";
 import {
   ROUTE_DIALPLAN_FILE,
@@ -522,6 +523,13 @@ export interface RouteRequest {
   recordId?: string;
   /** Снял ли оператор трубку ПРЯМО СЕЙЧАС. Спрашивается дважды: до и после станции. */
   isAnswered: () => boolean;
+  /**
+   * Клиент из Корзины перезванивает тому, кто недавно звонил ему для «разбора удалённого» (владелец
+   * 16.11.2026). С 17.11.2026 (владелец: «только РОПу, не надо никого переводить на оператора») — как свой
+   * клиент своему агенту: ждём занятого, не взял — мобильный, потом автоответчик и пуш ему. Карточка не оживает. Решение о праве и о живом владельце номера принято до этого
+   * (incomingCalls.setupIncomingCall).
+   */
+  archiveReviewerId?: string;
 }
 
 /**
@@ -533,7 +541,8 @@ export async function routeIncomingToAssignedAgent(request: RouteRequest): Promi
     if (!rememberAttempt(request.channelId)) return { routed: false, reason: "already_answered" };
     let outcome = await attemptRoute(request);
     // Причина «может пройти сама» и звонок ещё жив — не сдаёмся сразу: клиент
-    // ждёт своего агента, а не первого, кто ответит (владелец 04.09.2026).
+    // ждёт своего агента, а не первого, кто ответит (владелец 04.09.2026). Перезвон из Корзины — так же:
+    // клиент ждёт РОПа, который ему звонил, оператору не уходит (владелец 17.11.2026).
     if (!outcome.routed && RETRYABLE_REASONS.has(outcome.reason) && !request.isAnswered()) {
       outcome = await waitAndRetry(request, outcome);
     }
@@ -560,7 +569,9 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
   if (!request.channelName) return { routed: false, reason: "redirect_failed" };
   if (request.isAnswered()) return { routed: false, reason: "already_answered" };
 
-  let { matchCount, client } = await loadRouteClient(request.phone, request.clientId);
+  let { matchCount, client } = request.archiveReviewerId
+    ? await loadArchiveReviewerRoute(request.archiveReviewerId)
+    : await loadRouteClient(request.phone, request.clientId);
 
   /**
    * СНЯТИЕ LOST ВХОДЯЩИМ ЗВОНКОМ (аудит 02.09.2026, баг B3). Клиент в статусе
@@ -652,6 +663,7 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
     viaMobile: decision.viaMobile,
     // Свой клиент: полное routeRingSeconds при любом режиме консультанта
     // (владелец 11.10.2026; с 02.10 при консультанте было не дольше его ожидания).
+    // Перезвон из Корзины — то же полное время (владелец 17.11.2026: «только РОПу»).
     ringSeconds: settings.routeRingSeconds,
     // Решение владельца 04.09.2026: автоответчик нигде не нужен — не позвонил
     // агент за routeRingSeconds, звонок просто кладётся, без записи и без
@@ -664,6 +676,8 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
     // 11.10.2026 владелец: «робот НЕ отвечает клиентам агента» — "voicemail" ВСЕГДА,
     // и диалплан в этой ветке консультанта больше не зовёт (ни при каком aimode).
     // "ai" — только у перевода, который сделал сам консультант (liveVoiceTransfer.ts).
+    // Перезвон из Корзины: тоже автоответчик, НЕ очередь операторов (владелец 17.11.2026: «только РОПу,
+    // не надо никого переводить на оператора»); пуш о пропущенном получает звонивший (notifyMissed).
     fallback: "voicemail",
     isAnswered: request.isAnswered,
     whisperFile,
@@ -860,6 +874,43 @@ export async function continueStasisChannelToAgent(input: {
     return false;
   }
   return true;
+}
+
+/**
+ * Перезвон клиента из Корзины тому, кто звонил ему для разбора: «карточка» для решения о переводе — сам
+ * звонивший как ответственный. Дальше те же проверки (активен, не заморожен, есть аппарат, не занят);
+ * карточка в базе не меняется.
+ */
+async function loadArchiveReviewerRoute(
+  agentId: string
+): Promise<{ matchCount: number; client: RouteClient | null }> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId },
+    select: {
+      id: true,
+      isActive: true,
+      frozenAt: true,
+      sipExtension: true,
+      phone: true,
+      whisperLanguage: true,
+      role: true,
+      permissions: true,
+    },
+  });
+  // Право проверяется ещё раз прямо сейчас (в начале звонка оно уже сверялось, но между ними прошли секунды,
+  // а в «клиента нет» путь ведёт к оператору, как у незнакомого номера).
+  if (!agent || !agentMayCallArchived(agent)) return { matchCount: 0, client: null };
+  return {
+    matchCount: 1,
+    client: {
+      deletedAt: null,
+      status: "CONTACTED",
+      workStatus: "ACTIVE",
+      acceptedAt: new Date(),
+      lastAgentId: null,
+      assignedAgent: agent,
+    },
+  };
 }
 
 /**
@@ -1078,7 +1129,10 @@ export async function holdKnownClientAwayFromOperator(
 ): Promise<boolean> {
   if (OPERATOR_REASONS.has(reason)) return false;
   try {
-    const { client } = await loadRouteClient(request.phone, request.clientId);
+    // Перезвон из Корзины: «свой агент» — РОП, который звонил клиенту для разбора (владелец 17.11.2026).
+    const { client } = request.archiveReviewerId
+      ? await loadArchiveReviewerRoute(request.archiveReviewerId)
+      : await loadRouteClient(request.phone, request.clientId);
     const agent = client && !client.deletedAt ? client.assignedAgent : null;
     if (!agent) return false;
     if (request.isAnswered()) return true;

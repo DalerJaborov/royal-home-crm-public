@@ -3,10 +3,19 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { attachContactProfile } from "../contactProfiles.js";
 import { formatClientName, type ClientKind } from "@royal-home/shared";
 import { findClientByPhoneDigits } from "../whatsappPhone.js";
+import { findPhoneOwners } from "../clientPhones.js";
+import { describeError } from "../describeError.js";
 import { findAgentsWithPermission } from "../recipients.js";
 import { sendPushToAgent, sendPushToAgents } from "../../push.js";
 import { logSystemError } from "../systemError.js";
 import { logTimeline } from "../timeline.js";
+import {
+  agentMayCallArchived,
+  ARCHIVE_REVIEW_CALLBACK_NOTE,
+  archiveCallbackRingSeconds,
+  ARCHIVE_REVIEW_CALLBACK_WINDOW_HOURS,
+  ARCHIVE_REVIEW_NOTE_PREFIX,
+} from "../archiveReviewCall.js";
 import { closeStaleNextActions } from "../nextActionAutoClose.js";
 import { claimAutoTaskSlot, closeAutoTasks, CALLBACK_AUTO_TASK_KINDS } from "../autoTasks.js";
 import { loadIncomingSettings, incomingHoursOpen } from "./incomingSettings.js";
@@ -255,6 +264,14 @@ interface LiveIncoming {
   /** Номер в виде CRM (+992…). */
   phone: string;
   startedAt: Date;
+  /** Звонит клиент из Корзины, которому недавно звонил сотрудник для «разбора» (и у номера нет живой карточки). */
+  archiveReviewerId?: string;
+  /** Карточка из Корзины, по которой шёл разбор: туда ляжет запись о разговоре. */
+  archivedClientId?: string;
+  /** Когда звонок переведён звонившему (аппарат звонит). Пусто — перевод не удался, звонок у оператора. */
+  archiveRoutedAt?: Date;
+  /** Сколько секунд звонка получил звонивший (по настройке на момент перевода): окно «ответил он». */
+  archiveRingSeconds?: number;
   /** Момент соединения с оператором. Пусто — разговора так и не было. */
   bridgedAt?: Date;
   /**
@@ -543,7 +560,25 @@ async function setupIncomingCall(entry: LiveIncoming): Promise<void> {
   const match = await findClientByPhoneDigits(entry.phone);
   // Карточку из Корзины за клиента не считаем: её удалил человек, и оживлять её
   // звонком (а тем более ставить по ней задачу) — не наше решение.
-  const known = match && !match.deletedAt ? match : null;
+  let known = match && !match.deletedAt ? match : null;
+  if (match?.deletedAt) {
+    /**
+     * findClientByPhoneDigits при ТОЧНОМ совпадении главного номера отдаёт удалённую карточку, даже если ЖИВАЯ
+     * держит тот же номер запасным (после объединения дублей). Живой владелец номера важнее удалённого:
+     * звонок живого клиента идёт его агенту (как у voicemailIngest «сначала живая»), а не к оператору и не
+     * к тому, кто разбирал дубль из Корзины. Среди живых findPhoneOwners ставит первым владельца по главному номеру.
+     */
+    let liveChecked = false;
+    try {
+      const [liveOwner] = await findPhoneOwners([entry.phone], { limit: 1 });
+      if (liveOwner) known = { id: liveOwner.id, phone: liveOwner.phone, whatsappPhone: liveOwner.whatsappPhone, deletedAt: null };
+      liveChecked = true;
+    } catch (err) {
+      void logSystemError("telephony", `Поиск живого владельца номера не удался: ${describeError(err)}`);
+    }
+    // Не проверили живых владельцев — к звонившему не переводим (звонок идёт как у незнакомого номера).
+    if (!known && liveChecked) await findArchiveReviewerForCallback(entry, match.id);
+  }
   entry.clientId = known?.id;
   if (known) {
     // Имя и короткий номер — отдельным запросом: findClientByPhoneDigits ищет по
@@ -671,6 +706,49 @@ async function setupIncomingCall(entry: LiveIncoming): Promise<void> {
   entry.routing = routeIncoming(entry);
 }
 
+/**
+ * ПЕРЕЗВОН КЛИЕНТА ИЗ КОРЗИНЫ (владелец 17.11.2026): номер принадлежит только удалённым карточкам. Если
+ * сотрудник звонил кому-то из них для «разбора удалённого» не позже ARCHIVE_REVIEW_CALLBACK_WINDOW_HOURS назад
+ * и всё ещё вправе так звонить (работает, не заморожен, права на месте — проверка прямо сейчас), звонок
+ * сначала идёт ему (одна короткая попытка, потом операторам: inboundRouting.ts).
+ *
+ * Ищутся ИСХОДЯЩИЕ звонки разбора: запись самого перезвона («клиент перезвонил») окно не продлевает.
+ * Любой сбой — тихий отказ: звонок пойдёт к оператору, как у незнакомого номера.
+ */
+async function findArchiveReviewerForCallback(entry: LiveIncoming, matchedDeletedId: string): Promise<void> {
+  try {
+    // Вне часов приёма звонок звонившему не переводим: пуш о пропущенном ночью не уходит, и клиент потерялся бы молча (ревью 17.11).
+    const incoming = await loadIncomingSettings();
+    // Рубильник (Настройки → Телефония): выключен — звонок идёт оператору, как у незнакомого номера.
+    if (!incoming.archiveCallbackEnabled) return;
+    if (!incomingHoursOpen(incoming)) return;
+    const deletedOwners = await findPhoneOwners([entry.phone], { includeDeleted: true, limit: 10 });
+    const deletedIds = [...new Set([matchedDeletedId, ...deletedOwners.filter((o) => o.deletedAt).map((o) => o.id)])];
+    const review = await prisma.interaction.findFirst({
+      where: {
+        clientId: { in: deletedIds },
+        archiveReview: true,
+        type: "CALL",
+        agentId: { not: null },
+        createdAt: { gte: new Date(Date.now() - ARCHIVE_REVIEW_CALLBACK_WINDOW_HOURS * 3600_000) },
+        NOT: { notes: { contains: ARCHIVE_REVIEW_CALLBACK_NOTE } },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { agentId: true, clientId: true },
+    });
+    if (!review?.agentId) return;
+    const agent = await prisma.agent.findUnique({
+      where: { id: review.agentId },
+      select: { role: true, permissions: true, isActive: true, frozenAt: true },
+    });
+    if (!agent || !agentMayCallArchived(agent)) return;
+    entry.archiveReviewerId = review.agentId;
+    entry.archivedClientId = review.clientId;
+  } catch (err) {
+    void logSystemError("telephony", `Поиск звонившего для перезвона из Корзины не удался: ${describeError(err)}`);
+  }
+}
+
 /** Попытка увести звонок ответственному агенту. Отдельная функция — ради поля routing. */
 async function routeIncoming(entry: LiveIncoming): Promise<void> {
   if (!entry.channelName) return;
@@ -683,11 +761,17 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
     phone: entry.phone,
     clientId: entry.clientId,
     recordId: entry.recordId,
+    archiveReviewerId: entry.archiveReviewerId,
     // Функцией, а не значением: между решением и действием лежит поход к станции,
     // и оператор мог снять трубку ровно в этот промежуток. Перевод соединённого
     // звонка оборвал бы живой разговор.
     isAnswered,
   });
+  if (outcome.routed && entry.archiveReviewerId) {
+    entry.archiveRoutedAt = new Date();
+    entry.archiveRingSeconds = archiveCallbackRingSeconds((await loadIncomingSettings()).routeRingSeconds);
+    // Оператору такой звонок больше не уходит (17.11.2026): мост после перевода — это звонивший.
+  }
   /**
    * ЗВОНИТЬ ВООБЩЕ НЕКОМУ (не "не получилось", а "нет ответственного") — пробуем
    * альтернативный режим, если владелец его включил (Settings.incomingRoutingMode).
@@ -697,7 +781,9 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
    * карточек) сюда НЕ попадают нарочно — см. заголовки kpiQueueRouting.ts и
    * dutyRosterRouting.ts.
    */
-  if (!outcome.routed && (outcome.reason === "no_client" || outcome.reason === "no_agent")) {
+  // Перезвон из Корзины в KPI/дежурного не уходит (владелец 17.11.2026: «только РОПу») — ниже его держит
+  // holdKnownClientAwayFromOperator: мобильный РОПа, потом автоответчик.
+  if (!outcome.routed && !entry.archiveReviewerId && (outcome.reason === "no_client" || outcome.reason === "no_agent")) {
     const params = { channelName: entry.channelName, phone: entry.phone, recordId: entry.recordId, isAnswered };
     const kpi = await routeUnknownCallByKpiQueue(params);
     // Перевод по KPI удался — дежурного не зовём: его запись в журнале стёрла бы
@@ -740,6 +826,7 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
       phone: entry.phone,
       clientId: entry.clientId,
       recordId: entry.recordId,
+      archiveReviewerId: entry.archiveReviewerId,
       isAnswered,
     },
     outcome.reason
@@ -773,6 +860,8 @@ async function routeIncoming(entry: LiveIncoming): Promise<void> {
  * спросили, и видно, кого спрашивать. Оператор заменяет его в окне разговора.
  */
 async function createCardForUnknownCaller(entry: LiveIncoming): Promise<void> {
+  // Перезвон из Корзины: номер принадлежит удалённой карточке, живой дубль «Входящий …» заводить нельзя (ревью 17.11).
+  if (entry.archiveReviewerId) return;
   // Строки журнала нет — начало звонка не записалось (см. setupIncomingCall). Без
   // неё карточку не к чему привязать, а update по несуществующему channelId упадёт.
   if (!entry.recordId) return;
@@ -1271,6 +1360,9 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
    */
   const transferShort =
     !!entry.bridgedAt && !!entry.transferAgent && !entry.answeredBy && talkSeconds < TRANSFER_ANSWER_MIN_SECONDS;
+  /** Перезвон из Корзины: «ответили» мобильный/автоответчик звонившего (номера станция не назвала, разговор короче порога) — это не разговор. */
+  const archiveShort =
+    !!entry.archiveReviewerId && !!entry.archiveRoutedAt && !!entry.bridgedAt && !entry.answeredBy && talkSeconds < TRANSFER_ANSWER_MIN_SECONDS;
   /** Разговор провёл агент после перевода консультантом, а станция не назвала его
    *  номер: кому его засчитать (см. LiveIncoming.transferAgent). Автор записи и владелец
    *  лида не должны расходиться (п.9): назвала станция другого человека (перехват,
@@ -1300,7 +1392,7 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
   const robotAnswered = robotOnly && !handedBack && !silentUnknown;
   const silentKnown = robotAnswered && sessionReported && !entry.consultantSpoke && !!client?.assignedAgentId;
   const byConsultant = robotAnswered && !silentKnown;
-  const answered = (!!entry.bridgedAt && !transferShort) || byConsultant;
+  const answered = (!!entry.bridgedAt && !transferShort && !archiveShort) || byConsultant;
 
   /**
    * АВТОР ЗАПИСИ — ОПЕРАТОР, ЕСЛИ ЕГО УДАЁТСЯ УЗНАТЬ, и только потом ответственный
@@ -1543,6 +1635,46 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
     !!client?.assignedAgent && (!client.assignedAgent.isActive || !!client.assignedAgent.frozenAt);
   const callbackAgentId = !answered && client?.assignedAgentId && !assignedAgentUnavailable ? client.assignedAgentId : null;
 
+  /**
+   * ПЕРЕЗВОН КЛИЕНТА ИЗ КОРЗИНЫ, НА КОТОРЫЙ ОТВЕТИЛ ИМЕННО ЗВОНИВШИЙ (17.11.2026): след в хронологии удалённой
+   * карточки (карточка не оживает, в работу агента не идёт — archiveReview), и звук разговора (запись
+   * цепляется к этой записи тем же путём, что у остальных входящих: interactionId уходит в ariEvents).
+   *
+   * Ответил звонивший — только если ЗВОНОК ЕМУ ПЕРЕВЕДЁН и (по внутреннему номеру ответил он сам, либо
+   * номер не назван — мобильный — и мост встал в пределах его короткого звонка, пока оператору ещё не звонили).
+   * Оператор после запасного пути, робот и «автоответчик телефона» (разговор короче порога) записью от имени
+   * звонившего НЕ становятся: он этого разговора не вёл (ревью 16.11, п.2).
+   */
+  let archiveCallbackInteractionId: string | null = null;
+  if (
+    entry.archiveReviewerId &&
+    entry.archivedClientId &&
+    entry.archiveRoutedAt &&
+    entry.bridgedAt &&
+    !entry.consultantAt &&
+    !byConsultant &&
+    !transferShort &&
+    !archiveShort &&
+    (operator
+      ? operator.id === entry.archiveReviewerId
+      : entry.bridgedAt.getTime() - entry.archiveRoutedAt.getTime() <= ((entry.archiveRingSeconds ?? 0) + 3) * 1000)
+  ) {
+    try {
+      const callbackRecord = await logTimeline({
+        clientId: entry.archivedClientId,
+        actor: { kind: "agent", agentId: entry.archiveReviewerId },
+        type: "CALL",
+        archiveReview: true,
+        notes: `${ARCHIVE_REVIEW_NOTE_PREFIX}: ${ARCHIVE_REVIEW_CALLBACK_NOTE}, разговор ${formatDuration(talkSeconds)}`,
+        recordingDurationSec: talkSeconds || null,
+      });
+      archiveCallbackInteractionId = callbackRecord.id;
+      interactionId = callbackRecord.id;
+    } catch (err) {
+      void logSystemError("telephony", `Разговор по перезвону из Корзины не записан в хронологию: ${describeError(err)}`);
+    }
+  }
+
   try {
     await prisma.incomingCall.updateMany({
       where: { channelId },
@@ -1550,6 +1682,11 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
         endedAt,
         answered,
         talkSeconds,
+        // Разговор звонившего разобран по смыслу сам: в «Без разбора» у оператора он не висит и новую
+        // карточку по нему заводить нечего (иначе ночной разбор заведёт «Входящий …» живым дублём удалённого).
+        ...(archiveCallbackInteractionId
+          ? { qualifiedAt: endedAt, autoLeadAt: endedAt, autoLeadStatus: "known_client" }
+          : {}),
         answeredBy: entry.answeredBy ?? transferCredit?.extension ?? null,
         answeredByConsultant: robotAnswered,
         interactionId,
@@ -1710,6 +1847,18 @@ async function notifyMissed(
    */
   const settings = await loadIncomingSettings();
   if (!incomingHoursOpen(settings)) return;
+
+  // Перезвон из Корзины, которому не ответили: узнаёт тот, кто звонил для разбора; руководителям — ничего
+  // (текст «клиента нет в базе» был бы неправдой), номер в пуше не пишем.
+  if (entry.archiveReviewerId) {
+    await sendPushToAgent(entry.archiveReviewerId, {
+      title: "📞 Перезвонил клиент из Корзины",
+      body: "Клиент, которому вы звонили для разбора, перезвонил и не дозвонился — перезвоните ему из Архива",
+      url: "/archive",
+      tag: `incoming-missed-${entry.channelId}`,
+    });
+    return;
+  }
 
   if (callbackAgentId && client) {
     await sendPushToAgent(callbackAgentId, {

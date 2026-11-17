@@ -1,4 +1,5 @@
 import { prisma } from "../../db.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import { dushanbeDayRange } from "../dushanbeTime.js";
 
 /**
@@ -136,6 +137,36 @@ export async function findCallbackContacts(
   return done;
 }
 
+
+/** Потолок кандидатов «без перезвона» за окно — тот же, что был у фильтра журнала входящих. */
+export const MISSED_NO_CALLBACK_CANDIDATES_CAP = 1000;
+
+/**
+ * ПРОПУЩЕННЫЕ БЕЗ ПЕРЕЗВОНА С `since` — id звонков (17.11.2026).
+ *
+ * Одна дверь для экрана «Звонки → Входящие» (фильтр «Без перезвона», routes/calls.ts)
+ * и помощницы Шабнам (get_missed_calls, get_my_day): раньше выборка кандидатов жила
+ * внутри маршрута, и второй читатель написал бы свою копию. Не по делу звонки
+ * (`irrelevant`) сюда не попадают, как и в бейдже. `scope` сужает выборку (например,
+ * «касается лично меня» из ownIncomingCalls.ts); экран зовёт без него. Базовые
+ * условия стоят ПОСЛЕ `scope`: сузить он может, ослабить — нет.
+ */
+export async function missedWithoutCallbackIds(
+  since: Date,
+  scope: Prisma.IncomingCallWhereInput = {},
+): Promise<string[]> {
+  const candidates = await prisma.incomingCall.findMany({
+    where: { ...scope, startedAt: { gte: since }, answered: false, irrelevant: false },
+    select: { id: true, clientId: true, startedAt: true },
+    // Потолок режет хвост: пусть теряются самые старые пропущенные, а не свежие.
+    orderBy: { startedAt: "desc" },
+    take: MISSED_NO_CALLBACK_CANDIDATES_CAP,
+  });
+  const calledBack = await findCallbackContacts(
+    candidates.flatMap((c) => (c.clientId ? [{ id: c.id, clientId: c.clientId, since: c.startedAt }] : [])),
+  );
+  return candidates.filter((c) => !calledBack.has(c.id)).map((c) => c.id);
+}
 
 /** Утренние числа (morningNumbers.ts): сколько пропущенных ЗА ВЧЕРА до сих пор без
  *  перезвона — считается НА СЕЙЧАС (та же логика, что unqualifiedNow), а не «сколько
