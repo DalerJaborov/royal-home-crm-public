@@ -25,6 +25,7 @@ import { readLiveVoiceSpend } from "./liveVoiceSpend.js";
 import { visibleCronWhere } from "./investigationOperations.js";
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { maskPhonesInFreeText } from "./clientPhone.js";
+import { somonCrawlSchedule } from "./market/somonCrawlSchedule.js";
 
 /**
  * «СОСТОЯНИЕ ФУНКЦИЙ» (14.11.2026) — расчёт состояния по реестру из packages/shared/src/functionStatus.ts.
@@ -334,7 +335,7 @@ const EVALUATORS: Record<string, Evaluator> = {
 
   "market-crawl": ({ env }) =>
     env.MARKET_CRAWL_ENABLED === "1"
-      ? { state: "working", reason: "Сбор включён: Somon раз в неделю и по минутам, Paydo ночью и частями." }
+      ? { state: "working", reason: `Сбор включён: полный обход Somon ${somonCrawlSchedule(env).mode === "nightly" ? "каждую ночь" : "раз в неделю"} и по минутам, Paydo ночью и частями.` }
       : { state: "off", reason: `Выключено: ${ENV_NOT_SET("MARKET_CRAWL_ENABLED")} (нужно 1). Свежих объявлений рынка нет.`, attention: true },
 
   "gemini-spare-key": ({ env, settings }) =>
