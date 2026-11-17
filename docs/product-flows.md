@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **763**. Развилок в самих путях: **2472**; вместе с задачами по расписанию и фоновыми заданиями — **4048**. Модулей: **86**.
+Путей: **763**. Развилок в самих путях: **2472**; вместе с задачами по расписанию и фоновыми заданиями — **4026**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -29133,92 +29133,15 @@
       · дословно из кода
 - const abilities = botAbilitiesOf(capabilities);
   · зовёт botAbilitiesOf()
-- const result = await runQualifyTurn(history, draft, { images: [], abilities, conversationId: conversation.id,…
-  · зовёт runQualifyTurn()
-  - const memory = selectQualifierPromptMemory(history, draft, options);
-    · зовёт selectQualifierPromptMemory()
-  - const effectiveWhoIsThis = resolveEffectiveWhoIsThis(draft, memory.contactProfile, options.abilities.promptEc…
-    · зовёт resolveEffectiveWhoIsThis()
-  - const { abilities, showcase } = abilitiesForIntent( options.abilities, options.showcase ?? NO_SHOWCASE, draft…
-    · зовёт abilitiesForIntent()
-  - const sellerFacts: SellerFacts | null = draft.intent === "sell" ? { ...collectSellerFacts(history), ...(draft…
-    · зовёт collectSellerFacts()
-  - const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;
-    · зовёт readCustomerOpenVacancies()
-  - const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…
-    · зовёт selectedRecruitmentPosition()
-  - const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === "job" && abilities.vacancies && optio…
-    · читает в базе: jobApplication
-  - const jobIntakeBlock = draft.intent === "job" && abilities.vacancies && recruitmentRole?.key === "real-estate…
-    · зовёт jobApplicationIntakeBlock()
-  - const selfName = clientSelfStatedName(history);
-    · зовёт clientSelfStatedName()
-  - const [botPersona, baseGeography, sellerRules, folkGeography] = await Promise.all([ resolveBotPersona(options…
-    · зовёт resolveBotPersona()
-  - const systemStable = buildStableSystem({ botPersona, baseGeography, sellerRules, folkGeography, canSendGuide:…
-    · зовёт buildStableSystem()
-  - const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…
-    · зовёт nowBlock()
-  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable: brandize(systemStable, …
-    · зовёт brandize()
-  - если rawResult == null
-    - return null;
-      · дословно из кода
-  - traceModelValidation(rawResult, parsedResult.success ? [] : parsedResult.error.issues);
-    · зовёт traceModelValidation()
-  - если !parsedResult.success
-    - void logSystemError("ai", `submit_reply: invalid result (${issues})`);
-      · запись в журнал ошибок
-  - если result?.reply?.length
-    - const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? "\n" + J…
-      · зовёт guardPrices()
-    - если guarded.invented.length > 0
-      - void logSystemError( "ai", guarded.keptDespiteViolation ? `Бот назвал цену, которой нет в данных (${guarded.i…
-        · запись в журнал ошибок
-    - если guarded.currencyMismatch.length > 0
-      - void logSystemError( "ai", `[щит цены, наблюдение] В ответе бота сумма (${guarded.currencyMismatch.join(", ")…
-        · запись в журнал ошибок
-    - result.reply = guarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : guarded.…
-      · зовёт priceGuardFallbackReply()
-    - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "price");
-      · зовёт traceFilterDelta()
-    - const discountGuarded = guardDiscounts(result.reply);
-      · зовёт guardDiscounts()
-    - если discountGuarded.invented.length > 0
-      - void logSystemError( "ai", discountGuarded.keptDespiteViolation ? `Бот назвал размер скидки (${discountGuarde…
-        · запись в журнал ошибок
-    - result.reply = discountGuarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : …
-      · зовёт priceGuardFallbackReply()
-    - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "discount");
-      · зовёт traceFilterDelta()
-    - если draft.intent !== "sell" && draft.intent !== "job"
-      - const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…
-        · зовёт applyObjectFactGuards()
-      - если facts.streets.length > 0
-        - traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
-          · зовёт traceFilterDelta()
-      - если facts.renovationRemoved > 0
-        - traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
-          · зовёт traceFilterDelta()
-        - void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…
-          · запись в журнал ошибок
-      - если what.length > 0
-        - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
-          · запись в журнал ошибок
-    - result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…
-      · зовёт applyAvailabilityGuard()
-    - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "availability");
-      · зовёт traceFilterDelta()
-    - result.reply = stripRepeatedMediaApology(result.reply, history);
-      · зовёт stripRepeatedMediaApology()
-    - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "media_apology");
-      · зовёт traceFilterDelta()
-  - если result && sellerFacts && topicSettings.enabled
-    - если typeof raw === "string" && asksKnownSellerFact(raw, sellerFacts)
-      - (result as { openQuestion?: string }).openQuestion = "";
-        · дословно из кода
-  - return result ? { ...result, showPropertyNumber: parsePhotoOffer(result.showPropertyNumber), askOwner: abilit…
-    · зовёт parsePhotoOffer()
+- const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…
+  · зовёт runLegacyQualifyTurn()
+  - const result = await runQualifyTurn(history, draft, options);
+    · зовёт runQualifyTurn()
+  - если shadow
+    - пробует
+      - scheduleLegacyCoreShadow({ channel: shadow.channel, accountId: options.accountId ?? null, traceAccount: shado…
+        · зовёт scheduleLegacyCoreShadow()
+    - если сорвалось
 - если !result
   - throw new Error("ИИ всё ещё недоступен");
     · ошибка Error — «ИИ всё ещё недоступен»
@@ -29318,92 +29241,15 @@
       · дословно из кода
 - const abilities = botAbilitiesOf(capabilities);
   · зовёт botAbilitiesOf()
-- const result = await runQualifyTurn(history, draft, { images: [], abilities, conversationId: conversation.id,…
-  · зовёт runQualifyTurn()
-  - const memory = selectQualifierPromptMemory(history, draft, options);
-    · зовёт selectQualifierPromptMemory()
-  - const effectiveWhoIsThis = resolveEffectiveWhoIsThis(draft, memory.contactProfile, options.abilities.promptEc…
-    · зовёт resolveEffectiveWhoIsThis()
-  - const { abilities, showcase } = abilitiesForIntent( options.abilities, options.showcase ?? NO_SHOWCASE, draft…
-    · зовёт abilitiesForIntent()
-  - const sellerFacts: SellerFacts | null = draft.intent === "sell" ? { ...collectSellerFacts(history), ...(draft…
-    · зовёт collectSellerFacts()
-  - const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;
-    · зовёт readCustomerOpenVacancies()
-  - const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…
-    · зовёт selectedRecruitmentPosition()
-  - const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === "job" && abilities.vacancies && optio…
-    · читает в базе: jobApplication
-  - const jobIntakeBlock = draft.intent === "job" && abilities.vacancies && recruitmentRole?.key === "real-estate…
-    · зовёт jobApplicationIntakeBlock()
-  - const selfName = clientSelfStatedName(history);
-    · зовёт clientSelfStatedName()
-  - const [botPersona, baseGeography, sellerRules, folkGeography] = await Promise.all([ resolveBotPersona(options…
-    · зовёт resolveBotPersona()
-  - const systemStable = buildStableSystem({ botPersona, baseGeography, sellerRules, folkGeography, canSendGuide:…
-    · зовёт buildStableSystem()
-  - const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…
-    · зовёт nowBlock()
-  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable: brandize(systemStable, …
-    · зовёт brandize()
-  - если rawResult == null
-    - return null;
-      · дословно из кода
-  - traceModelValidation(rawResult, parsedResult.success ? [] : parsedResult.error.issues);
-    · зовёт traceModelValidation()
-  - если !parsedResult.success
-    - void logSystemError("ai", `submit_reply: invalid result (${issues})`);
-      · запись в журнал ошибок
-  - если result?.reply?.length
-    - const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? "\n" + J…
-      · зовёт guardPrices()
-    - если guarded.invented.length > 0
-      - void logSystemError( "ai", guarded.keptDespiteViolation ? `Бот назвал цену, которой нет в данных (${guarded.i…
-        · запись в журнал ошибок
-    - если guarded.currencyMismatch.length > 0
-      - void logSystemError( "ai", `[щит цены, наблюдение] В ответе бота сумма (${guarded.currencyMismatch.join(", ")…
-        · запись в журнал ошибок
-    - result.reply = guarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : guarded.…
-      · зовёт priceGuardFallbackReply()
-    - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "price");
-      · зовёт traceFilterDelta()
-    - const discountGuarded = guardDiscounts(result.reply);
-      · зовёт guardDiscounts()
-    - если discountGuarded.invented.length > 0
-      - void logSystemError( "ai", discountGuarded.keptDespiteViolation ? `Бот назвал размер скидки (${discountGuarde…
-        · запись в журнал ошибок
-    - result.reply = discountGuarded.keptDespiteViolation ? priceGuardFallbackReply(lastClientLanguage(history)) : …
-      · зовёт priceGuardFallbackReply()
-    - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "discount");
-      · зовёт traceFilterDelta()
-    - если draft.intent !== "sell" && draft.intent !== "job"
-      - const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…
-        · зовёт applyObjectFactGuards()
-      - если facts.streets.length > 0
-        - traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
-          · зовёт traceFilterDelta()
-      - если facts.renovationRemoved > 0
-        - traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
-          · зовёт traceFilterDelta()
-        - void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…
-          · запись в журнал ошибок
-      - если what.length > 0
-        - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
-          · запись в журнал ошибок
-    - result.reply = applyAvailabilityGuard( result.reply, propsBlock.trim().length > 0 || noCatalogTalk, lastClien…
-      · зовёт applyAvailabilityGuard()
-    - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "availability");
-      · зовёт traceFilterDelta()
-    - result.reply = stripRepeatedMediaApology(result.reply, history);
-      · зовёт stripRepeatedMediaApology()
-    - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "media_apology");
-      · зовёт traceFilterDelta()
-  - если result && sellerFacts && topicSettings.enabled
-    - если typeof raw === "string" && asksKnownSellerFact(raw, sellerFacts)
-      - (result as { openQuestion?: string }).openQuestion = "";
-        · дословно из кода
-  - return result ? { ...result, showPropertyNumber: parsePhotoOffer(result.showPropertyNumber), askOwner: abilit…
-    · зовёт parsePhotoOffer()
+- const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…
+  · зовёт runLegacyQualifyTurn()
+  - const result = await runQualifyTurn(history, draft, options);
+    · зовёт runQualifyTurn()
+  - если shadow
+    - пробует
+      - scheduleLegacyCoreShadow({ channel: shadow.channel, accountId: options.accountId ?? null, traceAccount: shado…
+        · зовёт scheduleLegacyCoreShadow()
+    - если сорвалось
 - если !result
   - throw new Error("ИИ всё ещё недоступен");
     · ошибка Error — «ИИ всё ещё недоступен»
