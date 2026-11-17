@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { botTurnTracePayloadSchema, BOT_TURN_TRACE_COVERAGE, BOT_CUSTOMER_AGENT_TRACE_COVERAGE, traceManagedContextSchema, traceCustomerCoreSchema, traceCustomerCoreStopCodeSchema, traceManagedDeliverySchema, type TraceCustomerCore, type TraceManagedContext, type TraceManagedDelivery, type BotTurnTracePayload, type BotIngressShape, type TraceModelAttempt, type TraceOutgoingPart, type TraceOutcome, type TraceStage } from "@royal-home/shared";
+import { botTurnTracePayloadSchema, BOT_TURN_TRACE_COVERAGE, BOT_CUSTOMER_AGENT_TRACE_COVERAGE, traceManagedContextSchema, traceCustomerCoreSchema, traceCustomerCoreStopCodeSchema, traceManagedDeliverySchema, traceLegacyShadowSchema, type TraceLegacyShadow, type TraceCustomerCore, type TraceManagedContext, type TraceManagedDelivery, type BotTurnTracePayload, type BotIngressShape, type TraceModelAttempt, type TraceOutgoingPart, type TraceOutcome, type TraceStage } from "@royal-home/shared";
 import { boundedTracePayload, projectTraceModel, sanitizeTraceText, tracePseudonym } from "./botTurnTracePrivacy.js";
 
 type Channel = BotTurnTracePayload["channel"];
@@ -11,6 +11,8 @@ const context = new AsyncLocalStorage<Context>();
 const outgoingScope = new AsyncLocalStorage<number>();
 let warned = false;
 const channels = new Set(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE"]);
+/** Channels traced ONLY for the one-brain shadow record: their legacy turns stay untraced. */
+const shadowChannels = new Set([...channels, "TELEGRAM", "YOUTUBE"]);
 function runtimeConfig(): TraceConfig {
   return { enabled: /^(1|true)$/.test(process.env.BOT_TURN_TRACE_ENABLED ?? ""), secret: process.env.BOT_TURN_TRACE_HMAC_KEY ?? "", text: process.env.BOT_TURN_TRACE_TEXT_ENABLED === "1" };
 }
@@ -53,7 +55,8 @@ export function traceCheckpoint(): void {
 }
 export async function withBotTurnTrace<T>(input: TraceStart, run: () => Promise<T>, config = runtimeConfig()): Promise<T> {
   const parent = context.getStore();
-  if ((parent && !parent.closed && !parent.dropped && !input.managed) || !config.enabled || !channels.has(input.channel)) return run();
+  if ((parent && !parent.closed && !parent.dropped && !input.managed) || !config.enabled ||
+      !(channels.has(input.channel) || input.managed?.phase === "shadow" && shadowChannels.has(input.channel))) return run();
   if (config.secret.length < 32) { alarm(); return run(); }
   // Managed model/decision/delivery additions are ALWAYS metadata-only, even
   // when legacy free-text diagnostics were explicitly enabled by an operator.
@@ -224,7 +227,7 @@ export function traceCustomerCoreResult(result: { status: "ready" | "held"; deci
   /** The answer mode this turn ran in (CUSTOMER_AGENT_ANSWER_MODE narrowed by CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS). */
   answerMode?: "off" | "shadow" | "live" }): void {
   observe(ctx => {
-    if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning") return;
+    if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning" && ctx.payload.managed.phase !== "shadow") return;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ status: result.status,
       ...(result.say ? { sayStatus: result.say.status, ...(result.say.status === "dropped" ? { sayDropReason: result.say.reason } : {}) } : {}),
       ...(result.answer ? { answerStatus: result.answer.status, ...(result.answer.status === "dropped" ? { answerDropReason: result.answer.reason } : {}) } : {}),
@@ -242,6 +245,13 @@ export function traceCustomerCoreResult(result: { status: "ready" | "held"; deci
       ...(result.status === "ready" && result.rounds > 0 ? { decisionSource: result.fallbackReason === "receipt_confirmation" ? "receipt_confirmation"
           : result.fallbackReason ? "verified_public_fallback" : "model",
         ...(result.fallbackReason === "invalid_model_decision" ? { protocolReason: result.fallbackReason } : {}), ...causeCode(result.fallbackCause) } : {}) });
+  }); traceCheckpoint();
+}
+/** One-brain shadow comparison (old bot vs core on the same words). Only inside a shadow record; flags only, never text. */
+export function traceLegacyShadow(value: TraceLegacyShadow): void {
+  observe(ctx => {
+    if (ctx.payload.managed?.phase !== "shadow") return;
+    ctx.payload.legacyShadow = traceLegacyShadowSchema.parse(value);
   }); traceCheckpoint();
 }
 /** PLANNED is local persistence only; this never appends an outgoing receipt. */

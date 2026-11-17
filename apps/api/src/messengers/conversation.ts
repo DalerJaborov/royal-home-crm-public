@@ -55,7 +55,7 @@ import {
   topicStateOf,
   topicStateUpdate,
 } from "../ai/topicLock.js";
-import { mergeDraft, runQualifyTurn } from "../ai/leadQualifier.js";
+import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadablePhoneAttempt, type UnreadablePhone } from "../lib/shared/phoneText.js";
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
@@ -3656,7 +3656,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * чем-то другим, всё равно не теряется.
    */
   const finishQualifyTurn = async (
-    result: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>
+    result: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>
   ): Promise<{ reply: string; reply2?: string; ready: boolean; shouldReply?: boolean; replyVoiceWav?: Buffer; agentSignal?: MessengerTurnResult["agentSignal"] }> => {
     // Если уже ждали телефон — оставляем этот этап (модель могла сбросить ready).
     // `merged` — слова самого клиента: по ним код отсекает аренду, не полагаясь
@@ -3955,7 +3955,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       },
       {
         regenerate: async (retryDirective) =>
-          (await runQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }))?.reply ?? null,
+          // A regeneration of the same turn: the shadow already ran for it.
+          (await runLegacyQualifyTurn(nextHistory, draft, { ...qualifyOptions, retryDirective }, null))?.reply ?? null,
         shieldBlocked: (bubbles) => repeatBlockedTexts(channel, subscriberId, bubbles, undefined, input.customerTransport),
       }
     );
@@ -4179,7 +4180,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * второй раз платить не должен. Списываем ДО вызова: деньги стоит попытка.
    */
   if (!input.retryOfPaidTurn) await spendAiTurns(conversation.id, budget.dayKey);
-  const result = await runQualifyTurn(nextHistory, draft, qualifyOptions);
+  // One brain, step 2: the per-channel shadow (lib/customerAgentChannelSwitch.ts). A paid retry repeats an already-shadowed turn.
+  const result = await runLegacyQualifyTurn(nextHistory, draft, qualifyOptions, input.retryOfPaidTurn ? null
+    : { channel, traceAccount: input.accountExternalId ?? null, eventId: input.skipSaveIncoming ? null : input.messageId ?? null });
 
   if (!result) {
     /**

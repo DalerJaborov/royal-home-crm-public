@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import { runQualifyTurn, type QualifyTurnOptions } from "../ai/leadQualifier.js";
+import { runLegacyQualifyTurn, type QualifyTurnOptions } from "../ai/legacyQualifyDoor.js";
 import { detectClientLanguage } from "../ai/clientLanguage.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
 import { EMPTY_TOPIC_STATE } from "../ai/topicLock.js";
@@ -59,7 +59,8 @@ async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial:
   });
   if (!input.retryOfPaidTurn) await spendAiTurns(lane.ticket.conversationId, budget.dayKey);
   if (!await refresh()) return { ...HELD };
-  const result = await runQualifyTurn([...lane.context.history], { ...lane.context.draft }, options());
+  const result = await runLegacyQualifyTurn([...lane.context.history], { ...lane.context.draft }, options(), input.retryOfPaidTurn ? null
+    : { channel: input.channel, traceAccount: input.accountExternalId ?? null, eventId: input.messageId ?? null });
   if (!await refresh()) return { ...HELD };
   if (!result) return { ...HELD, aiUnavailable: true };
   const blockedAction = !!(result.askOwner || result.callbackRequest || result.jobApplication ||
@@ -76,7 +77,7 @@ async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial:
     // A regeneration is the same read-only call, with the same original proof.
     regenerate: blockedAction ? undefined : async retryDirective => {
       if (!await refresh()) return null;
-      const retry = await runQualifyTurn([...lane.context.history], { ...lane.context.draft }, { ...options(), retryDirective });
+      const retry = await runLegacyQualifyTurn([...lane.context.history], { ...lane.context.draft }, { ...options(), retryDirective }, null);
       if (!await refresh() || !retry) return null;
       return retry.askOwner || retry.callbackRequest || retry.jobApplication || retry.showPropertyNumber || retry.sendGuide || retry.showing
         ? [inClientLanguage(NO_EFFECT, text)] : retry.reply;
