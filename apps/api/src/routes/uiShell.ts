@@ -73,11 +73,16 @@ uiShellRouter.put("/config", requireShellAdministrator, requirePermission("setti
       const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { uiShellRollout: true } });
       const raw = settings?.uiShellRollout;
       if (expected !== `"${versionOf(raw)}"`) throw new ShellConflict();
-      if (keepStoredLook) {
-        const stored = parseUiShellRollout(raw).royalLookAgentIds;
-        if (stored) config.royalLookAgentIds = stored;
-      }
-      const selectedIds = [...new Set([...config.agentIds, ...(keepStoredLook ? [] : config.royalLookAgentIds ?? [])])];
+      const storedLook = parseUiShellRollout(raw).royalLookAgentIds ?? [];
+      if (keepStoredLook && storedLook.length) config.royalLookAgentIds = storedLook;
+      // Пустой список не сохраняем вовсе: так выключенный «Новый вид» не мешает
+      // откату кода — прежний сервер со строгой схемой прочтёт настройки как раньше.
+      if (config.royalLookAgentIds?.length === 0) delete config.royalLookAgentIds;
+      // Проверяем только ДОБАВЛЕННЫХ в «Новый вид»: отключённый позже сотрудник в
+      // сохранённом списке не должен блокировать любое следующее сохранение.
+      const addedLook = (config.royalLookAgentIds ?? []).filter((id) => !storedLook.includes(id));
+      // Выключение рубильника не блокируется никогда — это аварийный путь.
+      const selectedIds = config.enabled ? [...new Set([...config.agentIds, ...addedLook])] : [];
       if (selectedIds.length) {
         const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: true } });
         const knownIds = new Set(agents.map((agent) => agent.id));

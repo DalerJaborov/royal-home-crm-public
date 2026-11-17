@@ -27,7 +27,16 @@ export function unscopedSelectors(css: string): string[] {
     if (char === "{") {
       const head = buffer.trim();
       buffer = "";
-      if (head.startsWith("@")) { if (/^@(-webkit-)?keyframes/.test(head)) inKeyframes = depth; depth++; continue; }
+      if (head.startsWith("@")) {
+        // Только раскладочные обёртки и свои кадры анимации (ry-*): @font-face,
+        // @layer, @page и прочее меняли бы страницу и без признака.
+        if (/^@(-webkit-)?keyframes\b/.test(head)) {
+          inKeyframes = depth;
+          if (!/^@(-webkit-)?keyframes\s+ry-[\w-]+$/.test(head)) bad.push(head);
+        } else if (!/^@(media|supports|container)\b/.test(head)) bad.push(head);
+        depth++;
+        continue;
+      }
       if (inKeyframes < 0) {
         for (const selector of splitTopLevel(head)) {
           if (!selector.startsWith(':root[data-ui-look="royal"]')) bad.push(selector);
@@ -50,6 +59,8 @@ describe("theme-look-royal.css", () => {
   it("the guard really catches an unscoped rule (сторож проверен поломкой)", () => {
     expect(unscopedSelectors(`${css}\n.clean-tab { color: red; }\n@media (min-width: 1px) { body, :root[data-ui-look="royal"] a { color: red; } }`))
       .toEqual([".clean-tab", "body"]);
+    const atRules = `\n@font-face { font-family: X; src: url(x.woff2); }\n@layer base { :root[data-ui-look="royal"] a { color: red; } }\n@keyframes spin { to { opacity: 0; } }`;
+    expect(unscopedSelectors(`${css}${atRules}`)).toEqual(["@font-face", "@layer base", "@keyframes spin"]);
   });
   it("is imported after every other theme layer", () => {
     const index = readFileSync(new URL("./index.css", import.meta.url), "utf8");

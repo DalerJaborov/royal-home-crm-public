@@ -1,5 +1,5 @@
-import { Suspense, useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { pluralizeRu, type ProblemReportMetrics, type SalesControlHome } from "@royal-home/shared";
 import { api } from "../lib/api";
@@ -11,7 +11,7 @@ import { formatMoney } from "../lib/format";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { mcOk, useMissionControl, usePropertiesPendingReview, type McFirstLineItem, type McMarketingChannel } from "../hooks/useMissionControl";
 import { useProperties } from "../hooks/useProperties";
-import { usePultActionRows } from "../components/pult/PultActions";
+import { usePultActionRows, usePultActionStatus } from "../components/pult/PultActions";
 import { CleanDecisionRow } from "../components/clean/CleanDecisionRow";
 import { useTeamLive } from "../hooks/useTeamLive";
 import { useDashboardSummary } from "../hooks/useDashboard";
@@ -87,11 +87,30 @@ function capitalize(text: string) {
   return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
 
+/** «Сейчас», которое обновляется раз в минуту и при возврате на вкладку. */
+export function useMinuteNow(): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const timer = window.setInterval(tick, 60_000);
+    const onVisible = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", tick);
+    };
+  }, []);
+  return now;
+}
+
 function Greeting() {
   const agent = useAuthStore((s) => s.agent);
+  const now = useMinuteNow();
   const firstName = agent?.fullName?.trim().split(/\s+/)[0] ?? "";
-  const hello = greetingFor(dushanbeHour());
-  const date = capitalize(dushanbeDate(new Date(), { weekday: "long", day: "numeric", month: "long" }));
+  const hello = greetingFor(dushanbeHour(now));
+  const date = capitalize(dushanbeDate(now, { weekday: "long", day: "numeric", month: "long" }));
   return (
     <header className="ry-hello">
       <p className="ry-hello-line">{firstName ? `${hello}, ${firstName}` : hello}</p>
@@ -132,6 +151,10 @@ function DirectorToday() {
   const canView = can("dashboard.analytics");
   const { data, isLoading, isError, refetch } = useMissionControl(canView);
   const rows = usePultActionRows(canView);
+  // Упавший запрос очереди не значит «решений нет» — как у прежней главной.
+  const actionStatus = usePultActionStatus(canView);
+  const queryClient = useQueryClient();
+  const retryFailed = () => void queryClient.refetchQueries({ type: "active", predicate: (query) => query.state.status === "error" });
   const pending = usePropertiesPendingReview(canView);
   const props = useProperties({ page: 1 }, canView);
 
@@ -156,7 +179,7 @@ function DirectorToday() {
     return m;
   }, [props.data, pending.data]);
 
-  if (!canView) return <RhBlockState kind="empty" />;
+  if (!canView) return <RhGroup><RhRow lead={<RhCircle icon="shield-check" tone="a3" />} title="Раздел доступен только руководству." /></RhGroup>;
   if (isError && !data) return <RhBlockState kind="error" onRetry={() => void refetch()} />;
 
   const showMoney = !!hero?.commission && !!data?.seesMoney;
@@ -188,9 +211,13 @@ function DirectorToday() {
     ),
     decisions: (
       <RhSection key="decisions" title="Нужно ваше решение" to={hasRoute("/oversight") ? "/oversight" : undefined} className="ry-col-a">
-        {rows === null ? <RhBlockState kind={isError ? "error" : "loading"} onRetry={() => void refetch()} />
-          : rows.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Решений нет" /></RhGroup>
-          : <div className="ry-decisions clean">{rows.slice(0, 6).map((row) => <CleanDecisionRow key={row.id} row={row} photos={photoById} />)}</div>}
+        {rows === null ? <RhBlockState kind={isError || actionStatus.isError ? "error" : "loading"} onRetry={retryFailed} />
+          : rows.length === 0 ? (actionStatus.isError ? <RhBlockState kind="error" onRetry={retryFailed} />
+            : <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Решений нет" /></RhGroup>)
+          : <div className="ry-decisions clean">
+            {actionStatus.isError && <RhBlockState kind="error" onRetry={retryFailed} />}
+            {rows.slice(0, 6).map((row) => <CleanDecisionRow key={row.id} row={row} photos={photoById} />)}
+          </div>}
       </RhSection>
     ),
     burning: (firstLine || firstLineBroken || isLoading) ? (

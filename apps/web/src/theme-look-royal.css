@@ -56,7 +56,8 @@
   --rh-ui-info: #1f4fc4;
   --rh-ui-badge: #c8281e;
   --rh-ui-on-color: #ffffff;
-  --rh-ui-cap-ring: rgba(255, 255, 255, .06);
+  --rh-ui-cap-ring: rgba(14, 15, 18, .08);
+  --rh-ui-cap-pill-shadow: 0 2px 8px rgba(20, 24, 40, .14);
   /* Пастель за пунктами — без бежевого и розового (не путать со смыслом). */
   --rh-ui-a0: #e3e9f6; --rh-ui-a0f: #1f3a8a;
   --rh-ui-a1: #dcf0ee; --rh-ui-a1f: #0d5550;
@@ -68,12 +69,14 @@
   --rh-ui-side-w: 248px;
   --rh-ui-side-pill: #0e0f12;
   --rh-ui-side-pill-fg: #ffffff;
-  --rh-ui-cap-bg: rgba(14, 15, 18, .92);
-  --rh-ui-cap-solid: #0e0f12;
-  --rh-ui-cap-fg: rgba(255, 255, 255, .78);
-  --rh-ui-cap-pill: #f4f5f8;
+  /* Капсула светлая стеклянная (макет): светло-серое стекло не прозрачнее 86%,
+     тёмные значки, активный пункт — на белой таблетке. */
+  --rh-ui-cap-bg: rgba(238, 240, 244, .86);
+  --rh-ui-cap-solid: #eef0f4;
+  --rh-ui-cap-fg: #3f4452;
+  --rh-ui-cap-pill: #ffffff;
   --rh-ui-cap-pill-fg: #0e0f12;
-  --rh-ui-cap-shadow: 0 18px 36px -12px rgba(14, 15, 18, .5);
+  --rh-ui-cap-shadow: 0 18px 36px -14px rgba(20, 24, 40, .28);
   /* Форма: одно скругление карточек 24, плитки 28 */
   --rh-ui-r-card: 24px;
   --rh-ui-r-tile: 28px;
@@ -121,11 +124,14 @@
   --rh-ui-a5: rgba(90, 190, 220, .16); --rh-ui-a5f: #8ed6e8;
   --rh-ui-side-pill: #eceef3;
   --rh-ui-side-pill-fg: #0e1014;
-  --rh-ui-cap-bg: #1b1f27;
+  /* Ночью — тёмное стекло, активный пункт на светлой графитовой таблетке. */
+  --rh-ui-cap-bg: rgba(27, 31, 39, .88);
   --rh-ui-cap-solid: #1b1f27;
-  --rh-ui-cap-fg: #a3aabb;
-  --rh-ui-cap-pill: #eceef3;
-  --rh-ui-cap-pill-fg: #0e1014;
+  --rh-ui-cap-fg: #c3c9d5;
+  --rh-ui-cap-pill: #3a4150;
+  --rh-ui-cap-pill-fg: #ffffff;
+  --rh-ui-cap-ring: rgba(255, 255, 255, .10);
+  --rh-ui-cap-pill-shadow: none;
   --rh-ui-cap-shadow: 0 18px 36px -12px rgba(0, 0, 0, .7);
 }
 
@@ -227,7 +233,7 @@
   min-height: 52px; gap: 3px; border-radius: 999px; color: var(--rh-ui-cap-fg); transition: none;
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab[aria-current="page"] {
-  background: var(--rh-ui-cap-pill); color: var(--rh-ui-cap-pill-fg);
+  background: var(--rh-ui-cap-pill); color: var(--rh-ui-cap-pill-fg); box-shadow: var(--rh-ui-cap-pill-shadow);
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab [data-tab-icon] { display: grid; place-items: center; width: 28px; height: 26px; background: transparent; box-shadow: none; }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-icon] svg { width: 24px; height: 24px; }
@@ -238,6 +244,28 @@
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-fab] {
   width: 48px; height: 48px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
 }
+
+/* Тихие плашки над экраном (уведомления выключены, вопрос собственнику и т.п.):
+   чужие компоненты, меняем только оформление. ПК — одна строка до 56 px,
+   телефон — не выше двух строк. Текст не трогаем. */
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight {
+  min-height: 0; padding: 6px 6px 6px 16px; border: 0;
+  border-radius: var(--rh-ui-r-card); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; max-height: 44px; padding: 0;
+}
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > .txt {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 15px; line-height: 1.3; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > .txt b { color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > button { flex: none; min-height: 44px; }
+:root[data-ui-look="royal"][data-mobile-ux] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet { max-height: none; }
+:root[data-ui-look="royal"][data-mobile-ux] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > .txt {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; font-size: 14px;
+}
+:root[data-ui-look="royal"][data-mobile-ux] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > svg { display: none; }
 
 /* ============================ общие детали ============================ */
 

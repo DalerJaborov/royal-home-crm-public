@@ -123,7 +123,8 @@ describe("PUT /ui-shell/config royal list", () => {
       .send({ ...withLook, royalLookAgentIds: ["OWNER", "OWNER", "DIRECTOR"] });
     expect(res.status).toBe(200);
     expect(res.body.royalLookAgentIds).toEqual(["OWNER", "DIRECTOR"]);
-    expect(mocks.findAgents).toHaveBeenCalledWith({ where: { id: { in: ["OWNER", "DIRECTOR"] }, isActive: true }, select: { id: true } });
+    // OWNER is already stored; only the newly added DIRECTOR is looked up.
+    expect(mocks.findAgents).toHaveBeenCalledWith({ where: { id: { in: ["DIRECTOR"] }, isActive: true }, select: { id: true } });
   });
 
   it("rejects an unknown employee in the royal list without writing", async () => {
@@ -148,13 +149,39 @@ describe("PUT /ui-shell/config royal list", () => {
     }));
   });
 
-  it("an explicit empty list switches the look off for everyone", async () => {
+  it("an explicit empty list switches the look off and is NOT stored (safe code rollback)", async () => {
     grantElevation("OWNER");
     const res = await request(app).put("/api/v1/ui-shell/config")
       .set({ Authorization: "Bearer OWNER", "If-Match": etag(withLook) })
       .send({ ...withLook, royalLookAgentIds: [] });
     expect(res.status).toBe(200);
-    expect(res.body.royalLookAgentIds).toEqual([]);
+    expect(res.body).not.toHaveProperty("royalLookAgentIds");
+    const stored = mocks.updateMany.mock.calls[0][0].data.uiShellRollout.config;
+    expect(stored).not.toHaveProperty("royalLookAgentIds");
+    // Exactly the shape the previous strict schema accepted.
+    const { royalLookAgentIds: _omit, ...previousShape } = withLook;
+    expect(stored).toEqual(previousShape);
+  });
+
+  it("a later-disabled employee already in the list does not block saving", async () => {
+    mocks.findUnique.mockResolvedValue({ uiShellRollout: { ...withLook, royalLookAgentIds: ["OWNER", "gone"] } });
+    grantElevation("OWNER");
+    const res = await request(app).put("/api/v1/ui-shell/config")
+      .set({ Authorization: "Bearer OWNER", "If-Match": etag({ ...withLook, royalLookAgentIds: ["OWNER", "gone"] }) })
+      .send({ ...withLook, royalLookAgentIds: ["OWNER", "gone", "DIRECTOR"] });
+    expect(res.status).toBe(200);
+    // Only the newly added person is checked.
+    expect(mocks.findAgents).toHaveBeenCalledWith({ where: { id: { in: ["DIRECTOR"] }, isActive: true }, select: { id: true } });
+  });
+
+  it("the emergency OFF is never blocked by unknown employees", async () => {
+    mocks.findUnique.mockResolvedValue({ uiShellRollout: { ...withLook, agentIds: ["gone"] } });
+    grantElevation("OWNER");
+    const res = await request(app).put("/api/v1/ui-shell/config")
+      .set({ Authorization: "Bearer OWNER", "If-Match": etag({ ...withLook, agentIds: ["gone"] }) })
+      .send({ ...withLook, agentIds: ["gone"], royalLookAgentIds: ["OWNER", "missing"], enabled: false });
+    expect(res.status).toBe(200);
+    expect(mocks.findAgents).not.toHaveBeenCalled();
   });
 
   it("only administrators can change it (same gate as the shell list)", async () => {

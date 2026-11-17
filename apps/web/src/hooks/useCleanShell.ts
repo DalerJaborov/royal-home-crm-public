@@ -95,9 +95,11 @@ export function useCleanShellSelection(poll = false) {
   const clean = cleanShellEnabled(requested, mobile, agentId, policy.data?.enabled === true && (!agentPreview || !policy.isError), role, agentPreview);
   return {
     clean,
-    // «Новый вид» rides on the clean shell and, unlike it, fails closed on any
-    // policy error: stale data never keeps the look on (hooks/useRoyalLook.ts).
-    ...(clean && !policy.isError && policy.data?.look ? { look: policy.data.look } : {}),
+    // «Новый вид» follows the last SUCCESSFUL policy answer, like the shell
+    // itself: a failed periodic check must not flicker it off. It is absent
+    // until a first success, and a successful answer without `look` (the
+    // emergency OFF) removes it at once (hooks/useRoyalLook.ts).
+    ...(clean && policy.data?.look ? { look: policy.data.look } : {}),
     // Do not mount working legacy controls only to discard them milliseconds
     // later when the first policy response chooses Clean.
     pending: !!agentId && deviceAllowed && requested && policy.isPending,

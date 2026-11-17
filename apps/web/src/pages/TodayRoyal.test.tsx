@@ -7,12 +7,14 @@ const state = vi.hoisted(() => ({
   role: "ADMIN",
   mc: { data: undefined as unknown, isLoading: false, isError: false },
   rows: null as unknown,
+  status: { isLoading: false, isError: false },
+  analytics: true,
 }));
 vi.mock("../store/auth", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../store/auth")>();
   return { ...actual, useAuthStore: (select: (s: unknown) => unknown) => select({ agent: { id: "a1", fullName: "Далер Тестов", role: state.role } }) };
 });
-vi.mock("../lib/permissions", async (importOriginal) => ({ ...await importOriginal<typeof import("../lib/permissions")>(), useCan: () => () => true }));
+vi.mock("../lib/permissions", async (importOriginal) => ({ ...await importOriginal<typeof import("../lib/permissions")>(), useCan: () => (permission: string) => permission !== "dashboard.analytics" || state.analytics }));
 vi.mock("../lib/navigation", async (importOriginal) => ({
   ...await importOriginal<typeof import("../lib/navigation")>(),
   useNavigation: () => ({ all: ["/", "/clients", "/messages", "/finance", "/team", "/calls", "/oversight", "/sources", "/calendar", "/properties", "/archive", "/health"].map((to) => ({ to, label: to })) }),
@@ -23,7 +25,7 @@ vi.mock("../hooks/useMissionControl", async (importOriginal) => ({
   usePropertiesPendingReview: () => ({ data: [] }),
 }));
 vi.mock("../hooks/useProperties", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useProperties")>(), useProperties: () => ({ data: undefined }) }));
-vi.mock("../components/pult/PultActions", async (importOriginal) => ({ ...await importOriginal<typeof import("../components/pult/PultActions")>(), usePultActionRows: () => state.rows }));
+vi.mock("../components/pult/PultActions", async (importOriginal) => ({ ...await importOriginal<typeof import("../components/pult/PultActions")>(), usePultActionRows: () => state.rows, usePultActionStatus: () => state.status }));
 vi.mock("../hooks/useTeamLive", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useTeamLive")>(), useTeamLive: () => ({ data: undefined, isPending: true, isError: false }) }));
 vi.mock("../hooks/useDashboard", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useDashboard")>(), useDashboardSummary: () => ({ data: undefined, isPending: false, isError: false }) }));
 vi.mock("../hooks/useClients", async (importOriginal) => ({ ...await importOriginal<typeof import("../hooks/useClients")>(), useClients: () => ({ data: { items: [], total: 0 }, isPending: false, isError: false }) }));
@@ -43,6 +45,8 @@ beforeEach(() => {
   state.role = "ADMIN";
   state.mc = { data: undefined, isLoading: true, isError: false };
   state.rows = null;
+  state.status = { isLoading: false, isError: false };
+  state.analytics = true;
 });
 
 describe("«Сегодня» в новом виде", () => {
@@ -84,5 +88,20 @@ describe("«Сегодня» в новом виде", () => {
     expect(channelBrand("WHATSAPP")).toBe("whatsapp");
     expect(channelBrand("instagram_dm")).toBe("instagram");
     expect(channelBrand("unknown")).toBeNull();
+  });
+
+  it("упавший запрос очереди решений — «Не загрузилось», а не «Решений нет»", () => {
+    state.mc = { data: emptySnapshot, isLoading: false, isError: false };
+    state.rows = [];
+    state.status = { isLoading: false, isError: true };
+    const html = render();
+    expect(html).toContain("Не загрузилось");
+    expect(html).toContain("Повторить");
+    expect(html).not.toContain("Решений нет");
+  });
+
+  it("админ без права на аналитику видит прежний текст", () => {
+    state.analytics = false;
+    expect(render()).toContain("Раздел доступен только руководству.");
   });
 });
