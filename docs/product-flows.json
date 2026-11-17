@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 763,
-  "forks": 4048,
+  "forks": 4049,
   "mounts": 86,
   "cron": 136,
   "jobs": 33,
@@ -64799,6 +64799,14 @@
     },
     {
      "k": "do",
+     "t": "const live = can(req, \"finance.view\") ? await liveMonthlyMoneyMap(reports.map((r)",
+     "a": [
+      "зовёт liveMonthlyMoneyMap()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "res.json(await Promise.all(reports.map((r)",
      "a": [
       "ответ 200"
@@ -113806,6 +113814,36 @@
         {
          "k": "do",
          "t": "console.log(`[cron] Зарплатных строк обновлено: ${salaries}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await step(\"Курс закрытого месяца не закреплён\", \"api\", async ()",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const frozen = await freezeClosedAutoExpenseRates();",
+       "a": [
+        "зовёт freezeClosedAutoExpenseRates()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "frozen",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Курс закреплён у ${frozen} строк закрытого месяца`);",
          "a": [
           "пишет строку в журнал сервера"
          ],
