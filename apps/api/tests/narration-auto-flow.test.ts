@@ -474,6 +474,29 @@ describe("templates by property type, endings and random choice without repeat (
     expect(s.versions[0].script).toBe(draftOf(s.versions[0]));
   });
 
+  it("review 17.11: the client's finished text never gets a random ending; endingId null means none; absent endingId on a template pick is chosen by the server", async () => {
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now, script: "Квартира барои фурӯш, нархаш хуб аст." });
+    expect(s.versions[0]).toMatchObject({ endingId: null, script: "Квартира барои фурӯш, нархаш хуб аст." });
+    s.versions = [];
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now, templateId: "apt-a", endingId: null });
+    expect(s.versions[0]).toMatchObject({ templateId: "apt-a", endingId: null });
+    expect(s.versions[0].script).toBe(draftOf(s.versions[0]));
+    s.versions = [];
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now, templateId: "apt-a" });
+    expect(["end-1", "end-2"]).toContain(s.versions[0].endingId);
+  });
+
+  it("review 17.11: «Другой шаблон» with a single variant makes no paid copy (UNCHANGED); with two variants it does", async () => {
+    s.config = { ...baseConfig(), templates: [TYPED.templates[0]], endings: [TYPED.endings[0]] };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    const outcome = await requestAutoNarration({ propertyId, actorId: "agent", source: "AGENT", reroll: true, debounceMs: 0, now, expectedRevision: 1 });
+    expect(outcome.status).toBe("UNCHANGED");
+    expect(s.versions).toHaveLength(1);
+    s.config = { ...baseConfig(), ...TYPED };
+    const two = await requestAutoNarration({ propertyId, actorId: "agent", source: "AGENT", reroll: true, debounceMs: 0, now, expectedRevision: 1 });
+    expect(two.status).toBe("QUEUED");
+  });
+
   it("settings without endings and versions without an ending code work as before 16.11.2026", async () => {
     s.config = { ...baseConfig() };
     await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });

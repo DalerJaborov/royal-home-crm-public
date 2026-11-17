@@ -66,7 +66,9 @@ export function narrationAutoEnabled(config: NarrationConfig): boolean {
 
 export async function requestAutoNarration(input: {
   propertyId: string; actorId: string; source: AutoNarrationSource;
-  script?: string; templateId?: string; endingId?: string; voiceId?: string;
+  script?: string; templateId?: string; endingId?: string | null; voiceId?: string;
+  /** Шаблон и концовка предвыбраны случайно и агентом не тронуты: в «последний выбор» не записываются. */
+  templateAuto?: boolean;
   /** «Другой шаблон» (кнопка Шабнам): шаблон и концовка новые случайные, не равные прошлым. */
   reroll?: boolean;
   /** Прошлый выбор сотрудника: у нового объекта (прошлой версии нет) повторять его не надо. */
@@ -101,12 +103,18 @@ export async function requestAutoNarration(input: {
     // Шаблон и концовку выбирает одно ядро (shared chooseNarration, 16.11.2026): выбор человека уважается; иначе
     // шаблон и концовка прошлой версии остаются (смена цены даёт тот же текст), а у нового объекта и при «Другой
     // шаблон» они случайные и не равны прошлым. Дальше всё хранится кодами в версии, случайности больше нет.
-    const chosen = chooseNarration(config, facts.type, { templateId: input.templateId, endingId: input.endingId, reroll: input.reroll,
+    // Концовка не подставляется, если клиент выбрал «без концовки» (null) или прислал готовый текст, не назвав её.
+    const noEnding = input.endingId === null || (input.script !== undefined && input.endingId === undefined);
+    const chosen = chooseNarration(config, facts.type, { templateId: input.templateId, endingId: input.endingId ?? undefined, noEnding, reroll: input.reroll,
       previous: latest ? { templateId: latest.templateId, endingId: latest.endingId } : null, avoid: latest ? null : input.avoid });
     const drafted = narrationDraftText(config, facts, chosen.templateId, chosen.endingId);
     const script = input.script ?? drafted.text;
     const error = narrationScriptError(script);
     if (error) return { status: "INVALID", error };
+    // «Другой шаблон» при единственном варианте: тот же шаблон, концовка, голос и текст — платной копии не делаем.
+    if (input.source === "AGENT" && input.script === undefined && latest && latest.status !== "FAILED" && narrationFactsCurrent(latest, property)
+      && latest.templateId === drafted.templateId && (latest.endingId ?? null) === drafted.endingId
+      && latest.voiceId === pickNarrationVoice(config, input.voiceId ?? latest.voiceId) && latest.script === script) return { status: "UNCHANGED" };
     // Подстраховка к проверке настроек: таджикский текст не уходит в модель без таджикского.
     if (drafted.lang === "tg" && !narrationModelSupportsTajik(config.modelId)) return { status: "INVALID", error: "Модель озвучки не знает таджикского. Руководству: выберите eleven_v4 или eleven_v4_turbo в настройках." };
     const voiceId = pickNarrationVoice(config, input.voiceId ?? latest?.voiceId);
@@ -125,7 +133,10 @@ export async function requestAutoNarration(input: {
   // Выбор сотрудника запоминаем на нём (lib/narrationLastChoice.ts): голос и тот шаблон с концовкой, что реально встали, —
   // следующий новый объект этого сотрудника не повторит их (16.11.2026).
   if (outcome.status === "QUEUED" && (input.source === "WIZARD" || input.source === "AGENT") && (input.voiceId || input.templateId || outcome.templateId)) {
-    await rememberNarrationChoice(input.actorId, { voiceId: input.voiceId, templateId: outcome.templateId ?? undefined, endingId: outcome.endingId ?? undefined }).catch(() => {});
+    // «Последний выбор» — только то, что человек выбрал сам; случайно выпавшее записывается отдельно, чтобы не повторяться.
+    await rememberNarrationChoice(input.actorId, { voiceId: input.voiceId,
+      ...(input.templateAuto || input.reroll ? {} : { templateId: input.templateId, endingId: input.endingId ?? undefined }),
+      usedTemplateId: outcome.templateId ?? undefined, usedEndingId: outcome.endingId ?? undefined }).catch(() => {});
   }
   return outcome;
 }
@@ -146,8 +157,9 @@ export async function startNarrationForNewProperty(propertyId: string, actorId: 
     const { config } = await loadNarrationConfiguration();
     const last = await narrationLastChoiceFor(actorId, config);
     const filled = { ...choice, voiceId: choice.voiceId ?? last.voiceId };
-    const avoid = { templateId: last.templateId, endingId: last.endingId };
-    let outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", ...filled, avoid, debounceMs: 0, config });
+    const avoid = { templateId: last.usedTemplateId ?? last.templateId, endingId: last.usedEndingId ?? last.endingId };
+    const { autoPicked, ...forRequest } = filled;
+    let outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", ...forRequest, templateAuto: autoPicked === true, avoid, debounceMs: 0, config });
     // Текст агента не прошёл проверку (например, вписал цену) — озвучка всё равно готовится по шаблону.
     if (outcome.status === "INVALID" && choice.script) outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", templateId: choice.templateId, endingId: choice.endingId, voiceId: filled.voiceId, avoid, debounceMs: 0, config });
     return outcome;

@@ -100,7 +100,7 @@ export function NarrationSettingsPanel() {
           Слова в фигурных скобках подставляются из объекта: {"{вид} {комнаты} {площадь} {этаж} {этаж_пор} {этажей} {район} {цена}"}. Квадратные скобки: «если есть».
           Цифры в таджикском тексте писать нельзя (числа только словами), «Директ» пишем по-русски, слово «брон» нельзя.
         </p>
-        {templates.map((t, i) => <div key={t.id} className="space-y-1 rounded border p-2">
+        {templates.map((t, i) => <details key={t.id} className="space-y-1 rounded border p-2"><summary className="cursor-pointer text-sm font-medium">{t.name}{t.manualOnly ? " (вручную)" : ""} · {t.lang === "tg" ? "тоҷикӣ" : "рус."}</summary>
           <div className="flex flex-wrap gap-2">
             <input aria-label="Название шаблона" className="min-w-0 flex-1 basis-full rounded border p-2 text-sm sm:basis-0" value={t.name} onChange={(e) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
             <select aria-label="Язык шаблона" className="rounded border p-2 text-sm" value={t.lang} onChange={(e) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, lang: e.target.value as "tg" | "ru" } : x))}>
@@ -111,7 +111,7 @@ export function NarrationSettingsPanel() {
           <TypeChecks label="Подходит для" value={t.propertyTypes} onChange={(next) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, propertyTypes: next } : x))} />
           <Check checked={t.manualOnly === true} onChange={(next) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, manualOnly: next || undefined } : x))}>Только вручную</Check>
           <textarea aria-label="Текст шаблона" rows={4} className="w-full rounded border p-2 text-sm" value={t.text} onChange={(e) => setTemplatesDraft(templates.map((x, j) => j === i ? { ...x, text: e.target.value } : x))} />
-        </div>)}
+        </details>)}
         <button type="button" className="pill sm" onClick={() => setTemplatesDraft([...templates, { id: `t-${Date.now().toString(36)}`, name: "Новый шаблон", lang: "tg", text: "{вид} барои фурӯш. Масоҳаташ {площадь} метри мураббаъ." }])}>Добавить шаблон</button>
       </fieldset>
 
@@ -121,7 +121,7 @@ export function NarrationSettingsPanel() {
           Призыв в конце ролика: после основной части шаблона ставится одна случайная концовка нужного языка и типа объекта, не равная прошлой.
           Те же правила текста, что у шаблонов.
         </p>
-        {endings.map((e, i) => <div key={e.id} className="space-y-1 rounded border p-2">
+        {endings.map((e, i) => <details key={e.id} className="space-y-1 rounded border p-2"><summary className="cursor-pointer text-sm font-medium">{e.text.slice(0, 50)}…</summary>
           <div className="flex flex-wrap gap-2">
             <select aria-label="Язык концовки" className="rounded border p-2 text-sm" value={e.lang} onChange={(ev) => setEndingsDraft(endings.map((x, j) => j === i ? { ...x, lang: ev.target.value as "tg" | "ru" } : x))}>
               <option value="tg">по-таджикски</option><option value="ru">по-русски</option>
@@ -130,7 +130,7 @@ export function NarrationSettingsPanel() {
           </div>
           <TypeChecks label="Подходит для" value={e.propertyTypes} onChange={(next) => setEndingsDraft(endings.map((x, j) => j === i ? { ...x, propertyTypes: next } : x))} />
           <textarea aria-label="Текст концовки" rows={3} className="w-full rounded border p-2 text-sm" value={e.text} onChange={(ev) => setEndingsDraft(endings.map((x, j) => j === i ? { ...x, text: ev.target.value } : x))} />
-        </div>)}
+        </details>)}
         <button type="button" className="pill sm" onClick={() => setEndingsDraft([...endings, { id: `e-${Date.now().toString(36)}`, lang: "tg", text: "Ба мо дар Директ нависед ё занг занед." }])}>Добавить концовку</button>
       </fieldset>
 
@@ -169,7 +169,7 @@ export function NarrationSettingsPanel() {
 }
 
 function Check({ checked, onChange, children }: { checked: boolean; onChange: (next: boolean) => void; children: ReactNode }) {
-  return <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1 h-4 w-4 shrink-0" checked={checked} onChange={(e) => onChange(e.target.checked)} /><span>{children}</span></label>;
+  return <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5 h-6 w-6 shrink-0" checked={checked} onChange={(e) => onChange(e.target.checked)} /><span>{children}</span></label>;
 }
 
 /** Галочки типов объекта у шаблона или концовки; пусто = подходит всем. */
@@ -178,7 +178,7 @@ function TypeChecks({ label, value, onChange }: { label: string; value: Narratio
   return <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" role="group" aria-label={label}>
     <span className="text-[var(--muted)]">{label}:</span>
     {NARRATION_PROPERTY_TYPES.map((type) => <label key={type} className="flex items-center gap-1.5">
-      <input type="checkbox" className="h-4 w-4" checked={chosen.includes(type)}
+      <input type="checkbox" className="h-6 w-6" checked={chosen.includes(type)}
         onChange={(e) => { const next = NARRATION_PROPERTY_TYPES.filter((x) => (x === type ? e.target.checked : chosen.includes(x))); onChange(next.length ? next : undefined); }} />
       {NARRATION_PROPERTY_TYPE_LABELS[type]}
     </label>)}

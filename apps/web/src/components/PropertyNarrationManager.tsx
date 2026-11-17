@@ -53,7 +53,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   // Нет версии — шаблон и концовка случайные (подходят типу, не равны прошлому выбору сотрудника), зафиксированные
   // один раз; есть версия — её шаблон и концовка (одно ядро chooseNarration, 16.11.2026).
   const factsType = data?.facts?.type;
-  const freshPick = useMemo(() => data ? chooseNarration(data.config, factsType, { avoid: data.lastChoice ?? null }) : null, [data, factsType]);
+  const freshPick = useMemo(() => data ? chooseNarration(data.config, factsType, { avoid: { templateId: data.lastChoice?.usedTemplateId ?? data.lastChoice?.templateId, endingId: data.lastChoice?.usedEndingId ?? data.lastChoice?.endingId } }) : null, [data, factsType]);
   useEffect(() => () => { if (audio) URL.revokeObjectURL(audio.url); }, [audio]);
   useEffect(() => { setDraft({}); setEditing(false); setAudio(null); setMessage(""); requestKey.current = crypto.randomUUID(); }, [propertyId]);
 
@@ -100,7 +100,7 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
     if (!resolved) return;
     await api(`/properties/${propertyId}/narration`, { method: "POST", body: {
       expectedRevision: latest?.revision ?? 0, requestKey: requestKey.current, script: resolved.text,
-      ...(resolved.templateId ? { templateId: resolved.templateId } : {}), ...(resolved.endingId ? { endingId: resolved.endingId } : {}), ...(resolved.voiceId ? { voiceId: resolved.voiceId } : {}), ...(generate ? { generate: true } : {}),
+      ...(resolved.templateId ? { templateId: resolved.templateId } : {}), endingId: resolved.endingId, ...(resolved.voiceId ? { voiceId: resolved.voiceId } : {}), ...(generate ? { generate: true } : {}),
     } });
     requestKey.current = crypto.randomUUID(); setDraft({}); setEditing(false);
     setMessage(generate ? "Готовим озвучку. Обычно минута-две, придёт сюда и в Шабнам." : "Текст сохранён. Аудио по нему подготовит маркетинг.");

@@ -32,8 +32,10 @@ import {
 type Lang = "ru" | "tg";
 const EDIT_WINDOW_MS = 15 * 60_000;
 const MAX_CHOICES = 8;
-/** Номер кнопки «🎲 Случайный другой шаблон» в `nar:m:<версия>:<номер>`: настоящие номера всегда меньше. */
-const RANDOM_TEMPLATE = 99;
+/** Кнопка «🎲 Случайный другой шаблон»: `nar:m:<версия>:r`; обычная — `nar:m:<версия>:<код шаблона>` (по коду, а не по номеру). */
+const RANDOM_TEMPLATE = "r";
+/** Код шаблона в кнопке: у Telegram на callback_data 64 байта (`nar:m:` + 36 + `:` = 43), на код остаётся 21. */
+const MAX_TEMPLATE_CODE = 21;
 const MAX_TEMPLATE_CHOICES = 12;
 
 const copy = {
@@ -50,6 +52,7 @@ const copy = {
     escalate: (code: string, agent: string) => `🎙 ${agent} шесть часов не одобряет озвучку для ${code}. Можете одобрить сами или напомнить агенту.`,
     remindOwner: (codes: string) => `🎙 Ждут вашего одобрения озвучки роликов, которые уже в монтаже: ${codes}. Прослушайте их выше или в CRM.`,
     disabled: "Для этого объекта выбрано «Без озвучки». Включить можно в карточке объекта.",
+    same: "Другого подходящего шаблона нет: текст остался тем же.",
     editPrompt: "Пришлите новый текст озвучки одним сообщением.",
     pickVoice: "Выберите голос:", pickTemplate: "Выберите шаблон:",
     queued: "Хорошо, готовлю новую озвучку и пришлю.",
@@ -71,6 +74,7 @@ const copy = {
     escalate: (code: string, agent: string) => `🎙 ${agent} шаш соат боз овози видеоро барои ${code} тасдиқ накардааст. Худатон тасдиқ кунед ё ба агент хотиррасон кунед.`,
     remindOwner: (codes: string) => `🎙 Овози видеоҳое, ки аллакай дар монтаж ҳастанд, тасдиқи шуморо интизоранд: ${codes}. Онҳоро дар боло ё дар CRM гӯш кунед.`,
     disabled: "Барои ин объект «Бе овоз» интихоб шудааст. Онро дар корти объект фаъол кардан мумкин аст.",
+    same: "Қолаби мувофиқи дигар нест: матн ҳамон монд.",
     editPrompt: "Матни навро бо як паём фиристед.",
     pickVoice: "Овозро интихоб кунед:", pickTemplate: "Қолабро интихоб кунед:",
     queued: "Хуб, овози навро тайёр мекунам ва мефиристам.",
@@ -256,10 +260,11 @@ async function clickerFor(chatId: string, propertyId: string): Promise<Clicker |
 export function narrationTemplateChoices(config: Pick<NarrationConfig, "templates">, versionLang: string | null | undefined, propertyType: string | null | undefined) {
   const templates = config.templates ?? [];
   const lang = versionLang === "ru" ? "ru" : "tg";
-  return [...narrationVariants(templates, lang, propertyType), ...narrationVariants(templates, lang === "tg" ? "ru" : "tg", propertyType)].slice(0, MAX_TEMPLATE_CHOICES);
+  return [...narrationVariants(templates, lang, propertyType), ...narrationVariants(templates, lang === "tg" ? "ru" : "tg", propertyType)]
+    .filter((t) => t.id.length <= MAX_TEMPLATE_CODE).slice(0, MAX_TEMPLATE_CHOICES);
 }
 
-const CALLBACK = /^nar:(a|e|v|t|p|m):([\da-f-]{36})(?::(\d{1,2}))?$/u;
+const CALLBACK = /^nar:(a|e|v|t|p|m):([\da-f-]{36})(?::([a-z\d-]{1,21}))?$/u;
 
 /** `nar:a|e|v|t:<версия>` и выбор `nar:p|m:<версия>:<номер>`. true — это наша кнопка. */
 export async function handleNarrationCallback(query: TelegramCallbackQuery): Promise<boolean> {
@@ -302,22 +307,22 @@ export async function handleNarrationCallback(query: TelegramCallbackQuery): Pro
       const buttons: TelegramInlineButton[][] = action === "v"
         ? config.voices.slice(0, MAX_CHOICES).map((v, i) => [{ text: `${v.gender ? `${v.name} · ${c[v.gender]}` : v.name}${v.id === last.voiceId ? ` · ${c.lastPicked}` : ""}`, callback_data: `nar:p:${version.id}:${i}` }])
         : [[{ text: c.b.randomTemplate, callback_data: `nar:m:${version.id}:${RANDOM_TEMPLATE}` }],
-          ...choices.map((t, i) => [{ text: `${t.name} · ${t.lang === "tg" ? "тоҷикӣ" : "рус."}${t.id === last.templateId ? ` · ${c.lastPicked}` : ""}`, callback_data: `nar:m:${version.id}:${i}` }])];
+          ...choices.map((t) => [{ text: `${t.name} · ${t.lang === "tg" ? "тоҷикӣ" : "рус."}${t.id === last.templateId ? ` · ${c.lastPicked}` : ""}`, callback_data: `nar:m:${version.id}:${t.id}` }])];
       await answer();
       // «Другой голос»: сначала образцы — одна и та же фраза каждым голосом (готовые, без затрат).
       if (action === "v") await sendVoiceSamples(chatId, config, version.language === "ru" ? "ru" : "tg", c.samples);
       await sendMessageWithButtons(chatId, action === "v" ? c.pickVoice : c.pickTemplate, buttons);
       return true;
     }
-    const index = Number(match[3]);
-    const voiceId = action === "p" ? config.voices[index]?.id : undefined;
+    const code = match[3] ?? "";
+    const voiceId = action === "p" ? config.voices[Number(code)]?.id : undefined;
     // «Случайный другой шаблон»: новый шаблон и новая концовка, не равные прошлым (ядро chooseNarration).
-    const reroll = action === "m" && index === RANDOM_TEMPLATE;
+    const reroll = action === "m" && code === RANDOM_TEMPLATE;
     const templateId = action === "m" && !reroll
-      ? narrationTemplateChoices(config, version.language, (await prisma.property.findUnique({ where: { id: version.propertyId }, select: { type: true } }))?.type)[index]?.id : undefined;
+      ? narrationTemplateChoices(config, version.language, (await prisma.property.findUnique({ where: { id: version.propertyId }, select: { type: true } }))?.type).find((t) => t.id === code)?.id : undefined;
     if (!voiceId && !templateId && !reroll) { await answer(c.stale); return true; }
     const outcome = await requestAutoNarration({ propertyId: version.propertyId, actorId: clicker.agentId, source: "AGENT", voiceId, templateId, reroll, expectedRevision: version.revision, debounceMs: 0, config });
-    await answer(outcome.status === "QUEUED" ? c.queued : outcome.status === "BUSY" ? c.busy : outcome.status === "OFF" ? c.off : outcome.status === "DISABLED" ? c.disabled : c.stale);
+    await answer(outcome.status === "QUEUED" ? c.queued : outcome.status === "BUSY" ? c.busy : outcome.status === "OFF" ? c.off : outcome.status === "DISABLED" ? c.disabled : outcome.status === "UNCHANGED" ? c.same : c.stale);
     if (outcome.status === "QUEUED") await sendMessage(chatId, c.queued);
   } catch (err) {
     void logSystemError("telegram", `Озвучка, кнопка Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-callback" });

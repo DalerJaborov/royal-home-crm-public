@@ -20,7 +20,7 @@ export function narrationChoiceForCreate(value: NarrationWizardChoice): Narratio
   // «Без озвучки» (12.11.2026): ничего не готовится и не тратится, остальной выбор не нужен.
   if (value.none) return { none: true };
   const script = value.script?.trim();
-  const out: NarrationWizardChoice = { ...(value.templateId ? { templateId: value.templateId } : {}), ...(value.endingId ? { endingId: value.endingId } : {}), ...(value.voiceId ? { voiceId: value.voiceId } : {}), ...(script && script.length >= 10 ? { script } : {}) };
+  const out: NarrationWizardChoice = { ...(value.templateId ? { templateId: value.templateId } : {}), ...(value.endingId ? { endingId: value.endingId } : {}), ...(value.templateId && value.autoPicked ? { autoPicked: true as const } : {}), ...(value.voiceId ? { voiceId: value.voiceId } : {}), ...(script && script.length >= 10 ? { script } : {}) };
   return Object.keys(out).length ? out : undefined;
 }
 
@@ -36,16 +36,17 @@ export function NarrationChoice({ facts, value, onChange }: {
   // Голос — последний выбор сотрудника; шаблон и концовка — случайные, зафиксированные один раз на тип объекта.
   const last = data?.lastChoice ?? {};
   const type = facts.type;
-  const picked = useMemo(() => data ? chooseNarration({ templates, endings, defaultTemplateId: data.defaultTemplateId ?? undefined }, type, { avoid: data.lastChoice ?? null }) : null,
+  const picked = useMemo(() => data ? chooseNarration({ templates, endings, defaultTemplateId: data.defaultTemplateId ?? undefined }, type, { avoid: { templateId: data.lastChoice?.usedTemplateId ?? data.lastChoice?.templateId, endingId: data.lastChoice?.usedEndingId ?? data.lastChoice?.endingId } }) : null,
     [data, templates, endings, type]);
   const defaultTemplateId = picked?.templateId ?? null;
   const defaultEndingId = picked?.endingId ?? null;
   // Предвыбор уходит в выбор агента сразу: иначе сервер выбрал бы другой случайный, чем виден на экране.
   // Сменился тип объекта (агент вернулся на шаг назад), а прежний шаблон ему не подходит — берём новый.
   useEffect(() => {
-    if (!picked?.templateId || value.none || value.script) return;
+    // Не зацикливается: как только предвыбранный шаблон записан в выбор, условие снова ложно, даже если запасной шаблон типу не подходит.
+    if (!picked?.templateId || value.none || value.script || value.templateId === picked.templateId) return;
     const current = templates.find((t) => t.id === value.templateId);
-    if (!current || !narrationFitsType(current, type)) onChange({ ...value, templateId: picked.templateId, endingId: picked.endingId ?? "" });
+    if (!current || !narrationFitsType(current, type)) onChange({ ...value, templateId: picked.templateId, endingId: picked.endingId ?? "", autoPicked: true });
   }, [picked, templates, type, value, onChange]);
   const defaultVoiceId = data ? pickNarrationVoice({ voices: data.voices, defaultVoiceId: last.voiceId ?? data.defaultVoiceId ?? undefined }) : null;
 

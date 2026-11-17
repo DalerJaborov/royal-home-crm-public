@@ -2,6 +2,7 @@ import { NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, na
 import { prisma, type TxClient } from "../db.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
+import { logSystemError } from "./systemError.js";
 import { localVideoDelete, localVideoUpload } from "./localVideoStorage.js";
 import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 
@@ -27,10 +28,20 @@ export async function narrationQuotaExceededSince(db: Pick<Tx, "propertyNarratio
  */
 type Tx = TxClient;
 
-export async function loadNarrationConfiguration(): Promise<{ config: NarrationConfig; key: string | null }> {
+/**
+ * `unreadable` (17.11.2026): сохранённые настройки есть, но схема их не читает (например, шаблонов больше предела).
+ * Озвучка тогда выглядит ненастроенной — это попадает в журнал ошибок, а сохранение настроек с такой основой
+ * отклоняется (иначе оно молча стёрло бы голоса и шаблоны).
+ */
+export async function loadNarrationConfiguration(): Promise<{ config: NarrationConfig; key: string | null; unreadable: boolean }> {
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertyNarrationConfig: true, elevenLabsApiKey: true } });
-  const parsed = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});
-  return { config: parsed.success ? parsed.data : { modelId: "", voices: [] }, key: resolveElevenLabsKey(settings?.elevenLabsApiKey) };
+  const raw = settings?.propertyNarrationConfig ?? {};
+  const parsed = narrationConfigSchema.safeParse(raw);
+  const unreadable = !parsed.success;
+  if (!parsed.success) {
+    void logSystemError("api", `Настройки озвучки не читаются, озвучка считается ненастроенной: ${parsed.error.issues.slice(0, 2).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`, { dedupKey: "narration-config-unreadable" });
+  }
+  return { config: parsed.success ? parsed.data : { modelId: "", voices: [] }, key: resolveElevenLabsKey(settings?.elevenLabsApiKey), unreadable };
 }
 
 export function narrationProviderReady(config: NarrationConfig, key: string | null): boolean {

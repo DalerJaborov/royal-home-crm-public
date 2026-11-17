@@ -253,6 +253,27 @@ describe("property narration route boundaries", () => {
     expect((await put({ endings: [ending, ending] })).status).toBe(400);
     expect((await put({ templates: [{ ...template, propertyTypes: ["GARAGE"] }] })).status).toBe(400);
   });
+  it("review 17.11: new text rules apply only to new or changed texts; unreadable saved config blocks saving", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    const old = { id: "tg-old", name: "Старый", lang: "tg", text: "Хона аз 3 ҳуҷра. Нархаш {цена}." };
+    const put = (body: object) => request(app).put("/properties/narration-settings").send(body);
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [old], autoGenerate: true }, elevenLabsApiKey: "test" });
+    // Выключили автоозвучку: старый живой шаблон с цифрой не мешает.
+    expect((await put({ autoGenerate: false })).status).toBe(200);
+    // Тот же шаблон, другой текст с цифрой: новое правило.
+    expect((await put({ templates: [{ ...old, text: "Хона аз 4 ҳуҷра. Нархаш {цена}." }] })).status).toBe(400);
+    // Структурные ошибки (неизвестное слово) ловятся и у неизменённого.
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [{ ...old, text: "{стоимость} 3" }] }, elevenLabsApiKey: "test" });
+    expect((await put({ autoGenerate: false })).status).toBe(400);
+    // Сохранённая основа не читается схемой (больше 100 шаблонов): сохранение отклонено, ничего не записано.
+    s.configSave.mockClear();
+    const many = Array.from({ length: 101 }, (_, i) => ({ id: `t-${i}`, name: `Ш ${i}`, lang: "tg", text: "{вид} барои фурӯш." }));
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [{ id: "v", name: "В" }], templates: many }, elevenLabsApiKey: "test" });
+    const blocked = await put({ autoGenerate: true });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error).toMatch(/не читаются/u);
+    expect(s.configSave).not.toHaveBeenCalled();
+  });
   it("wizard options show templates and voices to any staff, without key or model", async () => {
     s.role = "AGENT";
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "secret-model", voices: [{ id: "voice", name: "Мадина", gender: "female" }], autoGenerate: true, templates: [] }, elevenLabsApiKey: "test" });

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { narrationConfigSchema, narrationConfigPatchSchema, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { narrationConfigSchema, narrationConfigPatchSchema, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { hasMarketingRole } from "../marketing.js";
@@ -79,18 +79,25 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   const patch = narrationConfigPatchSchema.safeParse(req.body);
   if (!patch.success) return res.status(400).json({ error: "Проверьте модель и список голосов", details: patch.error.flatten() });
   // Поле, которого нет в запросе, остаётся прежним: старый экран не стирает шаблоны и пределы.
-  const { config: existing } = await configuration();
+  const { config: existing, unreadable } = await configuration();
+  if (unreadable) return res.status(409).json({ error: "Сохранённые настройки озвучки не читаются, поэтому сохранение остановлено: оно стёрло бы голоса и шаблоны. Сообщите разработчику (запись в журнале ошибок)." });
   const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data).filter(([, v]) => v !== undefined)) });
   if (!parsed.success) return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
   const modelProblem = narrationModelError(parsed.data);
   if (modelProblem) return res.status(400).json({ error: modelProblem });
   // Сторож шаблонов и концовок (16.11.2026): цифры, «Direct», «брон», скобки, тире — одна проверка на оба списка.
+  // Новые правила (цифры, Direct, брон) только к новым и изменённым текстам: старый живой шаблон не мешает сохранить остальное.
+  const textRules = (item: { id: string; text: string; lang: "tg" | "ru" }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
+    const old = before?.find((b) => b.id === item.id);
+    const unchanged = !!old && old.text === item.text && old.lang === item.lang;
+    return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang));
+  };
   for (const template of parsed.data.templates ?? []) {
-    const problem = narrationTemplateError(template.text, template.lang) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS));
+    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS));
     if (problem) return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
   }
   for (const ending of parsed.data.endings ?? []) {
-    const problem = narrationTemplateError(ending.text, ending.lang) ?? narrationScriptError(renderNarrationTemplate(ending, SAMPLE_FACTS));
+    const problem = textRules(ending, existing.endings) ?? narrationScriptError(renderNarrationTemplate(ending, SAMPLE_FACTS));
     if (problem) return res.status(400).json({ error: `Концовка «${ending.text.slice(0, 40)}…»: ${problem}` });
   }
   // Словарь произношения (12.11.2026): правка правил — синхронизация с ElevenLabs, только для
@@ -179,6 +186,7 @@ narrationRouter.post("/:id/narration", async (req, res) => {
       voiceId: parsed.data.voiceId, expectedRevision: parsed.data.expectedRevision, requestKey: parsed.data.requestKey, debounceMs: 0 });
     if (outcome.status === "INVALID") return res.status(400).json({ error: outcome.error });
     if (outcome.status === "DISABLED") return res.status(409).json({ error: "Для объекта выбрано «Без озвучки». Сначала включите озвучку." });
+    if (outcome.status === "UNCHANGED") return res.status(409).json({ error: "Текст и голос такие же, как в текущей озвучке." });
     if (outcome.status !== "QUEUED") return res.status(409).json({ error: outcome.status === "BUSY" ? "Предыдущая озвучка ещё готовится. Попробуйте через минуту." : "Версия изменилась. Обновите карточку." });
     return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true });
   }

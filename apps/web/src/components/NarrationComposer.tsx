@@ -19,7 +19,7 @@ import { VoiceSamplePicker } from "./VoiceSamplePicker";
  * Текст собирает та же `narrationDraftText`, что у сервера и Шабнам.
  */
 /** endingId: "" — агент явно выбрал «без концовки» (после «Другого варианта» без подходящих концовок). */
-export type NarrationDraft = { templateId?: string; endingId?: string; script?: string; voiceId?: string };
+export type NarrationDraft = { templateId?: string; endingId?: string; script?: string; voiceId?: string; autoPicked?: true };
 
 /** Что на самом деле уйдёт в озвучку: шаблон, концовка, язык, текст и голос с учётом умолчаний. Карточка зовёт её
  *  перед «Озвучить», блок — для показа: одна функция, иначе отправленное разойдётся с показанным. */
@@ -63,16 +63,17 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
   const langs = narrationTemplateLangs(templates);
   const variants = narrationVariants(templates, lang, facts.type);
   // Шаблон «только вручную» несёт свой призыв: концовка с него снимается; с него обратно на обычный — возвращается умолчание.
+  // Новый шаблон: текущая концовка остаётся, если подходит; нет концовки или не подходит — берётся через ядро chooseNarration.
   const pickTemplate = (id: string | null) => {
-    const manual = templates.find((t) => t.id === id)?.manualOnly === true;
-    onChange({ ...value, templateId: id ?? undefined, endingId: manual ? "" : value.endingId === "" ? undefined : value.endingId, script: undefined });
+    const next = id ? chooseNarration({ templates, endings }, facts.type, { templateId: id, previous: { templateId, endingId } }) : null;
+    onChange({ ...value, templateId: id ?? undefined, endingId: next ? next.endingId ?? "" : value.endingId, autoPicked: undefined, script: undefined });
   };
   // Случайный другой шаблон и концовка (одно ядро); lang — язык, на который переключаемся, иначе текущий.
   const reroll = (toLang: NarrationLang) => {
     const next = chooseNarration({ templates, endings }, facts.type, {
       reroll: true, lang: toLang, previous: toLang === lang ? { templateId, endingId } : null,
     });
-    onChange({ ...value, templateId: next.templateId ?? undefined, endingId: next.endingId ?? "", script: undefined });
+    onChange({ ...value, templateId: next.templateId ?? undefined, endingId: next.endingId ?? "", autoPicked: undefined, script: undefined });
   };
 
   return (

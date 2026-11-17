@@ -1,14 +1,3 @@
--- Data only, idempotent (16.11.2026). Owner-approved library of narration texts by property type and the endings list.
--- Adds to the existing Settings."propertyNarrationConfig" (voices, model, keys, limits stay untouched):
---  * templates: new ids are appended, ids that already exist are never overwritten;
---  * the six starter templates of narration_flow_11_11 get "manualOnly": true (kept, still pickable by hand and still
---    rendering old versions, but no longer drawn at random and no random ending is added after their own call to action);
---  * endings: new ids are appended.
--- A fresh database has no Settings row yet: nothing to change, the block returns.
-DO $mig$
-DECLARE
-  cfg jsonb;
-  lib jsonb := $json$
 {
  "templates": [
   {
@@ -272,33 +261,3 @@ DECLARE
   }
  ]
 }
-$json$::jsonb;
-  cur_templates jsonb;
-  cur_endings jsonb;
-  marked jsonb;
-  added_templates jsonb;
-  added_endings jsonb;
-BEGIN
-  SELECT "propertyNarrationConfig" INTO cfg FROM "Settings" WHERE "id" = 'singleton';
-  IF NOT FOUND THEN RETURN; END IF;
-  -- NULL or a JSON scalar (null, string) in the column: start from an empty object.
-  IF jsonb_typeof(cfg) IS DISTINCT FROM 'object' THEN cfg := '{}'::jsonb; END IF;
-  cur_templates := CASE WHEN jsonb_typeof(cfg -> 'templates') = 'array' THEN cfg -> 'templates' ELSE '[]'::jsonb END;
-  cur_endings := CASE WHEN jsonb_typeof(cfg -> 'endings') = 'array' THEN cfg -> 'endings' ELSE '[]'::jsonb END;
-
-  SELECT COALESCE(jsonb_agg(CASE WHEN t.e ->> 'id' IN ('tg-short', 'tg-family', 'tg-offer', 'ru-short', 'ru-family', 'ru-offer') THEN t.e || '{"manualOnly": true}'::jsonb ELSE t.e END ORDER BY t.ord), '[]'::jsonb)
-    INTO marked FROM jsonb_array_elements(cur_templates) WITH ORDINALITY AS t(e, ord);
-
-  SELECT COALESCE(jsonb_agg(n.e ORDER BY n.ord), '[]'::jsonb) INTO added_templates
-    FROM jsonb_array_elements(lib -> 'templates') WITH ORDINALITY AS n(e, ord)
-    WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(cur_templates) x WHERE x ->> 'id' = n.e ->> 'id');
-
-  SELECT COALESCE(jsonb_agg(n.e ORDER BY n.ord), '[]'::jsonb) INTO added_endings
-    FROM jsonb_array_elements(lib -> 'endings') WITH ORDINALITY AS n(e, ord)
-    WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(cur_endings) x WHERE x ->> 'id' = n.e ->> 'id');
-
-  cfg := jsonb_set(cfg, '{templates}', marked || added_templates);
-  cfg := jsonb_set(cfg, '{endings}', cur_endings || added_endings);
-  UPDATE "Settings" SET "propertyNarrationConfig" = cfg WHERE "id" = 'singleton';
-END
-$mig$;

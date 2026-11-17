@@ -14,8 +14,8 @@ import { narrationScriptError } from "../src/lib/propertyNarration.js";
  * «в случайном порядке»). Вся логика выбора живёт в packages/shared (chooseNarration); текст по сохранённым
  * кодам собирается детерминированно (narrationDraftText). Библиотека владельца берётся из настоящей миграции.
  */
-const migration = readFileSync(new URL("../prisma/migrations/20261116151000_narration_template_library/migration.sql", import.meta.url), "utf8");
-const library = z.object({ templates: narrationTemplateSchema.array(), endings: narrationEndingSchema.array() }).parse(JSON.parse(migration.split("$json$")[1]));
+// Утверждённая библиотека владельца лежит данными (tests/fixtures/narrationLibrary.json); в настройки её вносит отдельная миграция (PR «после #216»).
+const library = z.object({ templates: narrationTemplateSchema.array(), endings: narrationEndingSchema.array() }).parse(JSON.parse(readFileSync(new URL("./fixtures/narrationLibrary.json", import.meta.url), "utf8")));
 const starters = narrationTemplateSchema.array().parse(JSON.parse(readFileSync(new URL("../prisma/migrations/20261111120000_narration_flow/migration.sql", import.meta.url), "utf8").split("$json$")[1]))
   .map((t) => ({ ...t, manualOnly: true as const }));
 /** Настройки после миграции: прежние шесть («только вручную») + библиотека. */
@@ -163,6 +163,48 @@ describe("текст по сохранённым кодам: основная ч
   });
 });
 
+describe("ревью 17.11: язык, запасные шаблоны, «без концовки»", () => {
+  const ruOnly = { templates: [
+    { id: "ru-a", name: "А", lang: "ru" as const, text: "В продаже {вид}. Цена {цена}.", manualOnly: true },
+    { id: "ru-b", name: "Б", lang: "ru" as const, text: "Продаётся {вид}. Цена {цена}.", manualOnly: true },
+    { id: "tg-x", name: "Х", lang: "tg" as const, text: "{вид} барои фурӯш." },
+  ], endings: [], defaultTemplateId: "tg-x" };
+  it("русский язык не уходит в таджикский: при заданном языке берётся «вручную» этого языка, не равный прошлому", () => {
+    for (const random of sweep) {
+      expect(chooseNarration(ruOnly, "APARTMENT", { lang: "ru", reroll: true, random }).templateId).toMatch(/^ru-/u);
+      const again = chooseNarration(ruOnly, "APARTMENT", { previous: { templateId: "ru-a" }, reroll: true, random });
+      expect(again.templateId).toBe("ru-b");
+    }
+  });
+  it("запасной шаблон учитывает язык и тип: шаблон другого типа берётся, только если подходящих языка нет", () => {
+    const mixed = { templates: [
+      { id: "ru-house", name: "Д", lang: "ru" as const, text: "Дом. {цена}.", manualOnly: true, propertyTypes: ["HOUSE" as const] },
+      { id: "ru-any", name: "Л", lang: "ru" as const, text: "Объект. {цена}.", manualOnly: true },
+    ], endings: [] };
+    expect(chooseNarration(mixed, "APARTMENT", { lang: "ru", random: () => 0 }).templateId).toBe("ru-any");
+    expect(chooseNarration({ templates: [mixed.templates[0]], endings: [] }, "APARTMENT", { lang: "ru" }).templateId).toBe("ru-house");
+  });
+  it("noEnding: концовка не подставляется ни у случайного, ни у выбранного шаблона", () => {
+    for (const random of sweep) {
+      expect(chooseNarration(config, "APARTMENT", { random, noEnding: true }).endingId).toBeNull();
+      expect(chooseNarration(config, "APARTMENT", { templateId: "tg-apt-2", noEnding: true, random }).endingId).toBeNull();
+    }
+  });
+  it("кнопки Шабнам: по коду шаблона, длинные коды (не влезут в callback_data) не показываются, номер не нужен", async () => {
+    const { narrationTemplateChoices } = await import("../src/telegram/assistantNarration.js");
+    const list = narrationTemplateChoices({ templates: [...config.templates!, { id: "x".repeat(30), name: "Длинный", lang: "tg", text: "{вид} барои фурӯш." }] }, "tg", "APARTMENT");
+    expect(list.map((t) => t.id)).toContain("tg-apt-1");
+    expect(list.every((t) => t.id.length <= 21)).toBe(true);
+    expect(`nar:m:${"a".repeat(36)}:${list[0].id}`.length).toBeLessThanOrEqual(64);
+  });
+  it("структурные правила и новые правила разделены: старое проверяется только структурой", async () => {
+    const { narrationTemplateStructureError, narrationTemplateRulesError } = await import("@royal-home/shared");
+    expect(narrationTemplateStructureError("Хона аз 3 ҳуҷра Direct брон")).toBeNull();
+    expect(narrationTemplateRulesError("Хона аз 3 ҳуҷра", "tg")).toMatch(/цифры/u);
+    expect(narrationTemplateStructureError("{нет}")).toMatch(/Неизвестное/u);
+  });
+});
+
 describe("сторож шаблона и концовки при сохранении", () => {
   const tgText = "Ин хона барои фурӯш аст. Нархаш {цена}.";
   it("пропускает нормальный таджикский текст со словами из объекта и «Директ»", () => {
@@ -202,7 +244,7 @@ describe("сторож шаблона и концовки при сохране�
   });
 });
 
-describe("библиотека владельца из миграции: слово в слово, каждый текст проходит сторож", () => {
+describe("библиотека владельца из данных: слово в слово, каждый текст проходит сторож", () => {
   it("20 шаблонов (по 5 на квартиру, дом, коммерцию и участок) и 9 концовок, коды не повторяются", () => {
     expect(library.templates).toHaveLength(20);
     expect(library.endings).toHaveLength(9);
