@@ -88,13 +88,14 @@ const langOf = (text: string): IntakeLang => (repliesInTajik(assistantLanguage([
  */
 export async function rememberExpensePhoto(msg: TelegramIncomingMessage, agentId: string): Promise<boolean> {
   const photo = msg.photo?.at(-1);
-  if (!photo || msg.chat.type !== "private" || msg.forward_origin || msg.forward_from_message_id || !msg.message_id) return false;
+  const messageId = msg.message_id;
+  if (!photo || msg.chat.type !== "private" || msg.forward_origin || msg.forward_from_message_id || !messageId) return false;
   const chatId = String(msg.chat.id);
   if (!(await getExpenseDirector(chatId, agentId))) return false;
   const now = Date.now();
   return patchMemory(chatId, agentId, (m) => ({
     ...m,
-    photos: [...(m.photosUntil > now ? m.photos : []), { fileId: photo.file_id, messageId: msg.message_id }].slice(-MAX_PHOTOS),
+    photos: [...(m.photosUntil > now ? m.photos : []), { fileId: photo.file_id, messageId }].slice(-MAX_PHOTOS),
     photosUntil: now + EXPENSE_PHOTO_MEMORY_MS,
   }), EXPENSE_PHOTO_MEMORY_MS);
 }
