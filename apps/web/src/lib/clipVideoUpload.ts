@@ -1,4 +1,4 @@
-import { uploadToPurpose } from "./chunkedUpload";
+import { uploadToPurpose, type ChunkedSessionHolder } from "./chunkedUpload";
 
 /**
  * КОРОТКИЙ РОЛИК КАРТОЧКИ ОБЪЕКТА — ЧАСТЯМИ (17.11.2026). Одним запросом обход квартиры с
@@ -12,11 +12,14 @@ export const CLIP_COMPLETE_WAIT_MS = 120_000;
 export function uploadClipVideo(
   propertyId: string,
   file: File,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  /** Сессия прошлой попытки (очередь повторяет задание) — докачать в неё, а не грузить заново. */
+  session?: ChunkedSessionHolder
 ): Promise<{ clipVideoStatus: string }> {
   return uploadToPurpose<{ clipVideoStatus: string }>("clip-video", file, {
     completeUrl: (sessionId) => `/api/v1/properties/${propertyId}/clip-video/upload-sessions/${sessionId}/complete`,
     completeWaitMs: CLIP_COMPLETE_WAIT_MS,
     onProgress,
+    session,
   });
 }

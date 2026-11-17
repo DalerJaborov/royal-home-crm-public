@@ -27,7 +27,7 @@ import { contactProfileView } from "../lib/contactProfileView.js";
 import { withHiddenConversationOrigin } from "../lib/clientOrigin.js";
 import { listAccounts } from "../messengers/accounts.js";
 import { voiceMessageUpload, mediaMessageUpload } from "../upload.js";
-import { assembleChunkedUpload, ChunkedUploadError } from "../lib/chunkedUploadSessions.js";
+import { assembleChunkedUpload, ChunkedUploadError, chunkedUploadErrorBody } from "../lib/chunkedUploadSessions.js";
 import { publishConversationUpdated } from "../lib/livePublish.js";
 import { anyParams } from "../lib/routeParams.js";
 import { logAudit } from "../lib/audit.js";
@@ -1653,7 +1653,7 @@ conversationsRouter.post("/:id/reply-media/upload-sessions/complete", requireAut
   try {
     assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId: parsed.data.sessionId, agentId: req.agent!.id });
   } catch (err) {
-    if (err instanceof ChunkedUploadError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof ChunkedUploadError) return res.status(err.status).json(chunkedUploadErrorBody(err));
     throw err;
   }
   const file = {

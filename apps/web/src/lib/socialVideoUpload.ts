@@ -6,6 +6,7 @@ import { httpStatusMessage } from "./httpStatusMessage";
 import { refreshAccessToken } from "./api";
 import { PART_ATTEMPTS, STALL_MS, uploadInParts } from "./chunkedUpload";
 import { assertFitsSingleRequest } from "./singleRequestLimit";
+import { compressImage } from "./compressImage";
 
 /**
  * Загрузка свободного ролика в соцсети С ПРОГРЕССОМ (12.10.2026).
@@ -177,6 +178,10 @@ function uploadVideoInParts(input: SocialVideoUploadInput, file: File): Promise<
 /** Создаёт черновик: ролик — частями (см. выше), фото-пост — POST /social-videos/photos. */
 export async function uploadSocialVideo(input: SocialVideoUploadInput): Promise<SocialVideoItem> {
   if (input.file) return uploadVideoInParts(input, input.file);
+  // Фото-пост — одним запросом: десять снимков с камеры по 20 МБ (200 МБ) прокси не пропустит.
+  // Сжимаем до 2560 px (compressImage, обычно 1-3 МБ на снимок; сервер всё равно перекладывает
+  // их в JPEG под сети), а вес всей пачки проверяет sendOnce до отправки.
+  if (input.photos?.length) input = { ...input, photos: await Promise.all(input.photos.map((p) => compressImage(p))) };
   try {
     return await sendOnce(input, useAuthStore.getState().accessToken);
   } catch (err) {

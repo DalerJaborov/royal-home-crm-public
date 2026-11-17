@@ -80,10 +80,18 @@ export const UPLOAD_PART_BYTES = 8 * MB;
 /** Машинный код отказа «запрос тяжелее потолка одного запроса» в теле ответа 413. */
 export const REQUEST_TOO_LARGE_CODE = "REQUEST_TOO_LARGE";
 
-/** Текст отказа для одиночной отправки тяжелее потолка — один на сервер и экран. */
-export function singleRequestTooLargeMessage(sizeBytes?: number): string {
+/**
+ * Текст отказа для одиночной отправки тяжелее потолка — один на сервер и экран.
+ * `fileCount` > 1 — пачка: человеку важен общий вес («файлы весят вместе …»), а не один файл.
+ */
+export function singleRequestTooLargeMessage(sizeBytes?: number, fileCount = 1): string {
+  const limit = formatUploadLimit(PROXY_SINGLE_REQUEST_MAX_BYTES);
+  if (fileCount > 1) {
+    const weight = sizeBytes ? ` весят вместе ${formatUploadLimit(sizeBytes)} —` : "";
+    return `Файлы${weight} больше ${limit} за одну отправку. Отправьте их в несколько приёмов или уберите часть.`;
+  }
   const weight = sizeBytes ? `весит ${formatUploadLimit(sizeBytes)} — это ` : "";
-  return `Файл ${weight}больше ${formatUploadLimit(PROXY_SINGLE_REQUEST_MAX_BYTES)} за одну отправку. Сожмите файл или разделите на несколько и отправьте снова.`;
+  return `Файл ${weight}больше ${limit} за одну отправку. Сожмите файл или разделите на несколько и отправьте снова.`;
 }
 
 /**

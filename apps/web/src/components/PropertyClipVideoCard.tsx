@@ -19,6 +19,8 @@ export function PropertyClipVideoCard({ property, readOnly = false }: { property
   const qc = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  /** Процент отправки: ролик до 300 МБ едет частями минутами — без цифры кнопка «висит». */
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -27,9 +29,10 @@ export function PropertyClipVideoCard({ property, readOnly = false }: { property
     if (!file) return;
     setError(null);
     setUploading(true);
+    setProgress(0);
     try {
       // Частями (17.11.2026): одним запросом ролик тяжелее ~90 МБ отбивал прокси (413).
-      await uploadClipVideo(property.id, file);
+      await uploadClipVideo(property.id, file, setProgress);
       /* Префикс, а не точный ключ: карточка лежит под id из адреса (строка),
          см. подробный разбор в PropertyVideoFixCard.tsx::refresh. */
       await qc.invalidateQueries({ queryKey: ["property"] });
@@ -66,7 +69,7 @@ export function PropertyClipVideoCard({ property, readOnly = false }: { property
             onClick={() => fileInput.current?.click()}
             disabled={uploading || status === "PROCESSING"}
           >
-            {uploading ? "Загружаем…" : status === "READY" ? "Заменить" : "Загрузить"}
+            {uploading ? `Загружаем… ${progress}%` : status === "READY" ? "Заменить" : "Загрузить"}
           </button>
         )}
       </div>

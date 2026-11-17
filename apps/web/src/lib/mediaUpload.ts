@@ -1,5 +1,5 @@
 import { CONVERSATION_MEDIA_MAX_BYTES } from "@royal-home/shared";
-import { uploadToPurpose } from "./chunkedUpload";
+import { uploadToPurpose, type ChunkedSessionHolder } from "./chunkedUpload";
 
 /**
  * Пределы ИСХОДЯЩЕГО ФОТО по каналу (18.08.2026) — зеркало OUTGOING_MEDIA_LIMITS
@@ -62,14 +62,40 @@ export function validateOutgoingMediaPick(file: File, channel: string | undefine
  */
 export const MEDIA_DELIVERY_WAIT_MS = 120_000;
 
+/**
+ * Состояние отправки между попытками и отмена (ревью #254). По `localId` пузыря: сессия
+ * частей (повтор докачивает её, а не грузит файл заново) и рычаг отмены — «Отменить»
+ * обрывает идущую часть, не шлёт оставшиеся и не зовёт сборку, то есть файл клиенту не уйдёт.
+ * Модульная таблица, а не состояние компонента: пузырь живёт в общем сторе и переживает
+ * переключение диалогов, а с ним и загрузка.
+ */
+const inFlight = new Map<string, { session: ChunkedSessionHolder; controller: AbortController }>();
+
+/** Отменить отправку пузыря. Сессию забываем: следующий раз — с чистого листа. */
+export function cancelConversationMediaUpload(localId: string): void {
+  const entry = inFlight.get(localId);
+  entry?.controller.abort();
+  inFlight.delete(localId);
+}
+
+/** Успех — забыть состояние пузыря. */
+function forget(localId: string) {
+  inFlight.delete(localId);
+}
+
 export function uploadConversationMedia(
   conversationId: string,
   file: File,
   caption: string | undefined,
   onProgress: (percent: number) => void,
   /** Ключ повтора (17.11.2026, аудит F2-4): «Повторить» после обрыва не шлёт клиенту файл второй раз. */
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  /** id пузыря: по нему повтор находит прошлую сессию, а «Отменить» — эту отправку. */
+  localId?: string
 ): Promise<{ ok: boolean; pausedUntil: string }> {
+  const previous = localId ? inFlight.get(localId) : undefined;
+  const entry = { session: previous?.session ?? {}, controller: new AbortController() };
+  if (localId) inFlight.set(localId, entry);
   return uploadToPurpose<{ ok: boolean; pausedUntil: string }>("conversation-media", file, {
     // id сессии — в теле: ключ повтора привязан к адресу, а повтор открывает новую сессию.
     completeUrl: () => `/api/v1/conversations/${conversationId}/reply-media/upload-sessions/complete`,
@@ -78,5 +104,10 @@ export function uploadConversationMedia(
     completeWaitMs: MEDIA_DELIVERY_WAIT_MS,
     completeWaitMessage: "Сервер долго отправляет файл. Проверьте переписку: файл мог уйти — тогда повторять не нужно.",
     onProgress,
+    signal: entry.controller.signal,
+    session: entry.session,
+  }).then((result) => {
+    if (localId) forget(localId);
+    return result;
   });
 }

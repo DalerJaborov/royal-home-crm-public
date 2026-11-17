@@ -39,7 +39,7 @@ import {
   discardReceivedFinalVideo,
 } from "../../lib/videoHandoff.js";
 import { logSystemError } from "../../lib/systemError.js";
-import { assembleChunkedUpload, ChunkedUploadError } from "../../lib/chunkedUploadSessions.js";
+import { assembleChunkedUpload, ChunkedUploadError, chunkedUploadErrorBody } from "../../lib/chunkedUploadSessions.js";
 import { describeError } from "../../lib/describeError.js";
 import { logAudit } from "../../lib/audit.js";
 import { acceptFinalVideoFromStaff, selfApprovedClipOptsFor } from "../../lib/finalVideoIntake.js";
@@ -340,7 +340,7 @@ videosRouter.post("/:id/clip-video/upload-sessions/:sessionId/complete", require
   try {
     assembled = await assembleChunkedUpload({ kind: "clip-video", sessionId: String(req.params.sessionId), agentId: req.agent!.id });
   } catch (err) {
-    if (err instanceof ChunkedUploadError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof ChunkedUploadError) return res.status(err.status).json(chunkedUploadErrorBody(err));
     throw err;
   }
   try {
@@ -731,7 +731,8 @@ const videoUpload = guardedUpload({
   // а снаружи тело больше ~100 МБ сюда и так не доходило — его режет Cloudflare.
   maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
-  limits: { fileSize: PROXY_SINGLE_REQUEST_MAX_BYTES, files: MAX_VIDEOS_PER_REQUEST },
+  // 18 МБ × 5 = 90 МБ: каждое обещание двери укладывается в потолок одного запроса.
+  limits: { fileSize: 18 * 1024 * 1024, files: MAX_VIDEOS_PER_REQUEST },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith("video/")) {
       return cb(new UploadRejectedError("Допустимо только видео"));

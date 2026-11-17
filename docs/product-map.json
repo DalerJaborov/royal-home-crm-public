@@ -1241,7 +1241,7 @@
       "mount": "/api/v1/upload-sessions",
       "router": "uploadSessionsRouter",
       "file": "apps/api/src/routes/uploadSessions.ts",
-      "endpoints": 2,
+      "endpoints": 3,
       "label": null,
       "usedBy": 0
     },
@@ -1661,6 +1661,11 @@
       "id": "candidate-phone-ask",
       "expr": "*/15 * * * *",
       "label": "Просит у кандидатов на вакансию телефон, как откроется окно Meta"
+    },
+    {
+      "id": "chunked-uploads-cleanup",
+      "expr": "17 * * * *",
+      "label": "Убирает брошенные загрузки файлов частями (ролики, файлы в переписку)"
     },
     {
       "id": "client-follow-ups",

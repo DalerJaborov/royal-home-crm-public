@@ -306,3 +306,112 @@ describe("фото/видео в переписку частями (POST …/rep
     expect(res.status).toBe(404);
   });
 });
+
+describe("сессии частями: потолок, срок жизни, докачка, замок сборки (ревью #254)", () => {
+  const core = () => import("../src/lib/chunkedUploadSessions.js");
+  const storage = () => import("../src/lib/localVideoStorage.js");
+  const start = (token: string, sizeBytes = 4) =>
+    startSession(token, { purpose: "clip-video", filename: "a.mp4", sizeBytes, contentType: "video/mp4" }).then((r) => {
+      expect(r.status).toBe(201);
+      return r.body as { sessionId: string; partSize: number; totalParts: number };
+    });
+  const status = (token: string, sessionId: string) => auth(request(app).get(`/api/v1/upload-sessions/${sessionId}`), token);
+  const putPart = (token: string, sessionId: string, n: number, body: Buffer) =>
+    auth(request(app).put(`/api/v1/upload-sessions/${sessionId}/parts/${n}`), token).set("Content-Type", "application/octet-stream").send(body);
+
+  it("у сотрудника не больше трёх открытых сессий: четвёртая вытесняет самую давно не двигавшуюся", async () => {
+    const { MAX_SESSIONS_PER_AGENT } = await core();
+    expect(MAX_SESSIONS_PER_AGENT).toBe(3);
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      ids.push((await start(otherToken)).sessionId);
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect((await status(otherToken, ids[0]!)).status).toBe(404);
+    for (const id of ids.slice(1)) expect((await status(otherToken, id)).status).toBe(200);
+  });
+
+  it("докачка: статус называет принятые части; чужой статус — 404", async () => {
+    const big = Buffer.alloc(9 * 1024 * 1024, 5);
+    const { sessionId } = await start(agentToken, big.length);
+    expect((await putPart(agentToken, sessionId, 1, big.subarray(0, 8 * 1024 * 1024))).status).toBe(200);
+    const res = await status(agentToken, sessionId);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ sessionId, totalParts: 2, uploadedPartNumbers: [1], kind: "clip-video" });
+    expect((await status(otherToken, sessionId)).status).toBe(404);
+    // Сборка без второй части — 409 с машинным кодом и списком, по нему экран докачивает.
+    const complete = await auth(request(app).post(`/api/v1/properties/${propertyIds[0]}/clip-video/upload-sessions/${sessionId}/complete`), agentToken).send({});
+    expect(complete.status).toBe(409);
+    expect(complete.body).toMatchObject({ code: "PARTS_MISSING", uploadedPartNumbers: [1] });
+  });
+
+  it("брошенная сессия (без новой части два часа) убирается уборкой; свежая — остаётся", async () => {
+    const { sweepStaleChunkedUploads, SESSION_IDLE_TTL_MS } = await core();
+    const { readLocalUploadSessionMeta, writeLocalUploadSessionMeta } = await storage();
+    const stale = (await start(adminToken)).sessionId;
+    const fresh = (await start(adminToken)).sessionId;
+    const meta = (await readLocalUploadSessionMeta(stale)) as Record<string, unknown>;
+    const old = new Date(Date.now() - SESSION_IDLE_TTL_MS - 60_000).toISOString();
+    await writeLocalUploadSessionMeta(stale, { ...meta, createdAt: old, touchedAt: old });
+    expect(await sweepStaleChunkedUploads()).toBeGreaterThanOrEqual(1);
+    expect((await status(adminToken, stale)).status).toBe(404);
+    expect((await status(adminToken, fresh)).status).toBe(200);
+  });
+
+  it("новая часть продлевает жизнь сессии", async () => {
+    const { sweepStaleChunkedUploads, SESSION_IDLE_TTL_MS } = await core();
+    const { readLocalUploadSessionMeta, writeLocalUploadSessionMeta } = await storage();
+    const { sessionId } = await start(adminToken);
+    const meta = (await readLocalUploadSessionMeta(sessionId)) as Record<string, unknown>;
+    const old = new Date(Date.now() - SESSION_IDLE_TTL_MS - 60_000).toISOString();
+    await writeLocalUploadSessionMeta(sessionId, { ...meta, createdAt: old, touchedAt: old });
+    expect((await putPart(adminToken, sessionId, 1, Buffer.from("abcd"))).status).toBe(200);
+    await sweepStaleChunkedUploads();
+    expect((await status(adminToken, sessionId)).status).toBe(200);
+  });
+
+  it("уборка зарегистрирована в кроне через scheduleTracked", () => {
+    const src = fs.readFileSync(new URL("../src/cron.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/scheduleTracked\(\s*"chunked-uploads-cleanup",\s*"17 \* \* \* \*"/);
+    expect(src).toMatch(/sweepStaleChunkedUploads\(\)/);
+  });
+
+  it("вторая одновременная сборка — 409 «уже собирается», а не второй файл", async () => {
+    const { localUploadSessionDir } = await storage();
+    const sessionId = await uploadParts(agentToken, "clip-video", Buffer.from("abcd"), "a.mp4", "video/mp4");
+    // Замок первой сборки: её процесс сейчас склеивает части.
+    fs.writeFileSync(`${localUploadSessionDir(sessionId)}/assemble.lock`, "");
+    const res = await auth(request(app).post(`/api/v1/properties/${propertyIds[0]}/clip-video/upload-sessions/${sessionId}/complete`), agentToken).send({});
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("ASSEMBLING");
+  });
+
+  it("склейка упала — недосклеенный файл удалён, замок снят, части на месте", async () => {
+    const { localUploadSessionDir } = await storage();
+    const { videoTmpDir } = await import("../src/upload.js");
+    const big = Buffer.alloc(9 * 1024 * 1024, 9);
+    const { sessionId } = await start(agentToken, big.length);
+    expect((await putPart(agentToken, sessionId, 1, big.subarray(0, 8 * 1024 * 1024))).status).toBe(200);
+    // Вторая «часть» — папка: список частей полон, а прочитать её склейка не сможет.
+    fs.mkdirSync(`${localUploadSessionDir(sessionId)}/part-2`);
+    const before = new Set(fs.readdirSync(videoTmpDir));
+    const res = await auth(request(app).post(`/api/v1/properties/${propertyIds[0]}/clip-video/upload-sessions/${sessionId}/complete`), agentToken).send({});
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(fs.readdirSync(videoTmpDir).filter((f) => !before.has(f))).toEqual([]);
+    expect(fs.existsSync(`${localUploadSessionDir(sessionId)}/assemble.lock`)).toBe(false);
+    expect(fs.existsSync(`${localUploadSessionDir(sessionId)}/part-1`)).toBe(true);
+  });
+});
+
+describe("дверь сама не даёт обещать больше, чем пропустит", () => {
+  it("выше потолка без причины, файл больше запроса, пачка больше запроса без причины — ошибка", async () => {
+    const { guardedUpload } = await import("../src/upload.js");
+    const MB = 1024 * 1024;
+    expect(() => guardedUpload({ name: "t1", maxRequestBytes: 300 * MB, limits: { fileSize: MB, files: 1 } })).toThrow(/потолка прокси/);
+    expect(() => guardedUpload({ name: "t2", maxRequestBytes: 10 * MB, limits: { fileSize: 20 * MB, files: 1 } })).toThrow(/fileSize больше/);
+    expect(() => guardedUpload({ name: "t3", maxRequestBytes: 90 * MB, limits: { fileSize: 20 * MB, files: 10 } })).toThrow(/batchFitsReason/);
+    expect(() =>
+      guardedUpload({ name: "t4", maxRequestBytes: 90 * MB, batchFitsReason: "экран сжимает и проверяет вес", limits: { fileSize: 20 * MB, files: 10 } })
+    ).not.toThrow();
+  });
+});

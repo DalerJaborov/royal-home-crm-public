@@ -1,7 +1,6 @@
 import path from "node:path";
 import { SOCIAL_VIDEO_ALLOWED_EXTENSIONS, SOCIAL_VIDEO_UPLOAD_MAX_BYTES } from "@royal-home/shared";
 import {
-  ChunkedUploadError,
   assembleChunkedUpload,
   startChunkedUpload,
   writeChunkedUploadPart,
@@ -18,13 +17,10 @@ import { SocialVideoError } from "./socialVideoPosts.js";
 
 const KIND = "social";
 
+/** Ошибки ядра (ChunkedUploadError) идут как есть: маршруты раздела отвечают на них тем же
+ *  телом с машинным кодом (PARTS_MISSING, ASSEMBLING), что и общие сессии, — по нему экран докачивает. */
 async function asSocialError<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (err) {
-    if (err instanceof ChunkedUploadError) throw new SocialVideoError(err.message, err.status);
-    throw err;
-  }
+  return fn();
 }
 
 export async function startSocialVideoUpload(input: {

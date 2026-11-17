@@ -39,6 +39,16 @@ export interface XhrSendOptions {
   waitMs: number;
   /** Текст, если ответ не пришёл за waitMs после отправки тела. */
   waitMessage?: string;
+  /** Отмена человеком: запрос обрывается, обещание отклоняется UploadCancelledError. */
+  signal?: AbortSignal;
+}
+
+/** Человек отменил загрузку — не ошибка сети: повторять не нужно, показывать нечего. */
+export class UploadCancelledError extends Error {
+  constructor() {
+    super("Отправка отменена");
+    this.name = "UploadCancelledError";
+  }
 }
 
 export function xhrSend<T>(o: XhrSendOptions): Promise<T> {
@@ -93,10 +103,20 @@ export function xhrSend<T>(o: XhrSendOptions): Promise<T> {
     };
     xhr.onabort = () => {
       done();
+      if (o.signal?.aborted) {
+        reject(new UploadCancelledError());
+        return;
+      }
       reject(new ApiError(uploaded && o.waitMessage ? o.waitMessage : "Связь пропала — файл не загружен", 0, undefined));
     };
+    if (o.signal?.aborted) {
+      done();
+      reject(new UploadCancelledError());
+      return;
+    }
+    o.signal?.addEventListener("abort", () => xhr.abort(), { once: true });
     arm(typeof o.body === "string" ? o.waitMs + STALL_MS : STALL_MS);
-    xhr.send(o.body);
+    xhr.send(o.method === "GET" ? null : o.body);
   });
 }
 
@@ -115,11 +135,34 @@ export async function withAuth<T>(fn: (token: string | null) => Promise<T>): Pro
 
 /** Часть стоит повторить при сбое сети, таймауте, перегрузке и 5xx; отказ по смыслу (4xx) — нет. */
 function retryablePartError(err: unknown): boolean {
+  if (err instanceof UploadCancelledError) return false;
   if (!(err instanceof ApiError)) return true;
   return err.status === 0 || err.status >= 500 || err.status === 408 || err.status === 429;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new UploadCancelledError());
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new UploadCancelledError());
+      },
+      { once: true }
+    );
+  });
+}
+
+/**
+ * Сессия между попытками (ревью #254). Помощник записывает сюда id сессии сразу после
+ * старта, а вызывающий держит объект, пока задание живо: «Повторить» после сбоя не грузит
+ * файл заново, а докачивает недостающие части в ту же сессию или сразу зовёт сборку.
+ */
+export interface ChunkedSessionHolder {
+  sessionId?: string;
+}
 
 export interface UploadInPartsOptions {
   file: Blob;
@@ -137,25 +180,97 @@ export interface UploadInPartsOptions {
   onProgress?: (percent: number) => void;
   /** Все байты ушли: дальше сервер обрабатывает файл. */
   onUploaded?: () => void;
+  /** Отмена человеком: оставшиеся части не уходят, сборка не зовётся. */
+  signal?: AbortSignal;
+  /** Сессия прошлой попытки — докачать в неё, а не начинать заново. */
+  session?: ChunkedSessionHolder;
 }
 
-/** Старт → части (каждая с повтором) → сборка. Сборку сами НЕ повторяем: сервер мог успеть. */
-export async function uploadInParts<T>(o: UploadInPartsOptions): Promise<T> {
-  const session = await withAuth((token) =>
-    xhrSend<{ sessionId: string; partSize: number; totalParts: number }>({
-      method: "POST",
-      url: o.startUrl,
-      body: JSON.stringify(o.startBody),
-      token,
-      waitMs: START_WAIT_MS,
-    })
-  );
+type SessionPlan = { sessionId: string; partSize: number; totalParts: number; uploadedPartNumbers?: number[] };
+const statusUrl = (sessionId: string) => `/api/v1/upload-sessions/${sessionId}`;
 
+function isGone(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404;
+}
+
+function partsMissing(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409 && (err.data as { code?: string } | undefined)?.code === "PARTS_MISSING";
+}
+
+/**
+ * Старт → части (каждая с повтором) → сборка. Сборку сами НЕ повторяем: сервер мог успеть.
+ *
+ * Повтор с `session` из прошлой попытки (ревью #254):
+ *  1. сразу сборка со старой сессией — если прошлый раз упал на ней, файл заново не грузим
+ *     (а с ключом повтора сервер отдаст ответ первой сборки, если она всё же прошла);
+ *  2. «не все части» — спрашиваем, какие есть, и докачиваем только недостающие;
+ *  3. сессии больше нет (404) — начинаем заново.
+ */
+export async function uploadInParts<T>(o: UploadInPartsOptions): Promise<T> {
+  const holder = o.session ?? {};
+  const complete = (sessionId: string) => {
+    if (o.signal?.aborted) throw new UploadCancelledError();
+    o.onProgress?.(100);
+    o.onUploaded?.();
+    return withAuth((token) =>
+      xhrSend<T>({
+        method: "POST",
+        url: o.completeUrl(sessionId),
+        body: JSON.stringify((typeof o.completeBody === "function" ? o.completeBody(sessionId) : o.completeBody) ?? {}),
+        token,
+        headers: o.completeHeaders,
+        waitMs: o.completeWaitMs,
+        waitMessage: o.completeWaitMessage,
+        signal: o.signal,
+      })
+    );
+  };
+
+  let plan: SessionPlan | null = null;
+  const previous = holder.sessionId;
+  if (previous) {
+    try {
+      return await complete(previous);
+    } catch (err) {
+      if (partsMissing(err)) {
+        plan = await withAuth((token) =>
+          xhrSend<SessionPlan>({ method: "GET", url: statusUrl(previous), body: "", token, waitMs: START_WAIT_MS, signal: o.signal })
+        ).catch((e: unknown) => {
+          if (isGone(e)) return null;
+          throw e;
+        });
+      } else if (!isGone(err)) {
+        throw err;
+      }
+    }
+  }
+  if (!plan) {
+    holder.sessionId = undefined;
+    plan = await withAuth((token) =>
+      xhrSend<SessionPlan>({
+        method: "POST",
+        url: o.startUrl,
+        body: JSON.stringify(o.startBody),
+        token,
+        waitMs: START_WAIT_MS,
+        signal: o.signal,
+      })
+    );
+    holder.sessionId = plan.sessionId;
+  }
+
+  const session = plan;
+  const have = new Set(session.uploadedPartNumbers ?? []);
   const total = Math.max(1, o.file.size);
   let sentBefore = 0;
   for (let n = 1; n <= session.totalParts; n++) {
     const part = o.file.slice((n - 1) * session.partSize, Math.min(n * session.partSize, o.file.size));
+    if (have.has(n)) {
+      sentBefore += part.size;
+      continue;
+    }
     for (let attempt = 1; ; attempt++) {
+      if (o.signal?.aborted) throw new UploadCancelledError();
       try {
         await withAuth((token) =>
           xhrSend({
@@ -164,31 +279,20 @@ export async function uploadInParts<T>(o: UploadInPartsOptions): Promise<T> {
             body: part,
             token,
             waitMs: STALL_MS,
+            signal: o.signal,
             onSent: (loaded) => o.onProgress?.(Math.min(99, Math.round(((sentBefore + loaded) / total) * 100))),
           })
         );
         break;
       } catch (err) {
         if (attempt >= PART_ATTEMPTS || !retryablePartError(err)) throw err;
-        await sleep(1000 * 2 ** (attempt - 1));
+        await sleep(1000 * 2 ** (attempt - 1), o.signal);
       }
     }
     sentBefore += part.size;
   }
 
-  o.onProgress?.(100);
-  o.onUploaded?.();
-  return withAuth((token) =>
-    xhrSend<T>({
-      method: "POST",
-      url: o.completeUrl(session.sessionId),
-      body: JSON.stringify((typeof o.completeBody === "function" ? o.completeBody(session.sessionId) : o.completeBody) ?? {}),
-      token,
-      headers: o.completeHeaders,
-      waitMs: o.completeWaitMs,
-      waitMessage: o.completeWaitMessage,
-    })
-  );
+  return complete(session.sessionId);
 }
 
 /** Общие сессии сервера (routes/uploadSessions.ts): назначение решает предел и тип файла. */

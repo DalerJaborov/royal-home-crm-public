@@ -153,8 +153,9 @@ const videoTmpStorage = multer.diskStorage({
  * (lib/chunkedUploadSessions.ts, routes/uploadSessions.ts). Выше потолка — только с
  * `overProxyCeilingReason` (кто зовёт мимо прокси и почему).
  *
- * Сторож — `scripts/audit-limits.mjs` (precheck и CI): `multer(` вне этой функции и
- * `maxRequestBytes` выше потолка без причины не проходят.
+ * Сторож — `scripts/audit-limits.mjs` (precheck и CI): `multer(` вне этой функции,
+ * `maxRequestBytes` выше потолка без причины и fileSize × files больше maxRequestBytes
+ * без `batchFitsReason` не проходят. Сама функция бросает ошибку на том же.
  *
  * Сама дверь тоже держит обещание: запрос с Content-Length больше `maxRequestBytes`
  * получает 413 с понятным текстом ДО разбора тела — тем же текстом, что видит экран.
@@ -166,6 +167,12 @@ export interface UploadDoorOptions extends multer.Options {
   maxRequestBytes: number;
   /** Обоснование, если запрос тяжелее потолка прокси: кто зовёт мимо Cloudflare. */
   overProxyCeilingReason?: string;
+  /**
+   * Обоснование, если fileSize × files больше maxRequestBytes: почему экран всё равно
+   * укладывает весь запрос в предел (режет пачки по весу, сжимает снимки, шлёт по одному).
+   * Без него такая дверь обещает больше, чем пропустит, — и человек узнаёт об этом 413-м.
+   */
+  batchFitsReason?: string;
 }
 
 export interface UploadDoor {
@@ -178,8 +185,15 @@ export interface UploadDoor {
   any(): RequestHandler;
 }
 
-/** Все двери процесса — для проверки в тестах (tests/upload-limits-door.test.ts). */
-export const uploadDoors: Array<{ name: string; maxRequestBytes: number; overProxyCeilingReason: string | null }> = [];
+/** Все двери процесса — для проверки в тестах (tests/upload-size-class.test.ts). */
+export const uploadDoors: Array<{
+  name: string;
+  maxRequestBytes: number;
+  fileSize: number;
+  files: number;
+  overProxyCeilingReason: string | null;
+  batchFitsReason: string | null;
+}> = [];
 
 /** Отказ по заявленному весу запроса — до чтения тела. Отдельно, чтобы проверять без сети. */
 export function requestCapGuard(maxRequestBytes: number): RequestHandler {
@@ -196,12 +210,28 @@ export function requestCapGuard(maxRequestBytes: number): RequestHandler {
 }
 
 export function guardedUpload(options: UploadDoorOptions): UploadDoor {
-  const { name, maxRequestBytes, overProxyCeilingReason, ...multerOptions } = options;
+  const { name, maxRequestBytes, overProxyCeilingReason, batchFitsReason, ...multerOptions } = options;
+  const fileSize = multerOptions.limits?.fileSize ?? Number.POSITIVE_INFINITY;
+  const files = multerOptions.limits?.files ?? Number.POSITIVE_INFINITY;
+  // Сторож в CI (scripts/audit-limits.mjs) ловит это раньше; здесь — чтобы обещание двери
+  // не разошлось с правдой, даже если сторож обошли: процесс не стартует, тест краснеет.
   if (maxRequestBytes > PROXY_SINGLE_REQUEST_MAX_BYTES && !overProxyCeilingReason?.trim()) {
-    // Сторож в CI ловит это раньше; здесь — чтобы ошибка не прошла и мимо него.
-    console.error(`[upload] ${name}: предел запроса выше потолка прокси без причины`);
+    throw new Error(`[upload] ${name}: предел запроса выше потолка прокси без overProxyCeilingReason`);
   }
-  uploadDoors.push({ name, maxRequestBytes, overProxyCeilingReason: overProxyCeilingReason ?? null });
+  if (fileSize > maxRequestBytes) {
+    throw new Error(`[upload] ${name}: limits.fileSize больше maxRequestBytes — такой файл не пройдёт дверь`);
+  }
+  if (fileSize * files > maxRequestBytes && !batchFitsReason?.trim()) {
+    throw new Error(`[upload] ${name}: fileSize × files больше maxRequestBytes без batchFitsReason`);
+  }
+  uploadDoors.push({
+    name,
+    maxRequestBytes,
+    fileSize,
+    files,
+    overProxyCeilingReason: overProxyCeilingReason ?? null,
+    batchFitsReason: batchFitsReason ?? null,
+  });
   const inner = multer(multerOptions);
   const cap = requestCapGuard(maxRequestBytes);
   const capped =
@@ -248,6 +278,7 @@ export async function moveUploadedFile(srcPath: string, destPath: string): Promi
 export const upload = guardedUpload({
   name: "upload",
   maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
+  batchFitsReason: "экран режет пачки фото по весу (uploadQueue.batchPhotos, до 8 МБ) и проверяет вес до отправки; аватар и логотип — по одному файлу",
   storage: multer.memoryStorage(),
   limits: { fileSize: 30 * 1024 * 1024, files: 30 },
   fileFilter: (_req, file, cb) => {
@@ -284,6 +315,7 @@ export function isAcceptedDraftPhoto(mimetype: string | undefined, filename: str
 export const draftPhotoUpload = guardedUpload({
   name: "draftPhotoUpload",
   maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
+  batchFitsReason: "мастер черновика шлёт снимки по одному (draftUploads.sendPhoto) и проверяет вес до отправки",
   storage: multer.memoryStorage(),
   limits: { fileSize: DRAFT_PHOTO_MAX_BYTES, files: 5 },
   fileFilter: (_req, file, cb) => {
@@ -484,6 +516,7 @@ export const socialVideoUpload = guardedUpload({
 export const socialPhotoPostUpload = guardedUpload({
   name: "socialPhotoPostUpload",
   maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
+  batchFitsReason: "экран сжимает снимки до 2560 px (compressImage, обычно 1-3 МБ) и проверяет общий вес до отправки (socialVideoUpload.sendOnce)",
   storage: multer.memoryStorage(),
   limits: { fileSize: SOCIAL_PHOTO_POST_MAX_BYTES, files: SOCIAL_PHOTO_POST_MAX_IMAGES, fields: 10, parts: SOCIAL_PHOTO_POST_MAX_IMAGES + 10, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {

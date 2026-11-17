@@ -4,7 +4,9 @@ import { CHUNKED_UPLOAD_PURPOSES, formatUploadLimit, type ChunkedUploadPurpose }
 import { requireAuth } from "../auth/middleware.js";
 import {
   ChunkedUploadError,
+  chunkedUploadErrorBody,
   chunkedUploadKind,
+  chunkedUploadStatus,
   startChunkedUpload,
   writeChunkedUploadPart,
 } from "../lib/chunkedUploadSessions.js";
@@ -14,6 +16,8 @@ import {
  *
  *   POST /api/v1/upload-sessions                         { purpose, filename, sizeBytes, contentType }
  *   PUT  /api/v1/upload-sessions/:sessionId/parts/:n     сырые байты части (не больше 32 МБ)
+ *   GET  /api/v1/upload-sessions/:sessionId              план и принятые части — для докачки
+ *                                                        после обрыва (любая своя сессия, и соцролика)
  *
  * Сборку делает маршрут назначения — он же проверяет права на объект или переписку:
  *   POST /api/v1/properties/:id/clip-video/upload-sessions/:sessionId/complete
@@ -43,7 +47,7 @@ function acceptsType(purpose: ChunkedUploadPurpose, contentType: string): boolea
 
 function sendError(res: express.Response, err: unknown, next: express.NextFunction) {
   if (err instanceof ChunkedUploadError) {
-    res.status(err.status).json({ error: err.message });
+    res.status(err.status).json(chunkedUploadErrorBody(err));
     return;
   }
   next(err);
@@ -108,3 +112,12 @@ uploadSessionsRouter.put(
     }
   }
 );
+
+/** Докачка: какие части уже на сервере. Своя сессия любого назначения, чужая — 404. */
+uploadSessionsRouter.get("/:sessionId", async (req, res, next) => {
+  try {
+    res.json(await chunkedUploadStatus(String(req.params.sessionId), req.agent!.id));
+  } catch (err) {
+    sendError(res, err, next);
+  }
+});

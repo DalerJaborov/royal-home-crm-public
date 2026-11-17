@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2517**; вместе с задачами по расписанию и фоновыми заданиями — **4088**. Модулей: **87**.
+Путей: **777**. Развилок в самих путях: **2518**; вместе с задачами по расписанию и фоновыми заданиями — **4091**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5088,7 +5088,7 @@
     · зовёт assembleChunkedUpload()
 - если сорвалось
   - если err instanceof ChunkedUploadError
-    - return res.status(err.status).json({ error: err.message });
+    - return res.status(err.status).json(chunkedUploadErrorBody(err));
       · ответ (код зависит от условия)
   - throw err;
     · пробрасывает ошибку дальше
@@ -10534,7 +10534,7 @@
     · зовёт assembleChunkedUpload()
 - если сорвалось
   - если err instanceof ChunkedUploadError
-    - return res.status(err.status).json({ error: err.message });
+    - return res.status(err.status).json(chunkedUploadErrorBody(err));
       · ответ (код зависит от условия)
   - throw err;
     · пробрасывает ошибку дальше
@@ -17537,6 +17537,11 @@
       · ответ (код зависит от условия)
     - return;
       · дальше не идёт, ничего не меняя
+  - если err instanceof ChunkedUploadError
+    - res.status(err.status).json(chunkedUploadErrorBody(err));
+      · ответ (код зависит от условия)
+    - return;
+      · дальше не идёт, ничего не меняя
 - в любом случае
   - если tmpPath
     - await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
@@ -18160,6 +18165,17 @@
   - await writeChunkedUploadPart({ kind, sessionId, agentId: req.agent!.id, partNumber: Number(req.params.partNum…
     · зовёт writeChunkedUploadPart()
   - res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - sendError(res, err, next);
+    · дословно из кода
+
+### GET /api/v1/upload-sessions/:sessionId
+
+`apps/api/src/routes/uploadSessions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- пробует
+  - res.json(await chunkedUploadStatus(String(req.params.sessionId), req.agent!.id));
     · ответ 200
 - если сорвалось
   - sendError(res, err, next);
@@ -20486,6 +20502,26 @@
 - в любом случае
   - isCandidatePhoneAskRunning = false;
     · дословно из кода
+
+### chunked-uploads-cleanup — 17 * * * *
+
+- пробует
+  - const removed = await sweepStaleChunkedUploads();
+    · зовёт sweepStaleChunkedUploads()
+    - для каждого: const { id, meta } of await listSessions()
+      - если now - lastActivity(meta) > SESSION_IDLE_TTL_MS && (await abortLocalUploadSession(id))
+        - removed++;
+          · дословно из кода
+  - если removed
+    - console.log(`[cron] Уборка брошенных загрузок частями: сессий ${removed}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка уборки брошенных загрузок частями", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### client-follow-ups — */10 * * * *
 
