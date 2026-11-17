@@ -1940,6 +1940,11 @@
       "label": null
     },
     {
+      "id": "narration-auto-master",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
       "id": "narration-version-delivery",
       "expr": "* * * * *",
       "label": null

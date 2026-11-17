@@ -144,6 +144,11 @@ describe("A: монтажёр вклеивает голос сам", () => {
   it("строка задания монтажёру: вклеить mp3 и сдать два файла; при «голос кладёт CRM» — прежняя строка", async () => {
     const p = await seedProperty();
     await seedVersion(p.id, { approvedAt: new Date(), approvedById: agentId });
+    // 16.11.2026 (владелец: «монтажёр присылает один файл, дальше мы сами»): по умолчанию второй файл не просим.
+    expect(await narrationLineForMontajer(p.id)).toMatch(/вклейте её сами/u);
+    expect(await narrationLineForMontajer(p.id)).not.toMatch(/два файла|без голоса/iu);
+    // Машину выключили в Настройках — прежняя просьба о двух файлах.
+    await setConfig({ autoSeparateVoice: false });
     expect(await narrationLineForMontajer(p.id)).toMatch(/вклейте её сами.*два файла/su);
     await setConfig({ mixByCrm: true });
     expect(await narrationLineForMontajer(p.id)).toContain("БЕЗ голоса");
@@ -151,6 +156,13 @@ describe("A: монтажёр вклеивает голос сам", () => {
   });
   it("просьба о ролике без голоса — только если голос вклеивал монтажёр, и не при «Без озвучки»", async () => {
     const p = await seedProperty({ videoHandoffStatus: "RECEIVED", videoHandoffFinalPath: "/uploads/handoff/none.mp4" });
+    // По умолчанию (16.11.2026) CRM сама убирает старый голос — второй файл не просим вовсе.
+    const v0 = await seedVersion(p.id, { approvedAt: new Date(), approvedById: agentId });
+    await sentDelivery(p.id, v0.id);
+    expect(await voicelessCopyAsk(p.id)).toBeNull();
+    await prisma.propertyNarrationDelivery.deleteMany({ where: { propertyId: p.id } });
+    await prisma.propertyNarrationVersion.deleteMany({ where: { propertyId: p.id } });
+    await setConfig({ autoSeparateVoice: false });
     expect(await voicelessCopyAsk(p.id)).toBeNull();
     const v = await seedVersion(p.id, { approvedAt: new Date(), approvedById: agentId });
     await sentDelivery(p.id, v.id, { mixByCrm: true });
@@ -161,6 +173,7 @@ describe("A: монтажёр вклеивает голос сам", () => {
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).videoMasterRequestedAt).not.toBeNull();
     await prisma.property.update({ where: { id: p.id }, data: { narrationOff: true } });
     expect(await voicelessCopyAsk(p.id)).toBeNull();
+    await setConfig();
   });
   it("подпись «без голоса 123» узнаётся; номер другого объекта после кнопки — обычный готовый ролик", async () => {
     expect(isVoicelessCopyLabel("123_bez_golosa.mp4", null)).toBe(true);
