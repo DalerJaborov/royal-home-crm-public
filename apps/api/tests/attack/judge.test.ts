@@ -117,3 +117,17 @@ describe("judge: seller lane rules (30.10.2026)", () => {
     expect(failed(judge(s("у меня дом на продажу"), [outcome("Сейчас арендой не занимаемся.")]))).toContain("topic:seller");
   });
 });
+
+describe("phrasing rules from the operators' findings (13.11.2026)", () => {
+  it("no-em-dash: RED on a long dash, green without it", () => {
+    expect(failed(run(scenario([{ in: "Какая комиссия?" }]), [outcome("Для продавца комиссия — 2% после продажи.")]))).toContain("no-em-dash");
+    expect(failed(run(scenario([{ in: "Какая комиссия?" }]), [outcome("Для продавца комиссия 2% после продажи.")]))).not.toContain("no-em-dash");
+  });
+  it("no-greet-after-first: RED on a second hello, allowed as an answer to the customer's own greeting", () => {
+    const again = scenario([{ in: "нужна квартира" }, { in: "в Сино" }]);
+    expect(failed(run(again, [outcome("Здравствуйте! Какой район?"), outcome("Здравствуйте! Сколько комнат?")]))).toContain("no-greet-after-first");
+    expect(failed(run(again, [outcome("Здравствуйте! Какой район?"), outcome("Сколько комнат нужно?")]))).not.toContain("no-greet-after-first");
+    const salaam = scenario([{ in: "Салом" }, { in: "Ассалому алейкум, нархаш чанд?" }]);
+    expect(failed(run(salaam, [outcome("Салом! Чӣ хизмат?"), outcome("Ваалейкум ассалом! Кадом объект?")]))).not.toContain("no-greet-after-first");
+  });
+});
