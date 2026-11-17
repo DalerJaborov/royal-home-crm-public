@@ -23,7 +23,7 @@ const monthDate = (month: string) => new Date(`${month}-01T00:00:00.000Z`);
 
 export interface ManualOverlapResult { overlap: AutoExpenseOverlap; text: string }
 
-type AutoRow = { autoKey: string | null; category: string; amount: unknown; currency: string; exchangeRate: unknown; agentId: string | null; source: string | null };
+type AutoRow = { autoKey: string | null; category: string; amount: unknown; currency: string; exchangeRate: unknown; agentId: string | null; source: string | null; vendor: string | null };
 /** Кэш на одну пачку строк (см. findManualOverlap). */
 export interface OverlapCache { rows: Map<string, Promise<AutoRow[]>>; money?: MoneyContext }
 export const newOverlapCache = (): OverlapCache => ({ rows: new Map() });
@@ -36,7 +36,7 @@ export async function findManualOverlap(
   const db = opts.db ?? prisma;
   const load = () => db.expense.findMany({
     where: { month: monthDate(month), deletedAt: null, autoKey: { not: null } },
-    select: { autoKey: true, category: true, amount: true, currency: true, exchangeRate: true, agentId: true, source: true },
+    select: { autoKey: true, category: true, amount: true, currency: true, exchangeRate: true, agentId: true, source: true, vendor: true },
     take: MONTH_AUTO_ROWS_LIMIT,
   });
   // Пачка из тысячи строк — не тысяча запросов: автоматические строки читаются раз на месяц.
@@ -59,12 +59,12 @@ export async function warnManualOverlapsForAuto(autoKey: string, month: string):
   try {
     const auto = await prisma.expense.findUnique({
       where: { autoKey },
-      select: { category: true, amount: true, currency: true, exchangeRate: true, agentId: true, source: true, deletedAt: true },
+      select: { category: true, amount: true, currency: true, exchangeRate: true, agentId: true, source: true, vendor: true, deletedAt: true },
     });
     if (!auto || auto.deletedAt) return 0;
     const manual = await prisma.expense.findMany({
       where: { month: monthDate(month), deletedAt: null, autoKey: null },
-      select: { id: true, category: true, source: true, agentId: true, note: true, counterparty: true, amount: true, currency: true, exchangeRate: true },
+      select: { id: true, category: true, source: true, agentId: true, note: true, counterparty: true, amount: true, currency: true, exchangeRate: true, vendor: true },
       take: 2000,
     });
     if (!manual.length) return 0;

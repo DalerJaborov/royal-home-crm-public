@@ -1,5 +1,5 @@
 import { View } from "@react-pdf/renderer";
-import { CLIENT_SOURCE_LABELS, EXPENSE_CATEGORY_LABELS, type ClientSource, type CommissionForecast, type ExpenseCategory } from "@royal-home/shared";
+import { CLIENT_SOURCE_LABELS, EXPENSE_CATEGORY_LABELS, type ClientSource, type CommissionForecast, type ExpenseCategory, type FounderTotals } from "@royal-home/shared";
 import type { buildExpenseSummary } from "../expenseQueries.js";
 import { BarChart, BarList, DataTable, KpiGrid, Note, ReportDocument, Section } from "./kit.js";
 import { C, money, monthShort, monthTitle, num, percent } from "./theme.js";
@@ -25,6 +25,8 @@ export interface FinanceReportInput {
   inProgress?: boolean;
   preparedBy: string;
   generatedAtLabel: string;
+  /** Взносы учредителей (17.11.2026): не доход, отдельный блок. null — не посчитались, блок пропущен. */
+  founders?: FounderTotals | null;
 }
 
 function categoryLabel(key: string): string {
@@ -35,7 +37,7 @@ function sourceLabel(key: string): string {
   return CLIENT_SOURCE_LABELS[key as ClientSource] ?? key;
 }
 
-export function FinanceReport({ month, summary, forecast, inProgress = false, preparedBy, generatedAtLabel }: FinanceReportInput) {
+export function FinanceReport({ month, summary, forecast, inProgress = false, preparedBy, generatedAtLabel, founders = null }: FinanceReportInput) {
   const months = summary.months;
   const idx = months.findIndex((m) => m.month === month);
   const cur: FinanceMonth | undefined = idx >= 0 ? months[idx] : undefined;
@@ -162,6 +164,21 @@ export function FinanceReport({ month, summary, forecast, inProgress = false, pr
           emptyText="Рекламных расходов по каналам в этом месяце нет."
         />
       </Section>
+
+      {founders && (
+        <Section title="Взносы учредителей" hint="Деньги, которые учредители вложили в компанию. Это не доход от продаж: в выручку, прибыль и комиссию не входят.">
+          <DataTable
+            columns={[
+              { title: "Учредитель", flex: 2 },
+              { title: `За ${periodLabel.toLowerCase()}`, flex: 1.2, align: "right" },
+              { title: "За всё время", flex: 1.2, align: "right" },
+            ]}
+            rows={founders.founders.map((f) => [f.deleted ? `${f.name} (удалён из списка)` : f.name, money(f.monthTjs), money(f.allTimeTjs)])}
+            totals={founders.founders.length > 0 ? ["Итого", money(founders.monthTjs), money(founders.allTimeTjs)] : undefined}
+            emptyText="Учредителей в списке нет."
+          />
+        </Section>
+      )}
     </ReportDocument>
   );
 }

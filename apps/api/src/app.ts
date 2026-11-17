@@ -58,6 +58,7 @@ import { pushRouter } from "./routes/push.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { publicFeedRouter } from "./routes/publicFeed.js";
 import { expensesRouter } from "./routes/expenses.js";
+import { foundersRouter } from "./routes/founders.js";
 import { financeRouter } from "./routes/finance.js";
 import { teamRouter, agentOverviewRouter } from "./routes/team.js";
 import { hallOfFameRouter } from "./routes/hallOfFame.js";
@@ -92,6 +93,7 @@ import { threadsRouter, threadsCallbackRouter } from "./routes/threads.js";
 import { searchConsoleRouter, searchConsoleCallbackRouter, yandexCallbackRouter } from "./routes/searchConsole.js";
 import { budgetWebhookRouter } from "./routes/budgetWebhook.js";
 import { oversightRouter } from "./routes/oversight.js";
+import { functionStatusRouter } from "./routes/functionStatus.js";
 import { insightsRouter } from "./routes/insights.js";
 import { marketRouter } from "./routes/market.js";
 import { marketMatchesRouter } from "./routes/marketMatches.js";
@@ -740,6 +742,7 @@ app.use("/api/v1/webhooks", webhooksRouter);
 // Открытые данные для сайта (лента Instagram) — без ключа, см. routes/publicFeed.ts.
 app.use("/api/v1/public", publicFeedRouter);
 app.use("/api/v1/expenses", expensesRouter);
+app.use("/api/v1/founders", foundersRouter);
 // Расчёты поверх денег (прогноз комиссии) — рядом с расходами, но своим путём.
 app.use("/api/v1/finance", financeRouter);
 app.use("/api/v1/security", securityRouter);
@@ -799,6 +802,8 @@ app.use("/api/v1/vacancies", vacanciesRouter);
 // накопленным данным: просроченные задачи, лимиты лидов, зависшие горячие клиенты,
 // переводы в Неактивные, передачи. Право dashboard.analytics — внутри роутера.
 app.use("/api/v1/oversight", oversightRouter);
+// «Состояние функций»: скрытые рубильники и режимы «только проверка», только директор/админ.
+app.use("/api/v1/function-status", functionStatusRouter);
 app.use("/api/v1/insights", insightsRouter);
 app.use("/api/v1/market/matches", marketMatchesRouter);
 app.use("/api/v1/market", marketContactRouter);
