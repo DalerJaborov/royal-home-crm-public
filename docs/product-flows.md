@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **778**. Развилок в самих путях: **2485**; вместе с задачами по расписанию и фоновыми заданиями — **4068**. Модулей: **87**.
+Путей: **778**. Развилок в самих путях: **2485**; вместе с задачами по расписанию и фоновыми заданиями — **4071**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -23342,21 +23342,34 @@
   - const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPre…
     · читает в базе: property
   - для каждого: const row of rows
-    - const claimed = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrat…
-      · меняет в базе: property
-    - если !claimed.count
-      - continue;
-        · переходит к следующему
     - пробует
+      - const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…
+        · меняет в базе: property
+      - если marked.count
+        - notified++;
+          · дословно из кода
     - если сорвалось
-      - void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание: ${err ins…
+      - void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…
         · запись в журнал ошибок
 - await releaseDueNarrationPreviews();
   · зовёт releaseDueNarrationPreviews()
-  - const due = await prisma.property.findMany({ where: { narrationPreviewDueAt: { lte: now }, narrationPreviewVe…
+  - const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } }, select:…
     · читает в базе: property
-  - для каждого: const row of due
+  - для каждого: const row of waiting
     - пробует
+      - если orphan
+        - const res = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationP…
+          · меняет в базе: property
+        - если res.count
+          - cleared++;
+            · дословно из кода
+          - await removeClipFiles(row.narrationPreviewPath);
+            · дословно из кода
+        - continue;
+          · переходит к следующему
+      - если !row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()
+        - continue;
+          · переходит к следующему
       - если await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: "auto" }, now)…
         - released++;
           · дословно из кода

@@ -98,7 +98,7 @@ export function NarrationPreviewBlock({ propertyId, data, onMessage, onChangeVoi
   return (
     <div className="space-y-3 rounded-xl border-2 border-blue p-3" role="region" aria-label="Прослушать перед выпуском">
       <h4 className="text-base font-semibold">Новый ролик с новой озвучкой — послушайте</h4>
-      <div className="mx-auto w-full max-w-[360px]" style={{ aspectRatio: "9 / 16" }}>
+      <div className="mx-auto w-full max-w-[360px] sm:max-w-[300px]" style={{ aspectRatio: "9 / 16" }}>
         <VideoPlayerWithFallback src={p.previewPath} onDownload={() => window.open(p.previewPath, "_blank", "noopener")}
           style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: "var(--r-md)", background: "var(--track)" }} />
       </div>
@@ -117,7 +117,7 @@ export function NarrationPreviewBlock({ propertyId, data, onMessage, onChangeVoi
         </div>
       </details>}
 
-      <p className="text-sm text-[var(--muted)]">{p.dueAt ? `Если не решите — выйдет сам в ${formatDueAt(p.dueAt)}` : "Сам не выйдет — ждёт вашего решения"}</p>
+      <p className="text-sm text-[var(--muted)]">{p.dueAt ? `Если не решите — выйдет сам в ${formatDueAt(p.dueAt)}` : (p.canDecide ? "Сам не выйдет — ждёт вашего решения" : "Сам не выйдет — ждёт решения агента объекта")}</p>
 
       {p.canDecide ? <div className="space-y-2">
         {confirm ? <div className="flex flex-col gap-2 sm:flex-row sm:items-center" role="alert">
@@ -126,8 +126,8 @@ export function NarrationPreviewBlock({ propertyId, data, onMessage, onChangeVoi
           <button type="button" className="pill ghost w-full sm:w-auto" disabled={busy} onClick={() => setConfirm(null)}>Нет</button>
         </div> : <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <button type="button" className="pill w-full bg-blue! text-on-accent! sm:w-auto" disabled={busy} onClick={() => void decide("RELEASE")}>Выпустить</button>
-          <button type="button" className="pill w-full sm:w-auto" disabled={busy} onClick={() => setConfirm("CHANGE")}>Другой голос или текст</button>
-          <button type="button" className="pill w-full sm:w-auto" disabled={busy} onClick={() => setConfirm("KEEP_OLD")}>Оставить старый</button>
+          <button type="button" className="pill ghost w-full sm:w-auto" disabled={busy} onClick={() => setConfirm("CHANGE")}>Другой голос или текст</button>
+          <button type="button" className="pill ghost w-full sm:w-auto" disabled={busy} onClick={() => setConfirm("KEEP_OLD")}>Оставить старый</button>
         </div>}
       </div> : <p className="text-sm text-[var(--muted)]">Решает агент объекта.</p>}
       {error && <p className="text-sm" role="status">{error}</p>}

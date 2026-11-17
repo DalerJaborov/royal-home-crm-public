@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 778,
-  "forks": 4068,
+  "forks": 4071,
   "mounts": 87,
   "cron": 141,
   "jobs": 33,
@@ -104264,33 +104264,34 @@
        "a": [],
        "c": [
         {
-         "k": "do",
-         "t": "const claimed = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrat…",
-         "a": [
-          "меняет в базе: property"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!claimed.count",
+         "k": "try",
+         "t": "пробует",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "continue;",
+           "t": "const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrati…",
            "a": [
-            "переходит к следующему"
+            "меняет в базе: property"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "marked.count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "notified++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
-        },
-        {
-         "k": "try",
-         "t": "пробует",
-         "a": [],
-         "c": []
         },
         {
          "k": "catch",
@@ -104299,7 +104300,7 @@
          "c": [
           {
            "k": "do",
-           "t": "void logSystemError(\"video-handoff\", `Новый ролик с озвучкой не отправлен хозяину на прослушивание: ${err ins…",
+           "t": "void logSystemError(\"video-handoff\", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор че…",
            "a": [
             "запись в журнал ошибок"
            ],
@@ -104321,7 +104322,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const due = await prisma.property.findMany({ where: { narrationPreviewDueAt: { lte: now }, narrationPreviewVe…",
+       "t": "const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } }, select:…",
        "a": [
         "читает в базе: property"
        ],
@@ -104329,7 +104330,7 @@
       },
       {
        "k": "loop",
-       "t": "для каждого: const row of due",
+       "t": "для каждого: const row of waiting",
        "a": [],
        "c": [
         {
@@ -104337,6 +104338,67 @@
          "t": "пробует",
          "a": [],
          "c": [
+          {
+           "k": "if",
+           "t": "orphan",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const res = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationP…",
+             "a": [
+              "меняет в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "res.count",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "cleared++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "await removeClipFiles(row.narrationPreviewPath);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
           {
            "k": "if",
            "t": "await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: \"auto\" }, now)…",

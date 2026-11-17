@@ -16,10 +16,10 @@
   "paths": 778,
   "cron": 141,
   "jobs": 33,
-  "conditions": 4041,
-  "untranslatedUnique": 464,
-  "untranslatedTotal": 597,
-  "partialUnique": 1089,
+  "conditions": 4044,
+  "untranslatedUnique": 465,
+  "untranslatedTotal": 598,
+  "partialUnique": 1090,
   "translatedShare": 85
  },
  "untranslated": [
@@ -123,6 +123,7 @@
   "!row || latest?.id !== row.id || !narrationFactsCurrent(row, p)",
   "!row || row.propertyId !== p.id || !(row.status === \"UNKNOWN\" || row.status === \"SENDING\" && row.claimStarted…",
   "!row || row.status !== \"PREVIEW\" || !row.plan || narrationHash(row.plan) !== parsed.data.planHash",
+  "!row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
   "!row?.startedAt || row.startedAt.toISOString()!==body.data.expectedStartedAt || ![\"EXECUTING\",\"UNKNOWN\"].incl…",
   "!secret || !verifyTotpCode(agent.phone, secret, parsed.data.code)",
   "!sendPrivateFile(res, application.cvFile, \"vacancy-cv\")",
@@ -71995,22 +71996,24 @@
        "a": [],
        "c": [
         {
-         "t": "меняет: объект",
-         "k": "do",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если нет: количество",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
          "t": "пробует сделать",
          "k": "try",
          "a": [],
-         "c": []
+         "c": [
+          {
+           "t": "меняет: объект",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если есть количество",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
         },
         {
          "t": "если не получилось",
@@ -72044,6 +72047,21 @@
          "k": "try",
          "a": [],
          "c": [
+          {
+           "t": "если есть orphan",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если !row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()",
+           "more": true
+          },
           {
            "t": "если await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: \"auto\" }, now)…",
            "k": "if",
