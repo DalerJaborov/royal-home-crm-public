@@ -26,6 +26,7 @@ import { visibleCronWhere } from "./investigationOperations.js";
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { maskPhonesInFreeText } from "./clientPhone.js";
 import { somonCrawlSchedule } from "./market/somonCrawlSchedule.js";
+import { countMissedCallSmsSent } from "./telephony/missedCallFollowup.js";
 import { listMetaSendBlocksForStatus } from "./metaSendBlock.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
 
@@ -64,6 +65,12 @@ export interface FunctionStatusSettings {
   geminiSpareKeyInSettings: boolean;
   /** Рубильник OpenAI целиком (Settings.openaiEnabled, 14.11.2026). */
   openaiEnabled: boolean;
+  /** Рубильник А: СМС со ссылкой на WhatsApp после пропущенного звонка (18.11.2026). */
+  missedCallSmsEnabled: boolean;
+  /** Сколько таких СМС ушло за 7 дней (lib/telephony/missedCallFollowup.ts). */
+  missedCallSmsSent7d: number;
+  /** Рубильник Б: карточка и задача по пропущенному с незнакомого номера. */
+  missedCallCallbackTaskEnabled: boolean;
 }
 
 export interface FunctionStatusSpend {
@@ -287,6 +294,16 @@ const EVALUATORS: Record<string, Evaluator> = {
       ? { state: "off", reason: "Тумблер в Настройках включён, но функция пока не работает: код не подключает справочный поиск. Включение ничего не меняет.", attention: true }
       : { state: "off", reason: "Выключено, и включить пока нельзя: функция недоделана. Вопросы про законы и налоги Шабнам оставляет без ответа." },
 
+  "missed-call-sms": ({ settings }) =>
+    settings.missedCallSmsEnabled
+      ? { state: "working", reason: `Включено: неотвеченному звонящему сразу уходит СМС. Отправлено за 7 дней: ${settings.missedCallSmsSent7d}.` }
+      : { state: "off", reason: "Выключено тумблером в Настройках, Каналы связи, Входящие: после пропущенного звонка клиенту ничего не уходит." },
+
+  "missed-call-callback-task": ({ settings }) =>
+    settings.missedCallCallbackTaskEnabled
+      ? { state: "working", reason: "Включено: пропущенный с незнакомого номера получает карточку и общую задачу «перезвонить»." }
+      : { state: "off", reason: "Выключено тумблером в Настройках, Каналы связи, Входящие: по незнакомому пропущенному задачи нет, руководство получает только пуш." },
+
   openai: ({ settings }) =>
     settings.openaiEnabled
       ? { state: "working", reason: "Включено: обложки может рисовать ChatGPT, если он выбран в Настройках." }
@@ -481,7 +498,7 @@ const ERRORS_TAKE = 300;
 
 export async function loadFunctionStatus(viewerRole: string | undefined, now: Date = new Date()): Promise<FunctionStatusResponse> {
   const errorSources = [...new Set(FUNCTION_REGISTRY.flatMap((f) => f.errorSources ?? []))];
-  const [row, heartbeats, errors, spend, metaSendBlocks] = await Promise.all([
+  const [row, missedCallSmsSent7d, heartbeats, errors, spend, metaSendBlocks] = await Promise.all([
     prisma.settings.findUnique({
       where: { id: "singleton" },
       select: {
@@ -502,8 +519,11 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
         alarmHoursEnd: true,
         geminiApiKey2: true,
         openaiEnabled: true,
+        missedCallSmsEnabled: true,
+        missedCallCallbackTaskEnabled: true,
       },
     }),
+    countMissedCallSmsSent(7, now).catch(() => 0),
     prisma.cronHeartbeat.findMany({
       where: visibleCronWhere(viewerRole),
       orderBy: { name: "asc" },
@@ -540,6 +560,9 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
     alarmHoursEnd: row?.alarmHoursEnd ?? "14:45",
     geminiSpareKeyInSettings: !!decryptSecretSafe(row?.geminiApiKey2 ?? null),
     openaiEnabled: row?.openaiEnabled ?? false,
+    missedCallSmsEnabled: row?.missedCallSmsEnabled ?? false,
+    missedCallSmsSent7d,
+    missedCallCallbackTaskEnabled: row?.missedCallCallbackTaskEnabled ?? false,
   };
 
   return evaluateFunctions({

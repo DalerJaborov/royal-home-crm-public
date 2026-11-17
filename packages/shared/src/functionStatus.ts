@@ -161,6 +161,22 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     errorSources: ["telephony"],
   },
   {
+    key: "missed-call-sms",
+    title: "СМС со ссылкой на WhatsApp после пропущенного звонка",
+    what: "Звонивший, которому не ответили, сразу получает одну СМС: «напишите нам в WhatsApp».",
+    group: "voice",
+    settingsTab: "channels",
+    errorSources: ["sms"],
+  },
+  {
+    key: "missed-call-callback-task",
+    title: "Задача «перезвонить» по пропущенному с незнакомого номера",
+    what: "Незнакомый номер без ответа получает карточку и общую задачу для руководителя отдела продаж.",
+    group: "voice",
+    settingsTab: "channels",
+    errorSources: ["telephony"],
+  },
+  {
     key: "assistant-semantic-search",
     title: "Умный поиск по базе знаний помощника",
     what: "Шабнам ищет ответы в базе знаний по смыслу, а не только по словам.",

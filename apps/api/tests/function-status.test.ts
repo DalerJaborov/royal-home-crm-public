@@ -38,6 +38,9 @@ const SETTINGS: FunctionStatusSettings = {
   alarmHoursEnd: "14:45",
   geminiSpareKeyInSettings: false,
   openaiEnabled: false,
+  missedCallSmsEnabled: false,
+  missedCallSmsSent7d: 0,
+  missedCallCallbackTaskEnabled: false,
 };
 
 function input(over: Partial<FunctionStatusInput> = {}, settings: Partial<FunctionStatusSettings> = {}): FunctionStatusInput {
