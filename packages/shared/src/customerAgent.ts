@@ -28,10 +28,10 @@ const refs = z.array(evidenceRef).max(8).refine(values => new Set(values).size =
  * parse (a bad `say` must never void the decision) and re-attaches it only after the server validator accepted it in live mode. */
 export const customerAgentSayTextSchema = z.string().min(2).max(200);
 const say = customerAgentSayTextSchema.optional();
-/** Why a model `say` did not reach the customer: the 14 validator verdicts plus `language_disabled` (tg is off in v1) and `shadow`
+/** Why a model `say` did not reach the customer: the validator verdicts plus `language_disabled` (tg is off in v1) and `shadow`
  * (valid, but the mode only counts it). One enum for the validator, the trace and the guard counters. */
 export const customerAgentSayDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "length", "question", "number_or_date", "contact", "promise",
-  "fact_claim", "place", "meta", "cliche", "language", "echo", "repeat", "double_greet", "shadow", "rude"]);
+  "fact_claim", "place", "meta", "cliche", "language", "echo", "repeat", "double_greet", "shadow", "rude", "agree"]);
 export type CustomerAgentSayDropReason = z.infer<typeof customerAgentSayDropReasonSchema>;
 export const customerAgentSayStatusSchema = z.enum(["absent", "used", "dropped"]);
 /** The model's human words around the server's facts (one-brain step 1, redesigned after review #211): a lead-in, the one question in
@@ -42,7 +42,7 @@ export const customerAgentAnswerPartsSchema = z.object({ lead: answerPart, ask: 
 const answer = customerAgentAnswerPartsSchema.optional();
 /** Why the model's words did not reach the customer. `shadow`: verified, but the mode only counts it. `error`: the verifier threw (a bug; the template went out). */
 export const customerAgentAnswerDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "not_eligible", "template_payload", "length", "wooden", "rude",
-  "meta", "cliche", "question", "phone_ask", "promise", "claim", "number", "currency", "missing_fact", "place", "language", "repeat", "echo", "double_greet", "shadow", "error", "vocabulary"]);
+  "meta", "cliche", "question", "phone_ask", "promise", "claim", "number", "currency", "missing_fact", "place", "language", "repeat", "echo", "double_greet", "shadow", "error", "vocabulary", "agree"]);
 export type CustomerAgentAnswerDropReason = z.infer<typeof customerAgentAnswerDropReasonSchema>;
 export const customerAgentSayModeSchema = z.enum(["shadow", "live"]);
 export type CustomerAgentSayMode = z.infer<typeof customerAgentSayModeSchema>;

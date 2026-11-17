@@ -4,7 +4,7 @@ import { customerAgentApprovedFileStateSchema, customerAgentDecisionSchema, cust
   type CustomerAgentToolCall, type CustomerAgentVerifiedContext, type CustomerPropertyFactKind, type CustomerAgentApprovedFileState } from "@royal-home/shared";
 import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import type { ProviderOperation } from "./providerContract.js";
-import { renderCustomerAgentDecision, customerAgentAnswerVerdict, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
+import { renderCustomerAgentDecisionChecked, customerAgentAnswerVerdict, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, isCustomerCompanyInformation } from "./customerAgentPublicProtocol.js";
 import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
@@ -18,7 +18,32 @@ import { guardSellerDecision, customerSellerAskedTerms } from "./customerAgentSe
 import { validateCustomerAgentSayForDecision, CUSTOMER_AGENT_SAY_GUIDANCE, SAY_ENABLED_LANGUAGES } from "./customerAgentSay.js";
 import { CUSTOMER_AGENT_ANSWER_GUIDANCE, ANSWER_ENABLED_LANGUAGES, parseCustomerAgentAnswerParts } from "./customerAgentAnswer.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
+import { logSystemError } from "../lib/systemError.js";
 export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
+
+/**
+ * The ONE way the core renders a customer text (review #211, round 6): the renderer's last door removes any sentence that opens with
+ * a consent word («Хорошо, принято.»). Only a cut of the SERVER's template goes to «Журнал ошибок», once per sentence (dedup), so a
+ * template that still says «да» gets fixed; the model's agreement words are refused by the say / answer checks (reason `agree`, a
+ * counter) and never reach the journal (round 7, п.3). A source guard keeps every core render on this door.
+ */
+export function renderCustomerAgentText(input: Parameters<typeof renderCustomerAgentDecisionChecked>[0]): string | null {
+  const rendered = renderCustomerAgentDecisionChecked(input);
+  if (rendered.agreement.length) reportCustomerAgentAgreementOpening(rendered.agreement);
+  return rendered.text;
+}
+/** Sentences already reported by this process: logSystemError's dedup reads then writes, so two turns at once wrote two rows. */
+const reportedAgreement = new Set<string>();
+/** One journal line per removed sentence (dedup key = the sentence: a template line repeats on every turn). Never breaks the turn. */
+export function reportCustomerAgentAgreementOpening(removed: readonly string[]): void {
+  for (const sentence of new Set(removed)) {
+    if (reportedAgreement.has(sentence)) continue;
+    if (reportedAgreement.size >= 500) reportedAgreement.clear();
+    reportedAgreement.add(sentence);
+    void logSystemError("ai", `[customer-agent] Слово согласия в начале фразы убрано перед отправкой клиенту (клиент прочёл бы «да»): «${sentence}»`,
+      { dedupKey: `customer-agent-agreement:${sentence}` }).catch(() => {});
+  }
+}
 
 export interface CustomerAgentContent { role: "user" | "model"; parts: readonly unknown[] }
 export interface CustomerAgentToolDefinition { name: CustomerAgentToolCall["name"]; description: string; parameters?: Record<string, unknown> }
@@ -354,7 +379,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     surface: frame.surface, knowledgeSourceHash: revision.knowledgeSourceHash, verifiedContext: context ?? undefined,
     // The same inputs as the delivery seal renders with (review #206 В4): an attachment changes the opening question.
     attachmentInput: frame.attachmentInput, mediaPerception: perception, approvedFileState });
-  const renderDecision = (decision: CustomerAgentDecision) => renderCustomerAgentDecision(renderInput(decision));
+  const renderDecision = (decision: CustomerAgentDecision) => renderCustomerAgentText(renderInput(decision));
   const ready = async (d: CustomerAgentDecision, text: string, extra: { fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string; say?: CustomerCoreSay; answer?: CustomerCoreAnswer } = {}): Promise<CustomerCoreResult> => {
     await check();
     // decision is a validated MODEL suggestion, not canonical state. Expose
@@ -395,7 +420,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       // The same business question was the last thing we said: say nothing rather than ask it twice.
       if (customerAgentAttachmentQuestionAsked(assistantTexts)) return held("attachment_question_repeat_no_reply", "attachment_question_repeat_no_reply");
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: "clarify_previous" });
-      const text = renderCustomerAgentDecision({ decision, evidence: [], language: frame.language, requestedFacts: [],
+      const text = renderCustomerAgentText({ decision, evidence: [], language: frame.language, requestedFacts: [],
         knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface,
         inputText: frame.inputText, mediaPerception: perception });
       if (!text) return held("unsupported_decision_evidence");
@@ -406,7 +431,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         (isCustomerPublicAppreciation(frame.inputText) || customerPublicReaction(frame.inputText))) {
       const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs: [],
         social: isCustomerPublicAppreciation(frame.inputText) ? "thank" : "acknowledge", question: "none" });
-      const text = renderCustomerAgentDecision({ decision, evidence, inputText: frame.inputText, language: frame.language,
+      const text = renderCustomerAgentText({ decision, evidence, inputText: frame.inputText, language: frame.language,
         requestedFacts: [], knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface });
       if (text === null) return held("unsupported_decision_evidence");
       await check();
@@ -423,7 +448,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         return held("foreign_share_no_reply", "foreign_share_no_reply");
       }
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: "clarify_previous" });
-      const text = renderCustomerAgentDecision({ decision, evidence: [], inputText: frame.inputText, attachmentInput: frame.attachmentInput,
+      const text = renderCustomerAgentText({ decision, evidence: [], inputText: frame.inputText, attachmentInput: frame.attachmentInput,
         language: frame.language, requestedFacts: [], knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars,
         surface: frame.surface, verifiedContext: context ?? undefined });
       if (text === null) return held("unsupported_decision_evidence");
@@ -483,7 +508,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       // Nothing was read from the file and nothing is in focus: the fixed question was already asked, so a second empty file gets no answer.
       if (!evidence.length && customerAgentAttachmentQuestionAsked(assistantTexts)) return held("attachment_question_repeat_no_reply", "attachment_question_repeat_no_reply");
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: evidence.map(e => e.ref), social: "none", question: "clarify_previous" });
-      const text = renderCustomerAgentDecision({ decision, evidence, inputText: frame.inputText, attachmentInput: frame.attachmentInput,
+      const text = renderCustomerAgentText({ decision, evidence, inputText: frame.inputText, attachmentInput: frame.attachmentInput,
         language: frame.language, requestedFacts: frame.requestedFacts, knownPhoneSource: frame.knownPhoneSource,
         maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface,
         // With the verified context, so the repeat guard acts HERE and the sealed re-render (which has it) gives the same text.

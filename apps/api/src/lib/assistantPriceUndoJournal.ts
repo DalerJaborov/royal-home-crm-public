@@ -1,7 +1,6 @@
 import { isReadOnlyRole } from "@royal-home/shared";
 import { loadAgentAccess } from "../auth/middleware.js";
-import type { TxClient } from "../db.js";
-import type { Property } from "../generated/prisma/client.js";
+import type { PropertyRecord, TxClient } from "../db.js";
 import { canManagePropertyAs } from "./propertyAccess.js";
 import type { AssistantPriceUndoLink } from "./propertyChangeRequests.js";
 
@@ -15,7 +14,7 @@ export function appliedPriceUndoResult(result: unknown) {
   return { requestId: value.requestId, propertyVersion: typeof version === "number" ? version : undefined };
 }
 
-export async function canResumeAssistantPriceUndo(tx: TxClient, agentId: string, property: Property) {
+export async function canResumeAssistantPriceUndo(tx: TxClient, agentId: string, property: PropertyRecord) {
   await tx.$queryRaw`SELECT id FROM "Agent" WHERE id = ${agentId} FOR SHARE`;
   const access = await loadAgentAccess(agentId, tx);
   return Boolean(access?.isActive && !isReadOnlyRole(access.role) && access.permissions.has("properties.requestChange") &&

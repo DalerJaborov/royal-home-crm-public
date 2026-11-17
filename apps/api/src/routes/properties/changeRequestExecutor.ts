@@ -25,8 +25,8 @@ import {
   PROPERTY_CHANGE_KIND_LABELS,
   type PropertyChangeResult,
 } from "@royal-home/shared";
-import type { Prisma, Property } from "../../generated/prisma/client.js";
-import { prisma } from "../../db.js";
+import type { Prisma } from "../../generated/prisma/client.js";
+import { prisma, type PropertyRecord } from "../../db.js";
 import { withPropertyLock } from "../../lib/videoHandoff.js";
 import { logAgentAudit } from "../../lib/audit.js";
 import { logSystemError } from "../../lib/systemError.js";
@@ -59,8 +59,8 @@ export type ApproveOutcome =
 
 /** Что захват записал в карточку (только для PRICE_CHANGE и CARD_DATA). */
 interface AppliedWrite {
-  before: Property;
-  after: Property;
+  before: PropertyRecord;
+  after: PropertyRecord;
   changedFields: string[];
   priceChanged: boolean;
   priceDelivery?: PropertyPriceDelivery;
@@ -155,7 +155,7 @@ export async function approvePropertyChangeRequest(input: {
   }
 
   // ЗАХВАТ + ЗАПИСЬ под замком объекта.
-  type Claim = { conflict: string; expiredUndo?: true; forbidden?: true } | { write: AppliedWrite | null; property: Property };
+  type Claim = { conflict: string; expiredUndo?: true; forbidden?: true } | { write: AppliedWrite | null; property: PropertyRecord };
   let claim: Claim;
   try {
     claim = await withPropertyLock(pre.propertyId, async (tx): Promise<Claim> => {
@@ -402,7 +402,7 @@ export async function approvePropertyChangeRequest(input: {
 
 /** PRICE_CHANGE / CARD_DATA: эффекты записи и (по желанию агента) перемонтаж. Возвращает текст сбоя или null. */
 async function executeFieldsChange(a: {
-  pre: { id: string; kind: string; propertyId: string; comment: string | null; property: Property };
+  pre: { id: string; kind: string; propertyId: string; comment: string | null; property: PropertyRecord };
   claim: AppliedWrite | null;
   pricePlan: { remake: boolean } | null;
   cardPlan: { remake: boolean } | null;
@@ -583,7 +583,7 @@ async function notifyAfterDecision(a: {
   result: PropertyChangeResult;
   authorId: string;
   actorId: string;
-  property: Property;
+  property: PropertyRecord;
   summary: string;
   url: string;
 }): Promise<void> {

@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InstagramCommentStatus } from "@royal-home/shared";
 import { api } from "../lib/api";
+import { sendToClient } from "../lib/clientSend";
+import { useSendIntent } from "./useSendIntent";
 import { keepWhilePaging } from "../lib/keepWhilePaging";
 import type { Paginated } from "../types";
 
@@ -113,11 +115,13 @@ export function useModerateInstagramComment() {
  */
 export function useReplyToInstagramComment() {
   const qc = useQueryClient();
+  const intent = useSendIntent();
   return useMutation({
     mutationFn: ({ id, text }: { id: string; text: string }) =>
-      api<{ ok: true; status: InstagramCommentStatus; replyText: string; repliedAt: string }>(
+      sendToClient<{ ok: true; status: InstagramCommentStatus; replyText: string; repliedAt: string }>(
+        intent,
         `/instagram-comments/${id}/reply`,
-        { method: "POST", body: { text } }
+        { text }
       ),
     // Отказ (окно истекло, комментарий удалён, нет прав) рисует MutationError
     // на месте вызова — тот же приём, что у useModerateInstagramComment.

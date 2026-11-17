@@ -198,6 +198,7 @@ export const GUARD_LABELS: Record<GuardName, string> = {
   say_dropped_double_greet: "Живая фраза отброшена: второе приветствие",
   say_dropped_shadow: "Живая фраза годная, но режим «тень» её не отправил",
   say_dropped_rude: "Живая фраза отброшена: на «ты»",
+  say_dropped_agree: "Живая фраза отброшена: слово согласия («Хорошо», «Конечно», «Да») — клиент прочтёт его как «да»",
   answer_used: "Слова модели вокруг фактов ушли клиенту",
   answer_dropped_surface_disabled: "Ответ модели не отправлен: не личные сообщения",
   answer_dropped_language_disabled: "Ответ модели не отправлен: язык не включён",
@@ -223,6 +224,7 @@ export const GUARD_LABELS: Record<GuardName, string> = {
   answer_dropped_shadow: "Ответ модели годный, но режим «тень» его не отправил",
   answer_dropped_error: "Ответ модели не отправлен: ошибка проверки (ушёл шаблон)",
   answer_dropped_vocabulary: "Ответ модели не отправлен: слово не из утверждённого словаря или радость рядом с отказом",
+  answer_dropped_agree: "Ответ модели не отправлен: слово согласия («Хорошо», «Хуб», «С удовольствием») — клиент прочтёт его как «да»",
 };
 
 export function guardFired(name: GuardName, times = 1): void {

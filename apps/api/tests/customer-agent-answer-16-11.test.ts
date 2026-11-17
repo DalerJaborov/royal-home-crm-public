@@ -87,7 +87,9 @@ describe("review #211 probe: every inverted or invented fact falls back to the t
     expect(parseCustomerAgentAnswerParts(["Понимаю."])).toBeNull();
   });
   it("A15/B4: Russian words inside a Tajik reply → language; and a Tajik word inside a Russian one", () => {
-    expect(reasonOf({ lead: "Хорошо, фаҳмидам.", ask: "Чӣ қадар маблағ дар назар доред?" }, ask("budget", "tg"))).toBe("language");
+    expect(reasonOf({ lead: "Понимаю, фаҳмидам.", ask: "Чӣ қадар маблағ дар назар доред?" }, ask("budget", "tg"))).toBe("language");
+    // Review #211 round 6: an agreement word is counted as its own reason first, so the shadow shows how often the model writes «Хорошо».
+    expect(reasonOf({ lead: "Хорошо, фаҳмидам.", ask: "Чӣ қадар маблағ дар назар доред?" }, ask("budget", "tg"))).toBe("agree");
     expect(reasonOf({ lead: "Очень приятно, фаҳмидам." }, { language: "tg", inputText: "Нархи объекти 123 чанд?", requestedFacts: ["price"], d: reply(["e0"]), evidence: price })).toBe("language");
     expect(reasonOf({ lead: "Рахмат, понял вас.", ask: "Сколько комнат вам нужно?" }, ask("rooms"))).toBe("language");
   });
@@ -174,9 +176,10 @@ describe("the human part around verbatim facts: warm replies go out", () => {
 describe("the question the bot asked is recorded structurally (review #211, п.4)", () => {
   const callback = ask("callback_consent");
   it("A5: the model's wording of the callback question is the callback question for the delivery seal", () => {
-    const parts = { lead: "Хорошо.", ask: "Хотите, чтобы сотрудник вам позвонил?" };
+    // Round 5 (17.11): «Хорошо.» is no lead any more (it reads as «да»); the seal check is the same with «Понял вас.».
+    const parts = { lead: "Понял вас.", ask: "Хотите, чтобы сотрудник вам позвонил?" };
     const v = verdict(parts, callback);
-    expect(v).toEqual({ ok: true, asked: "callback_consent", text: "Хорошо.\nХотите, чтобы сотрудник вам позвонил?" });
+    expect(v).toEqual({ ok: true, asked: "callback_consent", text: "Понял вас.\nХотите, чтобы сотрудник вам позвонил?" });
     const input = inputOf(parts, callback), text = renderCustomerAgentDecision(input)!;
     expect(text.endsWith(customerAgentCallbackQuestionText("ru"))).toBe(false);
     expect(customerAgentSentQuestion(input, text)).toBe("callback_consent");
@@ -197,8 +200,8 @@ describe("the question the bot asked is recorded structurally (review #211, п.4
     expect(reasonOf({ ask: "Мехоҳед корманд ба шумо занг занад?" }, ask("callback_consent", "tg"))).toBe("ok");
   });
   it("a text that does not end with the asked question records nothing", () => {
-    const input = inputOf({ lead: "Хорошо." }, callback);
-    expect(customerAgentSentQuestion(input, "Хорошо.")).toBe("none");
+    const input = inputOf({ lead: "Понял вас." }, callback);
+    expect(customerAgentSentQuestion(input, "Понял вас.")).toBe("none");
   });
 });
 
@@ -215,7 +218,8 @@ describe("the model's sent words stay in the dialogue memory (review #211, п.5)
   it("two live turns: the second identical lead is a repeat once the first one is remembered", () => {
     const lead = "Спасибо, что написали.";
     const first = rendered({ lead, ask: "Сколько комнат вы рассматриваете?" }, ask("rooms"))!;
-    expect(first).toBe(`${lead}\nСколько комнат вы рассматриваете?`);
+    // The vetted spelling goes out, not the model's «.» (fourth review, п.2).
+    expect(first).toBe("Спасибо, что написали!\nСколько комнат вы рассматриваете?");
     const remembered = customerAgentMemoryText(first, new Set());
     expect(remembered).toBe(first);
     // Before review #211 the memory dropped the whole turn (no template line), so the same words passed again.
@@ -272,7 +276,9 @@ describe("core: lifted before the strict parse, shadow by default, its own switc
   it("the switch: empty or unknown = shadow, live and off only by the exact word", () => {
     expect(customerAgentAnswerMode({})).toBe("shadow");
     expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "LIVE" })).toBe("shadow");
-    expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "live" })).toBe("live");
+    // Since 9ab5a3a9 live needs a listed channel: no list and no channel = shadow (fail-safe); review4 covers the list itself.
+    expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "live" })).toBe("shadow");
+    expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "ALL" }, "FACEBOOK")).toBe("live");
     expect(customerAgentAnswerMode({ CUSTOMER_AGENT_ANSWER_MODE: "off" })).toBe("off");
     expect(customerAgentAnswerMode({ CUSTOMER_AGENT_SAY_MODE: "live" })).toBe("shadow");
   });

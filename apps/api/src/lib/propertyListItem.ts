@@ -1,7 +1,7 @@
 import type { Request } from "express";
 import type { Prisma } from "../generated/prisma/client.js";
 import type { PropertyVideoHandoffBrief } from "@royal-home/shared";
-import { prisma } from "../db.js";
+import { prisma, type PropertyDefaultOmit } from "../db.js";
 import { can } from "../auth/middleware.js";
 import { computeDemandCounts } from "../routes/matching.js";
 import { loadPipelineDeadlines, stageState } from "./propertyPipeline.js";
@@ -33,7 +33,7 @@ export const PROPERTY_LIST_INCLUDE = {
   handoverFromAgent: { select: { id: true, fullName: true, avatarUrl: true } },
 } satisfies Prisma.PropertyInclude;
 
-export type PropertyListRecord = Prisma.PropertyGetPayload<{ include: typeof PROPERTY_LIST_INCLUDE }>;
+export type PropertyListRecord = Prisma.PropertyGetPayload<{ include: typeof PROPERTY_LIST_INCLUDE; omit: PropertyDefaultOmit }>;
 
 /**
  * «В КАКОМ СОСТОЯНИИ МОНТАЖ» СРАЗУ В СПИСКЕ (25.09.2026, владелец: «в списке

@@ -158,6 +158,11 @@ services:
       # template facts. Its own switch, never CUSTOMER_AGENT_SAY_MODE. Empty = shadow
       # (verified and counted, never sent); live only by the exact word «live»; off.
       CUSTOMER_AGENT_ANSWER_MODE: "${CUSTOMER_AGENT_ANSWER_MODE:-}"
+      # With the mode «live»: a comma list of core channels (WHATSAPP, INSTAGRAM,
+      # FACEBOOK, WEBSITE) that go live, or the explicit word ALL; the others stay
+      # shadow. Empty or only unknown names = live NOWHERE (an error is logged).
+      # Rollback = the mode back to empty (or off).
+      CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "${CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS:-}"
       # Customer core switches (31.10.2026). Without these lines a value in
       # .env.production never reaches the container. Both are off by default:
       # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`

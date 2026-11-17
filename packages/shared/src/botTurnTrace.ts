@@ -87,6 +87,8 @@ export const traceCustomerCoreSchema = z.strictObject({
   sayStatus: customerAgentSayStatusSchema.optional(), sayDropReason: customerAgentSayDropReasonSchema.optional(),
   /** The model's whole reply (one-brain step 1): status and verdict code only, never the text. */
   answerStatus: customerAgentSayStatusSchema.optional(), answerDropReason: customerAgentAnswerDropReasonSchema.optional(),
+  /** The mode the turn ran in: live may be on for some channels only (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS). */
+  answerMode: z.enum(["off", "shadow", "live"]).optional(),
 }).superRefine((value, ctx) => {
   if (value.skipReason !== undefined && value.rejectedDecisionKind !== "skip") {
     ctx.addIssue({ code: "custom", path: ["skipReason"], message: "skipReason requires rejectedDecisionKind=skip" });

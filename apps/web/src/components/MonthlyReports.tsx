@@ -19,6 +19,10 @@ interface MonthlyMetrics {
   commission: number | null;
   dealsCompleted: number;
   expenses: number | null;
+  /** Деньги отчёта живые (как в «Финансах»); это — снимок при закрытии месяца, справкой. */
+  profit?: number | null;
+  commissionAtClose?: number | null;
+  expensesAtClose?: number | null;
   agents: { agentId: string; fullName: string; leads: number; showings: number | null; deals: number; commission: number | null }[];
   sources: { source: string; count: number }[];
   propertiesAdded: number;
@@ -237,6 +241,19 @@ export function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit
               <Rh2Money value={m.expenses} cur="с." />
             </b>
             расходы за месяц
+          </span>
+        )}
+        {m.profit != null && (
+          <span>
+            <b>
+              <Rh2Money value={m.profit} cur="с." />
+            </b>
+            прибыль за месяц
+          </span>
+        )}
+        {m.expenses !== null && m.expensesAtClose != null && Math.abs(m.expenses - m.expensesAtClose) >= 0.01 && (
+          <span className="quiet">
+            расходы изменились после закрытия месяца: было <Rh2Money value={m.expensesAtClose} cur="с." />
           </span>
         )}
         <span>
