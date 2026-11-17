@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4058,
+  "forks": 4059,
   "mounts": 87,
   "cron": 140,
   "jobs": 33,
@@ -46632,6 +46632,21 @@
    "handlerRef": null,
    "tree": [
     {
+     "k": "if",
+     "t": "!body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные: поле withoutInstagram — да или нет\" });",
+       "a": [
+        "ответ 400 — «Неверные данные: поле withoutInstagram — да или нет»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const outcome = await completeEditing({ propertyId: req.params.id, actor: { agentId: req.agent!.id, can: (per…",
      "a": [
@@ -46646,7 +46661,7 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(outcome.status).json({ error: outcome.error });",
+       "t": "return res.status(outcome.status).json({ error: outcome.error, code: outcome.code, ...(outcome.blockers ? { b…",
        "a": [
         "ответ (код зависит от условия)"
        ],

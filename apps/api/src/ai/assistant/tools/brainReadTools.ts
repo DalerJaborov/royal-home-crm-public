@@ -19,6 +19,7 @@ import { loadMorningNumbers } from "../../../lib/morningNumbers.js";
 import { noContactWhere } from "../../../lib/noContact.js";
 import { findSilentAfterShowing } from "../../../lib/silentAfterShowing.js";
 import { listStuckWork } from "../../../lib/stuckWork.js";
+import { listStuckBeforeSale, type StuckBeforeSaleResult } from "../../../lib/stuckBeforeSale.js";
 import { overdueTasksWhere } from "../../../lib/tasks.js";
 import { missedWithoutCallbackIds } from "../../../lib/telephony/missedCallEscalation.js";
 import { ownIncomingCallsOr } from "../../../lib/telephony/ownIncomingCalls.js";
@@ -46,7 +47,7 @@ import type { AssistantReadToolPlugin } from "./types.js";
  *  - get_team_load — «Команда» (agentLoadCounts, team.viewFull) и рейтинг недели
  *    пульта (loadWeeklyLeaderboard, dashboard.analytics); без прав — своя нагрузка;
  *  - get_stuck_work — «Что не доехало» и «Интеграции» (listStuckWork, снимок
- *    самопроверки), auditLog.view.
+ *    самопроверки) и «застряли до продажи» (lib/stuckBeforeSale.ts, волна 2), auditLog.view.
  * Общее: только личка (в общей группе Telegram их скрывает GROUP_HIDDEN_TOOLS, а
  * здесь — вторая стена); каждый список ≤ 10 строк и счётчик «ещё N»; телефоны и
  * имена клиентов — через маски lib/clientPhone.ts; Корзина не показывается; время —
@@ -768,15 +769,30 @@ function leaderboardLines(board: { place: number; fullName: string; score: numbe
 
 // ───────────────────────────── get_stuck_work ─────────────────────────────
 
+/** Строки «застряли до продажи» для display: заголовок с числом, по строке на объект, «ещё N». */
+export function stuckBeforeSaleLines(result: StuckBeforeSaleResult, lang: DealLang): string[] {
+  if (result.total === 0) {
+    return [tr(lang, `🏠 До продажи дольше ${result.minDays} дн. никто не застрял.`, `🏠 То фурӯш зиёда аз ${result.minDays} рӯз ҳеҷ объект наистодааст.`)];
+  }
+  const shown = result.items.slice(0, LIST_LIMIT);
+  return [
+    tr(lang, `🏠 Застряли до продажи (дольше ${result.minDays} дн.): ${result.total}`, `🏠 То фурӯш истодаанд (зиёда аз ${result.minDays} рӯз): ${result.total}`),
+    ...shown.map((i) => `• ${i.code} (${i.stageLabel.toLowerCase()}, ${i.days} дн.): ${i.reason}`),
+    ...(result.total > shown.length ? [moreText(lang, result.total - shown.length).trim()] : []),
+  ];
+}
+
 export const getStuckWorkTool: AssistantReadToolPlugin = {
   name: "get_stuck_work",
   level: "A",
   statusPhrase: "Проверяю, что не доехало…",
   description:
     "Что CRM не смогла сделать сама и ждёт человека: задания, исчерпавшие попытки за 14 дней, и зависшие сейчас " +
-    "(экран «Что не доехало»), плюс сломанные внешние доступы по ночной самопроверке (Gemini, Meta, Telegram, R2, сайт). " +
-    "Зови на «что сломалось», «что не доехало», «всё ли работает», «чӣ вайрон шуд», «чӣ кор накард», «ҳама кор мекунад?». " +
-    "Числа — ровно из display. Повторить задание можно только в CRM.",
+    "(экран «Что не доехало»), плюс сломанные внешние доступы по ночной самопроверке (Gemini, Meta, Telegram, R2, сайт), " +
+    "плюс объекты, застрявшие до продажи дольше трёх суток (beforeSale): этап, с какого числа, причина и кто следующий. " +
+    "Зови на «что сломалось», «что не доехало», «всё ли работает», «что застряло», «почему объекты не в продаже», " +
+    "«чӣ вайрон шуд», «чӣ кор накард», «ҳама кор мекунад?», «кадом объектҳо ба фурӯш набаромаданд». " +
+    "Числа и причины — ровно из display. Повторить задание можно только в CRM.",
   parameters: { type: "object", properties: { lang: LANG_PROP } },
   allowed: (actor) => !inGroup(actor) && has(actor, "auditLog.view"),
   async run(raw, { actor, question }) {
@@ -785,10 +801,12 @@ export const getStuckWorkTool: AssistantReadToolPlugin = {
     if (!has(actor, "auditLog.view")) return { error: "Сбои и зависшие задания видит руководство (право «Журнал действий и ошибок»)" };
     const parsed = langOnlyArgs.safeParse(raw ?? {});
     const lang = dealLang(parsed.success ? parsed.data.lang : undefined, question);
-    const [queue, snapshot] = await Promise.all([
+    const [queue, snapshot, beforeSale] = await Promise.all([
       // includePrivate — как у маршрута: директор/админ с правом проверки.
       listStuckWork({ givenUpLimit: LIST_LIMIT, includePrivate: assistantInvestigationRole(actor) !== undefined }),
       loadIntegrationHealthSnapshot(),
+      // Объекты, застрявшие до продажи дольше трёх суток (волна 2, 17.11.2026) — та же функция, что для экрана.
+      listStuckBeforeSale({ limit: LIST_LIMIT }),
     ]);
     const item = (i: (typeof queue.givenUp)[number]) => ({
       what: safeField(phoneSafeText(i.label, actor.canViewPhone), 160),
@@ -809,8 +827,31 @@ export const getStuckWorkTool: AssistantReadToolPlugin = {
         : broken.length
           ? tr(lang, `🔌 Сломаны доступы: ${broken.map((b) => b.name).join(", ")}`, `🔌 Дастрасиҳои вайрон: ${broken.map((b) => b.name).join(", ")}`)
           : tr(lang, "🔌 Внешние доступы в порядке.", "🔌 Дастрасиҳои берунӣ дар тартибанд."),
+      ...stuckBeforeSaleLines(beforeSale, lang),
     ].join("\n");
     return {
+      beforeSale: {
+        total: beforeSale.total,
+        minDays: beforeSale.minDays,
+        items: beforeSale.items.slice(0, LIST_LIMIT).map((i) => ({
+          code: i.code,
+          href: `/properties/${i.shortId}`,
+          title: safeField(i.title, 100),
+          stage: i.stageLabel,
+          since: i.since,
+          days: i.days,
+          reason: i.reason,
+          nextStep: i.nextStep,
+          ...(i.nextByName ? { nextByName: i.nextByName } : {}),
+          ...(i.withoutInstagram ? { withoutInstagram: i.withoutInstagram } : {}),
+        })),
+        more: Math.max(0, beforeSale.total - Math.min(beforeSale.items.length, LIST_LIMIT)),
+        // Модели: объект с withoutInstagram директор может вывести инструментом complete_property_editing
+        // (withoutInstagram: true) — предложи это, если спрашивает директор или админ.
+        hint: beforeSale.items.some((i) => i.withoutInstagram)
+          ? "Объекты с withoutInstagram директор или администратор может вывести в продажу без Instagram: complete_property_editing с withoutInstagram: true после явного согласия."
+          : undefined,
+      },
       counts: queue.counts,
       givenUp: queue.givenUp.slice(0, LIST_LIMIT).map(item),
       hanging: queue.hanging.slice(0, LIST_LIMIT).map(item),

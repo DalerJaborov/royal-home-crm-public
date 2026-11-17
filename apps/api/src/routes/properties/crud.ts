@@ -1524,15 +1524,30 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
  * «Готово» — намеренное завершающее действие монтажёра, который должен
  * узнать, если сайт объект не принял, а не увидеть в CRM «опубликован»
  * молча разошедшийся с реальностью.
+ *
+ * Тело: пусто (обычное нажатие) или `{ withoutInstagram: true }` — явное «вывести без Instagram»
+ * (директор/админ, 17.11.2026; правило — в lib/propertyCompleteEditing.ts).
  */
 crudRouter.post("/:id/complete-editing", requireAuth, async (req, res) => {
+  const body = z.object({ withoutInstagram: z.boolean().optional() }).safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: "Неверные данные: поле withoutInstagram — да или нет" });
   // Само «Готово» — lib/propertyCompleteEditing.ts: ту же дверь зовёт ИИ-помощник (complete_property_editing).
   const outcome = await completeEditing({
     propertyId: req.params.id,
     actor: { agentId: req.agent!.id, can: (permission) => can(req, permission) },
     audit: req,
+    withoutInstagram: body.data.withoutInstagram,
   });
-  if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+  if (!outcome.ok) {
+    // code/blockers/withoutInstagram — экрану, чтобы директору показать «Вывести без Instagram», а
+    // остальным — понятную причину; текст ошибки остаётся главным.
+    return res.status(outcome.status).json({
+      error: outcome.error,
+      code: outcome.code,
+      ...(outcome.blockers ? { blockers: outcome.blockers } : {}),
+      ...(outcome.withoutInstagram ? { withoutInstagram: outcome.withoutInstagram } : {}),
+    });
+  }
   if (outcome.siteSyncError) {
     return res.status(207).json({ ...presentProperty(outcome.property, req), siteSyncError: outcome.siteSyncError });
   }

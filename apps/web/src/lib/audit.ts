@@ -144,6 +144,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
 
   // Монтаж и публикации.
   PROPERTY_EDITING_DONE: "Монтаж завершён",
+  PROPERTY_SALE_WITHOUT_INSTAGRAM: "Выведен в продажу без Instagram",
   MONTAGE_COPIES_TOGGLE: "Копии монтажа в Telegram включены или выключены",
   PROPERTY_PUBLISHED_NOW: "Опубликовано сейчас, не дожидаясь слота",
   PROPERTY_PUBLISH_RESCHEDULED: "Время выхода ролика перенесено вручную",
