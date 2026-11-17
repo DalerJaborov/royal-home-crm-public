@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 760,
-  "forks": 4128,
+  "forks": 4130,
   "mounts": 85,
   "cron": 143,
   "jobs": 33,
@@ -12717,9 +12717,9 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.status(400).json({ error: \"Номер не таджикский — станция не сможет его набрать\" });",
+         "t": "return res.status(400).json({ error: stationDialRefusal(requestedPhone), code: \"not_dialable\" });",
          "a": [
-          "ответ 400 — «Номер не таджикский — станция не сможет его набрать»"
+          "ответ 400"
          ],
          "c": []
         }
@@ -12787,7 +12787,7 @@
       },
       {
        "k": "do",
-       "t": "return res.status(result.status).json({ error: result.error });",
+       "t": "return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });",
        "a": [
         "ответ (код зависит от условия)"
        ],
@@ -19816,6 +19816,21 @@
        "t": "return res.status(400).json({ error: \"Слишком короткий номер\" });",
        "a": [
         "ответ 400 — «Слишком короткий номер»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "isForeignPhone(digits)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(422).json({ error: FOREIGN_PHONE_CALL_ERROR, code: \"not_dialable\" });",
+       "a": [
+        "ответ 422"
        ],
        "c": []
       }
@@ -89173,11 +89188,33 @@
         },
         {
          "k": "do",
-         "t": "const liveIds = clientIds.length ? new Set( (await prisma.client.findMany({ where: { id: { in: clientIds }, d…",
+         "t": "const livePhones = clientIds.length ? new Map( ( await prisma.client.findMany({ where: { id: { in: clientIds …",
          "a": [
           "читает в базе: client"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "const oldest = candidates.find((c)",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "c.clientId && !livePhones.has(c.clientId)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return false;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
         },
         {
          "k": "if",

@@ -26,3 +26,55 @@ export function isDialableTajikNumber(phone: string): boolean {
   if (digits.length === 10 && digits.startsWith("0")) return true;
   return digits.length === 9;
 }
+
+/**
+ * ИНОСТРАННЫЙ ЛИ НОМЕР (17.11.2026, «53 „не ответил“ — 0 звонков»).
+ *
+ * Станция агентства набирает только Таджикистан: единственный исходящий маршрут
+ * FreePBX (`outrt-1`, шаблон `_.`) отдаёт транку цифры как есть, и номер
+ * `79•••••••84` уходит оператору без международного выхода. Журнал станции:
+ * все такие вызовы — NO ANSWER за 0 секунд и сразу «номер не обслуживается».
+ * CRM при этом писала клиенту «не ответил», хотя его телефон не звонил ни разу.
+ *
+ * Понимает и закрытый номер (`+799•••••84` — у смотрящего нет права видеть цифры):
+ * маска сохраняет первые четыре знака, и «+» без 992 в них — это другая страна.
+ * Закрытый номер без «+» по маске не опознать — тогда «не знаем» (false), и
+ * решает сервер, у которого есть настоящие цифры.
+ */
+export function isForeignPhone(phone: string | null | undefined): boolean {
+  const raw = String(phone ?? "").trim();
+  if (!raw) return false;
+  if (raw.includes("•")) {
+    const head = raw.split("•")[0] ?? "";
+    return head.startsWith("+") && !phoneDigits(head).startsWith("992") && phoneDigits(head).length > 0;
+  }
+  if (isDialableTajikNumber(raw)) return false;
+  const digits = phoneDigits(raw);
+  // Десять и больше цифр в не таджикской записи — код другой страны (`7…`, `1…`,
+  // российское `8…`, международный выход `00…`). Короче — не «заграница», а
+  // обрывок. Начинается с 992 или с одиночного 0, но длина не та — это таджикский
+  // номер с опечаткой, а не иностранный: о нём другая ошибка.
+  if (digits.length < 10) return false;
+  if (digits.startsWith("992")) return false;
+  if (digits.startsWith("0") && !digits.startsWith("00")) return false;
+  return true;
+}
+
+/** Иностранный номер: что сказать сотруднику вместо звонка. Один текст на сервер и сайт. */
+export const FOREIGN_PHONE_CALL_ERROR =
+  "Номер не таджикский: станция агентства звонит только по Таджикистану. Напишите клиенту в чате (WhatsApp, Instagram) или попросите таджикский номер.";
+
+/** Номер записан неверно (не таджикская запись и не похож на иностранный). */
+export const INVALID_PHONE_CALL_ERROR = "Номер записан неверно — станция не сможет его набрать. Исправьте номер в карточке клиента.";
+
+/**
+ * ОДНА ДВЕРЬ «МОЖНО ЛИ ЗВОНИТЬ НА ЭТОТ НОМЕР КЛИЕНТА»: null — можно, строка —
+ * почему нельзя (её и показывать сотруднику). Звонок, который станция заведомо не
+ * наберёт, не заводится вовсе: иначе он кончается исходом «клиент не ответил»,
+ * задачами «перезвонить» и переводом клиента в «не отвечает» без единого гудка.
+ */
+export function stationDialRefusal(phone: string | null | undefined): string | null {
+  const raw = String(phone ?? "");
+  if (isDialableTajikNumber(raw)) return null;
+  return isForeignPhone(raw) ? FOREIGN_PHONE_CALL_ERROR : INVALID_PHONE_CALL_ERROR;
+}
