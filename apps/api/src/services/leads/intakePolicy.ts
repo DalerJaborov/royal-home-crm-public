@@ -156,19 +156,30 @@ export function classifyInbound(input: ClassifyInboundInput): ClassifyInboundRes
     priorCategory: input.priorCategory,
   };
   const decision = decideLeadKind(kindInput);
-  if (decision.kind === "OTHER" && decision.reason === NO_INTENT_REASON && UNKNOWN_INTENT_TO_QUEUE.has(input.channel)) {
+  const otherReason = classifyOtherReason(decision);
+  if (decision.kind === "OTHER" && UNRESOLVED_TO_QUEUE.has(decision.reason ?? "") && UNKNOWN_INTENT_TO_QUEUE.has(input.channel)) {
     return { kind: "BUYER", label: INTENT_UNKNOWN_NOTE, reason: INTENT_UNKNOWN_REASON, intentUnknown: true };
   }
   return {
     kind: decision.kind,
     label: decision.label,
     reason: decision.reason,
-    otherReason: classifyOtherReason(decision),
+    otherReason,
   };
 }
 
-/** Текст причины decideLeadKind, когда намерения нет вовсе (ai/leadKind.ts, ветка default). */
-const NO_INTENT_REASON = "намерение не определено";
+/**
+ * «Не поняли, чего хочет человек» во всех видах — в общую раздачу с пометкой, не в «Прочие» без агента (17.11.2026,
+ * решение по продукту: человек, оставивший номер в переписке, никогда не остаётся без агента). Сюда — только «бот не
+ * понял»: намерения нет (NO_INTENT, #232), модель не уверена (LOW_CONFIDENCE), пришёл по рекламе и сам ничего не написал
+ * (AD_NO_WORDS: номер-то он оставил). «Прочее» от модели (OTHER_INTENT) — это её уверенное «не клиент» (подрядчики,
+ * «делаю ремонт квартир», которых словарь услуг не узнал): остаётся «Прочим», как и то, что код сам увидел как
+ * не-клиента — работа, аренда, другой город, услуги, коммерция, не по теме.
+ */
+// Exact decideLeadKind reasons (ai/leadKind.ts), not classifyOtherReason: its fallback files any unknown reason as OTHER_INTENT.
+const UNRESOLVED_TO_QUEUE: ReadonlySet<string> = new Set([
+  "намерение не определено", "модель не уверена в типе обращения", "реклама без слов клиента",
+]);
 /**
  * НАМЕРЕНИЕ НЕ ОПРЕДЕЛЕНО — ЗАЯВКА ИДЁТ В ОБЩУЮ РАЗДАЧУ С ПОМЕТКОЙ, А НЕ В
  * «ПРОЧИЕ» БЕЗ АГЕНТА (17.11.2026, журнал прода: за неделю 10 карточек
