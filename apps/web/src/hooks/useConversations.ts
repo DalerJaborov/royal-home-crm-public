@@ -7,7 +7,8 @@ import { useSendIntent } from "./useSendIntent";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
 import { keepWhilePaging } from "../lib/keepWhilePaging";
 import { ApiError } from "../lib/apiError";
-import { uploadConversationMedia } from "../lib/mediaUpload";
+import { cancelConversationMediaUpload, uploadConversationMedia } from "../lib/mediaUpload";
+import { UploadCancelledError } from "../lib/chunkedUpload";
 import { useMediaUploadsStore, type PendingMediaUpload } from "../store/mediaUploads";
 import type { ConversationMessage, Paginated } from "../types";
 import { audioFileNameFor } from "../lib/audioRecording";
@@ -373,13 +374,16 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
           upload.file,
           upload.caption,
           (percent) => setProgress(conversationId, upload.localId, percent),
-          `media:${upload.localId}`
+          `media:${upload.localId}`,
+          upload.localId
         );
         // Успех — сама реплика придёт с сервера через инвалидацию, локальный
         // пузырь-заглушку убираем, чтобы не показать её дважды.
         remove(conversationId, upload.localId);
         queryClient.invalidateQueries({ queryKey: ["conversations"] });
       } catch (err) {
+        // Отменил человек — пузыря уже нет, ошибку показывать некуда и незачем.
+        if (err instanceof UploadCancelledError) return;
         setError(conversationId, upload.localId, err instanceof Error && err.message ? err.message : "Не удалось отправить");
       }
     },
@@ -417,6 +421,9 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   const cancel = useCallback(
     (localId: string) => {
       if (!id) return;
+      // Сначала оборвать отправку: оставшиеся части не уходят, сборку не зовём —
+      // иначе пузырь исчезал, а файл всё равно доходил клиенту (ревью #254).
+      cancelConversationMediaUpload(localId);
       remove(id, localId);
     },
     [id, remove]

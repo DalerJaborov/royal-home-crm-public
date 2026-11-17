@@ -1,3 +1,4 @@
+import { assertFitsSingleRequest } from "./singleRequestLimit";
 import { isInsideDushanbe, type PropertyDraftMediaView } from "@royal-home/shared";
 import { api, refreshAccessToken } from "./api";
 import { ApiError } from "./apiError";
@@ -1120,6 +1121,12 @@ async function sendPhoto(entry: QueueEntry): Promise<SendOutcome> {
   const form = new FormData();
   form.append("photos", file, file.name);
   form.append("uploadKeys", entry.item.uploadKey);
+  // Несжатый снимок тяжелее потолка одного запроса до сервера не дойдёт (413 от прокси) — сразу понятный отказ.
+  try {
+    assertFitsSingleRequest(form);
+  } catch (err) {
+    return outcomeFromStatus(413, err instanceof Error ? err.message : null);
+  }
 
   const res = await xhrSendAuthed(
     "POST",

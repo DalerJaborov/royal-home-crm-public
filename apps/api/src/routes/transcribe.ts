@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { UploadRejectedError } from "../upload.js";
+import { UploadRejectedError, guardedUpload } from "../upload.js";
+import { PROXY_SINGLE_REQUEST_MAX_BYTES } from "@royal-home/shared";
 import multer from "multer";
 import { requireAuth } from "../auth/middleware.js";
 import { transcribeAudio } from "../ai/transcribe.js";
@@ -18,7 +19,9 @@ import { normalizeDictationMime } from "../lib/dictationMime.js";
  * (ai/transcribe.ts — единственный провайдер, который пишет таджикскую речь
  * таджикской кириллицей, не фарси).
  */
-const upload = multer({
+const upload = guardedUpload({
+  name: "dictationUpload",
+  maxRequestBytes: PROXY_SINGLE_REQUEST_MAX_BYTES,
   storage: multer.memoryStorage(),
   // 5 МБ с запасом на ~60 секунд webm/opus (потолок длины записи — на фронте).
   // files: 1 — не формальность: без него предел на файл не ограничивает запрос

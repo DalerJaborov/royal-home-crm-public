@@ -98,6 +98,12 @@ export async function createLocalUploadSession(sessionId: string): Promise<void>
   await fs.promises.mkdir(dir, { recursive: true });
 }
 
+/** Папка сессии на диске (null — id не нашего формата). Для замка сборки общих сессий
+ *  частями (lib/chunkedUploadSessions.ts); части и склейку по-прежнему ведут функции ниже. */
+export function localUploadSessionDir(sessionId: string): string | null {
+  return resolveSessionDir(sessionId);
+}
+
 /** Служебный файл сессии без записи в базе (свободный ролик в соцсети, 17.11.2026):
  *  кто открыл, план частей, имя файла. Имя не совпадает с `part-N`, склейку не задевает. */
 const SESSION_META = "meta.json";
