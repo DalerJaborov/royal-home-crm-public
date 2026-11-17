@@ -2070,6 +2070,11 @@
       "label": null
     },
     {
+      "id": "somon-owner-leads-silence",
+      "expr": "47 * * * *",
+      "label": null
+    },
+    {
       "id": "staff-notice-cleanup",
       "expr": "40 3 * * *",
       "label": null
