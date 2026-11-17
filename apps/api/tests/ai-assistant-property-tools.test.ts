@@ -50,7 +50,7 @@ const { approvePropertyChangeRequest } = await import("../src/routes/properties/
 const { withPropertyLock } = await import("../src/lib/videoHandoff.js");
 const { actorFor, cleanupAssistantActionAgents } = await import("./helpers/assistantActionFixture.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
-const { waitForSettled } = await import("./helpers/waitFor.js");
+const { waitFor, waitForSettled } = await import("./helpers/waitFor.js");
 const { formatPropertyCode } = await import("@royal-home/shared");
 const { runAssistantToolPlugin } = await import("../src/ai/assistant/tools/run.js");
 const { findAssistantToolPlugin } = await import("../src/ai/assistant/tools/index.js");
@@ -463,6 +463,40 @@ describe("change_property_price", () => {
     expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price.toString()).toBe("380000");
   });
 
+  it("класс «ответила — не сделала» (17.11.2026): заявка FAILED не выдаётся за «применено»", async () => {
+    const { honestAppliedOutcome } = await import("../src/ai/assistant/tools/changeRequestTool.js");
+    // Ничего не записалось — отказ с причиной исполнителя, а не «готово».
+    const refused = (() => {
+      try {
+        honestAppliedOutcome({ ok: true, request: { status: "FAILED", error: "Тело заявки повреждено" } as never, message: "Не выполнилось" });
+        return null;
+      } catch (err) {
+        return err;
+      }
+    })();
+    expect(refused).toBeInstanceOf(AssistantActionError);
+    expect(refused).toMatchObject({ code: "NOT_APPLIED", message: "Не изменилось: Тело заявки повреждено" });
+    expect(honestAppliedOutcome({ ok: true, request: { status: "APPROVED", error: null } as never, message: "Принято и выполнено" }))
+      .toEqual({ status: "APPLIED", message: "Принято и выполнено" });
+
+    // Цена записалась, а хвост исполнителя упал: «изменено, но не всё» с причиной; откат цены остаётся.
+    const effects = await import("../src/lib/propertyUpdateEffects.js");
+    const property = await seed();
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", { ref: String(property.shortId), newPrice: 385000 });
+    const spy = vi.spyOn(effects, "runPostUpdateEffects").mockRejectedValueOnce(new Error("площадка не ответила"));
+    try {
+      const done = await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
+      expect(spy).toHaveBeenCalled();
+      expect(done.action.result).toMatchObject({ status: "PARTIAL", applied: true });
+      expect((done.action.result as { message: string }).message).toMatch(/не всё выполнилось.*площадка не ответила/);
+      expect(done.action.undoUntil).not.toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await requests(property.id, "PRICE_CHANGE"))[0].status).toBe("FAILED");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price.toString()).toBe("385000");
+  });
+
   it("ref понимает номер ОБ-, короткий номер и id; цена округляется до копейки через lib/money", async () => {
     const property = await seed();
     for (const ref of [formatPropertyCode(property.shortId), String(property.shortId), property.id]) {
@@ -541,9 +575,18 @@ describe("change_property_price", () => {
     expect(await requests(property.id)).toHaveLength(0);
   });
 
-  it("отказы как у REST: до публикации, та же цена, проданный, уже есть ждущая заявка", async () => {
+  it("отказы как у REST: та же цена, проданный; СВОЙ объект до публикации помощник правит сразу (17.11.2026), чужой — нет", async () => {
     const draft = await seed({ status: "PENDING_REVIEW" });
-    await expectRefused(ownerId, AGENT_PERMS, "change_property_price", { ref: String(draft.shortId), newPrice: 1 }, 409, /до публикации/i);
+    const ref = String(draft.shortId);
+    await expectRefused(otherId, AGENT_PERMS, "change_property_price", { ref, newPrice: 390000 }, 403);
+    const own = await preview(ownerId, AGENT_PERMS, "change_property_price", { ref, newPrice: 390000 });
+    const done = await confirmAssistantAction(own.id, actorFor(ownerId, AGENT_PERMS));
+    expect(done.action.result).toMatchObject({ status: "APPLIED", applied: true });
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: draft.id } });
+    expect(after.price.toString()).toBe("390000");
+    expect(after.status).toBe("PENDING_REVIEW");
+    // В очередь руководства ничего не повисло: заявка принята автором тем же исполнителем.
+    expect((await requests(draft.id)).map((r) => r.status)).toEqual(["APPROVED"]);
 
     const same = await seed();
     await expectRefused(ownerId, AGENT_PERMS, "change_property_price", { ref: String(same.shortId), newPrice: 400000 }, 400, /совпадает/);
@@ -606,83 +649,171 @@ describe("change_property_price", () => {
 });
 
 describe("change_property_status", () => {
+  /** Снятый с продажи объект, готовый к возврату: фото и ссылка на ролик есть. */
+  async function seedReadyWithdrawn() {
+    const property = await seed({ status: "WITHDRAWN", instagramUrl: `https://www.instagram.com/reel/rh${runId}${propertyIds.length}/` });
+    await prisma.propertyPhoto.create({ data: { propertyId: property.id, url: `/uploads/t-${property.id}.jpg`, thumbUrl: `/uploads/t-${property.id}-s.jpg` } });
+    return property;
+  }
+
+  /** Живой баг 17.11: «верни в продажу» от агента — заявка, которую исполняет «Принять». */
   async function pendingStatusUndo() {
-    const property = await seed();
+    const property = await seedReadyWithdrawn();
     const actor = actorFor(ownerId, AGENT_PERMS);
-    const action = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "WITHDRAWN" });
+    const action = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "AVAILABLE" });
     await confirmAssistantAction(action.id, actor);
     const [request] = await requests(property.id, "OTHER");
     return { property, actor, action, request };
   }
 
-  it("снять с продажи: заявка «Другое» с понятным текстом, статус объекта не меняется", async () => {
+  const WITHDRAW = { status: "WITHDRAWN", removalReason: "OWNER_CANCELLED" } as const;
+
+  it("свой объект: снять с продажи — СРАЗУ после подтверждения (как кнопка в карточке), с причиной; без причины — вопрос", async () => {
     const property = await seed();
+    const ref = String(property.shortId);
+    await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref, status: "WITHDRAWN" }, 400, /Почему снимаем/);
+    await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref, status: "WITHDRAWN", removalReason: "OTHER" }, 400);
+
     const actor = actorFor(ownerId, AGENT_PERMS);
-    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "WITHDRAWN" });
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref, ...WITHDRAW });
     expect(pending.preview.was.Статус).toBe("В продаже");
     expect(pending.preview.becomes.Статус).toBe("Снято с продажи");
-    expect(await requests(property.id)).toHaveLength(0);
-
-    await confirmAssistantAction(pending.id, actor);
-    const [row] = await requests(property.id, "OTHER");
-    expect(row.status).toBe("PENDING");
-    expect((row.payload as { text: string }).text).toMatch(/В продаже.*Снято с продажи/);
+    expect(pending.preview.becomes.Заявка).toBeUndefined();
+    expect(pending.preview.risk).toMatch(/сразу/);
     expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("AVAILABLE");
+
+    const done = await confirmAssistantAction(pending.id, actor);
+    expect(done.action.result).toMatchObject({ status: "APPLIED", applied: true, from: "AVAILABLE", to: "WITHDRAWN" });
+    expect(done.action.undoUntil).toBeNull();
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
+    expect(after.status).toBe("WITHDRAWN");
+    expect(after.version).toBeGreaterThan(property.version);
+    // Заявки нет — смена прошла дверью статуса, журнал — тот же, что у карточки, с источником.
+    expect(await requests(property.id)).toHaveLength(0);
+    const audit = await waitFor(() =>
+      prisma.auditLog.findFirst({ where: { entityId: property.id, action: "PROPERTY_STATUS_CHANGED", meta: { path: ["actionId"], equals: pending.id } } })
+    );
+    expect(audit?.meta).toMatchObject({ was: "AVAILABLE", becomes: "WITHDRAWN", source: "assistant", tool: "change_property_status" });
+    // Повтор подтверждения не меняет второй раз.
+    expect((await confirmAssistantAction(pending.id, actor)).replay).toBe(true);
+  });
+
+  it("статус успели сменить после превью — 409 STALE, ничего не записано", async () => {
+    const property = await seed();
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), ...WITHDRAW });
+    await prisma.property.update({ where: { id: property.id }, data: { status: "RESERVED" } });
+    const error = (await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS)).catch((e: unknown) => e)) as InstanceType<
+      typeof AssistantActionError
+    >;
+    expect(error).toBeInstanceOf(AssistantActionError);
+    expect(error.code).toBe("STALE");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("RESERVED");
   });
 
   it("открытая сделка: снять и продать нельзя — теми же словами, что карточка", async () => {
     const property = await seed();
     await prisma.deal.create({ data: { clientId, propertyId: property.id, agentId: ownerId, stage: "NEGOTIATION" } });
     await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "SOLD" }, 409, /открытая сделка/);
-    await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "WITHDRAWN" }, 409, /открытая сделка/);
+    await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), ...WITHDRAW }, 409, /открытая сделка/);
   });
 
-  it("смена статуса и «попросить руководителя» обе идут видом «Другое»: вторая — понятный отказ, что именно ждёт", async () => {
-    const property = await seed();
-    const ref = String(property.shortId);
-    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref, status: "WITHDRAWN" });
-    await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
-    expect(await requests(property.id, "OTHER")).toHaveLength(1);
-
-    const text = "Поправьте, пожалуйста, описание подъезда";
-    await expectRefused(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "OTHER", text }, 409, /ждущая заявка «Другое».*дождитесь решения/);
-    // И в обратную сторону: ждущая «Другое» не даёт подать смену статуса.
-    const other = await seed();
-    const ref2 = String(other.shortId);
-    const req = await preview(ownerId, AGENT_PERMS, "request_property_change", { ref: ref2, kind: "OTHER", text });
-    await confirmAssistantAction(req.id, actorFor(ownerId, AGENT_PERMS));
-    await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref: ref2, status: "WITHDRAWN" }, 409, /смену статуса через помощника/);
-    // REST-правило не менялось: заявка одна.
-    expect(await requests(other.id, "OTHER")).toHaveLength(1);
-  });
-
-  it("резерв без сделки, этапы подготовки, тот же статус, чужой объект, акционер", async () => {
+  it("резерв без сделки, этапы подготовки, тот же статус, чужой объект, акционер; права — как у карточки, а не галочка заявок", async () => {
     const property = await seed();
     const ref = String(property.shortId);
     await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref, status: "RESERVED" }, 409, /оформляет сделка/);
     await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref, status: "EDITING" }, 409, /маркетинг/);
     await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref, status: "AVAILABLE" }, 400, /уже в статусе/);
-    await expectRefused(otherId, AGENT_PERMS, "change_property_status", { ref, status: "WITHDRAWN" }, 403);
-    await expectRefused(shareholderId, AGENT_PERMS, "change_property_status", { ref, status: "WITHDRAWN" }, 403);
-    await expectRefused(ownerId, [], "change_property_status", { ref, status: "WITHDRAWN" }, 403);
+    await expectRefused(otherId, AGENT_PERMS, "change_property_status", { ref, ...WITHDRAW }, 403);
+    await expectRefused(shareholderId, AGENT_PERMS, "change_property_status", { ref, ...WITHDRAW }, 403);
+    // PATCH карточки не требует права заявок: хозяин снимает свой объект и без него.
+    await preview(ownerId, [], "change_property_status", { ref, ...WITHDRAW });
     expect(await requests(property.id)).toHaveLength(0);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("AVAILABLE");
   });
 
-  it("возврат снятого в продажу — шаг маркетинга: рядовому агенту отказ, руководителю (с готовностью) — проверка готовности", async () => {
-    const property = await seed({ status: "WITHDRAWN" });
+  it("живой баг 17.11: «верни в продажу» от агента — заявка, и «Принять» директора возвращает объект в продажу", async () => {
+    const property = await seedReadyWithdrawn();
     const ref = String(property.shortId);
-    await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref, status: "AVAILABLE" }, 403, /маркетинг/i);
-    // Руководитель шаг делает, но объект без фото и ссылки на ролик «не готов к продаже» — как в карточке.
-    await expectRefused(directorId, DIRECTOR_PERMS, "change_property_status", { ref, status: "AVAILABLE" }, 409, /не готов к продаже/);
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref, status: "AVAILABLE" });
+    expect(pending.preview.title).toMatch(/заявка руководителю/);
+    expect(pending.preview.becomes.Заявка).toMatch(/сменится сам/);
+    await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
+
+    const [request] = await requests(property.id, "OTHER");
+    expect(request.status).toBe("PENDING");
+    expect(request.payload).toMatchObject({ statusChange: { to: "AVAILABLE" } });
+    expect((request.payload as { text: string }).text).toMatch(/Снято с продажи.*В продаже/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("WITHDRAWN");
+
+    const outcome = await approvePropertyChangeRequest({ requestId: request.id, actorId: directorId, note: null });
+    expect(outcome).toMatchObject({ ok: true });
+    const decided = await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(decided.status).toBe("APPROVED");
+    expect((decided.result as { applied: string[] }).applied.join(" ")).toMatch(/Статус: «Снято с продажи» → «В продаже»/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("AVAILABLE");
+    const audit = await waitFor(() =>
+      prisma.auditLog.findFirst({ where: { entityId: property.id, action: "PROPERTY_STATUS_CHANGED", agentId: directorId } })
+    );
+    expect(audit?.meta).toMatchObject({ was: "WITHDRAWN", becomes: "AVAILABLE", viaChangeRequest: request.id });
+  });
+
+  it("заявку исполняют права ПРИНЯВШЕГО: без права на шаг — FAILED с причиной, а не «одобрено»; объект не тронут", async () => {
+    const property = await seedReadyWithdrawn();
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "AVAILABLE" });
+    await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
+    const [request] = await requests(property.id, "OTHER");
+    // Рядовой чужой агент не ведёт объект и не модерирует — дверь отказывает, как отказал бы PATCH.
+    const outcome = await approvePropertyChangeRequest({ requestId: request.id, actorId: otherId, note: null });
+    expect(outcome).toMatchObject({ ok: true });
+    expect(outcome.ok && outcome.message).toMatch(/^Не выполнилось: Недостаточно прав/);
+    const decided = await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(decided.status).toBe("FAILED");
+    expect(decided.error).toMatch(/Недостаточно прав/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("WITHDRAWN");
+  });
+
+  it("возврат в продажу: не готов — отказ сразу (и заявкой тоже); без права заявок — шаг маркетинга; руководитель — сразу", async () => {
+    const bare = await seed({ status: "WITHDRAWN" });
+    await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref: String(bare.shortId), status: "AVAILABLE" }, 409, /не готов к продаже/);
+    await expectRefused(directorId, DIRECTOR_PERMS, "change_property_status", { ref: String(bare.shortId), status: "AVAILABLE" }, 409, /не готов к продаже/);
+
+    const ready = await seedReadyWithdrawn();
+    const ref = String(ready.shortId);
+    await expectRefused(ownerId, [], "change_property_status", { ref, status: "AVAILABLE" }, 403, /маркетинг/i);
+    const direct = await preview(directorId, DIRECTOR_PERMS, "change_property_status", { ref, status: "AVAILABLE" });
+    expect(direct.preview.becomes.Заявка).toBeUndefined();
+    await confirmAssistantAction(direct.id, actorFor(directorId, DIRECTOR_PERMS));
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: ready.id } })).status).toBe("AVAILABLE");
+    expect(await requests(ready.id)).toHaveLength(0);
+  });
+
+  it("объект на монтаже в продажу помощник не выводит — это «Готово» у монтажёра", async () => {
+    const property = await seed({ status: "EDITING" });
+    await expectRefused(directorId, DIRECTOR_PERMS, "change_property_status", { ref: String(property.shortId), status: "AVAILABLE" }, 409, /Готово/);
+  });
+
+  it("смена статуса заявкой и «попросить руководителя» обе идут видом «Другое»: вторая — понятный отказ, что именно ждёт", async () => {
+    const { property } = await pendingStatusUndo();
+    const ref = String(property.shortId);
+    expect(await requests(property.id, "OTHER")).toHaveLength(1);
+
+    const text = "Поправьте, пожалуйста, описание подъезда";
+    await expectRefused(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "OTHER", text }, 409, /ждущая заявка «Другое».*дождитесь решения/);
+    // И в обратную сторону: ждущая «Другое» не даёт подать смену статуса заявкой.
+    const other = await seedReadyWithdrawn();
+    const ref2 = String(other.shortId);
+    const req = await preview(ownerId, AGENT_PERMS, "request_property_change", { ref: ref2, kind: "OTHER", text });
+    await confirmAssistantAction(req.id, actorFor(ownerId, AGENT_PERMS));
+    await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref: ref2, status: "AVAILABLE" }, 409, /смену статуса через помощника/);
+    // REST-правило не менялось: заявка одна.
+    expect(await requests(other.id, "OTHER")).toHaveLength(1);
   });
 
   it("откат отзывает заявку на статус", async () => {
-    const property = await seed();
-    const actor = actorFor(ownerId, AGENT_PERMS);
-    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "WITHDRAWN" });
-    await confirmAssistantAction(pending.id, actor);
-    await undoAssistantAction(pending.id, actor);
+    const { property, actor, action } = await pendingStatusUndo();
+    await undoAssistantAction(action.id, actor);
     expect((await requests(property.id, "OTHER"))[0].status).toBe("CANCELLED");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("WITHDRAWN");
   });
 
   it("падение финальной записи отката не отзывает заявку и позволяет повторить", async () => {
@@ -850,6 +981,30 @@ describe("request_property_change", () => {
 
     await expectRefused(ownerId, AGENT_PERMS, "request_property_change", { ref: String(property.shortId), kind: "CARD_DATA", patch: { assignedAgentId: otherId } }, 400);
     await expectRefused(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "CARD_DATA" }, 400);
+  });
+
+  it("СВОЯ карточка до публикации (17.11.2026): помощник правит сразу, тем же исполнителем; чужая — 403; «Другое» и REST — по-прежнему только опубликованному", async () => {
+    const draft = await seed({ status: "AWAITING_PHOTOS", publishedChannels: [] });
+    const ref = String(draft.shortId);
+    await expectRefused(otherId, AGENT_PERMS, "request_property_change", { ref, kind: "CARD_DATA", patch: { floor: 5 } }, 403);
+    const pending = await preview(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "CARD_DATA", patch: { floor: 5 } });
+    expect(pending.preview.becomes.Заявка).toBeUndefined();
+    const done = await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
+    expect(done.action.result).toMatchObject({ status: "APPLIED", applied: true });
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: draft.id } });
+    expect(after.floor).toBe(5);
+    expect(after.status).toBe("AWAITING_PHOTOS");
+    expect((await requests(draft.id, "CARD_DATA")).map((r) => r.status)).toEqual(["APPROVED"]);
+    // Без «сразу» ничего не изменилось: заявка «Другое» по неопубликованному — тот же отказ, что у REST.
+    await expectRefused(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "OTHER", text: "Просьба по объекту на подготовке" }, 409, /До публикации/);
+    const rest = await createPropertyChangeRequest({
+      propertyId: draft.id,
+      actor: { agentId: ownerId, can: (p) => AGENT_PERMS.includes(p) },
+      body: { kind: "CARD_DATA", payload: { patch: { floor: 6 }, remake: false } },
+      // allowUnpublished без немедленного принятия автором не действует.
+      allowUnpublished: true,
+    });
+    expect(rest).toMatchObject({ ok: false, status: 409 });
   });
 
   it("СВОИ данные — сразу, ЧУЖИЕ — заявкой/отказом: чужой агент 403 и карточка не тронута; руководитель применяет сразу; превью своего без слова «заявка»", async () => {

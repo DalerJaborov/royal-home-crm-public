@@ -1925,6 +1925,13 @@ type BundleOutcome =
   | { kind: "replay" }
   | { kind: "done"; failed: boolean; lines: string[]; priceResult?: string; undoable: boolean };
 
+/** Текст «изменено, но не всё» из итога действия (changeRequestTool.ts::honestAppliedOutcome). */
+export function partialResultNote(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const value = result as { status?: unknown; message?: unknown };
+  return value.status === "PARTIAL" && typeof value.message === "string" && value.message.trim() ? value.message.trim() : undefined;
+}
+
 export function renderGroupPriceResult(action: AssistantActionView, tajik = false): string | undefined {
   if (action.tool !== "change_property_price" || typeof action.preview.becomes.Цена !== "string"
     || !action.result || typeof action.result !== "object") return undefined;
@@ -1964,6 +1971,9 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
       if (!replay) ranAny = true;
       if (!replay && ids.length === 1) priceResult = renderGroupPriceResult(action, tajikPrice);
       lines.push(`${replay ? "↺" : "•"} ${action.preview.title}`);
+      // «Изменено, но не всё» (заявка FAILED после записи, 17.11.2026) — не прятать за «Готово».
+      const partial = partialResultNote(action.result);
+      if (partial) lines.push(`⚠️ ${partial}`);
       if (action.undoUntil && UNDO_IN_TELEGRAM.has(action.tool)) undoable = true;
     } catch (err) {
       if (err instanceof AssistantActionError && err.code === "IN_PROGRESS") return { kind: "busy" };
