@@ -22,6 +22,11 @@ import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 const runId = `${Date.now()}`.slice(-8);
 const password = "testpass123";
 const DISTRICT = `Тест-площадки-${runId}`;
+/**
+ * Свой город: подбор берёт и объявления без района (они идут ниже), а такие лежат и у соседних файлов
+ * при параллельном прогоне. В своём городе чужие строки в выборку не попадают.
+ */
+const CITY = `Тест-город-${runId}`;
 const agentIds: string[] = [];
 const clientIds: string[] = [];
 const listingIds: string[] = [];
@@ -46,7 +51,7 @@ async function makeListing(key: string, over: Record<string, unknown> = {}) {
       sourceUrl: `https://somon.tj/adv/${runId}-${key}`,
       dealType: "SALE",
       propertyType: "APARTMENT",
-      city: "Душанбе",
+      city: CITY,
       districtName: DISTRICT,
       rooms: 2,
       areaSqm,
@@ -71,7 +76,7 @@ const get = (id: string, token = agentToken, qs = "") =>
 
 beforeAll(async () => {
   const passwordHash = await bcrypt.hash(password, 10);
-  districtId = (await prisma.district.create({ data: { name: DISTRICT } })).id;
+  districtId = (await prisma.district.create({ data: { name: DISTRICT, city: CITY } })).id;
   const agent = await prisma.agent.create({
     data: { fullName: `Агент площадок ${runId}`, phone: `+992981${runId.slice(-7)}`, role: "AGENT", passwordHash },
   });
