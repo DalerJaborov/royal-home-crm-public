@@ -280,6 +280,7 @@ export async function safeOpen(raw: string, options: SafeOpenOptions = {}): Prom
     };
     let res: Response;
     try {
+      // fetch-timeout: allow срок в init.signal (AbortSignal.timeout(left) на всю цепочку переходов)
       res = await fetch(url, init);
     } catch (err) {
       // Отказ проверки внутри соединения fetch заворачивает в «fetch failed» —
