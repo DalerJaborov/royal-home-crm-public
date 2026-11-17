@@ -131,7 +131,7 @@ import { watchStaleSync } from "./lib/ads/adReconcile.js";
 import { refreshMetaAdsTokenIfDue } from "./lib/ads/metaAdsToken.js";
 import { refreshMetaUserTokensIfDue } from "./lib/metaUserTokenRefresh.js";
 import { recentMonths, upsertAiExpenses } from "./lib/ads/adExpenseSync.js";
-import { alertExpenseOverrun, processRecurringExpenses, upsertSalaryExpenses } from "./lib/financeAutomation.js";
+import { alertExpenseOverrun, freezeClosedAutoExpenseRates, processRecurringExpenses, upsertSalaryExpenses } from "./lib/financeAutomation.js";
 import { formatAdsDigestLine } from "./lib/ads/adsDigest.js";
 import { checkAdAccountAlerts, checkAdAlerts, checkAdDisapprovedAlerts } from "./lib/ads/adAlerts.js";
 import { autoResolveDuplicateErrors } from "./lib/autoResolveDuplicateErrors.js";
@@ -3210,6 +3210,11 @@ export function startCronJobs() {
       await step("Зарплатные строки не обновлены", "api", async () => {
         const salaries = await upsertSalaryExpenses();
         if (salaries) console.log(`[cron] Зарплатных строк обновлено: ${salaries}`);
+      });
+      // Курс закрытого месяца у строк рекламы и ИИ — один раз, когда месяц вышел из окна пересчёта.
+      await step("Курс закрытого месяца не закреплён", "api", async () => {
+        const frozen = await freezeClosedAutoExpenseRates();
+        if (frozen) console.log(`[cron] Курс закреплён у ${frozen} строк закрытого месяца`);
       });
       // Прогноз перерасхода и сигналы рекламы — НЕ здесь (04.09.2026): оба
       // толкают пуш директору/маркетингу, а этот тик — 01:20 ночи. Считаются

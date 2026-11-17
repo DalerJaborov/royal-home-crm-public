@@ -25,8 +25,12 @@ import { can } from "../auth/middleware.js";
  * каждый список и карточку — страница каталога тяжелела на сотни КБ (26.08.2026).
  * Тот же принцип «общий модуль, а не функция в одном роуте», что у stripOwnerContact.
  */
-export function stripEmbedding<T extends { embedding?: unknown }>(property: T): Omit<T, "embedding"> {
-  const { embedding: _embedding, ...rest } = property;
+// С 17.11.2026 вектор скрыт ещё и глобальным omit (src/db.ts), поэтому у строк из базы поля
+// обычно нет вовсе — функция принимает любой объект и остаётся второй стеной (сырой SQL,
+// явный select, объект, собранный руками).
+export function stripEmbedding<T extends object>(property: T): Omit<T, "embedding"> {
+  const rest = { ...property };
+  Reflect.deleteProperty(rest, "embedding");
   return rest;
 }
 

@@ -7,8 +7,7 @@ import {
   type PropertyChangeKind,
 } from "@royal-home/shared";
 import { loadAgentAccess } from "../../../auth/middleware.js";
-import { prisma, type TxClient } from "../../../db.js";
-import type { Property } from "../../../generated/prisma/client.js";
+import { prisma, type PropertyRecord, type TxClient } from "../../../db.js";
 import {
   AssistantActionError,
   type AssistantActionActor,
@@ -55,9 +54,9 @@ export interface ChangeRequestToolSpec<A extends { ref: string }> {
    * AssistantActionError). Вызывается и на превью, и на исполнении — состояние
    * перепроверяется свежим.
    */
-  buildBody: (args: A, property: Property, actor: AssistantActionActor) => Promise<CreatePropertyChangeRequestInput>;
+  buildBody: (args: A, property: PropertyRecord, actor: AssistantActionActor) => Promise<CreatePropertyChangeRequestInput>;
   /** Карточка «было → станет» по уже проверенному телу. */
-  describe: (args: A, property: Property, checkedPayload: object) => Omit<AssistantActionPreview, "title"> & { title: string };
+  describe: (args: A, property: PropertyRecord, checkedPayload: object) => Omit<AssistantActionPreview, "title"> & { title: string };
   /**
    * Виды, которые СВОЕМУ объекту (и руководителю с editForeign) применяются СРАЗУ после «Подтвердить»:
    * заявка создаётся и принимается автором через тот же исполнитель, что кнопка «Принять» директора
@@ -66,7 +65,7 @@ export interface ChangeRequestToolSpec<A extends { ref: string }> {
    */
   directKinds?: readonly PropertyChangeKind[];
   /** Дополнительные поля снимка (например, число открытых сделок). */
-  extraSnapshot?: (args: A, property: Property, db: TxClient) => Promise<Record<string, unknown>>;
+  extraSnapshot?: (args: A, property: PropertyRecord, db: TxClient) => Promise<Record<string, unknown>>;
 
 }
 
@@ -124,14 +123,14 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
 ): AssistantActionExecutor<A> {
   const kindOf = (args: A): PropertyChangeKind => (typeof spec.kind === "function" ? spec.kind(args) : spec.kind);
 
-  async function loadProperty(snapshotOrRef: { propertyId: string } | { ref: string }, db: TxClient = prisma): Promise<Property> {
+  async function loadProperty(snapshotOrRef: { propertyId: string } | { ref: string }, db: TxClient = prisma): Promise<PropertyRecord> {
     const id = "propertyId" in snapshotOrRef ? snapshotOrRef.propertyId : (await resolveRefOrThrow(snapshotOrRef.ref)).id;
     const property = await db.property.findUnique({ where: { id } });
     if (!property || property.deletedAt) throw new AssistantActionError(404, "ENTITY_NOT_FOUND", "Объект не найден");
     return property;
   }
 
-  async function checkedBody(args: A, property: Property, actor: AssistantActionActor) {
+  async function checkedBody(args: A, property: PropertyRecord, actor: AssistantActionActor) {
     const body = await spec.buildBody(args, property, actor);
     // Тело проходит ту же схему, что на REST-границе (дефолты, пределы).
     const parsedBody = createPropertyChangeRequestSchema.safeParse(body);
@@ -144,11 +143,11 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
   }
 
   // Объект в резерве (есть сделка) — цену меняет руководство: как и у REST, прямой путь закрыт.
-  const isDirect = (args: A, property: Property, actor: AssistantActionActor) =>
+  const isDirect = (args: A, property: PropertyRecord, actor: AssistantActionActor) =>
     (spec.directKinds ?? []).includes(kindOf(args)) &&
     canApplyChangeDirectly({ agentId: actor.agentId, can: actor.can }, property, kindOf(args));
 
-  async function snapshotForProperty(args: A, property: Property, db: TxClient): Promise<Snap> {
+  async function snapshotForProperty(args: A, property: PropertyRecord, db: TxClient): Promise<Snap> {
     const pending = await db.propertyChangeRequest.findFirst({
       where: { propertyId: property.id, kind: kindOf(args), status: "PENDING" },
       orderBy: { createdAt: "desc" },
