@@ -7,7 +7,6 @@
 // list; the test customer-turn-silence.test.ts fails if a second list appears.
 import { CUSTOMER_NON_INPUT_TICKET_CODES } from "./customerIngressNonInput.js";
 import { NEWER_INPUT_PENDING, NEWER_INPUT_RESUMED } from "./customerNewerInboxInput.js";
-import { META_SEND_BLOCKED_REASON } from "./metaSendBlockSeam.js";
 
 /** Silence that is the product's decision. Keep every entry justified. Every other reason calls a person. */
 export const CUSTOMER_TURN_INTENDED_SILENCE: readonly string[] = [
@@ -20,9 +19,9 @@ export const CUSTOMER_TURN_INTENDED_SILENCE: readonly string[] = [
   "already_planned", // not a failure: the answer exists
   "staff_sender", "outgoing_mid", // our own staff or our own message coming back: the customer said nothing
   "turn_already_owned", // another worker is running this very turn
-  // Meta temporarily forbids this account to send (368 etc., lib/metaSendBlockSeam.ts): a reply would be refused and every
-  // refusal prolongs the block; the text is in the CRM chat and ONE alarm comes from the send door (#273), not per message.
-  META_SEND_BLOCKED_REASON,
+  // Meta temporarily forbids this account to send (368 etc., lib/metaSendBlock.ts, #273; customerDmAgentTurn.ts): a reply
+  // would be refused and every refusal prolongs the block; the text is in the CRM chat and ONE alarm comes from the send door.
+  "meta_send_blocked",
 ];
 
 export function customerTurnSilenceIsIntended(reason: string): boolean {

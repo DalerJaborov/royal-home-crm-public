@@ -25,8 +25,8 @@ vi.mock("../src/push.js", async (importOriginal) => ({ ...(await importOriginal<
 vi.mock("../src/lib/systemError.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError: mocks.log }));
 vi.mock("../src/lib/ownerBuyerMatch.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/ownerBuyerMatch.js")>()), matchBuyersForListing: mocks.buyers }));
 vi.mock("../src/lib/leadMagnet.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/leadMagnet.js")>()), leadMagnetActive: async () => false, isFunnelKeyword: async () => null, hasPendingLeadMagnetDelivery: async () => false }));
-// Блокировка Meta (PR #273): заглушка точки подключения, как будет после вливания.
-vi.mock("../src/lib/metaSendBlockSeam.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/metaSendBlockSeam.js")>()), accountSendBlocked: mocks.blocked }));
+// Блокировка Meta (#273, lib/metaSendBlock.ts): метка аккаунта подменена.
+vi.mock("../src/lib/metaSendBlock.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/metaSendBlock.js")>()), isAccountSendBlocked: mocks.blocked }));
 
 const tag = `cphone-${randomUUID()}`;
 const groupChatId = `-100${BigInt(`0x${randomUUID().replaceAll("-", "").slice(0, 12)}`)}`;
@@ -160,7 +160,7 @@ describe("Instagram: номер в комментарии → карточка, 
     expect((await notesOf(card!.id)).some((n) => /боту не удалось написать в личные \(комментарий внутри ветки\)/.test(n))).toBe(true);
   });
 
-  it("Meta запретила аккаунту личные (#273, заглушка): запасной путь — публичный ответ и скрытие", async () => {
+  it("Meta запретила аккаунту личные (#273): запасной путь — публичный ответ и скрытие", async () => {
     mocks.blocked.mockImplementation(async (_account: unknown, surface: string) => surface === "dm");
     const digits = freshDigits(); phones.push(digits);
     const turn = await instagramTurn(`Нархаш? ${digits}`, REPLY);

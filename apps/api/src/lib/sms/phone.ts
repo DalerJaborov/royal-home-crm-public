@@ -1,4 +1,4 @@
-import { phoneDigits } from "@royal-home/shared";
+import { tajikNationalNumber } from "@royal-home/shared";
 
 /**
  * Номер в форме, которую принимает провайдер СМС: 992XXXXXXXXX (двенадцать цифр).
@@ -10,9 +10,6 @@ import { phoneDigits } from "@royal-home/shared";
  * незачем.
  */
 export function toSmsPhone(phone: string | null | undefined): string | null {
-  const digits = phoneDigits(phone ?? "");
-  if (digits.length === 12 && digits.startsWith("992")) return digits;
-  if (digits.length === 10 && digits.startsWith("0")) return `992${digits.slice(1)}`;
-  if (digits.length === 9) return `992${digits}`;
-  return null;
+  const national = tajikNationalNumber(phone);
+  return national ? `992${national}` : null;
 }

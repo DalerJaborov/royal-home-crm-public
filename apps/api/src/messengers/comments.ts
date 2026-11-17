@@ -61,7 +61,7 @@ import { COMMENT_PHONE_DM, COMMENT_SELF_REPLY, commentPhonePublicReply, selfLang
 import { captureCommentPhoneIntoConversation, clientPhonesOf, COMMENT_HISTORY_PREFIX, COMMENT_PHONE_HOLD_MS, commentLeadBlocked,
   createLeadFromCommentPhone } from "./commentPhoneLead.js";
 import { releaseCommentPhoneHold } from "../lib/commentPhoneHold.js";
-import { accountSendBlocked, isSendBlockError } from "../lib/metaSendBlockSeam.js";
+import { isAccountSendBlocked, isMetaSendBlockError } from "../lib/metaSendBlock.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
 import { commentDecisionProviderSchema, type ClientSource, type CommentDecision } from "@royal-home/shared";
@@ -2203,7 +2203,7 @@ async function maybeSendPrivateReply(
   });
   if (recent) return { sent: false, note: "dm_limit" };
   // Meta запретила аккаунту личные (368 и родня; метка — дверь отправки, #273): не пробуем — отказ продлил бы блок.
-  if (await accountSendBlocked({ accountId, channel: row.channel }, "dm")) return { sent: false, note: "dm_blocked" };
+  if (await isAccountSendBlocked({ accountId, channel: row.channel }, "dm")) return { sent: false, note: "dm_blocked" };
 
   try {
     // Канал решает, куда уйдёт личное: Instagram Direct или Messenger страницы. recipient_id ответа Meta — адрес, с
@@ -2213,7 +2213,7 @@ async function maybeSendPrivateReply(
       undefined, (seen) => { recipientId = seen.recipientId; });
     return { sent: true, mid, recipientId };
   } catch (err) {
-    if (isSendBlockError(err)) return { sent: false, note: "dm_blocked" };
+    if (isMetaSendBlockError(err)) return { sent: false, note: "dm_blocked" };
     // Личное — приятное дополнение к публичному ответу. Его отказ (человек закрыл
     // личку, окно истекло) не должен отменять уже опубликованный ответ.
     void logSystemError("meta", `Личное сообщение по комментарию ${row.commentId} не ушло: ${describeError(err)}`);
@@ -2275,7 +2275,7 @@ async function handleCommentPhone(
   if (!clientPhonesOf(row.text).length || commentLeadBlocked(row.text)) return null;
   const channel = row.channel as MessengerChannel;
   const language = selfLanguageOf(row.text);
-  const commentBlocked = channel !== "YOUTUBE" && await accountSendBlocked({ accountId: account.id, channel }, "comment");
+  const commentBlocked = channel !== "YOUTUBE" && await isAccountSendBlocked({ accountId: account.id, channel }, "comment");
 
   // YouTube: личных нет. Ответ под комментарием, заявка с пометкой сразу в раздачу, комментарий «на проверку».
   if (channel === "YOUTUBE") {

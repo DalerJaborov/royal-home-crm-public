@@ -48,7 +48,7 @@ import { logSystemError } from "./systemError.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
 import { loadBotAnswersItself } from "./botAnswersItself.js";
-import { accountSendBlocked, META_SEND_BLOCKED_REASON } from "./metaSendBlockSeam.js";
+import { isAccountSendBlocked } from "./metaSendBlock.js";
 import { selfAnswerLine, selfAnswerLines } from "../ai/botSelfAnswerText.js";
 import { enqueueRecruitmentCandidateAlertTx } from "./customerRecruitmentAlert.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
@@ -112,7 +112,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   const lane = prepared.lane;
   // Meta запретила этому аккаунту личные (368 и родня; метку ставит дверь отправки, #273): модель не зовём, клиенту ничего
   // не уходит — отказ продлил бы блок. Входящее уже в чате CRM; одну тревогу шлёт сама дверь отправки, не каждый ход.
-  if (await accountSendBlocked({ accountId: lane.principal.scope.accountId ?? null, channel: lane.principal.scope.channel }, "dm")) {
+  if (await isAccountSendBlocked({ accountId: lane.principal.scope.accountId ?? null, channel: lane.principal.scope.channel }, "dm")) {
     return { status: "held", reason: META_SEND_BLOCKED_REASON };
   }
   return withBotTurnTrace({ channel: lane.principal.scope.channel, account: lane.principal.scope.endpointScopeId,
@@ -842,6 +842,9 @@ export async function customerReplyRepeatBlocked(principal: CustomerAgentMutatio
     return new Set();
   }
 }
+
+/** Причина HELD хода ядра при блоке личных Meta (lib/metaSendBlock.ts, #273): намеренное молчание, одну тревогу шлёт дверь отправки. */
+export const META_SEND_BLOCKED_REASON = "meta_send_blocked";
 
 /** The chat already has a client card (a lead exists). A read failure counts as «has a card»: the old path (signal) is safer. */
 async function customerConversationHasCard(conversationId: string | null | undefined): Promise<boolean> {

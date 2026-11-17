@@ -607,6 +607,12 @@ export function startCronJobs() {
     await executeQueuedNarrationDeliveries();
   });
   // Озвучка свободного текста (16.11.2026): файлы и тексты старше суток, зависшие генерации.
+  // Рубильник Б «пропущенный звонок»: общая задача «перезвонить» по незнакомому номеру закрывается, когда он
+  // сам написал в WhatsApp (lib/telephony/missedCallFollowup.ts). Выключенный рубильник задач не заводит, проход пуст.
+  scheduleTracked("missed-call-task-whatsapp-close", "*/2 * * * *", async () => {
+    const { closeMissedCallTasksAnsweredInWhatsapp } = await import("./lib/telephony/missedCallFollowup.js");
+    await closeMissedCallTasksAnsweredInWhatsapp();
+  });
   scheduleTracked("free-narration-purge", "*/30 * * * *", async () => {
     const { purgeFreeNarrations } = await import("./lib/freeNarration.js");
     await purgeFreeNarrations();
