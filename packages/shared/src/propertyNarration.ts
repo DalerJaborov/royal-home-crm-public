@@ -236,7 +236,7 @@ export function suggestedNarration(facts: NarrationFacts): string {
 }
 
 /** Слова, которые владелец может ставить в шаблон; квадратные скобки — «если есть». */
-export const NARRATION_PLACEHOLDERS = ["вид", "комнаты", "площадь", "этаж", "этаж_пор", "этажей", "район", "цена"] as const;
+export const NARRATION_PLACEHOLDERS = ["вид", "комнаты", "площадь", "сотки", "этаж", "этаж_пор", "этажей", "район", "цена"] as const;
 
 /** Русское «доллар / доллара / долларов» по числу. */
 function rubPlural(n: number, one: string, few: string, many: string): string {
@@ -265,12 +265,31 @@ function spokenNumber(value: number | null, lang: NarrationLang, ordinal = false
   return ordinal ? tajikOrdinal(whole) : tajikCardinal(whole);
 }
 
+/**
+ * {сотки} (владелец 17.11.2026: участок называем в сотках, а не в метрах). Только у участка:
+ * его площадь в карточке считается из соток (1 сотка = 100 м², `propertyWizardDraft`), поэтому
+ * факты озвучки не меняются и старые версии не становятся «устаревшими». Значение уже с единицей:
+ * целые сотки — «шаш сотиқ» / «6 соток»; дробные (650 м²) сказать сотками без ошибки нельзя,
+ * тогда метры — «шашсаду панҷоҳ метри мураббаъ». Не участок или нет площади — пусто, и фраза
+ * в квадратных скобках выпадает.
+ */
+export function narrationLandAreaWords(type: string, areaSqm: number | null, lang: NarrationLang): string {
+  if (type !== "LAND" || areaSqm === null || !Number.isFinite(areaSqm) || areaSqm <= 0) return "";
+  const whole = Math.round(areaSqm);
+  if (whole % 100 === 0) {
+    const sotki = whole / 100;
+    return lang === "tg" ? `${tajikCardinal(sotki)} сотиқ` : `${sotki} ${rubPlural(sotki, "сотка", "сотки", "соток")}`;
+  }
+  return lang === "tg" ? `${tajikCardinal(whole)} метри мураббаъ` : `${whole} ${rubPlural(whole, "квадратный метр", "квадратных метра", "квадратных метров")}`;
+}
+
 function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<string, string> {
   const area = Number(facts.areaSqm);
   return {
     вид: TYPE_WORDS[lang][facts.type] ?? (lang === "tg" ? "объект" : "объект"),
     комнаты: spokenNumber(facts.rooms, lang),
     площадь: spokenNumber(Number.isFinite(area) ? area : null, lang),
+    сотки: narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang),
     этаж: spokenNumber(facts.floor, lang),
     этаж_пор: spokenNumber(facts.floor, lang, true),
     этажей: spokenNumber(facts.totalFloors, lang),
