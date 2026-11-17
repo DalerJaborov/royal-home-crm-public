@@ -133209,7 +133209,7 @@
      "c": [
       {
        "k": "if",
-       "t": "isCustomerAgentChannelOff(options.channel ?? source.channel)",
+       "t": "await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…",
        "a": [],
        "c": [
         {

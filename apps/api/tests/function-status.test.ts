@@ -119,6 +119,10 @@ describe("реестр функций и расчёт состояния", () =>
     expect(off.state).toBe("off");
     expect(off.attention).toBe(true);
     expect(off.reason).toContain("Бот выключен на каналах: Instagram, сайт");
+    const arvan = item("bot-channel-off", input({ env: { CUSTOMER_AGENT_CHANNEL_OFF: "arvan" } }));
+    expect(arvan.state).toBe("off");
+    expect(arvan.reason).toContain("Арван (все аккаунты бренда)");
+    expect(arvan.reason).not.toContain("Неизвестные");
     const all = item("bot-channel-off", input({ env: { CUSTOMER_AGENT_CHANNEL_OFF: "all" } }));
     expect(all.reason).toContain("личные сообщения Telegram-канала");
     const typo = item("bot-channel-off", input({ env: { CUSTOMER_AGENT_CHANNEL_OFF: "instagrm" } }));

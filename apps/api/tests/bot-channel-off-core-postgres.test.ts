@@ -46,6 +46,21 @@ for (const value of ["", "whatsapp,facebook,website,telegram,telegram_direct,you
   });
 }
 
+it("`arvan`: a Royal Home Instagram ticket goes to the core; the same account with a brand name (Arvan) is held", async () => {
+  vi.stubEnv("CUSTOMER_AGENT_CHANNEL_OFF", "arvan");
+  const core = vi.spyOn(dmTurn, "runCustomerDmAgentTurn").mockResolvedValue({ status: "unchanged", reason: "fixture" });
+  const report = vi.spyOn(turnSilence, "reportUnansweredCustomerTurn").mockResolvedValue(undefined);
+  const owner = await f.owner();
+  const royal = await f.capture(owner, "Какие у вас есть районы?");
+  expect(await consumeCustomerInboxTicket(royal)).toEqual({ status: "unchanged", reason: "fixture" });
+  expect(core).toHaveBeenCalledWith(royal);
+  await prisma.messengerAccount.update({ where: { id: owner.id }, data: { brandName: "Arvan" } });
+  const arvan = await f.capture(owner, "Салом, нархаш чанд?");
+  expect(await consumeCustomerInboxTicket(arvan)).toEqual({ status: "held", reason: "customer_channel_off" });
+  expect(core).not.toHaveBeenCalledWith(arvan);
+  expect(report).toHaveBeenCalledWith(arvan, "customer_channel_off");
+});
+
 it("`all`: the Instagram ticket is held too", async () => {
   vi.stubEnv("CUSTOMER_AGENT_CHANNEL_OFF", "all");
   const core = vi.spyOn(dmTurn, "runCustomerDmAgentTurn");

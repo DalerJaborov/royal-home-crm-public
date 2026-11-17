@@ -31,9 +31,11 @@ const { LEAD_ONLY_DEFAULTS } = await import("../src/ai/leadOnlyMode.js");
 const { leadOnlyIntentFallback } = await import("../src/ai/leadOnlyIntent.js");
 const { isCommentsBotEnabled } = await import("../src/messengers/commentIngest.js");
 const { isTelegramGroupCommentsEnabled } = await import("../src/messengers/telegramGroupComments.js");
+const { resetAccountsCache } = await import("../src/messengers/accounts.js");
+const { encryptSecret } = await import("../src/crypto.js");
 
 const runId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-const ids = { bot: [] as string[], tg: [] as string[], td: [] as string[] };
+const ids = { bot: [] as string[], tg: [] as string[], td: [] as string[], acc: [] as string[] };
 const RU = customerAgentHandoverLine("ru"), TG = customerAgentHandoverLine("tg");
 const OLD = { reply: ["старый бот"], ready: false, lead: null };
 const at = () => new Date().toISOString();
@@ -41,6 +43,18 @@ const user = (content: string) => ({ role: "user" as const, content, at: at() })
 const bot = (content: string, kind = "bot") => ({ role: "assistant" as const, content, at: at(), by: { kind } });
 
 type Channel = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "WEBSITE" | "TELEGRAM" | "TELEGRAM_DIRECT";
+/** A Meta account; `brandName` makes it a brand account (today: Arvan). */
+async function account(channel: "INSTAGRAM" | "FACEBOOK", brandName: string | null): Promise<string> {
+  const row = await prisma.messengerAccount.create({ data: { channel, externalId: `off-acc-${runId}-${ids.acc.length}`,
+    title: brandName ?? "Royal Home", brandName, token: encryptSecret("stand-token") } });
+  ids.acc.push(row.id);
+  resetAccountsCache();
+  return row.id;
+}
+async function brandChat(channel: "INSTAGRAM" | "FACEBOOK", accountId: string, messages: object[]): Promise<string> {
+  const row = await prisma.botConversation.create({ data: { channel, accountId, subscriberId: `offb-${runId}-${ids.bot.length}`, messages } });
+  ids.bot.push(row.id); return row.id;
+}
 async function chat(channel: Channel, messages: object[]): Promise<string> {
   const n = ids.bot.length + ids.tg.length + ids.td.length;
   if (channel === "TELEGRAM") {
@@ -65,6 +79,11 @@ function turn(channel: Channel, conversationId: string, text: string, extra: { r
   const options = channel === "TELEGRAM" ? { conversationId } : { channel, conversationId };
   return runLegacyQualifyTurn(history, { stage: "chatting" } as never, options as never, { channel, ...extra });
 }
+/** A Meta turn the way conversation.ts and the scoped lane call the door: with the account of the chat. */
+function brandTurn(channel: "INSTAGRAM" | "FACEBOOK", accountId: string, conversationId: string, text: string) {
+  return runLegacyQualifyTurn([{ role: "user" as const, content: text }], { stage: "chatting" } as never,
+    { channel, conversationId, accountId } as never, { channel });
+}
 const sourceOf = (channel: Channel) => channel === "TELEGRAM" ? "telegram" : channel === "TELEGRAM_DIRECT" ? "telegramDirect" : "bot";
 const KEY: Record<Channel, string> = { WHATSAPP: "whatsapp", INSTAGRAM: "instagram", FACEBOOK: "facebook", WEBSITE: "website",
   TELEGRAM: "telegram", TELEGRAM_DIRECT: "telegram_direct" };
@@ -79,10 +98,13 @@ afterAll(async () => {
   await prisma.botConversation.deleteMany({ where: { id: { in: ids.bot } } });
   await prisma.telegramConversation.deleteMany({ where: { id: { in: ids.tg } } });
   await prisma.telegramDirectConversation.deleteMany({ where: { id: { in: ids.td } } });
+  await prisma.messengerAccount.deleteMany({ where: { id: { in: ids.acc } } });
+  resetAccountsCache();
 });
 
 describe("значение переменной", () => {
-  it("пусто — ничего не выключено; список, регистр и пробелы; `all` — все семь, включая личные Telegram", () => {
+  it("пусто — ничего не выключено; список, регистр и пробелы; `all` — все восемь ключей, включая личные Telegram и arvan", () => {
+    expect(parseCustomerAgentChannelOff("arvan")).toEqual({ off: new Set(["arvan"]), unknown: [] });
     expect(parseCustomerAgentChannelOff(undefined).off.size).toBe(0);
     expect(parseCustomerAgentChannelOff("  ").off.size).toBe(0);
     expect([...parseCustomerAgentChannelOff(" Instagram ,WEBSITE").off].sort()).toEqual(["instagram", "website"]);
@@ -146,12 +168,19 @@ describe("дверь старого пути: каждый канал", () => {
   it("пусто — прежний путь, тот же результат старого бота, без сигнала и без запросов рубильника к базе", async () => {
     const id = await chat("WEBSITE", [user("Нужна квартира")]);
     const read = vi.spyOn(prisma.botConversation, "findUnique");
+    const accounts = vi.spyOn(prisma.messengerAccount, "findMany");
     const result = await turn("WEBSITE", id, "Нужна квартира");
     expect(result).toBe(OLD);
     expect(f.qualify).toHaveBeenCalledTimes(1);
     expect(f.schedule).toHaveBeenCalledTimes(1);
     expect(f.alert).not.toHaveBeenCalled();
+    // Instagram with a brand account: still no read of the account or the chat when the switch is empty.
+    const acc = await account("INSTAGRAM", "Arvan");
+    const branded = await brandChat("INSTAGRAM", acc, [user("салом")]);
+    read.mockClear(); accounts.mockClear();
+    expect(await brandTurn("INSTAGRAM", acc, branded, "салом")).toBe(OLD);
     expect(read).not.toHaveBeenCalled();
+    expect(accounts).not.toHaveBeenCalled();
   });
 
   it("выключен другой канал — этот отвечает как раньше", async () => {
@@ -198,6 +227,63 @@ describe("дверь старого пути: каждый канал", () => {
     expect((await turn("FACEBOOK", lonely, "вопрос"))?.reply).toEqual([RU]);
     expect(f.log).toHaveBeenCalledWith("ai", expect.stringContaining(lonely),
       expect.objectContaining({ dedupKey: `channel-off-unalerted:FACEBOOK:${lonely}` }));
+  });
+});
+
+describe("ключ arvan: аккаунты бренда (MessengerAccount.brandName), одно правило с customerAgentLegacyChannelKey", () => {
+  it("чистое правило: arvan — бренд в Instagram/Facebook; instagram — оба бренда; arvan не трогает сайт и Telegram", () => {
+    const arvan = { CUSTOMER_AGENT_CHANNEL_OFF: "arvan" };
+    expect(isCustomerAgentChannelOff("INSTAGRAM", arvan, "Arvan")).toBe(true);
+    expect(isCustomerAgentChannelOff("FACEBOOK", arvan, "Арван")).toBe(true);
+    expect(isCustomerAgentChannelOff("INSTAGRAM", arvan, null)).toBe(false);
+    expect(isCustomerAgentChannelOff("INSTAGRAM", arvan)).toBe(false); // the entry does not know the account: no guess
+    expect(isCustomerAgentChannelOff("WEBSITE", arvan, "Arvan")).toBe(false);
+    expect(isCustomerAgentChannelOff("TELEGRAM", arvan, "Arvan")).toBe(false);
+    expect(isCustomerAgentChannelOff("INSTAGRAM", { CUSTOMER_AGENT_CHANNEL_OFF: "instagram" }, "Arvan")).toBe(true);
+    expect(isCustomerAgentChannelOff("INSTAGRAM", { CUSTOMER_AGENT_CHANNEL_OFF: "instagram" }, null)).toBe(true);
+    expect(isCustomerAgentChannelOff("FACEBOOK", { CUSTOMER_AGENT_CHANNEL_OFF: "all" }, null)).toBe(true);
+  });
+
+  it("дверь: arvan глушит Instagram и Facebook Арвана и не трогает Royal Home; instagram глушит оба бренда", async () => {
+    const igArvan = await account("INSTAGRAM", "Arvan"), fbArvan = await account("FACEBOOK", "Arvan");
+    const igRoyal = await account("INSTAGRAM", null), fbRoyal = await account("FACEBOOK", null);
+    const chats = {
+      igArvan: await brandChat("INSTAGRAM", igArvan, [user("салом")]), fbArvan: await brandChat("FACEBOOK", fbArvan, [user("салом")]),
+      igRoyal: await brandChat("INSTAGRAM", igRoyal, [user("салом")]), fbRoyal: await brandChat("FACEBOOK", fbRoyal, [user("салом")]),
+    };
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_OFF", "arvan");
+    expect((await brandTurn("INSTAGRAM", igArvan, chats.igArvan, "салом"))?.reply).toEqual([TG]);
+    expect((await brandTurn("FACEBOOK", fbArvan, chats.fbArvan, "салом"))?.reply).toEqual([TG]);
+    expect(await brandTurn("INSTAGRAM", igRoyal, chats.igRoyal, "салом")).toBe(OLD);
+    expect(await brandTurn("FACEBOOK", fbRoyal, chats.fbRoyal, "салом")).toBe(OLD);
+    expect(f.qualify).toHaveBeenCalledTimes(2);
+    expect(f.alert.mock.calls.map(call => (call[0] as { conversationId: string }).conversationId).sort())
+      .toEqual([chats.igArvan, chats.fbArvan].sort());
+
+    f.qualify.mockClear();
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_OFF", "instagram");
+    await setMessages("INSTAGRAM", chats.igArvan, [user("салом")]);
+    expect((await brandTurn("INSTAGRAM", igArvan, chats.igArvan, "салом"))?.reply).toEqual([TG]);
+    expect((await brandTurn("INSTAGRAM", igRoyal, chats.igRoyal, "салом"))?.reply).toEqual([TG]);
+    expect(await brandTurn("FACEBOOK", fbArvan, chats.fbArvan, "салом")).toBe(OLD);
+    expect(f.qualify).toHaveBeenCalledTimes(1);
+  });
+
+  it("короткие реплики вне хода и «только заявки» по диалогу: arvan — только Арван", async () => {
+    const igArvan = await account("INSTAGRAM", "Arvan"), igRoyal = await account("INSTAGRAM", null);
+    const arvanChat = await brandChat("INSTAGRAM", igArvan, [user("Хочу продать дом")]);
+    const royalChat = await brandChat("INSTAGRAM", igRoyal, [user("Хочу продать дом")]);
+    const env = { CUSTOMER_AGENT_CHANNEL_OFF: "arvan" };
+    expect(await isCustomerAgentConversationOff(arvanChat, env)).toBe(true);
+    expect(await isCustomerAgentConversationOff(royalChat, env)).toBe(false);
+    vi.stubEnv("CUSTOMER_AGENT_CHANNEL_OFF", "arvan");
+    const classify = vi.fn(async (text: string) => leadOnlyIntentFallback(text));
+    const base = { config: { ...LEAD_ONLY_DEFAULTS, enabled: true, workHoursStart: "00:00", workHoursEnd: "24:00" }, channel: "INSTAGRAM",
+      subscriberId: `off-lead-a-${runId}`, linked: false, draft: { stage: "chatting" as const }, propertyId: null, propertyInMessage: false,
+      language: "ru" as const, text: "Хочу продать дом", history: [] };
+    expect(await planLegacyLeadOnlyTurn({ ...base, conversationId: arvanChat, classifyIntent: classify })).toBeNull();
+    expect(classify).not.toHaveBeenCalled();
+    expect((await planLegacyLeadOnlyTurn({ ...base, conversationId: royalChat, classifyIntent: classify }))?.scenario).toBe("seller");
   });
 });
 

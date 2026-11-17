@@ -17,9 +17,9 @@
   "cron": 140,
   "jobs": 33,
   "conditions": 4033,
-  "untranslatedUnique": 463,
-  "untranslatedTotal": 596,
-  "partialUnique": 1090,
+  "untranslatedUnique": 464,
+  "untranslatedTotal": 597,
+  "partialUnique": 1089,
   "translatedShare": 85
  },
  "untranslated": [
@@ -209,6 +209,7 @@
   "await forbiddenPrivilegedTarget(actor, targetId)",
   "await handOverHolderToCurrentMontajer(montajerAgentId, now)",
   "await handledByQuietHours([agentId], payload)",
+  "await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…",
   "await manualRobotCallLimitReached(req.agent!.id)",
   "await phoneBelongsToHiddenOwner(req, phone)",
   "await phoneBelongsToHiddenOwner(req, stored)",
@@ -84074,10 +84075,11 @@
      "a": [],
      "c": [
       {
-       "t": "если это customer сотрудник канал off",
+       "t": "если await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…",
        "k": "if",
        "a": [],
-       "c": []
+       "c": [],
+       "raw": "await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…"
       },
       {
        "t": "если key && customerAgentChannelMode(key) === \"core\"",

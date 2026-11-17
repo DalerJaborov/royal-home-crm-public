@@ -26,7 +26,7 @@ import { channelOwnWords, runChannelCoreTurn, type ChannelCoreIntake, type Chann
 import { customerAgentHandoverLine } from "./customerAgentRenderer.js";
 import { alertChannelStaff } from "../lib/channelStaffAlert.js";
 import { logSystemError } from "../lib/systemError.js";
-import { handOverChannelOffTurn, isCustomerAgentChannelOff } from "../lib/customerAgentChannelOff.js";
+import { handOverChannelOffTurn, isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
 import { resolveCustomerDmLanguage } from "./customerDmLanguage.js";
 
 // Helpers of the old bot that callers still need. Re-exported here so that the old module has exactly one importer;
@@ -98,7 +98,9 @@ export function channelCoreQualifyResult(outcome: Extract<ChannelCoreOutcome, { 
 export async function runLegacyQualifyTurn(history: ChatMessage[], draft: LeadDraft, options: QualifyTurnOptions,
   source: ChannelTurnSource): Promise<QualifyResult | null> {
   // Emergency kill switch (CUSTOMER_AGENT_CHANNEL_OFF) comes first: it wins over legacy, shadow and core alike.
-  if (isCustomerAgentChannelOff(options.channel ?? source.channel)) return channelOffTurn(history, options, source);
+  // The account decides the `arvan` key (brand accounts); empty switch = no read at all.
+  if (await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId,
+    conversationId: options.conversationId })) return channelOffTurn(history, options, source);
   const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);
   // Meta keys are never `core` here (their door is rolloutConfig): the switch refuses them.
   if (key && customerAgentChannelMode(key) === "core") {

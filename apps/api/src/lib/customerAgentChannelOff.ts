@@ -1,11 +1,16 @@
 import { prisma } from "../db.js";
 import { logSystemError } from "./systemError.js";
+import { customerAgentLegacyChannelKey } from "./customerAgentChannelSwitch.js";
 
 /**
  * АВАРИЙНЫЙ РУБИЛЬНИК КЛИЕНТСКОГО БОТА ПО КАНАЛАМ — «бот молчит, отвечают люди» (18.11.2026).
  *
  * `CUSTOMER_AGENT_CHANNEL_OFF` — ключи каналов через запятую или `all`:
- *   whatsapp, instagram, facebook, website, telegram, telegram_direct, youtube.
+ *   whatsapp, instagram, facebook, website, telegram, telegram_direct, youtube, arvan.
+ * `arvan` — все аккаунты со своим именем компании (MessengerAccount.brandName, сегодня «Арван») в Meta-каналах; правило
+ * «чей это аккаунт» одно — customerAgentLegacyChannelKey (lib/customerAgentChannelSwitch.ts). `instagram`/`facebook`
+ * по-прежнему глушат ВСЕ аккаунты канала, включая Арван. Где аккаунт на входе неизвестен (комментарии, Telegram),
+ * `arvan` не срабатывает — без догадок.
  * Пусто (по умолчанию) — рубильник не действует, всё работает ровно как раньше: ни одного лишнего запроса к базе.
  * Неизвестное имя пропускается (никогда не расширяется до `all`) и один раз пишется в журнал ошибок.
  *
@@ -15,7 +20,8 @@ import { logSystemError } from "./systemError.js";
  * после строки передачи никто (сотрудник или бот до выключения) не ответил, следующие сообщения клиента ложатся в
  * переписку молча — второй «передал сотруднику» и второй пуш не уходят.
  *
- * Где читается (одна функция, isCustomerAgentChannelOff, на всех входах):
+ * Где читается (одно правило, isCustomerAgentChannelOff; там, где вход знает аккаунт или диалог, — через
+ * isCustomerAgentTurnOff / isCustomerAgentConversationOff / тикет ядра, тогда работает и `arvan`):
  *  - ai/legacyQualifyDoor.ts::runLegacyQualifyTurn — дверь старого пути: Meta-диалоги старой полосы, сайт, Telegram-бот,
  *    личные сообщения Telegram-канала и их повторы; рубильник стоит раньше выбора `legacy`/`shadow`/`core`;
  *  - lib/customerIngressProducer.ts::consumeCustomerInboxTicket — Meta-диалоги нового ядра: ход не начинается, тикет
@@ -28,7 +34,7 @@ import { logSystemError } from "./systemError.js";
  *  - ai/shortAgentReply.ts — короткие реплики модели вне хода: «заявка принята», напоминание молчащему (cron),
  *    просьба номера у кандидата, «ещё уточняю у собственника». Вызывающие при null берут готовую фразу или молчат.
  */
-export const CUSTOMER_AGENT_OFF_CHANNELS = ["whatsapp", "instagram", "facebook", "website", "telegram", "telegram_direct", "youtube"] as const;
+export const CUSTOMER_AGENT_OFF_CHANNELS = ["whatsapp", "instagram", "facebook", "website", "telegram", "telegram_direct", "youtube", "arvan"] as const;
 export type CustomerAgentOffChannel = (typeof CUSTOMER_AGENT_OFF_CHANNELS)[number];
 
 /** Причина HELD у тикета ядра, когда канал выключен рубильником. */
@@ -82,11 +88,45 @@ export function customerAgentChannelsOff(env: Env = process.env): ReadonlySet<Cu
   return off;
 }
 
-/** ОДНА ФУНКЦИЯ НА ВСЕХ ВХОДАХ: выключен ли бот на канале этой переписки. По умолчанию — нет. */
-export function isCustomerAgentChannelOff(channel: string | null | undefined, env: Env = process.env): boolean {
-  if (!env.CUSTOMER_AGENT_CHANNEL_OFF?.trim()) return false;
+/**
+ * ОДНА ФУНКЦИЯ НА ВСЕХ ВХОДАХ: выключен ли бот на канале этой переписки. По умолчанию — нет. `brandName` — имя компании
+ * аккаунта переписки (MessengerAccount.brandName), если вход его знает; без него ключ `arvan` не срабатывает.
+ */
+export function isCustomerAgentChannelOff(channel: string | null | undefined, env: Env = process.env,
+  brandName: string | null = null): boolean {
+  if (!env.CUSTOMER_AGENT_CHANNEL_OFF?.trim() || !channel) return false;
+  const off = customerAgentChannelsOff(env);
   const key = customerAgentOffKey(channel);
-  return key !== null && customerAgentChannelsOff(env).has(key);
+  if (key !== null && off.has(key)) return true;
+  return off.has("arvan") && customerAgentLegacyChannelKey(channel, brandName) === "arvan";
+}
+
+/** Ключ `arvan` в списке и канал вообще бывает «брендовым» (Meta): только тогда есть смысл читать аккаунт. */
+function arvanMayApply(channel: string | null | undefined, env: Env): boolean {
+  return !!channel && customerAgentChannelsOff(env).has("arvan") && customerAgentLegacyChannelKey(channel, "brand") === "arvan";
+}
+
+/**
+ * Выключен ли ход переписки, когда вход знает канал и аккаунт (или только диалог). Пусто — false без чтений. Имя компании
+ * аккаунта берётся из кэша аккаунтов (messengers/accounts.ts::accountBrandName), без аккаунта — одним запросом по диалогу,
+ * и только когда в списке есть `arvan`, а канал — Meta. Не удалось прочитать — `arvan` не срабатывает (ключ канала — да).
+ */
+export async function isCustomerAgentTurnOff(input: { channel: string | null | undefined; accountId?: string | null;
+  conversationId?: string | null }, env: Env = process.env): Promise<boolean> {
+  if (!env.CUSTOMER_AGENT_CHANNEL_OFF?.trim()) return false;
+  if (isCustomerAgentChannelOff(input.channel, env)) return true;
+  if (!arvanMayApply(input.channel, env)) return false;
+  let brandName: string | null = null;
+  try {
+    if (input.accountId) {
+      const { accountBrandName } = await import("../messengers/accounts.js");
+      brandName = await accountBrandName(input.accountId);
+    } else if (input.conversationId) {
+      brandName = (await prisma.botConversation.findUnique({ where: { id: input.conversationId },
+        select: { account: { select: { brandName: true } } } }))?.account?.brandName ?? null;
+    }
+  } catch { brandName = null; }
+  return isCustomerAgentChannelOff(input.channel, env, brandName);
 }
 
 /** Выключен ли рубильником хоть один канал (дешёвая проверка до похода в базу). */
@@ -105,8 +145,9 @@ export async function isCustomerAgentConversationOff(conversationId: string | nu
   if (!off.size || !conversationId) return false;
   if (off.size === CUSTOMER_AGENT_OFF_CHANNELS.length) return true;
   try {
-    const bot = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { channel: true } });
-    if (bot) return isCustomerAgentChannelOff(bot.channel, env);
+    const bot = await prisma.botConversation.findUnique({ where: { id: conversationId },
+      select: { channel: true, account: { select: { brandName: true } } } });
+    if (bot) return isCustomerAgentChannelOff(bot.channel, env, bot.account?.brandName ?? null);
     if (await prisma.telegramConversation.findUnique({ where: { id: conversationId }, select: { id: true } })) return off.has("telegram");
     if (await prisma.telegramDirectConversation.findUnique({ where: { id: conversationId }, select: { id: true } })) return off.has("telegram_direct");
     return false;
@@ -119,8 +160,10 @@ export async function isCustomerAgentConversationOff(conversationId: string | nu
 export async function isCustomerIngressTicketChannelOff(eventKey: string, env: Env = process.env): Promise<boolean> {
   if (!customerAgentAnyChannelOff(env)) return false;
   const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey },
-    select: { endpointScope: { select: { channel: true } }, conversation: { select: { channel: true } } } });
-  return isCustomerAgentChannelOff(ticket?.endpointScope?.channel ?? ticket?.conversation?.channel ?? null, env);
+    select: { endpointScope: { select: { channel: true, messengerAccount: { select: { brandName: true } } } },
+      conversation: { select: { channel: true, account: { select: { brandName: true } } } } } });
+  return isCustomerAgentChannelOff(ticket?.endpointScope?.channel ?? ticket?.conversation?.channel ?? null, env,
+    ticket?.endpointScope?.messengerAccount?.brandName ?? ticket?.conversation?.account?.brandName ?? null);
 }
 
 const normalized = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -185,5 +228,5 @@ export async function handOverChannelOffTurn(input: { channel: string; conversat
 /** Подпись каналов для экрана «Состояние функций». */
 export const CUSTOMER_AGENT_OFF_LABELS: Record<CustomerAgentOffChannel, string> = {
   whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook", website: "сайт", telegram: "Telegram-бот",
-  telegram_direct: "личные сообщения Telegram-канала", youtube: "YouTube",
+  telegram_direct: "личные сообщения Telegram-канала", youtube: "YouTube", arvan: "Арван (все аккаунты бренда)",
 };

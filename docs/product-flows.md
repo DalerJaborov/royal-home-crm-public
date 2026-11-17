@@ -29554,7 +29554,7 @@
   · зовёт botAbilitiesOf()
 - const result = await runLegacyQualifyTurn(history, draft, { images: [], abilities, conversationId: conversati…
   · зовёт runLegacyQualifyTurn()
-  - если isCustomerAgentChannelOff(options.channel ?? source.channel)
+  - если await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId, conv…
     - return channelOffTurn(history, options, source);
       · дословно из кода
   - const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);
