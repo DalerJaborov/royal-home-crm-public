@@ -1,5 +1,5 @@
 /**
- * Our own marks, read from the CRM (17.11.2026, review #225 H3): company name, names of our connected pages, the
+ * Our own marks, read from the CRM (17.11.2026, review #225 H3): company name, brand names and full usernames of our connected pages, the
  * public company line and active agents' phones. A caption / screenshot «Объект №N» counts only next to one of them
  * (lib/customerCaptionReference.ts). Cached for a minute: read on the bot turn, never in the pure webhook normalizer.
  */
@@ -14,11 +14,13 @@ export async function loadCustomerOwnBrandMarks(now = Date.now()): Promise<Custo
   if (cached && now - cached.at < TTL_MS) return cached.marks;
   const [settings, accounts, agents] = await Promise.all([
     prisma.settings.findUnique({ where: { id: "singleton" }, select: { companyName: true } }),
-    prisma.messengerAccount.findMany({ where: { enabled: true }, select: { title: true, username: true, brandName: true } }),
+    prisma.messengerAccount.findMany({ where: { enabled: true }, select: { username: true, brandName: true } }),
     prisma.agent.findMany({ where: { isActive: true }, select: { phone: true } }),
   ]);
   const names = new Set<string>();
-  for (const raw of [settings?.companyName, ...accounts.flatMap(a => [a.title, a.brandName, a.username, a.username?.split(/[._]/)[0]])]) {
+  // Review #225 N3: the company name, a page's brand name and its FULL username only. Never a page title (any wording) and
+  // never a part of a username («royal.home.tj» ≠ «royal»): «ЖК Royal Park. Объект №45» is a foreign post, not our №45.
+  for (const raw of [settings?.companyName, ...accounts.flatMap(a => [a.brandName, a.username])]) {
     const name = raw ? foldBrandName(raw) : null;
     if (name) names.add(name);
   }

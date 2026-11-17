@@ -27,10 +27,28 @@ export function foldBrandName(value: string): string | null {
   return folded.length >= 4 ? folded : null;
 }
 
+/** A brand name (folded: «Royal Home» → royalhome, «royal.home.tj» → royalhometj) stands in the text as WHOLE words: the same
+ * letters in a longer word or as a part of another name do not count («ЖК Royal Park» is not «Royal Home», «royalhomes» is not
+ * «royalhome»). Spacing and punctuation between the words do not matter: «Royal Home», «RoyalHome», «royal.home». */
+function textHasBrandName(text: string, names: readonly string[]): boolean {
+  const wanted = new Set(names.filter(name => name.length >= 4));
+  if (!wanted.size) return false;
+  const words = text.normalize("NFKC").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const longest = Math.max(...[...wanted].map(name => name.length));
+  for (let start = 0; start < words.length; start++) {
+    let joined = "";
+    for (let end = start; end < words.length && end < start + 8; end++) {
+      joined += words[end];
+      if (joined.length > longest) break;
+      if (wanted.has(joined)) return true;
+    }
+  }
+  return false;
+}
+
 /** Our mark in the text: a CRM name of the company/page, or a CRM phone (any spacing: «+992 44 650-14-14»). */
 export function customerTextHasOwnMark(text: string, marks: CustomerOwnBrandMarks): boolean {
-  const folded = fold(text);
-  if (marks.names.some(name => name.length >= 4 && folded.includes(name))) return true;
+  if (textHasBrandName(text, marks.names)) return true;
   const tails = new Set(marks.phoneTails);
   for (const match of text.matchAll(/\+?\d[\d\s()‑–-]{7,20}\d/gu)) {
     const digits = match[0].replace(/\D/g, "");

@@ -9,6 +9,7 @@ import { pinCustomerAgentTurnTx } from "./customerAgentRevision.js";
 import { customerPropertyEvidenceFromText, mergeCustomerPropertyEvidence } from "./customerPropertyEvidence.js";
 import type { CustomerBurst } from "./customerDeferredInput.js";
 import { customerCaptionReference, type CustomerOwnBrandMarks } from "./customerCaptionReference.js";
+import { logSystemError } from "./systemError.js";
 import { customerCaptionReferenceVerified, loadCustomerOwnBrandMarks } from "./customerOwnBrandMarks.js";
 import type { CustomerAgentMediaPerception } from "../ai/customerAgentMediaPerception.js";
 import { resolveCustomerPropertyEvidence, type CustomerPropertyRegistry } from "./customerPropertyResolver.js";
@@ -38,8 +39,13 @@ export async function enrichCustomerAgentMediaFocus(input: FocusInput): Promise<
   if (!media) return { status: "unchanged" };
   const spoken = customerPropertyEvidenceFromText(media.transcript);
   if (spoken.some(item => item.kind === "untrusted_reference" && item.reference === "too_many_references")) return { status: "held", reason: "media_reference_overflow" };
-  const selectors = mergeCustomerPropertyEvidence([spoken.filter(item => item.kind === "public_selector"),
-    (await customerPerceivedCaptionSelectors(media, await loadCustomerOwnBrandMarks())).map(selectorEvidence)]);
+  let printed: number[] = [];
+  try { printed = await customerPerceivedCaptionSelectors(media, await loadCustomerOwnBrandMarks()); }
+  catch (error) {
+    void logSystemError("ai", `Бот не смог прочитать метки компании для скриншота — номер со скриншота не используется: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+      { dedupKey: "customer-burst-references-unreadable", quietPult: true });
+  }
+  const selectors = mergeCustomerPropertyEvidence([spoken.filter(item => item.kind === "public_selector"), printed.map(selectorEvidence)]);
   if (!selectors.length) return { status: "unchanged" };
   return enrichFocus(input, selectors, media.speech === "partial");
 }
@@ -89,6 +95,17 @@ export async function analyzeCustomerBurstReferences(burst: CustomerBurst, curre
   out.push({ eventKey: current.eventKey, order: BigInt(current.order), media: current.media, ownEvidence: current.evidence.length > 0,
     selectors: captioned, fromCaption: captioned.length > 0, evidence: current.evidence });
   return out;
+}
+
+/** Review #225 N4: a failed read of our marks / CRM cards must not drop the whole customer turn — the model answers as before.
+ * null = «could not read» (a warning goes to the journal); the caller skips the burst focus and the server video answer. */
+export async function safeAnalyzeCustomerBurstReferences(...args: Parameters<typeof analyzeCustomerBurstReferences>): Promise<CustomerBurstReference[] | null> {
+  try { return await analyzeCustomerBurstReferences(...args); }
+  catch (error) {
+    void logSystemError("ai", `Бот не смог прочитать метки компании для подписи/скриншота поста — ход идёт обычным путём: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+      { dedupKey: "customer-burst-references-unreadable", quietPult: true });
+    return null;
+  }
 }
 
 /** A shared post's own references carry its caption number: the resolver falls back to it when the publication is

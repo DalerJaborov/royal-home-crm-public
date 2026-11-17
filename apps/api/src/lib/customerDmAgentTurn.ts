@@ -25,7 +25,7 @@ import { createCustomerOutboxPartsTx } from "./customerOutbox.js";
 import type { CustomerDeliveryPayload } from "./customerDeliveryContracts.js";
 import { createCustomerAgentMutationSession, type CustomerAgentMutationSession } from "./customerAgentMutationSession.js";
 import { enrichCustomerAgentMediaFocus, enrichCustomerAgentSelectionFocus, enrichCustomerAgentLinkFocus, createCustomerAgentLinkReads,
-  enrichCustomerAgentBurstFocus, analyzeCustomerBurstReferences, customerBurstFocusFresh } from "./customerAgentMediaFocus.js";
+  enrichCustomerAgentBurstFocus, safeAnalyzeCustomerBurstReferences, customerBurstFocusFresh } from "./customerAgentMediaFocus.js";
 import { customerPropertyVideoPlan, readCustomerPropertyVideoAnswer } from "./customerPropertyVideoAnswer.js";
 import { issueCustomerHandoverAckTx, planCustomerHandoverAckTx } from "./customerHandoverAck.js";
 import { readDmCustomerAgentDataWitness, sealDmCustomerAgentDeliveryEvidence,
@@ -256,10 +256,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     // The object of THIS burst from captions and pictures (16–17.11.2026): the caption «Объект №N» of a shared post, or
     // the number on the customer's own pictures set aside for these words. Only next to our own mark and only when the
-    // fields it prints match the CRM card (lib/customerCaptionReference.ts). A failure before the write leaves it to the model.
-    const burstReferences = await analyzeCustomerBurstReferences(burst, { eventKey: lane.ticket.eventKey, order: lane.ticket.order,
+    // fields it prints match the CRM card (lib/customerCaptionReference.ts). A failure before the write leaves it to the model:
+    // null here = the marks/cards could not be read — no burst focus and no server video answer, the turn goes the usual way.
+    const burstReferences = await safeAnalyzeCustomerBurstReferences(burst, { eventKey: lane.ticket.eventKey, order: lane.ticket.order,
       media: prepared.media.length > 0 && !mediaReferenceResolved, evidence: lane.ticket.evidence, captions: prepared.captions });
-    if (!mediaReferenceResolved) {
+    if (!mediaReferenceResolved && burstReferences) {
       const fromBurst = await enrichCustomerAgentBurstFocus({ principal: planningPrincipal, claim, ticket: lane.ticket, linkReads, references: burstReferences });
       if (fromBurst.status === "held") { await releaseHeldClaim(claim, fromBurst.reason); return fromBurst; }
       if (fromBurst.status === "updated") {
@@ -338,9 +339,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // A fact question in the same words (price, address…) is answered in the same reply; anything else goes to the model.
     const videoPlan = customerPropertyVideoPlan([...burst.inputs.map(input => input.ownText), ownText].filter(part => part.trim()).join("\n"));
     const videoFocus = focus?.snapshot.focus;
-    if (!leadOnly.enabled && videoPlan && videoFocus?.status === "resolved" && videoFocus.propertyId &&
+    if (!leadOnly.enabled && videoPlan && burstReferences && videoFocus?.status === "resolved" && videoFocus.propertyId &&
         remembered.context.publicState.topic !== "job" && customerBurstFocusFresh(videoFocus, burstReferences)) {
-      const video = await readCustomerPropertyVideoAnswer(videoFocus.propertyId, language, planningPrincipal.scope.channel, videoPlan.facts);
+      const video = await readCustomerPropertyVideoAnswer(videoFocus.propertyId, videoPlan.tajik ? "tg" : language, planningPrincipal.scope.channel, videoPlan.facts);
       if (video && await current(linkWait)) {
         const property = managedCustomerPropertyReply({ id: planningPrincipal.scope.conversationId, channel: planningPrincipal.scope.channel,
           subscriberId: planningPrincipal.scope.peer, accountId: planningPrincipal.scope.accountId, endpointScopeId: planningPrincipal.scope.endpointScopeId },

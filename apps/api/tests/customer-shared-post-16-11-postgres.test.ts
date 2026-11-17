@@ -4,6 +4,7 @@ import { createCustomerCoreGoldenFixture, reply } from "./helpers/customerCoreGo
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
 import { decodeCustomerOutboxPayload } from "../src/lib/customerOutbox.js";
 import * as clientWaitingAlert from "../src/lib/clientWaitingAlert.js";
+import { readCustomerPropertyVideoAnswer } from "../src/lib/customerPropertyVideoAnswer.js";
 import { resetCustomerOwnBrandMarksCache } from "../src/lib/customerOwnBrandMarks.js";
 
 vi.mock("node:dns/promises", async importOriginal => {
@@ -75,17 +76,47 @@ it("M3: the bare Tajik phrase without a greeting is answered in Tajik", T, async
   expect((await f.deliver(question)).text).toMatch(/^Бале, видеои объекти/u);
 });
 
-it("M4: no reel, but the CRM card has a ready clip — the clip link, no agent call", T, async () => {
+const setLinks = (botCanSendLinks: boolean) => prisma.settings.upsert({ where: { id: "singleton" }, update: { botCanSendLinks }, create: { id: "singleton", botCanSendLinks } });
+
+it("M4/N2: no reel, but the CRM card has a ready clip — «there is a video, the agent will send it», no CRM/token link, the agent is called", T, async () => {
   const previous = process.env.CRM_PUBLIC_URL; process.env.CRM_PUBLIC_URL = "https://crm.fictional.test";
   try {
+    await setLinks(true);
     const { property } = await f.publicCard();
     await prisma.property.update({ where: { id: property.id }, data: { clipVideoStatus: "READY", clipVideoUrl: "/uploads/video/fictional-clip.mp4" } });
     const question = await burst(await f.owner(), [ours(property.shortId)], "Видео есть?");
-    const alert = vi.spyOn(clientWaitingAlert, "alertClientWaiting");
+    const alert = vi.spyOn(clientWaitingAlert, "alertClientWaiting").mockResolvedValue("agent");
     const result = await f.deliver(question);
-    expect(result.text).toMatch(new RegExp(`№${property.shortId}.*https://crm\\.fictional\\.test/uploads/video/fictional-clip\\.mp4\\?t=`, "su"));
-    expect(alert).not.toHaveBeenCalled();
+    expect(result.text).toBe(`Да, видео объекта №${property.shortId} есть. Наш агент пришлёт его вам.`);
+    expect(result.text).not.toMatch(/https?:|uploads|\?t=/u);
+    await vi.waitFor(() => expect(alert).toHaveBeenCalledWith(expect.objectContaining({ trigger: "follow_up" })));
   } finally { if (previous === undefined) delete process.env.CRM_PUBLIC_URL; else process.env.CRM_PUBLIC_URL = previous; }
+});
+
+it("N1: the company switch «bot may send links» governs the video answer — the one door, read from the CRM", T, async () => {
+  const { property } = await f.publicCard();
+  await prisma.property.update({ where: { id: property.id }, data: { instagramUrl: "https://www.instagram.com/reel/FICTIONALREELN1/" } });
+  try {
+    await setLinks(true);
+    expect(await readCustomerPropertyVideoAnswer(property.id, "ru", "INSTAGRAM")).toEqual({ agentPromised: false,
+      text: `Да, видео объекта №${property.shortId} есть. Вот ссылка: https://www.instagram.com/p/FICTIONALREELN1/` });
+    await setLinks(false);
+    const ru = await readCustomerPropertyVideoAnswer(property.id, "ru", "INSTAGRAM");
+    expect(ru).toEqual({ agentPromised: true, text: `Да, видео объекта №${property.shortId} есть. Наш агент пришлёт его вам.` });
+    const tg = await readCustomerPropertyVideoAnswer(property.id, "tg", "INSTAGRAM");
+    expect(tg).toEqual({ agentPromised: true, text: `Бале, видеои объекти №${property.shortId} ҳаст. Агенти мо онро ба шумо мефиристад.` });
+    expect(`${ru?.text}${tg?.text}`).not.toMatch(/https?:/u);
+    // A price question beside it: the facts are rendered by the core door under the same switch, never a link from here.
+    expect((await readCustomerPropertyVideoAnswer(property.id, "ru", "INSTAGRAM", ["price"]))?.text).not.toMatch(/instagram\.com/u);
+  } finally { await setLinks(true); }
+});
+
+it("«Видео бор?» is answered in Tajik, on «шумо»", T, async () => {
+  await setLinks(true);
+  const { property } = await f.publicCard();
+  await prisma.property.update({ where: { id: property.id }, data: { instagramUrl: "https://www.instagram.com/reel/FICTIONALREELTG/" } });
+  const question = await burst(await f.owner(), [ours(property.shortId)], "Видео бор?", false);
+  expect((await f.deliver(question)).text).toBe(`Бале, видеои объекти №${property.shortId} ҳаст. Ин ҳавола: https://www.instagram.com/p/FICTIONALREELTG/`);
 });
 
 it("no video in the CRM: «the agent will send it», and the agent is actually called", T, async () => {

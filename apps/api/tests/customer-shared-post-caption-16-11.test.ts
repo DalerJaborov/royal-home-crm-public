@@ -9,6 +9,7 @@ import { customerCaptionFields, customerCaptionReference, customerCaptionReferen
 import { customerBurstFocusFresh, type CustomerBurstReference } from "../src/lib/customerAgentMediaFocus.js";
 import { customerPropertyVideoLink, customerPropertyVideoPlan, renderCustomerPropertyVideoAnswer } from "../src/lib/customerPropertyVideoAnswer.js";
 import { customerReplyCallsStaff } from "../src/ai/customerAgentStaffFollowUp.js";
+import { customerReplyLink } from "../src/lib/customerReplyLink.js";
 import { resolveCustomerDmLanguage } from "../src/ai/customerDmLanguage.js";
 
 /**
@@ -143,11 +144,11 @@ describe("H2: the video answer uses only an object THIS burst pointed at", () =>
 
 describe("H1/M2: the video request is decided from the customer's own words", () => {
   it.each(["Хами хонара видеоша дорен", "Салом Алейкум\nХами хонара видеоша дорен", "Видео есть?", "Видеоша равон кунед", "А видео можно?", "video dored?", "Видео объекта №178 есть?"])(
-    "plain request: %s", text => expect(customerPropertyVideoPlan(text)).toEqual({ facts: [] }));
+    "plain request: %s", text => expect(customerPropertyVideoPlan(text)).toMatchObject({ facts: [] }));
   it("video + a fact question the CRM answers → both", () => {
-    expect(customerPropertyVideoPlan("Видео есть? И сколько стоит?")).toEqual({ facts: ["price"] });
-    expect(customerPropertyVideoPlan("Видео есть и где находится?")).toEqual({ facts: ["address"] });
-    expect(customerPropertyVideoPlan("Салом Алейкум\nВидео есть? И сколько стоит?")).toEqual({ facts: ["price"] });
+    expect(customerPropertyVideoPlan("Видео есть? И сколько стоит?")).toMatchObject({ facts: ["price"] });
+    expect(customerPropertyVideoPlan("Видео есть и где находится?")).toMatchObject({ facts: ["address"] });
+    expect(customerPropertyVideoPlan("Салом Алейкум\nВидео есть? И сколько стоит?")).toMatchObject({ facts: ["price"] });
   });
   it.each([
     "[вложение: video]\nТакой вариант есть?", // H1: a service marker is never the customer's request
@@ -174,5 +175,43 @@ describe("video link and answer", () => {
   it("without a video: «the agent will send it», flagged so the turn signals the agent itself", () => {
     expect(renderCustomerPropertyVideoAnswer(178, null, "ru")).toEqual({ agentPromised: true, text: "Видео объекта №178 пришлёт вам наш агент." });
     expect(customerReplyCallsStaff(renderCustomerPropertyVideoAnswer(178, null, "ru").text)).toBe(false);
+  });
+});
+
+describe("review #225, second pass", () => {
+  it("N3: «ЖК Royal Park. Объект №45» is a foreign post; the caption with «Royal Home» is ours", () => {
+    const marks: CustomerOwnBrandMarks = { names: ["royalhome", "royalhometj"], phoneTails: [] };
+    expect(customerCaptionReference("ЖК Royal Park. Объект №45. 2-комнатная, 60 м²", marks)).toBeNull();
+    expect(customerCaptionReference("Royal Home\nОбъект №45", marks)).toEqual({ shortId: 45, fields: {} });
+    expect(customerCaptionReference("royalhome · Объект №45", marks)).toMatchObject({ shortId: 45 });
+    expect(customerCaptionReference("@royal.home.tj\nОбъект №45", marks)).toMatchObject({ shortId: 45 });
+  });
+  it("N3: a part of a name or a longer word is not our mark", () => {
+    const marks: CustomerOwnBrandMarks = { names: ["royalhome", "royalhometj"], phoneTails: [] };
+    for (const text of ["Royal Homes — агентство", "royal", "unroyal home", "Royal Hometown", "home royal"]) expect(customerTextHasOwnMark(text, marks)).toBe(false);
+    for (const text of ["Royal Home", "ROYAL  HOME!", "RoyalHome", "агентство «Royal Home», Душанбе"]) expect(customerTextHasOwnMark(text, marks)).toBe(true);
+  });
+  it("N1: one rule of a link — switched off, no link", () => {
+    expect(customerReplyLink("https://www.instagram.com/p/X1/", false)).toBeNull();
+    expect(customerReplyLink("https://www.instagram.com/p/X1/", true)).toBe("https://www.instagram.com/p/X1/");
+    expect(customerReplyLink("https://www.instagram.com/p/X1/", undefined)).toBe("https://www.instagram.com/p/X1/");
+    expect(customerReplyLink(null, true)).toBeNull();
+  });
+  it("N1/N2: a video that exists but may not be linked → «there is a video, the agent will send it» + the agent is called", () => {
+    const ru = renderCustomerPropertyVideoAnswer(178, null, "ru", true);
+    expect(ru).toEqual({ agentPromised: true, text: "Да, видео объекта №178 есть. Наш агент пришлёт его вам." });
+    expect(ru.text).not.toMatch(/https?:/u);
+    const tg = renderCustomerPropertyVideoAnswer(178, null, "tg", true);
+    expect(tg).toEqual({ agentPromised: true, text: "Бале, видеои объекти №178 ҳаст. Агенти мо онро ба шумо мефиристад." });
+    expect(customerReplyCallsStaff(ru.text)).toBe(false);
+    expect(customerReplyCallsStaff(tg.text)).toBe(false);
+  });
+  it("«Видео бор?» is Tajik: the plan says so, and the answer is on «шумо»", () => {
+    expect(customerPropertyVideoPlan("Видео бор?")).toEqual({ facts: [], tajik: true });
+    expect(customerPropertyVideoPlan("Видеоша дорен?")).toMatchObject({ tajik: true });
+    expect(customerPropertyVideoPlan("Видео есть?")).toEqual({ facts: [], tajik: false });
+    const answer = renderCustomerPropertyVideoAnswer(178, null, "tg", false).text;
+    expect(answer).toContain("ба шумо");
+    expect(answer).not.toMatch(/[Тт]у|ба ту/u);
   });
 });
