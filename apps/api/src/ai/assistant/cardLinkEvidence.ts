@@ -71,8 +71,28 @@ export function createCardLinkEvidence() {
           card(result, "properties");
           for (const item of rows(value?.items)) card(item, "properties");
           break;
+        // «Режим директора» (17.11.2026, tools/directorTools.ts): ссылки на объекты и клиентов из заявок.
+        case "list_pending_requests":
+          for (const section of ["changeRequests", "propertyDeleteRequests", "awaitingModeration"]) {
+            for (const item of rows(record(value?.[section])?.items)) add(record(item)?.propertyHref, "properties");
+          }
+          for (const item of rows(record(value?.clientDeleteRequests)?.items)) add(record(item)?.clientHref, "clients");
+          break;
         case "list_my_tasks":
           for (const item of [...rows(value?.tasks), ...rows(value?.overdue)].slice(0, MAX_ROWS)) task(item);
+          break;
+        // «Мозг компании» (17.11.2026, tools/brainReadTools.ts): строки несут client.href, как задачи.
+        case "get_unworked":
+          for (const item of [...rows(value?.overdueTasks), ...rows(value?.noContact), ...rows(value?.silentAfterShowing)].slice(0, MAX_ROWS)) task(item);
+          break;
+        case "get_my_day":
+          for (const item of [
+            ...rows(value?.showings), ...rows(value?.tasks), ...rows(value?.overdue),
+            ...rows(value?.unacceptedLeads), ...rows(value?.missedCalls),
+          ].slice(0, MAX_ROWS)) task(item);
+          break;
+        case "get_missed_calls":
+          for (const item of rows(value?.items)) task(item);
           break;
         // Unknown tools, writes, errors and free-form knowledge cannot grant card identities.
       }

@@ -81,12 +81,18 @@ type PropertyRow = PropertyRecord;
 export function checkPropertyChangeRequest(
   property: PropertyRow,
   actor: ChangeRequestActor,
-  body: CreatePropertyChangeRequestInput
+  body: CreatePropertyChangeRequestInput,
+  /**
+   * «Своё — сразу» до публикации (17.11.2026, ИИ-помощник): карточку на подготовке хозяин
+   * правит сам, и помощник применяет правку тем же исполнителем, что «Принять». Ставит только
+   * тот, кто тут же принимает заявку автором (canApplyChangeDirectly); REST его не передаёт.
+   */
+  options?: { allowUnpublished?: boolean }
 ): { ok: true; payloadObject: object } | ChangeRequestFailure {
   if (!canManagePropertyAs(actor, property)) {
     return { ok: false, status: 403, error: "Заявку подаёт агент, который ведёт этот объект" };
   }
-  if (!isPublishedForChangeRequest(property.status)) {
+  if (!options?.allowUnpublished && !isPublishedForChangeRequest(property.status)) {
     return { ok: false, status: 409, error: "До публикации карточку можно править самому" };
   }
 
@@ -132,12 +138,16 @@ export async function createPropertyChangeRequest(input: {
   /** «Своё — сразу»: вызывающий тут же принимает заявку (applyOwnChangeRequestNow) — директору о ней
    *  сообщать нечего, пуш «Заявка» в очередь не ставится. */
   applyDirectly?: boolean;
+  /** См. checkPropertyChangeRequest: только вместе с applyDirectly (или откатом помощника). */
+  allowUnpublished?: boolean;
 }): Promise<CreateChangeRequestResult> {
   const { actor, body, assistantUndo } = input;
 
   const property = await prisma.property.findUnique({ where: { id: input.propertyId } });
   if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект не найден" };
-  const checked = checkPropertyChangeRequest(property, actor, body);
+  const checked = checkPropertyChangeRequest(property, actor, body, {
+    allowUnpublished: input.allowUnpublished === true && (input.applyDirectly === true || assistantUndo !== undefined),
+  });
   if (!checked.ok && !assistantUndo) return checked;
   const payloadObject = checked.ok ? checked.payloadObject : body.payload;
 

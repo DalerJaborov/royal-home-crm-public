@@ -26,7 +26,7 @@ import {
 import { prisma } from "../db.js";
 import { sendPushToAgent, sendPushToAgents, closeLeadPushNotifications } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
-import { logAudit, logSystemAudit } from "./audit.js";
+import { logAgentAudit, logAudit, logSystemAudit } from "./audit.js";
 import { isInstagramLink } from "./instagramLink.js";
 import { syncPropertiesToSite } from "./siteSync.js";
 import { logSystemError } from "./systemError.js";
@@ -107,21 +107,34 @@ export async function loadPipelineDeadlines(): Promise<PipelineDeadlines> {
  *  сервер считали по одному правилу. Реэкспорт: импорты по коду не трогаем. */
 export { MIN_PROPERTY_PHOTOS };
 
-export function blockersForSale(property: { instagramUrl: string | null; photoCount: number }): string[] {
-  const blockers: string[] = [];
-  if (property.photoCount < MIN_PROPERTY_PHOTOS) {
-    blockers.push(`фото меньше минимума (${property.photoCount} из ${MIN_PROPERTY_PHOTOS})`);
-  }
-  // Пустое поле и заполненное «не тем» — РАЗНЫЕ сообщения, и это не придирка к
+/** Коды причин, по которым объект не выходит в продажу. Условия живут ТОЛЬКО здесь: тексты экрана
+ *  (`blockersForSale`) и советы помощнику (`saleBlockerAdvice`, lib/propertyCompleteEditing.ts)
+ *  строятся по этим кодам, а не повторяют проверки. */
+export type SaleBlockerCode = "PHOTOS_BELOW_MIN" | "NO_INSTAGRAM_LINK" | "LINK_NOT_INSTAGRAM";
+
+export function saleBlockerCodes(property: { instagramUrl: string | null; photoCount: number }): SaleBlockerCode[] {
+  const codes: SaleBlockerCode[] = [];
+  if (property.photoCount < MIN_PROPERTY_PHOTOS) codes.push("PHOTOS_BELOW_MIN");
+  // Пустое поле и заполненное «не тем» — РАЗНЫЕ причины, и это не придирка к
   // словам. Общее «нет ссылки» на карточке, где поле на глазах заполнено, уже
   // отправляло владельца заполнять заполненное (см. историю в lib/instagramLink.ts).
   const link = property.instagramUrl?.trim();
-  if (!link) {
-    blockers.push("нет ссылки на видео-обзор в Instagram");
-  } else if (!isInstagramLink(link)) {
-    blockers.push("в поле видео-обзора ссылка не на Instagram — обзор должен быть опубликован в Instagram");
-  }
-  return blockers;
+  if (!link) codes.push("NO_INSTAGRAM_LINK");
+  else if (!isInstagramLink(link)) codes.push("LINK_NOT_INSTAGRAM");
+  return codes;
+}
+
+export function blockersForSale(property: { instagramUrl: string | null; photoCount: number }): string[] {
+  return saleBlockerCodes(property).map((code) => {
+    switch (code) {
+      case "PHOTOS_BELOW_MIN":
+        return `фото меньше минимума (${property.photoCount} из ${MIN_PROPERTY_PHOTOS})`;
+      case "NO_INSTAGRAM_LINK":
+        return "нет ссылки на видео-обзор в Instagram";
+      case "LINK_NOT_INSTAGRAM":
+        return "в поле видео-обзора ссылка не на Instagram — обзор должен быть опубликован в Instagram";
+    }
+  });
 }
 
 /** Состояния конвейера — множеством, чтобы проверка «объект ещё готовится» была
@@ -619,10 +632,22 @@ async function notifyPublished(
  * транзакции менять статус — при автопути это та же транзакция, что и остальной
  * PATCH). Здесь — только сайд-эффекты публикации, которые нельзя завести дважды.
  */
+/** Автор «Готово» без HTTP-запроса: нажал сотрудник, но не на экране CRM (ИИ-помощник).
+ *  Аудит пишется от его имени, `meta` — источник (помощник, id действия). */
+export interface PublishAuditAuthor {
+  agentId: string;
+  meta?: Record<string, string | number | boolean | null>;
+}
+
+function isPublishAuditAuthor(req: Request | PublishAuditAuthor): req is PublishAuditAuthor {
+  return "agentId" in req;
+}
+
 export async function publishAfterEditingComplete(
   /** null — конвейер закрывает не HTTP-запрос, а фоновая публикация ролика от
-   *  монтажёра (lib/videoHandoff.ts): аудит пишется от имени «Система». */
-  req: Request | null,
+   *  монтажёра (lib/videoHandoff.ts): аудит пишется от имени «Система».
+   *  PublishAuditAuthor — нажал сотрудник через помощника (lib/propertyCompleteEditing.ts). */
+  req: Request | PublishAuditAuthor | null,
   property: {
     id: string;
     shortId: number;
@@ -635,7 +660,13 @@ export async function publishAfterEditingComplete(
   // Пишем в историю СРАЗУ после смены статуса, а не после успешной публикации на
   // сайт: то, что объект вышел из конвейера, — случившийся в CRM факт независимо
   // от того, ответит ли внешний сайт.
-  if (req) logAudit(req, "PROPERTY_EDITING_DONE", "Property", property.id, { shortId: property.shortId, title: property.title });
+  if (req && isPublishAuditAuthor(req)) {
+    logAgentAudit(req.agentId, "PROPERTY_EDITING_DONE", "Property", property.id, {
+      shortId: property.shortId,
+      title: property.title,
+      ...(req.meta ?? {}),
+    });
+  } else if (req) logAudit(req, "PROPERTY_EDITING_DONE", "Property", property.id, { shortId: property.shortId, title: property.title });
   else logSystemAudit("PROPERTY_EDITING_DONE", "Property", property.id, { shortId: property.shortId, title: property.title });
 
   // Тот же факт «объект вышел из конвейера» — повод уведомить того, кто его завёл.

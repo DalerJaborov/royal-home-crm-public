@@ -109,9 +109,11 @@ const WRITE_LABELS: Record<string, Record<ReplyLanguage, string>> = {
   create_client: { ru: "завела клиента", tg: "мизоҷ сохтам" },
   change_property_price: { ru: "изменение цены", tg: "тағйири нарх" },
   change_property_status: { ru: "изменение статуса объекта", tg: "тағйири ҳолати объект" },
+  complete_property_editing: { ru: "вывод объекта из монтажа в продажу", tg: "баровардани объект аз монтаж ба фурӯш" },
   restore_property: { ru: "восстановление объекта из Корзины", tg: "баргардонидани объект аз Корзина" },
   delete_property: { ru: "удаление объекта", tg: "нест кардани объект" },
   delete_client: { ru: "удаление клиента", tg: "нест кардани мизоҷ" },
+  restore_client: { ru: "восстановление клиента из Корзины", tg: "баргардонидани мизоҷ аз Корзина" },
 };
 
 function writeLabel(name: string, lang: ReplyLanguage): string {
