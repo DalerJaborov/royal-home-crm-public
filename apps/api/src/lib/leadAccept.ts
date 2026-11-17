@@ -147,7 +147,7 @@ export async function acceptLead(input: {
   // 12.08.2026: контроль теперь идёт через call_result — окно после КАЖДОГО звонка
   // через CRM, включая недозвон (см. lib/telephony/callTracker.ts). Отдельный
   // контроль «час прошёл, а звонка не было» не заводится: та же дыра закрыта иначе —
-  // lib/leads.ts::penalizeMissedFirstCalls уже штрафует и снимает лид, если агент
+  // lib/leads.ts::handleMissedFirstCalls уже штрафует и снимает лид, если агент
   // за отведённое время вообще не позвонил.
 
   return { ok: true };

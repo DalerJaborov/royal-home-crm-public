@@ -10,7 +10,12 @@ import { TASK_WHERE } from "../src/lib/tasks.js";
 import { upsertAutoTask, claimAutoTaskSlot } from "../src/lib/autoTasks.js";
 import { canTransferClient, transferClientByAgent } from "../src/lib/clientTransfer.js";
 import { logTimeline } from "../src/lib/timeline.js";
-import { classifyClientLossFault } from "../src/lib/clientLossFault.js";
+import { classifyClientLossFaultBatch } from "../src/lib/clientLossFault.js";
+
+/** Одиночная версия удалена 16.11.2026 (жила ради штрафа за потерю клиента) —
+ *  кабинет СБ зовёт пакетную, ею и проверяем то же правило. */
+const classifyClientLossFault = async (clientId: string, now?: Date) =>
+  (await classifyClientLossFaultBatch([clientId], now)).get(clientId);
 
 const run = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 const clients: string[] = [];

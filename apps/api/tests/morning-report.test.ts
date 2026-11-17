@@ -26,6 +26,9 @@ describe("smoke: /api/v1/morning-report", () => {
     // технический счётчик шума ИИ-конвейера, не показанный директору как тревога.
     expect(Array.isArray(res.body.errorGroups)).toBe(true);
     expect(typeof res.body.errorsOperationalTotal).toBe("number");
+    // 17.11.2026: сколько типов не поместилось в errorGroups — вслух, а не молча.
+    expect(res.body.errorGroupsTotal).toBe(res.body.errorGroups.length + res.body.errorGroupsHidden);
+    expect(res.body.errorGroups.length).toBeLessThanOrEqual(30);
     expect(typeof res.body.propertiesWithdrawnSellerRecovered).toBe("number");
     // 21.09.2026: «Что не доехало» — см. doc-comment у
     // MorningNumbers.stuckWorkGivenUpYesterday в lib/morningNumbers.ts.

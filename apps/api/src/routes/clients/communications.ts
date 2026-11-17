@@ -7,7 +7,14 @@ import { liveVoiceErrorForPerson } from "../../lib/telephony/liveVoiceUserError.
 import { markAgentAttempt } from "../../lib/clientWorkStalled.js";
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { clientMessageSchema, robotCallStopUpdateSchema, type RobotCallStopState } from "@royal-home/shared";
+import {
+  clientMessageSchema,
+  FOREIGN_PHONE_CALL_ERROR,
+  isForeignPhone,
+  robotCallStopUpdateSchema,
+  stationDialRefusal,
+  type RobotCallStopState,
+} from "@royal-home/shared";
 import { maskClientPhone } from "../../lib/clientPhone.js";
 import { resolveClientPhoneSelection } from "../../lib/clientPhoneSelection.js";
 import { prisma } from "../../db.js";
@@ -188,8 +195,21 @@ export async function originateCallToClient(
   }
 ): Promise<
   | { ok: true; channelId: string | undefined; dialing: { to: string; mode: "mobile" | "extension" } }
-  | { ok: false; status: number; error: string }
+  | { ok: false; status: number; error: string; code?: "not_dialable" }
 > {
+  /**
+   * ИНОСТРАННЫЙ НОМЕР — ОТКАЗ ДО ЗВОНКА, А НЕ «КЛИЕНТ НЕ ОТВЕТИЛ» (17.11.2026).
+   * Станция агентства набирает только Таджикистан: номер `+7…` уходил транку без
+   * международного выхода, оператор сбрасывал его за 0 секунд, а карточка получала
+   * исход «не ответил», задачу «перезвонить» и счёт недозвонов. Живые случаи —
+   * ПР-000835 и ПК-000832 (Instagram, российские номера). Агенту — понятная причина
+   * и что делать вместо звонка; запись в хронологию и попытка не заводятся.
+   */
+  const dialTarget = options?.phoneOverride ?? client.phone;
+  if (isForeignPhone(dialTarget)) {
+    return { ok: false, status: 422, error: FOREIGN_PHONE_CALL_ERROR, code: "not_dialable" };
+  }
+
   const agent = await prisma.agent.findUnique({
     where: { id: agentId },
     select: { sipExtension: true, phone: true, whisperLanguage: true, fullName: true },
@@ -276,6 +296,7 @@ export async function originateCallToClient(
       whisper: whisper ?? undefined,
     });
     if (!result.ok) {
+      if (result.notDialable) return { ok: false, status: 422, error: result.error ?? FOREIGN_PHONE_CALL_ERROR, code: "not_dialable" };
       return { ok: false, status: 502, error: result.error ?? "Не удалось совершить звонок" };
     }
     /**
@@ -457,7 +478,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Этот номер не принадлежит карточке клиента" });
     }
     if (!isDialableTajikNumber(requestedPhone)) {
-      return res.status(400).json({ error: "Номер не таджикский — станция не сможет его набрать" });
+      return res.status(400).json({ error: stationDialRefusal(requestedPhone), code: "not_dialable" });
     }
     // Совпал с основным — override не нужен, звоним обычным путём.
     if (requestedTail !== phoneTail(client.phone)) phoneOverride = requestedPhone;
@@ -487,8 +508,10 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
      * (services/leads/firstCall.ts, collectFirstCallFacts): таймер на экране
      * гаснет, штрафа и передачи лида нет. Только своему клиенту — byAgentId.
      */
+    // Иностранный номер (422) — НЕ попытка: звонка не было, обязанность связаться
+    // закрывает сообщение клиенту из CRM, туда агента и отправляет текст отказа.
     if (result.status === 502 && !archiveReview) await markAgentAttempt(client.id, new Date(), req.agent!.id);
-    return res.status(result.status).json({ error: result.error });
+    return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });
   }
 
   // Куда пошёл вызов — агенту видно сразу. Первый живой звонок 07.08.2026 «пропал»
@@ -756,6 +779,12 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
   const digits = parsed.data.phone.replace(/[^\d+]/g, "");
   if (digits.replace(/\D/g, "").length < 5) {
     return res.status(400).json({ error: "Слишком короткий номер" });
+  }
+  // Иностранный номер — отказ ДО поиска и создания карточки: иначе ручной набор
+  // заводил карточку «Исходящий ***84» под звонок, который станция не наберёт,
+  // и вешал на неё ложное «клиент не ответил» (17.11.2026).
+  if (isForeignPhone(digits)) {
+    return res.status(422).json({ error: FOREIGN_PHONE_CALL_ERROR, code: "not_dialable" });
   }
 
   const existing = await findClientByPhoneDigits(digits);

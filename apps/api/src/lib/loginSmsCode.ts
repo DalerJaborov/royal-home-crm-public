@@ -32,6 +32,7 @@ import { createHash, createHmac, randomBytes, randomInt } from "node:crypto";
 import { prisma } from "../db.js";
 import { secretsMatch } from "./secretCompare.js";
 import { sendSms } from "./sms/index.js";
+import { toSmsPhone } from "./sms/phone.js";
 import { sendMessage as sendTelegramMessage } from "../telegram/api.js";
 import { sendLoginCodePush, type PushSubscriptionRow } from "../push.js";
 import { logSystemError } from "./systemError.js";
@@ -130,14 +131,43 @@ async function deliver(
   }
 }
 
+export interface IssueOptions {
+  /**
+   * «step-up» — код подтверждения личности перед Настройками (routes/auth.ts).
+   * Он защищает ровно от «чужого у открытой сессии», поэтому пушем — на те же
+   * устройства, где сессия и открыта, — не уходит (аудит безопасности 17.11.2026, S2).
+   */
+  purpose?: "login" | "step-up";
+  /** Подписка устройства, которое просит код (для step-up без других каналов). */
+  excludePushEndpoint?: string;
+}
+
+/**
+ * Куда можно прислать код, кроме пуша: СМС (номер таджикский — провайдер шлёт
+ * только по Таджикистану, lib/sms/phone.ts) или привязанный Telegram.
+ */
+export function hasNonPushCodeChannel(agent: CodeAgent): boolean {
+  return toSmsPhone(agent.phone) !== null || !!agent.telegramChatId;
+}
+
 /**
  * Выдать код. `channel` не задан — пуш (если есть живые устройства), затем СМС, затем
  * Telegram; повторный запрос без канала после пуша — сразу СМС, не второй пуш.
  * Задан — только в этот канал (кнопка «Прислать в Telegram»).
+ *
+ * Подтверждение личности (`purpose: "step-up"`) — без пуша: СМС, затем Telegram.
+ * Исключение — у сотрудника нет ни таджикского номера, ни Telegram: тогда пуш
+ * остаётся единственной дорогой, но не на устройство, которое код просит
+ * (`excludePushEndpoint`), — иначе человек остался бы вовсе без кода.
  */
-export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChannel): Promise<IssueResult> {
+export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChannel, options: IssueOptions = {}): Promise<IssueResult> {
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-  const candidateSubs = channel ? [] : await loadLiveSubscriptions(agent.id);
+  const stepUp = options.purpose === "step-up";
+  const pushAllowed = !channel && !(stepUp && hasNonPushCodeChannel(agent));
+  let candidateSubs = pushAllowed ? await loadLiveSubscriptions(agent.id) : [];
+  if (stepUp && options.excludePushEndpoint) {
+    candidateSubs = candidateSubs.filter((sub) => sub.endpoint !== options.excludePushEndpoint);
+  }
   // Reserve before any provider call, under a per-agent database lock. Two tabs
   // (or API processes) must not both pass the cooldown and issue different codes.
   const reserved = await prisma.$transaction(async (tx) => {

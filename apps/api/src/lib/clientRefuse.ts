@@ -33,8 +33,6 @@ import { pickNextAgentByKpiQueue } from "../leads.js";
 import { hadConductedShowing } from "./conductedShowing.js";
 import { loadHotScoreThreshold } from "./hotScoreThreshold.js";
 import { loadMaxTransfers, transfersExhausted } from "./leadTransfers.js";
-import { classifyClientLossFault } from "./clientLossFault.js";
-import { loadEventPoints, recordScoreEvent } from "./scoreJournal.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { sendPushToAgent } from "../push.js";
 import { alertRefusedHighScoreBuyer } from "./buyerNoCallAlarm.js";
@@ -286,7 +284,6 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
 
   // Объект отказа читается ДО транзакции: это справочное чтение, ему незачем держать её.
   const refusalPropertyId = hadShowing ? await lastConductedShowingPropertyId(client.id) : null;
-  const lossSnapshot: { kind: Awaited<ReturnType<typeof classifyClientLossFault>> } = { kind: "client_lost_no_fault" };
 
   /**
    * ГОНКА С «/assign» (ночная проверка 24.09.2026, находка №5): снимок клиента
@@ -310,7 +307,6 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
         throw new ClientOwnerRaceError("race");
       }
       if (!needsManagementDecision) {
-        if (escalate && !needsSecurityReview) lossSnapshot.kind = await classifyClientLossFault(client.id, new Date(), tx);
         await tx.interaction.updateMany({
           where: { clientId: client.id, OR: [{ nextAction: { not: null } }, { nextActionDate: { not: null } }], completedAt: null, taskCancelledAt: null },
           data: { taskCancelledAt: new Date() },
@@ -401,24 +397,10 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
         (comment?.trim() ? ` Комментарий агента: ${comment.trim()}` : ""));
   }
 
-  // A review or a preserved second role is not a lost client and earns no loss event.
-  if (escalate && !needsSecurityReview && client.assignedAgentId) {
-    const lostAgentId = client.assignedAgentId;
-    void (async () => {
-      const kind = lossSnapshot.kind;
-      const points = await loadEventPoints();
-      recordScoreEvent({
-        agentId: lostAgentId,
-        kind,
-        delta: points[kind],
-        reason:
-          kind === "client_lost_agent_fault"
-            ? `Клиент потерян: на момент потери были просроченные обязательные окна/задачи — ${client.fullName}`
-            : `Клиент потерян без просрочек со стороны агента — ${client.fullName}`,
-        sourceId: `client-lost-${client.id}`,
-      });
-    })();
-  }
+  // Событие Royal Score «клиент потерян по вине / не по вине агента» (штраф −5 при
+  // просроченной задаче) снято 16.11.2026 вместе с остальными автоматическими
+  // штрафами — решение владельца. Классификация вины живёт дальше только в
+  // кабинете СБ (lib/clientLossFault.ts, routes/security.ts).
 
   if (nextAgentId) {
     void sendPushToAgent(nextAgentId, {
