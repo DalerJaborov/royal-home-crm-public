@@ -30,7 +30,15 @@ const STATUS_LABEL: Record<NonNullable<WaFirstContactStatus["last"]>["status"], 
 /** Состояния, в которых блок не нужен вовсе: WhatsApp не подключён или клиент и так пишет сам. */
 const HIDDEN: WaFirstContactStatus["state"][] = ["not_connected", "window_open"];
 
-export function WhatsAppFirstContact({ clientId }: { clientId: string }) {
+/**
+ * `frame="section"` — для карточки клиента на телефоне агента
+ * (components/mobile/MobileClientCard.tsx, облик `.mh`): там нет раздела
+ * «Переписка», и блок встаёт своей секцией. Рамка рисуется ВНУТРИ компонента,
+ * а не вокруг вызова, чтобы при скрытом блоке (WhatsApp не подключён, клиент
+ * пишет сам) не оставалось пустой секции с отступом (17.11.2026, аудит F1-1:
+ * агент на телефоне этого блока не видел вовсе — он стоял только в разметке ПК).
+ */
+export function WhatsAppFirstContact({ clientId, frame = "inline" }: { clientId: string; frame?: "inline" | "section" }) {
   const { data } = useWaFirstContactStatus(clientId);
   const sendMutation = useSendWaFirstContact(clientId);
   const [open, setOpen] = useState(false);
@@ -48,7 +56,7 @@ export function WhatsAppFirstContact({ clientId }: { clientId: string }) {
   const last = data.last;
   const ready = data.state === "ready";
 
-  return (
+  const body = (
     <div style={{ marginTop: 12 }}>
       <div className="list">
         <div className="row">
@@ -124,5 +132,15 @@ export function WhatsAppFirstContact({ clientId }: { clientId: string }) {
         </div>
       )}
     </div>
+  );
+
+  return frame === "section" ? (
+    <section className="sec">
+      <div className="card-s" style={{ padding: "4px 16px 12px" }}>
+        {body}
+      </div>
+    </section>
+  ) : (
+    body
   );
 }

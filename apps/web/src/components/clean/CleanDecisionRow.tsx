@@ -1,11 +1,12 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazyWithReload } from "../../lib/lazyWithReload";
 import type { ActionRowAction, ActionRowData } from "../pult/ActionRow";
 import { useUndoToast } from "../../hooks/useUndoToast";
 import { useCan } from "../../lib/permissions";
 import { CAvatar, CButton, CLink } from "./ui";
 import { CleanOwnerQuestionReply } from "./CleanOwnerQuestionReply";
 
-const CleanPropertyReviewSheet = lazy(() => import("./CleanPropertyReviewSheet"));
+const CleanPropertyReviewSheet = lazyWithReload(() => import("./CleanPropertyReviewSheet"));
 
 /** Окно подтверждения: второй клик по кнопке должен прийти за это время, иначе она сбрасывается. */
 export const CONFIRM_WINDOW_MS = 10_000;
