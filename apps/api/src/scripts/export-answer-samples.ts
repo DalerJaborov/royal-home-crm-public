@@ -3,11 +3,11 @@
  * Только чтение: ничего не пишет, никому не отправляет. Таблица CustomerAgentAnswerSample хранит пары 72 часа,
  * телефоны и ссылки в ней уже закрыты (lib/customerAgentAnswerSamples.ts). Пути наружу нет — только этот скрипт.
  *
- *   npx tsx scripts/export-answer-samples.ts                 # последние 30 пар, Markdown
- *   npx tsx scripts/export-answer-samples.ts --limit=60 --channel=FACEBOOK --status=dropped
+ *   node dist/scripts/export-answer-samples.js                 # последние 30 пар, Markdown
+ *   node dist/scripts/export-answer-samples.js --limit=60 --channel=FACEBOOK --status=dropped
  */
 import "dotenv/config";
-import { prisma } from "../src/db.js";
+import { prisma } from "../db.js";
 
 const arg = (name: string) => process.argv.find(item => item.startsWith(`--${name}=`))?.split("=")[1];
 const limit = Math.min(Math.max(Math.trunc(Number(arg("limit") ?? 30)) || 30, 1), 200);
