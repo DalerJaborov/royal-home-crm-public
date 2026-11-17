@@ -4,7 +4,7 @@
   "endpoints": 760,
   "forks": 4128,
   "mounts": 85,
-  "cron": 143,
+  "cron": 144,
   "jobs": 33,
   "hidden": 0
  },
@@ -104931,6 +104931,31 @@
       }
      ],
      "from": "runNarrationAutoFlow() — apps/api/src/lib/narrationAutoFlow.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "narration-auto-master",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runMachineMastersTick();",
+     "a": [
+      "зовёт runMachineMastersTick()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "return runMachineMasters(machineMasterDeps, now);",
+       "a": [
+        "зовёт runMachineMasters()"
+       ],
+       "c": []
+      }
+     ],
+     "from": "runMachineMastersTick() — apps/api/src/lib/narrationAutoFlow.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
