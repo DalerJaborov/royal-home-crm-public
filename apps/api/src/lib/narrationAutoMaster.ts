@@ -38,6 +38,7 @@ import { separateVoice, voiceSeparatorUrl, VOICE_SEPARATOR_RESIDUAL_SPEECH_SEC_M
 const STALE_CLAIM_MS = 40 * 60_000;
 const TRANSIENT_ATTEMPTS = 3;
 const RETRY_PAUSE_MS = 10 * 60_000;
+const ABSENT_RETRY_MS = 30 * 60_000;
 
 export type MachineMasterOutcome = "REMIXED" | "MADE" | "SKIPPED" | "FAILED" | "RETRY";
 /** Шаги потока озвучки (lib/narrationAutoFlow.ts) — параметрами, без цикла импортов. */
@@ -149,6 +150,17 @@ async function makeClaimed(propertyId: string, deps: MachineMasterDeps, now: Dat
       if (!sep.ok) {
         // Сервис перезапускался (выкат) или ответил 5xx — не приговор ролику: повтор с паузой.
         // Нет сервиса вовсе или не уложился в предел — сразу монтажёру (скорость важнее).
+        // Сервиса нет в сети вовсе (контейнер не поднят — ENOTFOUND; прод 17.11.2026, №204): это не
+        // приговор ролику. Голос вклеивал монтажёр — ему сразу, как раньше; иначе без отметки отказа,
+        // тихий повтор через 30 мин: поднимут сервис — ролик подхватится сам. Одна строка журнала на всех.
+        if (sep.code === "ABSENT") {
+          const sent = await handOff(deps, c);
+          if (sent !== "SOUND_REMAKE" && sent !== "ADD_VOICE") {
+            await prisma.property.updateMany({ where: { id: c.id, videoHandoffFinalPath: c.finalPath }, data: { videoMasterAutoRetryAt: new Date(now.getTime() + ABSENT_RETRY_MS) } });
+          }
+          void logSystemError("video-handoff", `Сервис отделения голоса (voice-separator) не поднят на сервере: старый голос из вышедших роликов CRM пока не убирает, повтор каждые 30 мин. ${sep.error}`, { dedupKey: "voice-separator-absent" });
+          return "RETRY";
+        }
         if (sep.code === "FAILED" && c.attempts + 1 < TRANSIENT_ATTEMPTS) {
           await prisma.property.updateMany({ where: { id: c.id, videoHandoffFinalPath: c.finalPath },
             data: { videoMasterAutoAttempts: { increment: 1 }, videoMasterAutoRetryAt: new Date(now.getTime() + RETRY_PAUSE_MS) } });
@@ -192,21 +204,24 @@ async function fail(deps: MachineMasterDeps, c: Pick<Need, "id" | "shortId" | "f
   const head = kind === "VOICE_LEFT" ? "Старый голос не убрался" : kind === "OFF" ? "Машина выключена" : "Старый голос убрать не получилось";
   await prisma.property.updateMany({ where: { id: c.id, videoHandoffFinalPath: c.finalPath },
     data: { videoMasterAutoError: `${head}: ${reason}`.slice(0, 500), videoMasterAutoErrorFinalPath: c.finalPath, videoMasterAutoRetryAt: null } });
-  // Версия — свежая на момент отказа (ревью 16.11): за минуты отделения могли одобрить новую.
-  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: c.id }, orderBy: { revision: "desc" }, select: { id: true, status: true, approvedAt: true } });
-  let sent = "WAITING_FOR_MONTAGE";
-  if (latest?.status === "READY" && latest.approvedAt) {
-    sent = await deps.toMontajer(c.id, latest.id).catch((err) => {
-      void logSystemError("video-handoff", `Объект №${c.shortId}: возврат монтажёру после отказа отделения голоса не поставлен: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-auto-master-fallback:${latest.id}` });
-      return "ERROR";
-    });
-  }
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: c.id }, orderBy: { revision: "desc" }, select: { id: true } });
+  const sent = await handOff(deps, c);
   const toEditor = sent === "SOUND_REMAKE" || sent === "ADD_VOICE";
   if (kind === "OFF") return "FAILED";
   void logSystemError("video-handoff", `Объект №${c.shortId}: старый голос из ролика не убран — ${reason} ${toEditor
     ? "Объект ушёл монтажёру заменить звук."
     : "Монтажёру не ушло (голос в ролике вклеен не по передаче CRM) — в соцсетях прежний ролик; решите вручную."}`, { dedupKey: `narration-auto-master:${c.id}:${latest?.id ?? "none"}` });
   return "FAILED";
+}
+
+/** Монтажёру по-старому свежей одобренной версией (ревью 16.11: за минуты отделения могли одобрить новую). */
+async function handOff(deps: MachineMasterDeps, c: Pick<Need, "id" | "shortId">): Promise<string> {
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: c.id }, orderBy: { revision: "desc" }, select: { id: true, status: true, approvedAt: true } });
+  if (latest?.status !== "READY" || !latest.approvedAt) return "WAITING_FOR_MONTAGE";
+  return deps.toMontajer(c.id, latest.id).catch((err) => {
+    void logSystemError("video-handoff", `Объект №${c.shortId}: возврат монтажёру после отказа отделения голоса не поставлен: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-auto-master-fallback:${latest.id}` });
+    return "ERROR";
+  });
 }
 
 /**

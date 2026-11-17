@@ -252,14 +252,20 @@ describe.skipIf(!ffmpegReady)("старый голос убирает CRM (16.11
     expect(sep.calls).toBe(3);
     expect(sendBack).toHaveBeenCalledTimes(1);
 
-    // Сервиса нет вовсе (образ не собран) или не уложился в предел — сразу монтажёру, без повторов.
+    // Не уложился в предел — сразу монтажёру, без повторов.
     sendBack.mockClear();
-    for (const code of ["ABSENT", "TIMEOUT"] as const) {
-      sep.failCode = code;
-      const x = await priceChanged(media.v3);
-      expect(await makeMachineMaster(x.p.id)).toBe("FAILED");
-    }
-    expect(sendBack).toHaveBeenCalledTimes(2);
+    sep.failCode = "TIMEOUT";
+    const t = await priceChanged(media.v3);
+    expect(await makeMachineMaster(t.p.id)).toBe("FAILED");
+    expect(sendBack).toHaveBeenCalledTimes(1);
+
+    // Сервиса нет вовсе (прод 17.11, ENOTFOUND): голос вклеивал монтажёр — ему сразу, но БЕЗ отметки отказа.
+    sendBack.mockClear();
+    sep.failCode = "ABSENT";
+    const x = await priceChanged(media.v3);
+    expect(await makeMachineMaster(x.p.id)).toBe("RETRY");
+    expect(sendBack).toHaveBeenCalledTimes(1);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: x.p.id } })).videoMasterAutoErrorFinalPath).toBeNull();
     sep.failCode = "FAILED";
     expect((await prisma.property.findUniqueOrThrow({ where: { id: a.p.id } })).videoMasterAutoError).toContain("недоступен");
 
@@ -319,6 +325,22 @@ describe.skipIf(!ffmpegReady)("старый голос убирает CRM (16.11
     expect(sendBack).not.toHaveBeenCalled();
     expect(await narrationMixNoteFor(after, v1)).toContain("в соцсетях пока прежний ролик");
     await waitFor(() => prisma.errorLog.findFirst({ where: { message: { contains: `Объект №${p.shortId}: старый голос из ролика не убран` } } }));
+  });
+
+  it("№204 (прод 17.11): сервиса нет, голос вклеен не по передаче CRM — не клеймится; подняли сервис — ролик подхватывается сам", async () => {
+    sep.fail = "Сервис отделения голоса недоступен: getaddrinfo ENOTFOUND voice-separator";
+    sep.failCode = "ABSENT";
+    const p = await seedPublished();
+    await prisma.property.update({ where: { id: p.id }, data: { price: 65000 } });
+    await seedVersion(p.id, 1, media.v3);
+    expect(await makeMachineMaster(p.id)).toBe("RETRY");
+    const waiting = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(waiting.videoMasterAutoErrorFinalPath).toBeNull();
+    expect(waiting.videoMasterAutoRetryAt).not.toBeNull();
+    expect(sendBack).not.toHaveBeenCalled();
+    expect(await makeMachineMaster(p.id)).toBe("SKIPPED");
+    sep.fail = null;
+    expect(await makeMachineMaster(p.id, new Date(Date.now() + 31 * 60_000))).toBe("REMIXED");
   });
 
   it("ролик без звука вовсе: убирать нечего, мастер = ролик, новая озвучка ложится", async () => {
