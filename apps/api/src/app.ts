@@ -976,14 +976,22 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   // как отправил заявленный объём (реальный обрыв связи), или тело пришло
   // целиком, а порвал его кто-то посередине (прокси/таймаут) — это и есть ответ
   // на вопрос «где именно рвётся».
-  if (err instanceof Error && /unexpected end of form/i.test(err.message)) {
+  //
+  // «Request aborted» (17.11.2026, журнал прода после #254) — тот же обрыв, но
+  // замеченный раньше: multer сам слушает `req.on("aborted")` и бросает обычный
+  // Error с этим текстом. Ловился общим «[unhandled]» и будил директора пушем
+  // «новая проблема». Это эксплуатационный шум (человек закрыл вкладку или
+  // пропала связь), поэтому та же ветка и без пуша (`silent`). Обрыв ЧАСТИ при
+  // загрузке частями сюда не попадает: там express.raw, его `request.aborted`
+  // отвечает 400 выше без записи.
+  if (err instanceof Error && /unexpected end of form|^request aborted$/i.test(err.message)) {
     const propertyId = typeof _req.params?.id === "string" ? _req.params.id : null;
     void logSystemError(
       "api",
-      `Обрыв загрузки фото (Unexpected end of form): объект ${propertyId ?? "?"}, ` +
+      `Обрыв загрузки файла (${err.message}): объект ${propertyId ?? "?"}, ` +
         `Content-Length ${_req.headers["content-length"] ?? "?"}, получено байт ${_req.socket.bytesRead}, ` +
         `UA ${String(_req.headers["user-agent"] ?? "?").slice(0, 200)}`,
-      { url: _req.originalUrl.split("?")[0], dedupKey: `upload-abort:${propertyId ?? "unknown"}` }
+      { url: _req.originalUrl.split("?")[0], dedupKey: `upload-abort:${propertyId ?? "unknown"}`, silent: true }
     );
     // retryable — очередь на клиенте (uploadQueue.ts) и так считает 5xx
     // повторяемым сама по коду ответа, но явное поле в теле дешёвое и снимает
