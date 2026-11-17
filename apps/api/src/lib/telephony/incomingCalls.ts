@@ -718,7 +718,10 @@ async function setupIncomingCall(entry: LiveIncoming): Promise<void> {
 async function findArchiveReviewerForCallback(entry: LiveIncoming, matchedDeletedId: string): Promise<void> {
   try {
     // Вне часов приёма звонок звонившему не переводим: пуш о пропущенном ночью не уходит, и клиент потерялся бы молча (ревью 17.11).
-    if (!incomingHoursOpen(await loadIncomingSettings())) return;
+    const incoming = await loadIncomingSettings();
+    // Рубильник (Настройки → Телефония): выключен — звонок идёт оператору, как у незнакомого номера.
+    if (!incoming.archiveCallbackEnabled) return;
+    if (!incomingHoursOpen(incoming)) return;
     const deletedOwners = await findPhoneOwners([entry.phone], { includeDeleted: true, limit: 10 });
     const deletedIds = [...new Set([matchedDeletedId, ...deletedOwners.filter((o) => o.deletedAt).map((o) => o.id)])];
     const review = await prisma.interaction.findFirst({

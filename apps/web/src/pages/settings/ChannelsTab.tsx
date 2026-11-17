@@ -3368,6 +3368,16 @@ function RouteToAgentSetting() {
           flex его перебивает — блок остался бы видимым (грабля этого проекта). */}
       {on && (
         <>
+          <SwitchRow
+            title="Перезвон клиента из Корзины — тому, кто ему звонил"
+            on={settings?.incomingArchiveCallbackEnabled ?? false}
+            hint={
+              settings?.incomingArchiveCallbackEnabled
+                ? "Клиент, которому РОП звонила из Корзины, перезвонил в течение 3 суток: станция звонит ей до 15 с, не взяла — звонок идёт оператору."
+                : "Такой звонок идёт оператору, как у незнакомого номера."
+            }
+            onToggle={() => updateSettings.mutate({ incomingArchiveCallbackEnabled: !(settings?.incomingArchiveCallbackEnabled ?? false) })}
+          />
           <RingSecondsSetting
             key={seconds}
             value={seconds}

@@ -57,7 +57,17 @@ let liveId = "";
 
 const ARCHIVE_GRANTS = { granted: ["clients.callArchived", "archive.view", "clients.viewAll"], revoked: [] };
 
+let switchBefore = false;
+
 beforeAll(async () => {
+  // Рубильник перезвона выключен по умолчанию; здесь включаем его и возвращаем в afterAll.
+  const row = await prisma.settings.upsert({
+    where: { id: "singleton" },
+    update: { incomingArchiveCallbackEnabled: true },
+    create: { id: "singleton", incomingArchiveCallbackEnabled: true },
+    select: { incomingArchiveCallbackEnabled: true },
+  });
+  switchBefore = false; void row;
   const mk = async (name: string, p: string, role: "HEAD_OF_SALES" | "AGENT", extension: string | null, permissions?: object) =>
     (
       await prisma.agent.create({
@@ -92,6 +102,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
+  await prisma.settings.update({ where: { id: "singleton" }, data: { incomingArchiveCallbackEnabled: switchBefore } });
   await prisma.client.deleteMany({ where: { id: deletedId } });
   await prisma.agent.deleteMany({ where: { id: { in: [reviewerId, plainAgentId, operatorId] } } });
   await prisma.$disconnect();
@@ -247,6 +258,21 @@ describe("перезвон клиента из Корзины: кому и чт�
     await settle();
     expect(routeCalls.every((c) => !c.archiveReviewerId)).toBe(true);
     expect(pushTargets()).not.toContain(plainAgentId);
+  });
+
+  it("рубильник выключен (по умолчанию) — перевода звонившему и пуша нет, звонок идёт как у незнакомого номера", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { incomingArchiveCallbackEnabled: false } });
+    try {
+      await reviewCall(reviewerId);
+      const id = `cb-off-${runId}`;
+      await ring(id);
+      await hangup(id);
+      await settle();
+      expect(routeCalls.every((c) => !c.archiveReviewerId)).toBe(true);
+      expect(pushTargets()).not.toContain(reviewerId);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { incomingArchiveCallbackEnabled: true } });
+    }
   });
 
   it("право снято уже после звонка разбора — в момент перезвона проверяется заново", async () => {
