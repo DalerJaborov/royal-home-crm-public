@@ -14,7 +14,7 @@
  "totals": {
   "screens": 49,
   "paths": 769,
-  "cron": 138,
+  "cron": 139,
   "jobs": 33,
   "conditions": 4051,
   "untranslatedUnique": 469,
@@ -71922,6 +71922,12 @@
      ]
     }
    ]
+  },
+  {
+   "id": "narration-auto-master",
+   "when": "* * * * *",
+   "label": "narration-auto-master",
+   "tree": []
   },
   {
    "id": "narration-version-delivery",
