@@ -130,5 +130,6 @@ export * from "./formerStaff.js";
 export * from "./robotCallPolicy.js";
 export * from "./liveVoiceSpend.js";
 export * from "./metaEternal.js";
+export * from "./functionStatus.js";
 
 export * from "./reportPdf.js";
