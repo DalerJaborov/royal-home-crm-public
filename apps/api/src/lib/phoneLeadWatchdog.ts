@@ -68,6 +68,8 @@ export const PHONE_WATCH_WINDOW_HOURS = 72;
 /** Сколько последних реплик клиента разбираем в каждом диалоге: номер всегда рядом
  *  с концом разговора, а читать всю историю ради этого — лишняя работа. */
 const LOOK_BACK_MESSAGES = 30;
+/** Реплик клиента с конца, в которых слова аренды (снять) ещё делают заявку арендной. */
+const RECENT_RENT_TURNS = 3;
 
 /** Предел выборки: любой запрос, возвращающий массив, обязан иметь потолок. */
 const MAX_CONVERSATIONS = 500;
@@ -402,7 +404,9 @@ export function watchdogLeadDraft(row: Pick<PhoneWithoutLead, "draft" | "coreTop
   const texts = clientTexts(row.history);
   // Сдающий/снимающий — аренда по ЛЮБОЙ реплике, не только по реплике с номером (ревью 194-2):
   // словесный разбор ядра пишет арендодателя в «продавцы», а аренду не берём (владелец 21.08).
-  if (texts.some((text) => { const s = customerRoleSignals(text); return s.landlord || s.rent; })) return { ...draft, intent: "rent" };
+  // Снимающий — только по последним трём репликам клиента: «снять» из давней реплики не делает покупателя арендатором (17.11.2026).
+  const recent = texts.slice(-RECENT_RENT_TURNS);
+  if (texts.some((text) => customerRoleSignals(text).landlord) || recent.some((text) => customerRoleSignals(text).rent)) return { ...draft, intent: "rent" };
   const role = customerAgentIntake(texts.map((text) => ({ role: "user" as const, text }))).role;
   const intent = role === "buyer" ? "buy" : role === "seller" ? "sell" : null;
   // Разбор слов — догадка, не уверенность: без `confident` приём перепроверит направление сам.
