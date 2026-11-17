@@ -48,6 +48,7 @@ const CRON_TITLES: Record<string, string> = {
   "market-own-match": "Сопоставление рынка с нашими объектами",
   "director-alert-queue-flush": "Доставка тревог руководству",
   "somon-owner-leads": "Заявки с Somon собственникам",
+  "somon-owner-leads-silence": "Сторож тишины заявок Somon",
   "live-voice-spend-ceiling": "Потолок минут робота",
   "live-voice-orphan-sweep": "Уборка зависших звонков робота",
   "live-calls-sweep": "Досчёт живых звонков",
