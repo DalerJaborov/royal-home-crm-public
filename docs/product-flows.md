@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **769**. Развилок в самих путях: **2503**; вместе с задачами по расписанию и фоновыми заданиями — **4074**. Модулей: **86**.
+Путей: **772**. Развилок в самих путях: **2508**; вместе с задачами по расписанию и фоновыми заданиями — **4079**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -17477,6 +17477,65 @@
 
 - res.json(await getSocialVideoTrends({ refresh: req.query.refresh === "1" }));
   · ответ 200
+
+### POST /api/v1/social-videos/upload-sessions/:sessionId/complete
+
+`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+
+- пробует
+  - const fields = socialVideoCreateFieldsSchema.safeParse(req.body ?? {});
+    · проверяет данные схемой socialVideoCreateFieldsSchema
+  - если !fields.success
+    - res.status(400).json({ error: fields.error.issues[0]?.message ?? "Неверные поля формы" });
+      · ответ 400
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const assembled = await assembleSocialVideoUpload(String(req.params.sessionId), req.agent!.id);
+    · зовёт assembleSocialVideoUpload()
+  - const item = await createSocialVideoFromUpload({ tmpPath: assembled.tmpPath, originalName: assembled.original…
+    · зовёт createSocialVideoFromUpload()
+  - logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { sizeBytes: item.sizeBytes, durationSec: i…
+    · зовёт logAudit()
+  - res.status(201).json(item);
+    · ответ 201
+- если сорвалось
+  - если err instanceof SocialVideoError
+    - res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+    - return;
+      · дальше не идёт, ничего не меняя
+- в любом случае
+  - если tmpPath
+    - await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+      · дословно из кода
+
+### PUT /api/v1/social-videos/upload-sessions/:sessionId/parts/:partNumber
+
+`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, express.raw({ type: () => true, limit: "16mb" })
+
+- если !Buffer.isBuffer(body)
+  - res.status(400).json({ error: "Пустая часть" });
+    · ответ 400 — «Пустая часть»
+  - return;
+    · дальше не идёт, ничего не меняя
+- await writeSocialVideoPart({ sessionId: String(req.params.sessionId), agentId: req.agent!.id, partNumber: Num…
+  · зовёт writeSocialVideoPart()
+- res.json({ ok: true });
+  · ответ 200
+
+### POST /api/v1/social-videos/upload-sessions
+
+`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+
+- const parsed = uploadStartSchema.safeParse(req.body);
+  · проверяет данные схемой uploadStartSchema
+- если !parsed.success
+  - res.status(400).json({ error: "Неверные данные файла" });
+    · ответ 400 — «Неверные данные файла»
+  - return;
+    · дальше не идёт, ничего не меняя
+- res.status(201).json(await startSocialVideoUpload({ agentId: req.agent!.id, ...parsed.data }));
+  · ответ 201
 
 ### GET /api/v1/social-videos
 

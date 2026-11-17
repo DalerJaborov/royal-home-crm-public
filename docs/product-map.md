@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 70 |
 | Из них видно в меню | 33 |
 | Модулей сервера | 86 |
-| Адресов сервера всего | 763 |
+| Адресов сервера всего | 766 |
 | Задач по расписанию | 132 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -188,7 +188,7 @@
 | `/api/v1/security` | Кабинет службы безопасности | 24 | да (6 мест) | `apps/api/src/routes/security.ts` |
 | `/api/v1/maintenance/data-corrections` | **без подписи** | 5 | нет | `apps/api/src/routes/manualDataCorrections.ts` |
 | `/api/v1/marketing` | Кабинет маркетинга и монтажа | 23 | да (3 мест) | `apps/api/src/routes/marketing.ts` |
-| `/api/v1/social-videos` | **без подписи** | 21 | да (2 мест) | `apps/api/src/routes/socialVideos.ts` |
+| `/api/v1/social-videos` | **без подписи** | 24 | да (2 мест) | `apps/api/src/routes/socialVideos.ts` |
 | `/api/v1/webhooks` | Входящие от WhatsApp, Instagram, Telegram, сайта, станции | 1 | нет | `apps/api/src/routes/budgetWebhook.ts` |
 | `/api/v1/ads/callback` | Возврат из рекламного кабинета после подключения | 1 | да (2 мест) | `apps/api/src/routes/ads.ts` |
 | `/api/v1/ads` | Реклама Meta: расходы и привязка объявлений | 19 | да (2 мест) | `apps/api/src/routes/ads.ts` |
