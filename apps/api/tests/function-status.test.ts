@@ -101,6 +101,15 @@ describe("реестр функций и расчёт состояния", () =>
     expect(item("bot-say-mode", input({ env: { CUSTOMER_AGENT_SAY_MODE: "live" } })).state).toBe("working");
   });
 
+  it("ответ своими словами: live считается по списку каналов, пустой список — только проверка", () => {
+    expect(item("bot-answer-mode", input({ env: {} })).state).toBe("preview");
+    expect(item("bot-answer-mode", input({ env: { CUSTOMER_AGENT_ANSWER_MODE: "off" } })).state).toBe("off");
+    expect(item("bot-answer-mode", input({ env: { CUSTOMER_AGENT_ANSWER_MODE: "live" } })).state).toBe("preview");
+    const fb = item("bot-answer-mode", input({ env: { CUSTOMER_AGENT_ANSWER_MODE: "live", CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "facebook" } }));
+    expect(fb.state).toBe("working");
+    expect(fb.reason).toContain("FACEBOOK");
+  });
+
   it("сторож пауз бота: выключен тумблером — внимание", () => {
     const off = item("bot-pause-watch", input({}, { botPauseWatchEnabled: false }));
     expect(off.state).toBe("off");

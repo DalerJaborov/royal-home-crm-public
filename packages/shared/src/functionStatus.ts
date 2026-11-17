@@ -87,7 +87,7 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     title: "Ответ бота своими словами",
     what: "Бот пишет клиенту весь ответ своими словами вокруг проверенных фактов, а не только готовым шаблоном.",
     group: "bot",
-    env: ["CUSTOMER_AGENT_ANSWER_MODE"],
+    env: ["CUSTOMER_AGENT_ANSWER_MODE", "CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS"],
     errorSources: ["ai"],
   },
   {
