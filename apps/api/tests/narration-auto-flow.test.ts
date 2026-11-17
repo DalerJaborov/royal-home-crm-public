@@ -67,6 +67,7 @@ vi.mock("../src/db.js", async (importOriginal) => {
     propertyNarrationVersion: versionModel, propertyNarrationDelivery: deliveryModel,
     // Образцы голосов (11.11.2026) считаются в том же дневном потолке; здесь их нет.
     narrationVoiceSample: { findMany: vi.fn(async () => []) },
+    freeNarration: { findMany: vi.fn(async () => []) },
   };
   return { ...await importOriginal<typeof import("../src/db.js")>(), prisma: { ...db, $transaction: (fn: (tx: typeof db) => unknown) => fn(db) } };
 });
