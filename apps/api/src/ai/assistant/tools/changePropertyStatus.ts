@@ -174,8 +174,10 @@ const asRequest = makeChangeRequestExecutor<Args>({
   },
 });
 
-const requestUndo = asRequest.transactionalUndo;
-if (!requestUndo) throw new Error("change_property_status: у заявки нет отката");
+function missingRequestUndo(): never {
+  throw new Error("change_property_status: у заявки нет отката");
+}
+const requestUndo = asRequest.transactionalUndo ?? missingRequestUndo();
 
 function directPreview(args: Args, property: PropertyRecord): AssistantActionPreview {
   const from = property.status as PropertyStatus;
