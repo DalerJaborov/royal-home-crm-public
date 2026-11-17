@@ -27,15 +27,15 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     expect(renderNarrationTemplate(tg, { ...apartment, totalFloors: null })).toContain("Ошёнаи панҷум.");
     expect(/\d/u.test(renderNarrationTemplate(tg, apartment))).toBe(false);
   });
-  it("keeps digits for Russian and capitalises sentence starts", () => {
-    expect(renderNarrationTemplate({ lang: "ru", text: "в продаже {вид}. [комнат: {комнаты}.] площадь {площадь} метров." }, apartment)).toBe("В продаже квартира. Комнат: 3. Площадь 86 метров.");
+  it("Russian is spoken in words too (owner 17.11.2026) and capitalises sentence starts", () => {
+    expect(renderNarrationTemplate({ lang: "ru", text: "в продаже {вид}. [комнат: {комнаты}.] площадь {площадь} метров." }, apartment)).toBe("В продаже квартира. Комнат: три. Площадь восемьдесят шесть метров.");
   });
   it("ordinals and the moved speech-number module agree", () => {
     expect([1, 2, 3, 4, 10, 30, 31].map(tajikOrdinal)).toEqual(["якум", "дуюм", "сеюм", "чорум", "даҳум", "сиюм", "сиву якум"]);
     expect(tajikCardinal(86)).toBe("ҳаштоду шаш");
     expect(tajikSpeechNumbers("3 ҳуҷра")).toBe("се ҳуҷра");
     expect(narrationSpeechText("3 ҳуҷра, 86 м²", "tg")).toBe("се ҳуҷра, ҳаштоду шаш метри мураббаъ");
-    expect(narrationSpeechText("3 комнаты", "ru")).toBe("3 комнаты");
+    expect(narrationSpeechText("3 комнаты", "ru")).toBe("три комнаты");
   });
   it("rejects unknown placeholders, unbalanced brackets and long dashes in owner templates", () => {
     expect(narrationTemplateError("{стоимость} сомонӣ")).toMatch(/Неизвестное/);
@@ -85,8 +85,8 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     expect(narrationPriceWords("390000.00", "TJS", "tg")).toBe("сесаду навад ҳазор сомонӣ");
     expect(narrationPriceWords(null, "USD", "tg")).toBe("бо мувофиқа");
     expect(narrationPriceWords("0", "TJS", "ru")).toBe("договорная");
-    expect(["1", "2", "5", "11", "21", "22"].map((p) => narrationPriceWords(p, "USD", "ru"))).toEqual(["1 доллар", "2 доллара", "5 долларов", "11 долларов", "21 доллар", "22 доллара"]);
-    expect(narrationPriceWords("390000", "TJS", "ru")).toBe("390000 сомони");
+    expect(["1", "2", "5", "11", "21", "22"].map((p) => narrationPriceWords(p, "USD", "ru"))).toEqual(["один доллар", "два доллара", "пять долларов", "одиннадцать долларов", "двадцать один доллар", "двадцать два доллара"]);
+    expect(narrationPriceWords("390000", "TJS", "ru")).toBe("триста девяносто тысяч сомони");
     const text = renderNarrationTemplate({ lang: "tg", text: "Нархаш {цена}." }, apartment);
     expect(text).toBe("Нархаш ҳаштоду панҷ ҳазор доллар.");
     expect(/\d/u.test(renderNarrationTemplate(seeded[0], apartment))).toBe(false);
@@ -98,5 +98,34 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     expect(quota).toHaveBeenCalledTimes(1);
     const other = vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: { status: "invalid_api_key" } }), { status: 401 }));
     expect(await generateNarrationAudio({ script: "Квартира барои фурӯш.", voiceId: "voice", config, apiKey: "test-key" }, other)).toEqual({ status: "FAILED", errorCode: "PROVIDER_HTTP_401" });
+  });
+});
+
+/** 17.11.2026, правки к #252 (оба языка): телефон по группам, «N из M» и этаж в нужном падеже, дроби до целого. */
+describe("цифры в речи: телефоны, этажи, дроби", () => {
+  it("слитный номер — по группам, как диктуют, а не «девятьсот миллионов»", () => {
+    expect(narrationSpeechText("Звоните 900123456.", "ru")).toBe("Звоните девяносто, ноль двенадцать, тридцать четыре, пятьдесят шесть.");
+    expect(narrationSpeechText("Занг занед 900123456.", "tg")).toBe("Занг занед навад, сифр дувоздаҳ, сиву чор, панҷоҳу шаш.");
+    expect(narrationSpeechText("Номер +992 90 123 45 67.", "ru")).toBe("Номер плюс девятьсот девяносто два, девяносто, сто двадцать три, сорок пять, шестьдесят семь.");
+    expect(narrationSpeechText("Рақам 90-123-45-67.", "tg")).toBe("Рақам навад, саду бисту се, чилу панҷ, шасту ҳафт.");
+    for (const [text, lang] of [["Звоните 900123456", "ru"], ["Занг занед 900123456", "tg"]] as const) expect(narrationSpeechText(text, lang)).not.toMatch(/миллион/u);
+  });
+  it("цена с пробелами тысяч и цена с валютой — по-прежнему числом", () => {
+    expect(narrationSpeechText("Цена 1 200 000 сомони.", "ru")).toBe("Цена один миллион двести тысяч сомони.");
+    expect(narrationSpeechText("Нархаш 1 200 000 сомонӣ.", "tg")).toBe("Нархаш як миллиону дусад ҳазор сомонӣ.");
+    expect(narrationSpeechText("Цена 120000000 сомони.", "ru")).toBe("Цена сто двадцать миллионов сомони.");
+    expect(narrationSpeechText("Нархаш 120000000 сомонӣ.", "tg")).toBe("Нархаш саду бист миллион сомонӣ.");
+  });
+  it("этаж и «из N» по-человечески", () => {
+    expect(narrationSpeechText("14 этаж из 20.", "ru")).toBe("четырнадцатый этаж из двадцати.");
+    expect(narrationSpeechText("Квартира на 14 этаже, вид с 21-го этажа.", "ru")).toBe("Квартира на четырнадцатом этаже, вид с двадцать первого этажа.");
+    expect(narrationSpeechText("Ошёнаи 14 аз 20.", "tg")).toBe("Ошёнаи чордаҳум аз бист.");
+  });
+  it("дробная площадь и крупная сумма — до целого; мелкая дробная сумма и дата остаются (текстом, не голосом)", () => {
+    expect(narrationSpeechText("Площадь 117,85 м².", "ru")).toBe("Площадь сто восемнадцать квадратных метров.");
+    expect(narrationSpeechText("Масоҳат 117,85 м².", "tg")).toBe("Масоҳат саду ҳаждаҳ метри мураббаъ.");
+    expect(narrationSpeechText("Цена 85000,50 долларов.", "ru")).toBe("Цена восемьдесят пять тысяч долларов.");
+    expect(tajikSpeechNumbers("Нарх 99,5 сомонӣ.")).toBeNull();
+    expect(narrationSpeechText("Показ 03.11.2026.", "ru")).toBe("Показ 03.11.2026.");
   });
 });

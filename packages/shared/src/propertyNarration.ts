@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
+import { russianSpeechNumbers } from "./russianSpeechNumbers.js";
+import { numberToWords, russianGenitive, russianOrdinal } from "./spokenNumber.js";
 
 /**
  * ОЗВУЧКА РОЛИКА ОБЪЕКТА — ОДИН ИСТОЧНИК ПРАВИЛ ТЕКСТА (11.11.2026).
@@ -254,13 +256,13 @@ function rubPlural(n: number, one: string, few: string, many: string): string {
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
   return many;
 }
-/** Цена для озвучки: словами по-таджикски, цифрами по-русски, валюта из карточки; нет цены — «договорная». */
+/** Цена для озвучки: словами на обоих языках (17.11.2026: «цифры всегда буквами»), валюта из карточки; нет цены — «договорная». */
 export function narrationPriceWords(price: string | null | undefined, currency: string | null | undefined, lang: NarrationLang): string {
   const value = Math.round(Number(price));
   if (!price || !Number.isFinite(value) || value <= 0) return lang === "tg" ? "бо мувофиқа" : "договорная";
   const usd = currency === "USD";
   if (lang === "tg") return `${tajikCardinal(value)} ${usd ? "доллар" : "сомонӣ"}`;
-  return `${value} ${usd ? rubPlural(value, "доллар", "доллара", "долларов") : "сомони"}`;
+  return `${numberToWords(value, "ru")} ${usd ? rubPlural(value, "доллар", "доллара", "долларов") : "сомони"}`;
 }
 const TYPE_WORDS: Record<NarrationLang, Record<string, string>> = {
   tg: { APARTMENT: "квартира", HOUSE: "ҳавлӣ", LAND: "замин", COMMERCIAL: "ҷои тиҷоратӣ" },
@@ -270,7 +272,8 @@ const TYPE_WORDS: Record<NarrationLang, Record<string, string>> = {
 function spokenNumber(value: number | null, lang: NarrationLang, ordinal = false): string {
   if (value === null || !Number.isFinite(value) || value <= 0) return "";
   const whole = Math.round(value);
-  if (lang === "ru") return String(whole);
+  // Русский тоже словами (17.11.2026, владелец: «цифры всегда буквами, ИИ не справляется»).
+  if (lang === "ru") return ordinal ? russianOrdinal(whole) : numberToWords(whole, "ru");
   return ordinal ? tajikOrdinal(whole) : tajikCardinal(whole);
 }
 
@@ -287,9 +290,9 @@ export function narrationLandAreaWords(type: string, areaSqm: number | null, lan
   const whole = Math.round(areaSqm);
   if (whole % 100 === 0) {
     const sotki = whole / 100;
-    return lang === "tg" ? `${tajikCardinal(sotki)} сотиқ` : `${sotki} ${rubPlural(sotki, "сотка", "сотки", "соток")}`;
+    return lang === "tg" ? `${tajikCardinal(sotki)} сотиқ` : `${numberToWords(sotki, "ru", { feminine: true })} ${rubPlural(sotki, "сотка", "сотки", "соток")}`;
   }
-  return lang === "tg" ? `${tajikCardinal(whole)} метри мураббаъ` : `${whole} ${rubPlural(whole, "квадратный метр", "квадратных метра", "квадратных метров")}`;
+  return lang === "tg" ? `${tajikCardinal(whole)} метри мураббаъ` : `${numberToWords(whole, "ru")} ${rubPlural(whole, "квадратный метр", "квадратных метра", "квадратных метров")}`;
 }
 
 function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<string, string> {
@@ -301,7 +304,8 @@ function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<s
     сотки: narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang),
     этаж: spokenNumber(facts.floor, lang),
     этаж_пор: spokenNumber(facts.floor, lang, true),
-    этажей: spokenNumber(facts.totalFloors, lang),
+    // По-русски этажность стоит после «из»: «пятый этаж из девяти».
+    этажей: lang === "ru" && facts.totalFloors && facts.totalFloors > 0 ? russianGenitive(facts.totalFloors) : spokenNumber(facts.totalFloors, lang),
     район: facts.district?.trim() ?? "",
     // Цена есть всегда: без неё — «договорная», поэтому фрагмент с {цена} не выпадает.
     цена: narrationPriceWords(facts.price, facts.currency, lang),
@@ -329,7 +333,10 @@ export function narrationTemplateStructureError(text: string): string | null {
 }
 /** Новые правила владельца 16.11.2026: цифры, «Direct», «брон». Применяются только к новым и изменённым текстам. */
 export function narrationTemplateRulesError(text: string, lang?: NarrationLang): string | null {
-  if (lang !== "ru" && /\p{Nd}/u.test(text.replace(/\{[^{}]*\}/gu, ""))) return "В таджикском тексте цифры не пишем: числа только словами, например «се», а не «3». Цифры из объекта подставляют слова в фигурных скобках";
+  // 17.11.2026: и в русском (владелец: «цифры всегда буквами, ИИ не справляется»).
+  if (/\p{Nd}/u.test(text.replace(/\{[^{}]*\}/gu, ""))) return lang === "ru"
+    ? "Цифры в тексте не пишем: числа только словами, например «три», а не «3». Цифры из объекта подставляют слова в фигурных скобках"
+    : "В таджикском тексте цифры не пишем: числа только словами, например «се», а не «3». Цифры из объекта подставляют слова в фигурных скобках";
   if (/direct/iu.test(text)) return "Слово Direct пишем по-русски: «Директ». Латиницей озвучка прочтёт его неверно";
   if (/брон/iu.test(text)) return "Слово «брон» в текстах озвучки не используем: замените, например, на «вақт интихоб кунед»";
   return null;
@@ -522,6 +529,7 @@ export function pickNarrationVoice(config: Pick<NarrationConfig, "voices" | "def
  * (дата, дробь) — текст остаётся как есть, агент услышит и поправит.
  */
 export function narrationSpeechText(script: string, lang: NarrationLang | null | undefined): string {
+  if (lang === "ru") return russianSpeechNumbers(script) ?? script;
   if (lang !== "tg") return script;
   return tajikSpeechNumbers(script) ?? script;
 }

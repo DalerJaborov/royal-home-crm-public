@@ -96,7 +96,8 @@ it("keeps a grouped amount together at a voice split boundary", async () => {
   const beforeAmount = "Хорошо, обсудим условия ".padEnd(176, "а");
   const input = beforeAmount + " 810 000 сомони за объект.";
   expect(await f.replay(input)).toBe(true);
-  expect(f.spoken).toEqual([input]);
+  // 17.11.2026: русская речь тоже без цифр — сумма целиком словами, в одной части.
+  expect(f.spoken).toEqual([input.replace("810 000", "восемьсот десять тысяч")]);
 });
 
 it("leaves a numeric paragraph written if Tajik number expansion makes it too long", async () => {

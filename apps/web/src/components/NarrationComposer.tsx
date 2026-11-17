@@ -111,7 +111,7 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
         <textarea aria-label="Текст озвучки" rows={5} maxLength={5000} readOnly={disabled} className="w-full rounded-lg border p-3 text-base leading-relaxed"
           value={text} onChange={(e) => onChange({ ...value, templateId: templateId ?? undefined, script: e.target.value })} />
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--muted)]">
-          <span>{edited ? "Текст изменён вами." : "Цифры и район подставлены из объекта, цена звучит словами. Можно поправить."}</span>
+          <span>{edited ? "Текст изменён вами." : "Числа и район подставлены из объекта и звучат словами. Можно поправить."}</span>
           {edited && !disabled && <button type="button" className="pill sm ghost" onClick={() => pickTemplate(templateId)}>Вернуть текст шаблона</button>}
         </div>
       </div>
