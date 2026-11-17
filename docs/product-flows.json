@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 765,
-  "forks": 4077,
+  "forks": 4080,
   "mounts": 87,
   "cron": 137,
   "jobs": 33,
@@ -50004,6 +50004,21 @@
       },
       {
        "k": "if",
+       "t": "outcome.status === \"UNCHANGED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Текст и голос такие же, как в текущей озвучке.\" });",
+         "a": [
+          "ответ 409 — «Текст и голос такие же, как в текущей озвучке.»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
        "t": "outcome.status !== \"QUEUED\"",
        "a": [],
        "c": [
@@ -61865,7 +61880,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const view: NarrationOptionsView = { templates: config.templates ?? [], voices: config.voices.map((v)",
+     "t": "const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices…",
      "a": [
       "зовёт narrationAutoEnabled()"
      ],
@@ -61981,6 +61996,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "unreadable",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сохранённые настройки озвучки не читаются, поэтому сохранение остановле…",
+       "a": [
+        "ответ 409 — «Сохранённые настройки озвучки не читаются, поэтому сохранение…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data…",
      "a": [
@@ -62033,6 +62063,28 @@
          "t": "return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });",
          "a": [
           "ответ 400 — «Шаблон «${template.name}»: ${problem}»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const ending of parsed.data.endings ?? []",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "problem",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: `Концовка «${ending.text.slice(0, 40)}…»: ${problem}` });",
+         "a": [
+          "ответ 400 — «Концовка «${ending.text.slice(0, 40)}…»: ${problem}»"
          ],
          "c": []
         }
