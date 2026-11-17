@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4058,
+  "forks": 4060,
   "mounts": 87,
   "cron": 140,
   "jobs": 33,
@@ -123664,6 +123664,29 @@
        "a": [],
        "c": [
         {
+         "k": "if",
+         "t": "await isCustomerIngressTicketChannelOff(eventKey)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.$executeRaw`UPDATE \"CustomerPropertyIngressTicket\" SET \"processingState\"='HELD',\"errorCode\"=${CU…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void reportUnansweredCustomerTurn(eventKey, CUSTOMER_CHANNEL_OFF_REASON);",
+           "a": [
+            "зовёт reportUnansweredCustomerTurn()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
          "t": "const result = await runCustomerDmAgentTurn(eventKey);",
          "a": [
@@ -133184,6 +133207,21 @@
       "зовёт runLegacyQualifyTurn()"
      ],
      "c": [
+      {
+       "k": "if",
+       "t": "isCustomerAgentChannelOff(options.channel ?? source.channel)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return channelOffTurn(history, options, source);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "do",
        "t": "const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);",

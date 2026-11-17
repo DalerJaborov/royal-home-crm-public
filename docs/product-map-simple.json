@@ -16,10 +16,10 @@
   "paths": 777,
   "cron": 140,
   "jobs": 33,
-  "conditions": 4031,
+  "conditions": 4033,
   "untranslatedUnique": 463,
   "untranslatedTotal": 596,
-  "partialUnique": 1088,
+  "partialUnique": 1090,
   "translatedShare": 85
  },
  "untranslated": [
@@ -79939,6 +79939,12 @@
        "a": [],
        "c": [
         {
+         "t": "если это customer ingress обращение канал off",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
          "t": "если статус (ответ) — «held»",
          "k": "if",
          "a": [],
@@ -84067,6 +84073,12 @@
      "k": "do",
      "a": [],
      "c": [
+      {
+       "t": "если это customer сотрудник канал off",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
       {
        "t": "если key && customerAgentChannelMode(key) === \"core\"",
        "k": "if",

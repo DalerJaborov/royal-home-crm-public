@@ -113,6 +113,20 @@ describe("реестр функций и расчёт состояния", () =>
     expect(item("bot-channel-core", input({ env: { CUSTOMER_AGENT_CHANNEL_CORE: "faceboook" } })).state).toBe("off");
   });
 
+  it("аварийный рубильник по каналам: пусто — работает, список — выключено с каналами, чужое имя названо", () => {
+    expect(item("bot-channel-off", input({ env: {} })).state).toBe("working");
+    const off = item("bot-channel-off", input({ env: { CUSTOMER_AGENT_CHANNEL_OFF: "instagram, website" } }));
+    expect(off.state).toBe("off");
+    expect(off.attention).toBe(true);
+    expect(off.reason).toContain("Бот выключен на каналах: Instagram, сайт");
+    const all = item("bot-channel-off", input({ env: { CUSTOMER_AGENT_CHANNEL_OFF: "all" } }));
+    expect(all.reason).toContain("личные сообщения Telegram-канала");
+    const typo = item("bot-channel-off", input({ env: { CUSTOMER_AGENT_CHANNEL_OFF: "instagrm" } }));
+    expect(typo.state).toBe("working");
+    expect(typo.attention).toBe(true);
+    expect(typo.reason).toContain("instagrm");
+  });
+
   it("ответ своими словами: live считается по списку каналов, пустой список — только проверка", () => {
     expect(item("bot-answer-mode", input({ env: {} })).state).toBe("preview");
     expect(item("bot-answer-mode", input({ env: { CUSTOMER_AGENT_ANSWER_MODE: "off" } })).state).toBe("off");
