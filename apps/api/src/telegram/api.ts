@@ -1,7 +1,12 @@
 import fsp from "node:fs/promises";
+import { openAsBlob } from "node:fs";
+import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
+import { raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
 import { requireModerationAccepted, telegramDeleteOutcome, type ModerationOutcome } from "../messengers/commentModerationOutcome.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -129,6 +134,16 @@ async function call<T>(method: string, body: Record<string, unknown>, timeoutMs 
       await sleep(waitMs);
       continue;
     }
+    // 401 — ключ бота отозван или заменён в BotFather: молчит весь Telegram (channelKeyAlarm.ts).
+    if (data.error_code === 401) {
+      void raiseChannelKeyAlarm({
+        key: "telegram-bot",
+        label: "Telegram-бот",
+        detail: data.description ?? "Unauthorized",
+        source: "telegram",
+        fix: "Проверьте ключ бота TELEGRAM_BOT_TOKEN на сервере (BotFather → /token).",
+      });
+    }
     throw new TelegramApiError(data.error_code, method, data.description ?? "неизвестная ошибка");
   }
 }
@@ -166,7 +181,7 @@ export async function sendMessage(
    * с сообщения все ограничения: живой сотрудник отвечает клиенту из CRM.
    * Умолчание — бот.
    */
-  outbound?: { origin?: OutboundOrigin; beforePost?: () => Promise<void>; requireReply?: boolean; singleAttempt?: boolean }
+  outbound?: { origin?: OutboundOrigin; beforePost?: () => Promise<void>; requireReply?: boolean; singleAttempt?: boolean; messageThreadId?: number }
 ): Promise<unknown> {
   /**
    * ЩИТ СТОРОЖИТ ТОЛЬКО КЛИЕНТСКИЕ ЧАТЫ (`onlyIfKnown`).
@@ -216,6 +231,7 @@ export async function sendMessage(
     last = await call("sendMessage", {
       chat_id: chatId,
       text: part,
+      ...(outbound?.messageThreadId ? { message_thread_id: outbound.messageThreadId } : {}),
       ...(directMessagesTopicId ? { direct_messages_topic_id: directMessagesTopicId } : {}),
       ...(first && replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: !outbound?.requireReply } : {}),
     }, CALL_TIMEOUT_MS, outbound?.requireReply ? (data, status) => {
@@ -243,9 +259,18 @@ export type TelegramInlineButton =
 export function sendMessageWithButtons(
   chatId: string,
   text: string,
-  buttons: TelegramInlineButton[][]
+  buttons: TelegramInlineButton[][],
+  /** Ответом на сообщение (общая группа: карточка помощника под просьбой автора). */
+  replyToMessageId?: number,
+  messageThreadId?: number,
 ): Promise<TelegramSentMessage> {
-  return call<TelegramSentMessage>("sendMessage", { chat_id: chatId, text, reply_markup: { inline_keyboard: buttons } });
+  return call<TelegramSentMessage>("sendMessage", {
+    chat_id: chatId,
+    text,
+    reply_markup: { inline_keyboard: buttons },
+    ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+    ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
+  });
 }
 
 /**
@@ -283,15 +308,19 @@ export function removeKeyboard(chatId: string, text: string): Promise<unknown> {
  * которое уже состоялся, её отказ не должен ронять основной ответ (тот же
  * принцип, что у showReadAndTyping в messengers/meta.ts).
  */
-export async function setMessageReaction(chatId: string, messageId: number, emoji: string): Promise<void> {
+export async function setMessageReaction(chatId: string, messageId: number, emoji: string): Promise<"sent" | "unavailable" | "uncertain"> {
   try {
     await call("setMessageReaction", {
       chat_id: chatId,
       message_id: messageId,
       reaction: emoji ? [{ type: "emoji", emoji }] : [],
-    });
+    }, 2_500, undefined, undefined, true);
+    return "sent";
   } catch (err) {
     console.warn("[telegram] Реакция не поставлена (косметика, на переписку не влияет):", describeError(err));
+    if (err instanceof TelegramApiError && err.errorCode === 400
+      && /REACTION_INVALID|REACTIONS_TOO_MANY|reaction (?:is )?(?:invalid|not allowed|not available)/iu.test(err.message)) return "unavailable";
+    return "uncertain";
   }
 }
 
@@ -304,16 +333,22 @@ export async function setMessageReaction(chatId: string, messageId: number, emoj
  *
  * Провал не бросает: индикатор — украшение, ответ важнее (как setMessageReaction).
  */
-export async function sendChatAction(chatId: string, directMessagesTopicId?: number): Promise<void> {
+export async function sendChatAction(
+  chatId: string,
+  directMessagesTopicId?: number,
+  action: "typing" | "record_voice" | "upload_voice" | "upload_photo" | "upload_document" = "typing",
+  messageThreadId?: number,
+): Promise<void> {
   if (!BASE_URL) return;
   try {
     await call("sendChatAction", {
       chat_id: chatId,
-      action: "typing",
+      action,
       ...(directMessagesTopicId != null ? { direct_messages_topic_id: directMessagesTopicId } : {}),
-    });
+      ...(messageThreadId != null ? { message_thread_id: messageThreadId } : {}),
+    }, 2_000, undefined, undefined, true);
   } catch (err) {
-    console.warn("[telegram] «печатает…» не показан (косметика):", describeError(err));
+    console.warn("[telegram] Индикатор действия не показан:", action, describeError(err));
   }
 }
 
@@ -364,6 +399,20 @@ export async function deleteChannelMessage(chatId: string, messageId: number): P
   await call("deleteMessage", { chat_id: chatId, message_id: messageId });
 }
 
+/**
+ * Удалить сообщение в ЛИЧНОМ чате с ботом (10.11.2026, код Google Authenticator,
+ * telegram/assistantStepUp.ts): в личке бот вправе удалять и входящие. Best-effort:
+ * false — Telegram отказал (сообщению больше 48 часов, сеть), вызывающий решает сам.
+ */
+export async function deletePrivateMessage(chatId: string, messageId: number): Promise<boolean> {
+  try {
+    await call("deleteMessage", { chat_id: chatId, message_id: messageId });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Comments need the actual deletion confirmation; other channel consumers keep their contract. */
 export async function deleteChannelCommentMessage(chatId: string, messageId: number): Promise<ModerationOutcome> {
   return call("deleteMessage", { chat_id: chatId, message_id: messageId }, CALL_TIMEOUT_MS,
@@ -396,10 +445,23 @@ export async function editMessageText(
  * Telegram. `fs.openAsBlob` читает файл лениво, а не целиком в память: на
  * контейнере API 768 МБ десять снимков по 2-3 МБ разом ни к чему.
  */
+interface TelegramDiskPhotoOptions {
+  singleAttempt?: boolean;
+  replyTo?: number;
+  messageThreadId?: number;
+  parseMode?: "HTML";
+}
+
+function appendPhotoRouting(form: FormData, options?: TelegramDiskPhotoOptions): void {
+  if (options?.replyTo) form.append("reply_parameters", JSON.stringify({ message_id: options.replyTo, allow_sending_without_reply: true }));
+  if (options?.messageThreadId) form.append("message_thread_id", String(options.messageThreadId));
+}
+
 export async function sendMediaGroupFiles(
   chatId: string,
   items: Array<{ type: "photo" | "video"; path: string; caption?: string }>,
-  timeoutMs = 120_000
+  timeoutMs = 120_000,
+  options?: TelegramDiskPhotoOptions,
 ): Promise<TelegramSentMessage[]> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   const { openAsBlob } = await import("node:fs");
@@ -409,17 +471,21 @@ export async function sendMediaGroupFiles(
     () => {
       const form = new FormData();
       form.append("chat_id", chatId);
+      appendPhotoRouting(form, options);
       const media = items.slice(0, 10).map((item, i) => ({
         type: item.type,
         media: `attach://f${i}`,
-        ...fitCaption(item.caption),
+        ...(item.caption && options?.parseMode
+          ? { caption: item.caption, parse_mode: options.parseMode }
+          : fitCaption(item.caption)),
       }));
       form.append("media", JSON.stringify(media));
       blobs.forEach((blob, i) => form.append(`f${i}`, blob, `f${i}${items[i]!.type === "photo" ? ".webp" : ".mp4"}`));
       return form;
     },
     timeoutMs,
-    "sendMediaGroup (файлами)"
+    "sendMediaGroup (файлами)",
+    options?.singleAttempt,
   );
   return result as TelegramSentMessage[];
 }
@@ -430,7 +496,8 @@ export async function sendPhotoFromDisk(
   filePath: string,
   caption?: string,
   buttons?: TelegramInlineButton[][],
-  timeoutMs = 60_000
+  timeoutMs = 60_000,
+  options?: TelegramDiskPhotoOptions,
 ): Promise<TelegramSentMessage> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   const { openAsBlob } = await import("node:fs");
@@ -440,13 +507,18 @@ export async function sendPhotoFromDisk(
     () => {
       const form = new FormData();
       form.append("chat_id", chatId);
-      if (caption) form.append("caption", caption.slice(0, CAPTION_MAX_CHARS));
+      if (caption) {
+        form.append("caption", options?.parseMode ? caption : caption.slice(0, CAPTION_MAX_CHARS));
+        if (options?.parseMode) form.append("parse_mode", options.parseMode);
+      }
       if (buttons) form.append("reply_markup", JSON.stringify({ inline_keyboard: buttons }));
+      appendPhotoRouting(form, options);
       form.append("photo", blob, "photo.webp");
       return form;
     },
     timeoutMs,
-    "sendPhoto (с диска)"
+    "sendPhoto (с диска)",
+    options?.singleAttempt
   );
   return result as TelegramSentMessage;
 }
@@ -557,6 +629,7 @@ async function postMultipartWithRetry(
       await sleep(waitMs);
       continue;
     }
+    if (singleAttempt) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка");
     throw new Error(`Telegram API ${label}: ${data.description ?? "неизвестная ошибка"}`);
   }
 }
@@ -570,25 +643,75 @@ export interface TelegramSentDocument extends TelegramSentMessage {
   document?: TelegramDocument;
 }
 
+export const TELEGRAM_DOCUMENT_STAGING_PREFIX = "crm-telegram-document-";
+
+async function sendLocalDocument(
+  chatId: string,
+  source: string,
+  filename: string,
+  caption: string | undefined,
+  timeoutMs: number,
+  singleAttempt: boolean
+): Promise<TelegramSentDocument> {
+  const root = process.env.TELEGRAM_LOCAL_FILES_DIR;
+  if (!root || !path.isAbsolute(root)) throw new Error("Не настроен общий том Telegram Bot API");
+  if (!filename || filename === "." || filename === ".." || /[\\/]/.test(filename)) {
+    throw new Error("Недопустимое имя документа Telegram");
+  }
+  const info = await fsp.stat(source);
+  if (!info.isFile() || info.size > TELEGRAM_BOT_SEND_LIMIT_BYTES) {
+    throw new Error("Файл не подходит для отправки в Telegram");
+  }
+  const dir = await fsp.mkdtemp(path.join(root, TELEGRAM_DOCUMENT_STAGING_PREFIX));
+  const staged = path.join(dir, filename);
+  let keepForTelegram = false;
+  try {
+    // The Bot API reads the shared file itself. The CRM sends only its URI in JSON.
+    await fsp.copyFile(source, staged);
+    keepForTelegram = true;
+    const sent = await call<TelegramSentDocument>("sendDocument", {
+      chat_id: chatId,
+      document: pathToFileURL(staged).href,
+      ...(caption ? { caption } : {}),
+    }, timeoutMs, undefined, undefined, singleAttempt);
+    keepForTelegram = false;
+    return sent;
+  } catch (error) {
+    // A lost response can leave Telegram reading the file. The volume janitor
+    // removes it later. A definitive rejection needs no retention.
+    if (error instanceof TelegramApiError) keepForTelegram = false;
+    throw error;
+  } finally {
+    if (!keepForTelegram) {
+      await fsp.rm(staged, { force: true }).catch(() => {});
+      await fsp.rmdir(dir).catch(() => {});
+    }
+  }
+}
+
 export async function sendDocumentFile(
   chatId: string,
-  /** Blob из `fs.openAsBlob` читается с диска потоком — сотни мегабайт видео
-   *  не ложатся в память процесса (22.09.2026: Buffer 480-МБ .mov + его копия
-   *  в `new Blob` убили api по OOM, объект №121 так и не ушёл монтажёру). */
-  file: Buffer | Blob,
+  /** Передавайте путь для файлов на диске. Локальный Bot API читает их из общего тома. */
+  file: Buffer | Blob | { path: string },
   filename: string,
   caption?: string,
   timeoutMs = 60_000,
   singleAttempt = false,
 ): Promise<TelegramSentDocument> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
+  void sendChatAction(chatId, undefined, "upload_document");
+  const text = caption && (caption.length > CAPTION_MAX_CHARS ? `${caption.slice(0, CAPTION_MAX_CHARS - 1)}…` : caption);
+  if ("path" in file && IS_LOCAL_BOT_API) {
+    return sendLocalDocument(chatId, file.path, filename, text, timeoutMs, singleAttempt);
+  }
+  const upload = "path" in file ? await openAsBlob(file.path) : file;
   const result = await postMultipartWithRetry(
     `${BASE_URL}/sendDocument`,
     () => {
       const form = new FormData();
       form.append("chat_id", chatId);
-      if (caption) form.append("caption", caption.length > CAPTION_MAX_CHARS ? `${caption.slice(0, CAPTION_MAX_CHARS - 1)}…` : caption);
-      form.append("document", file instanceof Blob ? file : new Blob([file]), filename);
+      if (text) form.append("caption", text);
+      form.append("document", upload instanceof Blob ? upload : new Blob([upload]), filename);
       return form;
     },
     timeoutMs,
@@ -597,6 +720,68 @@ export async function sendDocumentFile(
   );
   return result as TelegramSentDocument;
 }
+
+export async function sendHtmlMessage(
+  chatId: string, html: string, replyToMessageId?: number, buttons?: TelegramInlineButton[][],
+  messageThreadId?: number,
+): Promise<unknown> {
+  return call("sendMessage", {
+    chat_id: chatId,
+    text: html,
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+    ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+    ...(buttons?.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
+    ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
+  }, CALL_TIMEOUT_MS, undefined, undefined, true);
+}
+
+/** Правка своего сообщения с разметкой HTML (карточка расходов листается и правится на месте). */
+export async function editHtmlMessage(
+  chatId: string, messageId: number, html: string, buttons?: TelegramInlineButton[][] | null,
+): Promise<void> {
+  await call("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text: html,
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+    reply_markup: { inline_keyboard: buttons ?? [] },
+  });
+}
+
+/** Repeat a known voice for this bot, with no ambiguous automatic retry. */
+export async function sendAssistantVoiceId(
+  chatId: string, fileId: string, replyToMessageId?: number, messageThreadId?: number,
+): Promise<unknown> {
+  return call("sendVoice", {
+    chat_id: chatId, voice: fileId,
+    ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+    ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
+  }, CALL_TIMEOUT_MS, undefined, undefined, true);
+}
+
+/** Голосовое сообщение (OGG/Opus) — ответ помощницы голосом (telegram/assistantVoice.ts). */
+export async function sendVoiceFile(
+  chatId: string, audio: Buffer, replyToMessageId?: number, timeoutMs = 60_000, messageThreadId?: number,
+): Promise<unknown> {
+  if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
+  return postMultipartWithRetry(
+    `${BASE_URL}/sendVoice`,
+    () => {
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      if (replyToMessageId) { form.append("reply_to_message_id", String(replyToMessageId)); form.append("allow_sending_without_reply", "true"); }
+      if (messageThreadId) form.append("message_thread_id", String(messageThreadId));
+      form.append("voice", new Blob([audio], { type: "audio/ogg" }), "assistant.ogg");
+      return form;
+    },
+    timeoutMs,
+    "sendVoice",
+    true,
+  );
+}
+
 
 /** Имя бота (без @) — нужно для прямой ссылки-приглашения t.me/<имя>?start=<код>
  *  (01.09.2026, привязка личного Telegram агента). Кэшируется в памяти процесса:
@@ -682,8 +867,8 @@ export function canBotWriteToChat(member: TelegramChatMemberStatus): boolean {
  * ссылок внутри самого Bot API падает по причине, которую дальше копать не
  * дешевле, чем перестать от неё зависеть. Свой Bot API (`--local`) принимает
  * тело до 2 ГБ (см. TELEGRAM_BOT_SEND_LIMIT_BYTES) — этого с запасом хватает на
- * ролики в десятки мегабайт, поэтому дальше идём тем же способом, что и
- * sendDocumentFile ниже: multipart, без похода за файлом по сети.
+ * ролики в десятки мегабайт. Здесь используется multipart без скачивания
+ * по публичной ссылке.
  *
  * sendVideo (пережимает под плеер) — ровно то, что нужно для канала, в отличие
  * от sendDocumentFile у монтажёра (см. докстринг там). thumbnail — тем же
@@ -762,6 +947,7 @@ export function sendVideo(chatId: string, videoUrl: string, caption?: string, ti
 }
 
 export function sendDocument(chatId: string, fileUrl: string, caption?: string): Promise<unknown> {
+  void sendChatAction(chatId, undefined, "upload_document");
   return call("sendDocument", { chat_id: chatId, document: fileUrl, ...fitCaption(caption) });
 }
 
@@ -836,6 +1022,8 @@ export interface TelegramMedia {
   /** Геометка. Содержимое не используется — нужна, чтобы сообщение с одной
    *  геометкой не исчезало из переписки без следа (ночная проверка 24.09.2026). */
   location?: { latitude: number; longitude: number };
+  /** Место из поиска Telegram («Отправить место»): точка плюс название. */
+  venue?: { location: { latitude: number; longitude: number }; title?: string; address?: string };
 }
 
 /** Обычное сообщение клиентскому боту. */
@@ -869,6 +1057,8 @@ export interface TelegramIncomingMessage extends TelegramMedia {
    * из них — по этому полю мы склеиваем их обратно в одно обращение (telegram/bot.ts). */
   media_group_id?: string;
   contact?: { phone_number: string; first_name?: string; user_id?: number };
+  new_chat_members?: { id: number; is_bot: boolean; username?: string }[];
+  left_chat_member?: { id: number; is_bot: boolean; username?: string };
   /** true — Telegram сам переслал пост канала в группу-обсуждение (зеркало).
    *  Комментарий приходит ОТДЕЛЬНЫМ сообщением с reply_to_message на это зеркало,
    *  а не на сам пост в канале — у поста и у зеркала разные message_id. */
@@ -903,14 +1093,20 @@ export interface TelegramCallbackQuery {
   data?: string;
   /** message_id — чтобы модерация (lib/telegramModeration) правила именно то
    *  сообщение, под которым нажали кнопку. */
-  message?: { chat: { id: number }; message_id?: number };
+  message?: { chat: { id: number; type?: string }; message_id?: number; text?: string; caption?: string };
   from?: { id: number; username?: string; first_name?: string };
 }
 
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramIncomingMessage;
+  /** Used by opted-in group evidence only. An edit must never run the reply pipeline. */
+  edited_message?: TelegramIncomingMessage;
   callback_query?: TelegramCallbackQuery;
+}
+
+export function telegramUpdateChatId(update: TelegramUpdate): number | undefined {
+  return update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? update.message?.chat?.id;
 }
 
 /** Long polling держит соединение открытым до 25 секунд штатно, поэтому общий
@@ -925,7 +1121,7 @@ export function getUpdates(offset: number): Promise<TelegramUpdate[]> {
     timeout: POLL_TIMEOUT_SEC,
     // Сообщения и нажатия инлайн-кнопок клиентскому боту: личная переписка
     // директора (Telegram Business) по-прежнему не разбирается.
-    allowed_updates: ["message", "callback_query"],
+    allowed_updates: ["message", "edited_message", "callback_query"],
   }, POLL_ABORT_MS);
 }
 
@@ -939,7 +1135,7 @@ export function setWebhook(url: string, secretToken: string): Promise<unknown> {
   return call("setWebhook", {
     url,
     secret_token: secretToken,
-    allowed_updates: ["message", "callback_query"],
+    allowed_updates: ["message", "edited_message", "callback_query"],
     // Сбрасываем недоставленные апдейты старого long polling — иначе первый
     // вебхук-запрос принёс бы вперемешку хвост из очереди getUpdates.
     drop_pending_updates: true,
@@ -1005,14 +1201,15 @@ const GET_FILE_TIMEOUT_MS = 180_000;
 
 export async function resolveTelegramFile(
   fileId: string,
-  maxBytes: number = MAX_FILE_BYTES
+  maxBytes: number = MAX_FILE_BYTES,
+  timeoutMs: number = GET_FILE_TIMEOUT_MS
 ): Promise<TelegramFileRef | null> {
   if (!TOKEN) return null;
   try {
     const file = await call<{ file_path?: string; file_size?: number }>(
       "getFile",
       { file_id: fileId },
-      GET_FILE_TIMEOUT_MS
+      Math.min(GET_FILE_TIMEOUT_MS, Math.max(1_000, timeoutMs))
     );
     if (!file.file_path) return null;
     // Размер Telegram сообщает сам — отсекаем ДО скачивания, а не после.
@@ -1020,7 +1217,15 @@ export async function resolveTelegramFile(
       console.warn(`[telegram] файл ${fileId} слишком большой (${file.file_size} байт) — пропускаем`);
       return null;
     }
-    if (isAbsoluteFilePath(file.file_path)) return { kind: "path", path: file.file_path };
+    if (isAbsoluteFilePath(file.file_path)) {
+      // Запас: путь от своего Bot API-сервера читаем, только если он внутри его
+      // тома — та же проверка, что у вложений клиентов (пустой том — отказ).
+      if (!isInsideTelegramFilesDir(file.file_path)) {
+        void logSystemError("telegram", `getFile ${fileId}: путь вне тома Bot API — не читаем`);
+        return null;
+      }
+      return { kind: "path", path: file.file_path };
+    }
     return { kind: "url", url: `${API_ROOT}/file/bot${TOKEN}/${file.file_path}` };
   } catch (err) {
     console.error("[telegram] getFile:", err instanceof Error ? err.message : err);
@@ -1161,4 +1366,17 @@ export async function downloadFile(fileId: string, maxBytes: number = MAX_FILE_B
     void logSystemError("telegram", `Чтение файла ${fileId} с диска (${material.path}): ${describeError(err)}`);
     return null;
   }
+}
+
+/** Состояние вебхука бота (core.telegram.org/bots/api#getwebhookinfo): адрес, очередь, последняя ошибка доставки. */
+export interface TelegramWebhookInfo {
+  url?: string;
+  pending_update_count?: number;
+  last_error_date?: number;
+  last_error_message?: string;
+}
+
+/** Только чтение: как Telegram доставляет обновления бота в CRM (сторож lib/telegramDeliveryWatch.ts). */
+export function getWebhookInfo(): Promise<TelegramWebhookInfo> {
+  return call<TelegramWebhookInfo>("getWebhookInfo", {}, 15_000, undefined, undefined, true);
 }

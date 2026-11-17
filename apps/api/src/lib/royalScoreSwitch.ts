@@ -1,4 +1,4 @@
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 
 /**
  * Глобальный рубильник модуля Royal Score (Настройки → Команда).
@@ -19,8 +19,8 @@ import { prisma } from "../db.js";
  * карточка в профиле не показываются. Уже накопленный журнал не трогаем: это
  * история, а не текущее поведение.
  */
-export async function royalScoreEnabled(): Promise<boolean> {
-  const settings = await prisma.settings.findUnique({
+export async function royalScoreEnabled(db: Pick<TxClient, "settings"> = prisma): Promise<boolean> {
+  const settings = await db.settings.findUnique({
     where: { id: "singleton" },
     select: { royalScoreEnabled: true },
   });

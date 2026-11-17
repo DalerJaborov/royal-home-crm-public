@@ -91,6 +91,8 @@ export async function annulDeal(params: {
   reason: string;
   /** Видимость рядового сотрудника (scopeDealsToOwnAgent): чужую сделку не трогает. */
   ownAgentId?: string;
+  /** Только проверить, что аннулировать можно (превью помощницы), ничего не меняя. */
+  dryRun?: boolean;
 }): Promise<AnnulResult> {
   const existing = await prisma.deal.findUnique({
     where: { id: params.dealId },
@@ -102,6 +104,13 @@ export async function annulDeal(params: {
   if (existing.annulledAt) throw new DealAnnulError(409, "Сделка уже аннулирована");
   if (existing.stage !== "COMPLETED") {
     throw new DealAnnulError(409, "Аннулировать можно только закрытую сделку — незакрытую просто отмените");
+  }
+  if (params.dryRun) {
+    return {
+      deal: { id: existing.id, agentId: existing.agentId, clientId: existing.clientId, propertyId: existing.propertyId, stage: existing.stage },
+      clientName: existing.client?.fullName ?? "",
+      propertyReturnedToSale: false,
+    };
   }
 
   let propertyReturnedToSale = false;

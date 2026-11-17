@@ -52,4 +52,54 @@ if (match) {
   process.exit(1);
 }
 
-console.log("apps/web/nginx.conf: типов не глушит — ok");
+// ── Второе правило (16.11.2026, ролик №197) ──────────────────────────────────
+// Каждый location с proxy_pass обязан не копить ответ во временном файле:
+// `proxy_buffering off;` или `proxy_max_temp_file_size 0;`. Временные файлы nginx
+// лежат в tmpfs (/var/cache/nginx), который считается в mem_limit 128m контейнера
+// web, — ответ крупнее ~110 МБ туда не влезает, и nginx рвёт соединение посреди
+// отдачи. Так Instagram опубликовал ~10 с из ролика 236,8 МБ, а Facebook отказал
+// «Unable to fetch video file from URL» (location /uploads/ был без этих строк).
+const proxiedLocations = [];
+{
+  const locRe = /\blocation\b([^{]*)\{/g;
+  let m;
+  while ((m = locRe.exec(withoutComments))) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < withoutComments.length && depth > 0; i++) {
+      if (withoutComments[i] === "{") depth++;
+      else if (withoutComments[i] === "}") depth--;
+    }
+    const body = withoutComments.slice(m.index + m[0].length, i - 1);
+    if (/\bproxy_pass\b/.test(body)) {
+      proxiedLocations.push({
+        name: m[1].trim(),
+        line: withoutComments.slice(0, m.index).split("\n").length,
+        safe: /\bproxy_buffering\s+off\s*;/.test(body) || /\bproxy_max_temp_file_size\s+0\s*;/.test(body),
+      });
+    }
+  }
+}
+
+if (proxiedLocations.length === 0) {
+  console.error("apps/web/nginx.conf: не найдено ни одного location с proxy_pass — сторож сломан или файл переписан.");
+  process.exit(1);
+}
+
+const unsafe = proxiedLocations.filter((loc) => !loc.safe);
+if (unsafe.length) {
+  for (const loc of unsafe) {
+    console.error(
+      `apps/web/nginx.conf:${loc.line}: \`location ${loc.name}\` проксирует к API, но копит ответ во временном файле.\n` +
+        "Временные файлы nginx — в tmpfs внутри mem_limit 128m контейнера web: ответ больше ~110 МБ\n" +
+        "обрывается посреди отдачи (16.11.2026: ролик №197 236,8 МБ — Instagram выложил ~10 с,\n" +
+        "Facebook «Unable to fetch video file from URL»).\n" +
+        "Добавьте в этот location: `proxy_buffering off;` (и для надёжности `proxy_max_temp_file_size 0;`).\n"
+    );
+  }
+  process.exit(1);
+}
+
+console.log(
+  `apps/web/nginx.conf: типов не глушит, ${proxiedLocations.length} прокси-location без временных файлов — ok`
+);

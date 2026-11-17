@@ -41,7 +41,14 @@ export async function recoverAndFinalizeCustomerInboxInput(eventKey: unknown): P
     if (!pending || pending.payload.channel === "WEBSITE") return { status: "held", reason: "recovery_adapter_unsupported" };
     const classified = await classifyRecoveredCustomerPendingInput(recovered.envelope);
     if (classified.status !== "classified") return classified;
-    return await prisma.$transaction(async tx => {
+    // First-touch ad attribution of this event (13.11.2026): resolved before the transaction (it may
+    // read the ad from Meta with its own timeout) and written after it. The topic of a vacancy/owner ad
+    // enters canonical acceptance below; a failure here only loses attribution, never the turn.
+    // Loaded only for an ad event: the resolver pulls the ads/Meta modules, which a plain message never needs.
+    const ad = pending.payload.adContext;
+    const adModule = ad ? await import("./adAttribution.js") : null;
+    const attribution = ad && adModule ? await adModule.resolveAdAttribution(ad).catch(() => null) : null;
+    const finalized = await prisma.$transaction(async tx => {
       // Read without Ticket lock first. Canonical native→scope→policy→Inquiry
       // locks precede the Ticket lock, exactly as current live acceptance.
       const endpoint = await resolveCustomerEndpoint({ channel: pending.payload.channel, subscriberId: pending.payload.peer,
@@ -93,9 +100,16 @@ export async function recoverAndFinalizeCustomerInboxInput(eventKey: unknown): P
           subscriberId: pending.payload.peer, providerId: pending.payload.eventId, now: new Date(pending.verification.issuedAt) });
       }
       if (customerPropertyContextEnabled() || corePublicContext) await reserveCustomerPropertyFocus(tx, ticket);
-      if (!await acceptAuthenticatedCustomerAdmission(classified.input, ticket, tx)) throw new RecoveryHeld("canonical_acceptance_denied");
+      if (!await acceptAuthenticatedCustomerAdmission(classified.input, ticket, tx, attribution?.adTopic)) throw new RecoveryHeld("canonical_acceptance_denied");
       return { status: "finalized" as const, input: classified.input, ticket };
     }, { maxWait: 5000, timeout: 10000 });
+    if (adModule && attribution && Object.keys(attribution).length) {
+      const native = await prisma.botConversation.findUnique({ where: { id: finalized.ticket.conversationId }, select: { clientId: true } })
+        .catch(() => null);
+      await adModule.persistFirstTouchAdAttribution(finalized.ticket.conversationId, attribution, { clientId: native?.clientId })
+        .catch(error => console.error("[ядро] атрибуция рекламы:", error instanceof Error ? error.message : error));
+    }
+    return finalized;
   } catch (error) {
     return { status: "held", reason: error instanceof RecoveryHeld ? error.reason : error instanceof CustomerScopeDenied
       ? "original_endpoint_changed" : "recovery_unavailable" };

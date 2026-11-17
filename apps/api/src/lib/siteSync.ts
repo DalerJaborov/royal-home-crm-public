@@ -1,9 +1,11 @@
+import { z } from "zod";
 import type { Prisma } from "../generated/prisma/client.js";
 import { logSystemError } from "./systemError.js";
 import type { SiteSyncItemResult } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { crmPublicBase, publicUploadUrl } from "./crmPublicUrl.js";
-import { enqueueBackgroundJob } from "../jobs/enqueue.js";
+import { PermanentJobError } from "../jobs/registry.js";
+import { enqueueSiteResyncInTransaction } from "./siteResyncQueue.js";
 import { sitePropertyFacts } from './sitePropertyFacts.js';
 import { propertyPublicVideoUrl } from "./propertyPublicVideo.js";
 
@@ -87,9 +89,20 @@ function toNum(d: unknown): number | null {
 
 export type SiteSyncAction = "publish" | "unpublish" | "sold" | "unsold" | "facts";
 
+type SiteResponseItem = SiteSyncItemResult & { retryable?: boolean };
 export type SiteSyncResult =
-  | { ok: true; results: SiteSyncItemResult[] }
-  | { ok: false; error: string };
+  | { ok: true; results: SiteResponseItem[] }
+  | { ok: false; error: string; retryable?: boolean };
+
+const siteResponseSchema = z.object({
+  results: z.array(z.object({
+    externalId: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    id: z.number().optional(),
+    retryable: z.boolean().optional(),
+  })),
+});
 
 /** usdToTjsRate — курс продажи 1 USD в TJS (см. lib/exchangeRate.ts). Обязателен
  * только для объектов в долларах; для объектов в TJS игнорируется. */
@@ -138,8 +151,8 @@ function toSitePayload(property: SyncableProperty, usdToTjsRate: number | null) 
  *
  * С 27.08.2026 (чертёж Б5) — задание очереди site-resync: раньше единственная
  * попытка жила в HTTP-процессе, и отказ сайта (или деплой в эту секунду) молча
- * разъезжал витрину с CRM — задокументированная хроническая боль. dedupeKey на
- * объект схлопывает шквал правок (загрузили 10 фото подряд) в один прогон. */
+ * разъезжал витрину с CRM. Правки до начала попытки объединяются; правка
+ * во время отправки сохраняется для следующей попытки. */
 export async function resyncPhotosIfPublished(propertyId: string, context: string): Promise<void> {
   try {
     const property = await prisma.property.findUnique({
@@ -148,12 +161,7 @@ export async function resyncPhotosIfPublished(propertyId: string, context: strin
     });
     // Неопубликованный объект сайту не нужен — и задание ему не нужно тоже.
     if (!property?.publishedOnSite) return;
-    await enqueueBackgroundJob({
-      type: "site-resync",
-      payload: { propertyId, context },
-      dedupeKey: `site-resync:${propertyId}`,
-      maxAttempts: SITE_RESYNC_MAX_ATTEMPTS,
-    });
+    await enqueueSiteResyncInTransaction(prisma, propertyId, context);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[siteSync] ${context}: объект ${propertyId} — постановка синхронизации:`, message);
@@ -164,8 +172,6 @@ export async function resyncPhotosIfPublished(propertyId: string, context: strin
     void logSystemError("site-sync", `Не удалось поставить в очередь досылку объекта на сайт (${context}): ${message}`);
   }
 }
-
-export const SITE_RESYNC_MAX_ATTEMPTS = 5;
 
 /** Статусы, в которых объявление живёт на сайте: в продаже, в брони и проданный
  *  (с плашкой «Продано»). Снятый и любой этап подготовки на витрине не стоят. */
@@ -179,9 +185,8 @@ export function isSiteListedStatus(status: string): boolean {
 /**
  * Одна попытка досылки — тело задания site-resync (jobs/siteResync.ts).
  * Тихо завершается, когда досылать нечего (объект удалён или снят с сайта);
- * бросает на отказе сети или сайта — очередь ретраит, give-up кладёт честную
- * строку в журнал: молчаливый отказ синхронизации означает, что сайт и CRM
- * разъехались, а на экране здоровья при этом было зелено.
+ * повторяет временный сбой, а окончательный отказ передаёт в журнал и
+ * ответственным сотрудникам. Успех требует подтверждения от сайта по объекту.
  */
 export async function runSiteResyncAttempt(propertyId: string, context: string): Promise<void> {
   const property = await prisma.property.findUnique({
@@ -208,17 +213,22 @@ export async function runSiteResyncAttempt(propertyId: string, context: string):
   // несостоявшееся снятие.
   if (!isSiteListedStatus(property.status)) {
     const removal = await syncPropertiesToSite([property], "unpublish");
-    if (!removal.ok) throw new Error(`объект не снят с сайта (${context}): ${removal.error}`);
-    const refused = removal.results.find((r) => !r.ok);
-    if (refused) throw new Error(`сайт не снял объект (${context}): ${refused.error}`);
+    requireSiteAcknowledgement(removal, property.id, `объект не снят с сайта (${context})`);
     await prisma.property.update({ where: { id: property.id }, data: { publishedOnSite: false } });
     return;
   }
 
   const result = await syncPropertiesToSite([property], "publish");
-  if (!result.ok) throw new Error(`объект не дошёл до сайта (${context}): ${result.error}`);
-  const failed = result.results.find((r) => !r.ok);
-  if (failed) throw new Error(`сайт отклонил объект (${context}): ${failed.error}`);
+  requireSiteAcknowledgement(result, property.id, `объект не дошёл до сайта (${context})`);
+}
+
+function requireSiteAcknowledgement(result: SiteSyncResult, propertyId: string, context: string): void {
+  const outcome = result.ok ? result.results.find((row) => row.externalId === propertyId) : result;
+  if (outcome?.ok) return;
+  const reason = outcome?.error ?? "сайт не подтвердил изменение объекта";
+  const message = `${context}: ${reason}`;
+  if (outcome?.retryable === false) throw new PermanentJobError(message);
+  throw new Error(message);
 }
 
 /** Sends one bulk sync request for a batch of properties + a shared action. */
@@ -227,11 +237,11 @@ export async function syncPropertiesToSite(
   action: SiteSyncAction
 ): Promise<SiteSyncResult> {
   if (!SITE_SYNC_URL || !SITE_SYNC_API_KEY) {
-    return { ok: false, error: "Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)" };
+    return { ok: false, error: "Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)", retryable: false };
   }
   let usdToTjsRate: number | null = null;
   if (action === 'facts' && properties.some(p => p.offSite || p.deletedAt || !p.publishedOnSite || !isSiteListedStatus(p.status))) {
-    return { ok: false, error: 'Характеристики можно дослать только для действующих публичных объектов' };
+    return { ok: false, error: 'Характеристики можно дослать только для действующих публичных объектов', retryable: false };
   }
   if (action === "publish") {
     const offSiteOnes = offSitePropertiesIn(properties);
@@ -239,12 +249,16 @@ export async function syncPropertiesToSite(
       return {
         ok: false,
         error: `Несайтовый объект нельзя опубликовать на сайте: ${offSiteOnes.map((p) => p.title).join(", ")}`,
+        retryable: false,
       };
     }
     if (!crmPublicBase()) {
       // Без публичного адреса CRM фото ушли бы на сайт битыми относительными
       // ссылками (или вовсе не ушли) — лучше честная ошибка, чем объекты без фото.
-      return { ok: false, error: "Не настроен CRM_PUBLIC_URL — фото объектов не попадут на сайт" };
+      return { ok: false, error: "Не настроен CRM_PUBLIC_URL — фото объектов не попадут на сайт", retryable: false };
+    }
+    if (properties.some((p) => !p.district)) {
+      return { ok: false, error: "Для публикации на сайте у объекта должен быть указан район", retryable: false };
     }
     // Сайт показывает цены только в сомони — объекты в USD конвертируем по курсу
     // из Настроек (ручной либо ночной автообновлённый с alif.tj, см. exchangeRate.ts).
@@ -269,6 +283,7 @@ export async function syncPropertiesToSite(
         return {
           ok: false,
           error: "Курс USD→TJS не настроен — задайте его в Настройках (или дождитесь ночного автообновления с alif.tj)",
+          retryable: false,
         };
       }
       usdToTjsRate = rate;
@@ -280,6 +295,7 @@ export async function syncPropertiesToSite(
       return {
         ok: false,
         error: `Объект «${noPhotos.title}» без фото — добавьте хотя бы одно фото перед публикацией`,
+        retryable: false,
       };
     }
     // Цена в TJS не спасает, если сам текст описания всё ещё называет сумму в
@@ -290,6 +306,7 @@ export async function syncPropertiesToSite(
       return {
         ok: false,
         error: `Объект «${usdInDescription.title}» — в описании упоминаются доллары, перепишите текст в сомони перед публикацией`,
+        retryable: false,
       };
     }
   }
@@ -305,7 +322,7 @@ export async function syncPropertiesToSite(
     // никуда (сайт искал по externalId и не находил).
     ...(p.siteListingId != null ? { siteListingId: p.siteListingId } : {}),
     action,
-    data: action === "publish" ? toSitePayload(p, usdToTjsRate) : undefined,
+    ...(action === "publish" ? { crmPriceVersion: p.version, data: toSitePayload(p, usdToTjsRate) } : {}),
     ...(action === 'facts' ? { facts: sitePropertyFacts(p) } : {}),
   }));
 
@@ -328,13 +345,15 @@ export async function syncPropertiesToSite(
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      const reason = body.error ?? `Сайт вернул ошибку ${res.status}`;
+      const body = await res.json().catch(() => null) as { error?: unknown } | null;
+      const reason = typeof body?.error === "string" ? body.error : `Сайт вернул ошибку ${res.status}`;
+      const retryable = res.status >= 500 || [408, 425, 429].includes(res.status);
       void logSystemError("site-sync", `Синхронизация объектов с сайтом отклонена: ${reason}`);
-      return { ok: false, error: reason };
+      return { ok: false, error: reason, retryable };
     }
-    const body = (await res.json()) as { results: SiteSyncItemResult[] };
-    return { ok: true, results: body.results };
+    const body = siteResponseSchema.safeParse(await res.json());
+    if (!body.success) return { ok: false, error: "Сайт не подтвердил синхронизацию объектов" };
+    return { ok: true, results: body.data.results };
   } catch (err) {
     // err.message здесь — сырой текст fetch/undici ("fetch failed", "timeout" и т.п.),
     // не для показа пользователю: не пробрасываем его дальше вызывающему, только

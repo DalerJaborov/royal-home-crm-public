@@ -344,7 +344,7 @@ export async function askCandidatePhone(options: { apply: boolean; limit?: numbe
     }
 
     try {
-      const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name });
+      const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name }, row.conversationId);
       if (!text) {
         result.skipped.push({ who, reason: "ИИ не ответил — попробуйте позже" });
         continue;

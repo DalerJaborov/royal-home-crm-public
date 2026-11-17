@@ -86,23 +86,26 @@ describe("Кого показываем", () => {
     expect(matched.length).toBeGreaterThanOrEqual(2);
     expect(total).toBeGreaterThanOrEqual(matched.length);
     expect(matched[0].id).toBe(exact.id);
-    expect(matched[0].score).toBeGreaterThan(matched[1].score);
+    // Подбор 2.0: точный выше по уровню, а не по проценту.
+    expect(matched[0].match.tier).toBe("exact");
+    expect(matched[1].match.tier).not.toBe("exact");
   });
 
   /** Без причин агент не понимает, почему клиент в списке, и списку не доверяет. */
   it("у точного совпадения причины названы поимённо", async () => {
     const { items: matched } = await findMatchingClients(propertyId);
     const top = matched[0];
-    expect(top.reasons).toContain("район совпал");
-    expect(top.reasons).toContain("комнат столько же");
-    expect(top.reasons).toContain("в бюджете");
+    expect(top.match.reasons).toContain("Нужный район");
+    expect(top.match.reasons.some((r) => r.endsWith(", как просил"))).toBe(true);
+    expect(top.match.reasons).toContain("В бюджете");
   });
 
   it("клиент, прошедший только за счёт растяжки бюджета, помечен честно", async () => {
     const { items: matched } = await findMatchingClients(propertyId);
     const loose = matched.find((m) => m.fullName.startsWith("Приблизительный"));
     expect(loose).toBeDefined();
-    expect(loose!.reasons).toContain("чуть выше бюджета");
+    expect(loose!.match.tier).toBe("alternative");
+    expect(loose!.match.tradeoffs.some((t) => /^На \d+% дороже бюджета/.test(t))).toBe(true);
   });
 
   it("клиент из другого района не показывается", async () => {

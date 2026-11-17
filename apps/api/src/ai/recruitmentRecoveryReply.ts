@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { CustomerAgentVacanciesObservation, RecruitmentRecoveryRequest } from "@royal-home/shared";
+import { recruitmentPhoneLine, type CustomerAgentVacanciesObservation, type RecruitmentRecoveryRequest } from "@royal-home/shared";
 import { isCustomerVacanciesObservation } from "./customerAgentRecruitmentProtocol.js";
 
 export const recruitmentRecoveryHash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -14,9 +14,8 @@ export function recruitmentRecoveryReply(catalog: CustomerAgentVacanciesObservat
     : tg ? "Ташаккур барои таваҷҷуҳ ба кор дар Royal Home! Бубахшед, ки ҷавоби пурра надодем." : "Спасибо за интерес к работе в Royal Home! Извините, что не дали полный ответ.";
   const lines = [prefix, tg ? "Ҳоло қабул кушода аст:" : "Сейчас набор открыт:",
     ...(position ? [position] : catalog.positions).map(row => tg ? row.titleTg : row.titleRu)];
-  if (position) lines.push(tg ? position.detailsTg : position.detailsRu);
-  lines.push(tg ? "Агар ҳанӯз ҷолиб бошад, метавонед дар ҳамин чат резюме фиристед ё дар бораи худ ва таҷрибаатон нақл кунед. Намунаи корҳо ихтиёрӣ аст."
-    : "Если ещё интересно, можно в этом чате прислать резюме или просто рассказать о себе и своём опыте. Примеры работ по желанию.");
+  // Conditions are not discussed in the chat: only the specialist's phone (owner 10–11.11.2026).
+  lines.push(recruitmentPhoneLine(tg ? "tg" : "ru"));
   const text = lines.filter(Boolean).join("\n");
   return text.length <= 3500 ? text : null;
 }

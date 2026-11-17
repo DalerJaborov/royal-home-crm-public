@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../lib/api";
+import {
+  buildRecordingBlob,
+  createRecorder,
+  INSECURE_CONTEXT_MESSAGE,
+  isRecordingSupported,
+  micErrorMessage,
+} from "../lib/audioRecording";
 
 /**
  * Запись голосового сообщения для отправки клиенту — MediaRecorder, тот же приём,
@@ -20,9 +27,7 @@ export function useVoiceMessageRecorder(send: (blob: Blob) => Promise<unknown>) 
   const [isSending, setIsSending] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [supported] = useState(
-    () => typeof window !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined"
-  );
+  const [supported] = useState(isRecordingSupported);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -63,7 +68,7 @@ export function useVoiceMessageRecorder(send: (blob: Blob) => Promise<unknown>) 
     setError(null);
     if (!window.isSecureContext) {
       pendingGenRef.current = null;
-      setError("Запись голоса работает только по защищённому соединению (https)");
+      setError(INSECURE_CONTEXT_MESSAGE);
       return;
     }
     try {
@@ -75,15 +80,14 @@ export function useVoiceMessageRecorder(send: (blob: Blob) => Promise<unknown>) 
       }
       pendingGenRef.current = null;
       streamRef.current = stream;
-      const recorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm",
-      });
+      // Формат — по возможностям браузера (Safari/iPhone не пишут webm), см. lib/audioRecording.ts.
+      const recorder = createRecorder(stream);
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
+        const blob = buildRecordingBlob(recorder, chunksRef.current);
         cleanup();
         setIsRecording(false);
         setElapsedMs(0);
@@ -109,16 +113,7 @@ export function useVoiceMessageRecorder(send: (blob: Blob) => Promise<unknown>) 
       // Отказ или ошибка устаревшего start(): состояние принадлежит уже другому.
       if (gen !== genRef.current) return;
       pendingGenRef.current = null;
-      const name = (err as { name?: string })?.name;
-      setError(
-        name === "NotAllowedError"
-          ? "Доступ к микрофону запрещён. Разрешите его для сайта — значок замка слева в адресной строке"
-          : name === "NotFoundError" || name === "DevicesNotFoundError"
-            ? "Микрофон не найден. Подключите его и попробуйте снова"
-            : name === "NotReadableError"
-              ? "Микрофон занят другой программой — закройте её и попробуйте снова"
-              : "Не удалось включить микрофон"
-      );
+      setError(micErrorMessage(err));
       cleanup();
       setIsRecording(false);
     }

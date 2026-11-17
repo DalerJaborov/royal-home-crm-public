@@ -15,6 +15,8 @@ publicationMetadataRouter.post("/:id/publication-metadata/:attemptId/reconcile",
     await tx.$queryRaw`SELECT id FROM "PublicationMetadataSync" WHERE id = ${attemptId.data} FOR UPDATE`;
     const row=await tx.publicationMetadataSync.findFirst({where:{id:attemptId.data,propertyId:propertyId.data}});
     if(!row?.startedAt || row.startedAt.toISOString()!==body.data.expectedStartedAt || !["EXECUTING","UNKNOWN"].includes(row.status)) return null;
+    // Live automatic edits are still fenced. Their worker moves an abandoned attempt to UNKNOWN.
+    if(row.status === "EXECUTING" && ["PRICE_CHANGE", "CAPTION_REFRESH"].includes(row.executionMode)) return null;
     const status=body.data.outcome==='APPLIED'?'APPLIED_MANUAL':'FAILED_MANUAL';
     const original=row.result as Prisma.InputJsonValue|null;
     const result={originalProviderResult:original,operatorConfirmation:{actorId:req.agent!.id,at:new Date().toISOString(),outcome:body.data.outcome,note:body.data.note,providerChecked:true,remoteVerification:false}};

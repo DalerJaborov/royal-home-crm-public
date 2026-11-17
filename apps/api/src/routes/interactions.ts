@@ -21,7 +21,7 @@ import { incomingInteractionIds } from "../lib/telephony/incomingInteractions.js
 import { phoneSafeText, withMaskedClient } from "../lib/clientPhone.js";
 import { foreignTaskWriteDeniedFor, showingActionAccess, type TaskWriteSubject } from "../lib/showingAccess.js";
 import { cancelShowingById, rescheduleShowingById, type ShowingActor } from "../lib/showingBooking.js";
-import { loadEventPoints, recordScoreEvent, type ScoreEventKind } from "../lib/scoreJournal.js";
+import { completeInteractionTask } from "../lib/taskCompletion.js";
 import {
   contentTypeFor,
   fetchRecording,
@@ -32,8 +32,6 @@ import {
 } from "../lib/telephony/callRecordings.js";
 import { describeError } from "../lib/describeError.js";
 import { logSystemError } from "../lib/systemError.js";
-import { closeStaleNextActions } from "../lib/nextActionAutoClose.js";
-import { closeMeetingReminderPushes } from "../lib/meetingReminders.js";
 import { interactionPropertySelect } from "../lib/interactionPropertySelect.js";
 
 export const interactionsRouter = Router();
@@ -488,15 +486,6 @@ interactionsRouter.get("/summary", requireAuth, async (req, res) => {
   res.json(summary);
 });
 
-/** Ступень Royal Score по завершению задачи: свой вид события для показа, встречи и
- * обычной задачи (таблица владельца различает их ценой — «Показ +3», «Встреча +2»,
- * «Задача +1»), и просрочка считается по nextActionDate, а не самим фактом закрытия. */
-function completionEventKind(type: string, overdue: boolean): ScoreEventKind {
-  if (type === "SHOWING") return overdue ? "showing_missed" : "showing_done";
-  if (type === "MEETING") return overdue ? "meeting_overdue" : "meeting_done";
-  return overdue ? "task_overdue" : "task_on_time";
-}
-
 /** Отметить задачу выполненной: проставляет completedAt (nextAction/nextActionDate
  * больше НЕ стираются — они нужны потом для расчёта KPI "Дисциплина CRM", см.
  * apps/api/src/kpi.ts). Из списка «предстоящих» (calendar.ts) она пропадает по
@@ -516,81 +505,8 @@ interactionsRouter.patch("/:id/complete", requireAuth, async (req, res) => {
     if (denied) return res.status(403).json({ error: denied });
   }
 
-  const now = new Date();
-  /**
-   * ПЕРЕХОД «не выполнено → выполнено» ЗАБИРАЕТСЯ АТОМАРНО.
-   *
-   * Признаком первого перехода было прочитанное выше `interaction.completedAt` —
-   * но между чтением и записью помещается второй такой же запрос (двойной клик,
-   * повтор с телефона): оба видели `null`, оба заходили в начисление. От двойных
-   * баллов спасала только уникальность `sourceId` в журнале — то есть защита жила
-   * не там, где гонка, и любое событие без sourceId её бы не получило.
-   *
-   * `updateMany` с условием `completedAt: null` делает переход однократным на
-   * стороне базы: `count > 0` ровно у одного запроса (тот же приём, что в
-   * lib/telephony/qualifyIncoming.ts).
-   */
-  const claimed = await prisma.interaction.updateMany({
-    where: { id: req.params.id, completedAt: null, taskCancelledAt: null },
-    data: { completedAt: now },
-  });
-
-  // Событие пишем только на переходе «не выполнено → выполнено» — повторный вызов
-  // на уже закрытой задаче (двойной клик, повтор запроса) не должен начислять
-  // баллы второй раз. sourceId = id взаимодействия даёт ту же защиту на уровне БД.
-  if (claimed.count > 0) {
-    const overdue = interaction.nextActionDate != null && interaction.nextActionDate < now;
-    const kind = completionEventKind(interaction.type, overdue);
-    // Цена — из настроек НА МОМЕНТ события: computeRoyalScore при расчёте всё равно
-    // берёт актуальную цену по kind (см. scoreJournal.ts), а здесь delta нужна только
-    // для того, что видит агент в журнале — «за что и сколько» без пересчёта задним числом.
-    const points = await loadEventPoints();
-    // await обязателен. Без него ответ 200 уходил раньше записи события, и всё, что
-    // случалось дальше (падение процесса, откат соединения с базой), теряло балл
-    // агента совсем: повторный PATCH уже видит completedAt и в эту ветку не заходит,
-    // то есть второго шанса начислить не будет. Сам recordScoreEvent не бросает —
-    // отказ пишется в журнал ошибок внутри него (аудит 12.08.2026, пункт К).
-    if (taskOwnerId) {
-      await recordScoreEvent({
-        agentId: taskOwnerId,
-        kind,
-        delta: points[kind],
-        reason: overdue ? "Закрыто с опозданием" : "Закрыто вовремя",
-        sourceId: interaction.id,
-      });
-    }
-
-    // ЗАКРЫТЬ СТАРЫЕ ПОДСКАЗКИ КЛИЕНТА (18.08.2026, см. lib/nextActionAutoClose.ts):
-    // только для показа/встречи — сама встреча состоялась, значит это реальный
-    // контакт, а не просто «отметили галочку» на произвольной задаче. Обычную
-    // задачу (type=TASK/SYSTEM) закрывать чужие подсказки клиента не заставляет —
-    // не всякая закрытая галочка означает, что с клиентом что-то произошло.
-    if (interaction.type === "SHOWING" || interaction.type === "MEETING") {
-      void closeStaleNextActions(interaction.clientId, interaction.id).catch((err) =>
-        console.error("[interactions] закрытие старых подсказок:", err instanceof Error ? err.message : err)
-      );
-    }
-
-    // Задача закрыта — все пуши про неё (наблюдателям показа, «не отмечен»,
-    // «просрочено») больше не актуальны ни для кого, кроме исполнителя.
-    if (taskOwnerId) void closeMeetingReminderPushes(interaction.id, taskOwnerId).catch((err) =>
-      console.error("[interactions] закрытие пушей по задаче:", err instanceof Error ? err.message : err)
-    );
-
-    // «Итог показа» больше не заводится здесь (переработка 12.08.2026): окно
-    // открывается ПО ВРЕМЕНИ показа (+90 минут после nextActionDate), независимо от
-    // того, отметил ли агент задачу «выполненной» — см.
-    // lib/pendingSummaries.ts::requireMeetingSummaries и cron.ts. Раньше агент, не
-    // заходивший в CRM после показа, обязательного окна не получал вовсе.
-  }
-  // Отдаём запись такой, какая она в базе сейчас: при повторном вызове переход
-  // забрал кто-то другой, и `completedAt` там от ПЕРВОГО закрытия, а не от этого.
-  //
-  // Через presentInteractions, как и все чтения этого файла (глубокая проверка
-  // 02.10.2026, A2): сырой ответ отдавал расшифровку чужого звонка руководителю
-  // без calls.transcripts, ссылку на запись — без calls.hearRecording, а номер,
-  // продиктованный в разговоре, — агенту без clients.viewPhone.
-  const row = (await prisma.interaction.findUnique({ where: { id: req.params.id } })) ?? { ...interaction, completedAt: now };
+  const { row } = await completeInteractionTask(interaction);
+  // Keep the same privacy projection as every interaction read.
   res.json(presentInteractions([row], transcriptAccess(req.agent))[0]);
 });
 

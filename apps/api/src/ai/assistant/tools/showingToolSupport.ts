@@ -1,6 +1,6 @@
 import { isReadOnlyRole } from "@royal-home/shared";
 import { loadAgentAccess } from "../../../auth/middleware.js";
-import { prisma } from "../../../db.js";
+import { prisma, type TxClient } from "../../../db.js";
 import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { showingActionAccess, type TaskWriteSubject } from "../../../lib/showingAccess.js";
 import { dushanbeDateTimeString, dushanbeInputToDate } from "../../../lib/dushanbeTime.js";
@@ -23,11 +23,11 @@ export interface ToolActor {
   agentName: string;
 }
 
-export async function loadToolActor(actionActor: AssistantActionActor): Promise<ToolActor> {
-  const [access, agent] = await Promise.all([
-    loadAgentAccess(actionActor.agentId),
-    prisma.agent.findUnique({ where: { id: actionActor.agentId }, select: { fullName: true } }),
-  ]);
+export async function loadToolActor(actionActor: AssistantActionActor, db?: Pick<TxClient, "agent">): Promise<ToolActor> {
+  const readAgent = () => (db ?? prisma).agent.findUnique({ where: { id: actionActor.agentId }, select: { fullName: true } });
+  const [access, agent] = db
+    ? [await loadAgentAccess(actionActor.agentId, db), await readAgent()]
+    : await Promise.all([loadAgentAccess(actionActor.agentId), readAgent()]);
   if (!access || !agent || !access.isActive) {
     throw new AssistantActionError(403, "FORBIDDEN", "Учётная запись недоступна");
   }

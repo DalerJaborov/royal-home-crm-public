@@ -681,11 +681,14 @@ describe("кому и когда звонить собственнику нел�
 
   it("номер в чёрном списке станции — не набираем", async () => {
     await makeSuspiciousShowing();
+    // П3: чёрный список станции спрашивает дверь в мосте перед набором (без второго
+    // похода в AMI у сценария); здесь мост подменён — он отвечает отказом двери.
     isNumberBlocked.mockResolvedValue({ ok: true, blocked: true });
+    originateLiveVoiceScenarioCall.mockResolvedValueOnce({ ok: false, notDialed: true, policyCode: "blacklisted", error: "Номер в чёрном списке станции" } as never);
 
     expect(await runSellerProbeCallTick(NOW)).toBe(0);
-    expect(originateLiveVoiceScenarioCall).not.toHaveBeenCalled();
     expect((await prisma.sellerProbeCall.findFirstOrThrow({ where: { agentId } })).skipReason).toBe("blacklisted");
+    expect((await prisma.sellerProbeCall.findFirstOrThrow({ where: { agentId } })).status).toBe("SKIPPED");
   });
 
   it("общий выходной в воскресенье (Настройки) — не набираем", async () => {

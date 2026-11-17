@@ -7,7 +7,7 @@
 import { Router, type Request, type Response } from "express";
 import { createHash } from "node:crypto";
 import { recordPropertyDispatchAccepted } from "../../lib/clientWorkflowObservations.js";
-import { confirmedClientIntents, clientPropertyMatchQuerySchema, maskPhones, sendPropertiesSchema, type SendPropertiesFallback, type SendTargetInfo } from "@royal-home/shared";
+import { confirmedClientIntents, clientPropertyMatchQuerySchema, marketBuyerListingsQuerySchema, type MarketBuyerListingsResponse, maskPhones, sendPropertiesSchema, type SendPropertiesFallback, type SendTargetInfo } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../db.js";
 import { foreignWriteDenied } from "./shared.js";
@@ -29,12 +29,15 @@ import { getOrCreatePropertyShareLinks } from "../../lib/propertyShareLink.js";
 import { buildPropertyOfferText, formatPriceForClient } from "../../lib/propertyOfferText.js";
 import { detectClientLanguage } from "../../ai/clientLanguage.js";
 import { recordExposures } from "../../lib/propertyExposures.js";
-import { loadMatchPolicy } from "../../lib/matchPolicy.js";
+import { clientDoneBuying, loadMatchPolicy } from "../../lib/matchPolicy.js";
 import { propertyOwnerAgentId } from "../../lib/propertyOwner.js";
 import { sendPushToAgent } from "../../push.js";
 import { clientPropertyMatchingCatalog } from "../../lib/clientPropertyMatchingCatalog.js";
 import { currentBuyerMatchingCriteria } from "../../lib/clientPropertyMatching.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
+import { buyerWantsFromCriteria, describeBuyerCriteria, findBuyerListings, hasBuyerCriteria } from "../../lib/market/buyerMatch.js";
+import { findBuyerMarketSummary } from "../../lib/market/buyerMarket.js";
+import { loadOwnersFilter } from "../../lib/market/ownerFilter.js";
 
 export const matchingRouter = Router();
 
@@ -366,7 +369,7 @@ matchingRouter.get("/:id/match", requireAuth, async (req, res) => {
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
   if (!canAccessAssignedAgent(req, client.assignedAgentId)) return res.status(403).json({ error: "Недостаточно прав" });
   const { page, pageSize, scope } = parsed.data;
-  const empty = (reason: "not_buyer" | "pending_acceptance") => ({
+  const empty = (reason: "not_buyer" | "pending_acceptance" | "closed") => ({
     unfiltered: false, scanned: 0, eligible: 0, total: 0, mineTotal: 0, page, pageSize,
     scope, hasMore: false, reason, requirementsSummary: [], properties: [],
   });
@@ -378,6 +381,8 @@ matchingRouter.get("/:id/match", requireAuth, async (req, res) => {
   if (!confirmedClientIntents(client).buys) {
     return res.json(empty("not_buyer"));
   }
+  // Уже купил — подбор ему не нужен (одно правило с «ждущими», lib/matchPolicy.ts).
+  if (clientDoneBuying(client)) return res.json(empty("closed"));
   const result = await clientPropertyMatchingCatalog(client.id, currentBuyerMatchingCriteria(client), {
     viewerId: req.agent!.id, canDeleteProperties: can(req, "properties.delete"), page, pageSize, scope,
   });
@@ -387,4 +392,46 @@ matchingRouter.get("/:id/match", requireAuth, async (req, res) => {
     title: phoneSafeText(property.title, seesPhone),
     district: property.district ? { ...property.district, name: phoneSafeText(property.district.name, seesPhone) } : null,
   })) });
+});
+
+/**
+ * GET /api/v1/clients/:id/market-listings — секция «С площадок (Somon/Paydo)» в подборе покупателя
+ * (10.11.2026). Права и условия показа ровно те же, что у GET /:id/match: назначенный агент (или
+ * «видит всех»), удалённая карточка — 404, непринятый лид — пусто, не покупатель — пусто. Это
+ * чужие объявления: телефонов продавцов не отдаём вовсе, только ссылку на объявление.
+ */
+matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
+  const id = z.guid().safeParse(req.params.id);
+  const parsed = marketBuyerListingsQuerySchema.safeParse(req.query);
+  if (!id.success || !parsed.success) return res.status(400).json({ error: "Неверные параметры подбора с площадок" });
+  const client = await prisma.client.findUnique({ where: { id: id.data }, include: { desiredPlaces: true } });
+  if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
+  if (!canAccessAssignedAgent(req, client.assignedAgentId)) return res.status(403).json({ error: "Недостаточно прав" });
+  const empty = (status: MarketBuyerListingsResponse["status"], criteria: string[] = [], budgetMaxTjs: number | null = null): MarketBuyerListingsResponse =>
+    ({ status, criteria, total: 0, totalIsLowerBound: false, budgetMaxTjs, market: null, ownersOnly: null, listings: [] });
+  const ownAgentId = scopeToOwnAgent(req);
+  if (ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt) return res.json(empty("pending_acceptance"));
+  if (!confirmedClientIntents(client).buys) return res.json(empty("not_buyer"));
+
+  const wants = await buyerWantsFromCriteria(currentBuyerMatchingCriteria(client));
+  const criteria = describeBuyerCriteria(wants);
+  if (!hasBuyerCriteria(wants)) return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
+  // Список и строка рынка независимы: считаем вместе (два запроса к каталогу, без повторов на клиента).
+  // Медиана рынка считается по ВСЕМ объявлениям (агентства в ней нужны); фильтр «только собственники» только для списка.
+  const [{ total, totalIsLowerBound, listings, ownersOnly }, market] = await Promise.all([
+    loadOwnersFilter().then((realtors) => findBuyerListings(wants, parsed.data.limit, realtors)),
+    findBuyerMarketSummary(wants),
+  ]);
+  const seesPhone = can(req, "clients.viewPhone");
+  const body: MarketBuyerListingsResponse = {
+    status: "ok",
+    criteria,
+    total,
+    totalIsLowerBound,
+    budgetMaxTjs: wants.budgetMaxTjs,
+    market,
+    ownersOnly,
+    listings: listings.map(l => ({ ...l, title: phoneSafeText(l.title, seesPhone) })),
+  };
+  return res.json(body);
 });

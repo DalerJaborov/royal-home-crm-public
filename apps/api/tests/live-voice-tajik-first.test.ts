@@ -100,10 +100,11 @@ describe("гистерезис языка звонка", () => {
     expect(b.language).toBe("tg");
   });
 
-  it("с русского на таджикский — тоже после двух кириллических реплик; арабская запись — не в счёт", () => {
+  it("с русского на таджикский — с первой твёрдо таджикской реплики (16.11.2026); арабская запись — не в счёт", () => {
     const t = new CallerLanguageTracker("ru");
-    expect(feed(t, [URDU, TAJIK])).toEqual([]);
-    expect(feed(t, ["Нархаш чанд аст ҳамин хона?"])).toEqual([{ kind: "switch", to: "tg" }]);
+    expect(feed(t, [URDU])).toEqual([]);
+    expect(feed(t, [TAJIK])).toEqual([{ kind: "switch", to: "tg" }]);
+    expect(t.language).toBe("tg");
   });
 
   it("звонок владельца 15:59: русская речь, записанная немецким и португальским, — язык не меняется и не определяется", () => {
@@ -173,13 +174,15 @@ describe("язык по умолчанию — таджикский, приве�
       withinWorkingHours: true,
       forceRussianOnly: false,
     });
-    // Язык незнакомца не известен: двуязычное приветствие, дальше — на слух, не по расшифровке.
+    // Язык незнакомца не известен: двуязычное приветствие, дальше — по тексту распознавания (16.11.2026: модель ElevenLabs звука не слышит).
     expect(prompt).toContain("ЯЗЫК ЗВОНЯЩЕГО ПОКА НЕ ИЗВЕСТЕН");
     expect(prompt).not.toContain("ЯЗЫК ЭТОГО ЗВОНКА — ТАДЖИКСКИЙ");
-    expect(prompt).toContain("определяй НА СЛУХ, по звуку его речи, а не по тексту расшифровки");
-    expect(prompt).toContain("Слышишь русскую речь — отвечай по-русски сразу");
+    expect(prompt).toContain("Речь человека ты получаешь ТЕКСТОМ РАСПОЗНАВАНИЯ, звука не слышишь");
+    expect(prompt).not.toMatch(/на слух/iu);
+    expect(prompt).toContain("Отвечай на языке человека сразу");
     expect(prompt).toContain("«Тоҷикӣ ё русӣ?»");
-    expect(prompt).toContain("«Плохо слышно» не говори, если разобрал хоть часть");
+    expect(prompt).toContain("Понял хоть часть — не списывай непонятное на связь");
+    expect(prompt).not.toMatch(/плохо слышно|нашунидам/iu);
     const greeting = prompt.slice(prompt.indexOf("КАК БРАТЬ ТРУБКУ")).toLowerCase();
     expect(greeting.indexOf("ассалому алайкум")).toBeLessThan(greeting.indexOf("здравствуйте"));
     // Таджикская речь, принятая распознаванием за персидскую/турецкую, — не помеха.
@@ -188,7 +191,7 @@ describe("язык по умолчанию — таджикский, приве�
     expect(prompt).not.toContain("Простите, плохо слышно — повторите");
   });
 
-  it("с замком промт как раньше: русский, «плохо слышно» как образец переспроса", () => {
+  it("с замком промт как раньше: русский", () => {
     const prompt = persona.buildConsultantSystemPrompt({
       knowledge: "",
       caller: { numberKnown: true, selfName: null, agentName: null, dossier: "", language: null },
@@ -201,9 +204,10 @@ describe("язык по умолчанию — таджикский, приве�
   });
 
   it("общие правила: переспрос не больше раза подряд и двух за звонок; «не знаешь — по-русски» больше не правило", () => {
-    expect(LIVE_VOICE_SPEECH_RULES).toContain("не больше ОДНОГО раза подряд и не больше двух раз за звонок");
+    expect(LIVE_VOICE_SPEECH_RULES).toContain("не больше одного раза подряд и не больше двух за звонок");
     expect(LIVE_VOICE_SPEECH_RULES).not.toContain("не знаешь — по-русски.");
-    expect(LIVE_VOICE_LANGUAGE_NOTE).toContain("определяй на слух, по звуку речи, а не по тексту расшифровки");
+    expect(LIVE_VOICE_LANGUAGE_NOTE).toContain("Речь человека ты получаешь текстом распознавания, и оно ошибается");
+    expect(LIVE_VOICE_LANGUAGE_NOTE).not.toMatch(/на слух/iu);
   });
 
   it("сторож тишины без замка: таджикский вопрос первым; с замком — только русский", () => {

@@ -91,13 +91,13 @@ describe("A12: служба безопасности не заводит объ�
     expect(res.status).toBe(201);
   });
 
-  it("СБ по-прежнему открывает карточку объекта и видит собственника", async () => {
+  it("СБ по-прежнему открывает карточку объекта, но контакт собственника скрыт (16.11.2026: контакты — только директору)", async () => {
     const propertyId = propertyIds.at(-1);
     expect(propertyId).toBeTruthy();
     const res = await request(app)
       .get(`/api/v1/properties/${propertyId}`)
       .set("Authorization", `Bearer ${securityToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.ownerContact).toBe(`+992938${runId.slice(-6)}`);
+    expect(res.body.ownerContact).toBeFalsy();
   });
 });

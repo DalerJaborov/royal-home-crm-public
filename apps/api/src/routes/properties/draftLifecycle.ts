@@ -1,4 +1,5 @@
 import type { Prisma } from "../../generated/prisma/client.js";
+import { createHash } from "node:crypto";
 import { prisma, type TxClient } from "../../db.js";
 import { PROPERTY_DRAFT_TTL_DAYS, type PropertyDraftView } from "@royal-home/shared";
 import { DRAFT_MEDIA_ORDER } from "./shared.js";
@@ -6,6 +7,12 @@ import { DRAFT_MEDIA_ORDER } from "./shared.js";
 export const DRAFT_INCLUDE = { media: { orderBy: DRAFT_MEDIA_ORDER } } satisfies Prisma.PropertyDraftInclude;
 export type DraftRecord = Prisma.PropertyDraftGetPayload<{ include: typeof DRAFT_INCLUDE }>;
 export interface DraftReference { draftId?: string; revision?: number }
+
+export function draftMediaFingerprint(draft: DraftRecord): string {
+  return createHash("sha256").update(JSON.stringify(draft.media.map(media => [
+    media.id, media.status, media.order, media.updatedAt.toISOString(),
+  ]))).digest("hex");
+}
 
 export function presentDraftSnapshot(draft: DraftRecord): PropertyDraftView {
   return {

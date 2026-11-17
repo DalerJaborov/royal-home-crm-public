@@ -2,17 +2,20 @@ import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import path from "node:path";
 import { handleModerationCallback, handleModerationText, claimCallback } from "../lib/telegramModeration.js";
 import { handleClipReviewCallback, handleClipReviewText } from "./clipReviewBot.js";
+import { handleTransferReviewCallback } from "./transferReviewBot.js";
 import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
 import { tryLinkAgentByCode, findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
+import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantStepUpMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
+import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
-import { handleMontajerVideo, handleMontajerReceiveCallback } from "./montajerReceive.js";
+import { handleMontajerVideo, handleMontajerReceiveCallback, handleVoicelessCopyCallback } from "./montajerReceive.js";
 import { parseMontajerCallback, parseMontajerText, runMontajerCommand } from "./montajerBot.js";
 import { appendTelegramConversationMessages } from "../messengers/appendMessages.js";
-import { batchWindowFor, debounceAndMerge } from "../messengers/debounceBuffer.js";
+import { batchWindowFor, debounceAndMerge, quickRepeatMergeEnabled } from "../messengers/debounceBuffer.js";
 import { markLastTelegramReplyUndelivered } from "../messengers/appendMessages.js";
 import { deliverVoiceToConversation } from "../lib/conversationDelivery.js";
 import { synthesizeChatVoiceReply, pcmToWavBuffer } from "../ai/tts.js";
@@ -81,6 +84,7 @@ import {
   sendMessage,
   sendMessageWithButtons,
   setMessageReaction,
+  telegramUpdateChatId,
   type TelegramCallbackQuery,
   type TelegramDocument,
   type TelegramIncomingMessage,
@@ -173,10 +177,14 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
     await answerCallbackQuery(query.id);
     return;
   }
+  // Внутренний помощник (П5, telegram/assistantBot.ts) — as:ok|no:<связка>.
+  if (await handleAssistantCallback(query)) return;
   // Модерация объектов (lib/telegramModeration, 22.09.2026) — свой диспетчер tm:*.
   if (await handleModerationCallback(query)) return;
   // Проверка готового ролика (telegram/clipReviewBot.ts, 25.09.2026) — cr:*.
   if (await handleClipReviewCallback(query)) return;
+  // Передача РОП — решение директора (telegram/transferReviewBot.ts, 16.11.2026) — tr:*.
+  if (await handleTransferReviewCallback(query)) return;
   if (query.data === "call_agent") {
     // Диалог мог уже принять заявку (клиент нажал кнопку из старого сообщения
     // после того, как оформился заявкой текстом) — тогда просто подтверждаем,
@@ -267,6 +275,11 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
       await handleMontajerReceiveCallback(chatId, agent.id, query.data);
       return;
     }
+    // «🎵 Пришлю без голоса» / «Не сейчас» под квитанцией (12.11.2026, lib/narrationVoicelessCopy.ts).
+    if (query.data.startsWith("mj:nv")) {
+      await handleVoicelessCopyCallback(chatId, agent.id, query.data);
+      return;
+    }
     // Меню — telegram/montajerBot.ts; незнакомая (старая) кнопка — меню заново.
     await runMontajerCommand(chatId, parseMontajerCallback(query.data) ?? { kind: "menu" });
     return;
@@ -310,6 +323,10 @@ const chatChains = new Map<string, Promise<void>>();
  */
 export interface TelegramUpdateAccepted {
   reply: Promise<void>;
+  /** Ответ помощницы сотрудникам, вынесенный из очереди чата (assistantBot.ts, runInAssistantLane):
+   *  апдейт считается обработанным только когда ответ готов — поллер не подтверждает его Telegram
+   *  раньше, и при перезапуске посреди хода Telegram пришлёт его снова. */
+  assistantDeferred?: boolean;
 }
 
 /**
@@ -320,7 +337,7 @@ export interface TelegramUpdateAccepted {
  * дожидается и ответа.
  */
 export function startTelegramUpdate(update: TelegramUpdate): Promise<TelegramUpdateAccepted> {
-  const rawChatId = update.message?.chat?.id ?? update.callback_query?.message?.chat.id;
+  const rawChatId = telegramUpdateChatId(update);
   const accepted = (r: TelegramUpdateAccepted | void): TelegramUpdateAccepted => r ?? { reply: Promise.resolve() };
   if (rawChatId == null) return dispatchTelegramUpdate(update).then(accepted);
   const key = String(rawChatId);
@@ -343,6 +360,10 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 }
 
 async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramUpdateAccepted | void> {
+  if (update.edited_message) {
+    await captureAssistantTelegramContext(update.edited_message, update.update_id);
+    return;
+  }
   if (update.callback_query) {
     await handleCallbackQuery(update.callback_query);
     return;
@@ -376,6 +397,13 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
    * всё остальное молча пропускается.
    */
   if (msg.chat.type && msg.chat.type !== "private") {
+    await captureAssistantTelegramContext(msg, update.update_id);
+    // Помощница сотрудников: участие разрешено только для подключённых рабочих групп.
+    if (await handleAssistantGroupMessage(msg, update.update_id)) {
+      // Долгий ход помощницы — вне очереди группы (assistantBot.ts, runInAssistantLane).
+      const reply = takeDeferredAssistantReply(msg);
+      return reply ? { reply, assistantDeferred: true } : undefined;
+    }
     await handleDiscussionGroupMessage(msg);
     return;
   }
@@ -384,7 +412,10 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
   // проверяется ДО альбомов/клиентской логики: это не клиент, и склеивать его
   // сообщения в клиентский диалог нельзя. /start <код> обрабатывается для любого
   // чата (это ровно тот момент, когда чат ЕЩЁ не привязан).
-  if (await handleAgentTelegramMessage(msg, update.update_id)) return;
+  if (await handleAgentTelegramMessage(msg, update.update_id)) {
+    const reply = takeDeferredAssistantReply(msg);
+    return reply ? { reply, assistantDeferred: true } : undefined;
+  }
 
   // Альбом: клиент отправил несколько фотографий одной пачкой — Telegram доставляет
   // их отдельными сообщениями. Копим и разбираем одним обращением (см. bufferAlbum).
@@ -447,9 +478,11 @@ async function isCurrentMontajer(agentId: string): Promise<boolean> {
 async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId: number): Promise<boolean> {
   const chatId = String(msg.chat.id);
 
-  const startMatch = msg.text?.match(/^\/start\s+(\S+)/);
+  // Пересылка может быть справкой, но команды и ответы на рабочие вопросы пишет сам сотрудник.
+  const ownText = msg.forward_origin || msg.forward_from_message_id ? undefined : msg.text;
+  const startMatch = ownText?.match(/^\/start\s+(\S+)/);
   if (startMatch) {
-    const linked = await tryLinkAgentByCode(chatId, startMatch[1]);
+    const linked = await tryLinkAgentByCode(chatId, startMatch[1], msg.from?.id ? String(msg.from.id) : null);
     if (linked) return true;
     // Код не подошёл (истёк, чужой, уже использован) — это мог быть и клиент,
     // случайно написавший "/start что-то": не отвечаем здесь ничего, пусть
@@ -459,11 +492,24 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
   const agent = await findAgentByTelegramChatId(chatId);
   if (!agent) return false;
 
+  // Код Google Authenticator к карточке помощницы (сотрудники, права — 10.11.2026)
+  // перехватывается ПЕРВЫМ: иначе шесть цифр ушли бы в модерацию, мастер объекта или
+  // модели как обычный текст и остались бы видны в чате.
+  if (await handleAssistantStepUpMessage(msg, agent)) return true;
+
   // Ответ модератора на вопрос бота («комментарий агенту», «новое значение поля») —
   // состояние в базе с TTL 15 минут, см. lib/telegramModeration.ts.
-  if (msg.text && !msg.text.startsWith("/") && (await handleModerationText(chatId, msg.text))) return true;
+  if (ownText && !ownText.startsWith("/") && (await handleModerationText(chatId, ownText))) return true;
   // Комментарий монтажёру к возврату готового ролика (telegram/clipReviewBot.ts).
-  if (msg.text && !msg.text.startsWith("/") && (await handleClipReviewText(chatId, msg.text))) return true;
+  if (ownText && !ownText.startsWith("/") && (await handleClipReviewText(chatId, ownText))) return true;
+
+  // Не монтажёр — разговор с внутренним помощником CRM (П5, telegram/assistantBot.ts): текст,
+  // голосовые, кнопки подтверждения. Монтажёру ниже достаётся прежнее меню и приём ролика.
+  if (!(await isCurrentMontajer(agent.id))) {
+    // Ход помощницы — вне очереди апдейтов, ответ отдаётся наверх отложенным (dispatch выше).
+    startAssistantPrivate(msg, agent);
+    return true;
+  }
 
   /**
    * ОБЛОЖКА ОТ МОНТАЖЁРА БОЛЬШЕ НЕ ПРИНИМАЕТСЯ (владелец, 21.09.2026: «обложки
@@ -536,7 +582,8 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     }).catch(() => {});
     return true;
   }
-  await runMontajerCommand(chatId, parseMontajerText(msg.text ?? ""));
+  if (!ownText && msg.text) return true;
+  await runMontajerCommand(chatId, parseMontajerText(ownText ?? ""));
   return true;
 }
 
@@ -1810,7 +1857,8 @@ async function replyAfterWindow(p: {
       p.conversationId,
       p.text,
       { voice: p.voice, media: p.hasMedia, messageId: p.messageId },
-      batchWindowFor({ accepted: !!p.registeredClientId, hasMedia: p.hasMedia })
+      batchWindowFor({ accepted: !!p.registeredClientId, hasMedia: p.hasMedia,
+        mergeQuickRepeats: !!p.registeredClientId && (await quickRepeatMergeEnabled()) })
     );
     if (!batch) return; // клиент дописал — ответит более свежий вызов, за всю пачку
     const images = drainBatchImages(p.conversationId);

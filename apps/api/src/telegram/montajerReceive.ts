@@ -52,6 +52,14 @@ import {
   maskTelegramFilePath,
   type TelegramInlineButton,
 } from "./api.js";
+import {
+  forgetVoicelessQuestion,
+  rememberVoicelessQuestion,
+  storeVoicelessCopy,
+  voicelessCopyAsk,
+  voicelessCopyTarget,
+  type VoicelessTarget,
+} from "../lib/narrationVoicelessCopy.js";
 
 /** Сколько бот ждёт ответа монтажёра «чей это ролик» (как у модерации). */
 export const MONTAJER_RECEIVE_QUESTION_TTL_MS = 15 * 60_000;
@@ -107,13 +115,15 @@ export function handoffReceiptText(result: ReceiveEditedVideoResult, shortId: nu
   const oldLeft = result.oldVideoLeftIn?.length
     ? `\nВ сетях ${result.oldVideoLeftIn.map(channelLabel).join(", ")} остался старый ролик — туда новый сам не уйдёт.`
     : "";
-  if (!result.media) return `${base}${oldLeft}`;
+  // Ролик без голоса (11.11.2026): голос наложила CRM — одной строкой монтажёру.
+  const mixed = result.narrationMixedRevision ? `\nОзвучку (версия ${result.narrationMixedRevision}) CRM наложила сама.` : "";
+  if (!result.media) return `${base}${mixed}${oldLeft}`;
   const { media, filename } = result;
   const parts = [filename ? `Файл: ${filename}` : null, media.sizeBytes ? `${Math.round(media.sizeBytes / 1024 / 1024)} МБ` : null];
   if (media.durationSec > 0) parts.push(formatDurationShort(media.durationSec));
   if (media.width && media.height) parts.push(`${media.width}×${media.height}`);
-  parts.push(media.hasAudio ? "звук есть" : "звука нет");
-  return `${base}\n${parts.filter(Boolean).join(", ")}${oldLeft}`;
+  parts.push(media.hasAudio ? "звук есть" : result.narrationMixedRevision ? "без голоса" : "звука нет");
+  return `${base}\n${parts.filter(Boolean).join(", ")}${mixed}${oldLeft}`;
 }
 
 /** «в 14:30» сегодня, «26.09 в 14:30» в другой день, «сейчас» — если слот уже настал. */
@@ -177,7 +187,7 @@ async function askWhichObject(input: MontajerVideoInput, candidates: number[], t
  * сделана вызывающим (bot.ts). `forcedShortId` — ответ на вопрос «чей ролик»:
  * номер выбран кнопкой, в имени файла его может и не быть.
  */
-export async function handleMontajerVideo(input: MontajerVideoInput, forcedShortId?: number): Promise<void> {
+export async function handleMontajerVideo(input: MontajerVideoInput, forcedShortId?: number, opts: { finalForSure?: boolean } = {}): Promise<void> {
   const { chatId, filename } = input;
 
   // Передача через бота выключена в Настройках (25.09.2026, А8) — говорим прямо,
@@ -212,6 +222,16 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
       }
       return;
     }
+  }
+
+  // ТОТ ЖЕ РОЛИК БЕЗ ГОЛОСА (12.11.2026, lib/narrationVoicelessCopy.ts): после кнопки
+  // «Пришлю без голоса» или с подписью «без голоса 123» файл становится мастером для
+  // смены голоса, а не новым готовым роликом. Не подошёл по длине после кнопки — дальше
+  // обычный приём: монтажёр мог забыть и прислать готовый ролик следующего объекта.
+  // finalForSure — монтажёр сам нажал «Это новый готовый ролик»: подпись «без голоса» не в счёт.
+  if (forcedShortId === undefined && !opts.finalForSure) {
+    const voiceless = await voicelessCopyTarget(input).catch(() => null);
+    if (voiceless && (await handleVoicelessCopy(input, voiceless))) return;
   }
 
   // Метка reopenForResend (задание F, 24.09.2026) — undoReopenForResend сверяет
@@ -372,8 +392,114 @@ export async function handleMontajerVideo(input: MontajerVideoInput, forcedShort
   // Пересылка не принята — объект не должен остаться держать место монтажёра.
   if (!result.ok && reopenedForResend) await undoReopenForResend(property.id, reopenedForResend);
   const receiptText = handoffReceiptText(result, property.shortId);
-  await sendToMontajer(chatId, receiptText, { copy: true, propertyShortId: property.shortId }).catch(() => {});
+  // Голос вклеил монтажёр — один раз просим тот же ролик без голоса (12.11.2026), кнопками.
+  const ask = result.ok ? await voicelessCopyAsk(property.id).catch(() => null) : null;
+  await sendToMontajer(chatId, ask ? `${receiptText}\n\n${ask.text}` : receiptText, {
+    copy: true,
+    propertyShortId: property.shortId,
+    ...(ask ? { replyMarkup: ask.buttons } : {}),
+  }).catch(() => {});
   void recordMontajerMessage(property.id, "RECEIPT", receiptText);
+}
+
+/** Файл Telegram — во временную копию внутри videoHandoffDir (как у готового ролика). null — не скачался. */
+async function telegramFileToTemp(fileId: string): Promise<string | null> {
+  const material = await resolveTelegramFileMaterialization(fileId, TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES);
+  if (!material) return null;
+  const ext = material.kind === "path" ? path.extname(material.path) || ".mp4" : ".mp4";
+  const tmpPath = path.join(videoHandoffDir, `voiceless-${randomUUID()}${ext}`);
+  try {
+    if (material.kind === "path") await pipeline(fs.createReadStream(material.path), fs.createWriteStream(tmpPath));
+    else await fs.promises.writeFile(tmpPath, material.buffer);
+  } catch {
+    await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+    return null;
+  }
+  if (material.kind === "path" && isInsideTelegramFilesDir(material.path)) await fs.promises.rm(material.path, { force: true }).catch(() => {});
+  return tmpPath;
+}
+
+/** true — файл разобран как «без голоса» (принят или отказ сказан); false — принимать обычным роликом. */
+async function handleVoicelessCopy(input: MontajerVideoInput, target: VoicelessTarget): Promise<boolean> {
+  const tmpPath = await telegramFileToTemp(input.fileId);
+  if (!tmpPath) {
+    await sendToMontajer(input.chatId, "Не получилось скачать файл без голоса — пришлите его ещё раз.", { copy: false }).catch(() => {});
+    return true;
+  }
+  try {
+    const stored = await storeVoicelessCopy(target.propertyId, tmpPath, { ignoreDuration: target.via === "choice" });
+    if (!stored.ok && stored.code === "MISMATCH" && target.via === "button") {
+      // После кнопки пришёл не тот же по длине ролик (ревью 12.11.2026): не гадаем — спрашиваем
+      // монтажёра кнопками, иначе ролик без голоса мог бы выйти в сети как готовый.
+      await rememberVoicelessChoice(input, target);
+      await sendToMontajer(input.chatId, `${stored.error}\nЧто это за файл?`, {
+        copy: false,
+        replyMarkup: [[
+          { text: `Это №${target.shortId} без голоса`, callback_data: `mj:nvc:v:${input.updateId}` },
+          { text: "Это новый готовый ролик", callback_data: `mj:nvc:f:${input.updateId}` },
+        ]],
+      }).catch(() => {});
+      return true;
+    }
+    await forgetVoicelessQuestion(input.chatId);
+    const text = stored.ok
+      ? `Ролик №${stored.shortId} без голоса сохранён. Поменяется цена — CRM сама заменит голос, музыку не тронет. Спасибо!`
+      : `Объект №${target.shortId}: ${stored.error}`;
+    await sendToMontajer(input.chatId, text, { copy: true, propertyShortId: target.shortId }).catch(() => {});
+    return true;
+  } catch (err) {
+    void logSystemError("video-handoff", `Объект №${target.shortId}: ролик без голоса не сохранён: ${describeError(err)}`);
+    await sendToMontajer(input.chatId, "Не получилось сохранить ролик без голоса — попробуйте ещё раз.", { copy: false }).catch(() => {});
+    return true;
+  } finally {
+    await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+  }
+}
+
+const VOICELESS_CHOICE_KIND = "montajer_voiceless_choice";
+type VoicelessChoicePayload = { input: MontajerVideoInput; propertyId: string; shortId: number };
+async function rememberVoicelessChoice(input: MontajerVideoInput, target: VoicelessTarget): Promise<void> {
+  const data = { agentId: input.agentId, kind: VOICELESS_CHOICE_KIND, expiresAt: new Date(Date.now() + MONTAJER_RECEIVE_QUESTION_TTL_MS),
+    payload: { input: { ...input, albumGroupId: undefined }, propertyId: target.propertyId, shortId: target.shortId } as unknown as Prisma.InputJsonValue };
+  await prisma.telegramDialogState.upsert({ where: { chatId: input.chatId }, create: { chatId: input.chatId, ...data }, update: data });
+}
+
+/** «Это №N без голоса» / «Это новый готовый ролик» (`mj:nvc:v|f:<updateId>`) — ответ на несовпавшую длину. */
+async function handleVoicelessChoice(chatId: string, agentId: string, kind: "v" | "f", updateId: number): Promise<void> {
+  const row = await prisma.telegramDialogState.findUnique({ where: { chatId } });
+  const payload = row?.kind === VOICELESS_CHOICE_KIND ? (row.payload as unknown as VoicelessChoicePayload) : null;
+  if (!row || !payload || row.agentId !== agentId || row.expiresAt <= new Date() || payload.input.updateId !== updateId) {
+    await sendToMontajer(chatId, "Этот вопрос уже устарел — пришлите файл ещё раз.", { copy: false }).catch(() => {});
+    return;
+  }
+  await prisma.telegramDialogState.deleteMany({ where: { chatId, kind: VOICELESS_CHOICE_KIND } });
+  if (kind === "v") {
+    await handleVoicelessCopy(payload.input, { propertyId: payload.propertyId, shortId: payload.shortId, via: "choice" });
+    return;
+  }
+  // Новый готовый ролик — обычный приём (вопрос «без голоса» уже снят, файл им не станет).
+  await handleMontajerVideo(payload.input, undefined, { finalForSure: true });
+}
+
+/** Кнопки «🎵 Пришлю без голоса» (`mj:nv:<номер>`) и «Не сейчас» (`mj:nvx:<номер>`). */
+export async function handleVoicelessCopyCallback(chatId: string, agentId: string, data: string): Promise<void> {
+  const choice = data.match(/^mj:nvc:(v|f):(\d+)$/);
+  if (choice) return handleVoicelessChoice(chatId, agentId, choice[1] as "v" | "f", Number(choice[2]));
+  const match = data.match(/^mj:(nv|nvx):(\d{1,7})$/);
+  if (!match) return;
+  const shortId = Number(match[2]);
+  if (match[1] === "nvx") {
+    await forgetVoicelessQuestion(chatId);
+    await sendToMontajer(chatId, `Хорошо. Если цена №${shortId} поменяется, новый голос вклеите вы.`, { copy: false }).catch(() => {});
+    return;
+  }
+  const p = await prisma.property.findFirst({ where: { shortId, deletedAt: null }, select: { id: true } });
+  if (!p) {
+    await sendToMontajer(chatId, `Объекта №${shortId} в CRM нет.`, { copy: false }).catch(() => {});
+    return;
+  }
+  await rememberVoicelessQuestion(chatId, agentId, p.id, shortId);
+  await sendToMontajer(chatId, `Жду ролик №${shortId} без голоса: пришлите его файлом в течение часа.`, { copy: false }).catch(() => {});
 }
 
 /**

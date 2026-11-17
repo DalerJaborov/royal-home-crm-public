@@ -1,4 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// П3 (11.11.2026): часы, «не звонить» и частоту звонков робота проверяет одна дверь
+// (robot-call-policy.test.ts); здесь — механика моста, и она должна быть зелёной в любой час.
+vi.mock("../src/lib/robotCallPolicy.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/robotCallPolicy.js")>()),
+  robotCallRefusal: vi.fn(async () => null),
+}));
 import dgram from "node:dgram";
 import { WebSocketServer } from "ws";
 import type { AddressInfo } from "node:net";

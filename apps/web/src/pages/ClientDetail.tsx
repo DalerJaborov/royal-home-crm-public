@@ -7,18 +7,17 @@ import { usableRouteId } from "../lib/routeId";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { ApiError } from "../lib/apiError";
 import { assignLeadErrorText } from "../lib/assignLeadError";
-import { ArrowLeft, ArrowRightLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, RefreshCw, RotateCcw, Search, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
+import { ArrowLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, PhoneOff, RefreshCw, RotateCcw, Search, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
 import { ClientMoreMenu, countMoreItems, type MoreGroup, type MoreItem } from "../components/ClientMoreMenu";
 import { useProperties, useProperty } from "../hooks/useProperties";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { ClientFormModal } from "../components/ClientFormModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { isRequiresRelease, useAcceptLead, useAssignLead, useClient, useClientToCandidate, useDeclineLead, useDeleteClient, useLiveVoiceCall, usePropertyPickerOptions, useUpdateClient, type ReleaseCandidate } from "../hooks/useClients";
+import { isRequiresRelease, useAcceptLead, useAssignLead, useClient, useClientToCandidate, useDeclineLead, useDeleteClient, useLiveVoiceCall, usePropertyPickerOptions, useRobotCallStop, useSetRobotCallStop, useUpdateClient, type ReleaseCandidate } from "../hooks/useClients";
 import { CallPhoneChooser, type CallPhoneOption } from "../components/CallPhoneChooser";
 import { MatchPanel } from "../components/match/MatchPanel";
 import { CloseDealChoiceModal } from "../components/CloseDealChoiceModal";
 import { NewDealSheet } from "../components/NewDealSheet";
-import { TransferClientModal } from "../components/TransferClientModal";
 import { MergeClientModal } from "../components/MergeClientModal";
 import { useSimilarNotes, useDismissSimilarClient, type SimilarNotesClient } from "../hooks/useDuplicates";
 import { RequestDeleteClientModal } from "../components/RequestDeleteClientModal";
@@ -28,7 +27,7 @@ import {
   useDisputePropertyCount,
   type PropertyCountDisputeRole,
 } from "../hooks/useDeleteRequests";
-import { CLIENT_KINDS, DEAL_STAGE_LABELS, canViewInvestigations, clientIntents, clientCardCanWrite, type ClientKind } from "@royal-home/shared";
+import { CLIENT_KINDS, DEAL_STAGE_LABELS, canViewInvestigations, clientIntents, clientCardCanWrite, type ClientKind, robotCallClientReasonsRu } from "@royal-home/shared";
 import { useAgents } from "../hooks/useAgents";
 import { assignableStaff, notAgentConfirmText, notAgentWarningText, staffOptionLabel } from "../lib/assignableStaff";
 import { useSettings } from "../hooks/useSettings";
@@ -76,6 +75,7 @@ import { MobileClientCard } from "../components/mobile/MobileClientCard";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
 import { ClientBuyerRequirementsEditor } from "../components/ClientBuyerRequirementsEditor";
+import { MarketBuyerListings } from "../components/MarketBuyerListings";
 import { ClientNextStep, clientPropertyCountVisible } from "../components/ClientCardContext";
 import "../theme-client-workspace.css";
 
@@ -207,7 +207,6 @@ function ClientDetailCard() {
   // «Подбор · N» везде (владелец 17.09.2026 вечер) — открыта/закрыта, без режимов.
   const [showCloseDeal, setShowCloseDeal] = useState(false);
   const [showNewDeal, setShowNewDeal] = useState(false);
-  const [showTransfer, setShowTransfer] = useState(false);
   const [showMerge, setShowMerge] = useState<SimilarNotesClient | true | false>(false);
   /** Предупреждение перед повторным созданием объекта — «Создать объект из заявки»
    *  открывало ту же форму на любом клике, без единого признака, что у продавца уже
@@ -412,6 +411,10 @@ function ClientDetailCard() {
    * видимости кнопки, не защита: окончательное решение всегда за сервером.
    */
   const { data: settings } = useSettings();
+  // «Не звонить роботом» (П3, 11.11.2026): читаем, только когда робот вообще включён.
+  const robotStop = useRobotCallStop(client?.id, !!settings?.liveVoiceEnabled);
+  const setRobotStop = useSetRobotCallStop(client?.id ?? "");
+  const robotStopError = setRobotStop.error instanceof Error ? setRobotStop.error.message : null;
   const leadCallMinSeconds = settings?.leadCallMinSeconds ?? 30;
   // Факты считает сервер по ПОЛНОЙ истории: карточка режет хронологию на 200 записей,
   // и вывод из неё прятал «Завершить сделку»/«Передать» после 200 новых записей (WEB-PAGES21).
@@ -920,7 +923,7 @@ function ClientDetailCard() {
   // A role confirmation slot shared by desktop, Clean phones and the agent phone card.
   const clientIntentConfirmation = <ClientIntentConfirmation key={`${client.id}:${client.kind}:${client.dualIntent}`} client={client} locked={locked} />;
   const overviewProperties = !(pending && locked) && (sells || buys) ? <div className="client-overview-properties" ref={overviewPropertiesRef}>
-    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /></>}
+    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></>}
     {sells && <ClientPropertyWorkspace key={`seller:${client.id}:${client.kind}:${client.dualIntent}`} variant="portfolio" client={client} locked={locked}
       canCreate={canCreatePropertyFromLead} onCreate={createSellerProperty} onSchedule={scheduleShowing} />}
   </div> : null;
@@ -1007,14 +1010,6 @@ function ClientDetailCard() {
       onSelect: () => setShowCloseDeal(true),
     });
   }
-  if (!locked && !isSeller && !isOther && hadRealContact) {
-    mainItems.push({
-      key: "transfer",
-      label: "Передать другому агенту",
-      icon: ArrowRightLeft,
-      onSelect: () => setShowTransfer(true),
-    });
-  }
   if (!pending && canAssignClients && !isOther && client.assignedAgent && !showReassign) {
     mainItems.push({
       key: "reassign-open",
@@ -1076,6 +1071,45 @@ function ClientDetailCard() {
       icon: Bot,
       onSelect: () => setShowRobot(true),
     });
+  }
+
+  /**
+   * «НЕ ЗВОНИТЬ РОБОТОМ» (П3, 11.11.2026): тумблер на ПК и телефоне — одно меню «Ещё».
+   * Робот не наберёт этот номер ни по какому поводу (опрос, проверка продавца, кнопка
+   * выше). Просьбу самого клиента снимает только руководитель — тогда строка погашена.
+   */
+  if (!locked && settings?.liveVoiceEnabled && robotStop.data) {
+    const stop = robotStop.data;
+    const clientWhy = robotCallClientReasonsRu(stop.clientReasons);
+    // Обе причины видны сразу: отметка сотрудника и просьба самого клиента (ревью П3).
+    extraItems.push({
+      key: "robot-stop",
+      label: "Не звонить роботом",
+      icon: PhoneOff,
+      checked: stop.stopped,
+      hint: stop.clientReasons.length
+        ? stop.staffStop
+          ? `Стоит ваша отметка, и клиент сам просил не беспокоить (${clientWhy}) — снятие отметки этого не отменит`
+          : `Клиент сам просил не беспокоить (${clientWhy})`
+        : !stop.stopped && stop.allowedBySupervisor
+          ? "Руководитель разрешил звонить, хотя клиент просил не беспокоить"
+          : undefined,
+      // Тумблер ставит и снимает только отметку сотрудника; просьбу клиента он не снимает.
+      disabled: stop.stopped && !stop.staffStop,
+      onSelect: () => setRobotStop.mutate({ stopped: !stop.staffStop }),
+    });
+    // Разрешить вопреки просьбе клиента — отдельное явное действие руководителя.
+    if (stop.canOverride) {
+      extraItems.push({
+        key: "robot-override",
+        label: "Звонить вопреки просьбе клиента",
+        icon: Bot,
+        tone: "danger",
+        hint: `Клиент просил не беспокоить (${clientWhy}). Робот снова сможет звонить; рассылки по-прежнему молчат`,
+        disabled: setRobotStop.isPending,
+        onSelect: () => setRobotStop.mutate({ stopped: false, overrideClientRequest: true }),
+      });
+    }
   }
 
   /**
@@ -1208,7 +1242,7 @@ function ClientDetailCard() {
               Свернуть
             </button>
           </div>
-          <ClientMoreMenu groups={moreGroups} error={toCandidateError} />
+          <ClientMoreMenu groups={moreGroups} error={toCandidateError ?? robotStopError} />
         </div>
       )}
 
@@ -1273,7 +1307,7 @@ function ClientDetailCard() {
               setShowMerge(candidate);
             }} />
           )}
-          <ClientMoreMenu groups={moreGroups} error={toCandidateError} onPick={() => setShowMoreSheet(false)} />
+          <ClientMoreMenu groups={moreGroups} error={toCandidateError ?? robotStopError} onPick={() => setShowMoreSheet(false)} />
         </Rh2Sheet>
       )}
       {showInteraction && !locked && client.id && (
@@ -1385,7 +1419,6 @@ function ClientDetailCard() {
       {showEditForm && !locked && <ClientFormModal client={client} onClose={() => setShowEditForm(false)} />}
       {!locked && showCloseDeal && <CloseDealChoiceModal client={client} onClose={() => setShowCloseDeal(false)} />}
       {!locked && showNewDeal && <NewDealSheet client={client} onClose={() => setShowNewDeal(false)} />}
-      {!locked && showTransfer && <TransferClientModal client={client} onClose={() => setShowTransfer(false)} />}
       {!locked && canMerge && showMerge && (
         <MergeClientModal
           client={client}
@@ -1524,7 +1557,7 @@ function ClientDetailCard() {
             onShowInteraction={() => scheduleShowing()}
             onMerge={(c) => setShowMerge(c)}
             moreGroups={moreGroups}
-            moreError={toCandidateError}
+            moreError={toCandidateError ?? robotStopError}
             showMoreSheet={showMoreSheet}
             onShowMoreSheet={setShowMoreSheet}
             commonMiddle={commonMiddle}

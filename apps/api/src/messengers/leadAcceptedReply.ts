@@ -1,3 +1,4 @@
+import { outsideAreaAcceptedText } from "../lib/serviceArea.js";
 import type { ChatMessage } from "../ai/client.js";
 import { detectClientLanguage } from "../ai/clientLanguage.js";
 import { shortAgentReply } from "../ai/shortAgentReply.js";
@@ -24,9 +25,7 @@ import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
  * (COMMENT_SCENARIO_RULES).
  */
 export function otherCityAcceptedReply(language: ReturnType<typeof detectClientLanguage>): string {
-  return language === "ru"
-    ? "Записали, спасибо. Пока работаем только по Душанбе; если начнём работать в вашем городе — напишем."
-    : "Сабт кардем, раҳмат. Ҳоло танҳо дар Душанбе кор мекунем; агар дар шаҳри шумо сар кунем, менависем.";
+  return outsideAreaAcceptedText(language === "ru" ? "ru" : "tg");
 }
 
 /**

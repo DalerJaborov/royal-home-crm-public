@@ -332,6 +332,57 @@ export const assistantAuditQuerySchema = dateRangeQuerySchema.extend({
 export type AssistantAuditQuery = z.infer<typeof assistantAuditQuerySchema>;
 
 /**
+ * ИТОГ ХОДА ПОМОЩНИЦЫ (пачка 2, 07.11.2026, модель AiAssistantTurnLog): закрытый список,
+ * один на сервер (запись, фильтр) и экран (подписи). `aborted` — человек закрыл окно или ушёл
+ * до ответа: это не неудача помощницы (ревью 07.11.2026).
+ */
+export const ASSISTANT_TURN_OUTCOMES = ["answer", "partial", "refusal", "error", "aborted"] as const;
+export type AssistantTurnOutcome = (typeof ASSISTANT_TURN_OUTCOMES)[number];
+
+/** «Где не справилась» (фильтр `outcome=failed`): частично, не по сути, сбой. */
+export const ASSISTANT_TURN_FAILED_OUTCOMES = ["partial", "refusal", "error"] as const satisfies readonly AssistantTurnOutcome[];
+
+/** Подписи итога хода для экрана «Система» — бытовыми словами. */
+export const ASSISTANT_TURN_OUTCOME_LABELS: Record<AssistantTurnOutcome, string> = {
+  answer: "Ответила",
+  partial: "Ответила частично",
+  refusal: "Не ответила по сути",
+  error: "Сбой",
+  aborted: "Ушли до ответа",
+};
+
+/**
+ * Срок хранения журнала помощницы, дней (Settings.aiAssistantLogRetentionDays). Одни пределы
+ * на PATCH /settings и на поле экрана. Неделя снизу — чтобы успеть разобрать жалобу; два года
+ * сверху — журнал хранит вопросы сотрудников, бессрочно его не держим.
+ */
+export const ASSISTANT_LOG_RETENTION_DAYS = { min: 7, max: 730, default: 90 } as const;
+
+/**
+ * ШАГИ И СРОК ОДНОГО ОТВЕТА ПОМОЩНИЦЫ (Settings.aiAssistantMaxRounds / aiAssistantDeadlineSec,
+ * решение владельца 07.11.2026: 6 → 30 шагов, 35 → 120 с). Одни пределы на сервер, экран и
+ * потолок ожидания в браузере. Верх срока — 180 с: nginx держит ответ /api/ до 130 с тишины
+ * (apps/web/nginx.conf), а помощница шлёт статус каждый шаг; браузер ждёт max + запас.
+ */
+export const ASSISTANT_MAX_ROUNDS = { min: 3, max: 50, default: 30 } as const;
+export const ASSISTANT_DEADLINE_SEC = { min: 20, max: 180, default: 120 } as const;
+
+/** Число из настроек в пределах; мусор и отсутствие — значение по умолчанию. */
+export function clampAssistantLimit(value: unknown, limits: { min: number; max: number; default: number }): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return limits.default;
+  return Math.min(limits.max, Math.max(limits.min, Math.round(value)));
+}
+
+/** GET /ai/assistant-turns: период, страница, сотрудник и итог («только где не справилась»). */
+export const assistantTurnsQuerySchema = dateRangeQuerySchema.extend({
+  page,
+  agentId: uuid.optional(),
+  /** Один итог или `failed` — ASSISTANT_TURN_FAILED_OUTCOMES (без answer и aborted). */
+  outcome: z.enum([...ASSISTANT_TURN_OUTCOMES, "failed"]).optional(),
+});
+export type AssistantTurnsQuery = z.infer<typeof assistantTurnsQuerySchema>;
+
+/**
  * Кабинет службы безопасности (GET /security/lost-clients, /security/lost-properties,
  * шаг 5 переноса): страница, вердикт и «вина агента» — та же строка «1», что и у
  * фильтра «горячие» в clientQuerySchema (не boolean-коэрция намеренно: z.coerce.boolean

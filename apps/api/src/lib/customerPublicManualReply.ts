@@ -25,6 +25,18 @@ async function staffMayReply(tx: TxClient, id: string): Promise<boolean> {
   const p = resolvePermissions(agent.role, parsePermissionOverrides(agent.permissions));
   return p.has("messages.view") && p.has("comments.moderate");
 }
+/**
+ * Ядро сдалось, ничего не отправив: `finishUnsentPublicAgentFailure` ставит FAILED с
+ * пометкой `managed_core:failed:*` ТОЛЬКО когда по комментарию нет ни одной части в
+ * outbox, а `priorParts` ниже проверяет то же самое под замком. Такой комментарий
+ * сотрудник обязан мочь закрыть сам (05.11.2026): ядро стояло двое суток, 11
+ * комментариев ушли в FAILED, и кнопка «Ответить» на экране всегда получала 409.
+ * FAILED по любой другой причине (без этой пометки) по-прежнему закрыт.
+ */
+async function coreGaveUpUnsent(tx: TxClient, id: string): Promise<boolean> {
+  const row = await tx.instagramComment.findUnique({ where: { id }, select: { note: true } });
+  return !!row?.note?.startsWith("managed_core:failed:");
+}
 async function priorParts(tx: TxClient, id: string) {
   return tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "CustomerOutboxPart"
     WHERE "sourceKind" IN ('PUBLIC_COMMENT_REPLY','STAFF_PUBLIC_COMMENT_REPLY') AND "sourceKey"=${`meta:${id}`} ORDER BY "id" FOR UPDATE`;
@@ -43,8 +55,14 @@ export async function claimPublicManualCommentReply(sourceId: string, staffId: s
     await tx.$queryRaw`SELECT "id" FROM "CustomerEndpointScope" WHERE "id"=${origin.proof.installation.id} FOR SHARE`;
     if ((await priorParts(tx, sourceId)).length) throw new PublicManualReplyHeld(409);
     const snapshot = await loadPublicCommentSource({ table: "meta", id: sourceId }, tx);
-    if (!snapshot?.currentInstallation || source.sourceRevision !== origin.proof.sourceRevision ||
-        !["PENDING", "ERROR"].includes(source.status) || publicCommentSourceDigest(snapshot) !== origin.proof.digest ||
+    // FAILED от ядра — ровно одна смена статуса после приёма, и триггер базы поднял
+    // ревизию ровно на 1. Любая другая правка комментария поднимет её ещё раз — и ответ
+    // будет удержан, как раньше.
+    const coreFailed = source.status === "FAILED" && await coreGaveUpUnsent(tx, sourceId);
+    const revisionOk = source.sourceRevision === origin.proof.sourceRevision ||
+      (coreFailed && BigInt(source.sourceRevision) === BigInt(origin.proof.sourceRevision) + 1n);
+    if (!snapshot?.currentInstallation || !revisionOk ||
+        !(["PENDING", "ERROR"].includes(source.status) || coreFailed) || publicCommentSourceDigest(snapshot) !== origin.proof.digest ||
         !samePublicInstallation(origin.proof.installation, snapshot.currentInstallation)) throw new PublicManualReplyHeld(409);
     const changed = await tx.instagramComment.updateMany({ where: { id: sourceId, publicSourceRevision: BigInt(source.sourceRevision), status: source.status },
       data: { status: "WORKING_STAFF", note: "manual_reply_in_progress" } });
@@ -52,7 +70,7 @@ export async function claimPublicManualCommentReply(sourceId: string, staffId: s
     const claimed = await readPublicSourceRow({ table: "meta", id: sourceId }, tx);
     if (!claimed || claimed.status !== "WORKING_STAFF" || BigInt(claimed.sourceRevision) <= BigInt(source.sourceRevision)) throw new PublicManualReplyHeld(409);
     const fence = staffPublicCommentDeliveryFenceSchema.parse({ version: 1, surface: "staff_public_comment", purpose: "staff_public_reply",
-      source: snapshot.source, originalSourceRevision: source.sourceRevision, sourceRevision: claimed.sourceRevision,
+      source: snapshot.source, originalSourceRevision: origin.proof.sourceRevision, sourceRevision: claimed.sourceRevision,
       originDigest: origin.proof.digest, installation: snapshot.currentInstallation, target: snapshot.target,
       staffAgentId: staffId, claimNonce: randomUUID() });
     const transport = staffPublicCommentDeliveryTransportSchema.parse({ version: 1, surface: "staff_public_comment", installation: fence.installation, target: fence.target });
@@ -124,11 +142,28 @@ export async function completePublicManualReply(value: PublicManualReplyClaim, o
   const authoritative: PublicReplyReceipt = attempt.outcome === "ACCEPTED" && attempt.providerMid
     ? { outcome: "accepted", providerId: attempt.providerMid, reason: "provider_id" }
     : { outcome: attempt.outcome === "REJECTED" ? "refused" : "unknown", providerId: null, reason: "errorCode" in attempt && typeof attempt.errorCode === "string" ? attempt.errorCode : "staff_receipt_unconfirmed" };
-  if (authoritative.outcome !== "accepted") return { receipt: authoritative, applicable: false };
+  if (authoritative.outcome !== "accepted") {
+    await releaseUnacceptedStaffSource(ctx.fence, authoritative.outcome).catch(() => undefined); // reconcile repeats it
+    return { receipt: authoritative, applicable: false };
+  }
   // DB projection failure is a pending local repair, never loss/reclassification of the committed accepted receipt.
   let applicable = false;
   try { applicable = await projectStaffReceipt(ctx.partId, ctx.attemptId, ctx.fence, ctx.text); } catch { /* Required P12 job repairs; no resend. */ }
   return { receipt: authoritative, applicable };
+}
+/**
+ * Ответ сотрудника не принят (отказ площадки или неясный исход): комментарий уходит из
+ * WORKING_STAFF в FAILED (ревью PR #124, 05.11.2026). WORKING_STAFF считается «работой» в
+ * проверке простоя (`customerAgentOwnerPolicy.ts` и триггер `customer_agent_advance_insert`),
+ * и зависшая строка навсегда блокировала «Обновить версию бота». Повтора это не открывает:
+ * часть сотрудника остаётся в outbox, и `priorParts` при новом захвате даёт 409. Неясный
+ * исход отмечен отдельно: ответ мог уйти, проверить надо в самой площадке.
+ */
+async function releaseUnacceptedStaffSource(fence: StaffPublicCommentDeliveryFence, outcome: "refused" | "unknown"): Promise<boolean> {
+  const changed = await prisma.instagramComment.updateMany({
+    where: { id: fence.source.id, status: "WORKING_STAFF", publicSourceRevision: BigInt(fence.sourceRevision) },
+    data: { status: "FAILED", note: outcome === "refused" ? "manual_reply_refused" : "manual_reply_unknown" } });
+  return changed.count === 1;
 }
 async function projectStaffReceipt(partId: string, attemptId: string, fence: StaffPublicCommentDeliveryFence, text: string): Promise<boolean> {
   return prisma.$transaction(async tx => {
@@ -161,11 +196,14 @@ export async function reconcileCustomerStaffPublicOutboxPart(row: CustomerOutbox
   if (row.status === "IN_FLIGHT") {
     if (row.leaseUntil && row.leaseUntil.getTime() > Date.now()) return { status: "waiting" };
     if (attempt?.outcome === "IN_FLIGHT") await recordCustomerDeliveryAttemptOutcome(attempt.id, "UNKNOWN", null, "staff_public_lease_expired");
+    await releaseUnacceptedStaffSource(parsed.data, "unknown");
     return { status: "unknown" };
   }
-  if (row.status === "UNKNOWN") return { status: "unknown" };
-  if (row.status === "NOT_SENT") return { status: "not_sent" };
-  if (row.status !== "ACCEPTED") return { status: row.status === "SUPPRESSED" ? "suppressed" : "waiting" };
+  // Процесс мог упасть между квитанцией и снятием WORKING_STAFF: восстановление доделывает.
+  if (row.status === "UNKNOWN") { await releaseUnacceptedStaffSource(parsed.data, "unknown"); return { status: "unknown" }; }
+  if (row.status === "NOT_SENT") { await releaseUnacceptedStaffSource(parsed.data, "refused"); return { status: "not_sent" }; }
+  if (row.status === "SUPPRESSED") { await releaseUnacceptedStaffSource(parsed.data, "refused"); return { status: "suppressed" }; }
+  if (row.status !== "ACCEPTED") return { status: "waiting" };
   if (row.projectionRecordedAt) return { status: "accepted" };
   if (!attempt || attempt.outcome !== "ACCEPTED" || !attempt.providerMid) return { status: "accepted", projectionPending: true };
   const payload = decodeCustomerOutboxPayload(row); if (payload.kind !== "text") return { status: "accepted", projectionPending: true };

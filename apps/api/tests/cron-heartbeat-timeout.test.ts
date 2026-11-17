@@ -1,4 +1,5 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, vi } from "vitest";
+import { waitFor } from "./helpers/waitFor.js";
 import { prisma } from "../src/db.js";
 import * as heartbeat from "../src/lib/cronHeartbeat.js";
 
@@ -18,7 +19,10 @@ const { scheduleTracked } = heartbeat;
 const NAME = "test-hang-tick";
 
 afterAll(async () => {
-  await prisma.cronHeartbeat.deleteMany({ where: { name: { in: [NAME, "test-active-tick", "test-stopped-tick"] } } });
+  // Тик, снятый по таймауту, ставит срочную тревогу директору (14.11.2026): не оставляем её
+  // в общей базе, иначе очередь тревог следующего файла доставит чужую строку.
+  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: "cron-silent:test-" } } });
+  await prisma.cronHeartbeat.deleteMany({ where: { name: { in: [NAME, "test-active-tick", "test-stopped-tick", "test-long-tick"] } } });
   await prisma.errorLog.deleteMany({ where: { source: "cron", message: { contains: NAME } } });
   await prisma.$disconnect();
 });
@@ -53,10 +57,12 @@ describe("scheduleTracked — таймаут зависшего тика", () =>
       const row = await prisma.cronHeartbeat.findUnique({ where: { name: NAME } });
       expect(row?.lastError).toMatch(/не завершил тик/);
 
-      const logged = await prisma.errorLog.findFirst({
-        where: { source: "cron", message: { contains: NAME } },
-      });
+      // Журнал и тревога пишутся ПОСЛЕ отметки пульса, на нагруженной машине позже 400 мс.
+      const logged = await waitFor(() => prisma.errorLog.findFirst({ where: { source: "cron", message: { contains: NAME } } }), { timeoutMs: 8000 });
       expect(logged).not.toBeNull();
+      // Снятый по таймауту тик доходит до директора срочной тревогой (14.11.2026, №3).
+      const door = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: `cron-silent:${NAME}` } }), { timeoutMs: 8000 });
+      expect(door).toMatchObject({ level: "CRITICAL", urgent: true });
 
       // Замок снят — следующее срабатывание должно выполниться (calls растёт).
       void task.execute();
@@ -66,6 +72,21 @@ describe("scheduleTracked — таймаут зависшего тика", () =>
       // destroy, а не stop: в node-cron 4 задача остаётся в глобальном реестре
       // и держит таймер, из-за чего vitest не завершает процесс.
       await task.destroy();
+    }
+  });
+});
+
+describe("scheduleTracked — явный предел тика не обрезается общим потолком", () => {
+  it("долгая задача (недельный обход рынка, 3,5 ч) получает свой предел, умолчание по-прежнему не выше 20 минут", async () => {
+    const spy = vi.spyOn(globalThis, "setTimeout");
+    const long = scheduleTracked("test-long-tick", "30 2 * * 0", async () => {}, undefined, undefined, { timeoutMs: 3.5 * 60 * 60_000 });
+    try {
+      await long.execute();
+      const delays = spy.mock.calls.map((c) => Number(c[1]));
+      expect(delays).toContain(3.5 * 60 * 60_000); // не срезан до 20 минут: иначе крон ложно «снимался с замка»
+    } finally {
+      spy.mockRestore();
+      await long.destroy();
     }
   });
 });

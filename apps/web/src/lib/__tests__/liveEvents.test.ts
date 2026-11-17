@@ -13,6 +13,7 @@ import { INVALIDATION } from "../liveEvents";
 
 /** Ключи TanStack Query, которые реально живут в хуках apps/web/src/hooks. */
 const KNOWN_ROOTS = new Set([
+  "transfer-requests",
   "clients",
   "client",
   "conversations",

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Star, Power, Instagram, MessageSquareText, KeyRound } from "lucide-react";
+import { Trash2, Star, Power, Instagram, MessageSquareText, KeyRound, Tag } from "lucide-react";
 import { api } from "../../lib/api";
 import { InstagramAppBinding } from "./InstagramAppBinding";
 
@@ -21,6 +21,9 @@ import { InstagramAppBinding } from "./InstagramAppBinding";
  * Обязательные правила (кем себя называть, запрет выдумывать объекты, география)
  * приклеиваются поверх всегда — их своим промтом не отменить.
  *
+ * ИМЯ КОМПАНИИ У АККАУНТА (08.11.2026). Второй бренд на тех же фактах (дочерняя
+ * компания) просит, чтобы бот называл компанию иначе: пусто — «Royal Home», как везде.
+ *
  * Разметка — эталон темы «Royal Home 2026»: заголовок секции `.sec-h.stack`,
  * аккаунты — строки списка `.row`, форма подключения — поля `.fld`.
  */
@@ -33,6 +36,7 @@ interface AccountRow {
   isDefault: boolean;
   hasToken: boolean;
   systemPrompt: string | null;
+  brandName: string | null;
 }
 
 const CHANNEL_TITLES: Record<string, string> = {
@@ -52,6 +56,11 @@ export function MessengerAccounts() {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [token, setToken] = useState("");
+  /** Имя компании для нового аккаунта; пусто — «Royal Home». */
+  const [brand, setBrand] = useState("");
+  /** Какому аккаунту правят имя компании, и черновик до сохранения. */
+  const [brandFor, setBrandFor] = useState<string | null>(null);
+  const [draftBrand, setDraftBrand] = useState("");
   /** Какому аккаунту сейчас правят промт, и черновик текста до сохранения. */
   const [promptFor, setPromptFor] = useState<string | null>(null);
   const [draftPrompt, setDraftPrompt] = useState("");
@@ -78,6 +87,8 @@ export function MessengerAccounts() {
       setAdding(false);
       setTitle("");
       setToken("");
+      setBrand("");
+      setBrandFor(null);
       setPromptFor(null);
       setTokenFor(null);
       setDraftToken("");
@@ -121,6 +132,7 @@ export function MessengerAccounts() {
                     {a.isDefault && <span className="chip">основной</span>}
                     {!a.hasToken && <span className="chip crit">нет маркера</span>}
                     {a.systemPrompt && <span className="chip ok">свой промт</span>}
+                    {a.brandName && <span className="chip ok">зовётся «{a.brandName}»</span>}
                   </b>
                   <span>
                     {CHANNEL_TITLES[a.channel] ?? a.channel} · {a.externalId}
@@ -143,6 +155,24 @@ export function MessengerAccounts() {
                     }}
                   >
                     <MessageSquareText className="i" aria-hidden="true" />
+                  </button>
+
+                  <button
+                    className="pill ghost sm"
+                    type="button"
+                    title={
+                      a.brandName
+                        ? `Бот называет компанию «${a.brandName}»`
+                        : "Как бот называет компанию: если не Royal Home, впишите своё имя"
+                    }
+                    aria-label="Как бот называет компанию"
+                    onClick={() => {
+                      const opening = brandFor !== a.id;
+                      setBrandFor(opening ? a.id : null);
+                      if (opening) setDraftBrand(a.brandName ?? "");
+                    }}
+                  >
+                    <Tag className="i" aria-hidden="true" />
                   </button>
 
                   {!a.isDefault && (
@@ -247,6 +277,51 @@ export function MessengerAccounts() {
                 </div>
               )}
 
+              {brandFor === a.id && (
+                <div style={{ padding: "var(--s3) var(--s2) var(--s4)" }}>
+                  <div className="quiet">
+                    <span className="dot" />
+                    <span className="txt">
+                      Так бот назовёт компанию в переписке и комментариях этого аккаунта. Все остальные
+                      факты (город, офис, телефон, условия) остаются теми же. Пусто — бот говорит «Royal Home».
+                    </span>
+                  </div>
+                  <label className="fld" style={{ marginTop: "var(--s3)" }}>
+                    <span className="lab">Как бот называет компанию (если не Royal Home)</span>
+                    <input
+                      value={draftBrand}
+                      maxLength={20}
+                      onChange={(e) => setDraftBrand(e.target.value)}
+                      placeholder="Арван"
+                    />
+                  </label>
+                  <div className="wrap" style={{ marginTop: "var(--s3)" }}>
+                    <button
+                      className="pill"
+                      type="button"
+                      disabled={save.isPending || draftBrand.trim() === (a.brandName ?? "")}
+                      onClick={() =>
+                        save.mutate({ id: a.id, channel: a.channel, title: a.title, brandName: draftBrand.trim() })
+                      }
+                    >
+                      {save.isPending ? "Сохраняю…" : "Сохранить имя"}
+                    </button>
+                    <button className="pill ghost" type="button" onClick={() => setBrandFor(null)}>
+                      Отмена
+                    </button>
+                    {a.brandName && (
+                      <button
+                        className="lnk"
+                        type="button"
+                        onClick={() => save.mutate({ id: a.id, channel: a.channel, title: a.title, brandName: "" })}
+                      >
+                        Вернуть «Royal Home»
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {promptFor === a.id && (
                 <div style={{ padding: "var(--s3) var(--s2) var(--s4)" }}>
                   <div className="quiet">
@@ -318,12 +393,19 @@ export function MessengerAccounts() {
               показан не тот номер, что приходит в сообщениях.
             </span>
           </label>
+          <label className="fld">
+            <span className="lab">Как бот называет компанию (если не Royal Home)</span>
+            <input value={brand} maxLength={20} onChange={(e) => setBrand(e.target.value)} placeholder="Арван" />
+            <span className="msg" style={{ color: "var(--faint)" }}>
+              Для второго бренда на тех же фактах. Пусто — бот говорит «Royal Home».
+            </span>
+          </label>
           <div className="wide wrap">
             <button
               className="pill"
               type="button"
               disabled={save.isPending || !title.trim() || !token.trim()}
-              onClick={() => save.mutate({ channel: "INSTAGRAM", title, token })}
+              onClick={() => save.mutate({ channel: "INSTAGRAM", title, token, brandName: brand.trim() })}
             >
               {save.isPending ? "Подключаю…" : "Подключить"}
             </button>

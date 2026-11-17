@@ -1,4 +1,5 @@
 import { canReadInvestigations } from "../auth/investigations.js";
+import { normalizeDictationMime } from "../lib/dictationMime.js";
 import path from "node:path";
 import { Router, type Request } from "express";
 import { z } from "zod";
@@ -208,7 +209,7 @@ meRouter.patch("/clip-review-telegram", requireAuth, async (req, res) => {
 /** Отвязка — на случай смены телефона/чата. Обычный сброс поля, без подтверждения
  *  паролем: это не способ закрыть чужой вход (в отличие от 2FA ниже). */
 meRouter.post("/telegram-unlink", requireAuth, async (req, res) => {
-  await prisma.agent.update({ where: { id: req.agent!.id }, data: { telegramChatId: null, telegramLinkCode: null } });
+  await prisma.agent.update({ where: { id: req.agent!.id }, data: { telegramChatId: null, telegramUserId: null, telegramLinkCode: null } });
   logAudit(req, "TELEGRAM_UNLINKED", "Agent", req.agent!.id);
   res.json({ ok: true });
 });
@@ -688,6 +689,7 @@ meRouter.get("/active-call", requireAuth, (req, res) => {
     // уже состоявшийся звонок, а не отмена.
     cancelled: !!call.cancelledByAgent && !call.answeredAt,
     clientRang: !!call.clientRang,
+    archiveReview: !!call.archiveReview,
   };
   res.json(view);
 });
@@ -831,7 +833,7 @@ async function saveAndTranscribeVoiceNote(file: Express.Multer.File): Promise<{ 
   const filename = await saveVoiceNoteFile(file.buffer, file.mimetype);
   if (!filename) throw new Error(`Неподдерживаемый формат аудио: ${file.mimetype}`);
   const url = `/me/voice-notes/${filename}`;
-  const transcript = await transcribeAudio(file.buffer, file.originalname || "voice.webm", file.mimetype);
+  const transcript = await transcribeAudio(file.buffer, file.originalname || "voice.webm", normalizeDictationMime(file.mimetype) ?? file.mimetype);
   return { url, transcript: transcript?.trim() || null };
 }
 

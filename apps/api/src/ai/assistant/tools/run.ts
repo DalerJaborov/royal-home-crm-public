@@ -13,13 +13,26 @@ import type { AssistantToolPlugin } from "./types.js";
 
 /** Права актора помощника в том виде, в каком их принимает брокер действий. */
 export function actionActorFrom(actor: AssistantActor, channel: AssistantActionActor["channel"]): AssistantActionActor {
-  return { agentId: actor.id, channel, can: (permission) => actor.permissions?.has(permission) ?? false };
+  return {
+    agentId: actor.id,
+    channel,
+    telegramPrivate: actor.surface === "telegram-private",
+    can: (permission) => actor.permissions?.has(permission) ?? false,
+  };
 }
 
 export interface RunPluginHooks {
   channel: AssistantActionActor["channel"];
-  /** Карточка подтверждения готова — отдать клиенту событием `confirm`. */
+  /**
+   * Карточка действия готова — отдать клиенту событием `confirm`. Уровень C —
+   * PENDING (ждёт «Подтвердить»), уровень B — уже EXECUTED (плашка «Сделано · Отменить»).
+   * Будущий вход из Telegram обязан смотреть на `status`, а не рисовать кнопку на каждое событие.
+   */
   onConfirm?: (action: AssistantActionView) => void;
+  /** Вопрос сотрудника этого хода: журнал обращений и слова человека для инструментов чтения. */
+  question?: string;
+  /** Ключ хода (Telegram: чат + сообщение) — для ключа повтора записи (add_expenses). */
+  turnKey?: string;
 }
 
 /** Потолок одной строки превью в ответе модели (превью короткое: подписи, а не переписка). */
@@ -55,6 +68,18 @@ export function previewForModel(preview: AssistantActionView["preview"]): unknow
 }
 
 /**
+ * Показ карточки — побочный канал (поток панели). Его сбой (оборванный сокет)
+ * не должен превращать исполненное действие в «не получилось» для модели.
+ */
+function notifyConfirm(hooks: RunPluginHooks, action: AssistantActionView, tool: string): void {
+  try {
+    hooks.onConfirm?.(action);
+  } catch (err) {
+    void logSystemError("ai", `Инструмент помощника ${tool}: не удалось показать карточку: ${describeError(err)}`);
+  }
+}
+
+/**
  * Исполняет вызов инструмента-плагина и возвращает то, что увидит МОДЕЛЬ.
  * Ошибки прав и устаревания — обычным ответом `{ error }`, чтобы модель
  * объяснила человеку, а не падала.
@@ -66,10 +91,12 @@ export async function runAssistantToolPlugin(
   hooks: RunPluginHooks,
 ): Promise<unknown> {
   try {
-    if (plugin.level === "A") return await plugin.run(args, { actor });
+    if (actor.hiddenTools?.has(plugin.name)) return { error: "Этот инструмент недоступен в этом чате" };
+    if (plugin.level === "A") return await plugin.run(args, { actor, ...(hooks.question ? { question: hooks.question } : {}) });
 
     const actionActor = actionActorFrom(actor, hooks.channel);
-    const pending = await createPendingAssistantAction(actionActor, plugin.name, args);
+    const bound = plugin.bindContext ? plugin.bindContext(args, { question: hooks.question, turnKey: hooks.turnKey }) : args;
+    const pending = await createPendingAssistantAction(actionActor, plugin.name, bound);
     if (plugin.level === "C") {
       // Брокер по ключу повтора может вернуть уже подтверждённое (исполняется прямо
       // сейчас) действие — вторую карточку «Подтвердить» на него не показываем.
@@ -81,7 +108,7 @@ export async function runAssistantToolPlugin(
           note: "Это действие уже подтверждено человеком — повторно не предлагай.",
         };
       }
-      hooks.onConfirm?.(pending);
+      notifyConfirm(hooks, pending, plugin.name);
       return {
         confirmRequired: true,
         actionId: pending.id,
@@ -89,8 +116,11 @@ export async function runAssistantToolPlugin(
         note: "Действие ЕЩЁ НЕ выполнено: человек должен нажать «Подтвердить» в карточке. Не подтверждай сам.",
       };
     }
-    // Уровень B: сразу исполняем; откат остаётся кнопкой «Отменить».
+    // Уровень B: сразу исполняем; откат остаётся кнопкой «Отменить». Та же карточка
+    // `confirm`, но уже EXECUTED: человек видит «Сделано · Отменить» (П4а), а не
+    // узнаёт о записи только из текста модели.
     const { action } = await confirmAssistantAction(pending.id, actionActor);
+    notifyConfirm(hooks, action, plugin.name);
     return { done: true, actionId: action.id, result: action.result, undoUntil: action.undoUntil };
   } catch (err) {
     if (err instanceof AssistantActionError) {

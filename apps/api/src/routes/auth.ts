@@ -145,7 +145,7 @@ authRouter.post("/login/code", async (req, res) => {
     pendingToken: signPending2faToken(agent.id, "sms"),
     channel: issued.channel,
     phoneHint: maskPhoneForHint(agent.phone),
-    resendAfterSec: 60,
+    resendAfterSec: issued.resendAfterSec ?? 60,
     telegramAvailable: !!agent.telegramChatId,
     ...(issued.fallbackAfterSec ? { fallbackAfterSec: issued.fallbackAfterSec } : {}),
     ...(issued.devCode ? { devCode: issued.devCode } : {}),
@@ -423,7 +423,7 @@ authRouter.post("/step-up/send-code", requireAuth, async (req, res) => {
   res.json({
     channel: issued.channel,
     phoneHint: maskPhoneForHint(agent.phone),
-    resendAfterSec: 60,
+    resendAfterSec: issued.resendAfterSec ?? 60,
     telegramAvailable: !!agent.telegramChatId,
     ...(issued.fallbackAfterSec ? { fallbackAfterSec: issued.fallbackAfterSec } : {}),
     ...(issued.devCode ? { devCode: issued.devCode } : {}),

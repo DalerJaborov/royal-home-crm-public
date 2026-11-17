@@ -283,22 +283,27 @@ describe("Закон о владении клиентом — интеграци
 
   /**
    * П-7 (пачка А2). handoverAgentWork принимает actorId и пишет его в каждую
-   * передачу клиента (см. lib/agentHandover.ts:71,153); оба вызывающих
-   * (routes/agents.ts — увольнение и заморозка) передают req.agent!.id.
+   * передачу клиента (см. lib/agentHandover.ts:71,153); оба вызывающих —
+   * увольнение/передача дел и заморозка — с 10.11.2026 живут в одной двери
+   * lib/staffAdmin.ts (её зовут и REST, и ИИ-помощница) и передают id нажавшего
+   * (`actor.id`), а маршруты routes/agents.ts отдают туда `req.agent!`.
    * Содержательные интеграционные тесты — agent-handover.test.ts,
    * agent-handover-split.test.ts, agent-delete-handover.test.ts.
    */
   it("П-7: увольнение/заморозка — раздача портфеля несёт actorId руководителя", () => {
-    const lib = fs.readFileSync(
-      path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../src/lib/agentHandover.ts"),
+    const read = (rel: string) => fs.readFileSync(
+      path.resolve(fileURLToPath(new URL(".", import.meta.url)), rel),
       "utf-8"
     );
-    expect(lib).toMatch(/actorId\?:\s*string\s*\|\s*null/);
-    const routes = fs.readFileSync(
-      path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../src/routes/agents.ts"),
-      "utf-8"
-    );
-    expect(routes.match(/handoverAgentWork\([^)]*req\.agent!\.id\)/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(read("../src/lib/agentHandover.ts")).toMatch(/actorId\?:\s*string\s*\|\s*null/);
+    const door = read("../src/lib/staffAdmin.ts");
+    // Оба вызова передают актора, ни один — undefined/null вместо него.
+    expect(door.match(/handoverAgentWork\([^)]*,\s*actor\.id\)/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(door).not.toMatch(/handoverAgentWork\([^)]*,\s*(?:undefined|null)\s*\)/);
+    // Маршруты отдают в дверь нажавшего, а не кого-то другого.
+    const routes = read("../src/routes/agents.ts");
+    expect(routes).toMatch(/await\s+handoverStaffWork\(\s*req\.agent!/);
+    expect(routes).toMatch(/await\s+freezeStaffMember\(\s*req\.agent!/);
   });
 
   /**

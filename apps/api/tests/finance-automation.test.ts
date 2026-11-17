@@ -200,7 +200,7 @@ describe("upsertSalaryExpenses — зарплата из закрытых сде
 });
 
 describe("processRecurringExpenses — повторяющиеся платежи", () => {
-  it("в день оплаты заводит строку из шаблона и уведомляет получателей финансов", async () => {
+  it("в день оплаты заводит строку из шаблона; сообщение — у lib/paymentReminders.ts, не здесь", async () => {
     const title = `Аренда офиса ${runId}`;
     const t = await prisma.recurringExpense.create({
       data: { title, category: "OFFICE", amount: 3000, currency: "TJS", dayOfMonth: Math.min(today, 28) },
@@ -219,7 +219,7 @@ describe("processRecurringExpenses — повторяющиеся платежи
 
     const fresh = await prisma.recurringExpense.findUnique({ where: { id: t.id } });
     expect(fresh?.lastCreatedMonth).toBe(currentMonth);
-    expect(await adminNotificationCount(`Пора оплатить: ${title}`)).toBe(1);
+    expect(await adminNotificationCount(`Пора оплатить: ${title}`)).toBe(0);
   });
 
   it("повторный прогон в тот же месяц не дублирует ни строку, ни уведомление", async () => {
@@ -228,12 +228,12 @@ describe("processRecurringExpenses — повторяющиеся платежи
     await flushDirectorAlertQueue();
     const rows = await prisma.expense.findMany({ where: { autoKey: `rec:${recurringIds[0]}:${currentMonth}` } });
     expect(rows).toHaveLength(1);
-    expect(await adminNotificationCount(`Пора оплатить: ${title}`)).toBe(1);
+    expect(await adminNotificationCount(`Пора оплатить: ${title}`)).toBe(0);
   });
 
   // На 29–31 число dayOfMonth = today + 1 вышел бы за допустимые 1–28 —
   // напоминание в эти дни в проде и не бывает (dayOfMonth ограничен 28).
-  it.skipIf(today > 27)("за три дня до срока шлёт напоминание, один раз за месяц, строку не заводит", async () => {
+  it.skipIf(today > 27)("за три дня до срока ставит отметку один раз за месяц, строку не заводит (сообщение — paymentReminders)", async () => {
     const title = `Интернет ${runId}`;
     const t = await prisma.recurringExpense.create({
       data: { title, category: "OFFICE", amount: 200, currency: "TJS", dayOfMonth: today + 1 },
@@ -242,7 +242,7 @@ describe("processRecurringExpenses — повторяющиеся платежи
 
     await processRecurringExpenses();
     await flushDirectorAlertQueue();
-    expect(await adminNotificationCount(`Скоро оплата: ${title}`)).toBe(1);
+    expect(await adminNotificationCount(`Скоро оплата: ${title}`)).toBe(0);
     const fresh = await prisma.recurringExpense.findUnique({ where: { id: t.id } });
     expect(fresh?.lastRemindedMonth).toBe(currentMonth);
     // День оплаты ещё не настал — строки расхода нет.
@@ -250,7 +250,7 @@ describe("processRecurringExpenses — повторяющиеся платежи
 
     await processRecurringExpenses();
     await flushDirectorAlertQueue();
-    expect(await adminNotificationCount(`Скоро оплата: ${title}`)).toBe(1);
+    expect(await adminNotificationCount(`Скоро оплата: ${title}`)).toBe(0);
   });
 
   it("выключенный шаблон ничего не создаёт", async () => {

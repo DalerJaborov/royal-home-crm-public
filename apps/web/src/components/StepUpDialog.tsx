@@ -127,7 +127,7 @@ export function StepUpDialog({
           {codeSend.telegramAvailable && codeSend.channel !== "telegram" && (
             <>
               {" "}
-              <button type="button" className="lnk" disabled={codeSend.sending} onClick={() => void codeSend.send("telegram")}>
+              <button type="button" className="lnk" disabled={waitSec > 0 || codeSend.sending} onClick={() => void codeSend.send("telegram")}>
                 Прислать в Telegram
               </button>
             </>

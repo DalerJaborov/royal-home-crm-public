@@ -16,7 +16,8 @@ import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvi
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
-import { renderCustomerAgentDecision, customerAgentFixedLines, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
+import { customerDmDialogueLanguage } from "../ai/customerDmLanguage.js";
+import { renderCustomerAgentDecision, customerAgentFixedLines, customerAgentLineDigest, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentInput.js";
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
@@ -59,6 +60,32 @@ export function projectCustomerAgentMemory(candidates: readonly CustomerAgentMem
     unique.add(c.stableKey); selected.push({ role: c.role, text }); usedChars += text.length; usedBytes += size;
   }
   return selected.reverse();
+}
+/** Lines the bot actually sent in this conversation before the current input: the last bot parts within a day,
+ * wider than the six-turn memory (13.11.2026: a list re-sent as A, B, A slipped past the previous-turn check).
+ * Digests only: the renderer compares, nothing reaches the model. Bounded by the current input's receipt time,
+ * so a re-render of the same turn sees the same set. Corrupt parts are skipped, never a grant. */
+const SENT_LINES_WINDOW_MS = 24 * 60 * 60_000;
+async function readSentLineDigests(principal: CustomerPrincipal, before: Date): Promise<string[]> {
+  const parts = await prisma.customerOutboxPart.findMany({ where: {
+    conversationId: principal.scope.conversationId, originalNativeId: principal.scope.conversationId,
+    inquiryId: principal.authority.fence.inquiryId, endpointScopeId: principal.scope.endpointScopeId,
+    sourceKind: "BOT_TURN", mode: "LIVE", status: { in: ["ACCEPTED", "AVAILABLE_WIDGET"] },
+    acceptedAt: { not: null, lte: before, gte: new Date(before.getTime() - SENT_LINES_WINDOW_MS) },
+    supersededAt: null, cancelRequestedAt: null,
+  }, orderBy: [{ acceptedAt: "desc" }, { ordinal: "desc" }], take: 30 });
+  const digests = new Set<string>();
+  for (const part of parts) {
+    try {
+      const payload = decodeCustomerOutboxPayload(part);
+      if (payload.kind !== "text") continue;
+      for (const line of payload.text.split(/\r?\n/u).map(value => value.trim()).filter(Boolean)) {
+        if (digests.size >= 400) break;
+        digests.add(customerAgentLineDigest(line));
+      }
+    } catch { /* A part that does not decode supplies no repeat memory. */ }
+  }
+  return [...digests];
 }
 /** Epoch relation only, NOT a public read/write grant. Same-IN semantic
  * counters can advance; controller/scope/binding may never be adopted anew. */
@@ -244,6 +271,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
         supersededAt: null, cancelRequestedAt: null, ticket: { is: where },
       }, include: { ticket: { select: ticketSelect }, attempts: { where: { outcome: "ACCEPTED", providerMid: { not: null }, finishedAt: { not: null } },
         orderBy: { attemptNo: "desc" }, take: 1 } }, orderBy: [{ acceptedAt: "desc" }, { ordinal: "desc" }], take: 6 });
+      const replyAfter = new Map<string, string>();
       const candidates: CustomerAgentMemoryCandidate[] = await readCustomerPublicOutreachMemory(principal);
       candidates.push(...await readCustomerRecruitmentRecoveryMemory(principal));
       for (const row of history) {
@@ -282,9 +310,16 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
           }
           const allowed = safePublicLines(evidence, revision);
           const text = payload.text.split("\n").map(line => line.trim()).filter(line => allowed.has(line)).join("\n");
-          if (text) candidates.push({ role: "assistant", text, observedAt: part.acceptedAt.getTime(), stableKey: `out:${part.id}` });
+          if (text) {
+            candidates.push({ role: "assistant", text, observedAt: part.acceptedAt.getTime(), stableKey: `out:${part.id}` });
+            // The bot's reply to each ticket (parts arrive newest first, so an earlier part goes in front): the intake reads a bare
+            // «3» / «70 000» / «Сино» as an answer only to the question the bot had just asked.
+            const key = part.ticket.order.toString();
+            replyAfter.set(key, [text, replyAfter.get(key)].filter(Boolean).join("\n"));
+          }
         } catch { /* Corrupt or non-public historical part is omitted, never a grant. */ }
       }
+      const sentLineDigests = await readSentLineDigests(principal, ticket.receivedAt);
       const positionKey = before.snapshot.state.publicState.topic === "job" ? before.snapshot.state.publicState.jobPositionKey : undefined;
       // Inside the protected own-inquiry branch only. Expose presence, never
       // résumé text, private HR notes/decision, cross-profile matches or IDs.
@@ -302,6 +337,12 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
       const recruitmentAnswerTo = native ? await readRecruitmentAnsweredFactTx(prisma, {
         fence: principal.authority.fence, eventKey: ticket.eventKey, order: ticket.order.toString(),
       }, native.messages) : null;
+      // The customer's own words of the wider history, oldest first: the intake and the dialogue language read the same list.
+      const ownHistory = [...history].reverse().flatMap(row => {
+        const text = historicalText(row, current, true, priorRevisions, intakeContinuity);
+        return text ? [minimizeCustomerAgentMemoryText(text)] : [];
+      });
+      const dialogueLanguage = customerDmDialogueLanguage(ownHistory);
       if (!alive()) return { status: "held", reason: "context_deadline" };
       const after = await revalidateCustomerPrincipal(principal);
       if (!alive() || after.status !== "current" || !isDeepStrictEqual(after.snapshot.state.fence, before.snapshot.state.fence)) {
@@ -310,11 +351,14 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
       return { status: "current", context: customerAgentVerifiedContextSchema.parse({ surface: "dm", revisionId: revision.id,
         ...(positionKey ? { recruitmentKnown: [...recruitmentKnown] } : {}),
         ...(recruitmentAnswerTo ? { recruitmentAnswerTo } : {}),
+        ...(sentLineDigests.length ? { sentLineDigests } : {}),
         turns: projectCustomerAgentMemory(candidates, revision.limits.maxInputChars),
-        intake: customerAgentIntake([...history].reverse().flatMap(row => {
+        ...(dialogueLanguage ? { dialogueLanguage } : {}),
+        intake: customerAgentIntake([...history].reverse().flatMap((row, index, chronological) => {
           const text = historicalText(row, current, true, priorRevisions, intakeContinuity);
-          return text ? [{ role: "user" as const, text: minimizeCustomerAgentMemoryText(text) }] : [];
-        }), minimizeCustomerAgentMemoryText(currentInput.inputText)),
+          const previous = chronological[index - 1], asked = previous ? replyAfter.get(previous.order.toString()) : undefined;
+          return text ? [{ role: "user" as const, text: minimizeCustomerAgentMemoryText(text), ...(asked ? { askedBefore: asked } : {}) }] : [];
+        }), minimizeCustomerAgentMemoryText(currentInput.inputText), "unknown", history[0] ? replyAfter.get(history[0].order.toString()) : undefined),
         publicState: customerPublicStateSchema.parse(after.snapshot.state.publicState) }) };
     } catch { return { status: "held", reason: "storage_unavailable" }; }
   };

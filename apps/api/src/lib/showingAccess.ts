@@ -1,4 +1,4 @@
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { assignmentWriteDenied } from "./assignmentCompletion.js";
 import { clientWriteDenied } from "./clientWriteAccess.js";
 
@@ -39,18 +39,19 @@ export async function foreignTaskWriteDeniedFor(
   subject: TaskWriteSubject,
   interaction: TaskWriteTarget,
   ownAgentId: string | undefined,
+  db: Pick<TxClient, "client"> = prisma,
 ): Promise<string | null> {
   if (interaction.investigationOnly && !subject.canReadInvestigations) return "Недостаточно прав";
   if (interaction.taskCancelledAt) return "Задача отменена";
   const current = interaction.clientId
-    ? await prisma.client.findUnique({ where: { id: interaction.clientId }, select: { assignmentCompletedAt: true } })
+    ? await db.client.findUnique({ where: { id: interaction.clientId }, select: { assignmentCompletedAt: true } })
     : null;
   const completed = current && assignmentWriteDenied(current, subject.role);
   if (completed) return completed;
   if (ownAgentId) return null;
   if ((interaction.subjectAgentId ?? interaction.agentId) === subject.id) return null;
   if (!interaction.clientId) return null;
-  const client = await prisma.client.findUnique({
+  const client = await db.client.findUnique({
     where: { id: interaction.clientId },
     select: { assignedAgentId: true, assignmentCompletedAt: true },
   });

@@ -6,6 +6,7 @@ import {
   interviewTimeRu,
 } from "../ai/interviewInviteCallPersona.js";
 import { parseInterviewInviteCall } from "../ai/interviewInviteCallParse.js";
+import { reportThirdPartyDisclosure } from "../ai/thirdPartyDisclosure.js";
 import { isDialableTajikNumber } from "@royal-home/shared";
 import { logSystemAudit } from "./audit.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
@@ -17,6 +18,7 @@ import { logSystemError } from "./systemError.js";
 import { isWithinAlarmHours } from "./workingHours.js";
 import { NO_STATION_AUDIO_MS, originateLiveVoiceScenarioCall } from "./telephony/liveVoiceBridge.js";
 import { NO_STATION_AUDIO_REASON } from "./telephony/liveVoiceAudioPath.js";
+import { isRobotCallOurFailure } from "./robotCallPolicy.js";
 import type { LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
 
 /**
@@ -50,7 +52,9 @@ import type { LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
  */
 export const INTERVIEW_INVITE_MAX_ATTEMPTS = 1;
 /** Ближе этого к собеседованию уже не звоним: звать поздно, лучше HR сам. */
-const TOO_LATE_MS = 60 * 60 * 1000;
+/** Позже этого до собеседования робот не звонит (его же берёт рекрутинг для срока приглашения). */
+export const INTERVIEW_INVITE_TOO_LATE_MS = 60 * 60 * 1000;
+const TOO_LATE_MS = INTERVIEW_INVITE_TOO_LATE_MS;
 /**
  * Зависший CALLING без итога. Потолок разговора в мосте —
  * LIVE_VOICE_MAX_SESSION_MS, 15 минут, плюс до минуты на гудки
@@ -79,18 +83,10 @@ const OUR_FAILURE_MAX_RETRIES = 1;
  * no_caller_speech — собеседник за весь звонок не издал ни звука: почти всегда
  * это звук в одну сторону (см. NO_CALLER_SPEECH_REASON в мосту), а не молчун.
  */
-export function isOurCallFailure(reason: string | null | undefined): boolean {
-  if (!reason) return false;
-  return (
-    reason.startsWith("start_failed") ||
-    reason === "gemini_error" ||
-    reason === "gemini_closed" ||
-    reason === "rtp_socket_error" ||
-    reason === "listener_stopped" ||
-    reason === "ari_error" ||
-    reason === NO_STATION_AUDIO_REASON ||
-    reason === "no_caller_speech"
-  );
+export function isOurCallFailure(reason: string | null | undefined, transcript?: readonly string[] | null): boolean {
+  // Одно правило на все звонки робота (П3): им же дверь решает, тратит ли сессия частоту.
+  // Расшифровка нужна, чтобы обрыв ПОСЛЕ настоящего разговора не дал второй звонок.
+  return isRobotCallOurFailure(reason, transcript);
 }
 
 /**
@@ -124,7 +120,10 @@ export type InterviewInviteSkipReason =
   | "live_voice_off"
   | "dial_failed"
   | "wrong_number"
-  | "audio_down";
+  | "audio_down"
+  // П3: окончательный отказ двери звонков робота.
+  | "do_not_call"
+  | "blacklisted";
 export type InterviewInviteGiveUpReason = "no_answer" | "voicemail" | "wrong_person" | "call_back_later" | "robot_failed";
 
 /** status_changed / time_changed — их сделал сам HR, тревожить нечем. */
@@ -136,6 +135,8 @@ const NOTIFY_SKIP_REASONS: ReadonlySet<string> = new Set([
   "dial_failed",
   "wrong_number",
   "audio_down",
+  "do_not_call",
+  "blacklisted",
 ]);
 
 export type InterviewInviteLanguage = "ru" | "tg";
@@ -504,7 +505,7 @@ export async function dialInterviewInviteCall(id: string, now: Date): Promise<In
       lastAttemptAt: true,
       skipReason: true,
       failureRetries: true,
-      jobApplication: { select: { name: true, contactName: true, phone: true, status: true, interviewAt: true } },
+      jobApplication: { select: { name: true, contactName: true, phone: true, status: true, interviewAt: true, conversationId: true, contactProfileId: true, customerInquiry: { select: { conversationId: true } } } },
     },
   });
   if (!call) return "skipped";
@@ -587,15 +588,30 @@ export async function dialInterviewInviteCall(id: string, now: Date): Promise<In
       forceRussianOnly: false,
       // Язык переписки — для поставщика ElevenLabs (02.10.2026), Gemini берёт сам.
       language,
+      // П3: «не беспокойте» кандидата живёт в его диалоге с ботом, карточки клиента у него нет;
+      // приглашение с назначенным временем суточный предел частоты не держит.
+      conversationId: app.conversationId ?? app.customerInquiry?.conversationId ?? null,
+      contactProfileId: app.contactProfileId,
+      purpose: "interview_invite",
       onFinished: (r) => finishInterviewInviteCall(r),
     },
     { callerId: "Royal Home" }
   );
 
   if (result.busy) {
-    // Линия занята другим разговором — попытку не тратим, пробуем через пару минут.
-    await putBack(call, now, BUSY_RETRY_MS, "too_late", null);
+    // Линия занята другим разговором — попытку не тратим, пробуем через пару минут. Отказ
+    // двери звонков робота (П3: часы, праздник, частота) приносит время, когда снова можно.
+    const delay = result.retryAt ? Math.max(BUSY_RETRY_MS, result.retryAt.getTime() - now.getTime()) : BUSY_RETRY_MS;
+    await putBack(call, now, delay, "too_late", null);
     return "busy";
+  }
+  // Окончательный отказ двери (П3) — не «станция не приняла набор»: без журнала ошибок и
+  // без повторов, HR узнаёт настоящую причину.
+  if (!result.ok && !result.busy && (result.policyCode === "stopped" || result.policyCode === "opted_out")) {
+    return skipClaimed(id, "do_not_call", now);
+  }
+  if (!result.ok && !result.busy && result.policyCode === "blacklisted") {
+    return skipClaimed(id, "blacklisted", now);
   }
   if (!result.ok || !result.channelId) {
     // Станция не приняла набор (недоступна, «на этот номер уже идёт звонок»…) —
@@ -628,7 +644,7 @@ export async function finishInterviewInviteCall(result: LiveVoiceScenarioResult,
   const recordingKey = result.recordingKey ?? null;
 
   // Сорвалось по нашей вине — кандидат тут ни при чём (см. isOurCallFailure).
-  if (isOurCallFailure(result.reason)) {
+  if (isOurCallFailure(result.reason, result.transcript)) {
     const next = alignToCallHours(new Date(now.getTime() + OUR_FAILURE_RETRY_MS), null);
     const canRetry =
       call.failureRetries < OUR_FAILURE_MAX_RETRIES && call.interviewAt.getTime() - next.getTime() >= TOO_LATE_MS;
@@ -667,6 +683,7 @@ export async function finishInterviewInviteCall(result: LiveVoiceScenarioResult,
           ? "no_answer"
           : null;
   if (giveUp) {
+    if (giveUp === "wrong_person") reportThirdPartyDisclosure("interview_invite", call.id, result.transcript);
     // «Наберите после шести», «он на работе до пяти» — HR должен это прочитать,
     // а не узнать из «просил перезвонить» (проверка робота 02.10.2026). Исход
     // разбора здесь не нужен — только слова человека.
@@ -724,6 +741,8 @@ const SKIP_TEXT: Record<string, string> = {
   not_dialable: "Робот не звонил: номер не похож на таджикский — свяжитесь с кандидатом сами",
   live_voice_off: "Робот не звонил: звонки робота выключены в настройках — позвоните кандидату сами",
   dial_failed: "Робот не смог позвонить — позвоните кандидату сами",
+  do_not_call: "Робот не звонил: кандидат просил не беспокоить — свяжитесь с ним сами, если нужно",
+  blacklisted: "Робот не звонил: номер в чёрном списке станции — проверьте номер",
   status_changed: "Робот не звонил: кандидата перевели на другой этап",
   time_changed: "Робот не звонил: время собеседования поменяли",
   wrong_number: "Робот не звонил: в прошлый раз на этот номер ответил не кандидат — проверьте номер",

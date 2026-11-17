@@ -1033,12 +1033,26 @@ export async function publishFacebookReel(
 async function fetchMetadataOnce(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs), redirect: "error" });
 }
+type CaptionFailure = "RETRYABLE" | "REJECTED" | "UNKNOWN";
+interface CaptionUpdateResult { ok: boolean; error?: string; delivery?: CaptionFailure }
+
+function captionRejection(status: number): CaptionFailure {
+  if (status === 408 || status === 429 || status >= 500) return "RETRYABLE";
+  return status >= 400 && status < 500 ? "REJECTED" : "UNKNOWN";
+}
+
+function captionWriteRejection(status: number, body: Record<string, unknown>): CaptionFailure {
+  // An unstructured gateway failure doesn't establish whether the write reached the provider.
+  if (status >= 500 && (body.error === null || typeof body.error !== "object")) return "UNKNOWN";
+  return captionRejection(status);
+}
+
 export async function updateFacebookVideoDescription(
   videoId: string,
   token: string,
   description: string,
   singleAttempt = false
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<CaptionUpdateResult> {
   try {
     const url = `https://graph.facebook.com/${GRAPH_VERSION}/${videoId}`;
     const res = await (singleAttempt ? fetchMetadataOnce : fetchWithRetry)(
@@ -1055,13 +1069,18 @@ export async function updateFacebookVideoDescription(
       // Код и подкод Meta — в текст (25.09.2026): на проде правка подписи давала
       // голое «An unknown error has occurred.» по 17 объектам, и без кода причину
       // (ролик ушёл в Reels, нет права страницы, частота) не отличить.
-      const e = body.error as { code?: number; error_subcode?: number } | undefined;
+      const e = body.error as { code?: number; error_subcode?: number; is_transient?: boolean } | undefined;
       const code = e?.code != null ? ` (код ${e.code}${e.error_subcode != null ? `/${e.error_subcode}` : ""})` : "";
-      return { ok: false, error: `${graphErrorMessage(body, `HTTP ${res.status}`)}${code}` };
+      const error = `${graphErrorMessage(body, `HTTP ${res.status}`)}${code}`;
+      let delivery: CaptionFailure = "UNKNOWN";
+      if (e?.is_transient === true) delivery = "RETRYABLE";
+      else if (!res.ok) delivery = captionWriteRejection(res.status, body);
+      else if (body.success === false) delivery = "REJECTED";
+      return { ok: false, error, ...(singleAttempt ? { delivery } : {}) };
     }
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: describeError(err) };
+    return { ok: false, error: describeError(err), ...(singleAttempt ? { delivery: "UNKNOWN" as const } : {}) };
   }
 }
 
@@ -1221,6 +1240,12 @@ export async function youtubeAccessToken(creds: YouTubeCredentials): Promise<str
  * По нему суточная проверка (lib/tokenScopes.ts) говорит, каких прав не хватает
  * refresh-токену, ДО того, как отвалится публикация или чтение комментариев.
  */
+class YouTubeAccessGrantError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
 export async function youtubeAccessGrant(creds: YouTubeCredentials): Promise<{ accessToken: string; scopes: string[] }> {
   const res = await fetchWithRetry(
     "https://oauth2.googleapis.com/token",
@@ -1239,7 +1264,7 @@ export async function youtubeAccessGrant(creds: YouTubeCredentials): Promise<{ a
   const body = await readJson(res);
   const accessToken = body.access_token as string | undefined;
   if (!res.ok || !accessToken) {
-    throw new Error(`Не удалось обновить токен YouTube: ${graphErrorMessage(body, `HTTP ${res.status}`)}`);
+    throw new YouTubeAccessGrantError(`Не удалось обновить токен YouTube: ${graphErrorMessage(body, `HTTP ${res.status}`)}`, res.status);
   }
   return { accessToken, scopes: splitScopes(body.scope) };
 }
@@ -1434,21 +1459,23 @@ export async function updateYouTubeDescription(
   title: string,
   description: string,
   singleAttempt = false
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<CaptionUpdateResult> {
+  let startedWrite = false;
   try {
     if (!creds.clientId || !creds.clientSecret || !creds.refreshToken) {
-      return { ok: false, error: "YouTube не настроен (нет client_id/client_secret/refresh_token в Настройках)" };
+      return { ok: false, error: "YouTube не настроен (нет client_id/client_secret/refresh_token в Настройках)", ...(singleAttempt ? { delivery: "REJECTED" as const } : {}) };
     }
     const accessToken = await youtubeAccessToken(creds);
     let preservedSnippet: Record<string, unknown> | undefined;
     if (singleAttempt) {
       const existing = await fetchMetadataOnce('https://www.googleapis.com/youtube/v3/videos?part=snippet&id=' + encodeURIComponent(videoId), { headers: { Authorization: 'Bearer ' + accessToken } }, PUBLISH_TIMEOUT_MS);
-      if (!existing.ok) return { ok: false, error: "Cannot read existing YouTube metadata" };
+      if (!existing.ok) return { ok: false, error: "Cannot read existing YouTube metadata", delivery: captionRejection(existing.status) };
       const data = await existing.json() as { items?: Array<{ snippet?: Record<string, unknown> }> };
       const original = data.items?.[0]?.snippet;
-      if (!original || typeof original.title !== "string" || typeof original.categoryId !== "string") return { ok: false, error: "Existing YouTube metadata unavailable" };
+      if (!original || typeof original.title !== "string" || typeof original.categoryId !== "string") return { ok: false, error: "Existing YouTube metadata unavailable", delivery: "REJECTED" };
       preservedSnippet = Object.fromEntries(["title", "categoryId", "tags", "defaultLanguage", "defaultAudioLanguage"].filter(key => original[key] !== undefined).map(key => [key, original[key]]));
     }
+    startedWrite = true;
     const res = await (singleAttempt ? fetchMetadataOnce : fetchWithRetry)(
       "https://www.googleapis.com/youtube/v3/videos?part=snippet",
       {
@@ -1463,12 +1490,13 @@ export async function updateYouTubeDescription(
     );
     if (!res.ok) {
       const body = await readJson(res);
-      return { ok: false, error: graphErrorMessage(body, `HTTP ${res.status}`) };
+      return { ok: false, error: graphErrorMessage(body, `HTTP ${res.status}`), ...(singleAttempt ? { delivery: captionWriteRejection(res.status, body) } : {}) };
     }
-    if (singleAttempt) { const receipt = await readJson(res); if (receipt.id !== videoId) return { ok: false, error: "Metadata acknowledgement missing" }; }
+    if (singleAttempt) { const receipt = await readJson(res); if (receipt.id !== videoId) return { ok: false, error: "Metadata acknowledgement missing", delivery: "UNKNOWN" }; }
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: describeError(err) };
+    const delivery = startedWrite ? "UNKNOWN" : err instanceof YouTubeAccessGrantError ? captionRejection(err.status) : "RETRYABLE";
+    return { ok: false, error: describeError(err), ...(singleAttempt ? { delivery } : {}) };
   }
 }
 

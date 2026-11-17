@@ -38,7 +38,8 @@ export const MATCH_PRICE_DROP_RENOTIFY_PCT = 5;
 export const MATCH_RADIUS_MAX_MULTIPLIER = 3;
 /** Минимум кандидатов, при котором расширение радиуса останавливается. */
 export const MATCH_MIN_CANDIDATES = 3;
-// Веса шкалы совпадения — в packages/shared (MATCH_SCORE_WEIGHTS): их же показывает экран.
+// Шкала порога «свой объект — свой клиент» — в packages/shared (matching.ts), считает её только
+// lib/clientPropertyMatching.ts (подбор 2.0, 10.11.2026).
 
 /* ── Телефония ─────────────────────────────────────────────────────────── */
 /** Контексты диалплана, из которых звонок считается входящим. Пусто — умолчание

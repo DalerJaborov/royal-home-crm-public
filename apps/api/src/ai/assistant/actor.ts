@@ -1,6 +1,7 @@
 import { isReadOnlyRole, type PermissionId } from "@royal-home/shared";
 import { READ_ONLY_ROLE_RESPONSE, type AgentAccess } from "../../auth/middleware.js";
 import { clientWriteDenied } from "../../lib/clientWriteAccess.js";
+import type { TrashActor } from "../../lib/trashAccess.js";
 import { investigationRoleFor } from "../../auth/investigations.js";
 
 /**
@@ -18,6 +19,8 @@ import { investigationRoleFor } from "../../auth/investigations.js";
 export interface AssistantActor {
   id: string;
   role: string;
+  /** Explicitly set by authenticated assistant entry points. Missing means unknown. */
+  surface?: "crm-private" | "telegram-private" | "telegram-group";
   /** clients.viewAll — видеть чужих клиентов. НЕ даёт права писать в них (см. canAssignClients). */
   canViewAllClients: boolean;
   /**
@@ -58,14 +61,25 @@ export interface AssistantActor {
    * не щедро.
    */
   permissions?: ReadonlySet<PermissionId>;
+  /**
+   * Инструменты, закрытые для этого актора в ЭТОМ канале (общая группа Telegram, П5):
+   * не объявляются модели И отказывают при вызове. Нужны там, где право есть, а
+   * показывать нельзя: комиссия по своим сделкам, запись без кнопки.
+   */
+  hiddenTools?: ReadonlySet<string>;
 }
 
 /** Актор помощника из прав сотрудника — тех же, что проверяет requireAuth. */
-export function actorFromAccess(agentId: string, access: Pick<AgentAccess, "role" | "permissions">): AssistantActor {
+export function actorFromAccess(
+  agentId: string,
+  access: Pick<AgentAccess, "role" | "permissions">,
+  surface?: AssistantActor["surface"],
+): AssistantActor {
   const has = (permission: PermissionId) => access.permissions.has(permission);
   return {
     id: agentId,
     role: access.role,
+    ...(surface ? { surface } : {}),
     canViewAllClients: has("clients.viewAll"),
     canViewPhone: has("clients.viewPhone"),
     canViewReports: has("reports.view"),
@@ -86,6 +100,15 @@ export function actorFromAccess(agentId: string, access: Pick<AgentAccess, "role
  */
 export function assistantInvestigationRole(actor: AssistantActor): string | undefined {
   return investigationRoleFor(actor.role, actor.permissions?.has("clients.securityReview") ?? false);
+}
+
+/** Актор для общего правила Корзины (lib/trashAccess.ts): права и канал того, кто спрашивает. */
+export function trashActorOf(actor: AssistantActor): TrashActor {
+  return {
+    agentId: actor.id,
+    can: (permission) => actor.permissions?.has(permission) ?? false,
+    ...(actor.surface ? { surface: actor.surface } : {}),
+  };
 }
 
 export const FOREIGN_CLIENT_SCOPE_MESSAGE = "Нет доступа: клиент закреплён за другим агентом";
@@ -130,6 +153,7 @@ const TOOL_GATES: Readonly<Record<string, (actor: AssistantActor) => boolean>> =
 };
 
 export function assistantToolAllowed(actor: AssistantActor, toolName: string): boolean {
+  if (actor.hiddenTools?.has(toolName)) return false;
   const gate = TOOL_GATES[toolName];
   return gate ? gate(actor) : true;
 }

@@ -645,16 +645,39 @@ export async function adReferralPropertyId(input: {
  *  (реклама крутит копию поста под другим номером). */
 const OUR_BRAND_RE = /royal\s*\.?\s*home|роял\s*хо[уу]м|royalhome\.tj/iu;
 
-export function isOurBrandCaption(caption: string | undefined | null): boolean {
-  return Boolean(caption && OUR_BRAND_RE.test(caption));
+export function isOurBrandCaption(caption: string | undefined | null, accountBrand?: string | null): boolean {
+  if (!caption) return false;
+  if (OUR_BRAND_RE.test(caption)) return true;
+  // Аккаунт со своим именем (MessengerAccount.brandName): его посты подписаны этим
+  // именем, и ролик бренда тоже наш. Без имени аккаунта поведение прежнее.
+  const brand = accountBrand?.trim();
+  if (!brand || brand.length < 3) return false;
+  // По границе слова: имя «Дом» не должно делать «Дома в Душанбе» чужой рекламы своей.
+  // Имя аккаунта кириллицей («Арван»), а ролики и описание видео подписаны латиницей («Arvan Estate», ник
+  // arvan__estate): 16.11.2026, аудит молчания — наш же рекламный ролик Арвана считался чужим, бот молчал
+  // 14–25 минут до сторожа зависших. Сверяем и латинское написание того же имени.
+  // The Latin spelling only for a name of 5+ letters (review #205, М-4): «Дом» → «dom» would make a foreign «Dom» reel ours.
+  const latin = latinOf(brand);
+  return [brand, ...(latin.length >= 5 ? [latin] : [])].filter((name, i, all) => name.length >= 3 && all.indexOf(name) === i).some(name => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(caption);
+  });
+}
+
+/** Кириллица (рус./тадж.) → латиница, как бренды пишут себя в Instagram. Только для сверки имени. */
+const LATIN: Record<string, string> = { а: "a", б: "b", в: "v", г: "g", ғ: "gh", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i", ӣ: "i",
+  й: "y", к: "k", қ: "q", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ӯ: "u", ф: "f", х: "kh", ҳ: "h",
+  ц: "ts", ч: "ch", ҷ: "j", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya" };
+export function latinOf(name: string): string {
+  return [...name.toLowerCase()].map(ch => LATIN[ch] ?? ch).join("");
 }
 
 /** Подпись есть, и она точно не наша и не про жильё. */
-export function captionSaysForeign(caption: string | undefined | null): boolean {
+export function captionSaysForeign(caption: string | undefined | null, accountBrand?: string | null): boolean {
   return (
     Boolean(caption?.trim()) &&
     !looksLikeHousing(caption) &&
-    !isOurBrandCaption(caption) &&
+    !isOurBrandCaption(caption, accountBrand) &&
     captionFooterShortId(caption) == null
   );
 }

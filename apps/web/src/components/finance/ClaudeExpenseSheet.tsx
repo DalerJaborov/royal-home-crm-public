@@ -16,6 +16,18 @@ export interface ClaudeExpenseDraft {
   source: ClientSource|""; agentId: string; paymentDate: string; counterparty: string;
   paymentMethod: ClaudePaymentMethod|""; status: "PAID"|"PLANNED";
 }
+/**
+ * Отказ сервера, после которого следующее «Сохранить» должно отправить НОВОЕ тело формы, а не
+ * прежнее под тем же ключом повтора: ошибка данных, прав, версии или «нет курса доллара»
+ * (409 NO_USD_RATE, 10.11.2026 — человек вписывает курс и сохраняет снова).
+ */
+export function shouldResetClaudeSubmission(reason: unknown): boolean {
+  if (!(reason instanceof ApiError)) return false;
+  if ([400, 403, 404, 422].includes(reason.status)) return true;
+  const code = reason.status === 409 && reason.data && typeof reason.data === "object" && "code" in reason.data ? String((reason.data as { code: unknown }).code) : "";
+  return ["EXPENSE_VERSION_REQUIRED", "EXPENSE_VERSION_CONFLICT", "NO_USD_RATE"].includes(code);
+}
+
 export function prepareClaudeExpense(draft: ClaudeExpenseDraft, month: string): { body: ClaudeExpenseInput } | { field: keyof ClaudeExpenseDraft; message: string } {
   if(!/^\d+(?:[.,]\d{1,2})?$/.test(draft.amount.trim())) return {field:"amount",message:"Без разделителей тысяч: 1000 или 1000,50. Не больше двух цифр после запятой."};
   const amount=Number(draft.amount.replace(",","."));
@@ -94,7 +106,7 @@ export function ClaudeExpenseSheet({month,canManage,editing: initialEditing,onCl
       showUndoToast({message:`${editing?"Изменено":"Записано"}: ${claudeMoney(prepared.body.amount,draft.currency)} · ${draft.note||EXPENSE_CATEGORY_LABELS[draft.category]}`,duration:10000,onUndo:editing&&before&&!("body" in before)?undefined:()=>{
         void (async()=>{if(editing&&before&&"body" in before)await save.mutateAsync({id:editing.id,body:{...before.body,version:completed.expense.version}});else if(!editing)await remove.mutateAsync({id:completed.expense.id,version:completed.expense.version});if(editing&&completed.receiptId)await deleteReceipt.mutateAsync({id:editing.id,receiptId:completed.receiptId});if(completed.templateId)await removeRecurring.mutateAsync(completed.templateId);})().catch(undoFailure);
       }});onClose();
-    }catch(reason){const versionConflict=reason instanceof ApiError&&reason.status===409&&!!reason.data&&typeof reason.data==="object"&&"code" in reason.data&&["EXPENSE_VERSION_REQUIRED","EXPENSE_VERSION_CONFLICT"].includes(String(reason.data.code));if(!saved.current&&reason instanceof ApiError&&([400,403,404,422].includes(reason.status)||versionConflict))submitted.current=null;setError(`${saved.current?"Расход уже записан. ":""}${isReadOnlyRoleError(reason)?"Для вашей роли запись недоступна.":versionConflict?"Расход уже изменён. Обновите список и откройте актуальную запись заново перед сохранением.":reason instanceof Error?reason.message:"Не удалось сохранить."}${saved.current?" Нажмите «Повторить оставшиеся шаги» — второй расход не создадим.":" Данные остались в форме."}`);}
+    }catch(reason){const versionConflict=reason instanceof ApiError&&reason.status===409&&!!reason.data&&typeof reason.data==="object"&&"code" in reason.data&&["EXPENSE_VERSION_REQUIRED","EXPENSE_VERSION_CONFLICT"].includes(String(reason.data.code));if(!saved.current&&shouldResetClaudeSubmission(reason))submitted.current=null;setError(`${saved.current?"Расход уже записан. ":""}${isReadOnlyRoleError(reason)?"Для вашей роли запись недоступна.":versionConflict?"Расход уже изменён. Обновите список и откройте актуальную запись заново перед сохранением.":reason instanceof Error?reason.message:"Не удалось сохранить."}${saved.current?" Нажмите «Повторить оставшиеся шаги» — второй расход не создадим.":" Данные остались в форме."}`);}
     finally{saving.current=false;setWorking(false);}
   }
   async function deleteExpense() {

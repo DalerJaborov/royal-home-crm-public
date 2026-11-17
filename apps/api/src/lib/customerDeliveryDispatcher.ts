@@ -1,4 +1,4 @@
-import { customerHandoverAckFenceSchema, customerHandoverAckText } from "@royal-home/shared";
+import { customerHandoverAckFenceSchema, customerHandoverAckTexts } from "@royal-home/shared";
 import { lockCustomerHandoverAckSourceTx, validateCustomerHandoverAckPartTx } from "./customerHandoverAck.js";
 import { recordCustomerDeliveryAttemptOutcome } from "./customerDeliverySettlement.js";
 export { recordCustomerDeliveryAttemptOutcome } from "./customerDeliverySettlement.js";
@@ -40,7 +40,7 @@ async function validatePart(tx: TxClient, row: CustomerOutboxRow): Promise<boole
   if (row.sourceKind === "HANDOVER_ACK") {
     if (!await validateCustomerHandoverAckPartTx(tx, row)) return false;
     const witness = customerHandoverAckFenceSchema.parse(row.fenceJson), payload = decodeCustomerOutboxPayload(row);
-    return payload.kind === "text" && payload.text === customerHandoverAckText(witness.language) && decodeCustomerOutboxPublicData(row) === null;
+    return payload.kind === "text" && customerHandoverAckTexts(witness.language).includes(payload.text) && decodeCustomerOutboxPublicData(row) === null;
   }
   if (!row.inquiryId || !row.ticketEventKey || !row.conversationId || row.sourceKind !== "BOT_TURN" ||
       row.publicMetaCommentId !== null || row.publicTelegramCommentId !== null || row.publicSourceRevision !== null) return false;

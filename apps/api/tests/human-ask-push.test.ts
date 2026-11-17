@@ -76,6 +76,34 @@ describe("clientAskedForOperator — просьба о человеке в лю�
   });
 });
 
+// 14.11.2026: те же просьбы обычными словами; упоминание роли и отказ — нет.
+describe("просьба о человеке и жалоба «не звонят» обычными словами", () => {
+  it.each(["Можно с менеджером?", "Дайте менеджера", "Пригласите руководителя", "Хочу поговорить с живым человеком",
+    "Передайте агенту, пусть позвонит", "Я вам написал, никто не отвечает, дайте человека", "дайте аператора",
+    "бо одам гап задан мехоҳам", "operator lozim"])("человек: %s", async (text) => {
+    const { looksLikeWantsHumanAgent } = await import("../src/ai/complaintGuard.js");
+    expect(looksLikeWantsHumanAgent(text)).toBe(true);
+    expect(clientAskedForOperator([text])).toBe(true);
+  });
+  it.each(["я работаю оператором", "у меня оператор Билайн", "я менеджер по продажам", "Агент не нужен, просто цену",
+    "перезвоните мне", "Кто такой оператор?"])("не просьба о человеке: %s", async (text) => {
+    const { looksLikeWantsHumanAgent } = await import("../src/ai/complaintGuard.js");
+    expect(looksLikeWantsHumanAgent(text)).toBe(false);
+    expect(clientAskedForOperator([text])).toBe(false);
+  });
+  it.each(["Мне никто не звонит", "почему никто не звонит?", "когда мне позвонят?", "Вы обещали перезвонить",
+    "Агент так и не вышел на связь", "Мне не позвонили", "ба ман занг назаданд", "кай занг мезанед?", "zang nazadand",
+    "никто не перезвонил"])("жалоба: %s", async (text) => {
+    const { looksLikeNoContactComplaint } = await import("../src/ai/complaintGuard.js");
+    expect(looksLikeNoContactComplaint(text)).toBe(true);
+  });
+  it.each(["позвоните мне", "занг зада будед", "занг зада метавонед?", "Не звоните мне", "Агент звонил вчера, спасибо"])(
+    "не жалоба: %s", async (text) => {
+      const { looksLikeNoContactComplaint } = await import("../src/ai/complaintGuard.js");
+      expect(looksLikeNoContactComplaint(text)).toBe(false);
+    });
+});
+
 describe("notifyHumanAsk — прямая просьба о живом человеке", () => {
   it("«перезвоните» — не просьба о человеке: ни пуша, ни записи", async () => {
     const conversationId = await makeConversation();

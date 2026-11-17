@@ -5,14 +5,15 @@
  */
 import { liveVoiceErrorForPerson } from "../../lib/telephony/liveVoiceUserError.js";
 import { markAgentAttempt } from "../../lib/clientWorkStalled.js";
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
-import { clientMessageSchema } from "@royal-home/shared";
+import { clientMessageSchema, robotCallStopUpdateSchema, type RobotCallStopState } from "@royal-home/shared";
 import { maskClientPhone } from "../../lib/clientPhone.js";
 import { resolveClientPhoneSelection } from "../../lib/clientPhoneSelection.js";
 import { prisma } from "../../db.js";
 import { foreignWriteDenied } from "./shared.js";
-import { canAccessAssignedAgent, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
+import { can, canAccessAssignedAgent, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
+import { ARCHIVE_REVIEW_START_NOTE, canCallArchivedClient } from "../../lib/archiveReviewCall.js";
 import { acceptLead } from "../../lib/leadAccept.js";
 import {
   agentSender,
@@ -42,6 +43,7 @@ import { describeProperty } from "../../messengers/sharedMedia.js";
 import { logTimeline } from "../../lib/timeline.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { describeError } from "../../lib/describeError.js";
+import { activeRobotCallStops, allowRobotCallDespiteOptOut, clearRobotCallStop, chatOptOutState, clearStaffRobotCallStops, revokeRobotCallAllow, robotCallPhoneKey, setRobotCallStop } from "../../lib/robotCallPolicy.js";
 
 export const communicationsRouter = Router();
 
@@ -181,6 +183,8 @@ export async function originateCallToClient(
      *  и что его в принципе можно набрать (isDialableTajikNumber) — сюда
      *  приходит уже проверенным. */
     phoneOverride?: string;
+    /** Разбор удалённого клиента из Корзины (lib/archiveReviewCall.ts): не работа агента. */
+    archiveReview?: boolean;
   }
 ): Promise<
   | { ok: true; channelId: string | undefined; dialing: { to: string; mode: "mobile" | "extension" } }
@@ -285,7 +289,10 @@ export async function originateCallToClient(
       clientId: client.id,
       actor: { kind: "agent", agentId },
       type: "CALL",
-      notes: options?.continuesInteractionId
+      archiveReview: options?.archiveReview === true,
+      notes: options?.archiveReview
+        ? ARCHIVE_REVIEW_START_NOTE
+        : options?.continuesInteractionId
         ? "Звонок продолжен через мобильный — плохая связь в браузере"
         : options?.phoneOverride
           ? `Звонок инициирован из CRM на дополнительный номер (${options.phoneOverride})`
@@ -311,6 +318,7 @@ export async function originateCallToClient(
         // а не с полем карточки — при звонке на переопределённый номер это разные
         // строки, и сравнение с client.phone не опознало бы ответ клиента вовсе.
         clientPhone: dialedPhone,
+        archiveReview: options?.archiveReview === true,
       });
     }
 
@@ -365,11 +373,15 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
   // клиенту» (аудит 24.09.2026, №121): «видеть все» (служба безопасности) не
   // даёт звонить чужому клиенту, а звонок из Корзины бессмысленен — карточку
   // сначала восстанавливают.
-  {
+  // КЛИЕНТ В КОРЗИНЕ: руководство с правом «Звонить клиентам из Корзины» звонит для РАЗБОРА (16.11.2026,
+  // lib/archiveReviewCall.ts) — без восстановления карточки и без права писать в чужую карточку.
+  // Остальным по-прежнему «сначала восстановите».
+  const archiveReview = Boolean(client.deletedAt) && canCallArchivedClient({ can: (p) => can(req, p) });
+  if (!archiveReview) {
     const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));
     if (denied) return res.status(403).json({ error: denied });
   }
-  if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
+  if (client.deletedAt && !archiveReview) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
   const selection = resolveClientPhoneSelection(client, parsed.data);
   if (selection.conflict) return res.status(409).json({ error: "Список номеров изменился или маска неоднозначна. Обновите карточку и выберите номер снова." });
 
@@ -410,7 +422,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
    * которая подождёт до конца разговора.
    */
   const ownAgentIdForAccept = scopeToOwnAgent(req);
-  if (ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgentId === ownAgentIdForAccept) {
+  if (!archiveReview && ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgentId === ownAgentIdForAccept) {
     await acceptLead({ clientId: client.id, agentId: ownAgentIdForAccept }).catch((err) =>
       console.error("[leadAccept] автопринятие по звонку:", err)
     );
@@ -451,7 +463,20 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
     if (requestedTail !== phoneTail(client.phone)) phoneOverride = requestedPhone;
   }
 
-  const result = await originateCallToClient(req.agent!.id, client, { phoneOverride });
+  const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });
+  // В журнал — только состоявшаяся команда станции: двойной клик и отказ «нет SIP» звонком не были.
+  if (archiveReview && (result.ok || result.status === 502)) {
+    // След в журнале действий: кто и кому из Корзины звонил (номер маской, хозяин карточки не меняется).
+    logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, {
+      shortId: client.shortId,
+      fullName: client.fullName,
+      phone: maskClientPhone(phoneOverride ?? client.phone),
+      ownerAgentId: client.assignedAgentId,
+      ok: result.ok,
+      channelId: result.ok ? (result.channelId ?? null) : null,
+      error: result.ok ? null : result.error.slice(0, 300),
+    });
+  }
   if (!result.ok) {
     /**
      * СТАНЦИЯ ОТКАЗАЛА — ЭТО ПОПЫТКА АГЕНТА, А НЕ ЕГО ВИНА (владелец 29.09.2026:
@@ -462,7 +487,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
      * (services/leads/firstCall.ts, collectFirstCallFacts): таймер на экране
      * гаснет, штрафа и передачи лида нет. Только своему клиенту — byAgentId.
      */
-    if (result.status === 502) await markAgentAttempt(client.id, new Date(), req.agent!.id);
+    if (result.status === 502 && !archiveReview) await markAgentAttempt(client.id, new Date(), req.agent!.id);
     return res.status(result.status).json({ error: result.error });
   }
 
@@ -584,6 +609,121 @@ communicationsRouter.post("/:id/live-voice-call", requireAuth, async (req, res) 
   res.json({ ok: true, channelId: result.channelId });
 });
 
+/**
+ * «НЕ ЗВОНИТЬ РОБОТОМ» В КАРТОЧКЕ КЛИЕНТА (П3, 11.11.2026).
+ *
+ * Отметка живёт в RobotCallStop и читается одной дверью lib/robotCallPolicy.ts — её
+ * спрашивает мост живого голоса перед каждым набором (опрос, проверка продавца,
+ * приглашение, кнопка «Звонок роботом»). Здесь только поставить, снять и показать.
+ *
+ * Права — как у прочих действий карточки: свой клиент (canAccessAssignedAgent), правка
+ * чужой карточки запрещена (foreignWriteDenied), Корзина и непринятый лид — нет.
+ * Поставить может любой, кто пишет в карточку: запрет защищает клиента. Снять просьбу
+ * самого клиента (из переписки, голосом, со станции) — только руководство; отметку,
+ * поставленную сотрудником, снимает тот же круг, что и ставит.
+ */
+/**
+ * Кто вправе разрешить робота вопреки просьбе клиента — по праву, а не по роли: тот же
+ * круг, что решает судьбу чужой карточки (clients.assign — «Назначать риелтора»).
+ */
+function canOverrideClientRequest(req: Request): boolean {
+  return can(req, "clients.assign");
+}
+
+async function robotCallStopState(req: Request, client: { id: string; phone: string }): Promise<RobotCallStopState> {
+  const [stops, chat] = await Promise.all([
+    activeRobotCallStops(robotCallPhoneKey(client.phone), client.id),
+    chatOptOutState(client.id),
+  ]);
+  const { optedOut: optedOutInChat, allowed: allowedBySupervisor, blocks: chatBlocks } = chat;
+  const staffStops = stops.filter((s) => s.source === "STAFF");
+  const clientReasons = [
+    ...(chatBlocks ? (["CONVERSATION"] as const) : []),
+    ...[...new Set(stops.filter((s) => s.source !== "STAFF").map((s) => s.source as "CONVERSATION" | "VOICE" | "STATION"))],
+  ].filter((r, i, all) => all.indexOf(r) === i);
+  const first = stops[0];
+  return {
+    stopped: staffStops.length > 0 || clientReasons.length > 0,
+    staffStop: staffStops.length > 0,
+    clientReasons,
+    since: first?.createdAt.toISOString() ?? null,
+    optedOutInChat,
+    allowedBySupervisor,
+    canClear: staffStops.length > 0,
+    canOverride: clientReasons.length > 0 && canOverrideClientRequest(req),
+  };
+}
+
+async function loadClientForRobotStop(req: Request, id: string, write: boolean) {
+  const client = await prisma.client.findUnique({
+    where: { id },
+    select: { id: true, shortId: true, phone: true, assignedAgentId: true, assignmentCompletedAt: true, deletedAt: true, acceptedAt: true },
+  });
+  if (!client) return { ok: false as const, status: 404, error: "Клиент не найден" };
+  if (!canAccessAssignedAgent(req, client.assignedAgentId)) return { ok: false as const, status: 403, error: "Недостаточно прав" };
+  if (write) {
+    const ownAgentId = scopeToOwnAgent(req);
+    const denied = foreignWriteDenied(req, client, ownAgentId);
+    if (denied) return { ok: false as const, status: 403, error: denied };
+    if (client.deletedAt) return { ok: false as const, status: 409, error: "Карточка в Корзине — сначала восстановите её" };
+    if (ownAgentId && !client.acceptedAt) return { ok: false as const, status: 403, error: "Сначала примите лид — до принятия карточка закрыта" };
+  }
+  return { ok: true as const, client };
+}
+
+communicationsRouter.get("/:id/robot-call-stop", requireAuth, async (req, res) => {
+  const found = await loadClientForRobotStop(req, req.params.id, false);
+  if (!found.ok) return res.status(found.status).json({ error: found.error });
+  res.json(await robotCallStopState(req, found.client));
+});
+
+communicationsRouter.put("/:id/robot-call-stop", requireAuth, async (req, res) => {
+  const parsed = robotCallStopUpdateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Неверный запрос", details: parsed.error.flatten() });
+  const found = await loadClientForRobotStop(req, req.params.id, true);
+  if (!found.ok) return res.status(found.status).json({ error: found.error });
+  const { client } = found;
+  if (!isDialableTajikNumber(client.phone)) {
+    return res.status(409).json({ error: "У клиента нет номера, на который робот мог бы позвонить" });
+  }
+
+  if (parsed.data.stopped) {
+    const result = await setRobotCallStop({
+      phone: client.phone,
+      clientId: client.id,
+      source: "STAFF",
+      setByAgentId: req.agent!.id,
+      note: parsed.data.note ?? null,
+    });
+    if (result.created) {
+      logAudit(req, "ROBOT_CALL_STOP_SET", "Client", client.id, { shortId: client.shortId, stopId: result.id });
+    }
+    // Включили запрет — прежнее разрешение руководства вопреки просьбе клиента больше не действует.
+    const revoked = await revokeRobotCallAllow(client.id, req.agent!.id);
+    if (revoked > 0) logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOW_REVOKED", "Client", client.id, { shortId: client.shortId });
+  } else if (parsed.data.overrideClientRequest) {
+    // ЯВНОЕ действие руководителя (ревью П3): разрешить робота вопреки просьбе клиента.
+    // Сама отметка переписки (рассылки) не трогается; кто и когда — в журнале действий.
+    if (!canOverrideClientRequest(req)) {
+      return res.status(403).json({ error: "Разрешить звонок вопреки просьбе клиента может только руководитель" });
+    }
+    const current = await robotCallStopState(req, client);
+    const cleared = await clearRobotCallStop({ phone: client.phone, clientId: client.id, clearedByAgentId: req.agent!.id });
+    if (cleared > 0) logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared, override: true });
+    if (current.optedOutInChat) {
+      // Прежнее разрешение (если было) заменяется новым — дата нового покрывает и свежую просьбу.
+      await revokeRobotCallAllow(client.id, req.agent!.id);
+      await allowRobotCallDespiteOptOut(client.id, req.agent!.id);
+      logAudit(req, "ROBOT_CALL_OPT_OUT_ALLOWED", "Client", client.id, { shortId: client.shortId, reasons: current.clientReasons });
+    }
+  } else {
+    // Снятие СВОЕЙ отметки сотрудника. Просьбу клиента это не снимает и разрешения не создаёт.
+    const cleared = await clearStaffRobotCallStops({ phone: client.phone, clientId: client.id, clearedByAgentId: req.agent!.id });
+    if (cleared > 0) logAudit(req, "ROBOT_CALL_STOP_CLEARED", "Client", client.id, { shortId: client.shortId, cleared });
+  }
+  res.json(await robotCallStopState(req, client));
+});
+
 const dialSchema = z.object({
   // 9–15 цифр (с кодом страны и без) — та же терпимость к записи, что и у
   // остального ввода телефона в CRM; лишнее (пробелы, скобки, дефисы) отсекается
@@ -620,6 +760,9 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
 
   const existing = await findClientByPhoneDigits(digits);
   let client: { id: string; shortId: number; phone: string; fullName: string; assignedAgentId: string | null };
+  // Номер удалённого клиента: звонок идёт, как решил владелец 18.08.2026, но это не работа агента
+  // (lib/archiveReviewCall.ts): без счёта звонков, Royal Score, статусов и задач карточки.
+  let archiveReview = false;
 
   if (existing) {
     // В Корзине или нет — звоним в любом случае: номер настоящий, блокировать
@@ -631,8 +774,10 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
     // к существующей записи, какой бы она ни была.
     const full = await prisma.client.findUniqueOrThrow({
       where: { id: existing.id },
-      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true, assignmentCompletedAt: true },
+      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true, assignmentCompletedAt: true, deletedAt: true },
     });
+    // Помечаем разбором только тех, кому он разрешён; остальным звонок идёт как раньше (решение 18.08.2026).
+    archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p) => can(req, p) });
     if (!canAccessAssignedAgent(req, full.assignedAgentId)) {
       return res.status(403).json({ error: "Этот номер уже принадлежит другому клиенту — недостаточно прав" });
     }
@@ -680,7 +825,19 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
     });
   }
 
-  const result = await originateCallToClient(req.agent!.id, client);
+  const result = await originateCallToClient(req.agent!.id, client, { archiveReview });
+  if (archiveReview && (result.ok || result.status === 502)) {
+    logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, {
+      shortId: client.shortId,
+      fullName: client.fullName,
+      phone: maskClientPhone(client.phone),
+      ownerAgentId: client.assignedAgentId,
+      via: "dial",
+      ok: result.ok,
+      channelId: result.ok ? (result.channelId ?? null) : null,
+      error: result.ok ? null : result.error.slice(0, 300),
+    });
+  }
   if (!result.ok) return res.status(result.status).json({ error: result.error });
 
   res.json({

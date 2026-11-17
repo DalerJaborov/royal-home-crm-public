@@ -7,7 +7,7 @@ import {
   isReadOnlyRole,
 } from "@royal-home/shared";
 import { verifyAccessToken } from "./jwt.js";
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { runAsActor } from "../lib/requestActor.js";
 import { logSystemError } from "../lib/systemError.js";
 
@@ -62,11 +62,11 @@ export function invalidateAgentAccess(agentId?: string) {
   else accessCache.clear();
 }
 
-export async function loadAgentAccess(agentId: string): Promise<AgentAccess | null> {
-  const cached = accessCache.get(agentId);
+export async function loadAgentAccess(agentId: string, db?: Pick<TxClient, "agent">): Promise<AgentAccess | null> {
+  const cached = db ? undefined : accessCache.get(agentId);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-  const agent = await prisma.agent.findUnique({
+  const agent = await (db ?? prisma).agent.findUnique({
     where: { id: agentId },
     select: { role: true, isActive: true, permissions: true, sipExtension: true },
   });
@@ -78,7 +78,7 @@ export async function loadAgentAccess(agentId: string): Promise<AgentAccess | nu
     permissions: resolvePermissions(agent.role as Role, parsePermissionOverrides(agent.permissions)),
     sipExtension: agent.sipExtension,
   };
-  accessCache.set(agentId, { value, expiresAt: Date.now() + ACCESS_TTL_MS });
+  if (!db) accessCache.set(agentId, { value, expiresAt: Date.now() + ACCESS_TTL_MS });
   return value;
 }
 
@@ -114,6 +114,10 @@ const READ_ONLY_EXEMPT_WRITES = new Set([
   // собственных сессий. Это не данные компании (решение 10.10.2026).
   "PUT /api/v1/me/preferences",
   "POST /api/v1/me/avatar",
+  // PDF-отчёт себе в Telegram (14.11.2026): данные не меняются, файл уходит только в
+  // свой чат сотрудника, а право на сам отчёт проверяет маршрут.
+  "POST /api/v1/report-pdf/finance/telegram",
+  "POST /api/v1/report-pdf/team/telegram",
 ]);
 /** DELETE /api/v1/me/sessions/:id — тоже своё (завершить свою сессию на другом устройстве). */
 const READ_ONLY_EXEMPT_PREFIXES: ReadonlyArray<readonly [string, string]> = [["DELETE", "/api/v1/me/sessions/"]];
@@ -234,7 +238,7 @@ export function requirePermission(...permissions: PermissionId[]) {
 }
 
 /** Проверка права внутри тела роута (когда ветвление зависит от данных запроса). */
-export function can(req: Request, permission: PermissionId): boolean {
+export function can(req: Pick<Request, "agent">, permission: PermissionId): boolean {
   return req.agent?.permissions.has(permission) ?? false;
 }
 
@@ -243,7 +247,7 @@ export function can(req: Request, permission: PermissionId): boolean {
  * на право «видеть всех»: сотруднику можно открыть чужие карточки галочкой, не
  * меняя роль, и наоборот — отобрать их у менеджера.
  */
-export function scopeToOwnAgent(req: Request): string | undefined {
+export function scopeToOwnAgent(req: Pick<Request, "agent">): string | undefined {
   if (!req.agent) return undefined;
   return req.agent.permissions.has("clients.viewAll") ? undefined : req.agent.id;
 }
@@ -258,7 +262,7 @@ export function scopeToOwnAgent(req: Request): string | undefined {
  * а ссылка писала «отправлен объект» в хронологию чужого клиента. Правило то же,
  * что у списка клиентов агента: свой — это закреплённый за ним.
  */
-export function canBindClient(req: Request, client: { assignedAgentId: string | null }): boolean {
+export function canBindClient(req: Pick<Request, "agent">, client: { assignedAgentId: string | null }): boolean {
   if (!req.agent) return false;
   if (client.assignedAgentId === req.agent.id) return true;
   // «Видеть всех» — не «писать во всех» (глубокая проверка 02.10.2026, A3).
@@ -275,7 +279,7 @@ export function canBindClient(req: Request, client: { assignedAgentId: string | 
  * выдавалось пресетами, а на API не влияло вообще: сделки скоупились правом на
  * клиентов, и два права расходились друг с другом на одном экране.
  */
-export function scopeDealsToOwnAgent(req: Request): string | undefined {
+export function scopeDealsToOwnAgent(req: Pick<Request, "agent">): string | undefined {
   if (!req.agent) return undefined;
   return req.agent.permissions.has("deals.viewAll") ? undefined : req.agent.id;
 }
@@ -295,7 +299,7 @@ export function scopeDealsToOwnAgent(req: Request): string | undefined {
  * (ownAgentId задан) ограничивает проверка владения строкой выше по маршруту.
  */
 export function foreignDealWriteDenied(
-  req: Request,
+  req: Pick<Request, "agent">,
   deal: { agentId: string },
   ownAgentId: string | undefined
 ): string | null {
@@ -307,7 +311,7 @@ export function foreignDealWriteDenied(
 }
 
 /** Может ли текущий сотрудник открыть карточку, закреплённую за указанным агентом. */
-export function canAccessAssignedAgent(req: Request, assignedAgentId: string | null | undefined): boolean {
+export function canAccessAssignedAgent(req: Pick<Request, "agent">, assignedAgentId: string | null | undefined): boolean {
   if (!req.agent) return false;
   return req.agent.permissions.has("clients.viewAll") || req.agent.id === assignedAgentId;
 }

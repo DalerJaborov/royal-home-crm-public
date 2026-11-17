@@ -1,4 +1,5 @@
 import { closeVideoHandoff } from "./videoHandoff.js";
+import { retireNarrationsOfClosedProperties } from "./narrationOptOut.js";
 import { removePropertyPhotoPosts } from "./photoPosts.js";
 import { removePropertySocialReposts } from "./socialReposts.js";
 import { cancelFutureShowingsForOffSale } from "./trashProperty.js";
@@ -38,6 +39,8 @@ export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind
   // объектом (25.09.2026, А3).
   void closeVideoHandoff(propertyId, { holdQueue: false, reason }).catch(fail("закрытие монтажа", "video-handoff"));
   if (kind === "reserved") return;
+  // Озвучка (12.11.2026): ждущая генерация и неотправленный монтажёру mp3 гаснут, денег не тратим.
+  void retireNarrationsOfClosedProperties(propertyId).catch(fail("снятие озвучки", "api"));
 
   // Фото-посты и повторы: публикации снимаются, отложенные слоты гасятся.
   void removePropertyPhotoPosts(propertyId).catch(fail("снятие фото-постов", "meta"));

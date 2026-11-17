@@ -1,5 +1,9 @@
-import { getUpdates, isTelegramEnabled } from "./api.js";
+import { getUpdates, isTelegramEnabled, telegramUpdateChatId, type TelegramUpdate } from "./api.js";
+import { telegramUpdatesMode } from "./updatesMode.js";
+import { ASSISTANT_DEADLINE_SEC } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
+import { raiseCriticalAlarm } from "../lib/channelKeyAlarm.js";
+import { beatLoopHeartbeat, registerLoopHeartbeat } from "../lib/cronHeartbeat.js";
 import { isAlbumPart, startTelegramUpdate, telegramRepliesInFlight } from "./bot.js";
 import {
   isDuplicateDelivery,
@@ -11,6 +15,9 @@ import { prisma } from "../db.js";
 import { withTelegramUpdateRetry } from "./updateRetry.js";
 
 let running = false;
+/** Имя строки пульса поллера (тик worker: CronHeartbeat.name). */
+export const POLLER_HEARTBEAT = "telegram-poller";
+let pollingTask: Promise<void> | null = null;
 
 /**
  * Long polling — запасной режим (19.08.2026). Вебхук (routes/webhooks.ts →
@@ -28,14 +35,16 @@ export function startTelegramBot() {
     console.log("[telegram] TELEGRAM_BOT_TOKEN не задан — бот выключен");
     return;
   }
-  if (process.env.TELEGRAM_WEBHOOK_SECRET) {
+  if (telegramUpdatesMode() === "webhook") {
     console.log("[telegram] TELEGRAM_WEBHOOK_SECRET задан — работаем через вебхук, long polling не запущен");
     return;
   }
-  if (running) return;
+  if (pollingTask) return;
   running = true;
   console.log("[telegram] Бот запущен (long polling)");
-  void (async () => {
+  // Пульс поллера (14.11.2026, №7): завис разбор пачки: пульс встал, сторож пульса скажет.
+  registerLoopHeartbeat(POLLER_HEARTBEAT, "* * * * *");
+  pollingTask = (async () => {
     // Незавершённые отметки канала TELEGRAM на этот момент — от мёртвого
     // предыдущего процесса (этот только что стартовал и ничего ещё не
     // обрабатывал), см. докстринг resetIncompleteProcessedMessages. ДО первого
@@ -44,16 +53,22 @@ export function startTelegramBot() {
     await resetIncompleteProcessedMessages(["TELEGRAM"], "telegram").catch((err) =>
       console.error("[telegram] сброс незавершённых отметок при старте:", err instanceof Error ? err.message : err)
     );
+    // Ролики мастера объекта, которые прошлый процесс не докачал (очередь в памяти).
+    // Ленивый импорт: мастер объекта тянет за собой половину помощника, а поллеру
+    // он нужен только здесь, один раз при старте.
+    // Не ждём: опрос не должен стоять, пока грузится модуль и идёт уборка.
+    void import("./assistantPropertyDraft.js").then(({ recoverInterruptedTelegramDraftUploads }) => recoverInterruptedTelegramDraftUploads()).catch((err) =>
+      console.error("[telegram] снятие прерванных загрузок видео:", err instanceof Error ? err.message : err)
+    );
     await pollLoop();
-  })();
+  })().finally(() => { pollingTask = null; });
 }
 
 /**
  * Останавливает цикл опроса. Нужен и тесту (чтобы не оставлять за собой вечно
  * живой цикл с таймерами), и мягкой остановке worker-процесса по SIGTERM
- * (worker.ts) — перестать брать НОВЫЕ апдейты, не обрывая уже начатую
- * обработку текущей пачки (проверяется `while (running)` в начале каждой
- * итерации `pollLoop`, а не внутри неё — см. isTelegramPollerBusy ниже).
+ * (worker.ts) — перестать брать новые апдейты, не обрывая уже начатую
+ * обработку текущей пачки. Ответ уже начатого HTTP-опроса можно оставить Telegram.
  */
 export function stopTelegramBot() {
   running = false;
@@ -69,12 +84,32 @@ export function stopTelegramBot() {
  * пустую очередь заданий и падала на grace-таймауте прямо посреди копирования
  * (ровно авария 24.09.2026 — обрыв на 27 МБ из 85).
  */
-let processingUpdate = false;
+let processingBatch = false;
+/**
+ * Апдейты с ходом помощницы, вынесенным из очереди (08.11.2026): приняты, но ещё не отвечены.
+ * Offset за них не продвигается (Telegram пришлёт их снова после перезапуска), а повторный опрос
+ * их пропускает — двойной обработки нет.
+ */
+const assistantInFlight = new Set<number>();
 export function isTelegramPollerBusy(): boolean {
   // Ответы, ждущие окно склейки (01.10.2026, находка №132), идут уже после
   // апдейта, вне этого цикла, — но это тоже работа, которую нельзя оборвать.
-  return processingUpdate || telegramRepliesInFlight() > 0;
+  return processingBatch || telegramRepliesInFlight() > 0 || assistantInFlight.size > 0;
 }
+
+/**
+ * Потолок ожидания ответа помощницы на один апдейт: самый длинный срок хода из Настроек
+ * (ASSISTANT_DEADLINE_SEC.max) плюс минута на доставку. Дольше — апдейт отмечается завершённым.
+ */
+const DEFAULT_DEFERRED_REPLY_CEILING_MS = ASSISTANT_DEADLINE_SEC.max * 1000 + 60_000;
+let deferredReplyCeilingMs = DEFAULT_DEFERRED_REPLY_CEILING_MS;
+/** Для тестов: короткий потолок (null — вернуть обычный). */
+export function setDeferredReplyCeilingForTests(ms: number | null): void {
+  deferredReplyCeilingMs = ms ?? DEFAULT_DEFERRED_REPLY_CEILING_MS;
+}
+
+/** Пауза, если в ответе Telegram нет ничего нового (только ждущие ответа помощницы). */
+const NOTHING_NEW_PAUSE_MS = 1_000;
 
 /**
  * ТРЕВОГА — ПО ДЛИТЕЛЬНОСТИ МОЛЧАНИЯ, А НЕ ПО ЧИСЛУ НЕУДАЧ (12.08.2026).
@@ -99,12 +134,16 @@ const RETRY_MAX_MS = 60_000;
 
 async function pollLoop() {
   let offset = 0;
+  // Апдейты другого чата могли завершиться за сбоем в текущей пачке.
+  // При повторном опросе пропускаем их, пока offset не сможет пройти этот разрыв.
+  const settledIds = new Set<number>();
   let failures = 0;
   let lastSuccessAt = Date.now();
   let alarmed = false;
   while (running) {
     try {
       const updates = await getUpdates(offset);
+      if (!running) break;
       if (alarmed) {
         const silentSec = Math.round((Date.now() - lastSuccessAt) / 1000);
         console.log(`[telegram] Связь восстановлена после ${silentSec} с молчания (${failures} неудачных опросов)`);
@@ -125,56 +164,26 @@ async function pollLoop() {
       failures = 0;
       lastSuccessAt = Date.now();
       alarmed = false;
-      for (const update of updates) {
-        offset = update.update_id + 1;
-        /**
-         * ЗАЩИТА ОТ ПОВТОРНОЙ ОБРАБОТКИ ПОСЛЕ ПЕРЕЗАПУСКА.
-         *
-         * Новый offset уходит в Telegram только СЛЕДУЮЩИМ запросом getUpdates.
-         * Упал контейнер (выкат, перезапуск) в середине пачки — Telegram отдаст
-         * неподтверждённые апдейты заново, и клиент получит второй ответ на то
-         * же сообщение, а история диалога — дубль реплики. Для каналов Meta это
-         * закрыто отметкой в базе с уникальным ключом (lib/webhookDedupe.ts),
-         * Telegram оставался без неё вовсе.
-         *
-         * Отметка ставится ДО обработки: арбитром служит уникальный индекс в
-         * базе, а не порядок выполнения.
-         */
-        // Часть альбома дедупится при СКЛЕЙКЕ (bufferAlbum): отметка при приёме +
-        // рестарт в окне буфера теряли пачку фото безвозвратно (26.08.2026).
-        const albumPart = isAlbumPart(update);
-        if (!albumPart && (await isDuplicateDelivery("TELEGRAM", String(update.update_id)))) {
-          console.log(`[telegram] апдейт ${update.update_id} уже обработан — пропускаем`);
-          continue;
+      processingBatch = true;
+      try {
+        await processBatch(updates, settledIds);
+        // В пачке только апдейты, чей ответ помощницы ещё готовится: Telegram вернёт их сразу же —
+        // без паузы цикл крутился бы вхолостую весь долгий ход.
+        if (updates.length > 0 && updates.every((u) => settledIds.has(u.update_id) || assistantInFlight.has(u.update_id))
+            && updates.some((u) => assistantInFlight.has(u.update_id))) {
+          await new Promise((r) => setTimeout(r, NOTHING_NEW_PAUSE_MS));
         }
-        processingUpdate = true;
-        try {
-          /**
-           * ОТВЕТ БОТА НЕ ЖДЁМ (01.10.2026, находка №132). Он идёт после окна
-           * склейки быстрых сообщений (по умолчанию 25 секунд, Настройки → Бот), а
-           * этот цикл разбирает апдейты ВСЕХ чатов по одному: ожидание здесь
-           * задержало бы остальных клиентов, а второе сообщение того же клиента
-           * не попало бы в одну пачку с первым. Апдейт принят, как только
-           * сообщение легло в переписку; сбой ответа пишет в журнал сам бот.
-           */
-          // Повтор приёма (JOB-06): сбой не должен выбросить апдейт, который Telegram
-          // уже не отдаст. Новый offset уходит в Telegram следующим getUpdates, то есть
-          // только после успеха или после исчерпания попыток.
-          await withTelegramUpdateRetry(() => startTelegramUpdate(update));
-        } catch (err) {
-          const reason = err instanceof Error ? err.message : String(err);
-          console.error("[telegram] Ошибка обработки апдейта:", reason);
-          void logSystemError("telegram", `Апдейт не обработан: ${reason}`);
-          // Замок дубля снимаем (как в вебхуке /telegram и у Meta): иначе транзиентный
-          // сбой съедает сообщение клиента навсегда — повторная доставка при следующем
-          // перезапуске отбросится как «уже обработан». У части альбома отметки нет.
-          if (!albumPart) void releaseProcessedMessage("TELEGRAM", String(update.update_id));
-        } finally {
-          // Отметка завершения (21.09.2026) — см. docstring lib/webhookDedupe.ts.
-          if (!albumPart) void markProcessedMessageComplete("TELEGRAM", String(update.update_id));
-          processingUpdate = false;
+      } finally {
+        // Telegram подтверждает всё ниже offset. Продвигаем его только до первого
+        // незавершённого апдейта в порядке полученной пачки, даже если ID идут с пропусками.
+        for (const update of updates) {
+          if (!settledIds.has(update.update_id)) break;
+          offset = update.update_id + 1;
         }
+        for (const id of settledIds) if (id < offset) settledIds.delete(id);
+        processingBatch = false;
       }
+      beatLoopHeartbeat(POLLER_HEARTBEAT, true);
     } catch (err) {
       failures += 1;
       const silentMs = Date.now() - lastSuccessAt;
@@ -191,10 +200,118 @@ async function pollLoop() {
           "telegram",
           `Бот не получает сообщения ${silentSec} с подряд: ${reason} (неудачных опросов: ${failures})`
         );
+        // С 02.10 пуш «новая проблема» отключён: обрыв приёма сообщений шёл только в журнал.
+        void raiseCriticalAlarm({
+          tag: "telegram-poller",
+          title: "Telegram-бот не получает сообщения",
+          body: `Связь с Telegram потеряна на ${Math.round(silentSec / 60)} мин: ${reason.slice(0, 100)}. Подробности: Настройки, Система.`,
+        });
       }
+      // Цикл жив (повторяет опрос), но успеха нет: сторож пульса видит запуск, а не молчание.
+      beatLoopHeartbeat(POLLER_HEARTBEAT, false);
       // Пауза растёт: при долгом отказе Telegram не имеет смысла ломиться каждые 5 секунд.
       const delay = Math.min(RETRY_BASE_MS * 2 ** (failures - 1), RETRY_MAX_MS);
       await new Promise((r) => setTimeout(r, delay));
     }
   }
+}
+
+const POLL_CHAT_CONCURRENCY = 4;
+
+async function processBatch(updates: TelegramUpdate[], settledIds: Set<number>): Promise<void> {
+  const lanes = new Map<number, TelegramUpdate[]>();
+  const processOnce = async (update: TelegramUpdate) => {
+    if (settledIds.has(update.update_id) || assistantInFlight.has(update.update_id)) return;
+    const deferred = await acceptUpdate(update);
+    if (!deferred) {
+      settledIds.add(update.update_id);
+      return;
+    }
+    // Ход помощницы идёт вне пачки: соседние чаты и следующий опрос его не ждут.
+    assistantInFlight.add(update.update_id);
+    void deferred.done.finally(() => {
+      settledIds.add(update.update_id);
+      assistantInFlight.delete(update.update_id);
+    });
+  };
+  const drainLanes = async () => {
+    if (!lanes.size) return;
+    const remaining = lanes.values();
+    const workers = Array.from({ length: Math.min(POLL_CHAT_CONCURRENCY, lanes.size) }, async () => {
+      for (const lane of remaining) {
+        for (const update of lane) await processOnce(update);
+      }
+    });
+    // Ошибка одной очереди не должна запускать повторный опрос, пока другие ещё работают.
+    const results = await Promise.allSettled(workers);
+    lanes.clear();
+    const failed = results.find(result => result.status === "rejected");
+    if (failed) throw failed.reason;
+  };
+  for (const update of updates) {
+    const chatId = telegramUpdateChatId(update);
+    if (chatId == null || isAlbumPart(update)) {
+      // Альбомы имеют отдельный буфер и дедуп; кнопка без чата не имеет ключа порядка.
+      await drainLanes();
+      await processOnce(update);
+    } else {
+      const lane = lanes.get(chatId);
+      if (lane) lane.push(update);
+      else lanes.set(chatId, [update]);
+    }
+  }
+  await drainLanes();
+}
+
+/** Принять апдейт. Возвращает ответ помощницы, если он вынесен из очереди: апдейт завершится с ним. */
+async function acceptUpdate(update: TelegramUpdate): Promise<{ done: Promise<void> } | null> {
+  const id = String(update.update_id);
+  const albumPart = isAlbumPart(update);
+  // Альбом дедупится при склейке. Остальные апдейты ставят отметку до обработки.
+  if (!albumPart && await isDuplicateDelivery("TELEGRAM", id, { requireClaim: true })) {
+    console.log(`[telegram] апдейт ${id} уже обработан — пропускаем`);
+    return null;
+  }
+
+  let accepted: Awaited<ReturnType<typeof startTelegramUpdate>> | undefined;
+  try {
+    // Внутри очереди чата ждём весь приём с повторами. Ответ клиента после окна
+    // склейки остаётся отдельной задачей, чтобы следующее сообщение попало в буфер.
+    accepted = await withTelegramUpdateRetry(() => startTelegramUpdate(update));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error("[telegram] Ошибка обработки апдейта:", reason);
+    void logSystemError("telegram", `Апдейт не обработан: ${reason}`);
+    if (!albumPart) await releaseProcessedMessage("TELEGRAM", id);
+    return null;
+  }
+
+  if (accepted?.assistantDeferred) {
+    // Отметка «готово» — когда ответ помощницы ушёл (он сам ловит свои ошибки и не отклоняется).
+    // Обёртка, а не сам промис: async-функция иначе дождалась бы ответа и держала пачку.
+    // Потолок ожидания: зависший ответ не держит offset вечно (при полной пачке в 100 апдейтов
+    // новые сообщения иначе не пришли бы вовсе). По потолку апдейт отмечается завершённым.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ceiling = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), deferredReplyCeilingMs);
+    });
+    const done = Promise.race([accepted.reply.then(() => "replied" as const), ceiling]).then(async (how) => {
+      if (timer) clearTimeout(timer);
+      if (how === "timeout") {
+        void logSystemError(
+          "telegram",
+          `Ответ помощницы на апдейт ${id} не готов за ${Math.round(deferredReplyCeilingMs / 1000)} с — апдейт отмечен завершённым, чтобы не держать остальные сообщения`,
+        );
+      }
+      if (albumPart) return;
+      try {
+        await markProcessedMessageComplete("TELEGRAM", id);
+      } catch (err) {
+        void logSystemError("telegram", `Не удалось отметить апдейт ${id} завершённым: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+    return { done };
+  }
+  if (!albumPart) await markProcessedMessageComplete("TELEGRAM", id);
+  return null;
 }

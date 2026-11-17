@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Transport-only tests still participate in the full suite's Prisma cleanup.
+vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn() } }));
+
 /**
  * 429 TOO MANY REQUESTS ОТ TELEGRAM (аудит «монтажёр ↔ CRM», 21.09.2026).
  *
@@ -27,62 +30,83 @@ const rateLimited = (retryAfterSec: number) =>
 
 describe("Telegram 429 — retry_after уважается и повтор доводит отправку до конца", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
+  const requestSpy = vi.fn<typeof fetch>();
+  const actionSpy = vi.fn();
 
   beforeEach(() => {
     vi.useFakeTimers();
-    fetchSpy = vi.spyOn(globalThis, "fetch");
+    requestSpy.mockReset().mockRejectedValue(new Error("Unexpected Telegram request"));
+    actionSpy.mockReset();
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const method = String(input).split("/").at(-1);
+      if (method === "sendChatAction") {
+        actionSpy(JSON.parse(String(init?.body)));
+        return telegramJson({ ok: true, result: true });
+      }
+      expect(["sendDocument", "sendMessage"]).toContain(method);
+      return requestSpy(input, init);
+    });
   });
 
   afterEach(() => {
     fetchSpy.mockRestore();
     vi.useRealTimers();
+    // Assert outside sendChatAction's best-effort catch so failures cannot be swallowed.
+    for (const [body] of actionSpy.mock.calls) {
+      expect(body).toEqual({ chat_id: "123", action: "upload_document" });
+    }
   });
 
   it("call() (JSON-вызов, sendMessageWithButtons) — ждёт retry_after и повторяет один раз, дальше успех", async () => {
-    fetchSpy
+    requestSpy
       .mockResolvedValueOnce(rateLimited(2))
       .mockResolvedValueOnce(telegramJson({ ok: true, result: { message_id: 1 } }));
 
     const promise = sendMessageWithButtons("123", "текст", [[{ text: "ок", callback_data: "ok" }]]);
     await vi.runAllTimersAsync();
     await expect(promise).resolves.toEqual({ message_id: 1 });
+    expect(requestSpy).toHaveBeenCalledTimes(2);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("sendDocumentFile (multipart, ролик монтажёру) — тот же повтор, файл в итоге ДОШЁЛ", async () => {
-    fetchSpy
+    requestSpy
       .mockResolvedValueOnce(rateLimited(1))
       .mockResolvedValueOnce(telegramJson({ ok: true, result: { message_id: 2 } }));
 
     const promise = sendDocumentFile("123", Buffer.from("сырой ролик"), "ОБ-000109_1из2_IMG_0241.mov", "подпись");
     await vi.runAllTimersAsync();
     await expect(promise).resolves.toEqual({ message_id: 2 });
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(requestSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3); // One independent upload indicator.
   });
 
   it("лимит попыток исчерпан — честная ошибка, а не бесконечное ожидание", async () => {
     // mockImplementation, а не mockResolvedValue: Response.json() читает тело один
     // раз, и один и тот же объект Response на четыре вызова подряд упал бы на
     // втором с "Body is unusable" — нужен свежий Response на каждый fetch.
-    fetchSpy.mockImplementation(async () => rateLimited(1));
+    requestSpy.mockImplementation(async () => rateLimited(1));
 
     const promise = sendDocumentFile("123", Buffer.from("сырой ролик"), "ролик.mp4");
     const assertion = expect(promise).rejects.toThrow(/sendDocument/);
     await vi.runAllTimersAsync();
     await assertion;
     // MAX_RATE_LIMIT_RETRIES = 3 повтора поверх первой попытки — не больше и не меньше.
-    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(requestSpy).toHaveBeenCalledTimes(4);
+    expect(fetchSpy).toHaveBeenCalledTimes(5);
   });
 
   it("отказ БЕЗ 429 (например «chat not found») — падает сразу, без ожидания и повтора", async () => {
-    fetchSpy.mockResolvedValueOnce(telegramJson({ ok: false, description: "Bad Request: chat not found" }));
+    requestSpy.mockResolvedValueOnce(telegramJson({ ok: false, description: "Bad Request: chat not found" }));
 
     await expect(sendDocumentFile("123", Buffer.from("сырой ролик"), "ролик.mp4")).rejects.toThrow(/chat not found/);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
   it("durable narration single-attempt transport never waits/retries beyond its claim", async () => {
-    fetchSpy.mockResolvedValueOnce(rateLimited(60));
+    requestSpy.mockResolvedValueOnce(rateLimited(60));
     await expect(sendDocumentFile("123", Buffer.from("audio"), "narration.mp3", "version", 60000, true)).rejects.toThrow(/sendDocument/);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });

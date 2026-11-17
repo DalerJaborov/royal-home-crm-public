@@ -13,7 +13,7 @@ import { handleComment } from "../src/messengers/comments.js";
 import { publicCommentOrigin, readPublicSourceRow } from "../src/lib/customerPublicCommentStore.js";
 import { ensurePublicCommentInstallation } from "../src/lib/customerPublicCommentStore.js";
 import { decodeCustomerOutboxPayload, decodeCustomerOutboxPublicData } from "../src/lib/customerOutbox.js";
-import { customerAgentToolCallSchema, type BotTurnTracePayload } from "@royal-home/shared";
+import { customerAgentToolCallSchema, recruitmentPhoneLine, type BotTurnTracePayload } from "@royal-home/shared";
 import { AGENCY_FACTS } from "../src/ai/agencyFacts.js";
 import { loadPeerAiBudget, AI_TURNS_PER_DAY_STRANGER, AI_HARD_LIMIT_MULTIPLIER } from "../src/lib/aiDailyBudget.js";
 import { PUBLIC_AGENCY_CONTACT } from "../src/lib/publicAgencyContact.js";
@@ -153,7 +153,8 @@ it("a genuine public recruitment keyword reads the current role and replies with
     const f = await fixture("Контент!!!"), w = wire(f, [{ decision: { ...reply, question: "job_portfolio" } }]);
     expect(await handle(f)).toBe("replied");
     expect(w.posts).toHaveLength(1); expect(w.posts[0].text).toContain("SMM-специалист / видеограф");
-    expect(w.posts[0].text).toContain("примеры работ или ссылку на портфолио. Это необязательно.");
+    expect(w.posts[0].text).toContain(recruitmentPhoneLine("ru"));
+    expect(w.posts[0].text).not.toMatch(/портфолио|Условия опубликованы/iu);
     expect(w.posts[0].text).not.toMatch(/992|сохранен|сохранён|собеседование назначено|бюджет/iu);
     expect((await part(f)).status).toBe("ACCEPTED");
     expect(await prisma.jobApplication.count({ where: { customerPositionKey: key } })).toBe(0);

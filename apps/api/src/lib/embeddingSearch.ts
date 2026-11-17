@@ -1,6 +1,6 @@
 import type { PropertyStatus } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
-import { cosineSimilarity, embedText } from "../ai/embeddings.js";
+import { cosineSimilarity, embedText, type EmbeddingRequestOptions } from "../ai/embeddings.js";
 
 /**
  * ПОИСК ОБЪЕКТОВ ПО СМЫСЛУ ЗАПРОСА — семантический слой ПОВЕРХ структурного
@@ -33,12 +33,12 @@ export interface SemanticMatch {
  */
 export async function semanticPropertySearch(
   queryText: string,
-  options: { statusFilter?: PropertyStatus; limit?: number } = {}
+  options: { statusFilter?: PropertyStatus; limit?: number; embedding?: EmbeddingRequestOptions } = {}
 ): Promise<SemanticMatch[]> {
   const trimmed = queryText.trim();
   if (!trimmed) return [];
 
-  const queryVector = await embedText(trimmed, "RETRIEVAL_QUERY");
+  const queryVector = await embedText(trimmed, "RETRIEVAL_QUERY", options.embedding);
   // Эмбеддинг запроса не получен (ключ не настроен, сеть, лимит) — embedText уже
   // залогировал причину; здесь просто нет результата, а не ошибка поиска.
   if (!queryVector) return [];

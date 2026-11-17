@@ -3,16 +3,24 @@ const h = vi.hoisted(() => ({
   logSystemError: vi.fn(async (..._args: unknown[]) => {}),
   pinned: vi.fn(),
   policy: vi.fn(), stored: vi.fn(),
+  enqueue: vi.fn(async (..._args: unknown[]) => {}), recentAlert: vi.fn(async (..._args: unknown[]) => null as unknown),
+  auto: vi.fn(async () => ({ status: "manual_required", reason: "promptHash_changed" }) as { status: string; reason?: string }),
 }));
+// The automatic refresh itself is covered against PostgreSQL in
+// customer-agent-auto-refresh-postgres.test.ts; here only its verdict matters.
+vi.mock("../src/lib/customerAgentAutoRefresh.js", async importOriginal => ({
+  ...(await importOriginal<typeof import("../src/lib/customerAgentAutoRefresh.js")>()), autoRefreshCustomerAgentRevision: h.auto }));
+vi.mock("../src/lib/directorAlertQueue.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/directorAlertQueue.js")>()), enqueueDirectorAlert: h.enqueue }));
 vi.mock("../src/lib/systemError.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError: h.logSystemError }));
 vi.mock("../src/lib/customerAgentRuntimeArchive.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/lib/customerAgentRuntimeArchive.js")>()), loadPinnedCustomerAgentRuntime: h.pinned }));
 vi.mock("../src/db.js", () => ({ prisma: {
-  $disconnect: async () => {}, customerRuntimePolicy: { findUnique: h.policy }, customerAgentRevision: { findUnique: h.stored } } }));
+  $disconnect: async () => {}, customerRuntimePolicy: { findUnique: h.policy }, customerAgentRevision: { findUnique: h.stored },
+  pendingDirectorAlert: { findFirst: h.recentAlert } } }));
 import { createCustomerAgentProviderSnapshot } from "../src/ai/customerAgentProviderConfig.js";
 import { buildCurrentCustomerAgentManifest, loadVerifiedCustomerAgentRevision } from "../src/lib/customerAgentRegistration.js";
 import { customerAgentManifestId, decodeCustomerAgentRevision } from "../src/lib/customerAgentRevision.js";
-import { reportCustomerAgentRevisionHeld, resetCustomerAgentRevisionAlertMemo } from "../src/lib/customerAgentRevisionAlert.js";
+import { reportCustomerAgentRevisionHeld, resetCustomerAgentRevisionAlertMemo, setCustomerAgentAutoRefreshPending } from "../src/lib/customerAgentRevisionAlert.js";
 import { checkActiveCustomerAgentRevisionOnStart } from "../src/lib/customerAgentRevisionStartCheck.js";
 
 const snapshot = createCustomerAgentProviderSnapshot();
@@ -21,7 +29,10 @@ async function revisionWith(change: Record<string, string>) {
   return decodeCustomerAgentRevision({ id: customerAgentManifestId(manifest), manifestJson: manifest });
 }
 const rowOf = (revision: { id: string }) => ({ id: revision.id, manifestJson: (({ id: _id, ...manifest }) => manifest)(revision as { id: string }) });
-beforeEach(() => { vi.clearAllMocks(); resetCustomerAgentRevisionAlertMemo(); });
+beforeEach(() => {
+  vi.clearAllMocks(); resetCustomerAgentRevisionAlertMemo();
+  h.auto.mockResolvedValue({ status: "manual_required", reason: "promptHash_changed" });
+});
 
 describe("stale core is journalled, once per revision", () => {
   it("mismatch writes one Russian ai-journal line for any number of turns", async () => {
@@ -56,6 +67,40 @@ describe("stale core is journalled, once per revision", () => {
     await reportCustomerAgentRevisionHeld("b".repeat(64), "current_artifact_revision_mismatch");
     expect(h.logSystemError).toHaveBeenCalledTimes(2);
   });
+  it("stopped core pushes one CRITICAL alert with a link to the refresh button", async () => {
+    await reportCustomerAgentRevisionHeld("d".repeat(64), "current_artifact_revision_mismatch");
+    await reportCustomerAgentRevisionHeld("d".repeat(64), "current_artifact_revision_mismatch");
+    expect(h.enqueue).toHaveBeenCalledTimes(1);
+    const [alert] = h.enqueue.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect(alert).toMatchObject({ level: "CRITICAL", url: "/settings?tab=bot&task=rollout", recipientRoles: ["DIRECTOR", "ADMIN"] });
+    expect(String(alert.body)).toContain("Обновить версию бота");
+  });
+  it("an alert already queued by the other process today is not repeated", async () => {
+    h.recentAlert.mockResolvedValueOnce({ id: "x" });
+    await reportCustomerAgentRevisionHeld("e".repeat(64), "current_artifact_revision_mismatch");
+    expect(h.logSystemError).toHaveBeenCalledTimes(1);
+    expect(h.enqueue).not.toHaveBeenCalled();
+  });
+  it("a failing alert queue never throws into the turn", async () => {
+    h.recentAlert.mockRejectedValueOnce(new Error("db down"));
+    await expect(reportCustomerAgentRevisionHeld("f".repeat(64), "current_artifact_revision_mismatch")).resolves.toBeUndefined();
+  });
+  it("a pending automatic refresh holds back the mismatch alert, not a verification failure", async () => {
+    setCustomerAgentAutoRefreshPending(true);
+    await reportCustomerAgentRevisionHeld("7".repeat(64), "current_artifact_revision_mismatch");
+    expect(h.logSystemError).not.toHaveBeenCalled();
+    expect(h.enqueue).not.toHaveBeenCalled();
+    await reportCustomerAgentRevisionHeld("7".repeat(64), "current_artifact_verification_unavailable", new Error("io"));
+    expect(h.logSystemError).toHaveBeenCalledTimes(1);
+    setCustomerAgentAutoRefreshPending(false);
+    await reportCustomerAgentRevisionHeld("7".repeat(64), "current_artifact_revision_mismatch");
+    expect(h.logSystemError).toHaveBeenCalledTimes(2); // not memoised while held back
+  });
+  it("the hold-back expires by itself", async () => {
+    setCustomerAgentAutoRefreshPending(true, Date.now() - 1);
+    await reportCustomerAgentRevisionHeld("8".repeat(64), "current_artifact_revision_mismatch");
+    expect(h.logSystemError).toHaveBeenCalledTimes(1);
+  });
   it("a failing journal never throws into the turn", async () => {
     h.logSystemError.mockRejectedValueOnce(new Error("db down"));
     await expect(reportCustomerAgentRevisionHeld("c".repeat(64), "current_artifact_revision_mismatch")).resolves.toBeUndefined();
@@ -71,6 +116,17 @@ describe("boot-time check", () => {
     h.pinned.mockResolvedValue({ status: "current", snapshot });
     expect(await checkActiveCustomerAgentRevisionOnStart()).toBe("held");
     expect(h.logSystemError).toHaveBeenCalledTimes(1);
+  });
+  it("a code-only release adopted automatically at boot is silent", async () => {
+    h.auto.mockResolvedValueOnce({ status: "refreshed" });
+    expect(await checkActiveCustomerAgentRevisionOnStart()).toBe("ok");
+    expect(h.policy).not.toHaveBeenCalled();
+    expect(h.logSystemError).not.toHaveBeenCalled();
+  });
+  it("waiting for idle at boot is held without paging (the cron tick retries)", async () => {
+    h.auto.mockResolvedValueOnce({ status: "busy", reason: "core_work_requires_idle_publication" });
+    expect(await checkActiveCustomerAgentRevisionOnStart()).toBe("held");
+    expect(h.logSystemError).not.toHaveBeenCalled();
   });
   it("is silent when the revision matches", async () => {
     const current = await revisionWith({});

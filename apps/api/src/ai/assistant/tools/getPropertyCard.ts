@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { findPropertiesByRef } from "../../../lib/propertyRefLookup.js";
+import { findPropertiesByRef, findTrashedPropertyByRef } from "../../../lib/propertyRefLookup.js";
 import { loadMoneyContext } from "../../../lib/money.js";
-import { presentPropertyCard } from "./propertyPresenter.js";
+import { canSeeTrashedProperties } from "../../../lib/trashAccess.js";
+import { trashActorOf } from "../actor.js";
+import { presentPropertyCard, presentTrashedProperty } from "./propertyPresenter.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
 /**
@@ -16,7 +18,8 @@ export const getPropertyCardTool: AssistantReadToolPlugin = {
   level: "A",
   description:
     "Полная карточка ОДНОГО объекта: цена, статус, агент, ролик, публикация на сайте. Зови, когда нужны детали " +
-    "объекта, уже найденного через find_property/search_properties. НЕ зови для поиска — для него find_property.",
+    "объекта, уже найденного через find_property/search_properties. НЕ зови для поиска — для него find_property. " +
+    "Если объект удалён, придёт справка inTrash (когда и кем удалён, note) — перескажи её, не говори «не найден».",
   parameters: {
     type: "object",
     properties: {
@@ -35,7 +38,13 @@ export const getPropertyCardTool: AssistantReadToolPlugin = {
     });
     // Карточка — только по точному id/номеру: подставить «похожий по адресу» объект нельзя.
     const property = found.kind === "id" || found.kind === "shortId" ? found.properties[0] : undefined;
-    if (!property) return { error: "Объект не найден — найдите его через find_property и передайте id или номер" };
+    if (!property) {
+      // Номер удалённого объекта — справка «в Корзине», а не «не найден» (пачка 2, lib/trashAccess.ts).
+      const trash = trashActorOf(actor);
+      const trashed = canSeeTrashedProperties(trash) ? await findTrashedPropertyByRef(parsed.data.propertyId) : null;
+      if (trashed) return presentTrashedProperty(trashed, trash);
+      return { error: "Объект не найден — найдите его через find_property и передайте id или номер" };
+    }
     return presentPropertyCard(property, actor, await loadMoneyContext());
   },
 };

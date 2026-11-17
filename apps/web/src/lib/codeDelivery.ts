@@ -3,8 +3,8 @@
  *
  * Код сначала приходит ПУШЕМ на уже вошедший телефон с приложением; сервер ждёт
  * подтверждения доставки `fallbackAfterSec` секунд и, если его нет, сам шлёт СМС.
- * Повторно сервер об этом не спрашиваем: по истечении отсчёта просто говорим, что
- * ушла СМС. Один модуль на экран входа и окно подтверждения личности — тексты не
+ * Таймер не доказывает доставку: СМС может отказать, и код уйдёт в Telegram.
+ * Один модуль на экран входа и окно подтверждения личности — тексты не
  * должны разойтись.
  */
 
@@ -18,9 +18,8 @@ export function fallbackDeadline(channel: DeliveryChannel, fallbackAfterSec: num
   return nowMs + (fallbackAfterSec ?? DEFAULT_PUSH_FALLBACK_SEC) * 1000;
 }
 
-/** Канал, каким код реально придёт сейчас: после отсчёта пуш превращается в СМС. */
-export function effectiveChannel(channel: DeliveryChannel, fallbackAt: number, nowMs: number): "sms" | "telegram" | "push" {
-  if (channel === "push" && nowMs >= fallbackAt) return "sms";
+/** Keep the server-confirmed channel; a local deadline is not a delivery receipt. */
+export function effectiveChannel(channel: DeliveryChannel, _fallbackAt: number, _nowMs: number): "sms" | "telegram" | "push" {
   return channel;
 }
 
@@ -31,7 +30,7 @@ export function resendChannel(channel: DeliveryChannel): "sms" | "telegram" {
 
 /** Подпись поля ввода кода. */
 export function codeFieldLabel(channel: "sms" | "telegram" | "push"): string {
-  if (channel === "push") return "Код из уведомления";
+  if (channel === "push") return "Код входа";
   return channel === "telegram" ? "Код из Telegram" : "Код из СМС";
 }
 
@@ -39,10 +38,9 @@ export function codeFieldLabel(channel: "sms" | "telegram" | "push"): string {
 export function deliveryText(channel: DeliveryChannel, fallbackAt: number, nowMs: number, hint: string | null): string {
   const eff = effectiveChannel(channel, fallbackAt, nowMs);
   if (eff === "push") {
-    const sec = Math.max(0, Math.ceil((fallbackAt - nowMs) / 1000));
-    return `Отправили код уведомлением на ваш телефон, он действует 5 минут. Если уведомление не придёт — через ${sec} с пришлём СМС сами.`;
+    return "Проверьте уведомления, СМС или Telegram. Код действует 5 минут с момента отправки.";
   }
   if (eff === "telegram") return "Код отправлен в Telegram.";
   const to = hint ? ` на ${hint}` : "";
-  return channel === "push" ? `Отправили СМС${to}.` : `Код отправлен в СМС${to}.`;
+  return `Код отправлен в СМС${to}.`;
 }

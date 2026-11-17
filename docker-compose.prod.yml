@@ -123,6 +123,8 @@ services:
       start_period: 45s
     environment: &crm-env
       NODE_ENV: production
+      # Separate credential for backup scripts reporting real outcomes to the API.
+      BACKUP_REPORT_API_KEY: "${BACKUP_REPORT_API_KEY:-}"
       # Owner-approved temporary settings-only SMS pause; strict again on
       # 21 November 2026. Empty override disables the pause immediately.
       SETTINGS_STEP_UP_MAINTENANCE_UNTIL: "${SETTINGS_STEP_UP_MAINTENANCE_UNTIL-2026-11-21T06:30:00.000Z}"
@@ -158,6 +160,15 @@ services:
       # free phrase mode (shadow|live, PR #44; live only after the shadow week).
       CUSTOMER_AGENT_LEGACY_CUTOVER: "${CUSTOMER_AGENT_LEGACY_CUTOVER:-off}"
       CUSTOMER_AGENT_SAY_MODE: "${CUSTOMER_AGENT_SAY_MODE:-}"
+      # Сбор объявлений Somon/Paydo по расписанию (lib/market/nightly.ts, cron.ts). Без этой
+      # строки значение из .env.production в контейнер не попадало: на 11.11.2026 каталог был
+      # пуст, хотя переключатель описан в журнале 02.11. По умолчанию выключен.
+      MARKET_CRAWL_ENABLED: "${MARKET_CRAWL_ENABLED:-0}"
+      # Озвучка роликов и отчёт собственнику (lib/mediaExecution.ts): LIVE — по-настоящему
+      # звать ElevenLabs и слать mp3 монтажёру, иначе PREVIEW. Без этих строк значение из
+      # .env.production в контейнер не попадало (12.11.2026, тот же класс, что MARKET_CRAWL).
+      CRM_NARRATION_EXECUTION_MODE: "${CRM_NARRATION_EXECUTION_MODE:-PREVIEW}"
+      CRM_OWNER_REPORT_EXECUTION_MODE: "${CRM_OWNER_REPORT_EXECUTION_MODE:-PREVIEW}"
       # connection_limit ЯВНО (аудит №4, 27.08): по умолчанию Prisma берёт
       # пул примерно в 5 соединений на процесс. Журнал переходов (db.ts) читает
       # состояние «до» отдельным запросом, и когда правка статуса идёт внутри
@@ -219,6 +230,19 @@ services:
       TELEGRAM_LOCAL_FILES_DIR: ${TELEGRAM_LOCAL_FILES_DIR:-}
       # Личный чат директора с ботом: бот не квалифицирует владельца как клиента.
       TELEGRAM_DIRECTOR_CHAT_ID: ${TELEGRAM_DIRECTOR_CHAT_ID:-}
+      # Optional, language-specific ElevenLabs dictionary and its fixed version.
+      ASSISTANT_TTS_DICTIONARY_ID_RU: ${ASSISTANT_TTS_DICTIONARY_ID_RU:-}
+      ASSISTANT_TTS_DICTIONARY_VERSION_RU: ${ASSISTANT_TTS_DICTIONARY_VERSION_RU:-}
+      ASSISTANT_TTS_DICTIONARY_ID_TG: ${ASSISTANT_TTS_DICTIONARY_ID_TG:-}
+      ASSISTANT_TTS_DICTIONARY_VERSION_TG: ${ASSISTANT_TTS_DICTIONARY_VERSION_TG:-}
+      # Денежные потолки Gemini помощника (предохранитель, не расход): $/сутки и $/ответ.
+      # Без проброса значение из .env.production до контейнера не доходит;
+      # пусто = действует умолчание из кода (30 и 1).
+      ASSISTANT_GEMINI_DAILY_USD: ${ASSISTANT_GEMINI_DAILY_USD:-}
+      ASSISTANT_GEMINI_TURN_USD: ${ASSISTANT_GEMINI_TURN_USD:-}
+      # Independent gates for the approved policy index and paid private lookup.
+      ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED: "${ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED:-false}"
+      ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED: "${ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED:-false}"
       # Секрет вебхука Telegram (аудит №4): .env.example велит задать его и
       # вызвать setWebhook — но без строки здесь контейнер секрета не видел,
       # вебхук отвечал бы 403 на каждую доставку, и бот глох намертво
@@ -249,6 +273,10 @@ services:
       # gemini-2.5-flash-lite, закрытая Google (404 на каждый вызов).
       GEMINI_MODEL: ${GEMINI_MODEL:-}
       GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-}
+      # Модели озвучки (цепочка через запятую; пусто = умолчание из кода). Проброшены,
+      # чтобы сменить модель правкой .env.production без выката кода.
+      GEMINI_TTS_MODELS: ${GEMINI_TTS_MODELS:-}
+      GEMINI_WHISPER_TTS_MODELS: ${GEMINI_WHISPER_TTS_MODELS:-}
       # Прямая интеграция с Meta (WhatsApp, Instagram). Окружение сюда передаётся
       # поимённым списком — дописать переменную только в .env.production мало,
       # контейнер её не увидит (на этом мы уже обожглись с Telegram).

@@ -1,9 +1,11 @@
 import { placesMentioned, sameWord } from "../ai/geoMentions.js";
 import { FOLK_PLACES, type OfficialDistrict } from "../ai/folkPlaces.js";
 import { geoMatchKey } from "./geoNormalize.js";
+import { resolveBuildingByText } from "./geoResolve.js";
 import { districtByPoint } from "./propertyDistrict.js";
 import { isGenericPlaceName, radiusFor, type MatchPlace, type PropertyMatchQuery } from "./propertyMatch.js";
 import { textMentionsSuburb } from "./suburbanProperty.js";
+import { mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME, stripRudakiDistrictWords } from "./serviceArea.js";
 
 /**
  * МЕСТО В ЗАПРОСЕ ПОКУПАТЕЛЯ — КОДОМ, ОДНИМ ПРАВИЛОМ ДЛЯ ГОЛОСА И ЧАТ-БОТА
@@ -29,8 +31,8 @@ const OFFICIAL_DISTRICTS: { district: OfficialDistrict; re: RegExp }[] = [
 ];
 
 export interface ResolvedSearchPlace {
-  /** Район, названный словом. */
-  districtName: OfficialDistrict | null;
+  /** Район, названный словом (район Рудаки — тоже, с 15.11.2026: lib/serviceArea.ts). */
+  districtName: OfficialDistrict | typeof RUDAKI_DISTRICT_NAME | null;
   /** Район места (по точке карты или по народному списку) — когда района словом нет. */
   placeDistrictName: string | null;
   place: MatchPlace | null;
@@ -47,14 +49,71 @@ function looseHas(words: string[], name: string): boolean {
   return false;
 }
 
+/** Официальный район, названный в тексте словами человека («в Сино», «Шоҳмансур»), или null. */
+export function officialDistrictIn(text: string | null | undefined): OfficialDistrict | null {
+  if (!text?.trim()) return null;
+  const key = geoMatchKey(text);
+  return OFFICIAL_DISTRICTS.find((d) => d.re.test(key))?.district ?? null;
+}
+
+/** Радиус вокруг точного дома: «рядом с Рудаки 177» — соседние дома и кварталы. */
+export const HOUSE_SEARCH_RADIUS_M = 500;
+
+/** Слова «у», «около», «рядом с»… перед адресом геокодеру домов не нужны. */
+const ADDRESS_LEAD = /^(?:(?:у|около|возле|рядом с|рядом|напротив|дар назди|наздики|назди|по адресу|адрес)\s+)+/iu;
+/** Хвост реплики «одно-два слова + номер дома»: «Рудаки 177», «проспект Сомони, 32а». */
+const ADDRESS_TAIL = /(?:^|\s)((?:[\p{L}.-]+\s+)?[\p{L}.-]{3,}),?\s*(\d{1,4})\s*([a-zа-яё])?\s*$/iu;
+/** Слово перед числом, после которого число — не номер дома: «мкр 91», «Сино 2», «до 600», «3 этаж». */
+const NOT_A_STREET_WORD = /^(?:мкр|мкрн|микрорайон\p{L}*|сино|фирдавс\p{L}*|шохмансур\p{L}*|шоҳмансур\p{L}*|сомон\p{L}*|исмоил\p{L}*|до|от|за|по|около|возле|дом|дома|этаж\p{L}*|комнат\p{L}*|кв|квартир\p{L}*|тыс\p{L}*|млн|миллион\p{L}*|доллар\p{L}*|школ\p{L}*|мактаб\p{L}*|район\p{L}*|ноҳия\p{L}*|хона\p{L}*|ҳуҷра\p{L}*)$/iu;
+/** Улица названа видом («проспект Сомони 32») — тогда и «Сомони» годится как имя улицы. */
+const STREET_KIND = /^(?:ул|ул\.|улица|пр|пр\.|проспект|пр-т|проезд|переулок|кучаи|кӯчаи|хиёбони|шоҳроҳи)$/iu;
+/** Цена, комнаты, этаж в реплике — это запрос подбора, а не адрес. */
+const SEARCH_CUES = /(?:^|\s)(?:до|от)\s+\d|тыс|млн|сомони\s*$|\$|комнат|двушк|трешк|однушк|этаж/iu;
+
+/**
+ * «Улица + номер дома» — только когда это похоже на адрес; всё прочее отсекается ДО запроса в базу
+ * (ревью 08.11): «мкр 91», «Сино 2», «двушка в Сино до 600» дом не порождают и не стоят запросов.
+ */
+export function houseAddressCandidate(text: string): string | null {
+  const address = text.trim().replace(ADDRESS_LEAD, "").trim();
+  if (SEARCH_CUES.test(address)) return null;
+  const m = ADDRESS_TAIL.exec(address);
+  if (!m) return null;
+  // «квартира у Рудаки 177»: предлог перед улицей геокодеру не нужен.
+  const words = m[1].split(/\s+/).filter((w, i, all) => !(all.length > 1 && i === 0 && /^(?:у|в|на|по|к|с|около|возле|назди)$/iu.test(w)));
+  const last = words[words.length - 1];
+  const kindNamed = words.length > 1 && STREET_KIND.test(words[0]);
+  if (!kindNamed && NOT_A_STREET_WORD.test(last)) return null;
+  return `${words.join(" ")} ${m[2]}${m[3] ?? ""}`;
+}
+
+async function houseByAddress(text: string): Promise<MatchPlace | null> {
+  const candidate = houseAddressCandidate(text);
+  if (!candidate) return null;
+  const house = await resolveBuildingByText(candidate);
+  return house ? { name: house.name, lat: house.lat, lng: house.lng, radiusM: HOUSE_SEARCH_RADIUS_M } : null;
+}
+
 export async function resolveSearchPlace(text: string | null | undefined): Promise<ResolvedSearchPlace> {
   const empty: ResolvedSearchPlace = { districtName: null, placeDistrictName: null, place: null, suburban: false };
   if (!text?.trim()) return empty;
   let key = geoMatchKey(text);
-  const official = OFFICIAL_DISTRICTS.find((d) => d.re.test(key))?.district ?? null;
+  // Район Рудаки словами («ноҳияи Рӯдакӣ», «район Рудаки», «Сомониён») — район, а не проспект Рудаки в центре
+  // (ревью #204, С3): его слова вырезаются из ключа, как названия районов города.
+  const official = officialDistrictIn(text) ?? (mentionsRudakiDistrict(text) ? RUDAKI_DISTRICT_NAME : null);
   // Название района — не место: «Исмоили Сомони» не должен найтись проспектом Сомони.
   for (const d of OFFICIAL_DISTRICTS) key = key.replace(new RegExp(d.re.source, "gu"), " ");
+  key = stripRudakiDistrictWords(key);
   const suburban = textMentionsSuburb(text);
+
+  // Адрес «улица + номер дома» («Рудаки 177») — точка самого дома из справочника домов
+  // (lib/geoResolve.ts::resolveBuildingByText, тот же геокодер, что у адреса объекта), а не
+  // середина проспекта длиной в десять километров (07.11.2026, проверка владельца).
+  const house = await houseByAddress(text);
+  if (house) {
+    const district = (await districtByPoint(house.lat, house.lng))?.name ?? null;
+    return { districtName: official, placeDistrictName: district, place: house, suburban };
+  }
 
   // «Школа», «Рынок» без имени — не место: таких по городу сотни (P2-4).
   const [found] = (key.trim() ? await placesMentioned(key, { loose: true }) : []).filter((p) => !isGenericPlaceName(p.name));

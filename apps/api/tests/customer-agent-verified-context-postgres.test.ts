@@ -297,7 +297,7 @@ it("actual committed contact receipt is not assistant memory or consent for an o
   const continued = await continueCustomerAgentAfterLocalAuthority(a.principal, receiptAuthority);
   if (continued.status !== "current") throw new Error("Actual receipt continuation missing");
   const ids = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal: continued.principal, agentClaim: elected.claim,
-    parts: [{ payload: { kind: "text", text: "Контактные данные сохранены." }, receipts: [committed.receipt] }], receiptAuthorities: [receiptAuthority] }));
+    parts: [{ payload: { kind: "text", text: "Спасибо, записал." }, receipts: [committed.receipt] }], receiptAuthorities: [receiptAuthority] }));
   parts.push(...ids); expect(await dispatchCustomerOutboxPart(ids[0])).toEqual({ status: "accepted" });
   const b = await message(o, peer, "А рассрочка?"), context = await memory(b);
   expect(JSON.stringify(context)).not.toContain("Контактные данные сохранены"); expect(JSON.stringify(context)).not.toContain(phone);

@@ -33,7 +33,7 @@ describe("legacy seller intake through bounded customer-core progress", () => {
     const value = customerAgentIntake([user("Ман хона мефурӯшам. 3 ҳуҷра, 80 м2, ошёнаи 4")]);
     expect(value.role).toBe("seller"); expect(value.sellerKnown).toEqual(expect.arrayContaining(["rooms", "area", "floor"]));
     const text = customerSellerIntakeQuestion(value.sellerKnown, "tg");
-    expect(text).toContain("Ҳамаашро дар як паём"); expect(text).not.toMatch(/шумораи ҳуҷраҳо|масоҳат|ошёна|телефон/iu);
+    expect(text).toContain("Ҳамаи маълумотро дар як паём"); expect(text).not.toMatch(/шумораи ҳуҷраҳо|масоҳат|ошёна|телефон/iu);
   });
   it("does not learn the seller's own facts from a forwarded video/document or assistant prose", () => {
     const forwarded = wrapUntrusted("video", "2 комнаты 80 м2 3 этаж Сино с ремонтом цена 500000 сомони");

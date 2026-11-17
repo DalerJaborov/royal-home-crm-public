@@ -316,6 +316,11 @@ describe("runDiskCleanup — интеграция на временных кат
 
   const rawKeptKey = `${randomUUID()}/${randomUUID()}.mp4`;
   const rawOrphanKey = `${randomUUID()}/${randomUUID()}.mp4`;
+  // Озвучка, ролик без голоса и образец голоса (11.11.2026) — в том же закрытом хранилище.
+  let narrationKey = "";
+  let masterKey = "";
+  const sampleKey = `5a3b1e00-0000-4000-8000-0000000000a1/${randomUUID()}.mp3`;
+  const sampleVoiceId = `disk-cleanup-${runId}`;
 
   const propertyIds: string[] = [];
   let jobId = "";
@@ -391,6 +396,12 @@ describe("runDiskCleanup — интеграция на временных кат
     await prisma.propertyVideo.create({
       data: { propertyId: liveId, storageKey: rawKeptKey, filename: "raw.mp4", sizeBytes: 1, uploadedById: agentId },
     });
+    narrationKey = `${liveId}/${randomUUID()}.mp3`;
+    masterKey = `${liveId}/${randomUUID()}.mp4`;
+    await prisma.propertyNarrationVersion.create({ data: { propertyId: liveId, revision: 1, script: "Озвучка", factsSnapshot: {}, factsHash: "h", status: "READY",
+      storageKey: narrationKey, createdById: agentId, requestKey: randomUUID() } });
+    await prisma.property.update({ where: { id: liveId }, data: { videoMasterStorageKey: masterKey } });
+    await prisma.narrationVoiceSample.create({ data: { voiceId: sampleVoiceId, modelId: "m", lang: "ru", textHash: "t", chars: 1, status: "READY", storageKey: sampleKey } });
 
     const job = await prisma.backgroundJob.create({
       data: {
@@ -433,11 +444,15 @@ describe("runDiskCleanup — интеграция на временных кат
     // ===== raw =====
     await writeFile(rawDir, rawKeptKey); // есть PropertyVideo — цел
     await writeFile(rawDir, rawOrphanKey); // записи нет — мусор
+    await writeFile(rawDir, narrationKey); // озвучка объекта — цела
+    await writeFile(rawDir, masterKey); // ролик без голоса — цел
+    await writeFile(rawDir, sampleKey); // образец голоса — цел
   });
 
   afterAll(async () => {
     await prisma.backgroundJob.deleteMany({ where: { id: jobId } });
     await prisma.propertyVideo.deleteMany({ where: { propertyId: { in: propertyIds } } });
+    await prisma.narrationVoiceSample.deleteMany({ where: { voiceId: sampleVoiceId } });
     await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
     await prisma.agent.deleteMany({ where: { id: agentId } });
     await prisma.district.deleteMany({ where: { id: districtId } });
@@ -502,6 +517,9 @@ describe("runDiskCleanup — интеграция на временных кат
     expect(await exists(path.join(clipsDir, `incoming-${pendingInputUuid}`))).toBe(true);
     expect(await exists(path.join(clipsDir, `${pendingOutputUuid}.mp4`))).toBe(true);
     expect(await exists(path.join(rawDir, rawKeptKey))).toBe(true);
+    expect(await exists(path.join(rawDir, narrationKey))).toBe(true);
+    expect(await exists(path.join(rawDir, masterKey))).toBe(true);
+    expect(await exists(path.join(rawDir, sampleKey))).toBe(true);
 
     expect(result.byReason["временная копия бота"]).toBe(1);
     expect(result.byReason["заменённый финал"]).toBe(1);

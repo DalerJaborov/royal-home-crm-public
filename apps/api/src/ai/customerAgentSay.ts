@@ -26,6 +26,12 @@ export const CUSTOMER_AGENT_SAY_EXAMPLES = {
   ru: ["Понял, вас интересует эта квартира.", "Спасибо, что рассказали о своей ситуации.", "Извините, что вам пришлось ждать ответа."],
   tg: ["Фаҳмидам, шуморо ин объект ҷалб кардааст.", "Ташаккур, ки дар бораи вазъияти худ навиштед.", "Бубахшед, ки шумо интизор шудед."],
 } as const;
+/**
+ * The Russian words the validator reads as a question or a request (plus every word that starts with «как»: какой, какая, каким, ...). ONE list: the validator
+ * pattern `ASKING` and the rules shown to the model are both built from it, so the model is never told less than the server drops (13.11.2026: 11 phrases a day
+ * were dropped as «question» while the guidance only said «no questions»).
+ */
+export const SAY_ASKING_WORDS_RU = ["сколько", "где", "когда", "почему", "зачем", "куда", "откуда", "кто", "подскажите", "скажите", "расскажите", "уточните", "напишите", "пришлите", "отправьте", "назовите", "сообщите", "ответьте", "укажите", "выберите"] as const;
 const sayExample = (text: string) => `{"kind":"reply","refs":[],"social":"none","question":"none","say":"${text}"}`;
 /**
  * The rules for the optional `say` field. They travel in the per-turn server context (`serverSurface.sayGuidance`, private messages only), NOT in the
@@ -37,7 +43,7 @@ export const CUSTOMER_AGENT_SAY_GUIDANCE = `Единственное исклю�
 Правила say:
 - без цифр, сумм, дат, дней недели, сроков, контактов, ссылок и @; без названий мест, которых клиент сам не писал;
 - без обещаний и будущих действий («позвоним», «уточню», «проверю», «запишу», «подберу»);
-- без вопросов и просьб что-то написать или прислать: вопрос задаёт сервер;
+- без вопросов и просьб что-то написать или прислать: вопрос задаёт сервер; без знака «?» и без слов как (и любых на «как»: какой, какая, каким), ${SAY_ASKING_WORDS_RU.join(", ")}, не подскажете — сервер отбрасывает фразу с любым из них, даже в обычном обороте («как важно», «какая квартира» тоже);
 - без слов «я бот», «ИИ», CRM, «инструмент», refs; не повторяй факты и слова клиента подряд;
 - не здоровайся в say и не повторяй прежние реплики.
 Сервер принимает say целиком или отбрасывает целиком и не правит; сомневаешься в фразе — не пиши say, ответ уйдёт по шаблону.
@@ -95,7 +101,7 @@ const RELATIVE_TIME = w(`сегодня|завтра|вчера|послезав
 
 const QUESTION_MARK = /[?\uFF1F\u061F\u2047\u2048\u2049]/u;
 // A question without the sign, or a request for information: the single template question owns that slot.
-const ASKING = w(`как${TAIL}|сколько|где|когда|почему|зачем|куда|откуда|кто|подскажите|скажите|расскажите|уточните|напишите|пришлите|отправьте|назовите|сообщите|ответьте|укажите|выберите|не\\s+подскажете|нависед|фиристед|бигӯед|гӯед|маълум\\s+кунед|хабар\\s+диҳед|кадом|чанд|кай|куҷо|чаро`);
+const ASKING = w(`как${TAIL}|${SAY_ASKING_WORDS_RU.join("|")}|не\\s+подскажете|нависед|фиристед|бигӯед|гӯед|маълум\\s+кунед|хабар\\s+диҳед|кадом|чанд|кай|куҷо|чаро`);
 
 const META = rx(`${BW}(?:ии|ai|api|llm|gpt|gemini|json|markdown|crm|bot|prompt|ref|нейросет${TAIL}|искусственн${TAIL}\\s+интеллект${TAIL}|интеллект${TAIL}|модел${TAIL}|бот(?:а|у|ом|е|ы|ов|ам|ами|ах)?|ассистент${TAIL}|виртуальн${TAIL}|автоответ${TAIL}|робот${TAIL}|систем${TAIL}|инструмент${TAIL}|алгоритм${TAIL}|шаблон${TAIL}|зеҳни\\s+сунъӣ|сунъӣ|нейро${TAIL}|шабакаи\\s+асаб${TAIL})${EW}|[*_\`#{}\\[\\]<>|~\\\\]`);
 

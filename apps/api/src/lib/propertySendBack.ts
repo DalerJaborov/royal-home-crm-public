@@ -15,13 +15,12 @@ import type { PermissionId, SendBackToMontajerInput } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { afterClipRejected, type ClipReviewSource } from "./clipReview.js";
-import { hasMarketingRole } from "./marketingRole.js";
-import { canManagePropertyAs, publishedActionDeniedReasonAs } from "./propertyAccess.js";
+import { canManagePropertyAs, publishedSendBackDeniedReasonAs } from "./propertyAccess.js";
 import { sendBackToMontajer, type SendBackResult } from "./publishedVideoFix.js";
 
 export interface SendBackActor {
   agentId: string;
-  /** Роль сотрудника: право «снять из соцсетей» — по роли, как у кнопки «Убрать из соцсетей». */
+  /** Роль сотрудника (право «снять из соцсетей» — по marketing.access через can). */
   role: string | undefined;
   can: (permission: PermissionId) => boolean;
 }
@@ -40,13 +39,13 @@ export function sendBackDenied(
   removeFromSocial: boolean | undefined
 ): { status: 403; error: string } | null {
   if (!canManagePropertyAs(actor, property)) return { status: 403, error: "Недостаточно прав" };
-  const published = publishedActionDeniedReasonAs(actor, property);
+  const published = publishedSendBackDeniedReasonAs(actor, property);
   if (published) return { status: 403, error: published };
   // Право на removeFromSocial:true — то же, что у кнопки «Убрать из соцсетей»
   // (requireMarketingRole): снятие вышедшего поста видно подписчикам так же, как
   // публикация, и отменить его нельзя. Молча игнорировать поле нельзя — человек
   // решил бы, что «убрали», когда не убирали.
-  if (removeFromSocial && !hasMarketingRole(actor.role)) return { status: 403, error: "Недостаточно прав" };
+  if (removeFromSocial && !actor.can("marketing.access")) return { status: 403, error: "Недостаточно прав" };
   return null;
 }
 
@@ -60,11 +59,14 @@ export async function sendPropertyBackToMontajerAs(input: {
   /** Только проверки (права + отказы функции), без записи: для превью помощника. */
   dryRun?: boolean;
   auditSource?: Record<string, unknown>;
+  /** Старые посты снимет публикация нового ролика (12.11.2026, ролик от сотрудника в Telegram).
+   *  Право то же, что у «снять из соцсетей»: снятие видно подписчикам. */
+  replaceOnNewVideo?: boolean;
 }): Promise<SendBackAsResult> {
   const { actor, body } = input;
   const property = await prisma.property.findUnique({ where: { id: input.propertyId } });
   if (!property) return { ok: false, status: 404, error: "Объект не найден" };
-  const denied = sendBackDenied(actor, property, body.removeFromSocial);
+  const denied = sendBackDenied(actor, property, body.removeFromSocial || input.replaceOnNewVideo);
   if (denied) return { ok: false, ...denied };
 
   // Замена исходника стирает старые ролики — право то же, что у DELETE
@@ -75,7 +77,7 @@ export async function sendPropertyBackToMontajerAs(input: {
     body.reason,
     body.comment ?? null,
     body.replaceVideoIds ?? null,
-    { removeFromSocial: body.removeFromSocial, ...(input.guard ? { guard: input.guard } : {}), ...(input.dryRun ? { dryRun: true } : {}) }
+    { removeFromSocial: input.replaceOnNewVideo ? "on-new-video" : body.removeFromSocial, ...(input.guard ? { guard: input.guard } : {}), ...(input.dryRun ? { dryRun: true } : {}) }
   );
   if (!result.ok) return { ok: false, status: 409, error: result.error, ...(result.stale ? { stale: true as const } : {}) };
   if (input.dryRun) return { ok: true, result };

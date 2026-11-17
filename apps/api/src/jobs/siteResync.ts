@@ -19,6 +19,7 @@ const schema = z.object({ propertyId: z.string(), context: z.string() });
 export const siteResyncJob: JobHandler<z.infer<typeof schema>> = {
   type: "site-resync",
   schema,
+  coalesceLatest: true,
   // Сайт на том же VPS: отказ — это либо его деплой (минуты), либо настоящая
   // поломка. 2м → 4м → 8м → 16м.
   backoff: (attempt) => Math.min(2 ** attempt, 16) * 60_000,
@@ -26,7 +27,7 @@ export const siteResyncJob: JobHandler<z.infer<typeof schema>> = {
   async onGiveUp(payload) {
     await logSystemError(
       "site-sync",
-      `Объект не дошёл до сайта после всех попыток (${payload.context}) — витрина разъехалась с CRM`,
+      `Объект не дошёл до сайта (${payload.context}) — витрина разъехалась с CRM`,
       { url: `/properties/${payload.propertyId}` }
     );
     /**
@@ -44,7 +45,7 @@ export const siteResyncJob: JobHandler<z.infer<typeof schema>> = {
     });
     void enqueueDirectorAlert({
       title: "⚠️ Объект разъехался с сайтом",
-      body: `${property?.title ?? "Объект"} — досылка изменений (${payload.context}) не прошла после всех попыток`,
+      body: `${property?.title ?? "Объект"} — досылка изменений (${payload.context}) не прошла`,
       url: property ? `/properties/${property.shortId}` : undefined,
       tag: `site-resync-give-up-${payload.propertyId}`,
       recipientPermission: "properties.moderate",

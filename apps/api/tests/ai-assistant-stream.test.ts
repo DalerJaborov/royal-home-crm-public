@@ -65,6 +65,18 @@ const textChunk = (text: string, extra: Record<string, unknown> = {}) => ({
   candidates: [{ content: { role: "model", parts: [{ text }] }, ...extra }],
 });
 
+/** Count is a separate JSON endpoint, never an SSE generation response. Keep the real money guard. */
+function countResponse(url: unknown, init?: RequestInit): Response | null {
+  if (!String(url).includes(":countTokens")) return null;
+  const request = JSON.parse(String(init?.body)).generateContentRequest;
+  expect(request.model).toBe("models/gemini-3.6-flash");
+  expect(request.contents.length).toBeGreaterThan(0);
+  expect(request.systemInstruction.parts.length).toBeGreaterThan(0);
+  expect(request.tools.length).toBeGreaterThan(0);
+  expect(request.generationConfig.maxOutputTokens).toBeGreaterThan(0);
+  return Response.json({ totalTokens: 1000 }); // Synthetic provider count, not a tokenizer estimate.
+}
+
 /**
  * Поток из готовых кусков БАЙТОВ. `tail`: "close" — конец потока, "error" — обрыв
  * сети, "hang" — не кончается никогда (только отменой; onCancel скажет о ней).
@@ -267,9 +279,11 @@ describe("1.6 — callGeminiToolsStream", () => {
 });
 
 describe("1.6 — помощник целиком", () => {
-  it("runAssistantDetailed с onToken: обрыв после токена — код stream_interrupted, повтор предлагается", async () => {
+  it("runAssistantDetailed: обрыв чернового потока — stream_interrupted без утечки текста", async () => {
     resetAssistantRuntimeCache();
-    vi.stubGlobal("fetch", vi.fn(async () => streamResponse(bytesInPieces(sse(textChunk("Начало")), 5), "error")));
+    const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) =>
+      countResponse(url, init) ?? streamResponse(bytesInPieces(sse(textChunk("Начало")), 5), "error"));
+    vi.stubGlobal("fetch", fetchMock);
     const tokens: unknown[] = [];
 
     const outcome = await runAssistantDetailed([{ role: "user", content: "Сколько у меня клиентов?" }], actor, {
@@ -277,14 +291,15 @@ describe("1.6 — помощник целиком", () => {
     });
 
     expect(outcome).toEqual({ ok: false, code: "stream_interrupted", retryable: true });
-    expect(tokens).toEqual([{ text: "Начало" }]);
+    expect(tokens).toEqual([]);
+    expect(fetchMock.mock.calls.map(([url]) => String(url).split(":").at(-1))).toEqual(["countTokens", "streamGenerateContent?alt=sse"]);
   });
 
   it("без onToken — прежний generateContent, поток не используется", async () => {
     resetAssistantRuntimeCache();
     const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify(textChunk("Обычный ответ.", { finishReason: "STOP" })), {
+      async (url: unknown, init?: RequestInit) =>
+        countResponse(url, init) ?? new Response(JSON.stringify(textChunk("Обычный ответ.", { finishReason: "STOP" })), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -294,7 +309,25 @@ describe("1.6 — помощник целиком", () => {
     const outcome = await runAssistantDetailed([{ role: "user", content: "Привет" }], actor);
 
     expect(outcome).toEqual({ ok: true, reply: "Обычный ответ." });
-    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain(":generateContent");
+    expect(fetchMock.mock.calls.map(([url]) => String(url).split(":").at(-1))).toEqual(["countTokens", "generateContent"]);
+  });
+
+  it.each([false, true])("не отдаёт придуманную карточку без результата инструмента, stream=%s", async stream => {
+    resetAssistantRuntimeCache();
+    const fabricated = "Нашла [квартиру](/properties/00000000-0000-4000-8000-000000000099) за 530000 сомони";
+    const tokens: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      const count = countResponse(url, init); if (count) return count;
+      expect(tokens).toEqual([]);
+      const payload = textChunk(fabricated, { finishReason: "STOP" });
+      return stream ? streamResponse(bytesInPieces(sse(payload), 7)) : Response.json(payload);
+    }));
+    const result = await runAssistantDetailed([{ role: "user", content: "Найди квартиру" }], actor,
+      stream ? { onToken: token => tokens.push(token) } : {});
+    const reply = "Не удалось подтвердить ссылки на карточки по данным CRM. Уточните запрос.";
+    expect(result).toEqual({ ok: true, reply });
+    expect(tokens).toEqual(stream ? [{ text: reply }] : []);
+    expect(JSON.stringify(tokens)).not.toContain("530000");
   });
 });
 
@@ -332,17 +365,52 @@ describe("1.6 — маршрут POST /ai/assistant", () => {
     await prisma.$disconnect();
   });
 
+  it("показывает только проверенный финал, сохраняя статусы поиска между раундами", async () => {
+    const client = await prisma.client.create({ data: {
+      fullName: "Проверенная карточка потокового теста", phone: "+992900001234", source: "WEBSITE",
+      assignedAgentId: agentId, acceptedAt: new Date(),
+    } });
+    try {
+      resetAssistantRuntimeCache();
+      const tokens: unknown[] = []; const statuses: string[] = []; let generation = 0;
+      const reply = `[Клиент](/clients/${client.id})`;
+      vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+        const count = countResponse(url, init); if (count) return count;
+        expect(tokens).toEqual([]); generation++;
+        if (generation === 1) return streamResponse(bytesInPieces(sse(
+          textChunk("Черновик с неподтверждёнными сведениями"),
+          { candidates: [{ content: { role: "model", parts: [{ functionCall: { name: "search_clients", args: { q: client.fullName } } }] }, finishReason: "STOP" }] },
+        ), 9));
+        const contents = JSON.parse(String(init?.body)).contents;
+        expect(JSON.stringify(contents.at(-1))).toContain(client.id);
+        return streamResponse(bytesInPieces(sse(textChunk(reply, { finishReason: "STOP" })), 8));
+      }));
+      const result = await runAssistantDetailed([{ role: "user", content: "Найди клиента по имени" }], { ...actor, id: agentId }, {
+        onToken: token => tokens.push(token), onStatus: status => statuses.push(status),
+      });
+      expect(result).toEqual({ ok: true, reply });
+      expect(tokens).toEqual([{ text: reply }]);
+      expect(statuses).toContain("Ищу клиентов…");
+      expect(statuses).toContain("Уточняю данные…");
+      expect(generation).toBe(2);
+    } finally { await prisma.client.delete({ where: { id: client.id } }); }
+  });
+
   it("события token приходят ДО done, а done несёт полный текст", async () => {
     // Сеть к Google подменена, а к своему серверу нужен настоящий fetch.
     const realFetch = globalThis.fetch;
     const body = sse(textChunk("Привет, "), textChunk("это помощник.", { finishReason: "STOP" }));
+    const googleUrls: string[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: unknown, init?: RequestInit) =>
-        String(url).includes("generativelanguage") || String(url).includes(":streamGenerateContent")
-          ? streamResponse(bytesInPieces(body, 6))
-          : realFetch(url as string, init),
-      ),
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        if (String(url).includes("generativelanguage") || String(url).includes(":streamGenerateContent") || String(url).includes(":countTokens")) {
+          googleUrls.push(String(url));
+          return countResponse(url, init) ?? streamResponse(bytesInPieces(body, 6));
+        }
+        if (!String(url).startsWith("http://127.0.0.1:")) throw new Error("Unexpected external fetch in test");
+        return realFetch(url as string, init);
+      }),
     );
     const { port } = server.address() as AddressInfo;
 
@@ -360,6 +428,7 @@ describe("1.6 — маршрут POST /ai/assistant", () => {
     const streamed = events.filter((e) => e.event === "token").map((e) => e.data.text).join("");
     expect(streamed).toBe("Привет, это помощник.");
     expect(events.find((e) => e.event === "done")?.data).toEqual({ reply: "Привет, это помощник." });
+    expect(googleUrls.map(url => url.split(":").at(-1))).toEqual(["countTokens", "streamGenerateContent?alt=sse"]);
   });
 
   it("без заголовка X-Assistant-Stream — прежний generateContent, событий token нет", async () => {
@@ -368,13 +437,14 @@ describe("1.6 — маршрут POST /ai/assistant", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: unknown, init?: RequestInit) => {
-        if (String(url).includes("generativelanguage") || String(url).includes(":generateContent")) {
+        if (String(url).includes("generativelanguage") || String(url).includes(":generateContent") || String(url).includes(":countTokens")) {
           googleUrls.push(String(url));
-          return new Response(JSON.stringify(textChunk("Обычный ответ.", { finishReason: "STOP" })), {
+          return countResponse(url, init) ?? new Response(JSON.stringify(textChunk("Обычный ответ.", { finishReason: "STOP" })), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
         }
+        if (!String(url).startsWith("http://127.0.0.1:")) throw new Error("Unexpected external fetch in test");
         return realFetch(url as string, init);
       }),
     );
@@ -391,5 +461,6 @@ describe("1.6 — маршрут POST /ai/assistant", () => {
     expect(events.map((e) => e.event)).not.toContain("token");
     expect(events.find((e) => e.event === "done")?.data).toEqual({ reply: "Обычный ответ." });
     expect(googleUrls.some((u) => u.includes(":streamGenerateContent"))).toBe(false);
+    expect(googleUrls.map(url => url.split(":").at(-1))).toEqual(["countTokens", "generateContent"]);
   });
 });

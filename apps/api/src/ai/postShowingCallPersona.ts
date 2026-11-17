@@ -1,5 +1,5 @@
 import { voicePersonaName, voiceStaffNoun, type VoiceGender } from "@royal-home/shared";
-import { buildLiveVoiceSystemPrompt, promptSafeName, promptSafeText } from "./liveVoicePersona.js";
+import { buildLiveVoiceSystemPrompt, liveVoiceThirdPartyRule, promptSafeName, promptSafeText } from "./liveVoicePersona.js";
 import type { LiveVoiceFunctionDeclaration } from "./liveVoiceClient.js";
 
 /**
@@ -68,6 +68,9 @@ export const POST_SHOWING_CALL_TOOLS: LiveVoiceFunctionDeclaration[] = [
       properties: {
         reason: {
           type: "STRING",
+          // Только эти слова (11.11.2026): фраза со словом «перезвон» в причине не должна ставить повторный звонок —
+          // обработчик итога ищет слово из списка, а не угадывает по тексту (postShowingCall.ts::scenarioEndKind).
+          enum: ["answered", "call_back_later", "refused", "voicemail", "wrong_person"],
           description:
             "Ровно одно слово: answered — поговорили, человек ответил на вопросы; call_back_later — попросил перезвонить, сейчас неудобно; refused — отказался говорить; voicemail — ответил автоответчик, живого человека не было; wrong_person — трубку взял не тот, о ком речь.",
         },
@@ -80,7 +83,7 @@ export const POST_SHOWING_CALL_TOOLS: LiveVoiceFunctionDeclaration[] = [
 /** Служебная реплика, которой мост заставляет бота заговорить первым (см.
  *  LIVE_VOICE_GREETING_TRIGGER в мосте: модель её не произносит). */
 export const POST_SHOWING_CALL_GREETING_TRIGGER =
-  "(Собеседник снял трубку. Сразу поздоровайся, представься отделом качества Royal Home и спроси, удобно ли говорить.)";
+  "(Собеседник снял трубку. Сразу поздоровайся, представься отделом качества Royal Home и уточни, тот ли это человек, которому ты звонишь. О цели звонка пока не говори.)";
 
 export function buildPostShowingCallPrompt(ctx: PostShowingCallContext, forceRussianOnly = true): string {
   // Имя клиента, заголовок объекта и имя агента — чужой текст (профиль, объявление):
@@ -100,7 +103,7 @@ export function buildPostShowingCallPrompt(ctx: PostShowingCallContext, forceRus
 - кто вёл показ: ${agent ?? "неизвестно — не называй имён"}.
 
 ПОРЯДОК РАЗГОВОРА:
-1. Поздоровайся, представься, спроси, удобно ли сейчас говорить. Дождись ответа — не тарахти дальше по тексту.
+1. Поздоровайся, представься отделом качества Royal Home и спроси, говоришь ли ты с ${name ?? "нужным человеком"}. О показе и квартире не говори, пока не подтвердили, что это он. Подтвердил — спроси, удобно ли сейчас говорить, и дождись ответа — не тарахти дальше по тексту.
 2. Спроси, как прошёл просмотр, понравилась ли квартира.
 3. Если не понравилась — спроси коротко, что именно не подошло.
 4. Спроси, всё ли было в порядке на показе${agent ? ` с ${agent}` : ""}: вовремя ли встретили, показали ли то, что обещали.
@@ -114,7 +117,7 @@ export function buildPostShowingCallPrompt(ctx: PostShowingCallContext, forceRus
 
 ЕСЛИ ЧЕЛОВЕК РАЗДРАЖЁН, устал или явно не хочет разговаривать — закругляйся, не дожимая. Один недовольный ответ стоит дороже любого опроса.
 
-ЕСЛИ ТРУБКУ ВЗЯЛ НЕ ТОТ (жена, брат, «он занят») — не рассказывай, о чём звонишь, и не задавай вопросов о показе. Вежливо попрощайся, ничего не обещая (не говори, что перезвонишь), и заверши с причиной wrong_person.
+${liveVoiceThirdPartyRule("покупатель", "с ним свяжутся", !forceRussianOnly)} Вопросов о показе не задавай.
 
 ЕСЛИ ОТВЕТИЛ АВТООТВЕТЧИК (запись, гудок, «оставьте сообщение») — НЕ говори ничего вообще и сразу заверши звонок с причиной voicemail. Опрос на автоответчике бесполезен, а наговоренное в пустоту звучит как спам.
 

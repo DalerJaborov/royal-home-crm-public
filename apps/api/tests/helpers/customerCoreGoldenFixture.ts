@@ -35,7 +35,9 @@ export const invalidDecision = (value: unknown): ModelPart => {
  * synthetic parts, or a ready Response. Absent: the strict script queue below, exactly as before. */
 export type CoreModelWire = (request: { body: Record<string, unknown>; raw: string; path: string }) => Promise<{ parts: ModelPart[] } | { response: Response }>;
 export async function createCustomerCoreGoldenFixture(options: { media?: boolean; publicEnvelope?: boolean; modelWire?: CoreModelWire } = {}) {
-  const tag = `synthetic-core-companion-${randomUUID()}`, key = `${tag}-gemini-key`;
+  // Без цифры 9: метка попадает в название района и в ответ бота, а тесты проверяют «в ответе
+  // нет номера» по /992/ — UUID вида …-4992a4… ронял их случайно (ship #156, 11.11.2026).
+  const tag = `synthetic-core-companion-${randomUUID().replaceAll("9", "g")}`, key = `${tag}-gemini-key`;
   const globalIgSecret = `${tag}-global-ig-secret`;
   // F02 (23.10.2026): with two global keys the signature now proves the namespace, and routing accepts exactly the
   // keys the strict proof accepts, so a NEW public_envelope can no longer arise from a real request. The

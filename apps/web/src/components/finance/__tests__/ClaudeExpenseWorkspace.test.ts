@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { CLAUDE_METHOD_LABELS, assertClaudeFinanceWrite, claudeExpenseQuery, expenseTjs, groupClaudeExpenses, parseClaudeQuickExpense, previousClaudeMonth, type ClaudeExpense } from "../../../lib/claudeFinanceApi";
-import { claudeExpenseDraft, initialClaudeExpenseDraft, nextClaudeExpenseDate, prepareClaudeExpense } from "../ClaudeExpenseSheet";
+import { claudeExpenseDraft, initialClaudeExpenseDraft, nextClaudeExpenseDate, prepareClaudeExpense, shouldResetClaudeSubmission } from "../ClaudeExpenseSheet";
+import { ApiError } from "../../../lib/apiError";
 import type { useAuthStore } from "../../../store/auth";
 const row=(fields:Partial<ClaudeExpense>={}):ClaudeExpense=>({id:"e",category:"OFFICE",source:null,agentId:null,agent:null,amount:"100",currency:"TJS",month:"2026-10",note:"Интернет",...fields});
 const draft=()=>({...claudeExpenseDraft(),paymentDate:"2026-10-14",amount:"500",note:"Интернет"});
 describe("Claude expense workspace accounting boundaries",()=>{
+  it("после 409 «нет курса доллара» следующее сохранение уходит новым телом формы",()=>{
+    const noRate=new ApiError("Курс доллара в Настройках CRM не задан",409,{code:"NO_USD_RATE"});
+    expect(shouldResetClaudeSubmission(noRate)).toBe(true);
+    expect(shouldResetClaudeSubmission(new ApiError("x",409,{code:"EXPENSE_VERSION_CONFLICT"}))).toBe(true);
+    expect(shouldResetClaudeSubmission(new ApiError("x",409,{code:"IDEMPOTENCY_CONFLICT"}))).toBe(false);
+    expect(shouldResetClaudeSubmission(new ApiError("x",500,{}))).toBe(false);
+    expect(shouldResetClaudeSubmission(new Error("сеть"))).toBe(false);
+  });
   it("parses quick entry without thousands ambiguity",()=>{expect(parseClaudeQuickExpense("500 интернет")).toEqual({amount:"500",note:"интернет"});expect(parseClaudeQuickExpense("1.000 интернет")).toBeNull();expect(parseClaudeQuickExpense("1,000 интернет")).toBeNull();expect(parseClaudeQuickExpense("500,50 интернет")?.amount).toBe("500,50");});
   it.each(["1.000","1,000","0","100000000","-10","Infinity"])("rejects invalid amount %s",amount=>{expect(prepareClaudeExpense({...draft(),amount},"2026-10")).toHaveProperty("field","amount");});
   it("submits genuine fields and clears category-specific leftovers",()=>{const result=prepareClaudeExpense({...draft(),counterparty:" провайдер ",paymentMethod:"CARD",source:"INSTAGRAM",agentId:"old"},"2026-09");expect(result).toHaveProperty("body");if("body" in result)expect(result.body).toMatchObject({amount:500,month:"2026-10",paymentDate:"2026-10-14",counterparty:"провайдер",source:null,agentId:null,paymentMethod:"CARD",status:"PAID"});});

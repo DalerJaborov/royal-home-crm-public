@@ -8,10 +8,12 @@ import { stripUntrusted } from "../ai/untrustedContent.js";
 import { stripRecruiting } from "../ai/recruitingGuard.js";
 import { guardDirectionQuestion, guardOwnerAsThirdParty } from "../ai/intentDirectionGuard.js";
 import { enforceOneQuestionPerBubble } from "../ai/oneQuestionGuard.js";
+import { guardCallbackPromises } from "../ai/callbackPromiseGuard.js";
 import { dropRepeatedQuestions, ensureOpenQuestionKept } from "../ai/replyGuards.js";
 import {
   MAX_PHONE_ASKS,
   dropKnownPhoneAsks,
+  countPhoneAsksIn,
   dropPhoneAsks,
   dropNearRepeats,
   dropRepeatedBubbles,
@@ -25,6 +27,7 @@ import { shouldStaySilentOnBareShare } from "../ai/bareShareRepeat.js";
 import { photoAlreadyAcknowledged } from "../ai/photoAckGuard.js";
 import { ensureRequestedAgentNoticeKept, type RequestedAgentMatch } from "../lib/requestedAgent.js";
 import { logSystemError } from "../lib/systemError.js";
+import { brandForAccount, guardBrandLeak } from "../ai/brandName.js";
 
 /**
  * ОДИН МОЗГ НА ВСЕ КАНАЛЫ: ЦЕПОЧКА ФИЛЬТРОВ ОТВЕТА БОТА (Dan, тред «Ревизия бота»,
@@ -182,7 +185,7 @@ export interface BotReplyFilterInput {
   /** Язык хода; «unknown» вызывающий уже заменил языком разговора. */
   language: ClientLanguage;
   /** Слитый черновик этого хода. */
-  draft: Pick<LeadDraft, "intent" | "stage">;
+  draft: Pick<LeadDraft, "intent" | "stage" | "locationOutsideDushanbe" | "locationDifferentCountry">;
   /** Разговор о работе (кандидат, реклама вакансии) — про найм говорить можно. */
   jobConversation: boolean;
   /** Хранимый счётчик просьб номера (phoneAsksSent у диалога). */
@@ -201,6 +204,12 @@ export interface BotReplyFilterInput {
   requestedNotice?: string | null;
   /** Слова клиента для языка заглушки — от свежих к старым. */
   fallbackLanguageWords: (string | null | undefined)[];
+  /**
+   * Аккаунт, в чьём диалоге идёт ход. Нужен ровно для одного: у аккаунта со своим
+   * именем компании (MessengerAccount.brandName) на выходе «Royal Home» заменяется
+   * (ai/brandName.ts::guardBrandLeak). Не передан (Telegram, сайт) — ничего не меняется.
+   */
+  accountId?: string | null;
 }
 
 export interface BotReplyFilterResult {
@@ -218,6 +227,11 @@ export interface BotReplyFilterResult {
   silencedBy: EmptyReplyCause | null;
   phoneAsksSoFar: number;
   stopAskingPhone: boolean;
+  /**
+   * Ответ обещает звонок агента, и номер клиента известен (ai/callbackPromiseGuard.ts):
+   * вызывающий обязан дать агенту сигнал (lib/agentAttention.ts), иначе обещание пустое.
+   */
+  promisedCall?: boolean;
 }
 
 export type EmptyReplyCause = "guards" | "repeat";
@@ -289,11 +303,40 @@ function filterBotReplyImpl(input: BotReplyFilterInput): BotReplyFilterResult {
     topicState.openQuestion,
     input.mustRepeatOpenQuestion ?? false
   );
+  /**
+   * ОБЕЩАНИЕ ЗВОНКА И ВТОРАЯ ПРОСЬБА НОМЕРА ПОДРЯД (16.11.2026, аудит facts.md Ф4, tone.md п.15).
+   * «Мунтазири занг бошед» без номера — звонить некуда: вместо обещания одна просьба номера.
+   * «Вай ҳозир занг зада» — без «ҳозир». «Рақами телефонатон ва номатонро нависед» три раза
+   * подряд (Instagram Arvan 13.11) — просьба номера сразу после такой же просьбы не уходит:
+   * человек её видел и ответил другим, повторять — автоответчик.
+   */
+  // Настоящая просьба номера (countPhoneAsksIn), а не любое слово «телефон» в прошлом ответе.
+  const askedPhoneLastTime = countPhoneAsksIn([input.botSaidBefore[input.botSaidBefore.length - 1] ?? ""]) > 0;
+  const clientGavePhone = !!extractVolunteeredPhone(input.clientTurnText);
+  /**
+   * Номер вместо обещания просим ТОЛЬКО у покупателя/продавца в зоне (ревью #207, В2):
+   * арендатору, кандидату и продавцу вне Душанбе и Рудаки номер не просим и ничего не
+   * обещаем (решения владельца 21.08 и 17.09) — их обещание просто вырезается.
+   */
+  const phoneAskFitsTalk =
+    (input.draft.intent === "buy" || input.draft.intent === "sell") &&
+    !input.draft.locationOutsideDushanbe &&
+    !input.draft.locationDifferentCountry &&
+    !input.jobConversation;
+  const promiseCut = guardCallbackPromises({
+    bubbles: bubbles,
+    phoneKnown,
+    mayAskPhone: !stopAskingPhone && !askedPhoneLastTime && phoneAskFitsTalk,
+    language: input.language,
+  });
+  if (promiseCut.changed > 0) guardFired("callback_promise", promiseCut.changed);
+  const bubblesNoRepeatAsk =
+    !phoneKnown && !clientGavePhone && askedPhoneLastTime ? dropPhoneAsks(promiseCut.bubbles) : promiseCut.bubbles;
   const requestedAgent: RequestedAgentMatch = input.requestedAgent ?? { status: "none" };
   const requestedNotice = input.requestedNotice ?? null;
   const finalBubbles = ensureRequestedAgentNoticeKept(
     // Две просьбы номера разными словами в одном ответе — одна лишняя (keepOnePhoneAsk).
-    keepOnePhoneAsk(dropRepeatedQuestions(bubbles, input.botSaidBefore, topicState.openQuestion)),
+    keepOnePhoneAsk(dropRepeatedQuestions(bubblesNoRepeatAsk, input.botSaidBefore, topicState.openQuestion)),
     requestedAgent,
     requestedNotice
   );
@@ -328,7 +371,16 @@ function filterBotReplyImpl(input: BotReplyFilterInput): BotReplyFilterResult {
       { url: input.openUrl }
     );
   }
-  return { bubbles: deduped, finalBubbles, modelSaidNothing, guardsAteReply, silencedBy, phoneAsksSoFar, stopAskingPhone };
+  return {
+    bubbles: deduped,
+    finalBubbles,
+    modelSaidNothing,
+    guardsAteReply,
+    silencedBy,
+    phoneAsksSoFar,
+    stopAskingPhone,
+    promisedCall: promiseCut.promised && deduped.length > 0,
+  };
 }
 
 /* ------------------------------------------------------------------------- *
@@ -483,7 +535,18 @@ async function withoutShieldRepeats(
  * Telegram, Direct Messages) зовут это вместо голого filterBotReply.
  */
 export async function finalizeBotReply(input: BotReplyFilterInput, recovery: BotReplyRecovery = {}): Promise<FinalBotReply> {
-  const result = await finalizeBotReplyImpl(input, recovery);
+  const filtered = await finalizeBotReplyImpl(input, recovery);
+  // Последний рубеж имени компании: ЛЮБОЙ путь к клиенту (ответ модели, повторный ход,
+  // нейтральная заглушка) проходит здесь, поэтому подмена стоит после всех веток.
+  const brand = await brandForAccount(input.accountId);
+  const guardCtx = { conversationId: input.conversationId, where: `ответ бота, ${input.channelLabel}` };
+  const result = brand
+    ? {
+        ...filtered,
+        bubbles: guardBrandLeak(filtered.bubbles, brand, guardCtx),
+        finalBubbles: guardBrandLeak(filtered.finalBubbles, brand, guardCtx),
+      }
+    : filtered;
   if (result.recovery === "neutral" || result.recovery === "regenerated") {
     traceReplyOrigin(result.recovery);
     traceFilterDelta("recovery", "", result.bubbles.join("\n"), "recovery");

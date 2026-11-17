@@ -3,6 +3,8 @@ import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
+import { actorFromAccess } from "../src/ai/assistant/actor.js";
+import { getClientLastCallTool } from "../src/ai/assistant/tools/getClientLastCall.js";
 // Права читаются из базы, но кэшируются в памяти на 15 секунд — иначе снятая в
 // этом тесте галочка подействовала бы уже после его конца.
 import { invalidateAgentAccess } from "../src/auth/middleware.js";
@@ -204,6 +206,23 @@ afterAll(async () => {
 });
 
 describe("Свой разговор — агенту, чужой — только администрации", () => {
+  it("помощник ищет в собственных и маршрутизированных звонках и применяет отдельное право на чужие", async () => {
+    const agent = actorFromAccess(agentId, { role: "AGENT", permissions: new Set(["calls.ownTranscripts"]) }, "telegram-private");
+    const admin = actorFromAccess(adminId, { role: "ADMIN", permissions: new Set(["clients.viewAll", "calls.transcripts"]) }, "crm-private");
+    const search = (actor: typeof agent, query: string) =>
+      getClientLastCallTool.run({ clientId: String(clientShortId), query }, { actor });
+    expect(await search(agent, "в Сино")).toHaveProperty("matches", [expect.objectContaining({
+      customerSpeech: expect.stringContaining("двушку в Сино"),
+    })]);
+    expect(await search(agent, "завтра утром")).toHaveProperty("matches", [expect.objectContaining({
+      customerSpeech: expect.stringContaining("перезвоните завтра утром"),
+    })]);
+    expect(await search(agent, "Гипроземе")).toHaveProperty("matches", []);
+    expect(await search(admin, "Гипроземе")).toHaveProperty("matches", [expect.objectContaining({
+      customerSpeech: expect.stringContaining("продаю дом в Гипроземе"),
+    })]);
+  });
+
   it("карточка клиента: свой разговор открыт, текст приходит ленивым запросом", async () => {
     // С 26.08.2026 карточка НЕ поднимает тексты расшифровок на все 200 записей
     // хронологии (мегабайты на открытие): в ответе — признаки hasTranscript/canHear
@@ -396,7 +415,7 @@ describe("Свой разговор — агенту, чужой — тольк�
   });
 });
 
-describe("Слушать ЛЮБОЙ разговор (04.09.2026): DIRECTOR/ADMIN, SECURITY, MARKETING — да; AGENT/MANAGER — нет", () => {
+describe("Слушать ЛЮБОЙ разговор (04.09.2026; с 16.11.2026 маркетинг — нет): DIRECTOR/ADMIN, SECURITY — да; MARKETING/AGENT/MANAGER — нет", () => {
   it("СБ (роль SECURITY) читает и слушает ЧУЖОЙ разговор целиком", async () => {
     const text = await request(app)
       .get(`/api/v1/interactions/${otherInteractionId}/transcript`)
@@ -411,17 +430,17 @@ describe("Слушать ЛЮБОЙ разговор (04.09.2026): DIRECTOR/ADMI
     expect(recording.status).not.toBe(403);
   });
 
-  it("маркетинг (роль MARKETING) читает и слушает ЧУЖОЙ разговор целиком", async () => {
+  it("маркетинг (роль MARKETING) НЕ читает и НЕ слушает ЧУЖОЙ разговор — 403 (16.11.2026: у маркетинга сняты calls.transcripts и calls.hearRecording)", async () => {
     const text = await request(app)
       .get(`/api/v1/interactions/${otherInteractionId}/transcript`)
       .set("Authorization", `Bearer ${marketingToken}`);
-    expect(text.status).toBe(200);
-    expect(text.body.transcript).toBe(OTHER_TRANSCRIPT);
+    expect(text.status).toBe(403);
+    expect(JSON.stringify(text.body)).not.toContain(OTHER_TRANSCRIPT);
 
     const recording = await request(app)
       .get(`/api/v1/interactions/${otherInteractionId}/recording`)
       .set("Authorization", `Bearer ${marketingToken}`);
-    expect(recording.status).not.toBe(403);
+    expect(recording.status).toBe(403);
   });
 
   it("руководитель (роль MANAGER, calls.ownTranscripts БЕЗ calls.hearRecording) — читает свой разговор, слушать не может", async () => {

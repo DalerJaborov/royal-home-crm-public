@@ -28,11 +28,11 @@ const tokens: Record<string, string> = {};
 let server: http.Server;
 let port = 0;
 
-async function agentWith(name: string, granted: string[], revoked: string[] = []) {
+async function agentWith(name: string, granted: string[], revoked: string[] = [], role = "AGENT") {
   const id = await createTestAgent(name);
   ids.push(id);
-  await prisma.agent.update({ where: { id }, data: { permissions: { granted, revoked } } });
-  return signAccessToken({ sub: id, role: "AGENT" });
+  await prisma.agent.update({ where: { id }, data: { role: role as never, permissions: { granted, revoked } } });
+  return signAccessToken({ sub: id, role });
 }
 
 beforeAll(async () => {
@@ -40,12 +40,15 @@ beforeAll(async () => {
   ids.push(adminId);
   await prisma.agent.update({ where: { id: adminId }, data: { role: "ADMIN" } });
   tokens.admin = signAccessToken({ sub: adminId, role: "ADMIN" });
-  tokens.listener = await agentWith("Слушатель Полный", [
-    "settings.manage",
-    "calls.transcripts",
-    "calls.hearRecording",
-    "clients.viewPhone",
-  ]);
+  // 16.11.2026 номера только директору: «полный слушатель» — DIRECTOR (clients.viewPhone стало directorOnly).
+  tokens.listener = await agentWith(
+    "Слушатель Полный",
+    ["settings.manage", "calls.transcripts", "calls.hearRecording", "clients.viewPhone"],
+    [],
+    "DIRECTOR",
+  );
+  // Слушатель-НЕ директор: права на обычные звонки есть, закрытых проверок видеть не должен (до 16.11.2026 этим был "listener").
+  tokens.listenerAgent = await agentWith("Слушатель Агент", ["settings.manage", "calls.transcripts", "calls.hearRecording"]);
   tokens.noPhone = await agentWith(
     "Слушатель Без Номера",
     ["settings.manage", "calls.transcripts", "calls.hearRecording"],
@@ -77,10 +80,10 @@ const startCall = (transcript: string[] = [], investigationOnly = false) =>
 describe("доступ к прослушке", () => {
   it("права на обычные звонки не открывают проверку: список и прямой поток закрыты", async () => {
     startCall(["Закрытая проверка"], true);
-    const list = await request(app).get("/api/v1/live-voice/active").set("Authorization", `Bearer ${tokens.listener}`);
+    const list = await request(app).get("/api/v1/live-voice/active").set("Authorization", `Bearer ${tokens.listenerAgent}`);
     expect(list.status).toBe(200);
     expect(list.body.sessions).toEqual([]);
-    const stream = await request(app).get(`/api/v1/live-voice/${SESSION_ID}/listen`).set("Authorization", `Bearer ${tokens.listener}`);
+    const stream = await request(app).get(`/api/v1/live-voice/${SESSION_ID}/listen`).set("Authorization", `Bearer ${tokens.listenerAgent}`);
     expect(stream.status).toBe(404);
     expect(stream.text).not.toContain("Закрытая проверка");
   });

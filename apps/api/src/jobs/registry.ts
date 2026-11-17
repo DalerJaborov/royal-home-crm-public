@@ -15,6 +15,9 @@ import type { z } from "zod";
  * закольцовывал её (conversation → enqueue → registry → aiReplyRetry →
  * stuckConversations → conversation).
  */
+/** A definitive refusal should be visible to staff without sending the same request again. */
+export class PermanentJobError extends Error {}
+
 export interface JobHandler<T> {
   type: string;
   /** payload писала прошлая версия кода, читает будущая — это внешние данные. */
@@ -29,6 +32,8 @@ export interface JobHandler<T> {
    * одновременно со следующей (аудит 23.09.2026 №24).
    */
   timeoutMs?: number;
+  /** The producer can update payload while a leased attempt is running. */
+  coalesceLatest?: boolean;
   /** ОБЯЗАН быть идемпотентным: воркер может исполнить дважды (падение между run и DONE). */
   run(payload: T): Promise<void>;
   /** Попытки исчерпаны: видимость для персонала, клиенту — ничего. */

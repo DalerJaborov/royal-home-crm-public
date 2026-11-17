@@ -17,6 +17,7 @@ const {
   cancelAssistantAction,
   confirmAssistantAction,
   createPendingAssistantAction,
+  discardPendingAssistantAction,
   undoAssistantAction,
 } = await import("../src/lib/assistantActions.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
@@ -182,6 +183,30 @@ describe("Действия помощника: подтверждение", () =
     });
     expect((await rejection(confirmAssistantAction(action.id, actorFor(ownerId)))).status).toBe(403);
     expect(fx.calls.execute).toBe(0);
+  });
+
+  it("отозванное право блокирует повтор подтверждения, отмены и отката без раскрытия превью", async () => {
+    const fx = freshExecutor({ requires: ["clients.assign"] });
+    const granted = actorFor(ownerId, ["clients.assign"]);
+    const revoked = actorFor(ownerId);
+    const action = await createPendingAssistantAction(granted, fx.tool, { key: "p1", price: 420_000 });
+    await confirmAssistantAction(action.id, granted);
+    const forbidden = { status: 403, code: "FORBIDDEN", extra: {} };
+    expect(await rejection(confirmAssistantAction(action.id, revoked))).toMatchObject(forbidden);
+    expect(await rejection(cancelAssistantAction(action.id, revoked))).toMatchObject(forbidden);
+    const telegram = { ...granted, channel: "telegram" as const, telegramPrivate: true };
+    expect(await rejection(confirmAssistantAction(action.id, telegram))).toMatchObject({
+      status: 403, code: "CHANNEL_NOT_ALLOWED", extra: {},
+    });
+    await undoAssistantAction(action.id, granted);
+    expect(await rejection(undoAssistantAction(action.id, revoked))).toMatchObject(forbidden);
+    expect(fx.calls.execute).toBe(1);
+
+    const draft = await createPendingAssistantAction(granted, fx.tool, { key: "p1", price: 421_000 });
+    expect(await discardPendingAssistantAction(draft.id, revoked)).toBeUndefined();
+    expect(await prisma.assistantAction.findUniqueOrThrow({ where: { id: draft.id } })).toMatchObject({
+      status: "CANCELLED",
+    });
   });
 
   it("исполнитель упал — FAILED и 500, ключ освобождён", async () => {

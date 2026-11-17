@@ -11,12 +11,16 @@ import { waitFor } from "./helpers/waitFor.js";
 const sms: { phone: string; text: string }[] = [];
 const pushes: { endpoints: string[]; wire: Record<string, unknown> }[] = [];
 let pushAccepted = 1;
+let smsFails = false;
+let smsWait: Promise<void> | null = null;
 
 vi.mock("../src/lib/sms/index.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../src/lib/sms/index.js")>();
   return {
     ...orig,
     sendSms: async (p: { phone: string; text: string }) => {
+      if (smsWait) await smsWait;
+      if (smsFails) return { ok: false, error: "test provider unavailable" };
       sms.push(p);
       return { ok: true, id: "t", parts: 1 };
     },
@@ -36,7 +40,7 @@ vi.mock("../src/push.js", async (importOriginal) => {
 
 const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
-const { pushFallback } = await import("../src/lib/loginSmsCode.js");
+const { pushFallback, runSmsFallback } = await import("../src/lib/loginSmsCode.js");
 
 const tail = String(Date.now()).slice(-7);
 const phone = `+99271${tail}`;
@@ -75,6 +79,8 @@ beforeEach(async () => {
   sms.length = 0;
   pushes.length = 0;
   pushAccepted = 1;
+  smsFails = false;
+  smsWait = null;
   await prisma.loginSmsCode.deleteMany({ where: { agentId: { in: [agentId, noSubId] } } });
   await prisma.pushSubscription.deleteMany({ where: { agentId } });
 });
@@ -209,14 +215,96 @@ describe("код входа пушем", () => {
     }
   });
 
-  it("«Отправить ещё раз» после пуша — сразу СМС, не второй пуш", async () => {
+  it("после пуша нельзя выдать другой код до конца общей минуты", async () => {
     await addSub(`https://push.test/${tail}/a`, 1);
     await askCode(phone);
     const again = await askCode(phone);
-    expect(again.status).toBe(200);
-    expect(again.body.channel).toBe("sms");
+    expect(again.status).toBe(429);
+    expect(again.body.resendAfterSec).toBeGreaterThan(0);
     expect(pushes).toHaveLength(1);
-    expect(sms).toHaveLength(1);
+    expect(sms).toHaveLength(0);
+  });
+
+  it("устаревший таймер после нового кода не отправляет прежний код", async () => {
+    pushFallback.delayMs = 60_000;
+    try {
+      await addSub(`https://push.test/${tail}/stale-timer`, 1);
+      await askCode(phone);
+      const prior = await prisma.loginSmsCode.findFirstOrThrow({ where: { agentId } });
+      const code = pushCode();
+      await prisma.loginSmsCode.update({ where: { id: prior.id }, data: { createdAt: new Date(Date.now() - 61_000) } });
+      expect((await askCode(phone, "sms")).status).toBe(200);
+      const count = sms.length;
+      await runSmsFallback({ id: agentId, phone, telegramChatId: null }, prior.id, code);
+      expect(sms).toHaveLength(count);
+      expect((await prisma.loginSmsCode.findUniqueOrThrow({ where: { id: prior.id } })).fallbackSentAt).toBeNull();
+    } finally { pushFallback.delayMs = 300; }
+  });
+
+  it("два запасных тика доставляют один код; канал отражает успешный fallback", async () => {
+    pushFallback.delayMs = 60_000;
+    try {
+      await addSub(`https://push.test/${tail}/double-timer`, 1);
+      await askCode(phone);
+      const prior = await prisma.loginSmsCode.findFirstOrThrow({ where: { agentId } });
+      const actor = { id: agentId, phone, telegramChatId: null };
+      await Promise.all([runSmsFallback(actor, prior.id, pushCode()), runSmsFallback(actor, prior.id, pushCode())]);
+      expect(sms).toHaveLength(1);
+      expect(smsCode()).toBe(pushCode());
+      expect((await prisma.loginSmsCode.findUniqueOrThrow({ where: { id: prior.id } })).channel).toBe("sms");
+    } finally { pushFallback.delayMs = 300; }
+  });
+
+  it("СМС отказала: Telegram получает тот же код и не допускает немедленный новый", async () => {
+    pushFallback.delayMs = 60_000;
+    try {
+      await addSub(`https://push.test/${tail}/telegram-fallback`, 1);
+      await askCode(phone);
+      const prior = await prisma.loginSmsCode.findFirstOrThrow({ where: { agentId } });
+      smsFails = true;
+      await runSmsFallback({ id: agentId, phone, telegramChatId: "test-chat" }, prior.id, pushCode());
+      const delivered = await prisma.loginSmsCode.findUniqueOrThrow({ where: { id: prior.id } });
+      expect(delivered.channel).toBe("telegram");
+      expect(delivered.codeHash).toBe(prior.codeHash);
+      expect((await askCode(phone, "telegram")).status).toBe(429);
+    } finally { pushFallback.delayMs = 300; }
+  });
+
+  it("просроченный код не доставляется запасным каналом", async () => {
+    pushFallback.delayMs = 60_000;
+    try {
+      await addSub(`https://push.test/${tail}/expired`, 1);
+      const asked = await askCode(phone);
+      const prior = await prisma.loginSmsCode.findFirstOrThrow({ where: { agentId } });
+      await prisma.loginSmsCode.update({ where: { id: prior.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+      await runSmsFallback({ id: agentId, phone, telegramChatId: null }, prior.id, pushCode());
+      expect(sms).toHaveLength(0);
+      expect((await request(app).post("/api/v1/auth/login/verify-code").send({ pendingToken: asked.body.pendingToken, code: pushCode() })).status).toBe(401);
+    } finally { pushFallback.delayMs = 300; }
+  });
+
+  it("новая выдача во время ожидания СМС не допускает последующий Telegram со старым кодом", async () => {
+    pushFallback.delayMs = 60_000;
+    let release!: () => void;
+    try {
+      await addSub(`https://push.test/${tail}/provider-race`, 1);
+      await prisma.agent.update({ where: { id: agentId }, data: { telegramChatId: "test-race-chat" } });
+      await askCode(phone);
+      const prior = await prisma.loginSmsCode.findFirstOrThrow({ where: { agentId } });
+      smsWait = new Promise<void>((resolve) => { release = resolve; });
+      smsFails = true;
+      const fallback = runSmsFallback({ id: agentId, phone, telegramChatId: "test-race-chat" }, prior.id, pushCode());
+      await waitFor(async () => !!(await prisma.loginSmsCode.findUniqueOrThrow({ where: { id: prior.id } })).fallbackSentAt, { timeoutMs: 3000 });
+      await prisma.loginSmsCode.update({ where: { id: prior.id }, data: { createdAt: new Date(Date.now() - 61_000) } });
+      expect((await askCode(phone, "telegram")).status).toBe(200);
+      release();
+      await fallback;
+      expect((await prisma.loginSmsCode.findUniqueOrThrow({ where: { id: prior.id } })).channel).toBe("push");
+      expect(sms).toHaveLength(0);
+    } finally {
+      release?.(); smsWait = null; pushFallback.delayMs = 300;
+      await prisma.agent.update({ where: { id: agentId }, data: { telegramChatId: null } });
+    }
   });
 
   it("нет подписок: как раньше, СМС; чужой номер неотличим (channel sms)", async () => {

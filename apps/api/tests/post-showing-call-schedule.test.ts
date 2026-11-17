@@ -571,6 +571,24 @@ describe("линия живого голоса одна", () => {
     }
   });
 
+  it("П3: окончательный отказ двери («не звонить») — запись закрыта причиной, не «станция не приняла»", async () => {
+    await makeShowing(new Date(NOON.getTime() - 3 * HOUR));
+    originateLiveVoiceScenarioCall.mockResolvedValueOnce({ ok: false, notDialed: true, policyCode: "stopped", error: "Не звонить роботом" } as never);
+    await runPostShowingCallTick(NOON);
+    const row = await prisma.postShowingCall.findFirstOrThrow({ where: { clientId } });
+    expect(row).toMatchObject({ status: "SKIPPED", skipReason: "do_not_contact", attempts: 0 });
+  });
+
+  it("П3: отказ двери «перенести» со временем — повтор в это время, а не через три минуты", async () => {
+    await makeShowing(new Date(NOON.getTime() - 3 * HOUR));
+    const retryAt = new Date(NOON.getTime() + 20 * HOUR);
+    originateLiveVoiceScenarioCall.mockResolvedValueOnce({ ok: false, busy: true, notDialed: true, policyCode: "daily_limit", retryAt, error: "сегодня уже" } as never);
+    await runPostShowingCallTick(NOON);
+    const row = await prisma.postShowingCall.findFirstOrThrow({ where: { clientId } });
+    expect(row).toMatchObject({ status: "PENDING", attempts: 0 });
+    expect(row.scheduledFor.toISOString()).toBe(retryAt.toISOString());
+  });
+
   it("линия занята — попытка не тратится, статус прежний, повтор через минуты, а не через пять часов", async () => {
     await makeShowing(new Date(NOON.getTime() - 3 * HOUR));
     originateLiveVoiceScenarioCall.mockResolvedValueOnce({ ok: false, busy: true, error: "Линия живого голоса занята" } as never);
@@ -721,11 +739,14 @@ describe("кому и когда звонить нельзя (А4)", () => {
 
   it("номер в чёрном списке станции — не набираем", async () => {
     await makeShowing(new Date(NOON.getTime() - 3 * HOUR));
+    // П3: чёрный список станции спрашивает дверь в мосте перед набором (без второго
+    // похода в AMI у сценария); здесь мост подменён — он отвечает отказом двери.
     isNumberBlocked.mockResolvedValue({ ok: true, blocked: true });
+    originateLiveVoiceScenarioCall.mockResolvedValueOnce({ ok: false, notDialed: true, policyCode: "blacklisted", error: "Номер в чёрном списке станции" } as never);
 
     expect(await runPostShowingCallTick(NOON)).toBe(0);
-    expect(originateLiveVoiceScenarioCall).not.toHaveBeenCalled();
     expect((await prisma.postShowingCall.findFirstOrThrow({ where: { clientId } })).skipReason).toBe("blacklisted");
+    expect((await prisma.postShowingCall.findFirstOrThrow({ where: { clientId } })).status).toBe("SKIPPED");
   });
 
   it("станция не ответила на запрос чёрного списка — звонок не блокируем (нечем проверить)", async () => {

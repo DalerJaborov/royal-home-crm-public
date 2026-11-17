@@ -58,7 +58,7 @@ describe("approved buyer guide is a closed suggestion, not a file grant", () => 
     const text = renderCustomerAgentDecision({ ...base, approvedFileState: "available", decision: { ...decision, refs: ["e0"] },
       evidence: [{ ref: "e0", value: { kind: "receipt", outcome: "contact_saved" } }] });
     expect(text).toContain("Памятка по покупке квартиры.");
-    expect(text).toMatch(/Контакт|контакт/u);
+    expect(text).toMatch(/Спасибо, записал/u);
   });
 
   it("does not offer a guide from a public comment or replace a proposal confirmation", () => {

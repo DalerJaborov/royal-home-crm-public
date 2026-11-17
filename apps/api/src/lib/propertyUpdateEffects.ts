@@ -18,7 +18,7 @@ import { generateSeoFields, type SeoFields } from "../ai/seoGenerator.js";
 import { notifyWaitingBuyersOfNewProperty } from "./propertyMatchFilter.js";
 import { loadMoneyContext, toTjs } from "./money.js";
 import { resyncPhotosIfPublished } from "./siteSync.js";
-import { syncPublishedPriceChange, type PriceSyncResult } from "./publishedListingSync.js";
+import { reportPublishedPriceChange, type PriceCaptionStage, type PriceSyncResult } from "./publishedListingSync.js";
 import { CAPTION_FACT_FIELDS, rewriteStoredCaptionAfterEdit } from "./publishedVideoFix.js";
 import { logSystemError } from "./systemError.js";
 import { refreshSellerAfterPropertyChange } from "./clientAutoStatus.js";
@@ -114,6 +114,8 @@ export interface PostUpdateEffectsInput {
   /** Ждать ли ответа посылки цены в соцсети: PATCH не ждёт (void), исполнитель заявок — ждёт и
    *  читает результат, чтобы собрать «что осталось руками». */
   awaitPriceSync: boolean;
+  /** Подпись, описание и цели уже записаны в транзакции цены. */
+  priceCaptionStage?: PriceCaptionStage;
 }
 
 export interface PostUpdateEffectsResult {
@@ -161,8 +163,8 @@ export async function runPostUpdateEffects(input: PostUpdateEffectsInput): Promi
     void resyncPhotosIfPublished(updated.id, input.resyncReason);
   }
 
-  let captionRewritten: boolean | null = null;
-  if (changedFields.some((f) => (CAPTION_FACT_FIELDS as readonly string[]).includes(f))) {
+  let captionRewritten = input.priceCaptionStage?.captionRewritten ?? null;
+  if (!input.priceCaptionStage && changedFields.some((f) => (CAPTION_FACT_FIELDS as readonly string[]).includes(f))) {
     captionRewritten = await rewriteStoredCaptionAfterEdit(existing, updated).catch(async (err) => {
       await logSystemError(
         "meta",
@@ -173,9 +175,9 @@ export async function runPostUpdateEffects(input: PostUpdateEffectsInput): Promi
   }
 
   let priceSync: PriceSyncResult | null = null;
-  if (priceActuallyChanged) {
-    const run = syncPublishedPriceChange(updated.id, Number(existing.price), existing.currency);
-    if (input.awaitPriceSync) priceSync = (await run) ?? { updated: [], failed: [], skipped: null, captionNeedsManualFix: false };
+  if (priceActuallyChanged && input.priceCaptionStage) {
+    const run = reportPublishedPriceChange(existing, updated, input.priceCaptionStage);
+    if (input.awaitPriceSync) priceSync = await run;
     else void run;
   }
 

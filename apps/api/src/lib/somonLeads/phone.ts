@@ -12,3 +12,14 @@ export async function fetchSomonPhone(id: string, request: (path: string) => Pro
   if (typeof phone !== "string" || !/^\+?[\d\s()\-]{7,24}$/.test(phone)) throw new Error("Invalid Somon phone value");
   return phone;
 }
+
+/**
+ * Номер по клику агента (кнопка в карточке рынка). Идёт через ту же дверь и тот же бюджет,
+ * но в режиме `interactive`: работает и при выключенных лидах, соблюдает остановку источника
+ * (403) и общий интервал, а скану и обработке лидов уступает — тогда `SomonSourceUnavailable("not_ready")`,
+ * который маршрут превращает в «повторите через минуту» (429).
+ * `fetcher` — подмена `fetch` для тестов.
+ */
+export function fetchSomonPhoneInteractive(id: string, fetcher: typeof fetch = fetch): Promise<string | null> {
+  return fetchSomonPhone(id, (path) => fetchSomon(path, new Date(), fetcher, { interactive: true }));
+}

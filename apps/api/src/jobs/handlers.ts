@@ -8,6 +8,7 @@ import { transcriptionRetryJob } from "./transcriptionRetry.js";
 import { recordingSearchRetryJob } from "./recordingSearchRetry.js";
 import { clipCompressJob } from "./clipCompress.js";
 import { siteResyncJob } from "./siteResync.js";
+import { assistantPriceUndoJob } from "./assistantPriceUndo.js";
 import { dealCloseFollowupJob } from "./dealCloseFollowup.js";
 import { clientReactivationJob } from "./clientReactivation.js";
 import { dealReviewAskJob } from "./dealReviewAsk.js";
@@ -31,6 +32,7 @@ import { customerShowingNotifyJob } from "./customerShowingNotify.js";
 import { customerInboxConsumeJob } from "./customerInboxConsume.js";
 import { customerOutboxDispatchJob } from "./customerOutboxDispatch.js";
 import { customerContactIntakeJob } from "./customerContactIntake.js";
+import { customerLeadOnlyIntakeJob } from "./customerLeadOnlyIntake.js";
 
 /**
  * Все обработчики очереди — одним списком. Импортируется ТОЛЬКО runner'ом
@@ -45,6 +47,7 @@ registerJobHandler(transcriptionRetryJob);
 registerJobHandler(recordingSearchRetryJob);
 registerJobHandler(clipCompressJob);
 registerJobHandler(siteResyncJob);
+registerJobHandler(assistantPriceUndoJob);
 registerJobHandler(dealCloseFollowupJob);
 registerJobHandler(clientReactivationJob);
 registerJobHandler(dealReviewAskJob);
@@ -86,3 +89,4 @@ registerJobHandler(customerShowingNotifyJob);
 registerJobHandler(customerInboxConsumeJob);
 registerJobHandler(customerOutboxDispatchJob);
 registerJobHandler(customerContactIntakeJob);
+registerJobHandler(customerLeadOnlyIntakeJob);

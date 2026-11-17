@@ -38,6 +38,16 @@ import { checkActiveCustomerAgentRevisionOnStart } from "./lib/customerAgentRevi
  * выключается ТОЛЬКО там, где рядом гарантированно работает worker-контейнер.
  */
 
+/**
+ * ПРЕДОХРАНИТЕЛЬ ЛОКАЛЬНОГО ЗАПУСКА (03.11.2026): при NODE_ENV=development плановые задачи
+ * (крон 100+) не стартуют, пока явно не включены DEV_CRONS=1 — иначе первый запуск на
+ * компьютере с боевым .env разослал бы реальные уведомления в настоящие чаты. Telegram-
+ * поллер (ответы ассистента, привязка) работает как обычно. Прод и тесты не затронуты.
+ */
+export function devCronsMuted(): boolean {
+  return process.env.NODE_ENV === "development" && process.env.DEV_CRONS !== "1";
+}
+
 /** ENABLE_BACKGROUND=0/false — фон в этом процессе выключен (только явно). */
 export function backgroundEnabled(): boolean {
   const raw = (process.env.ENABLE_BACKGROUND ?? "1").trim().toLowerCase();
@@ -57,7 +67,11 @@ export function backgroundEnabled(): boolean {
  * очередь повторов персистентная (jobs/transcriptionRetry.ts).
  */
 export function startBackgroundWork(): void {
-  startCronJobs();
+  if (devCronsMuted()) {
+    console.log("[cron] dev: плановые задачи НЕ запущены (предохранитель от реальных рассылок); включить: DEV_CRONS=1");
+  } else {
+    startCronJobs();
+  }
   startTelegramBot();
   // Суточный тик, чья минута пришлась на выкат, догоняется сразу после старта
   // (E7/Ф8 глубокой проверки 02.10.2026): node-cron пропущенное не повторяет.

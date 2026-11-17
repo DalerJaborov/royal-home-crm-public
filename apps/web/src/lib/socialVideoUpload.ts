@@ -27,7 +27,10 @@ export const STALL_MS = 60_000;
 export const RESPONSE_WAIT_MS = 10 * 60_000;
 
 export interface SocialVideoUploadInput {
-  file: File;
+  /** Ролик. Не задан — значит фото-пост из `photos` (16.11.2026). */
+  file?: File;
+  /** Фото-пост: 1–10 снимков, уходят на POST /social-videos/photos. */
+  photos?: File[];
   title: string;
   caption: string;
   brief: string;
@@ -48,7 +51,9 @@ function sendOnce(input: SocialVideoUploadInput, token: string | null): Promise<
     if (input.brief) form.append("brief", input.brief);
     form.append("channels", JSON.stringify(input.channels));
     if (input.destinations) form.append("destinations", JSON.stringify(input.destinations));
-    form.append("video", input.file, input.file.name);
+    const isPhoto = !input.file && (input.photos?.length ?? 0) > 0;
+    if (input.file) form.append("video", input.file, input.file.name);
+    for (const p of input.photos ?? []) form.append("photos", p, p.name);
 
     const xhr = new XMLHttpRequest();
     let settled = false;
@@ -72,7 +77,7 @@ function sendOnce(input: SocialVideoUploadInput, token: string | null): Promise<
       arm(STALL_MS);
     };
 
-    xhr.open("POST", "/api/v1/social-videos");
+    xhr.open("POST", isPhoto ? "/api/v1/social-videos/photos" : "/api/v1/social-videos");
     xhr.withCredentials = true;
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.setRequestHeader("X-Device-Id", getOrCreateDeviceId());

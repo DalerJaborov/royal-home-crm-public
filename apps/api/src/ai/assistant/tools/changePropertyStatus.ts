@@ -44,11 +44,9 @@ export const changePropertyStatusExecutor = makeChangeRequestExecutor<z.infer<ty
   parseArgs: (raw) => argsSchema.parse(raw),
 
   // Открытые и закрытые сделки входят в снимок: поменялись между превью и «Подтвердить» — STALE.
-  async extraSnapshot(_args, property) {
-    const [openDeals, completedDeals] = await Promise.all([
-      prisma.deal.count({ where: { propertyId: property.id, stage: { notIn: ["COMPLETED", "CANCELLED"] } } }),
-      prisma.deal.count({ where: { propertyId: property.id, stage: "COMPLETED" } }),
-    ]);
+  async extraSnapshot(_args, property, db) {
+    const openDeals = await db.deal.count({ where: { propertyId: property.id, stage: { notIn: ["COMPLETED", "CANCELLED"] } } });
+    const completedDeals = await db.deal.count({ where: { propertyId: property.id, stage: "COMPLETED" } });
     return { openDeals, completedDeals };
   },
 
@@ -111,9 +109,9 @@ export const changePropertyStatusPlugin: AssistantWriteToolPlugin = {
   name: "change_property_status",
   level: "C",
   description:
-    "Подать заявку руководителю на смену СТАТУСА опубликованного объекта: снять с продажи (WITHDRAWN), вернуть в продажу " +
-    "(AVAILABLE), резерв (RESERVED), продан (SOLD). Звать: «сними ОБ-88 с продажи». НЕ звать для цены " +
-    "(change_property_price) и для этапов подготовки объекта (проверка, фото, видео, монтаж) — их двигает маркетинг. " +
+    "Подать заявку руководителю на смену статуса опубликованного объекта: снять с продажи, вернуть в продажу, " +
+    "поставить в резерв или отметить продажу. Звать: «сними ОБ-88 с продажи». Для цены есть отдельный инструмент. " +
+    "Этапы подготовки объекта (проверка, фото, видео, монтаж) ведёт маркетинг. " +
     "«Продано» и «Резерв» оформляет сделка: при открытой сделке снять/продать нельзя — сообщи причину из ответа. " +
     "Статус сам не меняется: после подтверждения уйдёт заявка. После вызова ответь одной фразой: «Подтвердите заявку».",
   parameters: {
@@ -123,7 +121,7 @@ export const changePropertyStatusPlugin: AssistantWriteToolPlugin = {
       status: {
         type: "string",
         enum: ["AVAILABLE", "RESERVED", "SOLD", "WITHDRAWN"],
-        description: "Новый статус: AVAILABLE — в продаже, RESERVED — резерв, SOLD — продан, WITHDRAWN — снят с продажи",
+        description: "Выбери статус по смыслу просьбы: вернуть в продажу, поставить в резерв, отметить продажу или снять с продажи. Код используется только в вызове.",
       },
       comment: { type: "string", description: "Причина, если назвал сотрудник (необязательно)" },
     },

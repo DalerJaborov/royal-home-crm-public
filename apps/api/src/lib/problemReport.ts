@@ -333,7 +333,7 @@ async function buildAgentsSection(ctx: BuildContext): Promise<ProblemSection> {
       _count: { _all: true },
     }),
     loadEventPoints(),
-    prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true, fullName: true } }),
+    prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true, fullName: true } }),
     /**
      * «Прошлое» значение показателя stale — из СОХРАНЁННОГО отчёта за прошлый
      * период, а не пересчётом по сегодняшним карточкам (26.08.2026). Прежний
@@ -622,6 +622,11 @@ async function buildPropertiesSection(ctx: BuildContext): Promise<ProblemSection
         id: true,
         shortId: true,
         title: true,
+        // type и точка решают «подходит/нет» (единая модель подбора): без них
+        // «никто не ищет» срабатывал ложно (ревью 10.11.2026).
+        type: true,
+        lat: true,
+        lng: true,
         price: true,
         currency: true,
         districtId: true,

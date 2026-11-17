@@ -1,6 +1,8 @@
 import { changePropertyPricePlugin } from "./changePropertyPrice.js";
+import { deletePropertyPlugin } from "./deletePropertyTool.js";
 import { changePropertyStatusPlugin } from "./changePropertyStatus.js";
 import { requestPropertyChangePlugin } from "./requestPropertyChange.js";
+import { restorePropertyPlugin } from "./restorePropertyTool.js";
 import { sendToRemakePlugin } from "./sendToRemake.js";
 import type { AssistantToolPlugin } from "./types.js";
 
@@ -17,4 +19,6 @@ export const propertyTools: readonly AssistantToolPlugin[] = [
   changePropertyStatusPlugin,
   requestPropertyChangePlugin,
   sendToRemakePlugin,
+  deletePropertyPlugin,
+  restorePropertyPlugin,
 ];

@@ -57,18 +57,26 @@ describe("class 2: the finished buyer questionnaire is asked once", () => {
     const history = context([bot("Какой район вам подходит?")]);
     const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: [], social: "thank", question: "location" }, evidence: [],
       language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm", inputText: "спасибо", verifiedContext: history });
-    expect(text).toBe("Спасибо!");
+    // 15.11.2026: a bare "спасибо" is answered "you are welcome", the repeated question is not asked.
+    expect(text).toBe("Пожалуйста! Всего доброго.");
   });
   it("still asks a question that the previous turn did not ask", () => {
     expect(render("location", "двушку", context([bot("Сколько комнат вам нужно?")]))).toBe("Какой район вам подходит?");
   });
 });
 
-describe("class 3: a named position is not asked again", () => {
+describe("class 3: a position is never asked for, the vacancy is answered with the phone line", () => {
   const evidence: CustomerAgentEvidence[] = [{ ref: "e0", value: vacancies }];
   it("reads the role from the current message even when the catalog text is not shown", () => {
     const text = render("job_position", "вот моё резюме: Анна, 24 года, SMM 2 года", context(), evidence)!;
-    expect(text).not.toContain("Какая должность");
+    expect(text ?? "").not.toContain("Какая должность");
+    expect(text).toBeNull();
+    const shown = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "none", question: "job_position" } as never, evidence,
+      language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm",
+      inputText: "вот моё резюме: Анна, 24 года, SMM 2 года", verifiedContext: context() })!;
+    expect(shown).toContain("SMM-специалист");
+    expect(shown).toContain("Всю информацию о работе даст по телефону наш специалист Ноза: 777 070 100. Позвоните, пожалуйста.");
+    expect(shown).not.toContain("Какая должность");
   });
   it("reads the role from the history", () => {
     const text = render("job_position", "мне 23, опыт 2 года", context([user("smm"), bot("Какая должность вас интересует?")]), evidence)!;
@@ -78,32 +86,35 @@ describe("class 3: a named position is not asked again", () => {
     const empty = { kind: "open_vacancies", collecting: true, positions: [], sourceHash: recruitmentCatalogHash({ collecting: true, positions: [] }) } as unknown as CustomerAgentObservation;
     expect(render("job_position", "хочу работать агентом", context(), [{ ref: "e0", value: empty }])).toBeTruthy();
   });
-  it("still asks when no role was named", () => {
-    expect(render("job_position", "хочу работать", context(), evidence)).toContain("Какая должность");
+  it("does not ask which role either when none was named (phone-only recruitment)", () => {
+    expect(render("job_position", "хочу работать", context(), evidence)).toBeNull();
   });
 });
 
 describe("class 4: a repeated reply is varied, never silenced", () => {
-  it("answers a repeated question with an honest notice, a different one each time", () => {
+  // 15.11.2026 (owner + review #201): never «я уже писал выше»; the customer asked nothing, so a short acknowledgement
+  // (a person is called only for a real question the bot cannot answer), a different wording each time.
+  it("answers a repeated question with a short acknowledgement, a different one each time", () => {
     const first = render("job_position", "хочу работать", context([user("хочу работать"), bot("Какая должность вас интересует?")]))!;
-    expect(first).toContain("Я уже писал об этом выше");
+    expect(first).toBe("Понял.");
+    expect(first).not.toMatch(/выше|Повторю/u);
     const second = render("job_position", "хочу работать", context([user("хочу работать"), bot("Какая должность вас интересует?"),
       user("хочу работать"), bot(first)]))!;
     expect(second).not.toBe(first);
-    expect(second).toContain("своими словами");
     expect(second).not.toContain("Какая должность");
   });
   it("introduces the same facts when they are asked for again", () => {
     const line = "Офис Royal Home: Душанбе, ул. Тестовая, 1.\nСотрудники на связи с 09:30 до 18:00 по Душанбе. Выходные: воскресенье.";
     const asked = render("none", "где ваш офис?", context([user("где ваш офис?"), bot(line)]), [{ ref: "e0", value: company }],
       { decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" } });
-    expect(asked).toMatch(/^Повторю ещё раз:\n/u);
+    expect(asked).toMatch(/^Конечно\.\n/u);
     expect(asked).toContain("ул. Тестовая, 1");
   });
   it("words a bare acknowledgement differently the third time instead of letting the shield swallow it", () => {
     const ack = (turns: Array<{ role: "user" | "assistant"; text: string }>) => renderCustomerAgentDecision({
       decision: { kind: "reply", refs: [], social: "acknowledge", question: "none" }, evidence: [], language: "ru", requestedFacts: [],
-      knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm", inputText: "цена 1500000", verifiedContext: context(turns) });
+      knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm", inputText: "ладно", verifiedContext: context(turns) });
+    // 16.11.2026 (audit): «Понял.» alone is not an answer to a message with a price; such input goes to a person (customer-bot-audit-16-11).
     expect(ack([])).toBe("Понял.");
     expect(ack([user("в Фирдавси"), bot("Понял.")])).toBe("Понял.");
     const third = ack([user("в Фирдавси"), bot("Понял."), user("120 метров"), bot("Понял.")]);
@@ -119,7 +130,7 @@ describe("class 4: a repeated reply is varied, never silenced", () => {
   it("lets the fixed wording into conversation memory", () => {
     const lines = customerAgentFixedLines();
     for (const line of ["Что ещё важно при выборе: например, этаж или состояние ремонта?", "Какая должность вас интересует?",
-      "Расскажите о недвижимости, которую хотите продать.", "Повторю ещё раз:", "Хорошо, принято."]) expect(lines.has(line)).toBe(true);
+      "Расскажите о недвижимости, которую хотите продать.", "Повторю ещё раз:", "Конечно.", "Хорошо, принято."]) expect(lines.has(line)).toBe(true);
   });
 });
 

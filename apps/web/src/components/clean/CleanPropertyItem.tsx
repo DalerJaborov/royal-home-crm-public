@@ -32,25 +32,26 @@ export function CleanPropertyItem({ property: p, health, variant = "row", select
   const photo = p.photos[0]?.thumbUrl || p.photos[0]?.url;
   const originalPhoto = p.photos[0]?.url;
   return (
-    <article data-property-row="" data-list-row data-property-layout={variant} className={cn("relative min-w-0 overflow-hidden rounded-[20px] bg-card", card ? "flex flex-col" : "mb-3 flex items-start gap-5 p-4", band && !card && "flex-wrap", selected && "ring-2 ring-inset ring-blue")}>
-      {onToggleSelect && <label className={cn("relative z-10 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-[14px] bg-card", card ? "absolute left-2 top-2" : "-ml-2")}><input type="checkbox" checked={!!selected} onChange={() => onToggleSelect(p.id)} aria-label={`Выбрать объект: ${p.title}`} className="size-5 accent-blue" /></label>}
-      <div className={cn("clean-property-thumbnail relative flex shrink-0 items-center justify-center overflow-hidden bg-row-alt", card ? "aspect-[16/10] w-full" : "h-28 w-36 rounded-[14px]")}>
+    <article data-property-row="" data-list-row data-property-layout={variant} className={cn("relative min-w-0 overflow-hidden rounded-[20px] bg-card", card ? "flex h-full flex-col border border-line" : "mb-3 flex items-start gap-5 p-4", band && !card && "flex-wrap", selected && "ring-2 ring-inset ring-blue")}>
+      {onToggleSelect && <label className={cn("relative z-10 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-[14px] bg-card", card ? "!absolute left-2 top-2 shadow-sm" : "-ml-2")}><input type="checkbox" checked={!!selected} onChange={() => onToggleSelect(p.id)} aria-label={`Выбрать объект: ${p.title}`} className="size-5 accent-blue" /></label>}
+      <div className={cn("clean-property-thumbnail relative flex shrink-0 items-center justify-center overflow-hidden bg-row-alt", card ? "aspect-[16/10] w-full rounded-t-[19px]" : "h-28 w-36 rounded-[14px]")}>
         <PropertyThumbnail key={`${photo ?? "empty"}:${originalPhoto ?? ""}`} photo={photo} alternate={originalPhoto} card={card} />
-        {p.photos.length > 0 && <span className="absolute top-2 right-2 rounded-full bg-card px-2 py-1 text-[13px] text-ink">Фото: {p.photos.length}</span>}
+        {p.photos.length > 0 && <span className="absolute top-3 right-3 rounded-full bg-card px-2.5 py-1 text-[13px] text-ink shadow-sm">Фото: {p.photos.length}</span>}
       </div>
-      <div className={cn("min-w-0 flex-1", card && "p-5")}>
-        <div className="relative flex min-h-11 flex-wrap items-center gap-2 text-[14px] text-gray-500"><PropertyHealthDot health={health} /><span>{formatPropertyCode(p.shortId)}</span><span className={statusChipClass(p.status, p.pipeline)}>{statusChipLabel(p.status, p.pipeline)}</span>{p.publishedOnSite && <CChip tone="ok">На сайте</CChip>}</div>
-        <h2 className="mt-2 break-words text-[18px] font-semibold text-ink">{p.title}</h2>
-        <p className="mt-1 break-words text-[14px] text-gray-500">{p.district?.name ?? "Район не указан"}{p.address ? ` · ${p.address}` : ""} · {formatArea(p.areaSqm)} м²{floors}</p>
+      <div className={cn("min-w-0 flex-1", card && "flex flex-col p-4")}>
+        <div className={cn("relative flex flex-wrap items-center gap-2 text-[14px] text-gray-500", card ? "min-h-8" : "min-h-11")}><PropertyHealthDot health={health} /><span>{formatPropertyCode(p.shortId)}</span><span className={statusChipClass(p.status, p.pipeline)}>{statusChipLabel(p.status, p.pipeline)}</span>{p.publishedOnSite && <CChip tone="ok">На сайте</CChip>}</div>
+        <h2 className={cn("break-words font-semibold text-ink", card ? "mt-1 line-clamp-1 text-[17px]" : "mt-2 text-[18px]")}>{p.title}</h2>
+        <p className={cn("mt-1 break-words text-[14px] text-gray-500", card && "line-clamp-2")}>{p.district?.name ?? "Район не указан"}{p.address ? ` · ${p.address}` : ""} · {formatArea(p.areaSqm)} м²{floors}</p>
         <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1"><strong className="text-[20px] font-semibold text-ink">{formatMoney(p.price, p.currency)}</strong><span className="text-[14px] text-gray-500">{formatPricePerSqm(p.price, p.areaSqm, p.currency)}</span></div>
-        <div className="mt-3 flex min-h-11 items-center"><PropertyStats property={p} /></div>
+        <div className={cn("flex items-center", card ? "mt-2 min-h-8" : "mt-3 min-h-11")}><PropertyStats property={p} /></div>
         {subline && <div className="clean-property-subline mt-2 text-[14px] text-gray-500">{subline}</div>}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        {(awaitingAcceptance || handoff.length > 0) && <div className={cn("flex flex-wrap items-center gap-2", card ? "mt-2" : "mt-3")}>
           {awaitingAcceptance && <CChip tone="warn">Передан вам · примите</CChip>}
           {handoff.map((item) => <CChip key={item.text} tone={item.tone === "mute" ? "gray" : item.tone}>{item.text}</CChip>)}
-        </div>
+        </div>}
         {p.pipeline?.overdue && !subline && <p className="mt-3 text-[14px] text-red">{STAGE_OWNER_LABELS[p.pipeline.owner ?? ""] ?? p.pipeline.owner ?? "Этап"} задерживает объект: {p.pipeline.daysInStage} дн. при сроке {p.pipeline.limitDays ?? "не задан"}.</p>}
-        <div className="relative z-10 mt-4 flex flex-wrap items-center justify-between gap-3">
+        {card && <div aria-hidden="true" className="min-h-3 flex-1" />}
+        <div className={cn("relative z-10 flex flex-wrap items-center justify-between gap-3", card ? "border-t border-line pt-3" : "mt-4")}>
           <span title={agentTitle} className="text-[14px] text-gray-500">{agentName || "Без агента"}</span>
           <div className="flex flex-wrap items-center gap-2">
             {onTogglePublish && (p.publishedOnSite || p.status === "AVAILABLE") && <CButton variant="outline" size="sm" onClick={() => onTogglePublish(p.id, p.publishedOnSite ? "unpublish" : "publish")}>{p.publishedOnSite ? "Снять с сайта" : "Опубликовать"}</CButton>}

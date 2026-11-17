@@ -26,13 +26,14 @@
  * честно сказать про две сети: неверный ролик тогда просто останется висеть,
  * а в CRM будет написано, что его нет.
  */
-import { prisma } from "../db.js";
+import { randomUUID } from "node:crypto";
+import { prisma, type TxClient } from "../db.js";
 import { logSystemError } from "./systemError.js";
 import { updatePublishedMarks } from "./publishedMarks.js";
 import { isYoutubeScopeError, reportYoutubeScopeMissing, YOUTUBE_SCOPE_MISSING_SHORT } from "./youtubeScope.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { loadCredentials } from "../messengers/meta.js";
-import { deleteChannelMessage, editMessageCaption } from "../telegram/api.js";
+import { deleteChannelMessage, editMessageCaption, TelegramApiError } from "../telegram/api.js";
 import {
   deleteFacebookVideo,
   deleteInstagramMedia,
@@ -1119,6 +1120,56 @@ export async function refreshPublishedCaptions(
   propertyId: string,
   opts: { keepStoredCaption?: boolean } = {}
 ): Promise<CaptionRefreshResult> {
+  const refused = (error: string): CaptionRefreshResult => ({ caption: "", updated: [], failed: [{ channel: "—", error }], manual: [] });
+  const lease = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR NO KEY UPDATE`;
+    const property = await tx.property.findUnique({ where: { id: propertyId }, select: { deletedAt: true } });
+    if (!property || property.deletedAt) return { error: "Объект не найден" } as const;
+    const unresolved = await tx.publicationMetadataSync.findFirst({
+      where: { propertyId, operation: "CAPTION", status: { in: ["EXECUTING", "UNKNOWN"] } },
+      select: { id: true },
+    });
+    if (unresolved) return { error: "Подпись уже обновляется или ждёт проверки. Проверьте результат перед повтором." } as const;
+    const row = await tx.publicationMetadataSync.create({
+      data: {
+        propertyId, revisionHash: randomUUID(), channel: "*", operation: "CAPTION",
+        executionMode: "CAPTION_REFRESH", status: "EXECUTING", startedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    return { id: row.id } as const;
+  });
+  if (!lease.id) return refused(lease.error ?? "Обновление подписи недоступно");
+
+  let uncertain = false;
+  const settle = (status: "APPLIED" | "FAILED" | "UNKNOWN") => prisma.publicationMetadataSync.updateMany({
+    where: { id: lease.id, status: "EXECUTING" },
+    data: {
+      status,
+      finishedAt: new Date(),
+      reason: status === "UNKNOWN" ? "Проверьте, какие подписи приняли площадки, перед следующим обновлением." : null,
+    },
+  });
+  const assertLeaseActive = async () => {
+    const active = await prisma.publicationMetadataSync.count({ where: { id: lease.id, status: "EXECUTING" } });
+    if (!active) throw new Error("Обновление подписи уже передано на проверку");
+  };
+  try {
+    const result = await refreshCaptionsInOrder(propertyId, opts, assertLeaseActive, () => { uncertain = true; });
+    await settle(uncertain ? "UNKNOWN" : result.failed.length ? "FAILED" : "APPLIED");
+    return result;
+  } catch (err) {
+    await settle("UNKNOWN");
+    throw err;
+  }
+}
+
+async function refreshCaptionsInOrder(
+  propertyId: string,
+  opts: { keepStoredCaption?: boolean },
+  assertLeaseActive: () => Promise<void>,
+  markUncertain: () => void,
+): Promise<CaptionRefreshResult> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
     include: {
@@ -1159,7 +1210,13 @@ export async function refreshPublishedCaptions(
   // Концовка с агентом (25.09.2026) ставится и на сохранённую подпись: так
   // «Обновить подписи» доносит смену агента или его номера до вышедших постов.
   const caption = withPostFooter(applyContactFooter(captionBase, captionAgent), property.shortId);
-  await prisma.property.update({ where: { id: propertyId }, data: { reelsCaption: caption } });
+  const stored = await prisma.property.updateMany({
+    where: { id: propertyId, version: property.version, reelsCaption: property.reelsCaption, deletedAt: null },
+    data: { reelsCaption: caption },
+  });
+  if (!stored.count) {
+    return { caption: "", updated: [], failed: [{ channel: "—", error: "Карточка изменилась. Обновите подпись ещё раз." }], manual: [] };
+  }
 
   const channels = property.publishedChannels ?? [];
   const postIds = (property.publishedPostIds ?? {}) as Record<string, string>;
@@ -1177,8 +1234,13 @@ export async function refreshPublishedCaptions(
       const creds = await loadCredentials();
       if (!creds.pageToken) failed.push({ channel: "FACEBOOK", error: "Facebook не подключён в Настройках" });
       else {
-        const res = await updateFacebookVideoDescription(postIds.FACEBOOK, creds.pageToken, caption);
-        res.ok ? updated.push("FACEBOOK") : failed.push({ channel: "FACEBOOK", error: res.error ?? "неизвестная ошибка" });
+        await assertLeaseActive();
+        const res = await updateFacebookVideoDescription(postIds.FACEBOOK, creds.pageToken, caption, true);
+        if (res.ok) updated.push("FACEBOOK");
+        else {
+          if (res.delivery === undefined || res.delivery === "UNKNOWN") markUncertain();
+          failed.push({ channel: "FACEBOOK", error: res.error ?? "неизвестная ошибка" });
+        }
       }
     }
   }
@@ -1198,10 +1260,12 @@ export async function refreshPublishedCaptions(
     } else if (!settings?.telegramChannelId?.trim()) {
       failed.push({ channel: "TELEGRAM", error: "Канал Telegram не указан в Настройках" });
     } else {
+      await assertLeaseActive();
       try {
-        await editMessageCaption(settings.telegramChannelId.trim(), Number(postIds.TELEGRAM), caption);
+        await editMessageCaption(settings.telegramChannelId.trim(), Number(postIds.TELEGRAM), caption, undefined, true);
         updated.push("TELEGRAM");
       } catch (err) {
+        if (!(err instanceof TelegramApiError) || err.errorCode == null) markUncertain();
         failed.push({ channel: "TELEGRAM", error: err instanceof Error ? err.message : String(err) });
       }
     }
@@ -1212,9 +1276,12 @@ export async function refreshPublishedCaptions(
     if (hasExtra) {
       for (const [chatId, messageId] of Object.entries(telegramExtraIds!)) {
         if (!messageId) continue;
+        await assertLeaseActive();
         try {
-          await editMessageCaption(chatId, Number(messageId), caption);
+          await editMessageCaption(chatId, Number(messageId), caption, undefined, true);
         } catch (err) {
+          if (!(err instanceof TelegramApiError) || err.errorCode == null) markUncertain();
+          failed.push({ channel: "TELEGRAM", error: "Не обновилась подпись в дополнительном канале Telegram" });
           void logSystemError(
             "telegram",
             `Обновление подписи в дополнительном чате Telegram ${chatId} (объект ${propertyId}) не удалось: ${err instanceof Error ? err.message : String(err)}`
@@ -1228,9 +1295,10 @@ export async function refreshPublishedCaptions(
     if (!postIds.YOUTUBE) {
       failed.push({ channel: "YOUTUBE", error: "в карточке нет сохранённого id видео YouTube — подпись обновить нечем" });
     } else {
-      // title = description — то же правило, что при публикации и в
-      // publishedListingSync.ts: part=snippet заменяет snippet целиком.
-      const res = await updateYouTubeDescription(await youtubeCredentials(), postIds.YOUTUBE, caption, caption);
+      const credentials = await youtubeCredentials();
+      await assertLeaseActive();
+      const res = await updateYouTubeDescription(credentials, postIds.YOUTUBE, caption, caption, true);
+      if (!res.ok && (res.delivery === undefined || res.delivery === "UNKNOWN") && !isYoutubeScopeError(res.error)) markUncertain();
       if (res.ok) updated.push("YOUTUBE");
       else if (isYoutubeScopeError(res.error)) {
         // Нет права у ключа — причина общая для ВСЕХ объектов (lib/youtubeScope.ts):
@@ -1343,15 +1411,14 @@ export const CAPTION_FACT_FIELDS = [
  */
 export async function rewriteStoredCaptionAfterEdit(
   before: CaptionSource & { districtId: string | null; reelsCaption: string | null },
-  after: CaptionSource & { id: string; districtId: string | null }
+  after: CaptionSource & { id: string; districtId: string | null },
+  db: TxClient = prisma
 ): Promise<boolean> {
   if (!before.reelsCaption?.trim()) return true;
   const ids = [before.districtId, after.districtId].filter((x): x is string => !!x);
-  const [districts, money, settings] = await Promise.all([
-    ids.length ? prisma.district.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [],
-    loadMoneyContext(),
-    prisma.settings.findUnique({ where: { id: "singleton" }, select: { reelsCaptionTemplates: true } }),
-  ]);
+  const districts = ids.length ? await db.district.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+  const money = await loadMoneyContext(db);
+  const settings = await db.settings.findUnique({ where: { id: "singleton" }, select: { reelsCaptionTemplates: true } });
   const name = (id: string | null) => districts.find((d) => d.id === id)?.name ?? "";
   const rewritten = rewriteCaptionFacts(
     before.reelsCaption,
@@ -1361,7 +1428,11 @@ export async function rewriteStoredCaptionAfterEdit(
   );
   if (rewritten === null) return false;
   if (rewritten !== before.reelsCaption) {
-    await prisma.property.update({ where: { id: after.id }, data: { reelsCaption: rewritten } });
+    const write = await db.property.updateMany({
+      where: { id: after.id, reelsCaption: before.reelsCaption },
+      data: { reelsCaption: rewritten },
+    });
+    if (!write.count) return false;
   }
   return true;
 }

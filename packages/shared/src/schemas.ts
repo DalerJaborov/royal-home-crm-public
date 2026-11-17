@@ -299,7 +299,10 @@ const expenseBaseSchema = z.object({
 /** Что обязательно заполнить, чтобы позже можно было понять, куда ушли деньги:
  * реклама — канал (сумма без разбивки по каналам бесполезна для стоимости лида),
  * зарплата — сотрудник, офис/прочее — комментарий (иначе строка ничего не объясняет). */
-export const expenseCreateSchema = expenseBaseSchema.superRefine((data, ctx) => {
+export const expenseCreateSchema = expenseBaseSchema.extend({
+  /** Человек видел «уже учтено автоматически» (expenseAutoOverlap.ts) и подтвердил, что это другой расход. */
+  confirmAutoOverlap: z.boolean().optional(),
+}).superRefine((data, ctx) => {
   if (data.category === "ADVERTISING" && !data.source) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["source"], message: "Укажите канал рекламы" });
   }
@@ -312,6 +315,8 @@ export const expenseCreateSchema = expenseBaseSchema.superRefine((data, ctx) => 
 });
 
 export const expenseUpdateSchema = expenseBaseSchema.partial().extend({
+  /** Правка сделала строку похожей на автоматическую (expenseAutoOverlap.ts) — человек подтвердил «другой». */
+  confirmAutoOverlap: z.boolean().optional(),
   /** Version read when opening the editor, not a fresh version fetched at save time. */
   version: z.number().int().nonnegative().optional(),
 });
@@ -724,7 +729,7 @@ export function hasValidPhoneDigitCount(v: string): boolean {
 
 /** Минимум 9 значащих цифр (без учёта +/скобок/пробелов) — реальные номера в базе всегда
  *  такие (+992 и 9-значный местный номер); отсекает явный мусор вроде "abc123". */
-const clientPhoneSchema = z
+export const clientPhoneSchema = z
   .string()
   .min(5)
   // Скрытый маской номер отвергаем ОТДЕЛЬНО и раньше проверки длины: цифр в нём

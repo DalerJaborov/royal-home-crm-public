@@ -4,11 +4,11 @@ import { createCustomerCoreGoldenFixture, reply, call, decision } from "./helper
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
 import * as mediaObservation from "../src/lib/customerAgentMediaObservation.js";
 import { decodeCustomerAgentMediaObservation } from "../src/lib/customerAgentMediaObservation.js";
-import { readFileSync, mkdtempSync, unlinkSync, rmdirSync } from "node:fs";
+import { readFileSync, mkdtempSync, unlinkSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { customerRecruitmentPortfolioSchema } from "@royal-home/shared";
+import { customerRecruitmentPortfolioSchema, recruitmentPhoneLine } from "@royal-home/shared";
 import { privateFilePath } from "../src/lib/privateFiles.js";
 import { prepareCustomerDmInboxCoreContext } from "../src/lib/customerDmCoreContext.js";
 
@@ -50,7 +50,8 @@ it("a queued caption supersedes the older media reply while its real perceived v
     expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: first } })).toBe(0);
     const actual = await f.deliver(second);
     expect(actual.text).toContain("Агент по недвижимости");
-    expect(actual.text).toContain("Обучение и наставник");
+    expect(actual.text).toContain(recruitmentPhoneLine("ru"));
+    expect(actual.text).not.toContain("Обучение и наставник");
     expect(actual.text).not.toMatch(/мебель|Какой объект|нет подтверждённых/iu);
   } finally {
     await prisma.recruitmentPosition.delete({ where: { key } });
@@ -71,8 +72,9 @@ it("a genuine SMM video goes through the bounded Gemini media path, private stor
     f.script([[perception({ subject: "not_visible", visible: [] })], [call("save_job_application", {}, "save-portfolio")], [reply(["e1"], "job_tools")]]);
     const event = await f.capture(owner, "Вакансия видеограф: вот моя работа", [{ type: "video", payload: { url } }]);
     const result = await f.deliver(event);
-    expect(result.text).toContain("Сведения добавлены к отклику");
-    expect(result.text).not.toMatch(/позвон|передан|принят на работу|возраст|992/iu);
+    expect(result.text).toContain("Спасибо, записал");
+    expect(result.text).toContain(recruitmentPhoneLine("ru"));
+    expect(result.text).not.toMatch(/передан|принят на работу|возраст|992/iu);
     const application = await prisma.jobApplication.findFirstOrThrow({ where: { customerPositionKey: key } });
     const portfolio = customerRecruitmentPortfolioSchema.parse(application.customerPortfolio);
     expect(portfolio).toHaveLength(1); expect(portfolio[0].kind).toBe("video");
@@ -86,7 +88,7 @@ it("a genuine SMM video goes through the bounded Gemini media path, private stor
     await prisma.recruitmentPosition.delete({ where: { key } });
     await prisma.settings.update({ where: { id: "singleton" }, data: settings });
     if (saved && dirname(saved) === directory) unlinkSync(saved);
-    rmdirSync(directory);
+    rmSync(directory, { recursive: true, force: true });
     if (previousDir === undefined) delete process.env.PRIVATE_UPLOADS_DIR; else process.env.PRIVATE_UPLOADS_DIR = previousDir;
   }
 });
@@ -97,7 +99,7 @@ it("a shared reel with a non-Graph legacy ID reads actual own-feed bytes and del
   f.script([[perception()], [reply([], "role")]]);
   const event = await f.capture(owner, "", [{ type: "ig_reel", payload: { url: permalink, reel_video_id: "12345678" } }]);
   const result = await f.deliver(event);
-  expect(result.text).toContain("кухня"); expect(result.text).toContain("балкон");
+  expect(result.text).toContain("Спасибо, фото получил."); // 16.11.2026: no inventory list
   expect(result.text).not.toMatch(/Что хотите узнать по этой публикации|недоступно|текстом|сотрудник|992/iu);
   const stored = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });
   expect(stored.mediaObservationCiphertext).toBeTruthy();
@@ -110,7 +112,7 @@ it("carousel children reach the qualified Gemini byte path under the same origin
   ] } }]);
   f.script([[perception()], [reply([], "role")]]);
   const result = await f.deliver(await f.capture(owner, "", [{ type: "ig_post", payload: { url: permalink, ig_post_media_id: "17890002" } }]));
-  expect(result.text).toContain("кухня");
+  expect(result.text).toContain("Спасибо, фото получил.");
   const body = f.bodies.at(-2) as { contents: Array<{ parts: Array<{ inline_data?: unknown }> }> };
   expect(body.contents[0].parts.filter(part => part.inline_data)).toHaveLength(2);
 });
@@ -120,7 +122,7 @@ it("a permalink declared as video is resolved as a publication instead of downlo
   f.publicationFixture(owner, [{ id: "17890004", permalink, media_type: "IMAGE", media_url: url }]);
   f.script([[perception()], [reply([], "role")]]);
   const result = await f.deliver(await f.capture(owner, "", [{ type: "video", payload: { url: permalink } }]));
-  expect(result.text).toContain("кухня");
+  expect(result.text).toContain("Спасибо, фото получил.");
 });
 it("a shared reel from the feed sends actual MP4 bytes, never its thumbnail, to Gemini", async () => {
   const owner = await f.owner();
@@ -156,7 +158,7 @@ it("a captionless photo reaches Gemini as bytes and gets a visual, normal delive
   f.script([[perception()], [reply([], "role")]]);
   const event = await f.capture(owner, "", [{ type: "image", payload: { url } }]);
   const result = await f.deliver(event);
-  expect(result.text).toContain("кухня"); expect(result.text).toContain("балкон");
+  expect(result.text).toContain("Спасибо, фото получил."); // 16.11.2026: no inventory list
   expect(result.text).not.toMatch(/недоступно|напишите.*текст|992|передал|сотрудник/iu);
   expect(f.counts()).toEqual({ generated: before.generated + 2, counted: before.counted + 2 });
   const row = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });
@@ -267,7 +269,7 @@ it("uses database time for an immutable observation even when the application cl
   });
   f.script([[perception()], [reply([], "role")]]);
   const result = await f.deliver(event);
-  expect(exercised).toBe(true); expect(result.text).toContain("кухня");
+  expect(exercised).toBe(true); expect(result.text).toContain("Спасибо, фото получил.");
   const [row] = await prisma.$queryRaw<Array<{ validTime: boolean }>>`SELECT
     "mediaObservedAt">="receivedAt" AND "mediaObservedAt"<=clock_timestamp() AS "validTime"
     FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${event}`;

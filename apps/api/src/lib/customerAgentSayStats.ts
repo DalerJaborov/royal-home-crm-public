@@ -21,16 +21,25 @@ const MIN_SAMPLE = 5;
 const CHECK_EVERY_MS = 10 * 60_000;
 let lastCheckAt = 0;
 
-export interface CustomerAgentSayDay { total: number; dropped: number; share: number; reasons: Array<{ reason: string; count: number }>; alert: boolean }
-/** Pure: GuardHit rows of one day to the verdict. A phrase that was valid but held back by the shadow mode is not "dropped". */
+/**
+ * Reasons that mean "switched off on purpose" (Tajik in v1, non-private surfaces), not "the model got it wrong". They stay out of the drop share and the
+ * alert: on 13.11.2026 the line read «отброшена в 83% ответов» while 38 of the 58 drops were the Tajik phrase that v1 drops by design.
+ */
+const INTENTIONAL: readonly CustomerAgentSayDropReason[] = ["language_disabled", "surface_disabled"];
+
+export interface CustomerAgentSayDay { total: number; dropped: number; share: number; reasons: Array<{ reason: string; count: number }>; alert: boolean;
+  /** Phrases dropped because the language or surface is off by design; shown beside the share, never part of it. */
+  intentional: number }
+/** Pure: GuardHit rows of one day to the verdict. A phrase that was valid but held back by the shadow mode is not "dropped"; one switched off by design is not counted at all. */
 export function summarizeCustomerAgentSayDay(rows: readonly { guard: string; count: number }[]): CustomerAgentSayDay {
-  let total = 0, dropped = 0, serious = 0;
+  let total = 0, dropped = 0, serious = 0, intentional = 0;
   const reasons: Array<{ reason: string; count: number }> = [];
   for (const row of rows) {
     if (row.count <= 0) continue;
     if (row.guard === "say_used") { total += row.count; continue; }
     if (!row.guard.startsWith(REASON_PREFIX)) continue;
     const reason = row.guard.slice(REASON_PREFIX.length);
+    if ((INTENTIONAL as readonly string[]).includes(reason)) { intentional += row.count; continue; }
     total += row.count;
     if (reason === "shadow") continue;
     dropped += row.count; reasons.push({ reason, count: row.count });
@@ -38,7 +47,7 @@ export function summarizeCustomerAgentSayDay(rows: readonly { guard: string; cou
   }
   reasons.sort((a, b) => b.count - a.count);
   const share = total ? dropped / total : 0;
-  return { total, dropped, share, reasons, alert: serious > 0 || total >= MIN_SAMPLE && share > DROP_SHARE_ALERT };
+  return { total, dropped, share, reasons, intentional, alert: serious > 0 || total >= MIN_SAMPLE && share > DROP_SHARE_ALERT };
 }
 
 /** Once a day at most (the dedup key is the day): the log line the owner reads, not a page. */
@@ -48,7 +57,8 @@ export async function reportCustomerAgentSayDay(now: Date = new Date()): Promise
   const summary = summarizeCustomerAgentSayDay(rows);
   if (summary.alert) {
     await logSystemError("ai", `Бот: живая фраза отброшена в ${Math.round(summary.share * 100)}% ответов (${summary.dropped} из ${summary.total}), причины: ${
-      summary.reasons.map(item => `${item.reason} ${item.count}`).join(", ") || "нет"}`, { dedupKey: `customer-agent-say:${day}` });
+      summary.reasons.map(item => `${item.reason} ${item.count}`).join(", ") || "нет"}${
+      summary.intentional ? `. Не в счёт, выключено намеренно (таджикский и не личные сообщения): ${summary.intentional}` : ""}`, { dedupKey: `customer-agent-say:${day}` });
   }
   return summary;
 }
