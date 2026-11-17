@@ -1265,7 +1265,7 @@
 - пробует
   - если lastMessage?.role === "user"
     - пробует
-      - const fast = await tryAssistantFastPath(lastMessage.content, actor);
+      - const fast = await tryAssistantFastPath(lastMessage.content, actor, assistantLanguage(parsed.data.messages) =…
         · зовёт tryAssistantFastPath()
       - если fast
         - void logAssistantToolCall({ agentId: actor.id, tool: fast.tool, argsSummary: fast.argsSummary, resultCount: f…

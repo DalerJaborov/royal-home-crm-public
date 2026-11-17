@@ -18,6 +18,7 @@ import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
 import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
+import { attachedRequest } from "./assistantAttachedRequest.js";
 import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
 import { getPropertyWorkList } from "../ai/assistant/tools/getPropertyWorkStatus.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
@@ -330,6 +331,8 @@ interface TurnParams {
   showWorking?: () => void;
   /** Ключ хода (`tg:<чат>:<сообщение>`): повторная доставка того же сообщения не повторяет записи. */
   turnKey?: string;
+  /** Прямое обращение в группе: даёт модели инструмент set_group_quiet (ai/assistant/tools/groupQuietTool.ts). */
+  groupChat?: { chatId: string; registeredAt: number };
 }
 
 /** Чаще, чем Telegram гасит «печатает…» (~5 с), но без лишних вызовов API. */
@@ -475,6 +478,10 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   if (params.readOnlyGroup || params.onlyGroupConfirmation || (params.scope === "group" && params.forwardedEvidence)) {
     actor.hiddenTools = new Set([...GROUP_HIDDEN_TOOLS, "get_client_history", "get_client_card", "web_reference"]);
   }
+  // «Помолчи» словами модели — только на прямое обращение: ни пересылка, ни автоответ его не включают.
+  if (params.groupChat && params.scope === "group" && !params.forwardedEvidence && !params.readOnlyGroup && !params.onlyGroupConfirmation) {
+    actor.groupChat = params.groupChat;
+  }
   if (params.onlyGroupConfirmation) {
     actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), ...listAssistantToolPlugins()
       .filter(plugin => plugin.level !== "A" && (plugin.level !== "C" || plugin.name !== params.onlyGroupConfirmation))
@@ -527,7 +534,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
           return { reply: roster, pending: [], done: [], structured: true };
         }
       }
-      const fast = await tryAssistantFastPath(last.content, actor);
+      const fast = await tryAssistantFastPath(last.content, actor, assistantLanguage(params.history) === "tg" ? "tg" : "ru");
       if (fast) {
         void logAssistantToolCall({
           agentId: actor.id,
@@ -868,6 +875,7 @@ export async function handleAssistantPrivate(
     let text = (msg.text ?? msg.caption ?? "").trim();
     const fromVoice = Boolean(msg.voice || msg.audio);
     let forwardedEvidence = forwardedPlain;
+    let attachedFileText = "";
     if (!forwardedPlain && (text === "/new" || text === "/reset")) {
       await clearHistory(chatId);
       clearStaffPropertyPage(cardScope);
@@ -885,9 +893,15 @@ export async function handleAssistantPrivate(
       void sendChatAction(chatId).catch(() => {});
       const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet });
       const extracted = access.permissions.has("clients.viewPhone") ? media.text : maskAssistantContacts(media.text);
-      // File text is quoted evidence, never a request that may authorize CRM writes.
-      for (let offset = 0; offset < extracted.length; offset += 3500) await send(extracted.slice(offset, offset + 3500));
-      return;
+      if (forwardedPlain || media.error || !media.extraction) {
+        // File text is quoted evidence, never a request that may authorize CRM writes.
+        for (let offset = 0; offset < extracted.length; offset += 3500) await send(extracted.slice(offset, offset + 3500));
+        return;
+      }
+      // Подпись — слова сотрудника, а не часть файла (17.11.2026): «оплатил рекламу 300» раньше терялась,
+      // человеку возвращали только распознанный текст. Теперь подпись идёт обычным ходом помощницы,
+      // текст файла приложен к нему недоверенным документом (как у пересланных сообщений).
+      attachedFileText = extracted;
     }
     if (fromVoice) {
       const voice = await transcribeVoice(msg, agent.id, moneyWallet);
@@ -937,7 +951,7 @@ export async function handleAssistantPrivate(
     }
     const showTyping = fromVoice ? undefined : () => void sendChatAction(chatId).catch(() => {});
     showTyping?.();
-    const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
+    const history = [...previous, { role: "user" as const, content: attachedRequest(text, attachedFileText).slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
       showWorking: showTyping, turnKey: `tg:${chatId}:${msg.message_id}`,
       validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
@@ -1647,6 +1661,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         agentId: sender.id,
         moneyWallet,
         scope: "group",
+        groupChat: addressed ? { chatId, registeredAt } : undefined,
         allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
         readOnlyGroup: Boolean(continuationRef),
         validateQueueAudience, forwardedEvidence,

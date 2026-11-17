@@ -56,8 +56,12 @@ export async function searchAssistantCompanyKnowledge(query: string, semanticOpt
       }
     }
     // The local topic projection works even when the stored wording uses different RU/TG terms.
-    // If the reviewed revision has changed, don't substitute a different rule or an unreviewed revision.
-    return approvedTopicKnowledge(policy.id);
+    const approved = await approvedTopicKnowledge(policy.id);
+    if (approved.length) return approved;
+    // Reviewed pilot revision missing or changed (17.11.2026): an empty answer made the model say "no such
+    // rule" while the owner's own record existed. Fall back to the plain word search the explicit tool uses;
+    // knowledgeContext labels every row with its title, source and version, so an edited rule is not passed
+    // off as the reviewed one.
   }
   // An acknowledgement without searchable words should not browse the catalog.
   const words = knowledgeSearchWords(boundedQuery);

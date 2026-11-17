@@ -52,6 +52,14 @@ it("still looks up ordinary words and lets the explicit tool browse without keyw
   expect(await searchCompanyKnowledge("")).toEqual([entry]);
   expect(mocks.query.mock.calls[1][0].text).toContain("AND true");
 });
+it("rule question with no approved pilot record falls back to the plain word search instead of an empty answer", async () => {
+  // «Какие правила показа»: тема пилота распознана, но утверждённой ревизии нет — раньше ответ был пустым.
+  const own = { ...input, title: "Правила показа", content: "Показ только после звонка владельцу.", revision: 3 };
+  mocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([own]);
+  expect(await searchAssistantCompanyKnowledge("какие правила показа")).toEqual([own]);
+  expect(mocks.query).toHaveBeenCalledTimes(2);
+  expect(mocks.query.mock.calls[1][0].values).toContain("%правила%");
+});
 it("normalizes key but does not collapse different titles",()=>{expect(knowledgeKey('  Порядок   показа ')).toBe('порядок показа');expect(knowledgeKey('Порядок')).not.toBe(knowledgeKey('Порядок показа'));});
 it("write tools always use confirmation level C",()=>{expect(knowledgeTools.filter(t=>t.level!=='A').map(t=>t.level)).toEqual(['C','C']);});
 it("preview preparation never writes and includes every content character",async()=>{

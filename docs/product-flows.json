@@ -5545,7 +5545,7 @@
          "c": [
           {
            "k": "do",
-           "t": "const fast = await tryAssistantFastPath(lastMessage.content, actor);",
+           "t": "const fast = await tryAssistantFastPath(lastMessage.content, actor, assistantLanguage(parsed.data.messages) =…",
            "a": [
             "зовёт tryAssistantFastPath()"
            ],
