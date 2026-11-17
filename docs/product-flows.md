@@ -24626,7 +24626,7 @@
     - если Date.now() < deadline
       - const pending = await prisma.somonSeenAdvert.findMany({ where: { status: "PENDING", baseline: false }, orderB…
         · читает в базе: somonSeenAdvert
-      - если pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000
+      - если pendingDelayed(pending[0], new Date())
         - await logSystemError("cron", "Somon: очередь объявлений задерживается более 15 минут", { dedupKey: "somon-pen…
           · запись в журнал ошибок
       - для каждого: const item of pending
