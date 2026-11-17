@@ -614,6 +614,14 @@ export function startCronJobs() {
     const { notifyNarrationApproval, remindPendingNarrationApprovals } = await import("./telegram/assistantNarration.js");
     await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApprovals });
   }, undefined, undefined, { timeoutMs: 170_000 });
+  // Новая озвучка на вышедший ролик без монтажёра (16.11.2026): CRM сама убирает старый голос
+  // (сервис voice-separator) и накладывает новый. Один объект за тик — это минуты процессора;
+  // отдельной задачей, чтобы не держать черновики и одобрения озвучки (narration-auto-flow).
+  scheduleTracked("narration-auto-master", "* * * * *", async () => {
+    const { runMachineMastersTick } = await import("./lib/narrationAutoFlow.js");
+    await runMachineMastersTick();
+    // Звук + отделение (до 15 мин) + мастер + перемикс: с запасом; замок объекта живёт 40 мин.
+  }, undefined, undefined, { timeoutMs: 30 * 60_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {
     const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");
     await runSellerControlTick();
