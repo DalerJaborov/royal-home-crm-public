@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * просьба о языке на таджикском и её память. Без базы: prisma подменён.
  */
 const { updateMany } = vi.hoisted(() => ({ updateMany: vi.fn() }));
+// Внешний пакет не нужен ни одной проверке здесь (safeFetch только подгружается реестром инструментов).
+vi.mock("undici", () => ({ Agent: class {} }));
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), assistantTelegramGroup: { updateMany } } }));
 
 import { requestedGroupParticipation } from "../src/telegram/assistantGroupParticipation.js";
@@ -12,6 +14,8 @@ import { groupQuietPlugin, MAX_QUIET_MINUTES } from "../src/ai/assistant/tools/g
 import { assistantLanguage, explicitAssistantLanguageRequest } from "../src/ai/assistant/languageRouting.js";
 import { assistantChannelGuide } from "../src/ai/assistant/promptSections.js";
 import { attachedRequest } from "../src/telegram/assistantAttachedRequest.js";
+import { attachedFileHiddenTools } from "../src/telegram/assistantAttachedRequest.js";
+import { runTool } from "../src/ai/assistant.js";
 import type { AssistantActor } from "../src/ai/assistant/actor.js";
 
 describe("«помолчи»: быстрый путь без модели", () => {
@@ -143,5 +147,43 @@ describe("подпись к файлу доходит до модели", () => 
   it("таджикская подпись — таджикская строка-пояснение; пустой файл — только подпись", () => {
     expect(attachedRequest("Нархи ин хона чанд аст ва кай намоиш мешавад", "матн")).toContain("замима шудааст");
     expect(attachedRequest("прочитай", "   ")).toBe("прочитай");
+  });
+});
+
+describe("разовые задачи над текстом не закрепляют язык ответа", () => {
+  it.each([
+    "переведи на таджикский: дом продаётся", "Напиши по-таджикски объявление", "Напишите клиенту по-таджикски",
+    "ответь по-русски клиенту", "Ба забони тоҷикӣ эълон нависед", "тарҷума кун бо тоҷикӣ ҷавоб деҳ", "напиши на таджикском текст поста",
+  ])("%s", (text) => {
+    expect(explicitAssistantLanguageRequest(text)).toBeNull();
+    expect(assistantLanguage([{ role: "user", content: text }, { role: "assistant", content: "Готово." },
+      { role: "user", content: "Сколько стоит ОБ-12 и когда показ?" }])).toBe("ru");
+  });
+});
+
+describe("set_group_quiet: пустой срок — это «не назван», а не «снять тишину»", () => {
+  it.each([null, "", "  "])("minutes=%j даёт полчаса", async (minutes) => {
+    updateMany.mockReset().mockResolvedValue({ count: 1 });
+    const actor = { id: "a", role: "AGENT", surface: "telegram-group", groupChat: { chatId: "-1", registeredAt: 1 } } as AssistantActor;
+    expect(await groupQuietPlugin.run({ minutes }, { actor })).toMatchObject({ quiet: true, minutes: 30 });
+  });
+});
+
+describe("файл в запросе: записи без карточки закрыты, настоящим вызовом", () => {
+  it("уровень B и встроенные задачи закрыты, чтение и записи с карточкой остаются", () => {
+    const hidden = attachedFileHiddenTools();
+    expect(hidden).toEqual(expect.arrayContaining(["add_client_note", "create_task", "reschedule_task"]));
+    expect(hidden).not.toContain("search_properties");
+    expect(hidden).not.toContain("add_expenses");
+  });
+
+  it("команда из текста файла «добавь заметку клиенту» не исполняется: инструмент отказывает до базы", async () => {
+    const actor = { id: "a", role: "AGENT", surface: "telegram-private", hiddenTools: new Set(attachedFileHiddenTools()) } as AssistantActor;
+    for (const [name, args] of [
+      ["add_client_note", { clientId: "00000000-0000-4000-8000-000000000001", text: "из файла" }],
+      ["create_task", { title: "из файла" }],
+    ] as const) {
+      expect(await runTool(name, args, actor)).toEqual({ error: "Этот инструмент недоступен в этом чате" });
+    }
   });
 });

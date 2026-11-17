@@ -25,7 +25,9 @@ export const MAX_QUIET_MINUTES = 8 * 60;
 
 const argsSchema = z.object({
   // Модель иногда шлёт число строкой.
-  minutes: z.coerce.number().int().min(0).max(MAX_QUIET_MINUTES).optional(),
+  // null и пустая строка — «срок не назван» (по умолчанию), а не 0 (снять тишину).
+  minutes: z.preprocess(value => (value === null || (typeof value === "string" && value.trim() === "") ? undefined : value),
+    z.coerce.number().int().min(0).max(MAX_QUIET_MINUTES).optional()),
 });
 
 const inDirectGroupTurn = (actor: AssistantActor) => actor.surface === "telegram-group" && Boolean(actor.groupChat);

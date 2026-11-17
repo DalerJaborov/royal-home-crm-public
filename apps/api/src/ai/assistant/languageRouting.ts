@@ -18,6 +18,10 @@ const TAJIK_LANGUAGE = String.raw`(рус[ӣи]|то[ҷч]ик[ӣи])`;
 const TAJIK_FORM_BEFORE = new RegExp(String.raw`^(?:лутфан,?\s+)?(?:(?:бо|ба)\s+)?(?:забони\s+)?${TAJIK_LANGUAGE}\s+${TAJIK_ASK}(?=\s|$)`, "iu");
 const TAJIK_FORM_AFTER = new RegExp(String.raw`^(?:лутфан,?\s+)?${TAJIK_ASK}\s+(?:бо|ба)\s+(?:забони\s+)?${TAJIK_LANGUAGE}(?=\s|$)`, "iu");
 
+// «Переведи на таджикский: …», «напиши по-таджикски объявление», «напишите клиенту по-таджикски» — разовая работа
+// над текстом: язык меняется у содержимого этого хода, а не у самого разговора, и закреплять его нельзя.
+const ONE_OFF_LANGUAGE_TASK = /(?<!\p{L})(?:перевед\p{L}*|перевод\p{L}*|тар[ҷч]ума\p{L}*|клиент\p{L}*|покупател\p{L}*|продавц\p{L}*|объявлени\p{L}*|текст\p{L}*|пост\p{L}*|сообщени\p{L}*|эълон\p{L}*|матн\p{L}*|паём\p{L}*|мизо[ҷч]\p{L}*|муштар\p{L}*)(?!\p{L})/iu;
+
 /**
  * Явная просьба сотрудника об языке ответа в ОДНОМ сообщении: русские обороты («ответь по-таджикски»),
  * таджикские («Бо русӣ нависед») и ответ «не понимаю по-русски» (общий разбор клиентского бота:
@@ -25,6 +29,7 @@ const TAJIK_FORM_AFTER = new RegExp(String.raw`^(?:лутфан,?\s+)?${TAJIK_AS
  */
 export function explicitAssistantLanguageRequest(message: string): "ru" | "tg" | null {
   const text = clientOwnWords(message);
+  if (ONE_OFF_LANGUAGE_TASK.test(text)) return null;
   for (const clause of text.split(/[,.!?;\n]/u).reverse()) {
     const russian = RUSSIAN_FORM_COMMAND.exec(clause);
     if (russian) return /таджик/iu.test(russian[0]) ? "tg" : "ru";

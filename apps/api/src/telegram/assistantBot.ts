@@ -18,7 +18,7 @@ import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
 import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
-import { attachedRequest } from "./assistantAttachedRequest.js";
+import { attachedFileHiddenTools, attachedRequest } from "./assistantAttachedRequest.js";
 import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
 import { getPropertyWorkList } from "../ai/assistant/tools/getPropertyWorkStatus.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
@@ -333,6 +333,8 @@ interface TurnParams {
   turnKey?: string;
   /** Прямое обращение в группе: даёт модели инструмент set_group_quiet (ai/assistant/tools/groupQuietTool.ts). */
   groupChat?: { chatId: string; registeredAt: number };
+  /** К запросу приложен текст файла: записи без карточки подтверждения закрыты (attachedFileHiddenTools). */
+  attachedFile?: boolean;
 }
 
 /** Чаще, чем Telegram гасит «печатает…» (~5 с), но без лишних вызовов API. */
@@ -478,6 +480,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   if (params.readOnlyGroup || params.onlyGroupConfirmation || (params.scope === "group" && params.forwardedEvidence)) {
     actor.hiddenTools = new Set([...GROUP_HIDDEN_TOOLS, "get_client_history", "get_client_card", "web_reference"]);
   }
+  if (params.attachedFile) actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), ...attachedFileHiddenTools()]);
   // «Помолчи» словами модели — только на прямое обращение: ни пересылка, ни автоответ его не включают.
   if (params.groupChat && params.scope === "group" && !params.forwardedEvidence && !params.readOnlyGroup && !params.onlyGroupConfirmation) {
     actor.groupChat = params.groupChat;
@@ -953,6 +956,7 @@ export async function handleAssistantPrivate(
     showTyping?.();
     const history = [...previous, { role: "user" as const, content: attachedRequest(text, attachedFileText).slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
+      attachedFile: Boolean(attachedFileText.trim()),
       showWorking: showTyping, turnKey: `tg:${chatId}:${msg.message_id}`,
       validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
     });

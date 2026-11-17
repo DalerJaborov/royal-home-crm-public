@@ -5,7 +5,7 @@ vi.mock("../src/db.js",()=>({prisma:{$disconnect:vi.fn(),$queryRaw:mocks.query,$
 vi.mock("../src/auth/middleware.js",()=>({loadAgentAccess:mocks.access}));
 vi.mock("../src/ai/assistant/tools/showingToolSupport.js",()=>({loadToolActor:mocks.loadActor,asPluginExecutor:(executor:unknown)=>executor}));
 vi.mock("../src/lib/assistantActions.js",()=>({AssistantActionError:class extends Error{constructor(public status:number,public code:string,text:string){super(text);}}}));
-import {validateCompanyKnowledge,knowledgeContext,knowledgeKey,saveCompanyKnowledge,searchCompanyKnowledge,searchAssistantCompanyKnowledge} from "../src/ai/assistant/knowledge.js";
+import {validateCompanyKnowledge,knowledgeContext,knowledgeKey,saveCompanyKnowledge,searchCompanyKnowledge,searchAssistantCompanyKnowledge,searchKnowledgeForTool} from "../src/ai/assistant/knowledge.js";
 import {saveKnowledgeExecutor,archiveKnowledgeExecutor,knowledgeTools} from "../src/ai/assistant/tools/knowledgeTools.js";
 import {tajikGlossaryFor,TAJIK_GLOSSARY} from "../src/ai/assistant/tajikGlossary.js";
 const input={title:"Порядок показа",content:"Согласуйте время до выезда.",source:"Инструкция отдела"};
@@ -52,13 +52,21 @@ it("still looks up ordinary words and lets the explicit tool browse without keyw
   expect(await searchCompanyKnowledge("")).toEqual([entry]);
   expect(mocks.query.mock.calls[1][0].text).toContain("AND true");
 });
-it("rule question with no approved pilot record falls back to the plain word search instead of an empty answer", async () => {
-  // «Какие правила показа»: тема пилота распознана, но утверждённой ревизии нет — раньше ответ был пустым.
+it("auto-injected block never falls back to an unreviewed record for a pilot topic", async () => {
+  mocks.query.mockResolvedValueOnce([]);
+  expect(await searchAssistantCompanyKnowledge("какие правила показа")).toEqual([]);
+  expect(mocks.query).toHaveBeenCalledTimes(1);
+});
+it("explicit tool falls back to the word search for a pilot topic, labelled as not approved by the owner", async () => {
   const own = { ...input, title: "Правила показа", content: "Показ только после звонка владельцу.", revision: 3 };
   mocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([own]);
-  expect(await searchAssistantCompanyKnowledge("какие правила показа")).toEqual([own]);
-  expect(mocks.query).toHaveBeenCalledTimes(2);
+  const found = await searchKnowledgeForTool("какие правила показа");
+  expect(found).toEqual({ rows: [own], unapproved: true });
   expect(mocks.query.mock.calls[1][0].values).toContain("%правила%");
+  const context = knowledgeContext(found.rows, { unapproved: found.unapproved });
+  expect(context).toContain("не утверждено владельцем (черновик/изменено)");
+  expect(context).toContain("не выдавай за действующее правило");
+  expect(JSON.stringify(knowledgeContext([own]))).not.toContain("не утверждено владельцем");
 });
 it("normalizes key but does not collapse different titles",()=>{expect(knowledgeKey('  Порядок   показа ')).toBe('порядок показа');expect(knowledgeKey('Порядок')).not.toBe(knowledgeKey('Порядок показа'));});
 it("write tools always use confirmation level C",()=>{expect(knowledgeTools.filter(t=>t.level!=='A').map(t=>t.level)).toEqual(['C','C']);});
