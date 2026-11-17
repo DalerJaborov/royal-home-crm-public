@@ -150,8 +150,9 @@ const CARD_TIMELINE_LIMIT = 200;
  * тех же id. Разбор разговора (callAnalysis) остаётся одним join'ом — он
  * на порядки легче расшифровки, а его счёт виден ещё до раскрытия записи.
  */
-const TIMELINE_INTERACTION_SELECT = {
+export const TIMELINE_INTERACTION_SELECT = {
   investigationOnly: true,
+  archiveReview: true,
   id: true,
   clientId: true,
   agentId: true,
@@ -204,7 +205,7 @@ const TIMELINE_INTERACTION_SELECT = {
  * догрузку, иначе догруженный разговор мог бы открыться тому, кому в карточке
  * он закрыт.
  */
-async function presentTimeline(
+export async function presentClientTimeline(
   req: Request,
   assignedAgentId: string | null,
   rows: Prisma.InteractionGetPayload<{ select: typeof TIMELINE_INTERACTION_SELECT }>[]
@@ -441,6 +442,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
           where: {
             clientId: client.id,
             type: "CALL",
+            archiveReview: false,
             ...visibleInteractionWhere(investigationViewerRole(req)),
             recordingDurationSec: { gte: s?.leadCallMinSeconds ?? 30 },
           },
@@ -464,7 +466,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
      * calls.transcripts. Признак `hasRecording` остаётся всем: по нему в хронологии
      * видно, что разговор записан, — без этого он казался бы пропавшим бесследно.
      */
-    interactions: await presentTimeline(req, client.assignedAgentId, client.interactions),
+    interactions: await presentClientTimeline(req, client.assignedAgentId, client.interactions),
     interactionsTotal: client._count.interactions,
     // Служебный счётчик Prisma наружу не отдаём — число уже лежит в interactionsTotal.
     _count: undefined,
@@ -568,7 +570,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   res.json(transferAccess ? { ...payload, access: transferAccess } : payload);
 });
 
-const timelineQuerySchema = z.object({
+export const timelineQuerySchema = z.object({
   /** Курсор — последняя уже показанная запись (createdAt, id); без него — с самой свежей. */
   before: z.coerce.date().optional(),
   beforeId: z.string().uuid().optional(),
@@ -630,7 +632,7 @@ cardRouter.get("/:id/timeline", requireAuth, async (req, res) => {
   ]);
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  res.json({ items: await presentTimeline(req, client.assignedAgentId, page), total, hasMore });
+  res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
 });
 
 /** Подпись реплики бота для .txt/.json экспорта — тот же словарь смысла, что и

@@ -29,6 +29,6 @@ describe("Смена агента объекта — только руковод
   });
 
   it("кнопка «Передать другому агенту» — по тем же двум правам", () => {
-    expect(read("components/PropertyOwnerCard.tsx")).toMatch(/const canTransfer = canManage && can\("clients\.assign"\);/);
+    expect(read("components/PropertyOwnerCard.tsx")).toMatch(/const canTransfer = \(canManage && can\("clients\.assign"\)\) \|\| \(can\("transfers\.request"\) && can\("clients\.assign"\)\);/);
   });
 });

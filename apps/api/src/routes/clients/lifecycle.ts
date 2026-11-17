@@ -238,6 +238,10 @@ lifecycleRouter.post("/:id/bot-pause", requireAuth, async (req, res) => {
  * передать клиента НЕ в момент обязательного окна, а сам, из карточки).
  */
 lifecycleRouter.post("/:id/transfer", requireAuth, async (req, res) => {
+  // Решение владельца 16.11.2026: у агентов передачи нет вовсе — передаёт руководитель (clients.assign) и РОП.
+  if (!can(req, "clients.assign")) {
+    return res.status(403).json({ error: "Передавать клиентов может только руководитель" });
+  }
   const parsed = clientTransferSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Укажите причину передачи", details: parsed.error.flatten() });

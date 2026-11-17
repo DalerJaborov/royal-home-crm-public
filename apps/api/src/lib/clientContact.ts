@@ -3,6 +3,8 @@ import type { Prisma } from "../generated/prisma/client.js";
 /** Actual contact, independent of whether asynchronous AI has filled outcome. */
 export const REAL_CALL_CONTACT_WHERE = {
   type: "CALL",
+  // Звонок-разбор из Корзины (lib/archiveReviewCall.ts) не контакт агента с клиентом.
+  archiveReview: false,
   OR: [
     { callAttempt: "TALKED" },
     { recordingDurationSec: { gt: 0 } },
@@ -15,8 +17,9 @@ export function isRealCallContact(call: {
   callAttempt: string | null;
   recordingDurationSec: number | null;
   outcome: string | null;
+  archiveReview?: boolean;
 }): boolean {
-  return call.type === "CALL" && (
+  return call.type === "CALL" && !call.archiveReview && (
     call.callAttempt === "TALKED" ||
     (call.recordingDurationSec ?? 0) > 0 ||
     (call.callAttempt === null && call.outcome !== null && call.outcome !== "NO_ANSWER")

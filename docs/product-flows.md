@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **747**. Развилок в самих путях: **2462**; вместе с задачами по расписанию и фоновыми заданиями — **4047**. Модулей: **84**.
+Путей: **760**. Развилок в самих путях: **2495**; вместе с задачами по расписанию и фоновыми заданиями — **4128**. Модулей: **85**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -828,10 +828,12 @@
     · ответ 404 — «Сотрудник не найден»
 - const propertyWhere = { deletedAt: null, ...propertyOwnerWhere(id) };
   · зовёт propertyOwnerWhere()
+- const hotScoreThreshold = await loadHotScoreThreshold();
+  · зовёт loadHotScoreThreshold()
 - const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…
   · зовёт overdueTasksWhere()
-- const noContactAgentWhere: Prisma.ClientWhereInput = { AND: [noContactWhere(now), { assignedAgentId: id }] };
-  · зовёт noContactWhere()
+- const stalledClientsAgentWhere = { ...stalledClientsWhere(now, hotScoreThreshold), assignedAgentId: id };
+  · зовёт stalledClientsWhere()
 - const [ propertiesTotal, propertiesAvailable, propertiesCreated, lastProperties, clientsTotal, lastClients, d…
   · считает в базе: property
   · читает в базе: property
@@ -923,6 +925,8 @@
     · меняет в базе: agent
     - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…
       · меняет в базе: agent
+    - await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);
+      · зовёт shiftInactiveClockAfterAbsence()
   - void syncAgentQueuePresence(agent.id).catch(()
     · зовёт syncAgentQueuePresence()
 
@@ -2713,16 +2717,56 @@
 - если client.acceptedAt
   - return res.json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investig…
     · ответ 200
-- const outcome = await acceptLead({ clientId: client.id, agentId: req.agent!.id });
+- const parsedAccept = leadAcceptSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой leadAcceptSchema
+- если !parsedAccept.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsedAccept.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const outcome = await acceptLead({ clientId: client.id, agentId: req.agent!.id, releaseClientId: parsedAccept…
   · зовёт acceptLead()
+- если !outcome.ok && outcome.requiresRelease
+  - return res.status(409).json({ requiresRelease: true, error: "Портфель полон — выберите, кого передать другому…
+    · ответ 409 — «Портфель полон — выберите, кого передать другому агенту»
 - если !outcome.ok
   - return res.status(outcome.status).json({ error: outcome.error });
     · ответ (код зависит от условия)
-- logAudit(req, "LEAD_ACCEPT", "Client", client.id, { agentId: req.agent!.id });
+- logAudit(req, "LEAD_ACCEPT", "Client", client.id, { agentId: req.agent!.id, releasedClientId: outcome.release…
   · зовёт logAudit()
 - const updated = await prisma.client.findUnique({ where: { id: client.id } });
   · читает в базе: client
 - res.json(presentClient(updated ?? client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), inve…
+  · ответ 200
+
+### POST /api/v1/clients/:id/activate
+
+`apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const ownAgentId = scopeToOwnAgent(req);
+  · зовёт scopeToOwnAgent()
+- const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+  · читает в базе: client
+- если !client || client.deletedAt
+  - return res.status(404).json({ error: "Клиент не найден" });
+    · ответ 404 — «Клиент не найден»
+- если !client.assignedAgentId
+  - return res.status(409).json({ error: "Возврат в работу доступен только клиенту с назначенным агентом" });
+    · ответ 409 — «Возврат в работу доступен только клиенту с назначенным агентом»
+- если ownAgentId && client.assignedAgentId !== ownAgentId
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- const denied = foreignWriteDenied(req, client, ownAgentId);
+  · зовёт foreignWriteDenied()
+- если denied
+  - return res.status(403).json({ error: denied });
+    · ответ 403
+- const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId, actorAgentId: r…
+  · зовёт reactivateClient()
+- если !result.ok
+  - return res.status(409).json({ error: "Состояние или держатель карточки изменились — обновите карточку" });
+    · ответ 409 — «Состояние или держатель карточки изменились — обновите карточку»
+- logAudit(req, "CLIENT_ACTIVATE", "Client", client.id, {});
+  · зовёт logAudit()
+- res.json({ ok: true });
   · ответ 200
 
 ### POST /api/v1/clients/:id/assign
@@ -2844,12 +2888,13 @@
 - если !canAccessAssignedAgent(req, client.assignedAgentId)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
-- const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));
-  · зовёт foreignWriteDenied()
-- если denied
-  - return res.status(403).json({ error: denied });
-    · ответ 403
-- если client.deletedAt
+- если !archiveReview
+  - const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));
+    · зовёт foreignWriteDenied()
+  - если denied
+    - return res.status(403).json({ error: denied });
+      · ответ 403
+- если client.deletedAt && !archiveReview
   - return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
     · ответ 409 — «Карточка в Корзине — сначала восстановите её»
 - const selection = resolveClientPhoneSelection(client, parsed.data);
@@ -2866,7 +2911,7 @@
     · ответ 429 — «Подождите ${redialWaitSeconds} с: предыдущий вызов не дошёл до вашего…»
 - const ownAgentIdForAccept = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- если ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgentId === ownAgentId…
+- если !archiveReview && ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgen…
   - await acceptLead({ clientId: client.id, agentId: ownAgentIdForAccept }).catch((err)
     · зовёт acceptLead()
 - если parsed.data.phone && !requestedPhone
@@ -2886,10 +2931,13 @@
   - если requestedTail !== phoneTail(client.phone)
     - phoneOverride = requestedPhone;
       · дословно из кода
-- const result = await originateCallToClient(req.agent!.id, client, { phoneOverride });
+- const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });
   · команда телефонии
+- если archiveReview && (result.ok || result.status === 502)
+  - logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, { shortId: client.shortId, fullName: client.fullNam…
+    · зовёт logAudit()
 - если !result.ok
-  - если result.status === 502
+  - если result.status === 502 && !archiveReview
     - await markAgentAttempt(client.id, new Date(), req.agent!.id);
       · зовёт markAgentAttempt()
   - return res.status(result.status).json({ error: result.error });
@@ -3000,6 +3048,38 @@
 - res.json(result);
   · ответ 200
 
+### POST /api/v1/clients/:id/deferred/return
+
+`apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const ownAgentId = scopeToOwnAgent(req);
+  · зовёт scopeToOwnAgent()
+- const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+  · читает в базе: client
+- если !client || client.deletedAt
+  - return res.status(404).json({ error: "Клиент не найден" });
+    · ответ 404 — «Клиент не найден»
+- если client.workStatus !== "DEFERRED"
+  - return res.status(409).json({ error: "Клиент не в «Отложенных»" });
+    · ответ 409 — «Клиент не в «Отложенных»»
+- если ownAgentId && client.assignedAgentId !== ownAgentId
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- const denied = foreignWriteDenied(req, client, ownAgentId);
+  · зовёт foreignWriteDenied()
+- если denied
+  - return res.status(403).json({ error: denied });
+    · ответ 403
+- const result = await returnDeferredClientManually(client.id, req.agent!.id);
+  · зовёт returnDeferredClientManually()
+- если !result.ok
+  - return res.status(404).json({ error: "Клиент не найден" });
+    · ответ 404 — «Клиент не найден»
+- logAudit(req, "CLIENT_DEFERRED_RETURN", "Client", client.id, {});
+  · зовёт logAudit()
+- res.json({ ok: true });
+  · ответ 200
+
 ### GET /api/v1/clients/:id/delete-request
 
 `apps/api/src/routes/clients/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -3039,17 +3119,17 @@
 - если existing
   - return res.status(409).json({ error: "По этому клиенту уже есть заявка — она ждёт решения руководства" });
     · ответ 409 — «По этому клиенту уже есть заявка — она ждёт решения руководства»
-- const filed = await fileClientDeleteRequest({ clientId: client.id, requestedById: req.agent!.id, reason: pars…
-  · зовёт fileClientDeleteRequest()
-- если !filed.ok
-  - return res.status(404).json({ error: filed.error });
-    · ответ 404
-- если !filed.created
-  - return res.status(409).json({ error: "По этому клиенту уже есть заявка — она ждёт решения руководства" });
-    · ответ 409 — «По этому клиенту уже есть заявка — она ждёт решения руководства»
-- logAudit(req, "DELETE_REQUEST", "Client", client.id, { requestId: filed.id, reason: parsed.data.reason, short…
+- const request = await prisma.clientDeleteRequest.create({ data: { clientId: client.id, requestedById: req.age…
+  · создаёт в базе: clientDeleteRequest
+- logAudit(req, "DELETE_REQUEST", "Client", client.id, { requestId: request.id, reason: parsed.data.reason, sho…
   · зовёт logAudit()
-- res.status(201).json({ ok: true, id: filed.id, message: "Заявка отправлена — карточку удалит директор или адм…
+- const author = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
+  · читает в базе: agent
+- void enqueueDirectorAlert({ title: "🗑️ Заявка на удаление клиента", body: `${author?.fullName ?? "Агент"}: $…
+  · зовёт enqueueDirectorAlert()
+- publishRequestUpdated({ requestId: request.id, clientId: client.id, agentIds: [req.agent!.id], stage: "PENDIN…
+  · зовёт publishRequestUpdated()
+- res.status(201).json({ ok: true, id: request.id, message: "Заявка отправлена — карточку удалит директор или а…
   · ответ 201
 
 ### POST /api/v1/clients/:id/duplicate-review/confirm
@@ -3227,6 +3307,8 @@
       · зовёт findAgentsWithPermission()
     - await sendPushToAgents([req.agent!.id, ...supervisors], { title: "⏱️ Два показа пересекаются по времени", bod…
       · push-уведомление
+- void refreshClientStatus(client.id).catch((err)
+  · зовёт refreshClientStatus()
 - если data.notes && typeof data.notes === "string" && data.notes.trim().length > 0
   - void checkAgentPhoneAsk({ agentId: req.agent!.id, agentName: "", clientId: client.id, clientName: client.full…
     · зовёт checkAgentPhoneAsk()
@@ -3662,6 +3744,21 @@
 - если denied
   - return res.status(403).json({ error: denied });
     · ответ 403
+- если isDeferredReason(parsed.data.reason)
+  - const pre = await checkRefusalPreconditions(client.id, parsed.data);
+    · зовёт checkRefusalPreconditions()
+  - если !pre.ok
+    - return res.status(pre.status).json({ error: pre.error });
+      · ответ (код зависит от условия)
+  - const deferred = await deferClient({ clientId: client.id, agentId: client.assignedAgentId, reason: parsed.dat…
+    · зовёт deferClient()
+  - если !deferred.ok
+    - return res.status(409).json({ error: deferred.error });
+      · ответ 409
+  - logAudit(req, "CLIENT_DEFER", "Client", client.id, { reason: parsed.data.reason, deferredUntil: deferred.defe…
+    · зовёт logAudit()
+  - return res.json({ ok: true, deferred: true, deferredUntil: deferred.deferredUntil, message: deferredReturnMes…
+    · ответ 200
 - const result = await refuseClient({ clientId: client.id, ...parsed.data, actorId: req.agent!.id, actorAgentId…
   · зовёт refuseClient()
 - если !result.ok
@@ -3805,7 +3902,7 @@
   - const current = await tx.client.findUnique({ where: { id: client.id } });
     · читает в базе: client
   - если !current || current.deletedAt || current.securityReview !== "PENDING"
-    - return null;
+    - return false;
       · дословно из кода
   - const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: ["COMPLETED", "CANCE…
     · читает в базе: deal
@@ -3820,12 +3917,6 @@
     · ответ 409 — «Проверка уже завершена или карточка изменилась — обновите страницу»
 - logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
   · зовёт logAudit()
-- если reviewed.close
-  - const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });
-    · зовёт trashClient()
-  - если !trashed.ok
-    - console.error("[security-review] карточка не убрана в Корзину:", trashed.error);
-      · пишет строку в журнал сервера
 - void (async ()
   - const reviewers = await findAgentsWithPermission("clients.securityReview");
     · зовёт findAgentsWithPermission()
@@ -4041,7 +4132,7 @@
 - const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
   · читает в базе: interaction
   · считает в базе: interaction
-- res.json({ items: await presentTimeline(req, client.assignedAgentId, page), total, hasMore });
+- res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
   · ответ 200
 
 ### POST /api/v1/clients/:id/to-candidate
@@ -4064,6 +4155,9 @@
 
 `apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
+- если !can(req, "clients.assign")
+  - return res.status(403).json({ error: "Передавать клиентов может только руководитель" });
+    · ответ 403 — «Передавать клиентов может только руководитель»
 - const parsed = clientTransferSchema.safeParse(req.body);
   · проверяет данные схемой clientTransferSchema
 - если !parsed.success
@@ -4214,6 +4308,8 @@
 - const [conductedShowing, callsCount, realCalls] = await Promise.all([ prisma.interaction.count({ where: { ...…
   · считает в базе: interaction
   · читает в базе: settings
+- const withMessages = { ...client, hadConductedShowing: conductedShowing, callsCount, hadRealCall: realCalls >…
+  · зовёт presentClientTimeline()
 - const sellerPropertyAddress = client.kind === "SELLER" ? await loadSellerPropertyAddress(client.id) : null;
   · зовёт loadSellerPropertyAddress()
 - const presentedClient = presentClient( responseClient, can(req, "clients.viewPhone") && !gateUntilAccepted, c…
@@ -4269,9 +4365,9 @@
 - если !canAccessAssignedAgent(req, parsed.data.assignedAgentId ?? existing.assignedAgentId)
   - return res.status(403).json({ error: "Агент не может переназначать клиента" });
     · ответ 403 — «Агент не может переназначать клиента»
-- если parsed.data.status && parsed.data.status !== existing.status
-  - return res.status(400).json({ error: "Статус клиента вручную не меняется: в CRM его больше нет. Работу с клие…
-    · ответ 400 — «Статус клиента вручную не меняется: в CRM его больше нет. Работу с…»
+- если parsed.data.status && parsed.data.status !== existing.status && !can(req, "clients.assign")
+  - return res.status(403).json({ error: existing.kind === "SELLER" || requestedKind === "SELLER" ? "Состояние пр…
+    · ответ 403
 - const owned = await phoneOwnershipError(req, data, existing.id);
   · зовёт phoneOwnershipError()
 - если owned
@@ -4323,6 +4419,24 @@
   - void refreshPropertiesOfSeller(existing.id).catch((err)
     · зовёт refreshPropertiesOfSeller()
 - res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationV…
+  · ответ 200
+
+### GET /api/v1/clients/deferred
+
+`apps/api/src/routes/clients/list.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const paging = sectionPageSchema.safeParse(req.query);
+  · проверяет данные схемой sectionPageSchema
+- если !paging.success
+  - return res.status(400).json({ error: "Неверные параметры", details: paging.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- const ownAgentId = scopeToOwnAgent(req);
+  · зовёт scopeToOwnAgent()
+- const total = await prisma.client.count({ where });
+  · считает в базе: client
+- const clients = await prisma.client.findMany({ where, orderBy: [{ deferredUntil: "asc" }, { id: "asc" }], ski…
+  · читает в базе: client
+- res.json({ items: clients.map((c)
   · ответ 200
 
 ### POST /api/v1/clients/delete-requests/:id/approve
@@ -4429,6 +4543,8 @@
 - если existing
   - const full = await prisma.client.findUniqueOrThrow({ where: { id: existing.id }, select: { id: true, shortId:…
     · читает в базе: client
+  - archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p)
+    · зовёт canCallArchivedClient()
   - если !canAccessAssignedAgent(req, full.assignedAgentId)
     - return res.status(403).json({ error: "Этот номер уже принадлежит другому клиенту — недостаточно прав" });
       · ответ 403 — «Этот номер уже принадлежит другому клиенту — недостаточно прав»
@@ -4445,8 +4561,11 @@
       · ответ 409
   - client = await prisma.client.create({ data: { fullName: `Исходящий ***${digits.replace(/\D/g, "").slice(-2)}`…
     · создаёт в базе: client
-- const result = await originateCallToClient(req.agent!.id, client);
+- const result = await originateCallToClient(req.agent!.id, client, { archiveReview });
   · команда телефонии
+- если archiveReview && (result.ok || result.status === 502)
+  - logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, { shortId: client.shortId, fullName: client.fullNam…
+    · зовёт logAudit()
 - если !result.ok
   - return res.status(result.status).json({ error: result.error });
     · ответ (код зависит от условия)
@@ -4479,6 +4598,30 @@
 - const fuzzyPairs = findFuzzyDuplicatePairs(found.scanned).filter( ([a, b])
   · зовёт findFuzzyDuplicatePairs()
 - res.json([...identityGroups, ...fuzzyGroups]);
+  · ответ 200
+
+### GET /api/v1/clients/lost
+
+`apps/api/src/routes/clients/list.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.assign
+
+- const paging = sectionPageSchema.safeParse(req.query);
+  · проверяет данные схемой sectionPageSchema
+- если !paging.success
+  - return res.status(400).json({ error: "Неверные параметры", details: paging.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- const total = await prisma.client.count({ where: lostWhere });
+  · считает в базе: client
+- const clients = await prisma.client.findMany({ where: lostWhere, orderBy: [ { lostAt: { sort: "desc", nulls: …
+  · читает в базе: client
+- если clients.length === 0
+  - return res.json({ items: [], total, page, pageSize });
+    · ответ 200
+- const chain = await prisma.interaction.findMany({ where: { clientId: { in: clients.map((c)
+  · читает в базе: interaction
+- для каждого: const hop of chain
+  - chainByClient.set(hop.clientId, [...(chainByClient.get(hop.clientId) ?? []), hop]);
+    · дословно из кода
+- res.json({ items: clients.map((c)
   · ответ 200
 
 ### POST /api/v1/clients/merge
@@ -4647,13 +4790,63 @@
   · зовёт dushanbeDayRange()
 - const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput
   · зовёт visibleInteractionWhere()
-- const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, noContactOverDay, showTo…
+- const [ buyers, sellers, mine, other, lost, newToday, newYesterday, awaitingCount, oldest, noContactOverDay, …
   · считает в базе: client
   · читает в базе: client
   · считает в базе: interaction
-- const summary: ClientsSummary = { buyers, sellers, mine, other, newToday, newYesterday, awaitingAgent: { coun…
+- если canAssign
+  - const [limits, agents] = await Promise.all([ loadLeadLimits(), prisma.agent.findMany({ where: { role: { in: […
+    · читает в базе: agent
+  - const loads = await activeLeadCounts(agents.map((a)
+    · зовёт activeLeadCounts()
+- const summary: ClientsSummary = { buyers, sellers, mine, other, lost, newToday, newYesterday, awaitingAgent: …
   · зовёт clientNamePhoneSafe()
 - res.json(summary);
+  · ответ 200
+
+### GET /api/v1/clients/trash/:id/review/timeline
+
+`apps/api/src/routes/clients/trashReview.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+
+- const parsed = timelineQuerySchema.safeParse(req.query);
+  · проверяет данные схемой timelineQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- если (before && !beforeId) || (!before && beforeId)
+  - return res.status(400).json({ error: "Курсор задаётся парой before и beforeId" });
+    · ответ 400 — «Курсор задаётся парой before и beforeId»
+- const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…
+  · читает в базе: client
+- если !client
+  - return res.status(404).json({ error: "Клиент не найден в Корзине" });
+    · ответ 404 — «Клиент не найден в Корзине»
+- const baseWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ?…
+  · зовёт visibleInteractionWhere()
+- const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
+  · читает в базе: interaction
+  · считает в базе: interaction
+- res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
+  · ответ 200
+
+### GET /api/v1/clients/trash/:id/review
+
+`apps/api/src/routes/clients/trashReview.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+
+- const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…
+  · читает в базе: client
+- если !client
+  - return res.status(404).json({ error: "Клиент не найден в Корзине" });
+    · ответ 404 — «Клиент не найден в Корзине»
+- const interactionWhere = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id };
+  · зовёт visibleInteractionWhere()
+- const [request, audit, rows, total, manualTrash] = await Promise.all([ prisma.clientDeleteRequest.findFirst({…
+  · читает в базе: clientDeleteRequest
+  · читает в базе: auditLog
+  · читает в базе: interaction
+  · считает в базе: interaction
+  · считает в базе: auditLog
+- res.json({ client: { id: client.id, shortId: client.shortId, fullName: clientNamePhoneSafe(client.fullName, p…
   · ответ 200
 
 ### GET /api/v1/clients/trash
@@ -4691,10 +4884,22 @@
 - иначе если agentId
   - where.assignedAgentId = agentId;
     · дословно из кода
-- если archived
-  - where.status = "ARCHIVED";
+- если workStatus
+  - where.workStatus = workStatus;
+    · дословно из кода
+- если workStatus === "INACTIVE" && !status
+  - where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };
+    · дословно из кода
+- если workStatus === "INACTIVE" && !kind
+  - where.kind = { in: ["BUYER", "SELLER"] };
+    · дословно из кода
+- если inactiveLevel
+  - where.inactiveLevel = inactiveLevel;
     · дословно из кода
 - если pendingAcceptance
+  - если !status
+    - where.status = { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] };
+      · дословно из кода
   - если !kind && !ownAgentId
     - where.kind = { in: ["BUYER", "SELLER"] };
       · дословно из кода
@@ -4707,9 +4912,6 @@
   · зовёт buildClientTextSearchAnd()
 - если textSearchAnd
   - where.AND = textSearchAnd;
-    · дословно из кода
-- если noContact
-  - where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Dat…
     · дословно из кода
 - если scope === "inWork"
   - Object.assign(where, CLIENT_IN_WORK_WHERE);
@@ -5575,6 +5777,7 @@
   · зовёт transcriptAccess()
 - res.json({ kpis: { availableProperties: availableCount, portfolioValue: seesMoney ? portfolioValue : 0, poten…
   · ответ 200
+  · считает в базе: client
 
 ### GET /api/v1/dashboard/team-live
 
@@ -6027,7 +6230,7 @@
             - await tx.client.updateMany({ where: { id: cancelledProperty.sellerClientId, status: "DEAL_CLOSED" }, data: { …
               · меняет в базе: client
         - если otherClosedClientDeals === 0
-          - await tx.client.updateMany({ where: { id: existing.clientId, status: "DEAL_CLOSED" }, data: { status: "CONTAC…
+          - await tx.client.updateMany({ where: { id: existing.clientId, status: "DEAL_CLOSED" }, data: { status: "HOT" }…
             · меняет в базе: client
       - если isCompleting && hasExplicitSums
         - split = { commissionAmount: fromCents(sumCents([effRealtor, effCompany])), commissionIntakeAmount: 0, commiss…
@@ -6285,6 +6488,7 @@
       · читает в базе: client
       · меняет в базе: property
       · читает в базе: deal
+      · меняет в базе: client
       · создаёт в базе: deal
       - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${data.clientId} FOR UPDATE`;
         · обращается к базе своим SQL
@@ -6303,6 +6507,8 @@
       - если liveDeal
         - throw new DealConflictError("По этому объекту уже есть незакрытая сделка");
           · ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»
+      - await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: nul…
+        · меняет в базе: client
       - return tx.deal.create({ data: { ...data, commissionPercent, commissionAmount, currency: property.currency, ag…
         · создаёт в базе: deal
   - если сорвалось
@@ -9922,6 +10128,25 @@
 - res.json({ items, threshold, windowDays });
   · ответ 200
 
+### GET /api/v1/oversight/agents-at-limit
+
+`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+
+- const limits = await loadLeadLimits();
+  · зовёт loadLeadLimits()
+- если limits.activeLimit <= 0
+  - return res.json({ items: [], limit: limits.activeLimit });
+    · ответ 200
+- const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, selec…
+  · читает в базе: agent
+- const counts = await activeLeadCounts(agents.map((a)
+  · зовёт activeLeadCounts()
+- const items = agents .map((a)
+  - return { id: a.id, fullName: a.fullName, avatarUrl: a.avatarUrl, frozen: a.frozenAt !== null, total: c.total,…
+    · зовёт slotsTaken()
+- res.json({ items, limit: limits.activeLimit });
+  · ответ 200
+
 ### GET /api/v1/oversight/endless-negotiations
 
 `apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
@@ -9937,10 +10162,10 @@
 
 - const name = (n: string)
   · зовёт clientNamePhoneSafe()
-- const [noContact, silent, refused, seller, endless, ackedNoContact, ackedSilent, ackedRefused, ackedSeller, a…
+- const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, acked…
   · читает в базе: client
-- для каждого: const c of noContact.filter((x) => !ackedNoContact.has(x.id)).slice(0, FLAGS_PER_SLICE)
-  - flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: без контакта больш…
+- для каждого: const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)
+  - flags.push({ sliceKey: "stalled-clients", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без ко…
     · дословно из кода
 - для каждого: const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)
   - flags.push({ sliceKey: "silent-after-showing", subjectId: c.id, title: `${name(c.fullName)}: тишина после пок…
@@ -9957,7 +10182,7 @@
 - res.json({ items: flags.slice(0, FLAGS_LIMIT), total: flags.length });
   · ответ 200
 
-### GET /api/v1/oversight/lead-transfers
+### GET /api/v1/oversight/inactive-clients
 
 `apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
@@ -9967,18 +10192,14 @@
 - res.json({ items: rows.map((r)
   · ответ 200
 
-### GET /api/v1/oversight/no-contact-clients
+### GET /api/v1/oversight/lead-transfers
 
 `apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
-- const where = noContactWhere(new Date());
-  · зовёт noContactWhere()
-- const [light, total] = await Promise.all([ prisma.client.findMany({ where, take: NO_CONTACT_ORDER_CAP, select…
-  · читает в базе: client
-  · считает в базе: client
-- const [rows] = await Promise.all([ prisma.client.findMany({ where: { id: { in: pageIds } }, select: { id: tru…
-  · читает в базе: client
-- res.json({ items: await markAcked("no-contact-clients", rows.map(({ interactions, ...c })
+- const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
+  · читает в базе: interaction
+  · считает в базе: interaction
+- res.json({ items: rows.map((r)
   · ответ 200
 
 ### GET /api/v1/oversight/overdue-tasks
@@ -10076,6 +10297,18 @@
 - res.json({ items: await markAcked("silent-after-showing", items.slice(start, start + pageSize).map((c)
   · ответ 200
 
+### GET /api/v1/oversight/stalled-clients
+
+`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+
+- const where = stalledClientsWhere(now, await loadHotScoreThreshold());
+  · зовёт stalledClientsWhere()
+- const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ aiScore: "desc" }, { id…
+  · читает в базе: client
+  · считает в базе: client
+- res.json({ items: await markAcked("stalled-clients", rows.map((c)
+  · ответ 200
+
 ### GET /api/v1/oversight/summary
 
 `apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
@@ -10084,6 +10317,13 @@
   - return res.json(ordinary);
     · ответ 200
 - res.json(summary);
+  · ответ 200
+
+### GET /api/v1/oversight/traffic-light-summary
+
+`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+
+- res.json(await findTrafficLightSummary());
   · ответ 200
 
 ### GET /api/v1/oversight/transfer-pairs
@@ -12193,7 +12433,7 @@
 
 ### POST /api/v1/properties/:id/transfer
 
-`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.editForeign
+`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);
   · зовёт transferPropertyByManager()
@@ -12223,6 +12463,8 @@
       · дословно из кода
   - const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: actor.…
     · зовёт transferPropertyWithSeller()
+  - void recordRopTransfer({ kind: "PROPERTY", targetId: property.id, fromAgentId: result.fromAgentId, toAgentId,…
+    · зовёт recordRopTransfer()
   - logAgentAudit(actor.id, "PROPERTY_TRANSFER", "Property", property.id, { fromAgentId: result.fromAgentId, toAg…
     · зовёт logAgentAudit()
 - res.status(outcome.status).json(outcome.body);
@@ -14146,6 +14388,9 @@
       - const name = client ? clientNamePhoneSafe(client.fullName, granted.length > 0) : "Лид";
         · зовёт clientNamePhoneSafe()
       - return res.json({ ok: true, message: `${name} принят — контакты открыты`, url });
+        · ответ 200
+    - если outcome.requiresRelease
+      - return res.json({ ok: false, message: "Портфель полон — откройте карточку и выберите, кого передать", url, } …
         · ответ 200
     - return res.json({ ok: false, message: outcome.error, url } satisfies PushActionResult);
       · ответ 200
@@ -17100,6 +17345,36 @@
 - res.json({ channels: await loadChannelInfos() });
   · ответ 200
 
+### POST /api/v1/social-videos/photos
+
+`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, socialPhotoPostUpload.array("photos", SOCIAL_PHOTO_POST_MAX_IMAGES)
+
+- пробует
+  - если files.length === 0
+    - res.status(400).json({ error: "Приложите хотя бы одно фото (поле photos)" });
+      · ответ 400 — «Приложите хотя бы одно фото (поле photos)»
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const fields = socialVideoCreateFieldsSchema.safeParse(req.body);
+    · проверяет данные схемой socialVideoCreateFieldsSchema
+  - если !fields.success
+    - res.status(400).json({ error: fields.error.issues[0]?.message ?? "Неверные поля формы" });
+      · ответ 400
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const item = await createSocialPhotoPostFromUpload({ files: files.map((f)
+    · зовёт createSocialPhotoPostFromUpload()
+  - logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { kind: "PHOTO", photos: files.length, size…
+    · зовёт logAudit()
+  - res.status(201).json(item);
+    · ответ 201
+- если сорвалось
+  - если err instanceof SocialVideoError
+    - res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+    - return;
+      · дальше не идёт, ничего не меняя
+
 ### GET /api/v1/social-videos/trends
 
 `apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
@@ -17195,16 +17470,21 @@
 - const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, selec…
   · читает в базе: agent
 - если agentIds.length === 0
-  - return res.json({ agents: [] });
+  - return res.json({ statuses: STAGE_STATUSES, agents: [] });
     · ответ 200
-- const [showingRows, showingRowsBySubject, dealRows] = await Promise.all([ prisma.interaction.groupBy({ by: ["…
+- const [statusRows, showingRows, showingRowsBySubject, dealRows] = await Promise.all([ prisma.client.groupBy({…
+  · считает в базе: client
   · считает в базе: interaction
   · считает в базе: deal
+- для каждого: const row of statusRows
+  - если !row.assignedAgentId
+    - continue;
+      · переходит к следующему
 - для каждого: const r of showingRowsBySubject
   - если !r.subjectAgentId
     - continue;
       · переходит к следующему
-- res.json({ agents: agentsOut });
+- res.json({ statuses: STAGE_STATUSES, agents: agentsOut });
   · ответ 200
 
 ### GET /api/v1/team
@@ -17215,7 +17495,7 @@
   · зовёт dushanbeStartOfMonth()
 - const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, ...(can(req, "agents.ma…
   · читает в базе: agent
-- const [interactions, deals, clients, pointsTotals, money, loadCounts] = await Promise.all([ prisma.interactio…
+- const [interactions, deals, clients, pointsTotals, money, loadCounts, limits] = await Promise.all([ prisma.in…
   · читает в базе: interaction
   · читает в базе: deal
   · читает в базе: client
@@ -17564,6 +17844,31 @@
   - return res.status(422).json({ error: "Речь не распознана — похоже, запись пустая" });
     · ответ 422 — «Речь не распознана — похоже, запись пустая»
 - res.json({ text: text.trim() });
+  · ответ 200
+
+## /api/v1/transfer-requests
+
+### POST /api/v1/transfer-requests/:id/respond
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const outcome = await reviewRopTransfer(who(req), req.params.id, req.body);
+  · зовёт reviewRopTransfer()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### GET /api/v1/transfer-requests/outgoing
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
+
+- res.json({ items: await listOutgoingTransferRequests(who(req)) });
+  · ответ 200
+
+### GET /api/v1/transfer-requests/pending
+
+`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- res.json({ items: await listPendingTransferReviews(who(req)) });
   · ответ 200
 
 ## /api/v1/ui-shell
@@ -18578,6 +18883,9 @@
                 · дословно из кода
             - await stampOutgoingMid( msg.channel, msg.senderId, await sendReplyText(result.reply), customerTransport );
               · зовёт stampOutgoingMid()
+            - если providerAcceptedReply && result.agentSignal
+              - void requestAgentAttention(result.agentSignal.clientId, result.agentSignal.reason);
+                · зовёт requestAgentAttention()
             - если result.reply2
               - await showMetaReadAndTyping(msg.channel, msg.senderId, undefined, true, account.token, customerTransport);
                 · дословно из кода
@@ -19145,6 +19453,9 @@
           · меняет в базе: agent
           - const res = await tx.agent.updateMany({ where: { id: agent.id, frozenAt: { not: null }, absenceUntil: { not: …
             · меняет в базе: agent
+          - если res.count > 0
+            - await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, now, tx);
+              · зовёт shiftInactiveClockAfterAbsence()
         - если count === 0
           - continue;
             · переходит к следующему
@@ -19757,7 +20068,7 @@
     - если withClient.length === 0
       - return { byCall: 0, expired };
         · дословно из кода
-    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", clientId: { in: withClient.map((r)
+    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", archiveReview: false, clientId: { in…
       · читает в базе: interaction
     - если calls.length === 0
       - return { byCall: 0, expired };
@@ -19937,6 +20248,30 @@
 - в любом случае
   - isCandidatePhoneAskRunning = false;
     · дословно из кода
+
+### client-auto-statuses — 40 4 * * *
+
+- пробует
+  - const { checked, changed } = await refreshStatusesByTime();
+    · зовёт refreshStatusesByTime()
+    - const candidates = await prisma.client.findMany({ where: { kind: { in: ["BUYER", "SELLER"] }, deletedAt: null…
+      · читает в базе: client
+    - для каждого: const c of candidates
+      - const next = await refreshClientStatus(c.id, now);
+        · зовёт refreshClientStatus()
+      - если next
+        - changed++;
+          · дословно из кода
+  - если changed
+    - console.log(`[cron] Автостатусы: проверено ${checked}, изменено ${changed}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка автостатусов", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### client-follow-ups — */10 * * * *
 
@@ -20517,6 +20852,34 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### deferred-clients-return — */30 * * * *
+
+- пробует
+  - const { returned } = await runDeferredClientsReturnTick();
+    · зовёт runDeferredClientsReturnTick()
+    - const due = await prisma.client.findMany({ where: { workStatus: "DEFERRED", deletedAt: null, assignmentComple…
+      · читает в базе: client
+    - для каждого: const c of due
+      - пробует
+        - const result = await returnDeferredClientToWork(c.id, "timer");
+          · зовёт returnDeferredClientToWork()
+        - если result.ok
+          - returned++;
+            · дословно из кода
+      - если сорвалось
+        - console.error("[cron] Возврат отложенного клиента:", err instanceof Error ? err.message : err);
+          · пишет строку в журнал сервера
+  - если returned > 0
+    - console.log(`[cron] Отложенные: возвращено в работу ${returned}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка возврата отложенных клиентов", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### director-alert-queue-flush — * * * * *
 
 - пробует
@@ -21004,6 +21367,97 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка сторожа пульса", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### inactive-traffic-light — */30 * * * *
+
+- пробует
+  - const { pinged, lost } = await runInactiveTrafficLightTick();
+    · зовёт runInactiveTrafficLightTick()
+    - const withinHours = await isWithinWorkingHours(now);
+      · зовёт isWithinWorkingHours()
+    - если !withinHours
+      - return { pinged: 0, lost: 0 };
+        · дословно из кода
+    - const settings = await loadTrafficLightSettings();
+      · зовёт loadTrafficLightSettings()
+    - const absent = await absentAgentIds();
+      · зовёт absentAgentIds()
+    - для каждого: ;;
+      - const candidates = await prisma.client.findMany({ where: { ...(afterId ? { id: { gt: afterId } } : {}), workS…
+        · читает в базе: client
+      - если candidates.length === 0
+        - break;
+          · прекращает перебор
+      - для каждого: const c of candidates
+        - если c.inactiveLevel && c.inactiveSince
+          - continue;
+            · переходит к следующему
+        - если !c.assignedAgentId || absent.has(c.assignedAgentId)
+          - continue;
+            · переходит к следующему
+        - const level = await classifyInactiveLevelByDepth(c.id, c.kind, settings.leadCallMinSeconds);
+          · зовёт classifyInactiveLevelByDepth()
+        - const repaired = await prisma.client.updateMany({ where: { id: c.id, workStatus: "INACTIVE", status: c.status…
+          · меняет в базе: client
+        - если repaired.count === 1
+          - publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: "INACTIVE" });
+            · зовёт publishClientUpdated()
+      - const lastContactAt = await lastRealContactAt(live);
+        · зовёт lastRealContactAt()
+      - для каждого: const c of live
+        - если !c.assignedAgentId || !c.inactiveLevel || !c.inactiveSince
+          - continue;
+            · переходит к следующему
+        - если lastContactAt.has(c.id)
+          - const level = await classifyInactiveLevelByDepth( c.id, c.kind, settings.leadCallMinSeconds, );
+            · зовёт classifyInactiveLevelByDepth()
+          - const reset = await prisma.client.updateMany({ where: trafficSnapshotWhere(c), data: { inactiveSince: now, in…
+            · меняет в базе: client
+          - если reset.count !== 1
+            - continue;
+              · переходит к следующему
+          - publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: "INACTIVE" });
+            · зовёт publishClientUpdated()
+          - если c.inactiveLevel !== "GREEN"
+            - const points = await loadEventPoints();
+              · зовёт loadEventPoints()
+            - void recordScoreEvent({ agentId: c.assignedAgentId, kind, delta: points[kind], reason: `Дозвонился и вывел кл…
+              · зовёт recordScoreEvent()
+          - continue;
+            · переходит к следующему
+        - если dueAttempt <= c.inactivePingCount
+          - continue;
+            · переходит к следующему
+        - если c.inactivePingCount >= maxAttempts
+          - если keepFromLost.has(c.id)
+            - continue;
+              · переходит к следующему
+          - если await promoteToLost(c)
+            - lost++;
+              · дословно из кода
+          - continue;
+            · переходит к следующему
+        - const advanced = await prisma.client.updateMany({ where: trafficSnapshotWhere(c), data: { inactivePingCount: …
+          · меняет в базе: client
+        - если advanced.count !== 1
+          - continue;
+            · переходит к следующему
+      - если candidates.length < 500
+        - break;
+          · прекращает перебор
+  - если pinged > 0
+    - console.log(`[cron] Светофор неактивных: напоминаний ${pinged}`);
+      · пишет строку в журнал сервера
+  - если lost > 0
+    - console.log(`[cron] Светофор неактивных: переведено в Потерянные ${lost}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка светофора неактивных", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -21730,6 +22184,8 @@
       · зовёт firstCallCandidateWindow()
     - const stationBlind = telephonyOn && isStationDownLongerThan(minutes * 60_000);
       · зовёт isStationDownLongerThan()
+    - const maxTransfers = reassignOnMissedCall ? await loadMaxTransfers() : 0;
+      · зовёт loadMaxTransfers()
     - const candidates = await prisma.client.findMany({ where: { acceptedAt: { not: null, gte: candidateFrom, lte: …
       · читает в базе: client
     - если candidates.length === 0
@@ -21783,6 +22239,10 @@
       - const nextAgentId = await pickAgentForLead(withDeclined(triedNow), kind);
         · зовёт pickAgentForLead()
       - если client.reassignCount >= escalateAfter || !nextAgentId
+        - const becameInactive = transfersExhausted(client.reassignCount, maxTransfers);
+          · зовёт transfersExhausted()
+        - const trafficFields = becameInactive ? await inactiveLevelFields(client.id, client.kind, "OTHER", undefined, …
+          · зовёт inactiveLevelFields()
         - const escalation = await prisma.$transaction(async (tx)
           · всё внутри — одной транзакцией
           - const changed = await changeClientAgent({ clientId: client.id, toAgentId: client.assignedAgentId, reason: `Пе…
@@ -22259,6 +22719,46 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка разбора оборванных переписок", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### lost-inactive-trash-sweep — 30 0 * * *
+
+- пробует
+  - const { trashed, skipped } = await runLostInactiveTrashSweep();
+    · зовёт runLostInactiveTrashSweep()
+    - const candidates = await prisma.client.findMany({ where: { deletedAt: null, reactivationOfferedToAgentId: nul…
+      · читает в базе: client
+    - если candidates.length === 0
+      - return { trashed: 0, skipped: 0 };
+        · дословно из кода
+    - если !byAgentId
+      - await logSystemError( "api", `Автоуборка Потерянных/Неактивных в Корзину: нет ни одного активного агента с ро…
+        · запись в журнал ошибок
+    - для каждого: const c of candidates
+      - const result = await trashClient(c.id, byAgentId, { notifyHolder: false, guardWhere: { status: c.status, work…
+        · зовёт trashClient()
+      - если result.ok
+        - если c.assignedAgentId
+          - trashedByHolder.set(c.assignedAgentId, [...(trashedByHolder.get(c.assignedAgentId) ?? []), c.shortId]);
+            · дословно из кода
+      - иначе
+        - skipped++;
+          · дословно из кода
+    - для каждого: const [agentId, shortIds] of trashedByHolder
+      - void sendPushToAgent(agentId, { title: `🗑️ Автосвип: ${shortIds.length} ${shortIds.length === 1 ? "карточка"…
+        · push-уведомление
+        · запись в журнал ошибок
+        - void logSystemError( "api", `Сводный пуш автосвипа не отправлен (держатель ${agentId}): ${err instanceof Erro…
+          · запись в журнал ошибок
+  - если trashed || skipped
+    - console.log(`[cron] Автоуборка Потерянных/Неактивных в Корзину: убрано ${trashed}, пропущено ${skipped}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка автоуборки Потерянных/Неактивных в Корзину", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
@@ -22995,6 +23495,41 @@
   - для каждого: const row of rows
     - await executeNarrationDelivery(row.id);
       · зовёт executeNarrationDelivery()
+
+### no-answer-tail — */30 * * * *
+
+- пробует
+  - const created = await processNoAnswerTailAnchors();
+    · зовёт processNoAnswerTailAnchors()
+    - const anchors = await prisma.interaction.findMany({ where: { type: "SYSTEM", nextAction: null, completedAt: n…
+      · читает в базе: interaction
+    - если anchors.length === 0
+      - return 0;
+        · дословно из кода
+    - const [callbacks, talked] = await Promise.all([ prisma.incomingCall.findMany({ where: { clientId: { in: ancho…
+      · читает в базе: incomingCall
+      · читает в базе: interaction
+    - const clients = await prisma.client.findMany({ where: { id: { in: anchorClientIds } }, select: { id: true, fu…
+      · читает в базе: client
+    - const results = await mapWithConcurrency(anchors, TICK_CONCURRENCY, async (anchor)
+      · меняет в базе: interaction
+      - если !eligible || !client
+        - await prisma.interaction.update({ where: { id: anchor.id }, data: { completedAt: now } });
+          · меняет в базе: interaction
+      - await upsertAutoTask({ clientId: client.id, kind: "no_answer_tail_retry", actor: { kind: "system", source: "n…
+        · зовёт upsertAutoTask()
+      - await prisma.interaction.update({ where: { id: anchor.id }, data: { completedAt: now } });
+        · меняет в базе: interaction
+  - если created > 0
+    - console.log(`[cron] Хвост дозвона: заведено задач ${created}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка хвоста дозвона", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### operator-queue-presence — */5 * * * *
 
@@ -24089,6 +24624,76 @@
   - isShowingConfirmRunning = false;
     · дословно из кода
 
+### silent-client-auto-deactivate — 25 0 * * *
+
+- пробует
+  - const { deactivated } = await runSilentClientAutoDeactivate();
+    · зовёт runSilentClientAutoDeactivate()
+    - для каждого: ;;
+      - const candidates = await prisma.client.findMany({ where: { ...(afterId ? { id: { gt: afterId } } : {}), delet…
+        · читает в базе: client
+      - если candidates.length === 0
+        - break;
+          · прекращает перебор
+      - const sellersInWork = await sellersWithPropertyInWork( (candidates as SilentCandidate[]) .filter((c)
+        · зовёт sellersWithPropertyInWork()
+      - для каждого: const c of candidates as SilentCandidate[]
+        - если sellersInWork.has(c.id)
+          - continue;
+            · переходит к следующему
+        - если !c.assignedAgentId
+          - continue;
+            · переходит к следующему
+        - если !last
+          - continue;
+            · переходит к следующему
+        - если last.role !== "assistant"
+          - continue;
+            · переходит к следующему
+        - если last.at.getTime() > cutoff.getTime()
+          - continue;
+            · переходит к следующему
+        - пробует
+          - const levelFields = await inactiveLevelFields( c.id, c.kind, "STOPPED_RESPONDING", undefined, now, );
+            · зовёт inactiveLevelFields()
+          - const written = await prisma.$transaction(async (tx)
+            · всё внутри — одной транзакцией
+            · обращается к базе своим SQL
+            · меняет в базе: client
+            - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${c.id} FOR UPDATE`;
+              · обращается к базе своим SQL
+            - если c.kind === "SELLER" && (await sellersWithPropertyInWork([c.id], {}, tx)).has(c.id)
+              - return false;
+                · дословно из кода
+            - const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: "ACTIVE", kind: …
+              · меняет в базе: client
+            - если updated.count !== 1
+              - return false;
+                · дословно из кода
+            - await logTimeline({ clientId: c.id, actor: { kind: "system", source: "silentClientAutoDeactivate", subjectAge…
+              · зовёт logTimeline()
+          - если !written
+            - continue;
+              · переходит к следующему
+          - publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: "INACTIVE" });
+            · зовёт publishClientUpdated()
+        - если сорвалось
+          - await logSystemError( "api", `Автопереход молчаливого клиента в Неактивные (клиент ${c.shortId}) не выполнен:…
+            · запись в журнал ошибок
+      - если candidates.length < 500
+        - break;
+          · прекращает перебор
+  - если deactivated
+    - console.log(`[cron] Молчаливых клиентов переведено в Неактивные: ${deactivated}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка автоперевода молчаливых клиентов", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### site-stats — 7 * * * *
 
 - пробует
@@ -24872,7 +25477,7 @@
     - если сорвалось
       - return { skipped: "read_failed", alarmed: false };
         · дословно из кода
-    - const problem = telegramDeliveryProblem(info, now, previousPending);
+    - const problem = telegramDeliveryProblem(info, now, previousPending, telegramUpdatesMode());
       · зовёт telegramDeliveryProblem()
     - если !problem
       - return { skipped: null, alarmed: false };
@@ -25270,6 +25875,40 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### transfer-request-tick — */5 * * * *
+
+- пробует
+  - const { stuck, reminded } = await runTransferRequestTick();
+    · зовёт runTransferRequestTick()
+    - const stuck = await prisma.ownershipTransferRequest.findMany({ where: { status: "DECLINED", resultNote: EXECU…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of stuck
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "DECLINED", res…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count
+        - publishTransferChanged([row.requestedById], row.id);
+          · зовёт publishTransferChanged()
+    - const due = await prisma.ownershipTransferRequest.findMany({ where: { status: "PENDING", remindCount: { lt: T…
+      · читает в базе: ownershipTransferRequest
+    - для каждого: const row of due
+      - const claim = await prisma.ownershipTransferRequest.updateMany({ where: { id: row.id, status: "PENDING", remi…
+        · меняет в базе: ownershipTransferRequest
+      - если claim.count === 0
+        - continue;
+          · переходит к следующему
+      - await notifyReviewers(row);
+        · зовёт notifyReviewers()
+  - если stuck + reminded > 0
+    - console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка тика запросов передачи", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### video-handoff-redelivery — */5 * * * *
 
 - пробует
@@ -25650,8 +26289,6 @@
     - если !settings?.reactivationEnabled
       - return { enqueued: 0, skipped: "disabled" };
         · дословно из кода
-    - const cutoff = reactivationCutoff(settings.reactivationAfterDays, now);
-      · зовёт reactivationCutoff()
     - const weekKey = reactivationWeekKey(now);
       · зовёт reactivationWeekKey()
     - const cutoffKey = reactivationWeekKey(cutoff);
@@ -25660,7 +26297,7 @@
       · читает в базе: backgroundJob
     - const recentlyOffered = [ ...new Set( recentJobs .map((j)
       · зовёт parseReactivationKey()
-    - const candidates = await prisma.client.findMany({ where: { AND: [reactivationCandidateWhere(cutoff), ...(rece…
+    - const candidates = await prisma.client.findMany({ where: { deletedAt: null, ...(recentlyOffered.length ? { id…
       · читает в базе: client
     - если candidates.length === 0
       - return { enqueued: 0, skipped: null };
@@ -26591,10 +27228,6 @@
 - если client.reactivationOfferedToAgentId
   - return;
     · дальше не идёт, ничего не меняя
-- const eligibilitySettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { reactiva…
-  · читает в базе: settings
-- const stillEligible = (await prisma.client.count({ where: { AND: [{ id: client.id }, reactivationCandidateWhe…
-  · считает в базе: client
 - если !stillEligible
   - return;
     · дальше не идёт, ничего не меняя
@@ -27646,8 +28279,8 @@
           · дословно из кода
       - если client?.assignedAgentId
         - если !client.agentAttentionRequestedAt
-          - await prisma.client.updateMany({ where: { id: client.id, agentAttentionRequestedAt: null }, data: { agentAtte…
-            · меняет в базе: client
+          - await markAgentAttention(client.id);
+            · зовёт markAgentAttention()
         - await logTimeline({ clientId: client.id, actor: { kind: "client", source: "lead-only-handover", subjectAgentI…
           · зовёт logTimeline()
       - если input.propertyId
@@ -28968,8 +29601,16 @@
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "discount");
       · зовёт traceFilterDelta()
     - если draft.intent !== "sell" && draft.intent !== "job"
-      - const claims = findOffCatalogClaims({ text: result.reply.join("\n"), allowedText: propsBlock + "\n" + history…
-        · зовёт findOffCatalogClaims()
+      - const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…
+        · зовёт applyObjectFactGuards()
+      - если facts.streets.length > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
+          · зовёт traceFilterDelta()
+      - если facts.renovationRemoved > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
+          · зовёт traceFilterDelta()
+        - void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…
+          · запись в журнал ошибок
       - если what.length > 0
         - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
           · запись в журнал ошибок
@@ -29143,8 +29784,16 @@
     - traceFilterDelta("qualifier_guards", traceBefore, result.reply.join("\n"), "discount");
       · зовёт traceFilterDelta()
     - если draft.intent !== "sell" && draft.intent !== "job"
-      - const claims = findOffCatalogClaims({ text: result.reply.join("\n"), allowedText: propsBlock + "\n" + history…
-        · зовёт findOffCatalogClaims()
+      - const facts = applyObjectFactGuards({ reply: result.reply, propsBlock, geoBlock, folkGeography, history, usdT…
+        · зовёт applyObjectFactGuards()
+      - если facts.streets.length > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.afterPlace.join("\n"), "place");
+          · зовёт traceFilterDelta()
+      - если facts.renovationRemoved > 0
+        - traceFilterDelta("qualifier_guards", traceBefore, facts.reply.join("\n"), "renovation");
+          · зовёт traceFilterDelta()
+        - void logSystemError("ai", "Бот назвал состояние «с ремонтом», которого нет в карточке объекта, — фраза выреза…
+          · запись в журнал ошибок
       - если what.length > 0
         - void logSystemError( "ai", `Бот назвал вне подборки: ${what.join("; ")} — этого нет ни в подборке объектов, н…
           · запись в журнал ошибок

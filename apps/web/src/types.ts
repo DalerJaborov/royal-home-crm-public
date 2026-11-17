@@ -570,6 +570,8 @@ export interface Interaction {
   /** Кто действовал — см. lib/timeline.ts::TimelineActor на сервере. Не
    *  приходит у совсем старых незатронутых записей — читать как `"AGENT"`. */
   actorKind?: "AGENT" | "SYSTEM" | "AI" | "BOT" | "CLIENT";
+  /** Звонок-разбор удалённого клиента из Корзины: не работа агента (lib/archiveReviewCall.ts). */
+  archiveReview?: boolean;
   /** Кому адресована задача, когда актор не человек (subjectAgentId ?? agentId
    *  — тот же приём, что на сервере в lib/tasks.ts consumers). */
   subjectAgent?: { id?: string; fullName: string } | null;

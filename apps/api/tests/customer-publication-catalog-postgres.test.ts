@@ -59,12 +59,12 @@ it("renders real multi-property digest facts in RU/TG while dropping sold/privat
   for (const language of ["ru", "tg"] as const) {
     const priceOnly = renderCustomerAgentDecision({ decision: { kind: "reply", refs: [], social: "none", question: "none" }, evidence: [{ ref: "e0", value: value! }],
       language, requestedFacts: ["price"], knownPhoneSource: "none", maxOutputChars: 6000, surface: "public_comment" });
-    expect(priceOnly).not.toBeNull(); expect(priceOnly).toContain("456 789"); expect(priceOnly).toContain("54 000 USD");
+    expect(priceOnly).not.toBeNull(); expect(priceOnly).toContain("456 789"); expect(priceOnly).toContain(language === "tg" ? "54 000 доллар" : "54 000 USD");
     expect(priceOnly).not.toContain("64,5");
     expect(priceOnly).not.toMatch(/PRIVATE|WRONG|телефон|Рақаматон|записал/); expect(priceOnly).not.toContain(a.id);
     const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: [], social: "none", question: "none" }, evidence: [{ ref: "e0", value: value! }],
       language, requestedFacts: ["price", "characteristics"], knownPhoneSource: "none", maxOutputChars: 6000, surface: "public_comment" });
-    expect(text).toContain("456 789"); expect(text).toContain("54 000 USD"); expect(text).toContain("64,5");
+    expect(text).toContain("456 789"); expect(text).toContain(language === "tg" ? "54 000 доллар" : "54 000 USD"); expect(text).toContain("64,5");
     expect(text).not.toMatch(/PRIVATE|WRONG|телефон|Рақаматон|записал/); expect(text).not.toContain(a.id);
   }
   await prisma.property.update({ where: { id: a.id }, data: { price: 999999 } });

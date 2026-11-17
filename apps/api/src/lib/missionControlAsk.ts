@@ -92,7 +92,7 @@ export async function buildAskContext(seesMoney: boolean, now: Date = new Date()
     seesMoney ? buildFinancePulse() : null,
     prisma.client.count({ where: { createdAt: { gte: startOfDay }, deletedAt: null } }),
     prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay } } }),
-    prisma.interaction.count({ where: { investigationOnly: false, type: "CALL", createdAt: { gte: startOfDay } } }),
+    prisma.interaction.count({ where: { investigationOnly: false, archiveReview: false, type: "CALL", createdAt: { gte: startOfDay } } }),
     prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay }, answered: false } }),
     prisma.agent.findMany({
       where: { role: { in: [...RATED_ROLES] }, isActive: true },

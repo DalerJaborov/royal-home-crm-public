@@ -799,7 +799,7 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
     // routes/team.ts/lib/kpi.ts.
     prisma.interaction.groupBy({
       by: ["agentId"],
-      where: { ...visibleInteractionWhere(viewerRole), type: "CALL", createdAt: window, actorKind: "AGENT" },
+      where: { ...visibleInteractionWhere(viewerRole), type: "CALL", createdAt: window, actorKind: "AGENT", archiveReview: false },
       _count: { _all: true },
     }),
     prisma.interaction.groupBy({

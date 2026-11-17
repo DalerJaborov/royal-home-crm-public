@@ -351,7 +351,7 @@ export async function runReactivationOfferReminders(): Promise<{ accepted: numbe
 
     try {
       const calledByAgent = await prisma.interaction.findFirst({
-        where: { clientId: client.id, agentId, type: "CALL", createdAt: { gt: offeredAt } },
+        where: { clientId: client.id, agentId, type: "CALL", archiveReview: false, createdAt: { gt: offeredAt } },
         select: { id: true },
       });
       if (calledByAgent) {

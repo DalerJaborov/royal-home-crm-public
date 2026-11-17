@@ -373,7 +373,7 @@ dashboardRouter.get("/charts", requireAuth, requirePermission("dashboard.analyti
       _count: { _all: true },
     }),
     prisma.interaction.findMany({
-      where: { createdAt: { gte: pulseFrom }, type: { not: "SYSTEM" } },
+      where: { createdAt: { gte: pulseFrom }, type: { not: "SYSTEM" }, archiveReview: false },
       // type нужен тултипу «Пульса»: разбивка дня по звонкам/показам/встречам.
       select: { createdAt: true, type: true },
       take: DASHBOARD_ROW_LIMIT,

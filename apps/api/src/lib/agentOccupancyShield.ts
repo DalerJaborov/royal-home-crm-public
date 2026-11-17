@@ -157,6 +157,7 @@ export async function agentsWithUncalledAcceptedLead(agentIds: string[], now: Da
       // П-2 (закон о владении клиентом, 17.09.2026): любая попытка агента, не
       // только звонок — см. разбор у объявления функции выше.
       type: { notIn: ["SYSTEM", "STATUS_CHANGE"] },
+      archiveReview: false,
       createdAt: { gte: since },
     },
     select: { id: true, clientId: true, createdAt: true },

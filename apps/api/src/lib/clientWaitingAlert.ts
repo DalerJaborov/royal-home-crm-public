@@ -7,7 +7,7 @@ import { sendPushToAgent } from "../push.js";
 import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE } from "./customerIntendedSilence.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
-import { fetchLastCallContactByClient } from "./botPauseWatch.js";
+import { fetchLastCallContactByClient, loadBotPauseWatchSettings } from "./botPauseWatch.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
@@ -157,6 +157,8 @@ interface WaitingChat {
   replyHint: string;
   /** Последний сигнал «клиент ждёт» по этой переписке (только BotConversation; у Telegram-таблиц нет). */
   lastAlertAt: Date | null;
+  /** Клиент CRM — чтобы звонок после сигнала считался ответом (ревью #205, С-4). */
+  clientId: string | null;
 }
 
 const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } | null } | null | undefined) =>
@@ -167,7 +169,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string): Promise<W
   if (source === "bot") {
     const chat = await prisma.botConversation.findUnique({
       where: { id },
-      select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, silenceAlertFor: true, client },
+      select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, silenceAlertFor: true, clientId: true, client },
     });
     if (!chat || chat.optedOutAt || chat.client?.deletedAt) return null;
     const previous = chat.silenceAlertFor;
@@ -178,6 +180,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string): Promise<W
       agentId: activeAgent(chat.client),
       replyHint: "Ответьте клиенту.",
       lastAlertAt: previous,
+      clientId: chat.clientId,
       async claim(since) {
         if (previous && previous.getTime() >= since.getTime()) return false;
         const claimed = await prisma.botConversation.updateMany({
@@ -204,6 +207,8 @@ async function loadWaitingChat(source: WaitingChatSource, id: string): Promise<W
     // Telegram Direct из CRM не отвечает (инбокс: canReply=false) — честно говорим, где отвечать.
     replyHint: source === "telegram" ? "Ответьте клиенту." : "Ответьте клиенту в Telegram — из CRM в эту переписку ответить нельзя.",
     lastAlertAt: null,
+    // follow_up по звонку проверяется только при lastAlertAt — у Telegram-таблиц его нет.
+    clientId: null,
     async claim(since) {
       const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
         VALUES (${randomUUID()},${TELEGRAM_EPISODE_CLAIM},${key(since)},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
@@ -241,7 +246,12 @@ export async function alertClientWaiting(input: {
   if (!since) return "skipped";
   // «Агент уточнит» — one CRITICAL per chat until a person answers in the chat (re-review #201, Н-нов-3; owner: rarely
   // disturb people): three empty searches in a row are one signal, not three.
-  if (input.trigger === "follow_up" && chat.lastAlertAt && !humanRepliedSince(chat.messages, chat.lastAlertAt)) return "skipped";
+  // A completed CALL after the previous signal is an answer too (review #205, С-4): the agent who phoned the customer learns
+  // about the NEXT promise "the agent will tell", instead of never hearing of this chat again.
+  if (input.trigger === "follow_up" && chat.lastAlertAt && !humanRepliedSince(chat.messages, chat.lastAlertAt)) {
+    const called = chat.clientId ? (await fetchLastCallContactByClient([chat.clientId])).get(chat.clientId) : undefined;
+    if (!called || called.getTime() <= chat.lastAlertAt.getTime()) return "skipped";
+  }
 
   // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба.
   if (!(await chat.claim(since))) return "skipped";
@@ -250,7 +260,8 @@ export async function alertClientWaiting(input: {
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
   const body =
     input.trigger === "follow_up"
-      ? `${name}: бот ответил клиенту, что это уточнит агент. Ответьте клиенту или позвоните.`
+      // Подсказка, где отвечать (Telegram Direct: из CRM нельзя), потерялась при своде #201 с #198 — возвращена 16.11.
+      ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
       : input.trigger === "escalate"
       ? `${name}: бот решил, что нужен сотрудник, и не ответил. ${chat.replyHint}`
       : input.trigger === "failed"
@@ -394,9 +405,9 @@ async function sweepBotConversations(now: Date): Promise<{ checked: number; aler
   // Предвыборка в базе: последняя реплика — клиента (или недоставленный ответ бота),
   // переписка свежая, не отписан. Хвост и эпизод считает waitingEpisodeOf.
   const rows = await prisma.$queryRaw<
-    Array<{ id: string; messages: unknown; leadDraft: unknown; silenceAlertFor: Date | null; clientId: string | null }>
+    Array<{ id: string; messages: unknown; leadDraft: unknown; silenceAlertFor: Date | null; clientId: string | null; pausedUntil: Date | null }>
   >`
-    SELECT bc.id, bc.messages, bc."leadDraft", bc."silenceAlertFor", bc."clientId"
+    SELECT bc.id, bc.messages, bc."leadDraft", bc."silenceAlertFor", bc."clientId", bc."pausedUntil"
     FROM "BotConversation" bc
     LEFT JOIN "Client" c ON c.id = bc."clientId"
     WHERE bc."lastMessageAt" >= ${new Date(now.getTime() - LOOKBACK_MS)}
@@ -416,26 +427,35 @@ async function sweepBotConversations(now: Date): Promise<{ checked: number; aler
 
   const threshold = now.getTime() - CLIENT_WAITING_MINUTES * 60_000;
   const due: Array<{ id: string; clientId: string | null; episode: WaitingEpisode }> = [];
+  const repeat: Array<{ id: string; clientId: string | null; episode: WaitingEpisode }> = [];
   for (const row of rows) {
     const episode = waitingEpisodeOf(row.messages);
     if (!episode || episode.since.getTime() > threshold) continue;
-    if (row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()) continue;
     const draft = row.leadDraft;
     const spam = draft && typeof draft === "object" && !Array.isArray(draft) ? (draft as Record<string, unknown>).spamMute : undefined;
     if (customerSpamMuteActive(customerSpamMuteFrom(spam), now)) continue;
+    if (row.silenceAlertFor && row.silenceAlertFor.getTime() >= episode.since.getTime()) {
+      // Already signalled once. A person TOOK this chat (the bot is paused) and the customer is still unanswered:
+      // the second, last signal (repeatClientWaiting). The bot stays paused (owner decision on the pause unchanged).
+      if (row.pausedUntil && row.pausedUntil.getTime() > now.getTime() && personTookChat(row.messages) &&
+          now.getTime() - episode.since.getTime() <= REPEAT_EPISODE_MAX_AGE_MS) {
+        repeat.push({ id: row.id, clientId: row.clientId, episode });
+      }
+      continue;
+    }
     due.push({ id: row.id, clientId: row.clientId, episode });
   }
-  if (due.length === 0) return { checked: rows.length, alerted: 0 };
+  if (due.length === 0 && repeat.length === 0) return { checked: rows.length, alerted: 0 };
 
   // Намеренное молчание ядра: эпизод пропускаем, только если ВСЕ его реплики
   // удержаны намеренно. Одним запросом на пачку, не в цикле.
-  const keys = [...new Set(due.flatMap((d) => d.episode.eventKeys))];
+  const keys = [...new Set([...due, ...repeat].flatMap((d) => d.episode.eventKeys))];
   const tickets = keys.length
     ? await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: keys } }, select: { eventKey: true, errorCode: true } })
     : [];
   const intentional = new Set(tickets.filter((t) => t.errorCode && INTENTIONAL_SILENCE_REASONS.has(t.errorCode)).map((t) => t.eventKey));
   // Звонок агента после первой неотвеченной реплики — разговор был, тоже одним запросом.
-  const lastCall = await fetchLastCallContactByClient([...new Set(due.map((d) => d.clientId).filter((id): id is string => !!id))]);
+  const lastCall = await fetchLastCallContactByClient([...new Set([...due, ...repeat].map((d) => d.clientId).filter((id): id is string => !!id))]);
 
   let alerted = 0;
   for (const d of due) {
@@ -450,5 +470,95 @@ async function sweepBotConversations(now: Date): Promise<{ checked: number; aler
       reportCronRowError("Сторож «клиент ждёт ответа»", d.id, err);
     }
   }
+  const repeatOn = repeat.length > 0 && (await loadBotPauseWatchSettings()).enabled;
+  for (const d of repeatOn ? repeat : []) {
+    try {
+      const allIntentional = d.episode.untracked === 0 && d.episode.eventKeys.every((k) => intentional.has(k));
+      if (allIntentional) continue;
+      const called = d.clientId ? lastCall.get(d.clientId) : undefined;
+      if (called && called.getTime() > d.episode.since.getTime()) continue;
+      if ((await repeatClientWaiting({ conversationId: d.id, since: d.episode.since, now })) === "sent") alerted++;
+    } catch (err) {
+      reportCronRowError("Сторож «клиент ждёт ответа» (повтор)", d.id, err);
+    }
+  }
   return { checked: rows.length, alerted };
+}
+
+/**
+ * ВЗЯЛ ЧАТ И НЕ ОТВЕТИЛ — ВТОРОЙ И ПОСЛЕДНИЙ СИГНАЛ (16.11.2026, аудит молчания: 3 горячие переписки, напр.
+ * Arvan: клиентка ответила агенту про бюджет 15.11 13:48 и ждала 19 часов; бот на «вечной» паузе, первый пуш
+ * ушёл один раз — и всё).
+ *
+ * Только для переписок, где бот на паузе (человек взял разговор), эпизод уже сигналили (silenceAlertFor), а
+ * ответа всё нет CLIENT_WAITING_REPEAT_MINUTES с момента, когда сторож впервые увидел этот сигнал (сторож ходит
+ * только в рабочие часы). Тогда — ответственному (если есть) И руководству, один раз на эпизод. Паузу не трогает:
+ * решение владельца про паузу (botPauseWatch 24/72 ч) прежнее. Метки в «ProcessedMessage», без миграции:
+ * `client-waiting-repeat-armed` (сторож впервые увидел сигнал) и `client-waiting-repeat` (повтор ушёл).
+ */
+export const CLIENT_WAITING_REPEAT_MINUTES = 120;
+/** Only a fresh episode is repeated (review #205, С-2/М-3): no wake-up for old pauses right after a deploy (ФАКТ prod
+ *  16.11: 2 such chats in the last 24 h), and the ProcessedMessage marks (cleaned after 3 days) never re-arm it. */
+const REPEAT_EPISODE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A PERSON took the chat (review #205, С-1): the last message from our side before the customer's unanswered tail is a
+ * human's (an agent in the CRM or staff from the messenger app). A pause the bot set itself (repeat shield, off-topic
+ * hand-over) is not "an employee took the chat" — that silence is the 30-minute sweep's, with its own words. Pure.
+ */
+export function personTookChat(messages: unknown): boolean {
+  if (!Array.isArray(messages)) return false;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: unknown; by?: { kind?: unknown } | null } | null;
+    if (!m || m.role !== "assistant") continue;
+    const kind = m.by && typeof m.by === "object" ? m.by.kind : undefined;
+    return kind === "agent" || kind === "manual";
+  }
+  return false;
+}
+const REPEAT_ARMED = "client-waiting-repeat-armed";
+const REPEAT_SENT = "client-waiting-repeat";
+
+export async function repeatClientWaiting(input: { conversationId: string; since: Date; now?: Date }): Promise<"sent" | "armed" | "skipped"> {
+  const now = input.now ?? new Date();
+  const key = `${input.conversationId}:${input.since.toISOString()}`;
+  // Armed once: the timer starts when the sweep first sees the signalled episode, so a night message signalled at the
+  // first morning tick is not repeated ten minutes later.
+  await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+    VALUES (${randomUUID()},${REPEAT_ARMED},${key},${now},${now}) ON CONFLICT ("channel","messageId") DO NOTHING`;
+  const armed = await prisma.processedMessage.findFirst({ where: { channel: REPEAT_ARMED, messageId: key }, select: { createdAt: true } });
+  if (!armed || now.getTime() - armed.createdAt.getTime() < CLIENT_WAITING_REPEAT_MINUTES * 60_000) return "armed";
+  const chat = await prisma.botConversation.findUnique({
+    where: { id: input.conversationId },
+    select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, pausedUntil: true,
+      client: { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } },
+  });
+  if (!chat || chat.optedOutAt || chat.client?.deletedAt || !chat.pausedUntil || chat.pausedUntil <= now || !personTookChat(chat.messages)) return "skipped";
+  if (now.getTime() - input.since.getTime() > REPEAT_EPISODE_MAX_AGE_MS) return "skipped";
+  const episode = waitingEpisodeOf(chat.messages);
+  if (!episode || episode.since.getTime() !== input.since.getTime()) return "skipped"; // answered meanwhile
+  // Atomic: two ticks or two instances never both send.
+  const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+    VALUES (${randomUUID()},${REPEAT_SENT},${key},${now},${now}) ON CONFLICT ("channel","messageId") DO NOTHING`;
+  if (claimed !== 1) return "skipped";
+  const name = chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[chat.channel] ?? chat.channel}`;
+  const hours = Math.max(1, Math.round((now.getTime() - input.since.getTime()) / 3_600_000));
+  const body = `${name}: переписку взял сотрудник, а клиент ждёт ответа уже ${hours} ч. Ответьте клиенту.`;
+  const url = `/messages?open=${chat.id}`;
+  const tag = `client-waiting-repeat-${chat.id}`;
+  const agent = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
+  let agentPushed = false;
+  try {
+    if (agent) { await sendPushToAgent(agent, { kind: "message", level: "CRITICAL", title: "💬 Клиент всё ещё ждёт ответа", body, url, tag }); agentPushed = true; }
+    const queued = await enqueueDirectorAlert({ title: "💬 Клиент ждёт ответа после передачи сотруднику", body, url, kind: "message",
+      level: "CRITICAL", severity: "critical", tag, recipientRoles: ["DIRECTOR", "ADMIN"], ...(agent ? { excludeAgentId: agent } : {}) });
+    if (!queued && !agent) throw new Error("очередь тревог руководству недоступна");
+    return "sent";
+  } catch (err) {
+    // Release only when NOBODY was told (review #205, М-5): a pushed agent must not get the same push again in 10 minutes.
+    if (!agentPushed) await prisma.processedMessage.deleteMany({ where: { channel: REPEAT_SENT, messageId: key } }).catch(() => {});
+    void logSystemError("api", `Повторный сигнал «клиент ждёт ответа» не отправлен: ${err instanceof Error ? err.message : String(err)}`,
+      { dedupKey: "client-waiting-repeat-failed" });
+    return "skipped";
+  }
 }

@@ -13,6 +13,9 @@ import { CLIENT_IN_WORK_WHERE } from "./clientInWork.js";
  */
 export const TALKED_CALL_WHERE = {
   type: "CALL",
+  // Звонок РОП «почему в Корзине» (#217, lib/archiveReviewCall.ts) — разбор
+  // удалённого, а не работа с клиентом: контактом агента его не считаем.
+  archiveReview: false,
   OR: [{ callAttempt: "TALKED" }, { recordingDurationSec: { gt: 0 } }],
 } satisfies Prisma.InteractionWhereInput;
 

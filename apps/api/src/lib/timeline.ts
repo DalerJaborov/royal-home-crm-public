@@ -79,6 +79,8 @@ export interface LogTimelineInput {
   type: InteractionType;
   notes: string;
   investigationOnly?: boolean;
+  /** Звонок-разбор удалённого клиента из Корзины (lib/archiveReviewCall.ts): не работа агента. */
+  archiveReview?: boolean;
   /** Server-owned origin only; callers must link all interpretations of one call to one independenceKey. */
   investigationOrigin?: { sourceType: string; sourceId: string; independenceKey: string; kind: string; showingId?: string };
   propertyId?: string | null;
@@ -206,6 +208,7 @@ export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineR
     type: input.type,
     notes: input.notes,
     investigationOnly: input.investigationOnly ?? false,
+    archiveReview: input.archiveReview ?? false,
     propertyId: input.propertyId ?? null,
     outcome: input.outcome ?? null,
     ...(input.outcomeSource !== undefined ? { outcomeSource: input.outcomeSource } : {}),

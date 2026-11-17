@@ -141,6 +141,7 @@ import type { TelegramUpdate } from "../telegram/api.js";
 import { withTelegramUpdateRetry } from "../telegram/updateRetry.js";
 import { anyParams } from "../lib/routeParams.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
+import { requestAgentAttention } from "../lib/agentAttention.js";
 import { sendPushToAgents } from "../push.js";
 import { ensureMetaAdKnown } from "../lib/ads/syncMetaAds.js";
 
@@ -2348,7 +2349,9 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       const adPostTail = msg.adPostId?.includes("_") ? msg.adPostId.slice(msg.adPostId.lastIndexOf("_") + 1) : msg.adPostId;
       const ourCreative =
         (Boolean(msg.attachmentMediaId) && (msg.attachmentMediaId === msg.adPostId || msg.attachmentMediaId === adPostTail)) ||
-        isOurBrandCaption(msg.attachmentTitle, accountBrand);
+        isOurBrandCaption(msg.attachmentTitle, accountBrand) ||
+        // Подписи нет, но описание самого ролика называет наш бренд («рекламный ролик агентства «Arvan Estate»»), 16.11.2026.
+        isOurBrandCaption(cardRead?.text, accountBrand);
       const foreignShare =
         isSharedPost(msg.attachmentType) && !sharedPost.propertyId && !ownMedia && !vacancyPost && !ourCreative;
       if (foreignShare) rememberForeignShare(msg.channel, msg.senderId);
@@ -2762,6 +2765,8 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // другой по формулировке ответ на тот же вопрос («два похожих сообщения
       // подряд» из живой переписки).
       replySent = true;
+      // Обещание звонка доехало до клиента — теперь сигнал агенту (одна дверь, lib/agentAttention.ts).
+      if (providerAcceptedReply && result.agentSignal) void requestAgentAttention(result.agentSignal.clientId, result.agentSignal.reason);
       if (result.reply2) {
         // Между двумя сообщениями индикатор гаснет (отправка его сбрасывает) —
         // показываем «печатает…» заново, как человек, который дописывает мысль.

@@ -371,7 +371,7 @@ async function buildLive(ctx: McContext) {
       ]);
       const [incomingToday, outgoingToday, missedToday, unqualified] = await Promise.all([
         prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay } } }),
-        prisma.interaction.count({ where: { ...(ctx.seesInvestigations ? {} : { investigationOnly: false }), type: "CALL", createdAt: { gte: startOfDay } } }),
+        prisma.interaction.count({ where: { ...(ctx.seesInvestigations ? {} : { investigationOnly: false }), type: "CALL", archiveReview: false, createdAt: { gte: startOfDay } } }),
         prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay }, answered: false } }),
         prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay }, ...AWAITING_REVIEW_WHERE } }),
       ]);

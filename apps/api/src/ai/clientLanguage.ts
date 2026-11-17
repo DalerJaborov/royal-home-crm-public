@@ -133,11 +133,30 @@ export function stripNonLanguage(text: string): string {
 
 export type ClientLanguageScores = { tajik: number; russian: number; greetings: number };
 /** Word counts behind detectClientLanguage, for callers that must break a "mixed" tie themselves. */
-export function clientLanguageScores(text: string): ClientLanguageScores {
+export function clientLanguageScores(text: string, extension?: ClientLanguageExtension): ClientLanguageScores {
   const trimmed = prepare(text);
-  return { tajik: count(TAJIK_LETTER_WORDS, trimmed) + count(TAJIK_WORDS, trimmed), russian: count(RUSSIAN_WORDS, trimmed),
+  return { tajik: tajikCount(trimmed, extension), russian: russianCount(trimmed, extension),
     greetings: count(TAJIK_GREETINGS, trimmed) };
 }
+
+/**
+ * Extra word lists of ONE caller (16.11.2026, review #206 С2): the customer core reads Dushanbe colloquial Tajik and more
+ * Russian function words, while the legacy chat bot and the voice keep exactly the lists above. Without an extension
+ * every function here behaves as before.
+ */
+export interface ClientLanguageExtension { tajik?: RegExp; russian?: RegExp; uzbekLatin?: RegExp }
+/** Base counts, plus extension words at positions the base lists did not already match. */
+function extendedCount(text: string, base: RegExp[], extra: RegExp | undefined): number {
+  const total = base.reduce((sum, re) => sum + count(re, text), 0);
+  if (!extra) return total;
+  const seen = new Set<number>();
+  for (const re of base) for (const match of text.matchAll(new RegExp(re.source, re.flags))) seen.add(match.index ?? -1);
+  let more = 0;
+  for (const match of text.matchAll(new RegExp(extra.source, extra.flags))) if (!seen.has(match.index ?? -1)) more += 1;
+  return total + more;
+}
+const tajikCount = (text: string, extension?: ClientLanguageExtension) => extendedCount(text, [TAJIK_LETTER_WORDS, TAJIK_WORDS], extension?.tajik);
+const russianCount = (text: string, extension?: ClientLanguageExtension) => extendedCount(text, [RUSSIAN_WORDS], extension?.russian);
 
 function prepare(text: string): string {
   /**
@@ -155,14 +174,15 @@ function prepare(text: string): string {
   return stripNonLanguage(unwrapUntrusted(withoutFiles).replace(SYSTEM_MARKER, " "));
 }
 
-export function detectClientLanguage(text: string): ClientLanguage {
+export function detectClientLanguage(text: string, extension?: ClientLanguageExtension): ClientLanguage {
   const trimmed = prepare(text);
   // Слишком коротко («ок», «👍», «[📷]») — по такому языка не определить, и
   // навязывать модели язык на основании двух букв опаснее, чем не навязывать.
   if (trimmed.length < 4) {
     // Три буквы — уже слово, если это однозначно таджикское («Кор», «Ман»); голое «нет»/«ок» язык не задаёт.
     const long = (re: RegExp) => (trimmed.match(re) ?? []).filter(word => word.length >= 3).length;
-    return long(TAJIK_LETTER_WORDS) + long(TAJIK_WORDS) > 0 && count(RUSSIAN_WORDS, trimmed) === 0 ? "tg" : "unknown";
+    return long(TAJIK_LETTER_WORDS) + long(TAJIK_WORDS) + (extension?.tajik ? long(extension.tajik) : 0) > 0 &&
+      russianCount(trimmed, extension) === 0 ? "tg" : "unknown";
   }
 
   /**
@@ -171,8 +191,8 @@ export function detectClientLanguage(text: string): ClientLanguage {
    * чего в сообщении больше; «смесь» — только когда обоих поровну по-честному.
    */
   const greetings = count(TAJIK_GREETINGS, trimmed);
-  const tajik = count(TAJIK_LETTER_WORDS, trimmed) + count(TAJIK_WORDS, trimmed);
-  const russian = count(RUSSIAN_WORDS, trimmed);
+  const tajik = tajikCount(trimmed, extension);
+  const russian = russianCount(trimmed, extension);
 
   if (tajik > 0 && russian > 0) {
     if (russian >= tajik * 2) return "ru";
@@ -189,6 +209,7 @@ export function detectClientLanguage(text: string): ClientLanguage {
   if (!HAS_CYRILLIC.test(trimmed) && HAS_LATIN.test(trimmed)) {
     // Таджикские слова латиницей перевешивают случайное «in»/«to»; чисто английская фраза остаётся «unknown».
     const tajikLatin = count(TAJIK_LATIN_WORDS, trimmed), english = count(ENGLISH_STRONG_WORDS, trimmed);
+    if (extension?.uzbekLatin && count(extension.uzbekLatin, trimmed) > tajikLatin) return "unknown";
     if (tajikLatin > 0 && tajikLatin >= english) return "tg";
     return ENGLISH_WORDS.test(trimmed) ? "unknown" : "tg";
   }

@@ -307,7 +307,7 @@ function buildNavigation(inputs: NavInputs): Navigation {
     can("marketing.access") && {
       to: "/social-videos",
       icon: Share2,
-      label: "Ролики в соцсети",
+      label: "Публикации в соцсети",
       group: "ads",
     },
     // «Подготовка объектов» (до 25.09.2026 — «Конвейер», переименовано

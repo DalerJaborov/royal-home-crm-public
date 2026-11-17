@@ -12,7 +12,6 @@ import { PhotoLightbox } from "../../components/PhotoLightbox";
 import { RefuseClientModal } from "../../components/RefuseClientModal";
 import { RequestDeleteClientModal } from "../../components/RequestDeleteClientModal";
 import { RequestDeletePropertyModal } from "../../components/RequestDeletePropertyModal";
-import { TransferClientModal } from "../../components/TransferClientModal";
 import type { Client, Property, PropertyPhoto } from "../../types";
 
 /**
@@ -221,7 +220,6 @@ const SHEETS = [
   "match-panel",
   "close-deal",
   "refuse",
-  "transfer",
   "merge",
   "duplicates",
   "request-delete-client",
@@ -291,7 +289,6 @@ export default function SheetsPortPlayground() {
         {sheet === "match-panel" && <MatchPanel mode="client" client={CLIENT} open onClose={close} />}
         {sheet === "close-deal" && <CloseDealChoiceModal client={CLIENT} onClose={close} />}
         {sheet === "refuse" && <RefuseClientModal client={CLIENT} onClose={close} />}
-        {sheet === "transfer" && <TransferClientModal client={CLIENT} onClose={close} />}
         {sheet === "merge" && <MergeClientModal client={CLIENT} onClose={close} />}
         {sheet === "duplicates" && <DuplicatesModal onClose={close} />}
         {sheet === "request-delete-client" && <RequestDeleteClientModal client={CLIENT} onClose={close} />}

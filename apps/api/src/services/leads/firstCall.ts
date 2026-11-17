@@ -956,6 +956,7 @@ export async function collectPriorConversationClientIds(
     where: {
       clientId: { in: withAcceptedAt.map((c) => c.id) },
       type: "CALL",
+      archiveReview: false,
       recordingDurationSec: { gte: minSeconds },
       createdAt: { lt: new Date(Math.max(...withAcceptedAt.map((c) => c.acceptedAt.getTime()))) },
     },

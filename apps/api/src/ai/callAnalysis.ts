@@ -321,9 +321,13 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
         createdAt: true,
         transcript: true,
         recordingDurationSec: true,
+        archiveReview: true,
       },
     });
     if (!interaction?.transcript) return { ok: false, reason: "нет расшифровки" };
+    // Разбор удалённого клиента из Корзины (lib/archiveReviewCall.ts) — не работа агента: без оценки
+    // разговора, меток «просил номер» и правок карточки. Запись и расшифровка остаются для РОПа.
+    if (interaction.archiveReview) return { ok: false, reason: "разбор удалённого клиента" };
     if (!interaction.agentId) return { ok: false, reason: "звонок без агента" };
     if (interaction.transcript.length < MIN_TRANSCRIPT_CHARS) {
       return { ok: false, reason: "разговор слишком короткий" };
