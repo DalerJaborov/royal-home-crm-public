@@ -110,7 +110,11 @@ async function loadDefaultInstagramAccountToken(): Promise<string | undefined> {
     const row = await prisma.messengerAccount.findFirst({
       where: { channel: "INSTAGRAM", isDefault: true, enabled: true },
     });
-    return decryptSecretSafe(row?.token ?? null) || undefined;
+    const token = decryptSecretSafe(row?.token ?? null) || undefined;
+    // Маркер Страницы (13.11.2026) не годится для ленты, публикации и прочего,
+    // что идёт через `/me` на graph.instagram.com: такой аккаунт отвечает только
+    // через Страницу. Тогда — запасной путь из Настроек, как без аккаунтов.
+    return isFacebookLoginToken(token) ? undefined : token;
   } catch {
     // Отказ базы — не повод падать здесь: вызывающий откатится на Settings/env,
     // как и раньше.
@@ -221,8 +225,8 @@ export async function loadAccountCredentials(): Promise<MetaAccountCredentials[]
   }
 }
 
-import { GRAPH_VERSION, instagramApiUrl, instagramRequest } from "./metaGraph.js";
-export { GRAPH_VERSION, instagramApiUrl, instagramRequest } from "./metaGraph.js";
+import { GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "./metaGraph.js";
+export { GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "./metaGraph.js";
 
 const CALL_TIMEOUT_MS = 15_000;
 
@@ -1456,7 +1460,11 @@ export async function instagramTokenIdentity(
    * сообщение заново, — там срок задаётся короче (messengers/accounts.ts).
    */
   timeoutMs: number = CALL_TIMEOUT_MS
-): Promise<{ ok: true; id: string; messagingId?: string; username?: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: string; messagingId?: string; username?: string; pageId?: string } | { ok: false; error: string }> {
+  // Маркер Страницы (аккаунт подключён «Войти через Facebook», 13.11.2026):
+  // `/me` такого маркера — сама Страница, а Instagram — её поле. graph.instagram.com
+  // его не примет вовсе, поэтому спрашиваем Страницу на graph.facebook.com.
+  if (isFacebookLoginToken(token)) return pageTokenInstagramIdentity(token, timeoutMs);
   try {
     const req = instagramRequest(instagramApiUrl(`/${GRAPH_VERSION}/me?fields=id,user_id,username`), token);
     const res = await fetchWithRetry(req.url, { headers: req.headers }, timeoutMs);
@@ -1477,6 +1485,28 @@ export async function instagramTokenIdentity(
      * вызов, потому что идентификатор собеседника выдан другим аккаунтом.
      */
     return { ok: true, id: webhookId, messagingId: data.id, username: data.username };
+  } catch (err) {
+    return { ok: false, error: describeError(err) };
+  }
+}
+
+/** Чей Instagram за маркером Страницы: поле instagram_business_account самой Страницы. */
+async function pageTokenInstagramIdentity(
+  token: string,
+  timeoutMs: number
+): Promise<{ ok: true; id: string; username?: string; pageId?: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetchWithRetry(
+      `https://graph.facebook.com/${GRAPH_VERSION}/me?fields=id,instagram_business_account%7Bid,username%7D`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      timeoutMs
+    );
+    const body = await res.text();
+    if (!res.ok) return { ok: false, error: `Meta ответила ${res.status}: ${body.slice(0, 200)}` };
+    const data = JSON.parse(body) as { id?: string; instagram_business_account?: { id?: string; username?: string } };
+    const ig = data.instagram_business_account;
+    if (!ig?.id) return { ok: false, error: "К Странице этого ключа не привязан Instagram" };
+    return { ok: true, id: ig.id, username: ig.username, pageId: data.id };
   } catch (err) {
     return { ok: false, error: describeError(err) };
   }
@@ -1650,16 +1680,24 @@ export async function fetchMessengerName(psid: string, tokenOverride?: string): 
  * общий загрузчик вложений (messengers/attachments.ts).
  *
  * Ссылка живёт минуты, так что кэшировать её нельзя.
+ *
+ * КЛЮЧ ТОГО НОМЕРА, В КОТОРЫЙ ПРИШЛО СООБЩЕНИЕ (13.11.2026). Файл принадлежит
+ * аккаунту WhatsApp Business номера-получателя, и чужой ключ его не видит. До
+ * этого здесь всегда брался ключ из Настроек: у номера, подключённого отдельной
+ * строкой (Настройки → Каналы, вход через Facebook), фото и голосовые клиента не
+ * скачивались. `accountToken`: строка — ключ аккаунта; null — аккаунт известен,
+ * но ключа нет (выключен) — Настройки НЕ подставляем; undefined — основной номер
+ * из Настроек, как раньше.
  */
-export async function whatsAppMediaSource(mediaId: string): Promise<AttachmentSource | null> {
+export async function whatsAppMediaSource(mediaId: string, accountToken?: string | null): Promise<AttachmentSource | null> {
   try {
     // Чтение ключей — тоже внутри `try` (правка 22.09.2026, тот же класс, что у
     // showReadAndTyping ниже): функция обещает `null` на любом отказе, а отказ
     // базы на Настройках улетал наружу и ронял разбор входящего целиком.
-    const c = await loadCredentials();
-    if (!c.waToken) return null;
+    const token = accountToken === undefined ? (await loadCredentials()).waToken : accountToken;
+    if (!token) return null;
     const res = await fetchWithRetry(`https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`, {
-      headers: { Authorization: `Bearer ${c.waToken}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
       void logSystemError("meta", `Файл WhatsApp ${mediaId} не получен: Meta ответила ${res.status}`);
@@ -1667,7 +1705,7 @@ export async function whatsAppMediaSource(mediaId: string): Promise<AttachmentSo
     }
     const data = (await res.json()) as { url?: string };
     if (!data.url) return null;
-    return { url: data.url, headers: { Authorization: `Bearer ${c.waToken}` } };
+    return { url: data.url, headers: { Authorization: `Bearer ${token}` } };
   } catch (err) {
     void logSystemError("meta", `Файл WhatsApp ${mediaId} не получен: ${describeError(err)}`);
     return null;

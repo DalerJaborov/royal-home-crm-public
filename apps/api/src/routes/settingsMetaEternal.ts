@@ -1,13 +1,22 @@
 import { Router } from "express";
 import { z } from "zod";
-import { metaEternalAppReviewInputSchema, metaEternalPageInputSchema, metaEternalPreferredInputSchema } from "@royal-home/shared";
+import {
+  metaEternalAppReviewInputSchema,
+  metaEternalPageInputSchema,
+  metaEternalPreferredInputSchema,
+  metaLoginConnectInputSchema,
+} from "@royal-home/shared";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { requireElevation } from "../lib/stepUp.js";
 import { prisma } from "../db.js";
 import { logAudit } from "../lib/audit.js";
-import { resetAccountsCache, saveAccount } from "../messengers/accounts.js";
+import { resetAccountsCache } from "../messengers/accounts.js";
+import { buildMetaLoginUrl, MetaLoginError } from "../lib/metaLogin.js";
+import { connectMetaLoginAssets, metaLoginAssets } from "../lib/metaLoginAssets.js";
+import { connectFacebookPage } from "../lib/metaPageConnect.js";
 import type { MetaCompanyPage } from "@royal-home/shared";
 import {
+  companyKeyAppId,
   discoverInstagramPage,
   facebookPageForConnect,
   listCompanyPages,
@@ -27,6 +36,7 @@ export const settingsMetaEternalRouter = Router();
 settingsMetaEternalRouter.use(requireAuth, requirePermission("settings.manage"));
 
 const accountParams = z.object({ id: z.string().uuid() });
+const loginParams = z.object({ id: z.string().regex(/^[a-f0-9]{36}$/) });
 const pageParams = z.object({ pageId: z.string().regex(/^\d{5,30}$/) });
 
 settingsMetaEternalRouter.get("/", async (_req, res, next) => {
@@ -157,28 +167,61 @@ settingsMetaEternalRouter.post("/pages/:pageId/connect", requireElevation, async
     const pageId = params.data.pageId;
     const page = await facebookPageForConnect(pageId);
     if (!page.ok) return res.status(page.status).json({ error: page.error });
-    const existing = await prisma.messengerAccount.findFirst({ where: { channel: "FACEBOOK", externalId: pageId }, select: { id: true, isDefault: true } });
-    const twin = page.igId
-      ? await prisma.messengerAccount.findFirst({
-          where: { channel: "INSTAGRAM", externalId: page.igId },
-          select: { brandName: true, systemPrompt: true },
-        })
-      : null;
-    const accountId = await saveAccount({
-      id: existing?.id,
-      channel: "FACEBOOK",
-      externalId: pageId,
-      title: page.pageName,
-      token: page.token,
-      // Явно: иначе единственная строка канала стала бы «по умолчанию» и забрала
-      // у основной Страницы из Настроек незнакомых получателей.
-      isDefault: existing?.isDefault ?? false,
-      ...(existing ? {} : { enabled: true, brandName: twin?.brandName ?? undefined, systemPrompt: twin?.systemPrompt ?? undefined }),
+    // Общая дверь с «Войти через Facebook» (lib/metaPageConnect.ts).
+    const done = await connectFacebookPage({
+      pageId,
+      pageName: page.pageName,
+      pageToken: page.token,
+      igId: page.igId,
+      appId: await companyKeyAppId(),
+      agentId: req.agent?.id ?? null,
+      source: "company_key",
     });
-    resetAccountsCache();
-    logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", accountId, { channel: "FACEBOOK", pageId, connected: existing ? "token_refreshed" : "created" });
-    const sub = await subscribePageMessaging(pageId);
-    if (sub.ok) logAudit(req, "SETTINGS_UPDATE", "FacebookPageSubscription", pageId, { fields: sub.fields });
-    res.json({ ok: true, accountId, pageName: page.pageName, subscribed: sub.ok, ...(sub.ok ? { fields: sub.fields } : { subscribeError: sub.error }) });
+    if (!done.ok) return res.status(done.status).json({ error: done.error });
+    const sub = done.subscription;
+    res.json({ ok: true, accountId: done.accountId, pageName: page.pageName, subscribed: sub.ok, ...(sub.ok ? { fields: sub.fields } : { subscribeError: sub.error }) });
+  } catch (err) { next(err); }
+});
+
+// ─────────────────────── Вход через Facebook (13.11.2026) ───────────────────────
+//
+// «Войти через Facebook» → окно Facebook → /api/v1/ads/callback (общий адрес
+// входа, routes/ads.ts) → сюда с ?metaLogin=<id>. Сам вход — lib/metaLogin.ts,
+// выбор и подключение — lib/metaLoginAssets.ts. Маркер входа наружу не уходит:
+// браузер знает только id сессии выбора, привязанной к сотруднику.
+
+/** Начать вход: адрес окна Facebook. */
+settingsMetaEternalRouter.post("/login", requireElevation, async (req, res, next) => {
+  try {
+    const url = await buildMetaLoginUrl(req.agent!.id, "assets");
+    logAudit(req, "CONNECT_START", "MetaLogin", "assets", {});
+    res.json({ url });
+  } catch (err) {
+    if (err instanceof MetaLoginError) return res.status(400).json({ error: err.message });
+    next(err);
+  }
+});
+
+/** Что нашёл вход: Страницы, их Instagram, кабинеты — и что из этого уже в CRM. */
+settingsMetaEternalRouter.get("/login/:id", async (req, res, next) => {
+  const params = loginParams.safeParse(req.params);
+  if (!params.success) return res.status(404).json({ error: "Вход не найден — войдите через Facebook заново" });
+  try {
+    const assets = await metaLoginAssets(params.data.id, req.agent!.id);
+    if (!assets) return res.status(404).json({ error: "Вход не найден или устарел — войдите через Facebook заново" });
+    res.json(assets);
+  } catch (err) { next(err); }
+});
+
+/** Подключить выбранное. Итог — по каждой строке словами. */
+settingsMetaEternalRouter.post("/login/:id/connect", requireElevation, async (req, res, next) => {
+  const params = loginParams.safeParse(req.params);
+  if (!params.success) return res.status(404).json({ error: "Вход не найден — войдите через Facebook заново" });
+  const body = metaLoginConnectInputSchema.safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: "Некорректный выбор" });
+  try {
+    const result = await connectMetaLoginAssets(params.data.id, req.agent!.id, body.data);
+    if (!result) return res.status(404).json({ error: "Вход не найден или устарел — войдите через Facebook заново" });
+    res.json(result);
   } catch (err) { next(err); }
 });
