@@ -77,13 +77,19 @@ export async function notifyNarrationPreview(e: NarrationPreviewNotice): Promise
     narrationPreviewDueAt: true, narrationPreviewVoiceSec: true, narrationPreviewClipSec: true } });
   if (!p || p.narrationPreviewVersionId !== e.versionId || !p.narrationPreviewPath) return;
   const owner = await clipOwnerAgent(p.id);
-  if (!owner) return;
   const version = await prisma.propertyNarrationVersion.findUnique({ where: { id: e.versionId }, select: { mixNote: true } });
   const code = formatPropertyCode(p.shortId);
   const feed = { kind: "task" as const, level: "APPROVAL" as const, title: "Новый ролик ждёт вашего решения",
     body: `${code}: CRM наложила новую озвучку на вышедший ролик. Послушайте и решите: выпустить, другой голос или оставить старый.`,
     url: `/properties/${p.id}`, tag: `narration-preview:${p.id}` };
-  if (!owner.telegramChatId || !isTelegramEnabled()) { await sendPushToAgent(owner.id, feed); return; }
+  // Хозяина у объекта нет — решает руководство (уведомлением CRM), иначе кандидат молча ждал бы срока.
+  if (!owner) {
+    const managers = await prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "HEAD_OF_SALES"] }, isActive: true }, select: { id: true }, take: 5 });
+    if (!managers.length) throw new Error(`у объекта ${code} нет хозяина и нет руководителя для решения`);
+    for (const m of managers) await createNotification({ agentId: m.id, ...feed, body: `${feed.body} У объекта нет ответственного агента.` });
+    return;
+  }
+  if (!owner.telegramChatId || !isTelegramEnabled()) { await createNotification({ agentId: owner.id, ...feed }); await sendPushToAgent(owner.id, feed); return; }
   const chatId = owner.telegramChatId;
   const lang = await chatLang(chatId);
   const caption = narrationPreviewCaption(lang, { shortId: p.shortId, voiceSec: p.narrationPreviewVoiceSec, clipSec: p.narrationPreviewClipSec, note: version?.mixNote ?? null, dueAt: p.narrationPreviewDueAt });
@@ -133,7 +139,13 @@ export async function handleNarrationPreviewCallback(query: TelegramCallbackQuer
     await answer(action === "a" ? c.b.release : action === "k" ? c.b.keep : c.b.change);
     // Кнопки под роликом убираем: решение принято, второе нажатие ничего бы не сделало.
     const messageId = query.message?.message_id;
-    if (messageId) await editMessageCaption(chatId, messageId, `${query.message?.caption ?? query.message?.text ?? ""}\n\n${line}`, null, true).catch(() => {});
+    if (messageId) {
+      // Ролик пришёл видео (подпись) или, если не поместился в предел Telegram, текстом — правим то, что есть.
+      const edit = query.message?.caption != null
+        ? editMessageCaption(chatId, messageId, `${query.message.caption}\n\n${line}`, null, true)
+        : editMessageText(chatId, messageId, `${query.message?.text ?? ""}\n\n${line}`, null);
+      await edit.catch(() => {});
+    }
     if (action === "c") {
       await sendMessageWithButtons(chatId, c.change, [
         [{ text: c.b.voice, callback_data: `nar:v:${versionId}` }, { text: c.b.template, callback_data: `nar:t:${versionId}` }],

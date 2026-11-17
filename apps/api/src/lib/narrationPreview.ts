@@ -49,6 +49,15 @@ const fileExists = (publicPath: string) => fs.promises.access(fileOf(publicPath)
 const clearedPreview = NARRATION_PREVIEW_CLEARED;
 
 /**
+ * Новый голос в сеть нельзя (одна проверка на «положить» и на «выпустить», ревью 18.11): озвучка у объекта
+ * выключена, объект закрыт или удалён, или факты (цена и т.п.) уже не те, что в этой версии озвучки.
+ */
+function voiceBlocked(cur: Parameters<typeof narrationFactsCurrent>[1] & { deletedAt: Date | null; narrationOff: boolean; status: string },
+  version: { factsHash: string; factsSnapshot?: unknown }): boolean {
+  return !!cur.deletedAt || cur.narrationOff || NARRATION_CLOSED_STATUSES.some((s) => s === cur.status) || !narrationFactsCurrent(version, cur);
+}
+
+/**
  * Подмена ролика объекта сведённым файлом (внутри замка). Одна на прямой перемикс (ролик ещё не вышел
  * или рубильник выключен) и на «Выпустить».
  */
@@ -94,11 +103,12 @@ export async function placeMixedClip(input: {
   const now = input.now ?? new Date();
   const dueAt = input.previewEnabled ? await previewDueAt(now) : null;
   return withPropertyLock(input.propertyId, async (tx): Promise<PlacedMix> => {
-    const cur = await tx.property.findUnique({ where: { id: input.propertyId }, select: { deletedAt: true, videoHandoffStatus: true, videoHandoffFinalPath: true,
-      videoMasterStorageKey: true, videoMasterNarrationVersionId: true, publishedChannels: true, instagramUrl: true, clipReviewStatus: true, narrationPreviewPath: true } });
-    const stillLatest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: input.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
-    if (!cur || cur.deletedAt || cur.videoHandoffStatus !== "RECEIVED" || cur.videoMasterStorageKey !== input.masterKey
-      || cur.videoMasterNarrationVersionId !== input.seenVersionId || stillLatest?.id !== input.versionId) return { kind: "SKIPPED" };
+    const cur = await tx.property.findUnique({ where: { id: input.propertyId }, include: { district: true } });
+    const stillLatest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: input.propertyId }, orderBy: { revision: "desc" }, select: { id: true, factsHash: true, factsSnapshot: true } });
+    if (!cur || !stillLatest || cur.videoHandoffStatus !== "RECEIVED" || cur.videoMasterStorageKey !== input.masterKey
+      || cur.videoMasterNarrationVersionId !== input.seenVersionId || stillLatest.id !== input.versionId) return { kind: "SKIPPED" };
+    // Пока шёл ffmpeg, включили «Без озвучки», объект закрыли или цена поменялась — ни подмены, ни кандидата.
+    if (voiceBlocked(cur, stillLatest)) return { kind: "SKIPPED" };
     if (await isHandoffPublishRunning(input.propertyId, tx)) return { kind: "SKIPPED" };
     const published = isPublishedClip(cur);
     if (input.previewEnabled && published) {
@@ -144,11 +154,10 @@ export async function releaseNarrationPreview(propertyId: string, versionId: str
     const version = await tx.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { revision: true, approvedById: true, factsHash: true, factsSnapshot: true } });
     const stillLatest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
     const requestedById = actor.agentId ?? version?.approvedById ?? propertyOwnerAgentId(cur);
-    const stale = !fileOk || cur.narrationPreviewPath !== pre?.narrationPreviewPath || cur.deletedAt || cur.narrationOff
-      || NARRATION_CLOSED_STATUSES.some((s) => s === cur.status) || cur.videoHandoffStatus !== "RECEIVED"
+    const stale = !fileOk || cur.narrationPreviewPath !== pre?.narrationPreviewPath || cur.videoHandoffStatus !== "RECEIVED"
       || cur.videoMasterStorageKey !== cur.narrationPreviewMasterKey || stillLatest?.id !== versionId || !version
       // Цена (или другой факт) поменялась, а новая версия ещё не готова: старую цену в сети не выпускаем.
-      || !narrationFactsCurrent(version, cur) || !requestedById;
+      || voiceBlocked(cur, version) || !requestedById;
     if (stale) {
       stalePreview = cur.narrationPreviewPath;
       await tx.property.update({ where: { id: propertyId }, data: clearedPreview });
@@ -184,40 +193,54 @@ export async function declineNarrationPreview(propertyId: string, versionId: str
   return "DECLINED";
 }
 
-/** Задача `narration-preview-due` (cron.ts): кандидаты, чей срок прослушивания прошёл, выходят сами. */
-export async function releaseDueNarrationPreviews(now: Date = new Date()): Promise<{ released: number }> {
-  const due = await prisma.property.findMany({ where: { narrationPreviewDueAt: { lte: now }, narrationPreviewVersionId: { not: null } },
-    select: { id: true, narrationPreviewVersionId: true }, orderBy: { narrationPreviewDueAt: "asc" }, take: 20 });
-  let released = 0;
-  for (const row of due) {
+/**
+ * Задача `narration-preview-due` (cron.ts): кандидаты, чей срок прослушивания прошёл, выходят сами; заодно
+ * убираются кандидаты, которые уже не к чему выпускать (ролик вернули монтажёру, сменился ролик без голоса,
+ * «Без озвучки», объект закрыт) — без этого при «0 часов» такой кандидат висел бы невидимым вечно.
+ */
+export async function releaseDueNarrationPreviews(now: Date = new Date()): Promise<{ released: number; cleared: number }> {
+  const waiting = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null } },
+    select: { id: true, narrationPreviewVersionId: true, narrationPreviewPath: true, narrationPreviewMasterKey: true, narrationPreviewDueAt: true,
+      videoMasterStorageKey: true, videoHandoffStatus: true, narrationOff: true, status: true, deletedAt: true },
+    orderBy: { narrationPreviewAt: "asc" }, take: 200 });
+  let released = 0, cleared = 0;
+  for (const row of waiting) {
+    const orphan = !!row.deletedAt || row.narrationOff || row.videoHandoffStatus !== "RECEIVED" || row.narrationPreviewMasterKey !== row.videoMasterStorageKey
+      || NARRATION_CLOSED_STATUSES.some((s) => s === row.status);
     try {
-      // STALE убирает кандидата, BUSY — следующим тиком; вечно в выборке висеть некому.
+      if (orphan) {
+        const res = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationPreviewVersionId }, data: clearedPreview });
+        if (res.count) { cleared++; await removeClipFiles(row.narrationPreviewPath); }
+        continue;
+      }
+      if (!row.narrationPreviewDueAt || row.narrationPreviewDueAt.getTime() > now.getTime()) continue;
+      // STALE убирает кандидата, BUSY — следующим тиком.
       if (await releaseNarrationPreview(row.id, row.narrationPreviewVersionId!, { agentId: null, source: "auto" }, now) === "RELEASED") released++;
     } catch (err) {
       void logSystemError("video-handoff", `Новый ролик с озвучкой не выпущен по сроку прослушивания: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-preview-due:${row.id}` });
     }
   }
-  return { released };
+  return { released, cleared };
 }
 
 export type NarrationPreviewNotice = { propertyId: string; versionId: string };
 /**
  * Хозяину — новые кандидаты (та же задача narration-preview-due, отдельно от сведения: Telegram и
- * перекодирование видео не держат тик перемикса). Отметка ставится ДО отправки: два тика не пришлют дважды;
- * упал процесс до отметки — пришлёт следующий тик.
+ * перекодирование видео не держат тик перемикса). Отметка ставится ПОСЛЕ отправки (ревью 18.11): упал
+ * процесс или отправка — следующий тик пришлёт снова; в худшем случае хозяин получит сообщение дважды,
+ * но не останется без него. Задача одна на worker и не перекрывается сама с собой.
  */
 export async function notifyPendingNarrationPreviews(notify: (n: NarrationPreviewNotice) => Promise<void>, now: Date = new Date()): Promise<{ notified: number }> {
-  const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPreviewNotifiedAt: null, deletedAt: null },
+  const rows = await prisma.property.findMany({ where: { narrationPreviewVersionId: { not: null }, narrationPreviewNotifiedAt: null, deletedAt: null, narrationOff: false, videoHandoffStatus: "RECEIVED" },
     select: { id: true, narrationPreviewVersionId: true }, orderBy: { narrationPreviewAt: "asc" }, take: 5 });
   let notified = 0;
   for (const row of rows) {
-    const claimed = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationPreviewVersionId, narrationPreviewNotifiedAt: null }, data: { narrationPreviewNotifiedAt: now } });
-    if (!claimed.count) continue;
     try {
       await notify({ propertyId: row.id, versionId: row.narrationPreviewVersionId! });
-      notified++;
+      const marked = await prisma.property.updateMany({ where: { id: row.id, narrationPreviewVersionId: row.narrationPreviewVersionId, narrationPreviewNotifiedAt: null }, data: { narrationPreviewNotifiedAt: now } });
+      if (marked.count) notified++;
     } catch (err) {
-      void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-preview-notify:${row.id}` });
+      void logSystemError("video-handoff", `Новый ролик с озвучкой не отправлен хозяину на прослушивание (повтор через минуту): ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-preview-notify:${row.id}` });
     }
   }
   return { notified };

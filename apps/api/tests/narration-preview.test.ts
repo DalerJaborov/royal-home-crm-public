@@ -254,4 +254,29 @@ describe.skipIf(!ffmpegReady)("прослушать перед выпуском 
     expect(await exists(diskOf(c.oldFinal))).toBe(true);
     expect(after.narrationPreviewPath).toBeNull();
   });
+
+  it("ревью 18.11 (второй круг): ролик вернули монтажёру — кандидат убирается сам, без срока; «Без озвучки» во время сведения — ни подмены, ни кандидата", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerAutoPublishHours: 0 } });
+    try {
+      const a = await publishedWithNewVoice();
+      expect(await remixFromMaster(a.p.id)).toBe("PREVIEW");
+      expect((await prisma.property.findUniqueOrThrow({ where: { id: a.p.id } })).narrationPreviewDueAt).toBeNull();
+      await prisma.property.update({ where: { id: a.p.id }, data: { videoHandoffStatus: "SENT_TO_EDITOR" } });
+      const swept = await releaseDueNarrationPreviews();
+      expect(swept.cleared).toBeGreaterThanOrEqual(1);
+      expect((await prisma.property.findUniqueOrThrow({ where: { id: a.p.id } })).narrationPreviewPath).toBeNull();
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerAutoPublishHours: 3 } });
+    }
+    const b = await publishedWithNewVoice();
+    const { placeMixedClip } = await import("../src/lib/narrationPreview.js");
+    const cur = await prisma.property.findUniqueOrThrow({ where: { id: b.p.id } });
+    await prisma.property.update({ where: { id: b.p.id }, data: { narrationOff: true } });
+    const placed = await placeMixedClip({ propertyId: b.p.id, publicPath: "/uploads/handoff/x.mp4", masterKey: cur.videoMasterStorageKey!, seenVersionId: cur.videoMasterNarrationVersionId,
+      versionId: b.v2.id, revision: 2, requestedById: agentId, previewEnabled: true, voiceSec: 3, clipSec: 6 });
+    expect(placed).toEqual({ kind: "SKIPPED" });
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: b.p.id } });
+    expect(after.videoHandoffFinalPath).toBe(b.oldFinal);
+    expect(after.narrationPreviewPath).toBeNull();
+  });
 });
