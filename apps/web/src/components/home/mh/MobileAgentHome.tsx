@@ -27,6 +27,7 @@ import { MutationError } from "../../MutationError";
 import { focusReason } from "../../../lib/focusReason";
 import { formatMoney, pluralizeRu, relativeTime } from "../../../lib/format";
 import { dushanbeTime } from "../../../lib/date";
+import { screenState } from "../../../lib/screenState";
 import { CLIENT_SOURCE_LABELS, clientDisplayName } from "../../../lib/clientFormat";
 import { AVATAR_TONES } from "../../../lib/theme2026Person";
 import {
@@ -84,7 +85,7 @@ export function MobileAgentHome() {
   const { data, isLoading, isError, error, refetch } = useDashboardSummary();
   // Тот же серверный фильтр и тот же ключ кэша, что у PendingLeadsRows на ПК
   // и у IncomingLeadWindow: общий кэш, а не второй список.
-  const { data: pendingPage } = useClients({ pageSize: 20, pendingAcceptance: true });
+  const { data: pendingPage, isError: pendingError, refetch: refetchPending } = useClients({ pageSize: 20, pendingAcceptance: true });
   /**
    * СТО ПОЛНЫХ КАРТОЧЕК РАДИ ОДНОЙ СТРОКИ (исправлено 19.09.2026).
    *
@@ -99,7 +100,7 @@ export function MobileAgentHome() {
    * Берём короткую страницу: 30 вместо 100 с запасом на те, что отсеет
    * buildPortfolio (непринятые, закрытые, неактивные).
    */
-  const { data: clientsPage } = useClients({ pageSize: 30, sort: "contact_asc" });
+  const { data: clientsPage, isError: clientsError, refetch: refetchClients } = useClients({ pageSize: 30, sort: "contact_asc" });
   const { data: settings } = useSettings();
   // Тот же счётчик сделок, что уже показывает значок раздела в меню — запрос
   // общий и закэширован, лишнего похода в сеть плитка не добавляет.
@@ -156,6 +157,17 @@ export function MobileAgentHome() {
   const pct = plan > 0 ? Math.min(100, Math.round((commission / plan) * 100)) : 0;
 
   const pendingTotal = pendingPage?.total ?? pending.length;
+
+  /**
+   * ЗАГРУЗКА, ОТКАЗ И НАСТОЯЩИЙ НОЛЬ — РАЗНЫЕ ВЕЩИ (17.11.2026, аудит F2-1).
+   * Пустой массив `data?.x ?? []` при отказе сводки читался как «на сегодня всё
+   * сделано», «Показов на сегодня нет», «Все клиенты на связи». Тексты «всё
+   * сделано / нет» — только когда данные действительно пришли (lib/screenState.ts).
+   */
+  const summary = screenState({ data, isError });
+  const pendingState = screenState({ data: pendingPage, isError: pendingError });
+  const clientsState = screenState({ data: clientsPage, isError: clientsError });
+  const pendingErrorShown = pendingState === "error";
 
   // Лид, который прямо сейчас занимает полноэкранное «Входящий лид»
   // (IncomingLeadWindow, смонтировано в AppLayout поверх всех разделов) — его
@@ -246,11 +258,26 @@ export function MobileAgentHome() {
           удалены вместе с ним. */}
       <section className="sec" style={{ marginTop: 6 }}>
         <div className="card-s big">
-          <div className="ai-hero" data-tone={pendingAlert ? "crit" : todayCount === 0 && pendingTotal === 0 ? "ok" : undefined}>
+          <div
+            className="ai-hero"
+            data-tone={
+              pendingAlert
+                ? "crit"
+                : summary === "ready" && pendingState === "ready" && todayCount === 0 && pendingTotal === 0
+                  ? "ok"
+                  : undefined
+            }
+          >
             <div className="ai-hero-txt">
-              <div className="ai-hero-num">{todayCount}</div>
+              <div className="ai-hero-num">{summary === "ready" ? todayCount : "…"}</div>
               <div className="ai-hero-lbl">
-                {todayCount === 0 ? "на сегодня всё сделано" : "дел на сегодня"}
+                {summary === "loading"
+                  ? "загружаем дела на сегодня"
+                  : summary === "error"
+                    ? "сводка не загрузилась"
+                    : todayCount === 0
+                      ? "на сегодня всё сделано"
+                      : "дел на сегодня"}
                 {pendingTotal > 0
                   ? ` · ${pendingTotal} ${pluralizeRu(pendingTotal, ["заявка ждёт", "заявки ждут", "заявок ждут"])} принятия`
                   : ""}
@@ -276,8 +303,22 @@ export function MobileAgentHome() {
         />
       )}
 
+      {/* Список ждущих не загрузился — секция не пропадает молча: заявки могут ждать. */}
+      {pendingErrorShown && (
+        <MhSection title="Ждут вашего принятия" first>
+          <div className="card-s">
+            <MhQuiet tone="crit">
+              Не загрузились новые заявки.{" "}
+              <button type="button" className="btn ghost sm" onClick={() => refetchPending()}>
+                Повторить
+              </button>
+            </MhQuiet>
+          </div>
+        </MhSection>
+      )}
+
       {supervisorAssigned.length > 0 && (
-        <MhSection title="Вам назначил руководитель" first={!showPendingSection}>
+        <MhSection title="Вам назначил руководитель" first={!showPendingSection && !pendingErrorShown}>
           <div className="card-s">
             {supervisorAssigned.slice(0, 3).map((c) => (
               <SupervisorAssignedRow key={c.id} item={c} />
@@ -292,7 +333,7 @@ export function MobileAgentHome() {
         // окно уже забрало единственного лида) — тогда «Мой фокус» становится
         // первой секцией под шапкой и обязан взять её отступ (макет: 6px, а
         // не стандартные 22px, см. MhSection.first).
-        first={!showPendingSection && supervisorAssigned.length === 0}
+        first={!showPendingSection && !pendingErrorShown && supervisorAssigned.length === 0}
         note={`обновлено ${dushanbeTime(openedAt)}`}
       >
         {urgentCall ? (
@@ -320,7 +361,9 @@ export function MobileAgentHome() {
       </MhSection>
 
       <MhSection title="Далее по приоритету" note="свайп строки">
-        {restCalls.length + shownTasks.length === 0 ? (
+        {summary !== "ready" ? (
+          <MhNoData>{summary === "loading" ? "Загружаем…" : "Не загрузилось: повторите в блоке «Мой фокус»."}</MhNoData>
+        ) : restCalls.length + shownTasks.length === 0 ? (
           <MhNoData tone="ok">Больше дел на сегодня нет.</MhNoData>
         ) : (
           <div className="card-s">
@@ -347,7 +390,18 @@ export function MobileAgentHome() {
         title="Между встречами"
         note={gap ? `с ${dushanbeTime(new Date(gap.from))} до ${dushanbeTime(new Date(gap.to))}` : "когда появится окно"}
       >
-        {noContact[0] ? (
+        {clientsState === "loading" ? (
+          <MhNoData>Загружаем клиентов…</MhNoData>
+        ) : clientsState === "error" ? (
+          <div className="card-s">
+            <MhQuiet tone="crit">
+              Список клиентов не загрузился.{" "}
+              <button type="button" className="btn ghost sm" onClick={() => refetchClients()}>
+                Повторить
+              </button>
+            </MhQuiet>
+          </div>
+        ) : noContact[0] ? (
           <div className="card-s">
             <p className="hint">
               {clientDisplayName(noContact[0].fullName)} {daysSince(noContact[0].lastContactAt, Date.now())}{" "}
@@ -379,8 +433,10 @@ export function MobileAgentHome() {
         )}
       </MhSection>
 
-      <MhSection title="Показы сегодня" note={showings.length}>
-        {showings.length === 0 ? (
+      <MhSection title="Показы сегодня" note={summary === "ready" ? showings.length : undefined}>
+        {summary !== "ready" ? (
+          <MhNoData>{summary === "loading" ? "Загружаем показы…" : "Показы не загрузились: повторите в блоке «Мой фокус»."}</MhNoData>
+        ) : showings.length === 0 ? (
           <MhNoData>Показов на сегодня нет.</MhNoData>
         ) : (
           <div className="card-s">
