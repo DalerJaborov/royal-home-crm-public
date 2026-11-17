@@ -63,7 +63,7 @@ describe("Somon seller advert count in the category", () => {
     expect(row.slug).toBeNull();
   });
   it("migration keeps the active baseline and schedules a soft author-key rekey instead", async () => {
-    const sql = readFileSync(new URL("../prisma/migrations/20261117130100_somon_seller_key/migration.sql", import.meta.url), "utf8");
+    const sql = readFileSync(new URL("../prisma/migrations/20261117190100_somon_seller_key/migration.sql", import.meta.url), "utf8");
     const code = sql.replace(/--[^\n]*\n/g, "\n");
     // Сброса baseline нет: рассылка на проде не останавливается.
     expect(code).not.toMatch(/"baselineAt"\s*=\s*NULL|"activatedAt"\s*=\s*NULL|'EXPIRED'/);
