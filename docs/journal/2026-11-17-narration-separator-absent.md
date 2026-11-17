@@ -11,7 +11,7 @@
 
 Исправлено (`lib/narrationAutoMaster.ts`): «сервиса нет» (ENOTFOUND → ABSENT) — не отказ ролику:
 голос вклеивал монтажёр — ему сразу, как раньше; иначе без отметки, тихий повтор через 30 мин; одна строка
-журнала на всех (`voice-separator-absent`). Миграция `20261118010000_narration_separator_absent_unmark`
+журнала на всех (`voice-separator-absent`). Миграция `20261118140000_narration_separator_absent_unmark`
 снимает уже поставленные отметки с ENOTFOUND — №204 подхватится сам после `up -d voice-separator`.
 Проверка: `narration-auto-separate` 15/15 (новый случай «№204»), миграция применилась на стенде.
 
