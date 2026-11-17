@@ -164,6 +164,15 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "get_company_stats",
   "get_finance_summary",
   "get_lead_sources",
+  // «Мозг компании» (17.11.2026, tools/brainReadTools.ts): сводки по компании, людям,
+  // звонкам и сбоям — только в личке, как get_company_stats. Список буквами; сверку с
+  // реестром держит tests/ai-assistant-brain-read-tools.test.ts.
+  "get_day_snapshot",
+  "get_unworked",
+  "get_my_day",
+  "get_missed_calls",
+  "get_team_load",
+  "get_stuck_work",
   "get_client_last_call",
   "create_task",
   "reschedule_task",

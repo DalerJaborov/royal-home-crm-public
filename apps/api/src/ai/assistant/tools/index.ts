@@ -3,6 +3,7 @@ import { createAssistantEmbeddingMoneyGuard } from "../moneyBudget.js";
 import { knowledgeTools } from "./knowledgeTools.js";
 import { notificationPrefPlugin } from "./notificationPrefTool.js";
 import { registerAssistantActionExecutor } from "../../../lib/assistantActions.js";
+import { brainReadTools } from "./brainReadTools.js";
 import { clientOwnershipTools } from "./clientOwnershipTools.js";
 import { completeTaskTool } from "./completeTaskTool.js";
 import { dealReadTools } from "./dealReadTools.js";
@@ -41,7 +42,7 @@ function add(plugin: AssistantToolPlugin): () => void {
   };
 }
 
-for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools, ...marketTools, ...staffReadTools, ...staffWriteTools, transferPropertyTool, notificationPrefPlugin]) add(plugin);
+for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools, ...marketTools, ...staffReadTools, ...staffWriteTools, transferPropertyTool, notificationPrefPlugin, ...brainReadTools]) add(plugin);
 
 /** Для тестов: добавить плагин на время теста; возвращает функцию снятия. */
 export function registerAssistantToolPlugin(plugin: AssistantToolPlugin): () => void {
