@@ -38,7 +38,7 @@ let agentId: string;
  * Включённый рубильник с отметкой включения два часа назад: «новое» считается от неё (первый прогон иначе лишь ставит отметку).
  * Рабочие часы — на все сутки: пуш молчит вне рабочих часов (проверено отдельным тестом), а прогон тестов идёт в любое время.
  */
-async function setFlag(on: boolean, enabledAt: Date | null = on ? new Date(Date.now() - 2 * 3600_000) : null, hours = { workHoursStart: "00:00", workHoursEnd: "23:59" }) {
+async function setFlag(on: boolean, enabledAt: Date | null = on ? new Date(Date.now() - 2 * 3600_000) : null, hours = { workHoursStart: "00:00", workHoursEnd: "24:00" }) {
   const data = { marketBuyerAlertsEnabled: on, marketBuyerAlertsEnabledAt: enabledAt, ...hours };
   await prisma.settings.upsert({ where: { id: "singleton" }, update: data, create: { id: "singleton", ...data } });
 }
