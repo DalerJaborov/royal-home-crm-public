@@ -616,7 +616,7 @@ function renderDecisionCore(input: {
   const lines: string[] = [];
   let experienceInvitationIncluded = false;
   let furnitureAnswerIncluded = false;
-  let outsideRefusal = false, emptySearch = false, scopeAlreadySaid = false, unaskedPolicySkipped = false, jobScheduleAsked = false, nozaAlreadyGiven = false, receiptSaidBefore = false;
+  let outsideRefusal = false, emptySearch = false, scopeAlreadySaid = false, unaskedPolicySkipped = false, unaskedPolicyEcho = false, jobScheduleAsked = false, nozaAlreadyGiven = false, receiptSaidBefore = false;
   const nozaSaidBefore = input.surface === "dm" && recruitmentPhoneSaidBefore(input.verifiedContext);
   // Noza's number goes once per conversation (audit 16.11.2026: the same line 2-7 times in 18 chats).
   const pushRecruitmentPhone = () => { if (nozaSaidBefore) nozaAlreadyGiven = true; else if (!lines.includes(recruitmentPhoneLine(lang))) lines.push(recruitmentPhoneLine(lang)); };
@@ -736,7 +736,10 @@ function renderDecisionCore(input: {
       // Only against the customer's actual words: a render without input (the memory allow-list) keeps every line.
       if (input.surface === "dm" && input.inputText !== undefined &&
           !customerPolicyTermAsked(item.value.topic, [input.inputText, perception?.success ? perception.data.transcript : ""].filter(Boolean).join("\n"))) {
-        unaskedPolicySkipped = true; continue;
+        unaskedPolicySkipped = true;
+        // The term was already said in this chat: the customer reacts to it («фаҳмидам»), the topic question would be off.
+        if (lineSentBefore(input.verifiedContext, policySegment(item.value, lang))) unaskedPolicyEcho = true;
+        continue;
       }
       if (item.value.topic === "service_scope" && input.surface === "dm") {
         const scope = serviceScopeLines(item.value, lang, input, line => lineSentBefore(input.verifiedContext, line));
@@ -919,9 +922,10 @@ function renderDecisionCore(input: {
   if ((publicContactQuestion || (d.kind !== "propose" && d.question === "phone" && input.knownPhoneSource !== "none")) &&
       !evidence.length && question === "none") return null;
   // Only company terms the customer did not ask about were read: neither dump them nor go silent. Next step of a known
-  // role, else the one topic question (attack job-unknown-003, 14.11.2026; old PR #173).
+  // role, else the one topic question (attack job-unknown-003, 14.11.2026; old PR #173). A reaction to a term already said
+  // («фаҳмидам» after the commission) keeps the acknowledgement it got before the gate (review С1, customer-bot-8-chats-15-11).
   if (unaskedPolicySkipped && !lines.some(line => line && !isSocialLine(line))) {
-    lines.push(intakeProgress(input).role === "unknown" ? questions.topic[lang]
+    lines.push(intakeProgress(input).role === "unknown" && !unaskedPolicyEcho ? questions.topic[lang]
       : nothingNewLine(input, new Set(splitLines(input.verifiedContext?.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? ""))));
   }
   // The only content was the service area said before ("Хона дар Душанбе аст", 15.11.2026): the next step, never silence.

@@ -21,7 +21,16 @@ describe("customerPolicyTermAsked: the customer's own words", () => {
     ["commission", "это бесплатно?"], ["payment", "Ипотека дорен?"], ["payment", "рассрочка есть?"], ["payment", "ipoteka bor?"],
     ["negotiation", "торг возможен?"], ["negotiation", "дорого"], ["negotiation", "тахфиф мекунед?"],
     ["legal", "документы проверяете?"], ["rental", "сдаю квартиру"],
+    // «The terms» of the agency ARE the commission: the seller guard forces the read, the gate must not drop it (FB 16.11 17:44).
+    ["commission", "Чи шарту шароит доред"], ["commission", "Какие у вас условия?"], ["commission", "Какие все условия?"],
+    // The follow-up to a commission line names only the side.
+    ["commission", "а для покупателя?"], ["commission", "сколько с продавца"], ["commission", "барои харидор чӣ?"],
   ])("%s is asked by «%s»", (topic, text) => { expect(customerPolicyTermAsked(topic, text)).toBe(true); });
+  it.each([
+    "Какие условия ипотеки?", "все условия есть", "квартира со всеми условиями", "Шартҳои кор чӣ гуна аст? Ваканси доред?",
+  ])("commission is NOT asked by «%s» (a mortgage, the flat's amenities, a job)", (text) => {
+    expect(customerPolicyTermAsked("commission", text)).toBe(false);
+  });
   it.each<[Topic, string]>([
     ["commission", "адрес этого дома?"], ["commission", "Какая цена?"], ["payment", "сколько комнат?"], ["negotiation", "адрес этого дома?"],
     ["negotiation", "покажите квартиры в Сино"], ["legal", "хочу продать квартиру"], ["rental", "хочу купить дом"],
@@ -36,6 +45,7 @@ describe("renderer: company terms in a DM", () => {
   it("prints a term the customer asked about", () => {
     expect(render("commission", "Какая у вас комиссия?")).toContain("Комиссия для продавца 2%");
     expect(render("negotiation", "торг возможен?")).toContain("Вопрос торга");
+    expect(render("commission", "Чи шарту шароит доред?")).toContain("Комиссия для продавца 2%");
   });
   it("never prints the em dash in the commission line", () => { expect(render("commission", "Какая у вас комиссия?")).not.toMatch(/[—–]/u); });
   it.each<[Topic, string]>([["negotiation", "адрес этого дома?"], ["commission", "адрес этого дома?"], ["payment", "сколько этаж?"], ["legal", "привет"]])(
