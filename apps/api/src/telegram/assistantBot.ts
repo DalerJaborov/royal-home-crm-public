@@ -21,13 +21,15 @@ import { wrapUntrusted } from "../ai/untrustedContent.js";
 import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
 import { getPropertyWorkList } from "../ai/assistant/tools/getPropertyWorkStatus.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
-import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
+import { findTelegramAgentClients, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
+import { deleteSentReply, deleteSentScope, isDeleteSentRequest, isVoiceReplayRequest } from "./assistantChatCommands.js";
+import { deletableSentMessages, forgetSentMessages, mergeSentEntries } from "./sentMessageLog.js";
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
-import { handleFreeNarrationCallback, handleFreeNarrationMessage } from "./assistantFreeNarration.js";
+import { handleFreeNarrationCallback, handleFreeNarrationMessage, looksLikeNarrationDictation, narrationDictationReply } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
@@ -782,10 +784,41 @@ async function saveHistory(chatId: string, agentId: string, history: { role: "us
   const data = {
     agentId,
     kind: DIALOG_KIND,
-    payload: { messages: trimAssistantHistory(history) },
+    // sent — номера своих сообщений этого чата (sentMessageLog.ts): «удали присланное» после перезапуска.
+    payload: { messages: trimAssistantHistory(history), sent: deletableSentMessages(chatId) },
     expiresAt: new Date(Date.now() + DIALOG_TTL_MS),
   };
   await prisma.telegramDialogState.upsert({ where: { chatId }, create: { chatId, ...data }, update: data });
+}
+
+/**
+ * «УДАЛИ ВСЁ, ЧТО ПРИСЛАЛА» — ТОЛЬКО ЛИЧКА, ТОЛЬКО СВОИ СООБЩЕНИЯ (17.11.2026).
+ * Номера — из журнала отправленного (sentMessageLog.ts) и из состояния диалога (после перезапуска).
+ * Telegram удаляет только младше 48 часов; что не удалилось — говорим честно числом. Без карточки:
+ * владелец решил, что обратимость здесь не нужна. В группе этого пути нет вовсе.
+ */
+async function deleteOwnPrivateMessages(chatId: string, agentId: string, text: string, lang: "ru" | "tg"): Promise<string> {
+  const row = await prisma.telegramDialogState.findUnique({ where: { chatId } });
+  if (row && row.kind === DIALOG_KIND && row.agentId === agentId) {
+    mergeSentEntries(chatId, (row.payload as { sent?: unknown } | null)?.sent);
+  }
+  const all = deletableSentMessages(chatId);
+  const targets = deleteSentScope(text) === "last" ? all.slice(-1) : all;
+  const deleted: number[] = [];
+  // По одному, с конца: Telegram держит частоту сам (call() ждёт retry_after).
+  for (const entry of [...targets].reverse()) {
+    if (await deletePrivateMessage(chatId, entry.id)) deleted.push(entry.id);
+  }
+  // И удалённые, и неудаляемые (старше окна, уже стёрты руками) больше не пробуем.
+  forgetSentMessages(chatId, targets.map((e) => e.id));
+  if (row && row.kind === DIALOG_KIND && row.agentId === agentId) {
+    const payload = (row.payload ?? {}) as Record<string, unknown>;
+    await prisma.telegramDialogState.update({
+      where: { chatId },
+      data: { payload: { ...payload, sent: deletableSentMessages(chatId) } as Prisma.InputJsonObject },
+    }).catch(() => undefined);
+  }
+  return deleteSentReply(lang, deleted.length, targets.length);
 }
 
 async function clearHistory(chatId: string) {
@@ -931,6 +964,22 @@ export async function handleAssistantPrivate(
         return;
       }
       await send(HELP_TEXT);
+      return;
+    }
+    const textLang = (): "ru" | "tg" => {
+      const language = assistantLanguage([{ role: "user", content: text }]);
+      return language === "tg" || language === "mixed" ? "tg" : "ru";
+    };
+    // «Удали всё, что прислала» (17.11.2026): свои сообщения этого личного чата, без модели.
+    if (!forwardedEvidence && isDeleteSentRequest(text)) {
+      if (!(await loadAgentAccess(agent.id))?.isActive) { await send("Ваша учётка отключена."); return; }
+      await send(await deleteOwnPrivateMessages(chatId, agent.id, text, textLang()));
+      return;
+    }
+    // Длинный текст «для озвучки» мимо разбора «Озвучь текст:» — подсказка, а не ход модели (17.11.2026).
+    if (!forwardedEvidence && looksLikeNarrationDictation(text)) {
+      await send(narrationDictationReply(textLang(), fromVoice));
+      if (fromVoice) await send(text.slice(0, 3500));
       return;
     }
     // Ответ на «Править → строка N» в карточке расходов: поправка строки, а не новая просьба.
