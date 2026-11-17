@@ -26,21 +26,31 @@ import { ApiError, isInProgressError } from "./apiError";
  * адреса мимо неё.
  */
 export class SendIntent {
-  private pending: { fingerprint: string; key: string } | null = null;
+  /**
+   * Ключ на каждое неотвеченное содержимое отдельно: агент может отправить «А»,
+   * не дождавшись ответа отправить «Б», а потом повторить «А» — у «А» должен
+   * остаться свой ключ, и ответ на «Б» не должен его стирать.
+   */
+  private pending = new Map<string, string>();
+  private static readonly LIMIT = 20;
 
   keyFor(fingerprint: string): string {
-    if (!this.pending || this.pending.fingerprint !== fingerprint) {
-      this.pending = { fingerprint, key: newIdempotencyKey() };
+    let key = this.pending.get(fingerprint);
+    if (!key) {
+      key = newIdempotencyKey();
+      this.pending.set(fingerprint, key);
+      // Предохранитель от роста: самые старые неотвеченные забываются первыми.
+      if (this.pending.size > SendIntent.LIMIT) this.pending.delete(this.pending.keys().next().value!);
     }
-    return this.pending.key;
+    return key;
   }
 
-  /** Звать с результатом попытки: сбрасывает ключ, если сервер ответил по сути. */
-  settle(err?: unknown): void {
+  /** Звать с результатом попытки: сбрасывает ключ этого содержимого, если сервер ответил по сути. */
+  settle(fingerprint: string, err?: unknown): void {
     // 409 inProgress: первая попытка ещё идёт — ключ держим, иначе следующее
     // нажатие обойдёт защиту новым ключом.
     if (isInProgressError(err)) return;
-    if (err === undefined || err instanceof ApiError) this.pending = null;
+    if (err === undefined || err instanceof ApiError) this.pending.delete(fingerprint);
   }
 }
 
@@ -66,13 +76,14 @@ export function sendFingerprint(path: string, body: unknown): string {
 
 /** POST-отправка клиенту с ключом повтора на намерение. */
 export async function sendToClient<T>(intent: SendIntent, path: string, body?: unknown): Promise<T> {
-  const idempotencyKey = intent.keyFor(sendFingerprint(path, body));
+  const fingerprint = sendFingerprint(path, body);
+  const idempotencyKey = intent.keyFor(fingerprint);
   try {
     const result = await api<T>(path, { method: "POST", body, idempotencyKey });
-    intent.settle();
+    intent.settle(fingerprint);
     return result;
   } catch (err) {
-    intent.settle(err);
+    intent.settle(fingerprint, err);
     throw err;
   }
 }

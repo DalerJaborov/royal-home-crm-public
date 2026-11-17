@@ -98,6 +98,18 @@ describe("sendToClient: один ключ на намерение", () => {
     expect(calls[1].key).not.toBe(calls[0].key);
   });
 
+  it("ответ на другое сообщение не стирает ключ неотвеченного", async () => {
+    const { SendIntent, sendToClient, calls } = await load(async (p, _o) => {
+      if (calls.filter((c) => c.path === p).length === 1 && p.endsWith("/a")) throw new Error("Связь пропала — попробуем ещё раз");
+      return { ok: true };
+    });
+    const intent = new SendIntent();
+    await expect(sendToClient(intent, "/conversations/a", { text: "А" })).rejects.toThrow();
+    await sendToClient(intent, "/conversations/b", { text: "Б" });
+    await sendToClient(intent, "/conversations/a", { text: "А" });
+    expect(calls[2].key).toBe(calls[0].key);
+  });
+
   it("после ответа сервера то же сообщение ещё раз — новое намерение, новый ключ", async () => {
     const { SendIntent, sendToClient, calls } = await load(async () => ({ ok: true }));
     const intent = new SendIntent();
