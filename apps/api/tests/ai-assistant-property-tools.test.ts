@@ -789,7 +789,7 @@ describe("change_property_status", () => {
 
   it("объект на монтаже в продажу помощник не выводит — это «Готово» у монтажёра", async () => {
     const property = await seed({ status: "EDITING" });
-    await expectRefused(directorId, DIRECTOR_PERMS, "change_property_status", { ref: String(property.shortId), status: "AVAILABLE" }, 409, /Готово/);
+    await expectRefused(directorId, DIRECTOR_PERMS, "change_property_status", { ref: String(property.shortId), status: "AVAILABLE" }, 409, /Готово.*complete_property_editing|complete_property_editing.*Готово/s);
   });
 
   it("смена статуса заявкой и «попросить руководителя» обе идут видом «Другое»: вторая — понятный отказ, что именно ждёт", async () => {

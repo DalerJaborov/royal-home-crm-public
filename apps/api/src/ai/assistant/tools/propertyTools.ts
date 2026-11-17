@@ -1,13 +1,14 @@
 import { changePropertyPricePlugin } from "./changePropertyPrice.js";
 import { deletePropertyPlugin } from "./deletePropertyTool.js";
 import { changePropertyStatusPlugin } from "./changePropertyStatus.js";
+import { completePropertyEditingPlugin } from "./completePropertyEditing.js";
 import { requestPropertyChangePlugin } from "./requestPropertyChange.js";
 import { restorePropertyPlugin } from "./restorePropertyTool.js";
 import { sendToRemakePlugin } from "./sendToRemake.js";
 import type { AssistantToolPlugin } from "./types.js";
 
 /**
- * Группа «объекты» (уровень C): цена, статус, перемонтаж, заявки на изменение.
+ * Группа «объекты» (уровень C): цена, статус, выход из монтажа в продажу («Готово»), перемонтаж, заявки на изменение.
  *
  * Фаза 1 (док. §3): цена, статус и прочее по опубликованному объекту идут
  * заявками руководителю (`lib/propertyChangeRequestService.ts`), как кнопки в
@@ -17,6 +18,7 @@ import type { AssistantToolPlugin } from "./types.js";
 export const propertyTools: readonly AssistantToolPlugin[] = [
   changePropertyPricePlugin,
   changePropertyStatusPlugin,
+  completePropertyEditingPlugin,
   requestPropertyChangePlugin,
   sendToRemakePlugin,
   deletePropertyPlugin,

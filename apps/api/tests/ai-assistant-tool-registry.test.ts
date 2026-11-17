@@ -65,6 +65,7 @@ describe("реестр инструментов помощника", () => {
       "transfer_property",
       "change_property_price",
       "change_property_status",
+      "complete_property_editing",
       "request_property_change",
       "send_to_remake",
       "book_showing",
