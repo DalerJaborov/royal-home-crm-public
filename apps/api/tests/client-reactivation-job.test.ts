@@ -37,6 +37,9 @@ async function makeColdClient() {
       source: "PHONE_CALL",
       kind: "BUYER",
       status: "COLD",
+      // Давно заведён и ни разу не было контакта — «давно без контакта» по общему
+      // правилу (16.11.2026), задание перепроверяет его перед отправкой.
+      createdAt: new Date(Date.now() - 400 * 86_400_000),
       assignedAgentId: agentId,
       assignedAt: new Date(),
       acceptedAt: new Date(),

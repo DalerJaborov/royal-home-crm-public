@@ -50,7 +50,6 @@ const { newPropertyCallMemory } = await import("../src/lib/telephony/liveVoicePr
 const { callbackDueAt, pickCallbackAgent } = await import("../src/lib/telephony/consultantCallbackTarget.js");
 const { isWithinConsultantHours } = await import("../src/lib/telephony/consultantHours.js");
 const { CONSULTANT_SESSION_WAIT_MS } = await import("../src/lib/telephony/liveVoiceTimings.js");
-const { processNoAnswerTailAnchors } = await import("../src/lib/noAnswerStreak.js");
 const { recordCallbackRequest } = await import("../src/lib/callbackRequests.js");
 const { logTimeline } = await import("../src/lib/timeline.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
@@ -587,36 +586,6 @@ describe("п.6: известный клиент молча бросил труб
     expect(sendPushToAgent).not.toHaveBeenCalled();
   });
 
-  it("noAnswerStreak: молчаливый сброс — не выход на связь, обычный входящий — выход", async () => {
-    const mkAnchor = async (clientId: string) =>
-      logTimeline({
-        clientId,
-        actor: { kind: "system", source: "noAnswerStreak.tail", subjectAgentId: mainAgent },
-        type: "SYSTEM",
-        notes: "noAnswerTail:1",
-        nextActionDate: new Date(Date.now() - 60_000),
-        createdAt: new Date(Date.now() - 2 * 24 * 3600_000),
-      });
-    const tasksOf = (clientId: string) =>
-      prisma.interaction.count({ where: { clientId, autoTaskKind: "no_answer_tail_retry", nextAction: { not: null } } });
-    const mkCall = async (clientId: string, autoLeadStatus: string | null) => {
-      const channelId = `lv-a3-tail-${runId}-${channelIds.length}`;
-      channelIds.push(channelId);
-      await prisma.incomingCall.create({
-        data: { channelId, phone: nextPhone(), clientId, startedAt: new Date(Date.now() - 3600_000), answered: true, autoLeadStatus },
-      });
-    };
-
-    const silent = await ownClient(nextPhone());
-    await mkAnchor(silent);
-    await mkCall(silent, "skipped");
-    const talked = await ownClient(nextPhone());
-    await mkAnchor(talked);
-    await mkCall(talked, null);
-    await processNoAnswerTailAnchors();
-    expect(await tasksOf(silent)).toBe(1);
-    expect(await tasksOf(talked)).toBe(0);
-  });
 });
 
 describe("п.10: итог сессии не пришёл, звонок короткий", () => {

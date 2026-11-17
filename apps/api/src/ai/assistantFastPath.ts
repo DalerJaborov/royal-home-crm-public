@@ -181,7 +181,6 @@ function clientCard(
     name: clientNamePhoneSafe(formatClientName(c), actor.canViewPhone),
     // Тот же запрет, что в search_clients: непринятая заявка номера не раскрывает даже тому, у кого есть право.
     phone: clientPhoneFor(c.phone, actor.canViewPhone && c.acceptedAt !== null),
-    status: c.status,
     agent: c.assignedAgent?.fullName ?? null,
     lastContactAt: c.lastContactAt ? c.lastContactAt.toISOString() : null,
     href: `/clients/${c.id}`,

@@ -116,7 +116,8 @@ describe("GET /agents/:id/live", () => {
     expect(res.status).toBe(200);
     expect(res.body.chats).toEqual([]);
     expect(res.body.calls.last).toEqual([]);
-    expect(res.body.leads.byStatus).toEqual({});
+    // Разбивки по статусам больше нет (16.11.2026) — поле не отдаётся.
+    expect(res.body.leads.byStatus).toBeUndefined();
   });
 
   it("4. переписка: lastFrom честно отличает клиента/агента/бота, messages не массивом не роняет ручку", async () => {
@@ -302,7 +303,7 @@ describe("GET /agents/:id/live", () => {
     expect(resB.body.calls.weekMissedIncoming).toBeGreaterThanOrEqual(1);
   });
 
-  it("8. лиды по этапам: byStatus честный, Корзина не считается, unaccepted честный", async () => {
+  it("8. разбивки по статусам нет, unaccepted честный", async () => {
     const hot1 = await prisma.client.create({
       data: {
         fullName: `Лид HOT 1 ${runId}`,
@@ -353,8 +354,8 @@ describe("GET /agents/:id/live", () => {
     const token = await login(directorPhone);
     const res = await request(app).get(`/api/v1/agents/${agentAId}/live`).set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body.leads.byStatus.HOT).toBe(2);
-    expect(res.body.leads.byStatus.NEW).toBe(1);
+    // «Лиды по этапам» сняты 16.11.2026 вместе со статусами-папками: разбивки нет.
+    expect(res.body.leads.byStatus).toBeUndefined();
     expect(res.body.leads.unaccepted).toBeGreaterThanOrEqual(1);
   });
 
@@ -378,7 +379,7 @@ describe("GET /agents/:id/live", () => {
     expect(res.body.calls.weekMissedIncoming).toBe(0);
     expect(res.body.leads.inWork).toBe(0);
     expect(res.body.leads.unaccepted).toBe(0);
-    expect(res.body.leads.byStatus).toEqual({});
+    expect(res.body.leads.byStatus).toBeUndefined();
 
     await prisma.agent.delete({ where: { id: emptyAgent.id } });
   });

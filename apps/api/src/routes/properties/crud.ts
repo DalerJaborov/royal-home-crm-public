@@ -1,6 +1,5 @@
 import { ownsProperty, OWNER_OPEN_AFTER_PUBLISH_FIELDS } from "../../lib/propertyAccess.js";
 import { scheduleManualOwnerVerification } from "../../lib/ownerVerificationSources.js";
-import { refreshSellerAfterPropertyChange } from "../../lib/clientAutoStatus.js";
 /** Жизненный цикл карточки объекта: POST /, PATCH /:id, POST /:id/complete-editing,
  * DELETE /:id, POST /:id/restore, DELETE /:id/permanent (Г3, §1.3). Перенос verbatim. */
 import { Router, type Request } from "express";
@@ -720,7 +719,6 @@ async function createPropertyImpl(req: PropertyCreateInput) {
     await scheduleManualOwnerVerification(tx, createdProperty.id, req.agent.id);
     return createdProperty;
   });
-  await refreshSellerAfterPropertyChange(property.sellerClientId);
 
   /**
    * ПОДВАЛ ПОДПИСИ — ПОСЛЕ СОЗДАНИЯ, А НЕ ДО (23.09.2026). Номер объекта
