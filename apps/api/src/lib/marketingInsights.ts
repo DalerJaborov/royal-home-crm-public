@@ -116,9 +116,12 @@ export async function buildMarketingInsights(seesMoney: boolean, force = false):
     prisma.$transaction(async (tx) => {
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
       const [lostRows, totalRows] = await Promise.all([
+        // «Потеря» = оформленный отказ (16.11.2026, статуса LOST больше нет):
+        // отметку отказа ставит одна дверь, lib/clientRefuse.ts. Карточки,
+        // убранные потом в Корзину по заявке, тоже считаются.
         tx.client.groupBy({
           by: ["source", "refusalReason"],
-          where: { status: "LOST", deletedAt: null, escalatedAt: { gte: since } },
+          where: { assignmentRefusedAt: { gte: since } },
           _count: { _all: true },
         }),
         tx.client.groupBy({

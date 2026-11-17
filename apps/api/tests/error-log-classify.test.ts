@@ -82,6 +82,36 @@ describe("groupErrorLogEntries: уникальные типы с count, не р�
     expect(groups[1].lowPriority).toBe(true);
   });
 
+  it("40 типов разного возраста: первыми идут самые частые, а не самые свежие (журнал 17.11.2026)", () => {
+    // Старый частый тип (лиды без агента 13–15.11) и 39 свежих одиночек за последние сутки.
+    const week = new Date("2026-11-13T07:00:00Z");
+    const rows = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        source: "ai", message: "Заявка из переписки заведена как «прочее обращение»: намерение не определено",
+        createdAt: new Date(week.getTime() + i * 3_600_000), url: null,
+      })),
+      ...Array.from({ length: 39 }, (_, i) => ({
+        source: `src${i}`, message: `Свежая разовая поломка вида ${String.fromCharCode(0x430 + (i % 30))}${"я".repeat(i)}`,
+        createdAt: new Date(Date.UTC(2026, 10, 16, 23, 0) - i * 60_000), url: null,
+      })),
+    ];
+    const groups = groupErrorLogEntries(rows);
+    expect(groups).toHaveLength(40);
+    expect(groups[0]!.count).toBe(10);
+    expect(groups.slice(0, 30).some((g) => g.message.includes("намерение не определено"))).toBe(true);
+    expect(groups[0]!.firstAt).toEqual(week);
+  });
+
+  it("требующие действия идут раньше эксплуатационного шума при любом числе", () => {
+    const at = new Date("2026-11-16T10:00:00Z");
+    const rows = [
+      ...Array.from({ length: 5 }, () => ({ source: "ai", message: "Gemini не ответил с первого раза (chat) — помог повтор", createdAt: at, url: null })),
+      { source: "telegram", message: "Бот не получает сообщения от Telegram дольше трёх минут", createdAt: at, url: null },
+    ];
+    const groups = groupErrorLogEntries(rows);
+    expect(groups[0]!.source).toBe("telegram");
+  });
+
   it("errorGroupKey — source и первые 160 символов текста (то же число, что у logSystemError)", () => {
     // Уникальная деталь (id диалога) — в ХВОСТЕ длинного сообщения, за 160-м
     // символом: ровно та ситуация, ради которой DEDUP_TEXT_LEN и заведён

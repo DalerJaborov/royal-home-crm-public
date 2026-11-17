@@ -10,20 +10,17 @@ import {
   botPauseSchema,
   clientRefuseSchema,
   clientTransferSchema,
-  leadAcceptSchema,
 } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission, scopeToOwnAgent } from "../../auth/middleware.js";
 import { declineLead } from "../../leads.js";
 import { acceptLead, LEAD_TAKEN_ERROR } from "../../lib/leadAccept.js";
 import { transferClientByAgent, canTransferClient } from "../../lib/clientTransfer.js";
-import { reactivateClient } from "../../lib/clientWorkStatus.js";
 import { logAudit } from "../../lib/audit.js";
-import { isDeferredReason, deferClient, returnDeferredClientManually } from "../../lib/deferredClients.js";
 import { noteAgentHandoffAndAlarmIfAnomalous } from "../../lib/agentHandoffAnomalyAlarm.js";
-import { refuseClient, checkRefusalPreconditions } from "../../lib/clientRefuse.js";
+import { refuseClient } from "../../lib/clientRefuse.js";
 import { convertClientToJobApplication } from "../../lib/clientToCandidate.js";
-import { deferredReturnMessage, foreignWriteDenied, presentClient } from "./shared.js";
+import { foreignWriteDenied, presentClient } from "./shared.js";
 
 import { publishClientUpdated } from "../../lib/livePublish.js";
 import { assignClientManually } from "../../lib/assignClientManually.js";
@@ -39,10 +36,6 @@ export const lifecycleRouter = Router();
  * логикой неминуемо разойдутся (окно «Итог разговора» заводилось бы только через
  * интерфейс). Здесь остались права и перевод исхода в HTTP.
  *
- * 409 requiresRelease — не ошибка, а вопрос: портфель полон, пришёл лид по
- * своему объекту, и агенту нужно выбрать, кого из обычных клиентов отдать
- * (решение владельца 11.08.2026). Интерфейс показывает список и возвращается
- * сюда с выбором.
  */
 lifecycleRouter.post("/:id/accept", requireAuth, async (req, res) => {
   const ownAgentId = scopeToOwnAgent(req);
@@ -62,30 +55,10 @@ lifecycleRouter.post("/:id/accept", requireAuth, async (req, res) => {
   }
   if (client.acceptedAt) return res.json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 
-  const parsedAccept = leadAcceptSchema.safeParse(req.body ?? {});
-  if (!parsedAccept.success) {
-    return res.status(400).json({ error: "Неверные данные", details: parsedAccept.error.flatten() });
-  }
-
-  const outcome = await acceptLead({
-    clientId: client.id,
-    agentId: req.agent!.id,
-    releaseClientId: parsedAccept.data.releaseClientId,
-  });
-
-  if (!outcome.ok && outcome.requiresRelease) {
-    return res.status(409).json({
-      requiresRelease: true,
-      error: "Портфель полон — выберите, кого передать другому агенту",
-      candidates: outcome.candidates,
-    });
-  }
+  const outcome = await acceptLead({ clientId: client.id, agentId: req.agent!.id });
   if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
 
-  logAudit(req, "LEAD_ACCEPT", "Client", client.id, {
-    agentId: req.agent!.id,
-    releasedClientId: outcome.releasedClientId ?? null,
-  });
+  logAudit(req, "LEAD_ACCEPT", "Client", client.id, { agentId: req.agent!.id });
 
   const updated = await prisma.client.findUnique({ where: { id: client.id } });
   res.json(presentClient(updated ?? client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
@@ -317,77 +290,11 @@ lifecycleRouter.post("/:id/transfer", requireAuth, async (req, res) => {
 });
 
 /**
- * POST /:id/deactivate УБРАН ЦЕЛИКОМ (владелец 16.09.2026): это был последний
- * живой вход в ручной перевод в Неактивные (DeactivateClientModal.tsx на
- * карточке). «Агент ничего никогда не делает кнопками, и самих кнопок для
- * этого нет» — автоматика (ai/callAnalysis.ts, lib/clientInactiveTextDetector.ts,
- * lib/silentClientAutoDeactivate.ts) вызывает deactivateClient()/
- * canDeactivateWithReason() из lib/clientWorkStatus.ts и lib/inactiveTrafficLight.ts
- * напрямую — они остаются нетронутыми, ушёл только HTTP-вход для агента.
- * Гашение требований при деактивации (было только здесь) перенесено внутрь
- * самой deactivateClient() — оба автоматических пути раньше его не получали
- * вовсе (см. комментарий там).
+ * «Вернуть в работу» (POST /:id/activate), «Поднять раньше срока»
+ * (POST /:id/deferred/return) и сам перевод в «Неактивные»/«Отложенные» удалены
+ * 16.11.2026 вместе с этими состояниями (владелец: «ничего лишнего»). Клиент
+ * либо в списке агента, либо в Корзине.
  */
-
-/**
- * «Вернуть в работу» — обратный переход к «Неактивному» (ТЗ п. 27).
- *
- * Причин и полей не спрашиваем: возврат ничего не теряет и не передаёт, а лишний
- * обязательный текст на пути к работе с клиентом только мешает. Всё, что нужно
- * руководителю, и так остаётся в хронологии.
- */
-lifecycleRouter.post("/:id/activate", requireAuth, async (req, res) => {
-  const ownAgentId = scopeToOwnAgent(req);
-  const client = await prisma.client.findUnique({ where: { id: req.params.id } });
-  if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
-  // 06.09.2026: раньше требовало kind==="BUYER" — reactivateClient() ниже кинд не
-  // проверяет вообще, но продавца, ушедшего в workStatus=INACTIVE (та же функция,
-  // вызывается и для него — например, автодеактивацией за молчание), было НЕЧЕМ
-  // вернуть обратно: единственная кнопка возврата отклонялась сервером. Найдено на
-  // живом примере (продавец Хикоят) — карточка застряла «Неактивной» без выхода.
-  if (!client.assignedAgentId) {
-    return res.status(409).json({ error: "Возврат в работу доступен только клиенту с назначенным агентом" });
-  }
-  if (ownAgentId && client.assignedAgentId !== ownAgentId) {
-    return res.status(403).json({ error: "Недостаточно прав" });
-  }
-  {
-    const denied = foreignWriteDenied(req, client, ownAgentId);
-    if (denied) return res.status(403).json({ error: denied });
-  }
-  const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId, actorAgentId: req.agent!.id });
-  if (!result.ok) return res.status(409).json({ error: "Состояние или держатель карточки изменились — обновите карточку" });
-  logAudit(req, "CLIENT_ACTIVATE", "Client", client.id, {});
-  res.json({ ok: true });
-});
-
-/**
- * «Поднять раньше срока» (задача G5, план 03-04.09.2026) — агент, за которым
- * закреплён отложенный клиент, или руководитель (clients.assign) решают не
- * ждать таймер (Client.deferredUntil). В отличие от «Вернуть в работу» выше
- * (только для BUYER) — «Отложенные» бывают и у продавца (EXPENSIVE/WRONG_OBJECT/
- * FINANCE_ISSUE доступны обеим карточкам, см. selectableRefusalReasonsFor),
- * поэтому здесь kind не проверяем.
- */
-lifecycleRouter.post("/:id/deferred/return", requireAuth, async (req, res) => {
-  const ownAgentId = scopeToOwnAgent(req);
-  const client = await prisma.client.findUnique({ where: { id: req.params.id } });
-  if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
-  if (client.workStatus !== "DEFERRED") {
-    return res.status(409).json({ error: "Клиент не в «Отложенных»" });
-  }
-  if (ownAgentId && client.assignedAgentId !== ownAgentId) {
-    return res.status(403).json({ error: "Недостаточно прав" });
-  }
-  {
-    const denied = foreignWriteDenied(req, client, ownAgentId);
-    if (denied) return res.status(403).json({ error: denied });
-  }
-  const result = await returnDeferredClientManually(client.id, req.agent!.id);
-  if (!result.ok) return res.status(404).json({ error: "Клиент не найден" });
-  logAudit(req, "CLIENT_DEFERRED_RETURN", "Client", client.id, {});
-  res.json({ ok: true });
-});
 
 /**
  * «Завершить сделку → Без сделки» (ТЗ п. 16-18, переработка 12.08.2026 из бывшей
@@ -433,47 +340,6 @@ lifecycleRouter.post("/:id/refuse", requireAuth, async (req, res) => {
   {
     const denied = foreignWriteDenied(req, client, ownAgentId);
     if (denied) return res.status(403).json({ error: denied });
-  }
-
-  /**
-   * «ОТЛОЖЕННЫЕ» (задача G, план 03-04.09.2026, решение владельца) — EXPENSIVE/
-   * FINANCE_ISSUE/WRONG_OBJECT перехватываются ЗДЕСЬ, ДО refuseClient: проверка
-   * СБ и счётчик отказов к этому случаю не относятся — это обычный исход рынка,
-   * не отказ и не передача. Карточка остаётся за тем же агентом
-   * (workStatus=DEFERRED), слот освобождается, никто не звонит, refusalCount/
-   * Royal Score не трогаем — см. lib/deferredClients.ts.
-   *
-   * ГЕЙТЫ «БЫЛ ПОКАЗ»/«КАРТОЧКА ЗАПОЛНЕНА» И ВЫСОКИЙ СКОРИНГ — ПО-ПРЕЖНЕМУ
-   * ОБЯЗАТЕЛЬНЫ (найдено при интеграции 04.09.2026, тесты client-refuse.test.ts/
-   * deferred-clients.test.ts). «Отложить» клиента, с которым не было ни показа,
-   * ни заполненной карточки, — то самое фиктивное закрытие без работы (ТЗ п. 16),
-   * просто через другую дверь, если гейт не проверить и здесь. deferClient сам
-   * не гейтует (см. комментарий в lib/deferredClients.ts «гейты уже пройдены
-   * вызывающим кодом») — checkRefusalPreconditions вынесен из refuseClient
-   * именно для этого места.
-   */
-  if (isDeferredReason(parsed.data.reason)) {
-    const pre = await checkRefusalPreconditions(client.id, parsed.data);
-    if (!pre.ok) return res.status(pre.status).json({ error: pre.error });
-
-    const deferred = await deferClient({
-      clientId: client.id,
-      agentId: client.assignedAgentId,
-      reason: parsed.data.reason,
-      initiator: parsed.data.initiator,
-      comment: parsed.data.comment,
-      competitorName: parsed.data.competitorName,
-      voiceNoteUrl: parsed.data.voiceNoteUrl,
-      voiceNoteTranscript: parsed.data.voiceNoteTranscript,
-    });
-    if (!deferred.ok) return res.status(409).json({ error: deferred.error });
-    logAudit(req, "CLIENT_DEFER", "Client", client.id, { reason: parsed.data.reason, deferredUntil: deferred.deferredUntil });
-    return res.json({
-      ok: true,
-      deferred: true,
-      deferredUntil: deferred.deferredUntil,
-      message: deferredReturnMessage(deferred.deferredUntil),
-    });
   }
 
   /**

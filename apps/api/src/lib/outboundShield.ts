@@ -302,6 +302,22 @@ async function shieldKey(channel: string, subscriberId: string, hint?: CustomerT
   const transport = await resolveCustomerEndpoint(customerTransportInput(channel, subscriberId, hint));
   return { channel, subscriberId, endpointScopeId: transport.endpointScopeId, transport };
 }
+/**
+ * Личный чат Telegram, привязанный к действующей учётке сотрудника. Тот же
+ * признак, по которому telegram/bot.ts уводит входящие сотрудника от клиентского
+ * бота (findAgentByTelegramChatId), — значит, клиентским диалогом такой чат не
+ * бывает. Запрос по уникальному индексу `Agent.telegramChatId`. Модуль привязки
+ * сюда не импортируется: он сам шлёт через telegram/api.ts, вышел бы цикл.
+ */
+export async function isLinkedStaffChat(channel: string, subscriberId: string): Promise<boolean> {
+  // Direct Messages канала (`chat:topic`) — всегда клиенты.
+  if (channel !== "TELEGRAM" || subscriberId.includes(":")) return false;
+  const agent = await prisma.agent.findFirst({
+    where: { telegramChatId: subscriberId, isActive: true },
+    select: { id: true },
+  });
+  return agent !== null;
+}
 async function loadState(key: ShieldKey, db: Pick<TxClient, "outboundShieldState"> = prisma): Promise<ShieldState | null> {
   return db.outboundShieldState.findFirst({
     where: { channel: key.channel, subscriberId: key.subscriberId, endpointScopeId: key.endpointScopeId },
@@ -747,6 +763,21 @@ export async function admitOutbound(req: OutboundRequest): Promise<OutboundVerdi
 
     // Служебный чат, о котором щит ничего не знает (Telegram сотрудников).
     if (!state && req.onlyIfKnown) return { allowed: true, kind: "initiative" };
+    /**
+     * ЧАТ СОТРУДНИКА — НЕ КЛИЕНТСКИЙ ДИАЛОГ, ДАЖЕ ЕСЛИ ЩИТ ЕГО «ЗНАЕТ» (17.11.2026,
+     * журнал прода: весть хозяину об автопубликации ролика и кнопки озвучки «не
+     * выпущены щитом»). Состояние щита у чата появляется, когда человек когда-то
+     * писал боту как клиент — до того, как привязал чат к учётке. После привязки
+     * его входящие уходят помощнице, а не в клиентский путь (telegram/bot.ts),
+     * поэтому `lastInboundAt` больше не обновляется, и каждое служебное
+     * сообщение копило «монолог»: на пятом щит ставил паузу и дальше резал всё.
+     * Признак «сотрудник» берём из учётки, а не из того, кто зовёт отправку: так
+     * защищены сразу все служебные отправки (их ~30 файлов, см.
+     * tests/staff-notice-one-door.test.ts), и новая не сможет об этом забыть.
+     */
+    if (req.onlyIfKnown && state && (await isLinkedStaffChat(req.channel, req.subscriberId))) {
+      return { allowed: true, kind: "initiative" };
+    }
 
     const isReply = req.answersInbound === true ||
       (!!state?.lastInboundAt && now.getTime() - state.lastInboundAt.getTime() <= REPLY_WINDOW_MS);

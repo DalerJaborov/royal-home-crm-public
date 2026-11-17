@@ -124,7 +124,8 @@ describe("Отказ клиента", () => {
 
     const after = await prisma.client.findUnique({ where: { id: c.id } });
     expect(after?.hotSince).not.toBeNull();
-    expect(after?.status).toBe("HOT");
+    // «Горячий»/«Холодный» сняты (16.11.2026): отказ статус карточки не меняет.
+    expect(after?.status).toBe("NEW");
     expect(after?.assignedAgentId).not.toBe(weakAgentId);
     expect(after?.acceptedAt).toBeNull(); // ждёт принятия у нового агента
     expect(after?.refusalReason).toBe("STOPPED_RESPONDING");
@@ -160,7 +161,7 @@ describe("Отказ клиента", () => {
     // isHot = hadShowing || cardFilled — раз показ был, клиент горячий в любом случае.
     expect(res.body.isHot).toBe(true);
     const after = await prisma.client.findUnique({ where: { id: c.id } });
-    expect(after?.status).toBe("HOT");
+    expect(["HOT", "COLD", "UNRESPONSIVE"]).not.toContain(after?.status);
     expect(after?.assignedAgentId).not.toBe(weakAgentId);
   });
 
@@ -180,6 +181,13 @@ describe("Отказ клиента", () => {
     expect(after?.escalatedAt).not.toBeNull();
     // Лид остался у последнего агента — руководитель назначит вручную.
     expect(after?.assignedAgentId).toBe(weakAgentId);
+    // Конец работы: в Корзину сама CRM карточку не убирает (16.11.2026,
+    // «пусть сами люди решают») — руководителю уходит заявка на удаление.
+    expect(after?.deletedAt).toBeNull();
+    const request = await prisma.clientDeleteRequest.findFirst({ where: { clientId: c.id, status: "PENDING" } });
+    expect(request).not.toBeNull();
+    expect(request?.requestedById).toBe(weakAgentId);
+    expect(request?.comment).toContain("Предел передач");
   });
 
   it("чужого клиента агент отказать не может", async () => {

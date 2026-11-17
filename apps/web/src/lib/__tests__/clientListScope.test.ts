@@ -7,8 +7,7 @@ describe("working client tab and historical drilldowns", () => {
     expect(clientListScope(normal)).toBe("inWork");
   });
   it.each([
-    { searching: true }, { other: true }, { status: "LOST" },
-    { workStatus: "INACTIVE" }, { workStatus: "ACTIVE" }, { pending: true }, { noResponseYesterday: true },
+    { searching: true }, { other: true }, { pending: true }, { noResponseYesterday: true },
   ])("preserves explicit drilldown %j", patch => {
     expect(clientListScope({ ...normal, ...patch })).toBeUndefined();
   });

@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import type { AssistantCard } from "@royal-home/shared";
-import { CLIENT_STATUS_LABELS } from "../lib/clientFormat";
 import { exactDateTime, formatMoney, PROPERTY_STATUS_LABELS } from "../lib/format";
 
 /**
@@ -14,10 +13,12 @@ import { exactDateTime, formatMoney, PROPERTY_STATUS_LABELS } from "../lib/forma
 const muted = { color: "var(--muted)", fontSize: 13 } as const;
 
 export function AssistantCardView({ card, onNavigate }: { card: AssistantCard; onNavigate: () => void }) {
-  const isProperty = card.kind === "property";
-  const statusLabel = isProperty
-    ? (PROPERTY_STATUS_LABELS[card.status as keyof typeof PROPERTY_STATUS_LABELS] ?? card.status)
-    : (CLIENT_STATUS_LABELS[card.status as keyof typeof CLIENT_STATUS_LABELS] ?? card.status);
+  // Статус есть только у объекта. У клиента его не показываем (владелец
+  // 17.11.2026): вид — покупатель/продавец — уже в номере (ПК/ПР).
+  const statusLabel =
+    card.kind === "property"
+      ? (PROPERTY_STATUS_LABELS[card.status as keyof typeof PROPERTY_STATUS_LABELS] ?? card.status)
+      : null;
 
   return (
     <Link
@@ -29,7 +30,7 @@ export function AssistantCardView({ card, onNavigate }: { card: AssistantCard; o
     >
       <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <b>{card.code}</b>
-        <span className="chip">{statusLabel}</span>
+        {statusLabel && <span className="chip">{statusLabel}</span>}
       </span>
       {card.kind === "property" ? (
         <>

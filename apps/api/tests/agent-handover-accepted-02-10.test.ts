@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const { prisma } = await import("../src/db.js");
 const { handoverAgentWork } = await import("../src/lib/agentHandover.js");
-const { reassignStaleLeads, penalizeMissedFirstCalls } = await import("../src/leads.js");
+const { reassignStaleLeads, handleMissedFirstCalls } = await import("../src/leads.js");
 const { leadReasonText } = await import("../src/lib/leadReason.js");
 
 const runId = Date.now().toString().slice(-7);
@@ -77,7 +77,7 @@ describe("B7: «Передача дел» — клиенты приходят у
       data: { acceptedAt: new Date(Date.now() - 20 * 60_000), assignedAt: new Date(Date.now() - 20 * 60_000) },
     });
     await reassignStaleLeads();
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
 
     const later = await prisma.client.findUniqueOrThrow({
       where: { id: c.id },

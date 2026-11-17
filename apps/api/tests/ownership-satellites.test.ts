@@ -26,9 +26,7 @@ import { fileURLToPath } from "node:url";
  *    непрочитанные Notification прежнего агента по клиенту, перевешивает
  *    открытую задачу на нового агента, снимает зависшую заявку на удаление,
  *    публикует `client.updated` с обоими агентами.
- * 3. `markClientLost` (агент не меняется) всё равно гасит push/уведомления и
- *    публикует live — отдельная ветка, не покрытая автоматическим вызовом
- *    внутри changeClientAgent (там agentId не меняется).
+ * 3. (markClientLost удалён 16.11.2026 вместе с состоянием «Потерянный».)
  * 4. `mergeClients` (используется и роутом /merge, и
  *    `lib/duplicateReview.ts::confirmDuplicateReview` напрямую) сама гасит
  *    спутники дубля — было дырой именно для второго вызывающего.
@@ -55,7 +53,6 @@ vi.mock("../src/lib/clientAutopilot.js", () => ({ runClientAutopilotInBackground
 const { prisma } = await import("../src/db.js");
 const { changeClientAgent } = await import("../src/lib/changeClientAgent.js");
 const { closeOwnershipSatellites } = await import("../src/lib/ownershipSatellites.js");
-const { markClientLost } = await import("../src/lib/clientLifecycle.js");
 const { mergeClients } = await import("../src/lib/clientMerge.js");
 const { createNotification } = await import("../src/lib/notifications.js");
 
@@ -309,35 +306,6 @@ describe("changeClientAgent — зовёт closeOwnershipSatellites сама, к
 
     const unread = await prisma.notification.count({ where: { agentId: agentA, tag: `lead-${client.id}`, read: false } });
     expect(unread).toBe(1);
-  });
-});
-
-describe("markClientLost — агент не меняется, но пуш/уведомления/live всё равно гасятся", () => {
-  it("гасит непрочитанное уведомление и публикует live, хотя assignedAgentId остаётся тем же", async () => {
-    const client = await makeClient(agentA);
-    await createNotification({
-      agentId: agentA,
-      kind: "lead",
-      title: "🔔 Новый лид",
-      body: client.fullName,
-      url: `/clients/${client.shortId}`,
-      tag: `lead-${client.id}`,
-    });
-
-    publishClientUpdated.mockClear();
-    const result = await markClientLost({
-      clientId: client.id,
-      reason: "тест: клиент потерян",
-      actorId: agentA,
-      source: "test.lost",
-    });
-
-    expect(result.ok).toBe(true);
-    expect(result.client?.assignedAgentId).toBe(agentA);
-
-    const unread = await prisma.notification.count({ where: { agentId: agentA, tag: `lead-${client.id}`, read: false } });
-    expect(unread).toBe(0);
-    expect(publishClientUpdated).toHaveBeenCalledWith(expect.objectContaining({ clientId: client.id }));
   });
 });
 

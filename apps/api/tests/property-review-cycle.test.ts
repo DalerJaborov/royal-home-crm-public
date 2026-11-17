@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { waitFor } from "./helpers/waitFor.js";
+import { waitFor, waitForSettled } from "./helpers/waitFor.js";
 import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
@@ -110,9 +110,12 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-// kind обязателен: property_reworked и property_rework_fixed намеренно делят
-// один sourceId (одна и та же передача, два события её жизни) — без фильтра по
-// kind findFirst мог бы вернуть любую из двух строк.
+/** Строки журнала по возврату на доработку: с 16.11.2026 их нет вовсе — штраф
+ *  property_reworked и его возврат property_rework_fixed сняты владельцем. */
+async function reworkEvents(propertyId: string): Promise<number> {
+  return waitForSettled(() => prisma.royalScoreEvent.count({ where: { agentId, sourceId: { startsWith: `reject-${propertyId}-` } } }));
+}
+
 async function waitForEvent(sourceId: string, kind?: string): Promise<{ delta: number; kind: string } | null> {
   for (let i = 0; i < 50; i++) {
     const found = await prisma.royalScoreEvent.findFirst({ where: { agentId, sourceId, ...(kind ? { kind } : {}) } });
@@ -161,7 +164,7 @@ describe("Одобрение фото и видео", () => {
     expect(res.body.status).toBe("EDITING");
   });
 
-  it("возврат фото на доработку — property_reworked, статус AWAITING_PHOTOS", async () => {
+  it("возврат фото на доработку — статус AWAITING_PHOTOS, баллов не списано", async () => {
     const p = await makeProperty(true, true);
     const res = await request(app)
       .post(`/api/v1/properties/${p.id}/review/reject`)
@@ -171,12 +174,10 @@ describe("Одобрение фото и видео", () => {
     expect(res.body.status).toBe("AWAITING_PHOTOS");
     expect(res.body.reviewRejectionReason).toContain("переснять");
 
-    const event = await waitForEvent(`reject-${p.id}-photos-1`);
-    expect(event?.kind).toBe("property_reworked");
-    expect(event?.delta).toBe(DEFAULT_EVENT_POINTS.property_reworked);
+    expect(await reworkEvents(p.id)).toBe(0);
   });
 
-  it("повторная загрузка фото возвращает объект на проверку и начисляет property_rework_fixed", async () => {
+  it("повторная загрузка фото возвращает объект на проверку (без баллов за исправление)", async () => {
     const p = await makeProperty(true, true);
     await request(app)
       .post(`/api/v1/properties/${p.id}/review/reject`)
@@ -193,11 +194,7 @@ describe("Одобрение фото и видео", () => {
     expect(after?.status).toBe("PENDING_REVIEW");
     expect(after?.reviewRejectionReason).toBeNull();
 
-    // Тот же sourceId, что у reworked, но kind — rework_fixed: дедуп по (kind,
-    // sourceId) не мешает записать оба события одной парой.
-    const fixedEvent = await waitForEvent(`reject-${p.id}-photos-1`, "property_rework_fixed");
-    expect(fixedEvent).not.toBeNull();
-    expect(fixedEvent?.delta).toBe(DEFAULT_EVENT_POINTS.property_rework_fixed);
+    expect(await reworkEvents(p.id)).toBe(0);
   });
 
   /**
@@ -227,8 +224,7 @@ describe("Одобрение фото и видео", () => {
     expect(after?.status).toBe("PENDING_REVIEW");
     expect(after?.reviewRejectionReason).toBeNull();
 
-    const event = await waitForEvent(`reject-${p.id}-video-1`, "property_rework_fixed");
-    expect(event).not.toBeNull();
+    expect(await reworkEvents(p.id)).toBe(0);
   });
 
   it("одобрение после возврата на доработку НЕ начисляет «с первого раза»", async () => {

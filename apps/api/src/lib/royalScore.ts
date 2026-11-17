@@ -1,7 +1,7 @@
 import { prisma } from "../db.js";
 import { dushanbeStartOfToday, dushanbeWallClock } from "./dushanbeTime.js";
 import { computeRoyalScore, computeRoyalScoreBreakdown, type RoyalScoreCategoryKey } from "./scoreJournal.js";
-import { DEFAULT_LEAD_ACTIVE_LIMIT, OCCUPIES_SLOT_WHERE } from "./leadLimits.js";
+import { BUYERS_IN_WORK_WHERE } from "./agentLoad.js";
 import { RATED_ROLES } from "@royal-home/shared";
 
 /**
@@ -43,8 +43,6 @@ export interface RoyalScoreView {
   companyRank: number;
   totalCompanyAgents: number;
   activeClients: number;
-  /** Свободные места до лимита; null — лимит выключен. */
-  freeSlots: number | null;
   /** История по дням для графика динамики (последние 30, событийный счёт). */
   history: { date: string; score: number }[];
   /** Динамика счёта за день/неделю/месяц — разница живого счёта с ближайшей
@@ -63,7 +61,7 @@ export async function buildRoyalScoreView(agentId: string): Promise<RoyalScoreVi
   });
   if (!agent) return null;
 
-  const [agents, companyAgents, activeClients, settings, liveScore, categoryBreakdown, history] = await Promise.all([
+  const [agents, companyAgents, activeClients, liveScore, categoryBreakdown, history] = await Promise.all([
     // Место считается среди агентов: у руководителя личного портфеля нет, и место
     // в рейтинге ему не принадлежит.
     prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true, kpi: true } }),
@@ -74,25 +72,11 @@ export async function buildRoyalScoreView(agentId: string): Promise<RoyalScoreVi
     // поэтому бывшие (isActive=false) не скрываются (сторож former-staff-hidden
     // держит это место в списке исключений с той же причиной).
     prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] } }, select: { id: true, kpi: true } }),
-    /**
-     * СЧИТАЕМ ТЕМ ЖЕ ПРАВИЛОМ, ЧТО И САМА РАЗДАЧА (владелец 20.08.2026, разбор
-     * «почему агенту не приходят лиды»).
-     *
-     * Здесь стояло своё условие `status in (NEW, CONTACTED, HOT)` — а раздача лидов
-     * с 12.08.2026 считает занятость иначе: по `workStatus="ACTIVE"` и любому
-     * не-терминальному статусу (lib/leadLimits.ts, OCCUPIES_SLOT_WHERE). Два правила
-     * про одно и то же разошлись, и агент видел у себя не то число, по которому CRM
-     * реально решает, давать ему лид: на проде у одного экран показывал 8 при
-     * фактических 7, у другого 8 при фактических 10. У самой границы это прямая
-     * ложь — «свободно 1», хотя лида не будет, и наоборот.
-     *
-     * Тот же урок, что записан в lib/clientPhone.ts: правило должно жить в одном
-     * месте, иначе вторая его копия неизбежно начинает врать.
-     */
+    // Покупатели в работе — тем же правилом, что дашборд и очередь fair
+    // (lib/agentLoad.ts): одно правило в одном месте.
     prisma.client.count({
-      where: { assignedAgentId: agentId, deletedAt: null, ...OCCUPIES_SLOT_WHERE },
+      where: { assignedAgentId: agentId, deletedAt: null, ...BUYERS_IN_WORK_WHERE },
     }),
-    prisma.settings.findUnique({ where: { id: "singleton" }, select: { leadActiveLimit: true } }),
     // Живой счёт считается на лету по журналу — ночной пересчёт зафиксирует его
     // в Agent.kpi только завтра, а агенту нужно видеть эффект своих действий сейчас.
     computeRoyalScore(agentId),
@@ -145,7 +129,6 @@ export async function buildRoyalScoreView(agentId: string): Promise<RoyalScoreVi
     month: baselineMonth !== null ? liveScore - baselineMonth : null,
   };
 
-  const limit = settings?.leadActiveLimit ?? DEFAULT_LEAD_ACTIVE_LIMIT;
   return {
     score: agent.kpi ?? 100,
     liveScore,
@@ -154,7 +137,6 @@ export async function buildRoyalScoreView(agentId: string): Promise<RoyalScoreVi
     companyRank,
     totalCompanyAgents: companyAgents.length,
     activeClients,
-    freeSlots: limit > 0 ? Math.max(0, limit - activeClients) : null,
     history: [...history]
       .reverse()
       // h.date — душанбинская полночь (в UTC это 19:00 ПРЕДЫДУЩЕГО дня): голый
