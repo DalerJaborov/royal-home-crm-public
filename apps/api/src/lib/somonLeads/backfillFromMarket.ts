@@ -5,6 +5,7 @@ import { somonKeyFingerprint, somonSellerKey } from "./contactIdentity.js";
 import { SOMON_SELLER_GONE_STATUSES } from "./sellerCount.js";
 import { somonCategoryCountAllowsOwner } from "./sellerAssessment.js";
 import { isTelegramPortalAlertsPaused } from "../telegramPortalPause.js";
+import { marketCatalogWhere, SOMON_SOURCE } from "../market/somonRubrics.js";
 
 /**
  * РАЗОВЫЙ ДОБОР ЗАЯВОК СОБСТВЕННИКОВ SOMON ЗА ПОСЛЕДНИЕ ДНИ (17.11.2026).
@@ -38,6 +39,8 @@ import { isTelegramPortalAlertsPaused } from "../telegramPortalPause.js";
 export const BACKFILL_MAX_DAYS = 5;
 export const BACKFILL_DEFAULT_MAX = 150;
 export const BACKFILL_HARD_MAX = 300;
+/** Сколько строк каталога за окно читаем самое большее (≈400 новых квартир Somon в сутки × 5 дней с запасом). */
+export const BACKFILL_SCAN_LIMIT = 5000;
 /** Верхняя оценка запросов к Somon на одно объявление: карточка, телефон, страница автора. */
 export const BACKFILL_REQUESTS_PER_ADVERT_MAX = 3;
 const DEFER_MS = 2 * 24 * 60 * 60 * 1000;
@@ -103,12 +106,18 @@ export async function runSomonBackfill(options: BackfillOptions): Promise<Backfi
     SELECT max("advertId"::bigint) AS max FROM "SomonSeenAdvert" WHERE "advertId" ~ '^[0-9]{1,18}$'`;
   const newerThan = maxSeen[0]?.max ?? null;
   report.newerThanAdvertId = newerThan === null ? null : String(newerThan);
-  const rows = await prisma.$queryRaw<Array<{ sourceId: string; sourceUrl: string; sellerId: string | null; isAgency: boolean }>>`
-    SELECT "sourceId", "sourceUrl", "sellerId", "isAgency" FROM "MarketListing"
-    WHERE "source" = 'somon.tj' AND "dealType" = 'SALE' AND "propertyType" = 'APARTMENT' AND "city" = 'Душанбе'
-      AND "isActive" = true AND "firstSeenAt" >= ${from} AND "sourceId" ~ '^[0-9]{1,18}$'
-      AND "sourceId"::bigint > ${newerThan ?? 0n}
-    ORDER BY "sourceId"::bigint DESC`;
+  // Каталог читается только через правило рубрик (одна дверь `marketCatalogWhere`): аренда,
+  // дома и чужие рубрики не попадают в добор ещё до проверки монитором. Номер объявления —
+  // строка разной длины, поэтому «новее увиденного» и порядок «свежие первыми» — числом в коде.
+  const listed = await prisma.marketListing.findMany({
+    where: { AND: [marketCatalogWhere(), { source: SOMON_SOURCE, dealType: "SALE", propertyType: "APARTMENT", city: "Душанбе", isActive: true, firstSeenAt: { gte: from } }] },
+    orderBy: { firstSeenAt: "desc" },
+    take: BACKFILL_SCAN_LIMIT,
+    select: { sourceId: true, sourceUrl: true, sellerId: true, isAgency: true },
+  });
+  const rows = listed
+    .filter(r => /^[0-9]{1,18}$/.test(r.sourceId) && BigInt(r.sourceId) > (newerThan ?? 0n))
+    .sort((a, b) => (BigInt(b.sourceId) > BigInt(a.sourceId) ? 1 : BigInt(b.sourceId) < BigInt(a.sourceId) ? -1 : 0));
   report.candidates = rows.length;
   const seen = new Set((await prisma.somonSeenAdvert.findMany({ where: { advertId: { in: rows.map(r => r.sourceId) } }, select: { advertId: true } })).map(s => s.advertId));
   const picked: Array<SeenListing & { sellerKey: string | null }> = [];

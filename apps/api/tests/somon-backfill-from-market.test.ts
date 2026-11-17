@@ -19,14 +19,14 @@ const NOW = new Date();
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000);
 const ID = (n: number) => String(9_988_770_000 + n);
 const AGENT = "stand-somon-backfill-agent";
-const ids = [1, 2, 3, 4, 5, 6, 7].map(ID);
+const ids = [1, 2, 3, 4, 5, 6, 7, 8].map(ID);
 let oldMonitor: Awaited<ReturnType<typeof prisma.somonMonitor.findUnique>> = null;
 
-function listing(n: number, patch: Partial<{ sellerId: string | null; isAgency: boolean; firstSeenAt: Date; isActive: boolean }> = {}) {
+function listing(n: number, patch: Partial<{ sellerId: string | null; isAgency: boolean; firstSeenAt: Date; isActive: boolean; raw: object }> = {}) {
   const id = ID(n);
   return {
     source: "somon.tj", sourceId: id, sourceUrl: `https://somon.tj/adv/${id}_kvartira-stand/`, dealType: "SALE", propertyType: "APARTMENT",
-    city: "Душанбе", currency: "TJS", title: "Квартира", raw: {}, sellerId: `77100${n}`, isAgency: false, firstSeenAt: daysAgo(1), isActive: true, ...patch,
+    city: "Душанбе", currency: "TJS", title: "Квартира", raw: { rubric: { id: 2831 } }, sellerId: `77100${n}`, isAgency: false, firstSeenAt: daysAgo(1), isActive: true, ...patch,
   };
 }
 
@@ -54,6 +54,7 @@ describe("Somon: разовый добор из каталога рынка", ()
       listing(5, { firstSeenAt: daysAgo(9) }),            // вне окна
       listing(6, { sellerId: null }),                     // автора нет — монитор отложит
       listing(7, { isActive: false }),                    // исчезло из выдачи
+      listing(8, { raw: { rubric: { id: 99999 } } }),     // чужая рубрика (общая лента) — не каталог
     ] });
   });
   afterAll(async () => {
@@ -66,6 +67,13 @@ describe("Somon: разовый добор из каталога рынка", ()
     else await prisma.somonMonitor.deleteMany({ where: { id: "singleton" } });
   });
   beforeEach(() => { flags.paused = false; });
+
+  it("объявление вне рубрик каталога в добор не попадает даже кандидатом", async () => {
+    await runSomonBackfill({ days: 5, max: 150, apply: true, now: new Date(NOW.getTime() - 1) }).catch(() => undefined);
+    // запись ниже проверяет отдельный тест; здесь — только что 8-го нет нигде
+    expect(await prisma.somonSeenAdvert.count({ where: { advertId: ID(8) } })).toBe(0);
+    await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ids } } });
+  });
 
   it("пробный прогон ничего не пишет и считает фильтры по нашим объявлениям", async () => {
     const report = await runSomonBackfill({ days: 5, max: 150, apply: false, now: NOW });
